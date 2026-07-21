@@ -81,9 +81,10 @@ stocks_analysis/
 `src/feature_engineering/` contains static-method classes wrapping TA-Lib and pandas-based indicators:
 
 - `PriceBasedIndicators` — moving averages, RSI, MACD, Bollinger Bands
-- `MomentumIndicators` — stochastic oscillator, CCI
-- `TrendIndicators` — ADX, ATR, parabolic SAR
-- `GeneralIndicators` — simple price ratios (high/open, low/open, close/open)
+- `MomentumIndicators` — stochastic oscillator, CCI, rate of change, Williams %R
+- `TrendIndicators` — ADX, ATR (+ %ATR), parabolic SAR
+- `VolumeIndicators` — on-balance volume, money flow index
+- `GeneralIndicators` — simple price ratios (high/open, low/open, close/open, overnight gap)
 
 ## Testing
 

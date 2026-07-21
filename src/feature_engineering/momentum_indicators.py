@@ -36,3 +36,21 @@ class MomentumIndicators:
         return talib.CCI(
             highs_signal, lows_signal, closes_signal, timeperiod=timeperiod
         )
+
+    @staticmethod
+    def rate_of_change(original_signal: pd.Series, timeperiod: int = 10) -> pd.Series:
+        """Percent change vs. `timeperiod` bars ago: (price / price[-n] - 1) * 100."""
+        return talib.ROC(original_signal, timeperiod=timeperiod)
+
+    @staticmethod
+    def williams_r(
+        highs_signal: pd.Series,
+        lows_signal: pd.Series,
+        closes_signal: pd.Series,
+        timeperiod: int = 14,
+    ) -> pd.Series:
+        """Like the stochastic oscillator's %K but inverted/unscaled: ranges
+        -100 (at the period low) to 0 (at the period high)."""
+        return talib.WILLR(
+            highs_signal, lows_signal, closes_signal, timeperiod=timeperiod
+        )

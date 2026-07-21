@@ -29,9 +29,21 @@ class TrendIndicators:
     def stop_and_reverse(
         highs_signal: pd.Series,
         lows_signal: pd.Series,
-        acceleration: int = 0.02,
-        maximum: int = 0.2,
+        acceleration: float = 0.02,
+        maximum: float = 0.2,
     ) -> pd.Series:
         return talib.SAR(
             highs_signal, lows_signal, acceleration=acceleration, maximum=maximum
         )
+
+    @staticmethod
+    def average_true_range_percent(
+        highs_signal: pd.Series,
+        lows_signal: pd.Series,
+        closes_signal: pd.Series,
+        timeperiod: int = 20,
+    ) -> pd.Series:
+        """ATR normalized by close price (%), for comparing volatility across
+        tickers/price levels rather than an absolute price-unit ATR."""
+        atr = talib.ATR(highs_signal, lows_signal, closes_signal, timeperiod=timeperiod)
+        return atr / closes_signal * 100
