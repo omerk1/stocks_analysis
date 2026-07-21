@@ -1,46 +1,73 @@
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
-from src.data_processing.fetch_data import fetch_ticker
-
-
-def _bars(dates_and_closes):
-    df = pd.DataFrame(
-        {
-            "date": [pd.Timestamp(d) for d, _ in dates_and_closes],
-            "open": [c for _, c in dates_and_closes],
-            "high": [c for _, c in dates_and_closes],
-            "low": [c for _, c in dates_and_closes],
-            "close": [c for _, c in dates_and_closes],
-            "volume": [1000] * len(dates_and_closes),
-            "vwap": [c for _, c in dates_and_closes],
-            "transactions": [10] * len(dates_and_closes),
-        }
-    ).set_index("date")
-    return df
+from src.data_processing import db
+from src.data_processing.fetch_data import fetch_ticker, mark_partial
 
 
-def test_fetch_ticker_writes_new_file(tmp_path):
+@pytest.fixture
+def conn():
+    connection = db.get_connection(":memory:")
+    db.create_tables(connection)
+    yield connection
+    connection.close()
+
+
+def _daily(rows):
+    df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df.set_index("timestamp")
+
+
+def test_mark_partial_flags_today_and_later_only():
+    daily = _daily(
+        [
+            ("2024-01-01", 100, 101, 99, 100, 1000),
+            ("2024-01-02", 100, 101, 99, 100, 1000),
+        ]
+    )
+    result = mark_partial(daily, as_of=pd.Timestamp("2024-01-02"))
+
+    assert result.loc["2024-01-01", "is_partial"] == 0
+    assert result.loc["2024-01-02", "is_partial"] == 1
+
+
+def test_fetch_ticker_stores_daily_and_derived_weekly_monthly(conn):
     client = MagicMock()
-    client.get_daily_bars.return_value = _bars([("2024-01-01", 100.0), ("2024-01-02", 101.0)])
+    client.get_daily_bars.return_value = _daily(
+        [
+            ("2024-01-01", 100, 105, 99, 102, 1000),
+            ("2024-01-02", 102, 103, 98, 99, 1100),
+        ]
+    )
 
-    path = fetch_ticker(client, "AAPL", "2024-01-01", "2024-01-02", tmp_path)
+    fetch_ticker(client, "AAPL", "2024-01-01", "2024-01-02", conn, as_of=pd.Timestamp("2024-01-02"))
 
-    result = pd.read_csv(path, index_col="date", parse_dates=["date"])
-    assert len(result) == 2
+    daily = db.read_bars(conn, "bars_1d", ticker="AAPL")
+    weekly = db.read_bars(conn, "bars_1w", ticker="AAPL")
+    monthly = db.read_bars(conn, "bars_1mo", ticker="AAPL")
+
+    assert len(daily) == 2
+    assert len(weekly) == 1
+    assert weekly.iloc[0]["is_partial"] == 1  # week still in progress
+    assert len(monthly) == 1
+    assert monthly.iloc[0]["is_partial"] == 1
 
 
-def test_fetch_ticker_merges_and_dedupes(tmp_path):
-    existing = _bars([("2024-01-01", 100.0), ("2024-01-02", 101.0)])
-    existing.to_csv(tmp_path / "AAPL.csv")
-
+def test_fetch_ticker_second_run_updates_in_progress_period_in_place(conn):
     client = MagicMock()
-    # Overlapping date (01-02, updated close) plus one new date (01-03)
-    client.get_daily_bars.return_value = _bars([("2024-01-02", 999.0), ("2024-01-03", 102.0)])
+    client.get_daily_bars.return_value = _daily([("2024-01-01", 100, 105, 99, 102, 1000)])
+    fetch_ticker(client, "AAPL", "2024-01-01", "2024-01-01", conn, as_of=pd.Timestamp("2024-01-01"))
 
-    path = fetch_ticker(client, "AAPL", "2024-01-02", "2024-01-03", tmp_path)
+    client.get_daily_bars.return_value = _daily([("2024-01-02", 102, 103, 98, 99, 1100)])
+    fetch_ticker(client, "AAPL", "2024-01-02", "2024-01-02", conn, as_of=pd.Timestamp("2024-01-02"))
 
-    result = pd.read_csv(path, index_col="date", parse_dates=["date"])
-    assert len(result) == 3
-    assert result.loc[pd.Timestamp("2024-01-02"), "close"] == 999.0
+    weekly = db.read_bars(conn, "bars_1w", ticker="AAPL")
+
+    # Still a single weekly row (same label), now reflecting both days -- not a
+    # stale row from the first run plus a duplicate from the second.
+    assert len(weekly) == 1
+    assert weekly.iloc[0]["close"] == 99
+    assert weekly.iloc[0]["volume"] == 1000 + 1100
