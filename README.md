@@ -78,13 +78,13 @@ stocks_analysis/
 
 ## Feature Engineering
 
-`src/feature_engineering/` contains static-method classes wrapping TA-Lib and pandas-based indicators:
+`src/feature_engineering/` contains one module per indicator category, wrapping TA-Lib and pandas-based indicators as plain functions:
 
-- `PriceBasedIndicators` — moving averages, RSI, MACD, Bollinger Bands
-- `MomentumIndicators` — stochastic oscillator, CCI, rate of change, Williams %R
-- `TrendIndicators` — ADX, ATR (+ %ATR), parabolic SAR
-- `VolumeIndicators` — on-balance volume, money flow index
-- `GeneralIndicators` — simple price ratios (high/open, low/open, close/open, overnight gap)
+- `price_based_indicators` — moving averages, RSI, MACD, Bollinger Bands
+- `momentum_indicators` — stochastic oscillator, CCI, rate of change, Williams %R
+- `trend_indicators` — ADX, ATR (+ %ATR), parabolic SAR
+- `volume_indicators` — on-balance volume, money flow index
+- `general_indicators` — simple price ratios (high/open, low/open, close/open, overnight gap)
 
 ## Testing
 

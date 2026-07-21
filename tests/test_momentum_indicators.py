@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.feature_engineering.momentum_indicators import MomentumIndicators
+from src.feature_engineering import momentum_indicators
 
 
 def test_rate_of_change_matches_percent_change_formula():
     closes = pd.Series([100.0, 110.0, 121.0, 133.1])
 
-    result = MomentumIndicators.rate_of_change(closes, timeperiod=2)
+    result = momentum_indicators.rate_of_change(closes, timeperiod=2)
 
     assert pd.isna(result.iloc[0])
     assert pd.isna(result.iloc[1])
@@ -21,7 +21,7 @@ def test_williams_r_is_bounded_between_minus_100_and_0():
     lows = highs - np.random.default_rng(1).uniform(1, 5, 30)
     closes = (highs + lows) / 2
 
-    result = MomentumIndicators.williams_r(highs, lows, closes, timeperiod=14)
+    result = momentum_indicators.williams_r(highs, lows, closes, timeperiod=14)
 
     valid = result.dropna()
     assert (valid <= 0).all()
@@ -35,6 +35,6 @@ def test_williams_r_hits_zero_at_the_period_high():
     lows = pd.Series([9.0, 10.0, 11.0, 12.0, 13.0])
     closes = pd.Series([9.5, 10.5, 11.5, 12.5, 14.0])
 
-    result = MomentumIndicators.williams_r(highs, lows, closes, timeperiod=5)
+    result = momentum_indicators.williams_r(highs, lows, closes, timeperiod=5)
 
     assert result.iloc[-1] == pytest.approx(0.0)
