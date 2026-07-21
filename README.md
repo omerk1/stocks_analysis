@@ -90,3 +90,9 @@ stocks_analysis/
 ```bash
 pytest tests/
 ```
+
+## Known Limitations
+
+Deliberate simplifications in the data pipeline (no trading-calendar
+awareness, `is_partial` heuristics, yfinance intraday caps, etc.) are tracked
+in [`docs/limitations.md`](docs/limitations.md).
