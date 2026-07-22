@@ -25,35 +25,40 @@ pip install -r requirements.txt
 cp .env.example .env
 # Add your Polygon.io API key (free tier: https://polygon.io/) to .env
 
-python -m src.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31
+python -m src.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source polygon
+python -m src.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source yfinance
 ```
 
 Bars are stored in `data/raw/market_data.sqlite`, one table per timeframe
 (`bars_1d`, `bars_1w`, `bars_1mo`; `bars_1h` reserved for future intraday work),
-keyed by `(ticker, timestamp)`. Fetching daily bars also recomputes weekly/monthly
-bars from the full stored history for that ticker. Re-running with an overlapping
-date range is safe — rows are upserted (`INSERT OR REPLACE`), so the same
-(ticker, timestamp) never duplicates.
+keyed by `(ticker, timestamp, source)`. Polygon and yfinance data for the same
+ticker/date live side by side rather than overwriting each other -- `--source`
+defaults to `polygon`. Fetching daily bars also recomputes that source's
+weekly/monthly bars from its full stored daily history for that ticker.
+Re-running with an overlapping date range is safe — rows are upserted
+(`INSERT OR REPLACE`), so the same (ticker, timestamp, source) never duplicates.
 
 The free Polygon tier is end-of-day data only, rate-limited to 5 requests/minute
-— there's no intraday (1H/4H) data on that tier. Weekly/monthly bars are derived
-locally from daily bars rather than fetched, since Polygon's own W/M aggregates
-cost the same request either way but this keeps everything reproducible from one
-daily pull. A period still in progress (the current week/month, or a day fetched
-before market close) is stored with `is_partial=1` and gets overwritten in place
-once more data arrives — it does **not** account for market holidays shortening a
-week/month, only the calendar.
+— there's no intraday (1H/4H) data on that tier; yfinance is the intraday source
+(see below) via `get_hourly_bars`, though `bars_1h` storage isn't wired up yet.
+Weekly/monthly bars are derived locally from daily bars rather than fetched,
+since Polygon's own W/M aggregates cost the same request either way but this
+keeps everything reproducible from one daily pull. A period still in progress
+(the current week/month, or a day fetched before market close) is stored with
+`is_partial=1` and gets overwritten in place once more data arrives — it does
+**not** account for market holidays shortening a week/month, only the calendar.
 
-### Cross-check against yfinance
+### Cross-check sources
 
 ```bash
 python -m src.data_processing.validate_sources --ticker AAPL --start 2024-01-01 --end 2024-01-31
 ```
 
-Compares Polygon vs. yfinance daily closes and reports any dates that disagree
-beyond a tolerance (default 1%). `YFinanceClient` also exposes `get_hourly_bars`
-for intraday data Polygon's free tier doesn't provide — Yahoo retains roughly the
-trailing 730 days of hourly history.
+Compares Polygon vs. yfinance daily closes **already stored** by `fetch_data.py`
+for both sources — an on-demand query, not a live re-fetch — and reports any
+dates that disagree beyond a tolerance (default 1%). `YFinanceClient` also
+exposes `get_hourly_bars` for intraday data Polygon's free tier doesn't
+provide — Yahoo retains roughly the trailing 730 days of hourly history.
 
 ## Project Structure
 
