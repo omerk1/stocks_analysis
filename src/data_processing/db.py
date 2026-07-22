@@ -8,19 +8,25 @@ import pandas as pd
 # matches how these are queried (always scoped to one timeframe at a time).
 TABLES = ("bars_1d", "bars_1w", "bars_1mo", "bars_1h")
 
+# Source names -- shared constants so callers don't hand-type strings that
+# could typo-diverge (e.g. "yfinance" vs "y_finance") across modules.
+POLYGON = "polygon"
+YFINANCE = "yfinance"
+
 BAR_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "is_partial"]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS {table} (
     ticker TEXT NOT NULL,
     timestamp TEXT NOT NULL,
+    source TEXT NOT NULL,
     open REAL,
     high REAL,
     low REAL,
     close REAL,
     volume REAL,
     is_partial INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (ticker, timestamp)
+    PRIMARY KEY (ticker, timestamp, source)
 );
 """
 
@@ -39,12 +45,16 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def upsert_bars(conn: sqlite3.Connection, table: str, ticker: str, bars: pd.DataFrame) -> None:
-    """Insert or replace rows in `table` for `ticker`.
+def upsert_bars(
+    conn: sqlite3.Connection, table: str, ticker: str, source: str, bars: pd.DataFrame
+) -> None:
+    """Insert or replace rows in `table` for `ticker`/`source`.
 
     `bars` must be indexed by timestamp with columns open/high/low/close/volume/is_partial.
-    Existing rows sharing a (ticker, timestamp) key are overwritten -- this is how
-    an in-progress (is_partial=1) period gets updated in place as new data arrives.
+    Existing rows sharing a (ticker, timestamp, source) key are overwritten -- this
+    is how an in-progress (is_partial=1) period gets updated in place as new data
+    arrives. Different sources for the same ticker/timestamp are independent rows,
+    not a collision -- that's the whole point of keying on source too.
     """
     if table not in TABLES:
         raise ValueError(f"Unknown table: {table}")
@@ -55,6 +65,7 @@ def upsert_bars(conn: sqlite3.Connection, table: str, ticker: str, bars: pd.Data
         (
             ticker,
             _serialize_timestamp(ts),
+            source,
             _as_float(row.open),
             _as_float(row.high),
             _as_float(row.low),
@@ -68,8 +79,8 @@ def upsert_bars(conn: sqlite3.Connection, table: str, ticker: str, bars: pd.Data
     conn.executemany(
         f"""
         INSERT OR REPLACE INTO {table}
-            (ticker, timestamp, open, high, low, close, volume, is_partial)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (ticker, timestamp, source, open, high, low, close, volume, is_partial)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -80,12 +91,17 @@ def read_bars(
     conn: sqlite3.Connection,
     table: str,
     ticker: str | None = None,
+    source: str | None = None,
     start: str | None = None,
     end: str | None = None,
 ) -> pd.DataFrame:
     """Read bars from `table`, indexed by timestamp and sorted ascending.
 
-    Includes a `ticker` column when `ticker` is not specified (multi-ticker read).
+    Includes a `ticker` and/or `source` column when that filter isn't specified
+    (i.e. the read could span multiple tickers/sources). Leaving `source`
+    unspecified with multiple sources present will interleave rows from
+    different sources for the same ticker -- pass `source` explicitly for any
+    read that needs a single continuous series (e.g. before resampling).
     """
     if table not in TABLES:
         raise ValueError(f"Unknown table: {table}")
@@ -95,6 +111,9 @@ def read_bars(
     if ticker is not None:
         query += " AND ticker = ?"
         params.append(ticker)
+    if source is not None:
+        query += " AND source = ?"
+        params.append(source)
     if start is not None:
         query += " AND timestamp >= ?"
         params.append(_serialize_timestamp(pd.Timestamp(start)))
@@ -105,8 +124,9 @@ def read_bars(
 
     df = pd.read_sql_query(query, conn, params=params, parse_dates=["timestamp"])
     df = df.set_index("timestamp")
-    if ticker is not None:
-        df = df.drop(columns=["ticker"])
+    drop_columns = [col for col, filt in (("ticker", ticker), ("source", source)) if filt is not None]
+    if drop_columns:
+        df = df.drop(columns=drop_columns)
     return df
 
 
