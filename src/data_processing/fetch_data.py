@@ -29,6 +29,26 @@ def mark_partial(daily_bars: pd.DataFrame, as_of: pd.Timestamp) -> pd.DataFrame:
     return df
 
 
+def resample_and_store(
+    conn: sqlite3.Connection, ticker: str, source: str, as_of: pd.Timestamp
+) -> None:
+    """Recompute weekly/monthly bars for `ticker`/`source` from the *entire*
+    stored daily history and upsert them -- not just a newly fetched range,
+    since resampling only the new range would miss earlier days belonging to
+    the same still-open week/month. Reads back only this source's rows --
+    reading across sources would interleave two independent daily series into
+    one resample, which isn't meaningful.
+
+    Shared by both the single-ticker fetch path and bulk ingestion's
+    resample-all-tickers step, so this logic exists in exactly one place.
+    """
+    all_daily = db.read_bars(conn, "bars_1d", ticker=ticker, source=source)
+    weekly = resample.to_weekly(all_daily, as_of=as_of)
+    monthly = resample.to_monthly(all_daily, as_of=as_of)
+    db.upsert_bars(conn, "bars_1w", ticker, source, weekly)
+    db.upsert_bars(conn, "bars_1mo", ticker, source, monthly)
+
+
 def fetch_ticker(
     client: PolygonClient | YFinanceClient,
     source: str,
@@ -39,26 +59,14 @@ def fetch_ticker(
     as_of: pd.Timestamp | None = None,
 ) -> None:
     """Fetch daily bars for `ticker` from `source`, store them, and recompute
-    that source's weekly/monthly bars.
-
-    Weekly/monthly are recomputed from the *entire* stored daily history for
-    the ticker+source, not just the newly fetched range -- resampling only the
-    new range would miss earlier days belonging to the same still-open
-    week/month. Resampling reads back only this source's rows -- reading
-    across sources would interleave two independent daily series into one
-    resample, which isn't meaningful.
-    """
+    that source's weekly/monthly bars."""
     as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(date.today())
 
     new_daily = client.get_daily_bars(ticker, start, end)
     new_daily = mark_partial(new_daily, as_of)
     db.upsert_bars(conn, "bars_1d", ticker, source, new_daily)
 
-    all_daily = db.read_bars(conn, "bars_1d", ticker=ticker, source=source)
-    weekly = resample.to_weekly(all_daily, as_of=as_of)
-    monthly = resample.to_monthly(all_daily, as_of=as_of)
-    db.upsert_bars(conn, "bars_1w", ticker, source, weekly)
-    db.upsert_bars(conn, "bars_1mo", ticker, source, monthly)
+    resample_and_store(conn, ticker, source, as_of)
 
 
 def main():

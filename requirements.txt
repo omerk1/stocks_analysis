@@ -10,6 +10,10 @@ ta-lib>=0.5.1
 # Data retrieval
 requests>=2.32.0
 yfinance>=0.2.0
+curl_cffi==0.7.4  # lets yfinance impersonate real browser TLS fingerprints, reducing block risk;
+                  # newer curl_cffi (>=0.15, yfinance's own recommendation) failed to import on
+                  # this dev machine with a native-extension linking error (dlopen: symbol not
+                  # found '_CFRelease') -- 0.7.4 is the newest version confirmed working here
 polygon-api-client>=1.14.0
 beautifulsoup4>=4.12.0
 

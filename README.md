@@ -60,12 +60,53 @@ dates that disagree beyond a tolerance (default 1%). `YFinanceClient` also
 exposes `get_hourly_bars` for intraday data Polygon's free tier doesn't
 provide — Yahoo retains roughly the trailing 730 days of hourly history.
 
+### Bulk ingestion (the whole market, not just a few tickers)
+
+`fetch_data.py` is for a handful of known tickers. For "give me every stock,"
+there's a separate set of scripts, in order:
+
+```bash
+# 1. Build the ticker universe (once; refresh occasionally). Polygon is the
+#    single source of truth for "which tickers exist" -- both active and
+#    delisted common stock, so the universe itself isn't survivorship-biased.
+python -m src.data_processing.ticker_universe
+
+# 2. Bulk-ingest daily bars for the whole market from Polygon: one
+#    grouped-daily API call per trading day (not per ticker), which is what
+#    keeps a full-market 2-year backfill to ~100 minutes under the 5 req/min
+#    limit instead of being infeasible.
+python -m src.data_processing.bulk_polygon_ingest --start 2024-07-22 --end 2026-07-22
+
+# 3. Same ticker universe, from yfinance -- batched (yf.download supports
+#    many tickers per call), since yfinance has no bulk single-call endpoint
+#    and no documented rate limit to pace against precisely.
+python -m src.data_processing.bulk_yfinance_ingest --start 2024-07-22 --end 2026-07-22
+
+# 4. Derive weekly/monthly bars for every ticker now stored (pure compute,
+#    no API calls -- run per source).
+python -m src.data_processing.resample_bulk --source polygon
+python -m src.data_processing.resample_bulk --source yfinance
+```
+
+Both bulk-ingest scripts are **resumable**: every date (Polygon) or ticker
+(yfinance) gets recorded in a `fetch_jobs` table as `success` or `failed`.
+Re-running the same command only retries what's missing or previously
+failed — it does not redo completed work, and a failing item gets a couple
+of quick retries and then gets flagged and skipped rather than blocking the
+rest of the run indefinitely. `PolygonClient` paces every call (including
+`ticker_universe.py`'s reference-data pagination) against the 5 req/min
+budget itself via a shared rate limiter — this is proactive, not just
+reacting to 429s, since the underlying library's own retry backoff is far
+too fast to recover from a sustained rate-limit condition on its own.
+
 ## Project Structure
 
 ```
 stocks_analysis/
 ├── src/
-│   ├── data_processing/       # Polygon/yfinance clients, SQLite storage, resampling, fetch_data.py CLI
+│   ├── data_processing/       # Polygon/yfinance clients, SQLite storage, resampling,
+│   │                          # rate limiting, and per-ticker (fetch_data.py) + bulk-market
+│   │                          # ingestion CLIs
 │   ├── feature_engineering/   # Technical indicators (price, momentum, trend, general)
 │   ├── models/                # Model training and evaluation
 │   └── utils/                 # Config loading and shared utilities

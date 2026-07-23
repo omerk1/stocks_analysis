@@ -19,7 +19,13 @@ class YFinanceClient:
 
     @staticmethod
     def _fetch(ticker: str, start, end, interval: str, keep_time: bool) -> pd.DataFrame:
-        raw = yf.Ticker(ticker).history(start=start, end=end, interval=interval)
+        # yfinance's `end` is exclusive (Python-slice style) -- confirmed directly:
+        # end="2026-07-21" only returns through 2026-07-20. Polygon's end is
+        # inclusive, so without this adjustment the two sources would silently
+        # cover different date ranges for the "same" start/end request. Shifting
+        # by one day here makes `end` inclusive for every caller of this client.
+        end_inclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        raw = yf.Ticker(ticker).history(start=start, end=end_inclusive, interval=interval)
         if raw.empty:
             columns = ["open", "high", "low", "close", "volume"]
             return pd.DataFrame(columns=columns).rename_axis("timestamp")

@@ -52,3 +52,16 @@ def test_empty_response_returns_empty_frame_with_expected_columns(mock_ticker_cl
 
     assert df.empty
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_end_date_is_shifted_to_be_inclusive(mock_ticker_cls):
+    # yfinance's own `end` is exclusive (confirmed directly against the real
+    # API); this client shifts it by a day so callers get the same
+    # inclusive-end semantics as Polygon.
+    mock_ticker_cls.return_value.history.return_value = pd.DataFrame()
+
+    YFinanceClient().get_daily_bars("AAPL", "2024-01-01", "2024-01-03")
+
+    _, kwargs = mock_ticker_cls.return_value.history.call_args
+    assert kwargs["end"] == "2024-01-04"
