@@ -30,6 +30,38 @@ CREATE TABLE IF NOT EXISTS {table} (
 );
 """
 
+# The single source of truth for "which tickers exist" -- price-data
+# ingestion for any source reads this table rather than each maintaining its
+# own ticker list. Includes inactive/delisted tickers (with delisted_utc) on
+# purpose, to avoid survivorship bias.
+_TICKERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tickers (
+    ticker TEXT PRIMARY KEY,
+    name TEXT,
+    type TEXT,
+    active INTEGER NOT NULL,
+    delisted_utc TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
+# Generic progress ledger for resumable bulk jobs -- e.g. job_type
+# "polygon_grouped_daily" with key = date, or "yfinance_daily" with
+# key = ticker. A re-run only needs to retry keys not marked 'success'
+# (see pending_keys), instead of redoing completed work or looping
+# indefinitely on a stuck item in place.
+_FETCH_JOBS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fetch_jobs (
+    job_type TEXT NOT NULL,
+    key TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (job_type, key)
+);
+"""
+
 
 def default_db_path(raw_data_dir: str | Path) -> Path:
     return Path(raw_data_dir) / "market_data.sqlite"
@@ -42,6 +74,8 @@ def get_connection(db_path: str | Path) -> sqlite3.Connection:
 def create_tables(conn: sqlite3.Connection) -> None:
     for table in TABLES:
         conn.execute(_SCHEMA.format(table=table))
+    conn.execute(_TICKERS_SCHEMA)
+    conn.execute(_FETCH_JOBS_SCHEMA)
     conn.commit()
 
 
@@ -85,6 +119,128 @@ def upsert_bars(
         rows,
     )
     conn.commit()
+
+
+def upsert_bars_bulk(conn: sqlite3.Connection, table: str, source: str, bars: pd.DataFrame) -> None:
+    """Insert or replace rows for *many tickers* in one commit.
+
+    `bars` must have columns: ticker, timestamp, open, high, low, close,
+    volume, is_partial (a plain DataFrame, not indexed by timestamp like
+    `upsert_bars` expects -- there's no single "the ticker" here). For bulk
+    ingestion (e.g. one grouped-daily response covering thousands of tickers)
+    -- calling `upsert_bars` once per ticker would mean thousands of
+    individual commits; this does it in one.
+    """
+    if table not in TABLES:
+        raise ValueError(f"Unknown table: {table}")
+    if bars.empty:
+        return
+
+    rows = [
+        (
+            row.ticker,
+            _serialize_timestamp(pd.Timestamp(row.timestamp)),
+            source,
+            _as_float(row.open),
+            _as_float(row.high),
+            _as_float(row.low),
+            _as_float(row.close),
+            _as_float(row.volume),
+            int(row.is_partial),
+        )
+        for row in bars.itertuples()
+    ]
+
+    conn.executemany(
+        f"""
+        INSERT OR REPLACE INTO {table}
+            (ticker, timestamp, source, open, high, low, close, volume, is_partial)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def upsert_tickers(conn: sqlite3.Connection, tickers: pd.DataFrame) -> None:
+    """Insert or replace rows in the `tickers` reference table.
+
+    `tickers` must have columns: ticker, name, type, active, delisted_utc.
+    """
+    if tickers.empty:
+        return
+
+    now = pd.Timestamp.now("UTC").isoformat()
+    rows = [
+        (row.ticker, row.name, row.type, int(row.active), row.delisted_utc, now)
+        for row in tickers.itertuples()
+    ]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO tickers (ticker, name, type, active, delisted_utc, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_tickers(
+    conn: sqlite3.Connection, type_: str | None = None, active: bool | None = None
+) -> pd.DataFrame:
+    query = "SELECT * FROM tickers WHERE 1=1"
+    params: list = []
+    if type_ is not None:
+        query += " AND type = ?"
+        params.append(type_)
+    if active is not None:
+        query += " AND active = ?"
+        params.append(int(active))
+    return pd.read_sql_query(query, conn, params=params)
+
+
+def record_job_result(
+    conn: sqlite3.Connection, job_type: str, key: str, status: str, error: str | None = None
+) -> None:
+    """Record a bulk-job attempt's outcome for (`job_type`, `key`). `status`
+    is "success" or "failed". Attempt count accumulates across calls so it
+    reflects total attempts over the job's lifetime, not just this call.
+    """
+    now = pd.Timestamp.now("UTC").isoformat()
+    existing = conn.execute(
+        "SELECT attempts FROM fetch_jobs WHERE job_type = ? AND key = ?", (job_type, key)
+    ).fetchone()
+    attempts = (existing[0] if existing else 0) + 1
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO fetch_jobs (job_type, key, status, attempts, last_error, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (job_type, key, status, attempts, error, now),
+    )
+    conn.commit()
+
+
+def pending_keys(conn: sqlite3.Connection, job_type: str, all_keys: list[str]) -> list[str]:
+    """Of `all_keys`, return those not yet marked 'success' for `job_type` --
+    i.e. never attempted, or previously failed. Order is preserved from
+    `all_keys`. This is what lets a re-run retry only misses instead of
+    redoing completed work.
+    """
+    if not all_keys:
+        return []
+    placeholders = ",".join("?" for _ in all_keys)
+    succeeded = {
+        row[0]
+        for row in conn.execute(
+            f"""
+            SELECT key FROM fetch_jobs
+            WHERE job_type = ? AND status = 'success' AND key IN ({placeholders})
+            """,
+            (job_type, *all_keys),
+        ).fetchall()
+    }
+    return [key for key in all_keys if key not in succeeded]
 
 
 def read_bars(

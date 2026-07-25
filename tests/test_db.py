@@ -113,3 +113,100 @@ def test_upsert_rejects_unknown_table(conn):
         db.upsert_bars(
             conn, "not_a_table", "AAPL", db.POLYGON, _bars([("2024-01-01", 1, 1, 1, 1, 1, 0)])
         )
+
+
+def _multi_ticker_bars(rows):
+    """rows: list of (ticker, date_str, open, high, low, close, volume, is_partial)"""
+    return pd.DataFrame(
+        rows,
+        columns=["ticker", "timestamp", "open", "high", "low", "close", "volume", "is_partial"],
+    )
+
+
+def test_upsert_bars_bulk_stores_many_tickers_in_one_call(conn):
+    bars = _multi_ticker_bars(
+        [
+            ("AAPL", "2024-01-01", 100, 101, 99, 100.5, 1000, 0),
+            ("MSFT", "2024-01-01", 200, 201, 199, 200.5, 2000, 0),
+            ("SPY", "2024-01-01", 300, 301, 299, 300.5, 3000, 0),
+        ]
+    )
+
+    db.upsert_bars_bulk(conn, "bars_1d", db.POLYGON, bars)
+
+    result = db.read_bars(conn, "bars_1d", source=db.POLYGON)
+    assert len(result) == 3
+    assert set(result["ticker"]) == {"AAPL", "MSFT", "SPY"}
+
+
+def test_upsert_bars_bulk_replaces_not_duplicates(conn):
+    db.upsert_bars_bulk(
+        conn, "bars_1d", db.POLYGON,
+        _multi_ticker_bars([("AAPL", "2024-01-01", 100, 101, 99, 100.5, 1000, 1)]),
+    )
+    db.upsert_bars_bulk(
+        conn, "bars_1d", db.POLYGON,
+        _multi_ticker_bars([("AAPL", "2024-01-01", 100, 105, 99, 104.0, 2000, 0)]),
+    )
+
+    result = db.read_bars(conn, "bars_1d", ticker="AAPL", source=db.POLYGON)
+    assert len(result) == 1
+    assert result.iloc[0]["close"] == 104.0
+
+
+def _tickers_df(rows):
+    """rows: list of (ticker, name, type, active, delisted_utc)"""
+    return pd.DataFrame(rows, columns=["ticker", "name", "type", "active", "delisted_utc"])
+
+
+def test_upsert_and_read_tickers_roundtrip(conn):
+    tickers = _tickers_df(
+        [
+            ("AAPL", "Apple Inc.", "CS", True, None),
+            ("AABA", "Altaba Inc.", "CS", False, "2019-10-07T04:00:00Z"),
+        ]
+    )
+
+    db.upsert_tickers(conn, tickers)
+
+    active_only = db.read_tickers(conn, type_="CS", active=True)
+    assert list(active_only["ticker"]) == ["AAPL"]
+
+    all_cs = db.read_tickers(conn, type_="CS")
+    assert set(all_cs["ticker"]) == {"AAPL", "AABA"}
+    delisted_row = all_cs[all_cs["ticker"] == "AABA"].iloc[0]
+    assert delisted_row["delisted_utc"] == "2019-10-07T04:00:00Z"
+
+
+def test_upsert_tickers_replaces_existing_row(conn):
+    db.upsert_tickers(conn, _tickers_df([("AAPL", "Apple Inc.", "CS", True, None)]))
+    db.upsert_tickers(conn, _tickers_df([("AAPL", "Apple Inc.", "CS", False, "2030-01-01T00:00:00Z")]))
+
+    result = db.read_tickers(conn)
+    assert len(result) == 1
+    assert result.iloc[0]["active"] == 0
+    assert result.iloc[0]["delisted_utc"] == "2030-01-01T00:00:00Z"
+
+
+def test_pending_keys_excludes_only_successful_ones(conn):
+    db.record_job_result(conn, "polygon_grouped_daily", "2024-01-01", "success")
+    db.record_job_result(conn, "polygon_grouped_daily", "2024-01-02", "failed", "boom")
+
+    pending = db.pending_keys(
+        conn, "polygon_grouped_daily", ["2024-01-01", "2024-01-02", "2024-01-03"]
+    )
+
+    # 01-01 succeeded (excluded), 01-02 failed (still pending), 01-03 never attempted (pending)
+    assert pending == ["2024-01-02", "2024-01-03"]
+
+
+def test_record_job_result_accumulates_attempts(conn):
+    db.record_job_result(conn, "yfinance_daily", "AAPL", "failed", "first failure")
+    db.record_job_result(conn, "yfinance_daily", "AAPL", "success")
+
+    row = conn.execute(
+        "SELECT attempts, status FROM fetch_jobs WHERE job_type = ? AND key = ?",
+        ("yfinance_daily", "AAPL"),
+    ).fetchone()
+
+    assert row == (2, "success")
