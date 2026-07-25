@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from src.data_processing import db
-from src.data_processing.bulk_yfinance_ingest import JOB_TYPE, backfill_yfinance_daily
+from src.data_processing.bulk_yfinance_ingest import JOB_TYPE, _to_yfinance_symbol, backfill_yfinance_daily
 
 
 @pytest.fixture
@@ -130,6 +130,45 @@ def test_resumable_skips_already_succeeded_tickers(mock_download, conn):
     mock_download.assert_called_once_with(
         ["MSFT"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker"
     )
+
+
+def test_to_yfinance_symbol_translates_dots_to_hyphens():
+    # Polygon uses '.' for share classes (e.g. BF.A); yfinance needs '-'
+    # (confirmed directly against the real API -- the dotted form returns
+    # "possibly delisted", the hyphenated one returns real data).
+    assert _to_yfinance_symbol("BF.A") == "BF-A"
+    assert _to_yfinance_symbol("AAPL") == "AAPL"  # no dot, unaffected
+
+
+@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+def test_dotted_ticker_is_translated_for_the_api_call_but_stored_under_original(mock_download, conn):
+    db.upsert_tickers(
+        conn,
+        pd.DataFrame(
+            [("BF.A", "Brown-Forman Class A", "CS", True, None)],
+            columns=["ticker", "name", "type", "active", "delisted_utc"],
+        ),
+    )
+    # Simulate real yfinance behavior: the response is keyed by the
+    # hyphenated symbol we called it with, not the original dotted ticker.
+    mock_download.return_value = _multi_ticker_frame(
+        {"AAPL": 100.0, "MSFT": 200.0, "BF-A": 50.0}, ["2024-01-01"]
+    )
+
+    backfill_yfinance_daily(conn, "2024-01-01", "2024-01-01", batch_size=50, as_of=pd.Timestamp("2024-02-01"))
+
+    called_tickers = mock_download.call_args[0][0]
+    assert "BF-A" in called_tickers
+    assert "BF.A" not in called_tickers
+
+    result = db.read_bars(conn, "bars_1d", ticker="BF.A", source=db.YFINANCE)
+    assert len(result) == 1
+    assert result.iloc[0]["close"] == 50.0
+
+    status = conn.execute(
+        "SELECT status FROM fetch_jobs WHERE job_type = ? AND key = ?", (JOB_TYPE, "BF.A")
+    ).fetchone()[0]
+    assert status == "success"
 
 
 @patch("src.data_processing.bulk_yfinance_ingest.yf.download")

@@ -12,14 +12,35 @@ from src.utils.config_loader import load_config
 JOB_TYPE = "yfinance_daily"
 
 
+def _to_yfinance_symbol(ticker: str) -> str:
+    """Polygon uses '.' for share classes (e.g. BF.A, BF.B); yfinance wants
+    '-' (BF-A, BF-B) -- confirmed directly against the real API: yfinance
+    returns "possibly delisted; no timezone found" for the dotted form and
+    real data for the hyphenated one. ~183 tickers (~3.4%) in a real pull of
+    the reference universe use the dotted form, and without this translation
+    they'd fail every run forever (pending_keys would keep retrying a ticker
+    that can structurally never succeed).
+
+    This only affects the API call -- bars are stored under the *original*
+    (Polygon-style) ticker so both sources key the same company the same way.
+
+    Doesn't necessarily cover every exotic suffix Polygon uses (units 'U',
+    warrants 'W', foreign listings 'T', etc. also show up as dotted suffixes)
+    -- '.' -> '-' is confirmed correct for ordinary share classes, not
+    verified for every suffix type.
+    """
+    return ticker.replace(".", "-")
+
+
 def _fetch_batch(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     # yfinance's `end` is exclusive (confirmed directly against the real API --
     # see yfinance_client.py's _fetch for the same fix), unlike Polygon's
     # inclusive end. Shifted by one day here so callers of this module get the
     # same inclusive-end semantics as bulk_polygon_ingest.py.
     end_inclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    yfinance_symbols = [_to_yfinance_symbol(t) for t in tickers]
     return yf.download(
-        tickers, start=start, end=end_inclusive, threads=True, progress=False, group_by="ticker"
+        yfinance_symbols, start=start, end=end_inclusive, threads=True, progress=False, group_by="ticker"
     )
 
 
@@ -77,7 +98,7 @@ def backfill_yfinance_daily(
 
         for ticker in batch:
             try:
-                ticker_bars = _extract_ticker_frame(result, ticker)
+                ticker_bars = _extract_ticker_frame(result, _to_yfinance_symbol(ticker))
             except (KeyError, TypeError) as e:
                 db.record_job_result(conn, JOB_TYPE, ticker, "failed", f"no data returned: {e}")
                 continue

@@ -157,3 +157,25 @@ MultiIndex shape -- an earlier version of this code assumed single-item
 batches were shaped like the bare-string case and shipped with a mocked test
 that "passed" because the mock encoded the same wrong assumption. Caught by
 testing against the real API, not by the test suite.
+
+## Polygon and yfinance use different ticker symbols for share classes
+
+Polygon uses `.` for share classes (`BF.A`, `BF.B` -- Brown-Forman's Class
+A/B shares); yfinance wants `-` (`BF-A`, `BF-B`) and silently returns nothing
+("possibly delisted; no timezone found") for the dotted form -- confirmed
+directly against both real APIs. Since Polygon is the ticker universe's
+source of truth, a real pull of the reference table turned up **183 tickers
+(~3.4% of active common stock)** using the dotted convention; without
+translating them, they'd fail *every single run, forever* (a structurally
+impossible ticker can never move from "pending" to "success").
+`bulk_yfinance_ingest.py`'s `_to_yfinance_symbol` now translates `.` -> `-`
+only for the yfinance API call itself -- bars are still stored under the
+original Polygon-style ticker, so both sources key the same company under
+the same symbol.
+
+This fix is confirmed correct for ordinary share classes, not for every
+dotted suffix Polygon uses -- the reference table also has suffixes like
+`.U` (units), `.W`/`.Bw` (warrants), and `.T` (seen on some foreign
+listings), and a blanket `.` -> `-` replacement hasn't been individually
+verified against yfinance's actual symbol for each of those instrument
+types. Some of the 183 may still fail for reasons other than the dot itself.
