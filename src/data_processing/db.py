@@ -45,6 +45,21 @@ CREATE TABLE IF NOT EXISTS tickers (
 );
 """
 
+# Point-in-time index/composite membership (e.g. "which tickers were in the
+# S&P 500 on 2020-06-01"). Each row is a contiguous membership interval, not a
+# per-day snapshot -- start_date/end_date bracket when a ticker was a member
+# (end_date NULL means still current). A ticker can have multiple rows for the
+# same index if it left and later rejoined.
+_INDEX_MEMBERSHIP_SCHEMA = """
+CREATE TABLE IF NOT EXISTS index_membership (
+    index_name TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    PRIMARY KEY (index_name, ticker, start_date)
+);
+"""
+
 # Generic progress ledger for resumable bulk jobs -- e.g. job_type
 # "polygon_grouped_daily" with key = date, or "yfinance_daily" with
 # key = ticker. A re-run only needs to retry keys not marked 'success'
@@ -96,6 +111,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_TICKERS_SCHEMA)
     conn.execute(_FETCH_JOBS_SCHEMA)
     conn.execute(_TICKER_METADATA_SCHEMA)
+    conn.execute(_INDEX_MEMBERSHIP_SCHEMA)
     conn.commit()
 
 
@@ -266,6 +282,63 @@ def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) ->
         query += " AND ticker = ?"
         params.append(ticker)
     return pd.read_sql_query(query, conn, params=params)
+
+
+def replace_index_membership(conn: sqlite3.Connection, index_name: str, membership: pd.DataFrame) -> None:
+    """Replace all `index_membership` rows for `index_name` with `membership`.
+
+    `membership` must have columns: ticker, start_date, end_date (end_date may
+    be null/NaN for a still-current member). This is a full delete-then-insert
+    per index, not an upsert -- these come from a re-downloaded/recomputed
+    dataset each refresh, and a full replace is simpler and safer than trying
+    to reconcile against whatever was stored from a previous version of the
+    upstream source (which could itself revise past intervals, not just add
+    new ones).
+    """
+    conn.execute("DELETE FROM index_membership WHERE index_name = ?", (index_name,))
+    if not membership.empty:
+        rows = [
+            (
+                index_name,
+                row.ticker,
+                _serialize_date(row.start_date),
+                _serialize_date(row.end_date),
+            )
+            for row in membership.itertuples()
+        ]
+        conn.executemany(
+            """
+            INSERT INTO index_membership (index_name, ticker, start_date, end_date)
+            VALUES (?, ?, ?, ?)
+            """,
+            rows,
+        )
+    conn.commit()
+
+
+def read_index_membership(
+    conn: sqlite3.Connection,
+    index_name: str,
+    as_of: str | None = None,
+) -> pd.DataFrame:
+    """Read membership rows for `index_name`. With `as_of` given, returns only
+    tickers that were members on that date (start_date <= as_of and (end_date
+    is null or end_date >= as_of)) -- i.e. the point-in-time constituent list.
+    Without it, returns every stored interval (including past, non-current ones).
+    """
+    query = "SELECT * FROM index_membership WHERE index_name = ?"
+    params: list = [index_name]
+    if as_of is not None:
+        as_of_str = _serialize_date(pd.Timestamp(as_of))
+        query += " AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)"
+        params.extend([as_of_str, as_of_str])
+    return pd.read_sql_query(query, conn, params=params)
+
+
+def _serialize_date(value) -> str | None:
+    if pd.isna(value):
+        return None
+    return pd.Timestamp(value).strftime("%Y-%m-%d")
 
 
 def record_job_result(

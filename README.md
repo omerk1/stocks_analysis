@@ -94,6 +94,11 @@ python -m src.data_processing.resample_bulk --source yfinance
 #    req/min is on the order of hours, not minutes) and draws from the same
 #    shared rate limit -- avoid running it at the same time as step 2.
 python -m src.data_processing.bulk_ticker_metadata_ingest
+
+# 6. Refresh point-in-time S&P 500 / Nasdaq-100 index membership. Free,
+#    community-maintained sources (not Polygon -- see docs/limitations.md
+#    for why), no API key or rate limit involved -- fast, full refresh.
+python -m src.data_processing.index_membership
 ```
 
 All three ingestion scripts are **resumable**: every date (Polygon bars),
@@ -106,6 +111,13 @@ call (grouped-daily bars, reference-data pagination, ticker metadata) against
 the 5 req/min budget itself via a shared rate limiter — this is proactive,
 not just reacting to 429s, since the underlying library's own retry backoff
 is far too fast to recover from a sustained rate-limit condition on its own.
+
+Index membership (step 6) is different: not rate-limited, not resumable via
+`fetch_jobs` — it's a full delete-then-insert replace of the whole table per
+index on every run, since it comes from re-downloading/recomputing a
+complete dataset rather than paginating an API. Query it point-in-time via
+`db.read_index_membership(conn, "sp500", as_of="2020-06-01")` — omit `as_of`
+to get every stored interval, including past (non-current) memberships.
 
 ## Project Structure
 

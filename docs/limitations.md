@@ -198,3 +198,56 @@ no point-in-time market cap here: computing what a ticker's market cap *was*
 on some past date would need combining historical shares-outstanding (not
 tracked over time either) with historical close price, which this table
 doesn't attempt.
+
+## Index membership uses free community datasets, not Polygon, despite the "one source of truth" preference
+
+`index_membership.py` tracks point-in-time S&P 500 / Nasdaq-100 constituents
+(`index_membership` table) from two free, MIT-licensed, community-maintained
+sources instead of Polygon's paid "ETF Global" constituents add-on.
+
+Polygon's option was investigated first and is technically better in one
+respect: `get_etf_global_constituents` takes a generic `composite_ticker`
+parameter (confirmed via the library's signature, not just docs), so it isn't
+S&P-specific -- it would cover any composite with a tracking ETF (SPY, QQQ,
+DIA, IWM, ...) from the *same* account already used for everything else here,
+with real point-in-time filtering (`effective_date` + range variants). That's
+a genuine "one source of truth" story. It costs **$99/month**, though, and
+that was the deciding factor -- the free route was chosen deliberately over
+that architectural cleanliness.
+
+What "free" actually means here, and the limitations that come with it:
+
+- **Two unrelated sources, not one.** S&P 500 comes from `fja05680/sp500`
+  (`sp500_ticker_start_end.csv`, already shaped as ticker/start_date/end_date
+  intervals). Nasdaq-100 comes from `nasdaq-100-ticker-history`
+  (`jmccarrell/n100tickers`), a git-only package (not on PyPI, pinned to a
+  commit SHA in `requirements.txt` for reproducibility) exposing a
+  `tickers_as_of(year, month, day)` function plus a `changes` submodule.
+  There's no single upstream authority for "which composites a ticker
+  belongs to" the way Polygon is for price/reference data -- adding "other
+  major composites" later means finding and vetting a *third* source, not
+  extending an existing one.
+- **Nasdaq-100 coverage starts 2015-01-01.** Before that, `tickers_as_of`
+  raises `NotImplementedError` -- there's no data, not an empty result.
+- **A real gotcha found while building the Nasdaq-100 reconstruction, not
+  assumed from the docs**: `nasdaq_100_ticker_history.changes.changes_before()`
+  describes events walking *backward* from `BASELINE_DATE` (2020-01-01), and
+  its `additions`/`removals` are relative to that backward walk, not normal
+  forward-time semantics. Confirmed directly: the earliest `changes_before()`
+  entry lists `EQIX` as an "addition" and `WBA` as a "removal" effective
+  2015-03-23, but `tickers_as_of(2015, 1, 1)` -- a date *before* that event --
+  already has `EQIX` in and `WBA` out, the opposite of reading those fields
+  as a normal forward-time delta. `fetch_nasdaq100_membership` avoids this
+  trap entirely by sampling `tickers_as_of` (the library's own ground truth)
+  at every distinct change date and diffing consecutive snapshots, rather
+  than interpreting `changes_before()`'s additions/removals directly. Anyone
+  reaching for that submodule directly for anything else should keep this in
+  mind.
+- **S&P 500 dataset is Wikipedia-derived and self-admittedly imperfect** for
+  its earliest years (per its own README: pre-~2001 coverage may be missing
+  some symbols, membership count doesn't stabilize near the nominal 500
+  until ~2001) -- acceptable for this project's purposes, not a claim of
+  perfect historical accuracy.
+- Both sources are point-in-time membership *only* -- no index weighting,
+  float-adjusted shares, or anything needed to reconstruct actual index
+  levels, just "was ticker X a member on date Y."
