@@ -106,6 +106,28 @@ class PolygonClient:
         ]
         return pd.DataFrame(rows, columns=["ticker", "open", "high", "low", "close", "volume"])
 
+    def get_ticker_details(self, ticker: str) -> dict:
+        """Fetch reference metadata for a single ticker: market cap, SIC
+        industry code/description, shares outstanding, employee count, etc.
+
+        Unlike bars/tickers, there's no bulk equivalent for this -- one call
+        per ticker, drawing from the same shared rate limit as every other
+        method on this client.
+        """
+        self._rate_limiter.wait()
+        details = self._client.get_ticker_details(ticker)
+        return {
+            "ticker": details.ticker,
+            "market_cap": details.market_cap,
+            "sic_code": details.sic_code,
+            "sic_description": details.sic_description,
+            "share_class_shares_outstanding": details.share_class_shares_outstanding,
+            "weighted_shares_outstanding": details.weighted_shares_outstanding,
+            "total_employees": details.total_employees,
+            "primary_exchange": details.primary_exchange,
+            "list_date": details.list_date,
+        }
+
     def list_common_stock_tickers(self, active: bool, page_size: int = 1000) -> pd.DataFrame:
         """Page through Polygon's reference tickers for common stock (type=CS).
 

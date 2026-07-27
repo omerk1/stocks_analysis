@@ -179,3 +179,22 @@ dotted suffix Polygon uses -- the reference table also has suffixes like
 listings), and a blanket `.` -> `-` replacement hasn't been individually
 verified against yfinance's actual symbol for each of those instrument
 types. Some of the 183 may still fail for reasons other than the dot itself.
+
+## Ticker metadata has no bulk endpoint and is current-state only
+
+`bulk_ticker_metadata_ingest.py` refreshes `ticker_metadata` (market cap, SIC
+industry code/description, shares outstanding, employee count) via Polygon's
+`get_ticker_details` -- confirmed this is per-ticker only, with nothing
+equivalent to the grouped-daily bulk endpoint bars use. For ~5,300 active
+tickers at the same shared 5 req/min budget, a full refresh is on the order
+of **hours, not minutes** (vs. ~100 minutes for a full 2-year *bars*
+backfill) -- and since it draws from the same account-wide rate limit as
+every other `PolygonClient` call, running it at the same time as a bars
+backfill just makes both slower, not faster.
+
+It's also scoped to `active=True` tickers only, and each ticker is a single
+overwritten row -- a current snapshot, not a history of past values. There's
+no point-in-time market cap here: computing what a ticker's market cap *was*
+on some past date would need combining historical shares-outstanding (not
+tracked over time either) with historical close price, which this table
+doesn't attempt.
