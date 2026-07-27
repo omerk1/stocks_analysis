@@ -272,6 +272,62 @@ def test_read_ticker_metadata_without_ticker_returns_all_rows(conn):
     assert set(result["ticker"]) == {"AAPL", "MSFT"}
 
 
+def _membership_df(rows):
+    """rows: list of (ticker, start_date, end_date)"""
+    return pd.DataFrame(rows, columns=["ticker", "start_date", "end_date"])
+
+
+def test_replace_index_membership_and_read_all(conn):
+    membership = _membership_df(
+        [
+            ("AAPL", "1996-01-02", None),
+            ("AABA", "1999-12-08", "2017-06-19"),
+        ]
+    )
+
+    db.replace_index_membership(conn, "sp500", membership)
+
+    result = db.read_index_membership(conn, "sp500")
+    assert len(result) == 2
+    assert set(result["ticker"]) == {"AAPL", "AABA"}
+
+
+def test_read_index_membership_as_of_filters_to_current_members(conn):
+    membership = _membership_df(
+        [
+            ("AAPL", "1996-01-02", None),  # still a member
+            ("AABA", "1999-12-08", "2017-06-19"),  # left before as_of
+            ("ABNB", "2023-09-18", None),  # joined after as_of
+        ]
+    )
+    db.replace_index_membership(conn, "sp500", membership)
+
+    result = db.read_index_membership(conn, "sp500", as_of="2020-01-01")
+
+    assert set(result["ticker"]) == {"AAPL"}
+
+
+def test_replace_index_membership_is_a_full_replace_not_an_upsert(conn):
+    db.replace_index_membership(
+        conn, "sp500", _membership_df([("AAPL", "1996-01-02", None), ("AABA", "1999-12-08", "2017-06-19")])
+    )
+    # Simulate a corrected re-download that no longer includes AABA at all.
+    db.replace_index_membership(conn, "sp500", _membership_df([("AAPL", "1996-01-02", None)]))
+
+    result = db.read_index_membership(conn, "sp500")
+    assert set(result["ticker"]) == {"AAPL"}
+
+
+def test_replace_index_membership_scoped_per_index_name(conn):
+    db.replace_index_membership(conn, "sp500", _membership_df([("AAPL", "1996-01-02", None)]))
+    db.replace_index_membership(conn, "nasdaq100", _membership_df([("MSFT", "2000-01-01", None)]))
+
+    sp500 = db.read_index_membership(conn, "sp500")
+    nasdaq100 = db.read_index_membership(conn, "nasdaq100")
+    assert set(sp500["ticker"]) == {"AAPL"}
+    assert set(nasdaq100["ticker"]) == {"MSFT"}
+
+
 def test_record_job_result_accumulates_attempts(conn):
     db.record_job_result(conn, "yfinance_daily", "AAPL", "failed", "first failure")
     db.record_job_result(conn, "yfinance_daily", "AAPL", "success")

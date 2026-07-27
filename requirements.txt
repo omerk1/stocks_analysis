@@ -16,6 +16,9 @@ curl_cffi==0.7.4  # lets yfinance impersonate real browser TLS fingerprints, red
                   # found '_CFRelease') -- 0.7.4 is the newest version confirmed working here
 polygon-api-client>=1.14.0
 beautifulsoup4>=4.12.0
+# Nasdaq-100 point-in-time membership -- MIT licensed, not published to PyPI
+# (git-only), so pinned to a specific commit for reproducibility
+nasdaq-100-ticker-history @ git+https://github.com/jmccarrell/n100tickers.git@9a23023b59707c5372ae1fff4ed983b3ad025c74
 
 # Modeling / optimization
 catboost>=1.2.7
