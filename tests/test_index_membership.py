@@ -8,6 +8,7 @@ from src.data_processing import db
 from src.data_processing.index_membership import (
     NASDAQ100,
     SP500,
+    check_source_freshness,
     fetch_nasdaq100_membership,
     fetch_sp500_membership,
     refresh_index_membership,
@@ -88,3 +89,42 @@ def test_refresh_index_membership_replaces_both_indices(mock_sp500, mock_nasdaq1
 
     assert set(db.read_index_membership(conn, SP500)["ticker"]) == {"AAPL"}
     assert set(db.read_index_membership(conn, NASDAQ100)["ticker"]) == {"MSFT"}
+
+
+def _fake_response(pushed_at_iso):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"pushed_at": pushed_at_iso}
+    return response
+
+
+@patch("src.data_processing.index_membership.requests.get")
+def test_check_source_freshness_no_warning_when_recently_pushed(mock_get):
+    recent = (pd.Timestamp.now("UTC") - pd.Timedelta(days=5)).isoformat()
+    mock_get.return_value = _fake_response(recent)
+
+    warnings = check_source_freshness(threshold_days=90)
+
+    assert warnings[SP500] is None
+    assert warnings[NASDAQ100] is None
+
+
+@patch("src.data_processing.index_membership.requests.get")
+def test_check_source_freshness_warns_when_stale(mock_get):
+    stale = (pd.Timestamp.now("UTC") - pd.Timedelta(days=200)).isoformat()
+    mock_get.return_value = _fake_response(stale)
+
+    warnings = check_source_freshness(threshold_days=90)
+
+    assert warnings[SP500] is not None
+    assert "200" in warnings[SP500] or "stale" in warnings[SP500].lower()
+
+
+@patch("src.data_processing.index_membership.requests.get")
+def test_check_source_freshness_warns_when_check_itself_fails(mock_get):
+    mock_get.side_effect = ConnectionError("network down")
+
+    warnings = check_source_freshness(threshold_days=90)
+
+    assert warnings[SP500] is not None
+    assert "network down" in warnings[SP500]

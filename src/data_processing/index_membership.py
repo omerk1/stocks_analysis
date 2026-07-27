@@ -3,6 +3,7 @@ import datetime
 import sqlite3
 
 import pandas as pd
+import requests
 from nasdaq_100_ticker_history import changes as _n100_changes
 from nasdaq_100_ticker_history import tickers_as_of as _n100_tickers_as_of
 
@@ -25,6 +26,17 @@ _SP500_CSV_URL = (
 # baseline snapshot before this, so it's used as an extra anchor point below,
 # not just derived from the package's own change-event dates.
 _NASDAQ100_COVERAGE_START = datetime.date(2015, 1, 1)
+
+# Both sources are unpaid, single-maintainer GitHub projects with no SLA (see
+# docs/limitations.md) -- if one goes quiet, our refresh just keeps re-storing
+# the same (increasingly stale) data with no error, since "no new changes"
+# and "source abandoned" look identical from here. This turns that into a
+# visible signal instead: how long since each repo was last pushed to.
+_SOURCE_REPOS = {
+    SP500: "fja05680/sp500",
+    NASDAQ100: "jmccarrell/n100tickers",
+}
+_STALENESS_THRESHOLD_DAYS = 90
 
 
 def fetch_sp500_membership() -> pd.DataFrame:
@@ -83,6 +95,36 @@ def refresh_index_membership(conn: sqlite3.Connection) -> None:
     db.replace_index_membership(conn, NASDAQ100, fetch_nasdaq100_membership())
 
 
+def check_source_freshness(threshold_days: int = _STALENESS_THRESHOLD_DAYS) -> dict[str, str | None]:
+    """For each index's source repo, check how long it's been since the last
+    push. Returns {index_name: warning_message_or_None}.
+
+    This can't distinguish "the source genuinely had no changes" from "the
+    source stopped being maintained" -- it's a coarse, one-sided signal (only
+    ever raises a flag, never confirms freshness means correctness), but it's
+    strictly better than the current silence.
+    """
+    warnings: dict[str, str | None] = {}
+    for index_name, repo in _SOURCE_REPOS.items():
+        try:
+            response = requests.get(f"https://api.github.com/repos/{repo}", timeout=10)
+            response.raise_for_status()
+            pushed_at = pd.Timestamp(response.json()["pushed_at"])
+        except Exception as e:
+            warnings[index_name] = f"Could not check {repo}'s freshness: {e}"
+            continue
+
+        age_days = (pd.Timestamp.now("UTC") - pushed_at).days
+        if age_days > threshold_days:
+            warnings[index_name] = (
+                f"{repo} hasn't been pushed to in {age_days} days "
+                f"(last: {pushed_at.date()}) -- source may be stale or abandoned."
+            )
+        else:
+            warnings[index_name] = None
+    return warnings
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Refresh point-in-time S&P 500 / Nasdaq-100 index membership"
@@ -101,6 +143,10 @@ def main():
     for index_name in (SP500, NASDAQ100):
         current = db.read_index_membership(conn, index_name, as_of=datetime.date.today().isoformat())
         print(f"{index_name}: {len(current)} current members")
+
+    for index_name, warning in check_source_freshness().items():
+        if warning:
+            print(f"WARNING [{index_name}]: {warning}")
 
     conn.close()
 
