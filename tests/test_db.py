@@ -200,6 +200,78 @@ def test_pending_keys_excludes_only_successful_ones(conn):
     assert pending == ["2024-01-02", "2024-01-03"]
 
 
+def _metadata_df(rows):
+    """rows: list of (ticker, market_cap, sic_code, sic_description,
+    shares_outstanding, weighted_shares_outstanding, employees, exchange, list_date)"""
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "ticker",
+            "market_cap",
+            "sic_code",
+            "sic_description",
+            "share_class_shares_outstanding",
+            "weighted_shares_outstanding",
+            "total_employees",
+            "primary_exchange",
+            "list_date",
+        ],
+    )
+
+
+def test_upsert_and_read_ticker_metadata_roundtrip(conn):
+    metadata = _metadata_df(
+        [
+            ("AAPL", 4_891_183_295_120.0, "3571", "ELECTRONIC COMPUTERS", 1.5e10, 1.51e10, 164000, "XNAS", "1980-12-12"),
+        ]
+    )
+
+    db.upsert_ticker_metadata(conn, metadata)
+
+    result = db.read_ticker_metadata(conn, ticker="AAPL")
+    assert len(result) == 1
+    assert result.iloc[0]["market_cap"] == 4_891_183_295_120.0
+    assert result.iloc[0]["sic_description"] == "ELECTRONIC COMPUTERS"
+
+
+def test_upsert_ticker_metadata_replaces_existing_row(conn):
+    db.upsert_ticker_metadata(
+        conn, _metadata_df([("AAPL", 100.0, "3571", "ELECTRONIC COMPUTERS", 10, 10, 100, "XNAS", "1980-12-12")])
+    )
+    db.upsert_ticker_metadata(
+        conn, _metadata_df([("AAPL", 200.0, "3571", "ELECTRONIC COMPUTERS", 20, 20, 200, "XNAS", "1980-12-12")])
+    )
+
+    result = db.read_ticker_metadata(conn, ticker="AAPL")
+    assert len(result) == 1
+    assert result.iloc[0]["market_cap"] == 200.0
+
+
+def test_upsert_ticker_metadata_handles_missing_values(conn):
+    metadata = _metadata_df([("XYZ", None, None, None, None, None, None, None, None)])
+
+    db.upsert_ticker_metadata(conn, metadata)
+
+    result = db.read_ticker_metadata(conn, ticker="XYZ")
+    assert len(result) == 1
+    assert pd.isna(result.iloc[0]["market_cap"])
+
+
+def test_read_ticker_metadata_without_ticker_returns_all_rows(conn):
+    db.upsert_ticker_metadata(
+        conn,
+        _metadata_df(
+            [
+                ("AAPL", 100.0, "3571", "ELECTRONIC COMPUTERS", 10, 10, 100, "XNAS", "1980-12-12"),
+                ("MSFT", 200.0, "7372", "SERVICES-PREPACKAGED SOFTWARE", 20, 20, 200, "XNAS", "1986-03-13"),
+            ]
+        ),
+    )
+
+    result = db.read_ticker_metadata(conn)
+    assert set(result["ticker"]) == {"AAPL", "MSFT"}
+
+
 def test_record_job_result_accumulates_attempts(conn):
     db.record_job_result(conn, "yfinance_daily", "AAPL", "failed", "first failure")
     db.record_job_result(conn, "yfinance_daily", "AAPL", "success")

@@ -79,6 +79,39 @@ def test_get_grouped_daily_bars_shapes_dataframe(mock_rest_client_cls):
 
 
 @patch("src.data_processing.polygon_client.RESTClient")
+def test_get_ticker_details_shapes_dict_and_paces_through_rate_limiter(mock_rest_client_cls):
+    mock_client = mock_rest_client_cls.return_value
+    mock_client.get_ticker_details.return_value = MagicMock(
+        ticker="AAPL",
+        market_cap=4_891_183_295_120.0,
+        sic_code="3571",
+        sic_description="ELECTRONIC COMPUTERS",
+        share_class_shares_outstanding=15_000_000_000,
+        weighted_shares_outstanding=15_100_000_000,
+        total_employees=164_000,
+        primary_exchange="XNAS",
+        list_date="1980-12-12",
+    )
+    rate_limiter = MagicMock()
+
+    client = PolygonClient(api_key="fake-key", rate_limiter=rate_limiter)
+    details = client.get_ticker_details("AAPL")
+
+    assert details == {
+        "ticker": "AAPL",
+        "market_cap": 4_891_183_295_120.0,
+        "sic_code": "3571",
+        "sic_description": "ELECTRONIC COMPUTERS",
+        "share_class_shares_outstanding": 15_000_000_000,
+        "weighted_shares_outstanding": 15_100_000_000,
+        "total_employees": 164_000,
+        "primary_exchange": "XNAS",
+        "list_date": "1980-12-12",
+    }
+    rate_limiter.wait.assert_called_once()
+
+
+@patch("src.data_processing.polygon_client.RESTClient")
 def test_list_common_stock_tickers_paginates_and_paces_per_page(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     # Two full pages of size 2, then a short final page -- generator-backed,

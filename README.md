@@ -86,18 +86,26 @@ python -m src.data_processing.bulk_yfinance_ingest --start 2024-07-22 --end 2026
 #    no API calls -- run per source).
 python -m src.data_processing.resample_bulk --source polygon
 python -m src.data_processing.resample_bulk --source yfinance
+
+# 5. Refresh per-ticker reference metadata (market cap, SIC industry
+#    code/description, shares outstanding, employee count) from Polygon.
+#    One call per active ticker -- there's no bulk endpoint for this, unlike
+#    bars, so this is much slower than step 2 (~5,300 active tickers / 5
+#    req/min is on the order of hours, not minutes) and draws from the same
+#    shared rate limit -- avoid running it at the same time as step 2.
+python -m src.data_processing.bulk_ticker_metadata_ingest
 ```
 
-Both bulk-ingest scripts are **resumable**: every date (Polygon) or ticker
-(yfinance) gets recorded in a `fetch_jobs` table as `success` or `failed`.
-Re-running the same command only retries what's missing or previously
-failed — it does not redo completed work, and a failing item gets a couple
-of quick retries and then gets flagged and skipped rather than blocking the
-rest of the run indefinitely. `PolygonClient` paces every call (including
-`ticker_universe.py`'s reference-data pagination) against the 5 req/min
-budget itself via a shared rate limiter — this is proactive, not just
-reacting to 429s, since the underlying library's own retry backoff is far
-too fast to recover from a sustained rate-limit condition on its own.
+All three ingestion scripts are **resumable**: every date (Polygon bars),
+ticker (yfinance bars, ticker metadata) gets recorded in a `fetch_jobs` table
+as `success` or `failed`. Re-running the same command only retries what's
+missing or previously failed — it does not redo completed work, and a failing
+item gets a couple of quick retries and then gets flagged and skipped rather
+than blocking the rest of the run indefinitely. `PolygonClient` paces every
+call (grouped-daily bars, reference-data pagination, ticker metadata) against
+the 5 req/min budget itself via a shared rate limiter — this is proactive,
+not just reacting to 429s, since the underlying library's own retry backoff
+is far too fast to recover from a sustained rate-limit condition on its own.
 
 ## Project Structure
 

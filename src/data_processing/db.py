@@ -62,6 +62,25 @@ CREATE TABLE IF NOT EXISTS fetch_jobs (
 );
 """
 
+# Point-in-time snapshot of per-ticker reference metadata (Polygon's
+# get_ticker_details -- the only endpoint with market cap/SIC classification,
+# and it's per-ticker with no bulk equivalent). One row per ticker, overwritten
+# on each refresh -- this is "current state", not a history of past values.
+_TICKER_METADATA_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ticker_metadata (
+    ticker TEXT PRIMARY KEY,
+    market_cap REAL,
+    sic_code TEXT,
+    sic_description TEXT,
+    share_class_shares_outstanding REAL,
+    weighted_shares_outstanding REAL,
+    total_employees REAL,
+    primary_exchange TEXT,
+    list_date TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
 
 def default_db_path(raw_data_dir: str | Path) -> Path:
     return Path(raw_data_dir) / "market_data.sqlite"
@@ -76,6 +95,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
         conn.execute(_SCHEMA.format(table=table))
     conn.execute(_TICKERS_SCHEMA)
     conn.execute(_FETCH_JOBS_SCHEMA)
+    conn.execute(_TICKER_METADATA_SCHEMA)
     conn.commit()
 
 
@@ -196,6 +216,55 @@ def read_tickers(
     if active is not None:
         query += " AND active = ?"
         params.append(int(active))
+    return pd.read_sql_query(query, conn, params=params)
+
+
+def upsert_ticker_metadata(conn: sqlite3.Connection, metadata: pd.DataFrame) -> None:
+    """Insert or replace rows in the `ticker_metadata` table.
+
+    `metadata` must have columns: ticker, market_cap, sic_code, sic_description,
+    share_class_shares_outstanding, weighted_shares_outstanding, total_employees,
+    primary_exchange, list_date. Each ticker is a single overwritten row (a
+    current snapshot, not a history), so a re-run just refreshes stale values.
+    """
+    if metadata.empty:
+        return
+
+    now = pd.Timestamp.now("UTC").isoformat()
+    rows = [
+        (
+            row.ticker,
+            _as_float(row.market_cap),
+            row.sic_code,
+            row.sic_description,
+            _as_float(row.share_class_shares_outstanding),
+            _as_float(row.weighted_shares_outstanding),
+            _as_float(row.total_employees),
+            row.primary_exchange,
+            row.list_date,
+            now,
+        )
+        for row in metadata.itertuples()
+    ]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO ticker_metadata
+            (ticker, market_cap, sic_code, sic_description,
+             share_class_shares_outstanding, weighted_shares_outstanding,
+             total_employees, primary_exchange, list_date, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) -> pd.DataFrame:
+    query = "SELECT * FROM ticker_metadata WHERE 1=1"
+    params: list = []
+    if ticker is not None:
+        query += " AND ticker = ?"
+        params.append(ticker)
     return pd.read_sql_query(query, conn, params=params)
 
 
