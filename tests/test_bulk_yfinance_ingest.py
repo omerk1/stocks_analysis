@@ -159,6 +159,37 @@ def test_distinct_job_types_do_not_share_resumability(mock_download, conn):
     assert statuses == {"AAPL": "success", "MSFT": "success"}
 
 
+@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+def test_tickers_param_restricts_scope_instead_of_reading_reference_table(mock_download, conn):
+    # conn's reference table has AAPL and MSFT; restrict this run to AAPL only.
+    mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0}, ["2024-01-01"])
+
+    backfill_yfinance_daily(
+        conn, "2024-01-01", "2024-01-01", batch_size=50,
+        as_of=pd.Timestamp("2024-02-01"), tickers=["AAPL"],
+    )
+
+    mock_download.assert_called_once_with(
+        ["AAPL"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker"
+    )
+    assert db.read_bars(conn, "bars_1d", ticker="MSFT", source=db.YFINANCE).empty
+
+
+def test_tickers_param_does_not_require_reference_table_populated():
+    empty_conn = db.get_connection(":memory:")
+    db.create_tables(empty_conn)
+
+    with patch("src.data_processing.bulk_yfinance_ingest.yf.download") as mock_download:
+        mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0}, ["2024-01-01"])
+        backfill_yfinance_daily(
+            empty_conn, "2024-01-01", "2024-01-01", batch_size=50,
+            as_of=pd.Timestamp("2024-02-01"), tickers=["AAPL"],
+        )
+
+    assert len(db.read_bars(empty_conn, "bars_1d", ticker="AAPL", source=db.YFINANCE)) == 1
+    empty_conn.close()
+
+
 def test_to_yfinance_symbol_translates_dots_to_hyphens():
     # Polygon uses '.' for share classes (e.g. BF.A); yfinance needs '-'
     # (confirmed directly against the real API -- the dotted form returns

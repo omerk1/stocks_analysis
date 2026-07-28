@@ -63,11 +63,12 @@ def backfill_yfinance_daily(
     as_of: pd.Timestamp | None = None,
     retry_backoff_seconds: float = 5.0,
     job_type: str = JOB_TYPE,
+    tickers: list[str] | None = None,
 ) -> None:
-    """Bulk-ingest daily bars for every ticker in the reference table from
-    yfinance, batched (yf.download has no official rate limit to design a
-    pace around, but batching + a per-batch retry cap keeps a bad batch from
-    stalling the whole run).
+    """Bulk-ingest daily bars for `tickers` (default: every ticker in the
+    reference table) from yfinance, batched (yf.download has no official
+    rate limit to design a pace around, but batching + a per-batch retry cap
+    keeps a bad batch from stalling the whole run).
 
     Resumable per *ticker*, not per batch -- if 3 of 50 tickers in a batch
     come back empty, only those 3 are marked failed and retried on a later
@@ -81,16 +82,24 @@ def backfill_yfinance_daily(
     different one for a genuinely different range (e.g. a deeper historical
     backfill) so it doesn't get silently skipped as already-done based on an
     unrelated prior run.
+
+    `tickers`, if given, restricts the run to exactly that list instead of
+    reading the full reference table -- e.g. for a scoped test run, or a
+    manual retry of a specific subset. Without it, behavior is unchanged:
+    every `type="CS"` ticker in the reference table (active and delisted).
     """
     as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(date.today())
 
-    tickers = db.read_tickers(conn, type_="CS")
-    if tickers.empty:
-        raise RuntimeError(
-            "No tickers in the reference table -- run ticker_universe.py first "
-            "to populate it before bulk ingestion."
-        )
-    all_tickers = sorted(tickers["ticker"])
+    if tickers is not None:
+        all_tickers = sorted(tickers)
+    else:
+        ticker_table = db.read_tickers(conn, type_="CS")
+        if ticker_table.empty:
+            raise RuntimeError(
+                "No tickers in the reference table -- run ticker_universe.py first "
+                "to populate it before bulk ingestion."
+            )
+        all_tickers = sorted(ticker_table["ticker"])
     pending = db.pending_keys(conn, job_type, all_tickers)
 
     for i in range(0, len(pending), batch_size):
@@ -144,6 +153,11 @@ def main():
             "that other run aren't silently skipped here."
         ),
     )
+    parser.add_argument(
+        "--tickers",
+        help="Comma-separated ticker list to restrict this run to (default: every "
+        "CS ticker in the reference table, active and delisted)",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -153,8 +167,10 @@ def main():
     conn = db.get_connection(db_path)
     db.create_tables(conn)
 
+    tickers = args.tickers.split(",") if args.tickers else None
     backfill_yfinance_daily(
-        conn, args.start, args.end, batch_size=args.batch_size, job_type=args.job_type
+        conn, args.start, args.end, batch_size=args.batch_size,
+        job_type=args.job_type, tickers=tickers,
     )
 
     conn.close()
