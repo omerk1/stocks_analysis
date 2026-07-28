@@ -132,6 +132,33 @@ def test_resumable_skips_already_succeeded_tickers(mock_download, conn):
     )
 
 
+@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+def test_distinct_job_types_do_not_share_resumability(mock_download, conn):
+    # "Success" recorded under the default job_type must not cause a
+    # different job_type (e.g. a deeper historical backfill) to skip that
+    # ticker as if it were already done for the new range too.
+    db.record_job_result(conn, JOB_TYPE, "AAPL", "success")
+    mock_download.return_value = _multi_ticker_frame(
+        {"AAPL": 100.0, "MSFT": 200.0}, ["2010-01-04"]
+    )
+
+    backfill_yfinance_daily(
+        conn, "2010-01-01", "2010-01-04", batch_size=50,
+        as_of=pd.Timestamp("2024-02-01"), job_type="yfinance_daily_deep",
+    )
+
+    mock_download.assert_called_once_with(
+        ["AAPL", "MSFT"], start="2010-01-01", end="2010-01-05",
+        threads=True, progress=False, group_by="ticker",
+    )
+    statuses = dict(
+        conn.execute(
+            "SELECT key, status FROM fetch_jobs WHERE job_type = ?", ("yfinance_daily_deep",)
+        ).fetchall()
+    )
+    assert statuses == {"AAPL": "success", "MSFT": "success"}
+
+
 def test_to_yfinance_symbol_translates_dots_to_hyphens():
     # Polygon uses '.' for share classes (e.g. BF.A); yfinance needs '-'
     # (confirmed directly against the real API -- the dotted form returns

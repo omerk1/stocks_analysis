@@ -62,6 +62,7 @@ def backfill_yfinance_daily(
     batch_size: int = 50,
     as_of: pd.Timestamp | None = None,
     retry_backoff_seconds: float = 5.0,
+    job_type: str = JOB_TYPE,
 ) -> None:
     """Bulk-ingest daily bars for every ticker in the reference table from
     yfinance, batched (yf.download has no official rate limit to design a
@@ -73,6 +74,13 @@ def backfill_yfinance_daily(
     run; the other 47 aren't redone. A ticker with no data in the response
     (rather than a request-level failure) is also treated as a miss to
     retry later, not a hard error.
+
+    `job_type` scopes resumability: "success" for a ticker under one job_type
+    says nothing about whether it succeeded for a *different* start/end range.
+    Reuse the same job_type to resume/retry the same logical range; pass a
+    different one for a genuinely different range (e.g. a deeper historical
+    backfill) so it doesn't get silently skipped as already-done based on an
+    unrelated prior run.
     """
     as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(date.today())
 
@@ -83,7 +91,7 @@ def backfill_yfinance_daily(
             "to populate it before bulk ingestion."
         )
     all_tickers = sorted(tickers["ticker"])
-    pending = db.pending_keys(conn, JOB_TYPE, all_tickers)
+    pending = db.pending_keys(conn, job_type, all_tickers)
 
     for i in range(0, len(pending), batch_size):
         batch = pending[i : i + batch_size]
@@ -92,7 +100,7 @@ def backfill_yfinance_daily(
         )
         if not ok:
             for ticker in batch:
-                db.record_job_result(conn, JOB_TYPE, ticker, "failed", error)
+                db.record_job_result(conn, job_type, ticker, "failed", error)
             print(f"batch of {len(batch)} starting {batch[0]}: FAILED entirely ({error})")
             continue
 
@@ -100,11 +108,11 @@ def backfill_yfinance_daily(
             try:
                 ticker_bars = _extract_ticker_frame(result, _to_yfinance_symbol(ticker))
             except (KeyError, TypeError) as e:
-                db.record_job_result(conn, JOB_TYPE, ticker, "failed", f"no data returned: {e}")
+                db.record_job_result(conn, job_type, ticker, "failed", f"no data returned: {e}")
                 continue
 
             if ticker_bars.empty:
-                db.record_job_result(conn, JOB_TYPE, ticker, "failed", "no data returned")
+                db.record_job_result(conn, job_type, ticker, "failed", "no data returned")
                 continue
 
             if ticker_bars.index.tz is not None:
@@ -114,7 +122,7 @@ def backfill_yfinance_daily(
             ).astype(int)
 
             db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE, ticker_bars)
-            db.record_job_result(conn, JOB_TYPE, ticker, "success")
+            db.record_job_result(conn, job_type, ticker, "success")
 
         print(f"batch of {len(batch)} starting {batch[0]}: processed")
 
@@ -126,6 +134,16 @@ def main():
     parser.add_argument("--start", required=True, help="Start date, YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="End date, YYYY-MM-DD")
     parser.add_argument("--batch-size", type=int, default=50)
+    parser.add_argument(
+        "--job-type",
+        default=JOB_TYPE,
+        help=(
+            f"Resumability bucket (default: {JOB_TYPE!r}). Use a distinct value "
+            "for a range that isn't the same logical backfill as a prior run -- "
+            "e.g. a deeper historical pull -- so already-succeeded tickers from "
+            "that other run aren't silently skipped here."
+        ),
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -135,7 +153,9 @@ def main():
     conn = db.get_connection(db_path)
     db.create_tables(conn)
 
-    backfill_yfinance_daily(conn, args.start, args.end, batch_size=args.batch_size)
+    backfill_yfinance_daily(
+        conn, args.start, args.end, batch_size=args.batch_size, job_type=args.job_type
+    )
 
     conn.close()
 
