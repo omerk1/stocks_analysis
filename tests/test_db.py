@@ -115,6 +115,51 @@ def test_upsert_rejects_unknown_table(conn):
         )
 
 
+def test_upsert_bars_drops_rows_with_close_outside_high_low_range(conn):
+    bars = _bars(
+        [
+            ("2024-01-01", 100.0, 101.0, 99.0, 100.5, 1000, 0),  # valid
+            ("2024-01-02", 2575.0, 532.0, 532.0, 2380.0, 1000, 0),  # close/open way outside high/low
+        ]
+    )
+
+    db.upsert_bars(conn, "bars_1d", "BMC", db.YFINANCE, bars)
+
+    result = db.read_bars(conn, "bars_1d", ticker="BMC", source=db.YFINANCE)
+    assert len(result) == 1
+    assert result.index[0] == pd.Timestamp("2024-01-01")
+
+
+def test_upsert_bars_drops_all_zero_ohlc_rows(conn):
+    bars = _bars([("2024-01-01", 0.0, 0.0, 0.0, 0.0605, 1000, 0)])
+
+    db.upsert_bars(conn, "bars_1d", "ADD", db.YFINANCE, bars)
+
+    assert db.read_bars(conn, "bars_1d", ticker="ADD", source=db.YFINANCE).empty
+
+
+def test_upsert_bars_drops_rows_with_nan_ohlc(conn):
+    bars = _bars([("2024-01-01", float("nan"), 101.0, 99.0, 100.5, 1000, 0)])
+
+    db.upsert_bars(conn, "bars_1d", "AAPL", db.POLYGON, bars)
+
+    assert db.read_bars(conn, "bars_1d", ticker="AAPL", source=db.POLYGON).empty
+
+
+def test_upsert_bars_bulk_drops_only_the_invalid_rows(conn):
+    bars = _multi_ticker_bars(
+        [
+            ("AAPL", "2024-01-01", 100, 101, 99, 100.5, 1000, 0),  # valid
+            ("BMC", "2024-01-01", 2575.0, 532.0, 532.0, 2380.0, 1000, 0),  # invalid
+        ]
+    )
+
+    db.upsert_bars_bulk(conn, "bars_1d", db.YFINANCE, bars)
+
+    result = db.read_bars(conn, "bars_1d", source=db.YFINANCE)
+    assert set(result["ticker"]) == {"AAPL"}
+
+
 def _multi_ticker_bars(rows):
     """rows: list of (ticker, date_str, open, high, low, close, volume, is_partial)"""
     return pd.DataFrame(
