@@ -251,3 +251,41 @@ What "free" actually means here, and the limitations that come with it:
 - Both sources are point-in-time membership *only* -- no index weighting,
   float-adjusted shares, or anything needed to reconstruct actual index
   levels, just "was ticker X a member on date Y."
+
+## Polygon and yfinance "close" prices disagree for dividend payers -- different adjustment conventions, not a data quality issue
+
+Compared Polygon vs. yfinance daily closes directly (both fetched live, same
+12 tickers, same 2024-07-29 to 2026-07-24 window, `adjusted=True` on the
+Polygon side). Row counts matched exactly (499/499 trading days, no gaps
+either side), volume differed by <0.1% on average, and non-dividend-paying
+tickers in the sample (AMZN, TSLA, GME -- none had a split *within* this
+window either) matched to **0.0000%**. So neither source is unreliable or
+missing data.
+
+Dividend payers are a different story: KO showed a **-5.52% difference at
+the start of the window, shrinking to ~0% by the most recent date**, with
+the gap stepping down at each of KO's actual ex-dividend dates (confirmed by
+pulling its real dividend history and lining the dates up directly) -- JPM,
+XOM, WMT, DIS, MSFT showed the same pattern, scaled to how much each has
+paid out. This is yfinance back-adjusting historical closes for dividends
+(total-return style: the most recent price is "raw," every earlier price is
+scaled down for dividends paid since), while Polygon's `adjusted=True` only
+adjusts for **splits**, not dividends -- confirmed by testing, not assumed
+from either vendor's docs.
+
+**Practical implication**: computing returns from "close" naively, or mixing
+the two sources, will systematically distort backtested returns for
+dividend-paying names -- each ex-dividend date looks like a real capital
+loss in split-only-adjusted data when it isn't one. Any return calculation
+needs to explicitly know which convention its price series uses (and stay
+consistent), not just read the "close" column and assume it means the same
+thing across sources.
+
+Cross-checked against a third, independent vendor (Alpha Vantage's free
+`TIME_SERIES_DAILY`, unadjusted) over a shorter recent window (~100 trading
+days, same 12 tickers): **Polygon matched Alpha Vantage exactly (0.0000%
+difference on every ticker)**, and yfinance showed the same dividend-shaped
+gaps against Alpha Vantage as it did against Polygon, scaled down for the
+shorter window. Two independent vendors agreeing to the decimal is a strong
+reliability signal on the underlying data itself -- this really is just an
+adjustment-convention difference, not a data quality problem with any source.
