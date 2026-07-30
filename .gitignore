@@ -9,6 +9,9 @@ data/models/*
 *.csv
 *.parquet
 
+# sr_lines CLI review charts (generated output, not source)
+review_*.html
+
 # Python
 __pycache__/
 *.py[cod]
