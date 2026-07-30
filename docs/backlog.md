@@ -15,9 +15,10 @@ Concise log of completed and in-progress work, oldest first. Append new entries 
 9. **#9** — Documented the Polygon/yfinance dividend-adjustment mismatch (different, both-correct conventions, cross-validated against a third vendor).
 10. **#10** — Fixed a yfinance bulk-ingest resumability bug (job_type collision across different date ranges) + added ticker-list scoping.
 11. **#11** — Reject rows with impossible OHLC values at the storage layer; purged 4,002 already-stored bad rows found in a real yfinance deep-history pull.
+12. Full active-universe yfinance deep-history backfill (`--start 2010-01-01`, ~5,300 active tickers, 2010-2026) + OHLC validation caught and dropped bad rows live during the run.
+13. **Support/resistance line detection module** (`src/sr_lines/`), milestone-4 checkpoint reached: data layer + validation gate, ATR-adaptive pivot detection, horizontal candidate clustering, touch/wick-fake/body-fake/break event classification, weighted scoring, lifecycle (state/dedup/top-N), Plotly review chart + CLI. 110 tests passing, real smoke test on AAPL. Stopping here for review per the module's own spec before diagonals/`as_of`/weight-tuning.
 
 ## In progress / open questions
 
-- Full active-universe yfinance deep-history backfill (`--start 2010-01-01`) — not yet run; #10 and #11 were prep work for it.
 - Whether/how to source quarterly financials — still gated behind an undecided Polygon paid tier.
-- The full-market Polygon 2yr price backfill + weekly/monthly resample is complete and live in the DB (separate from the above yfinance deep-history work).
+- **`sr_lines` next steps (milestones 5-7, pending review of the milestone-4 checkpoint)**: diagonal (RANSAC-style, log-price) candidates; full `as_of()` lookahead test coverage; a weight-tuning pass. One concrete finding from the real AAPL run worth resolving in that pass: every line that has ever flipped role gets the full `role_reversal` weight (1.0), which currently lets flipped lines dominate the top-N regardless of their other component scores (e.g. a never-broken line with real touch-quality signal scored *lower* than several flipped lines with almost no signal elsewhere) — may need dampening, a cap, or a different formulation.

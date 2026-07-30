@@ -119,6 +119,29 @@ complete dataset rather than paginating an API. Query it point-in-time via
 `db.read_index_membership(conn, "sp500", as_of="2020-06-01")` — omit `as_of`
 to get every stored interval, including past (non-current) memberships.
 
+## Support/resistance line detection
+
+```bash
+python -m src.sr_lines.cli AAPL --preset long_term --out review_AAPL.html [--as-of 2025-07-01]
+```
+
+Detects horizontal S/R zones from daily bars (`bars_1d`, yfinance only —
+Polygon/yfinance use different adjustment conventions, never mixed here),
+scores each zone's strength (touch quality, duration/density, resilience to
+failed breaks, role-reversal), and renders an interactive Plotly review
+chart. The engine (`engine.detect()`) returns a plain, JSON-serializable
+`DetectionResult` with no plotting/DB coupling, so a future model consumer
+can use line features directly.
+
+**Status: milestone-4 checkpoint** (see `docs/backlog.md`) — horizontal
+lines only; diagonals, full `as_of()` lookahead test coverage, and a
+weight-tuning pass on real charts are staged next, pending review. A real
+run on AAPL already surfaced a genuine calibration question worth resolving
+before tuning further: every line that has ever flipped role gets the full
+`role_reversal` weight, which currently lets flipped lines dominate the
+top-N regardless of their other component scores — see the module spec
+discussion in `docs/backlog.md`.
+
 ## Project Structure
 
 ```
@@ -128,6 +151,7 @@ stocks_analysis/
 │   │                          # rate limiting, and per-ticker (fetch_data.py) + bulk-market
 │   │                          # ingestion CLIs
 │   ├── feature_engineering/   # Technical indicators (price, momentum, trend, general)
+│   ├── sr_lines/               # Support/resistance line detection engine + Plotly review chart
 │   ├── models/                # Model training and evaluation
 │   └── utils/                 # Config loading and shared utilities
 ├── configs/
