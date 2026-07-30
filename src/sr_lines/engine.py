@@ -34,7 +34,10 @@ def detect(
     ticker: str,
     config: SRConfig,
     as_of: str | pd.Timestamp | None = None,
+    strength_floor: float | None = None,
 ) -> DetectionResult:
+    """`strength_floor`, if given, returns every line scoring at or above it
+    instead of the fixed top-N (config.top_n) -- see lifecycle.select_lines."""
     bars, quality = data_mod.load_and_validate(conn, ticker, config, end=as_of)
 
     as_of_str = pd.Timestamp(as_of).isoformat() if as_of is not None else (
@@ -72,7 +75,7 @@ def detect(
         raise NotImplementedError("Diagonal scoring/lifecycle wiring is milestone 5.")
 
     lines = lifecycle.dedup_lines(lines, config)
-    lines = lifecycle.select_lines(lines, config)
+    lines = lifecycle.select_lines(lines, config, strength_floor=strength_floor)
 
     return DetectionResult(
         ticker=ticker,

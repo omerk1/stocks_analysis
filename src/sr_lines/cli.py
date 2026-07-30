@@ -16,6 +16,12 @@ def main():
     parser.add_argument("--preset", default="medium_term", choices=["medium_term", "long_term"])
     parser.add_argument("--as-of", default=None, help="YYYY-MM-DD; default: latest available data")
     parser.add_argument("--out", default=None, help="Output HTML path (default: review_<ticker>.html)")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--top-n", type=int, default=None, help="Override the preset's top-N line count")
+    selection.add_argument(
+        "--strength-floor", type=float, default=None,
+        help="Return every line scoring at or above this instead of a fixed top-N",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -24,7 +30,9 @@ def main():
     db.create_tables(conn)
 
     sr_config = get_preset(args.preset)
-    result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of)
+    if args.top_n is not None:
+        sr_config.top_n = args.top_n
+    result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
     bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
 
     if bars.empty:

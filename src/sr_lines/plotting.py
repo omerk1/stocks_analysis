@@ -18,14 +18,32 @@ _EVENT_MARKERS = {
 }
 
 
-def _strength_color(strength: float) -> str:
-    # Blue, saturating with strength: weak lines fade toward pale blue,
-    # strong lines toward a solid, saturated blue.
+def _strength_colors(strength: float) -> tuple[str, str]:
+    """Returns (fill_rgba, border_rgb) -- blue, saturating with strength:
+    weak lines fade toward pale/transparent, strong lines toward a solid,
+    saturated blue border with a more opaque fill."""
     t = max(0.0, min(strength, 1.0))
     r = int(200 - 120 * t)
     g = int(210 - 100 * t)
     b = 255
-    return f"rgb({r},{g},{b})"
+    fill = f"rgba({r},{g},{b},{0.15 + 0.45 * t:.3f})"
+    border = f"rgb({r},{g},{b})"
+    return fill, border
+
+
+def _relevant_range(line: Line, last_bar_ts: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The time span the engine actually determined this zone was relevant
+    for -- not the whole chart. Starts at `first_touch` (the earliest event,
+    or the defining pivot if there were none yet). Ends at `broken_at` for a
+    BROKEN line (it stopped mattering once it broke and was never reclaimed);
+    otherwise extends to the last available bar, since ACTIVE/FLIPPED lines
+    are still relevant now."""
+    start = pd.Timestamp(line.first_touch)
+    if line.state == LineState.BROKEN and line.broken_at is not None:
+        end = pd.Timestamp(line.broken_at)
+    else:
+        end = last_bar_ts
+    return start, end
 
 
 def _hover_text(line: Line) -> str:
@@ -50,21 +68,19 @@ def render_review_chart(bars: pd.DataFrame, result: DetectionResult) -> go.Figur
         )
     )
 
-    x0, x1 = bars.index[0], bars.index[-1]
+    last_bar_ts = bars.index[-1]
 
     for line in result.lines:
-        color = _strength_color(line.strength)
+        fill_color, border_color = _strength_colors(line.strength)
         dash = "solid" if line.state == LineState.ACTIVE else "dash"
+        x0, x1 = _relevant_range(line, last_bar_ts)
 
-        fig.add_shape(
-            type="rect", x0=x0, x1=x1,
-            y0=line.center - line.half_width, y1=line.center + line.half_width,
-            fillcolor=color, opacity=0.10 + 0.35 * line.strength, line=dict(width=0), layer="below",
-        )
+        y_lo, y_hi = line.center - line.half_width, line.center + line.half_width
         fig.add_trace(
             go.Scatter(
-                x=[x0, x1], y=[line.center, line.center], mode="lines",
-                line=dict(color=color, dash=dash, width=1 + 2 * line.strength),
+                x=[x0, x1, x1, x0, x0], y=[y_lo, y_lo, y_hi, y_hi, y_lo],
+                mode="lines", fill="toself", fillcolor=fill_color,
+                line=dict(color=border_color, dash=dash, width=1 + 2 * line.strength),
                 name=f"{line.id} [{line.role.value}] {line.strength:.2f}",
                 legendgroup=line.id,
                 hovertext=_hover_text(line), hoverinfo="text",
