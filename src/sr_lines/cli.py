@@ -28,6 +28,13 @@ def main():
         "width; default 0.6). Higher merges more -- useful for tuning against clutter of "
         "several close-but-separate zones on a chart.",
     )
+    parser.add_argument(
+        "--zone-width-atr", type=float, default=None,
+        help="Override the initial clustering tolerance (ATR multiple; default 0.4). Higher "
+        "produces fewer, wider zones from the start -- the more direct lever than "
+        "--dedup-threshold when several pivots that should read as one broad area keep "
+        "showing up as separate narrow zones.",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -40,6 +47,8 @@ def main():
         sr_config.top_n = args.top_n
     if args.dedup_threshold is not None:
         sr_config.dedup_overlap_threshold = args.dedup_threshold
+    if args.zone_width_atr is not None:
+        sr_config.zone_width_atr = args.zone_width_atr
     result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
     detection_bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
 
