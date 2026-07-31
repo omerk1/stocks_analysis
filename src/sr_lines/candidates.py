@@ -26,11 +26,18 @@ class HorizontalCandidate:
 def generate_horizontal_candidates(
     pivots: list[Pivot], config: SRConfig
 ) -> list[HorizontalCandidate]:
-    """Single-linkage agglomerative clustering of pivot prices: a pivot joins
-    the running cluster if it's within `zone_width_atr * median(cluster's own
-    pivot ATRs)` of the cluster's nearest existing member. Both swing highs
-    and swing lows can land in the same cluster -- that's a role-flipping
-    level, not an error, and is exactly what later marks a line FLIPPED.
+    """Agglomerative clustering of pivot prices: a pivot joins the running
+    cluster if it's within `zone_width_atr * median(cluster's own pivot
+    ATRs)` of the cluster's *mean* price so far. Both swing highs and swing
+    lows can land in the same cluster -- that's a role-flipping level, not
+    an error, and is exactly what later marks a line FLIPPED.
+
+    Compared against the cluster mean, not just its nearest member (which an
+    earlier version did): comparing only to the nearest member is prone to
+    chaining -- a real ~5-year AAPL run showed it fragmenting one visually
+    obvious level into 2-3 separate, barely-adjacent zones that never quite
+    touched closely enough to trigger lifecycle.dedup_lines afterward.
+    Anchoring to the mean keeps a cluster from drifting/splitting that way.
 
     A cluster needs >= `min_pivots_per_cluster` pivots to become a candidate.
     """
@@ -44,7 +51,8 @@ def generate_horizontal_candidates(
     for pivot in ordered[1:]:
         median_atr = statistics.median(p.atr_at_pivot for p in current)
         threshold = config.zone_width_atr * median_atr
-        if pivot.price - current[-1].price <= threshold:
+        cluster_mean = statistics.mean(p.price for p in current)
+        if pivot.price - cluster_mean <= threshold:
             current.append(pivot)
         else:
             clusters.append(current)

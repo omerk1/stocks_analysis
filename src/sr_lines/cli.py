@@ -22,6 +22,12 @@ def main():
         "--strength-floor", type=float, default=None,
         help="Return every line scoring at or above this instead of a fixed top-N",
     )
+    parser.add_argument(
+        "--dedup-threshold", type=float, default=None,
+        help="Override how aggressively nearby zones merge (as a fraction of their average "
+        "width; default 0.6). Higher merges more -- useful for tuning against clutter of "
+        "several close-but-separate zones on a chart.",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -32,6 +38,8 @@ def main():
     sr_config = get_preset(args.preset)
     if args.top_n is not None:
         sr_config.top_n = args.top_n
+    if args.dedup_threshold is not None:
+        sr_config.dedup_overlap_threshold = args.dedup_threshold
     result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
     detection_bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
 

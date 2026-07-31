@@ -65,9 +65,15 @@ def build_line(
 
     ordered = sorted(events, key=lambda e: (e.start, e.end))
 
-    fallback_ts = candidate.pivots[0].timestamp
-    first_touch = min((e.start for e in events), default=fallback_ts)
-    last_event = max((e.end for e in events), default=fallback_ts)
+    # The zone starts when its defining pivots occurred, not at the first
+    # classified event -- events.py's walk deliberately doesn't emit an event
+    # for the bar it uses to bootstrap which side price is on, so using
+    # "earliest event" instead of "earliest pivot" here silently skipped the
+    # very peak/trough that established the level. candidate.pivots isn't
+    # sorted by time (candidates.py sorts by price for clustering), so this
+    # must take the min explicitly rather than assuming pivots[0].
+    first_touch = min(p.timestamp for p in candidate.pivots)
+    last_event = max((e.end for e in events), default=first_touch)
 
     return Line(
         id=line_id,
@@ -95,9 +101,19 @@ def build_line(
 
 
 def dedup_lines(lines: list[Line], config: SRConfig) -> list[Line]:
-    """Merge lines whose zones overlap more than `dedup_overlap_threshold`
-    (as a fraction of the narrower zone) -- keeps the better-scoring
-    geometry, unions events. Diagonal dedup is deferred to milestone 5.
+    """Merge lines whose zones are close relative to their own width -- not
+    just zones that literally overlap. A real run showed candidates.py's
+    clustering producing several genuinely-separate (non-overlapping)
+    adjacent zones that read as one cluttered area on a chart, and the old
+    overlap-only check let every one of them survive untouched since none
+    of their ranges actually intersected.
+
+    Uses signed distance between the two zones (negative = already
+    overlapping by that much, positive = separated by that much) against
+    `dedup_overlap_threshold` as a fraction of their average width -- so the
+    same knob covers "deep overlap" and "close enough to be the same area"
+    with one rule. Keeps the better-scoring geometry, unions events.
+    Diagonal dedup is deferred to milestone 5.
     """
     kept: list[Line] = []
     for line in sorted(lines, key=lambda l: -l.strength):
@@ -108,9 +124,9 @@ def dedup_lines(lines: list[Line], config: SRConfig) -> list[Line]:
                     continue
                 lo1, hi1 = line.center - line.half_width, line.center + line.half_width
                 lo2, hi2 = k.center - k.half_width, k.center + k.half_width
-                overlap = max(0.0, min(hi1, hi2) - max(lo1, lo2))
-                narrower = min(hi1 - lo1, hi2 - lo2)
-                if narrower > 0 and overlap / narrower > config.dedup_overlap_threshold:
+                gap = max(lo1, lo2) - min(hi1, hi2)  # negative means overlapping
+                avg_width = ((hi1 - lo1) + (hi2 - lo2)) / 2
+                if avg_width > 0 and gap < config.dedup_overlap_threshold * avg_width:
                     merged_into = k
                     break
         if merged_into is not None:

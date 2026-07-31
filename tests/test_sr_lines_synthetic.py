@@ -173,7 +173,10 @@ def test_real_break_then_retest_flips_role():
     line = lifecycle.build_line("h0", low_cand, evs, original_side, scores)
 
     assert line.state == LineState.FLIPPED
-    assert scores.role_reversal == 1.0
+    # State is a binary label (one confirmation is enough to flip it), but
+    # the score is graded -- one confirming retest gets partial credit, not
+    # the same full 1.0 a repeatedly-retested reversal would get.
+    assert 0 < scores.role_reversal < 1.0
 
 
 def test_pivots_alternate_and_confirmed_at_is_after_the_pivot():

@@ -102,15 +102,28 @@ def _resilience(events: list[Event]) -> float:
     return min(total, _RESILIENCE_CAP)
 
 
+_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3
+
+
 def _role_reversal(events: list[Event]) -> float:
+    """Proportional, not binary: a real AAPL run showed a single confirming
+    touch right after a break getting the exact same full credit as a level
+    retested repeatedly from the new side, which let barely-confirmed flips
+    dominate the top-N purely from this one component. Scales with the
+    number of confirming touch/wick-fake events seen after *any* break
+    (matches lifecycle.py's sticky "ever confirmed" definition of FLIPPED --
+    state stays a binary label, only the score contribution is graded),
+    reaching full credit at `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT`.
+    """
     ordered = sorted(events, key=lambda e: (e.start, e.end))
     saw_break = False
+    confirmations = 0
     for e in ordered:
         if e.type == EventType.BREAK:
             saw_break = True
         elif saw_break and e.type in (EventType.TOUCH, EventType.WICK_FAKE):
-            return 1.0
-    return 0.0
+            confirmations += 1
+    return min(confirmations / _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT, 1.0)
 
 
 def _proximity(current_price: float, candidate_center: float, atr_now: float) -> float:

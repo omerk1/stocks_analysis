@@ -72,6 +72,27 @@ def test_flipped_line_touch_quality_still_decays_against_now_not_frozen_at_break
     assert score_later.touch_quality < score_soon.touch_quality
 
 
+def test_role_reversal_scales_with_confirming_evidence_not_binary():
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(60)
+    atr = _atr(bars)
+
+    one_confirmation = [_break("2020-02-01"), _touch("2020-02-15")]
+    three_confirmations = [
+        _break("2020-02-01"),
+        _touch("2020-02-15"),
+        _touch("2020-02-20"),
+        _touch("2020-02-25"),
+    ]
+
+    score_one = score_line(one_confirmation, bars, atr, 100.0, config)
+    score_three = score_line(three_confirmations, bars, atr, 100.0, config)
+
+    assert 0 < score_one.role_reversal < 1.0
+    assert score_three.role_reversal == 1.0
+    assert score_one.role_reversal < score_three.role_reversal
+
+
 def test_flip_is_sticky_even_after_an_unconfirmed_later_break():
     # Broke, was confirmed flipped, then broke *again* with no further
     # reclaim -- lifecycle.py's state is FLIPPED either way (there's no
