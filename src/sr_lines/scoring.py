@@ -24,14 +24,44 @@ _RESILIENCE_CAP = 1.0
 _PROXIMITY_ATR_SCALE = 5.0
 
 
-def _touch_quality(events: list[Event], now: pd.Timestamp, half_life_years: float) -> float:
+def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
+    """A BROKEN (non-flipped) line is dead -- nothing more can happen to it,
+    so for backtesting its historical strength shouldn't keep eroding just
+    because more time passes on the calendar with nothing changing about the
+    line itself. Its decay reference freezes at its last break. An ACTIVE or
+    FLIPPED line is still in play and keeps decaying against the real
+    reference date (`now`, i.e. as_of or the latest bar).
+
+    "Flipped" here is the same *sticky* check lifecycle.py uses (once any
+    break has ever been followed by a respecting touch/wick-fake, the line
+    counts as flipped permanently, even if it breaks again later without a
+    further reclaim) -- this must never disagree with lifecycle.py's state,
+    or a line reported as FLIPPED could still have its score frozen as if
+    dead.
+    """
+    ordered = sorted(events, key=lambda e: (e.start, e.end))
+    saw_break = False
+    is_flipped = False
+    last_break_start = None
+    for e in ordered:
+        if e.type == EventType.BREAK:
+            saw_break = True
+            last_break_start = e.start
+        elif saw_break and e.type in (EventType.TOUCH, EventType.WICK_FAKE):
+            is_flipped = True
+    if saw_break and not is_flipped:
+        return pd.Timestamp(last_break_start)
+    return now
+
+
+def _touch_quality(events: list[Event], decay_reference: pd.Timestamp, half_life_years: float) -> float:
     touches = [e for e in events if e.type == EventType.TOUCH]
     if not touches:
         return 0.0
     half_life_days = half_life_years * 365.25
     total = 0.0
     for e in touches:
-        age_days = (now - pd.Timestamp(e.end)).days
+        age_days = (decay_reference - pd.Timestamp(e.end)).days
         decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
         total += min(e.reaction_atr, _REACTION_CAP_ATR) / _REACTION_CAP_ATR * decay
     # Normalize against a generous ceiling of "6 strong recent touches" so a
@@ -102,7 +132,8 @@ def score_line(
     half_life = config.resolved_half_life_years()
     weights = config.scoring_weights
 
-    touch_quality = _touch_quality(events, now, half_life)
+    decay_reference = _decay_reference(events, now)
+    touch_quality = _touch_quality(events, decay_reference, half_life)
     duration_density = _duration_density(events, bars, atr, candidate_center, config.window_years)
     resilience = _resilience(events)
     role_reversal = _role_reversal(events)

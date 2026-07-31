@@ -1,6 +1,17 @@
+from src.sr_lines.candidates import HorizontalCandidate
 from src.sr_lines.config import SRConfig
-from src.sr_lines.lifecycle import select_lines
-from src.sr_lines.models import Line, LineKind, LineRole, LineState, ScoreBreakdown
+from src.sr_lines.lifecycle import build_line, select_lines
+from src.sr_lines.models import (
+    Event,
+    EventType,
+    Line,
+    LineKind,
+    LineRole,
+    LineState,
+    Pivot,
+    PivotKind,
+    ScoreBreakdown,
+)
 
 
 def _line(line_id: str, strength: float) -> Line:
@@ -37,3 +48,38 @@ def test_select_lines_strength_floor_returns_everything_above_it_not_a_fixed_cou
     selected = select_lines(lines, config, strength_floor=0.3)
 
     assert {line.id for line in selected} == {"h0", "h3", "h2", "h4"}
+
+
+def _touch(date: str) -> Event:
+    return Event(type=EventType.TOUCH, start=date, end=date, penetration_atr=0.1, reaction_atr=1.0)
+
+
+def _break(date: str) -> Event:
+    return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0)
+
+
+def _minimal_candidate() -> HorizontalCandidate:
+    pivot = Pivot(kind=PivotKind.LOW, timestamp="2020-01-01", price=100.0, confirmed_at="2020-01-05", atr_at_pivot=1.0)
+    return HorizontalCandidate(center=100.0, half_width=1.0, pivots=[pivot, pivot])
+
+
+def test_state_and_flipped_at_agree_even_after_an_unconfirmed_later_break():
+    # Regression: a real AAPL line with 6 breaks had state=FLIPPED (correct,
+    # since an early break was confirmed) but flipped_at=None, because the
+    # old code tracked "last break" independently of the "ever confirmed"
+    # check used for state -- they must come from one shared computation.
+    events = [
+        _touch("2020-01-10"),
+        _break("2020-02-01"),
+        _touch("2020-02-15"),  # confirms the flip
+        _break("2020-06-01"),  # breaks again, never reclaimed
+        _break("2020-09-01"),
+        _break("2021-01-01"),
+    ]
+    candidate = _minimal_candidate()
+
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown())
+
+    assert line.state == LineState.FLIPPED
+    assert line.flipped_at is not None
+    assert line.broken_at is not None

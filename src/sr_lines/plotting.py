@@ -34,16 +34,13 @@ def _strength_colors(strength: float) -> tuple[str, str]:
 def _relevant_range(line: Line, last_bar_ts: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
     """The time span the engine actually determined this zone was relevant
     for -- not the whole chart. Starts at `first_touch` (the earliest event,
-    or the defining pivot if there were none yet). Ends at `broken_at` for a
-    BROKEN line (it stopped mattering once it broke and was never reclaimed);
-    otherwise extends to the last available bar, since ACTIVE/FLIPPED lines
-    are still relevant now."""
-    start = pd.Timestamp(line.first_touch)
-    if line.state == LineState.BROKEN and line.broken_at is not None:
-        end = pd.Timestamp(line.broken_at)
-    else:
-        end = last_bar_ts
-    return start, end
+    or the defining pivot if there were none yet). Always ends at the run's
+    own reference date (the latest available bar -- which is `as_of` for a
+    frozen/backtest run), regardless of state: for backtesting, a zone that
+    was detected as of some date X should be shown in full as of X whether
+    or not it later broke or flipped -- state is a label/color, not
+    something that should shorten the box."""
+    return pd.Timestamp(line.first_touch), last_bar_ts
 
 
 def _hover_text(line: Line) -> str:
@@ -109,6 +106,11 @@ def render_review_chart(bars: pd.DataFrame, result: DetectionResult) -> go.Figur
             fig.add_annotation(
                 x=pd.Timestamp(line.broken_at), y=line.center, text="break",
                 showarrow=True, arrowhead=2, ax=0, ay=-30,
+            )
+        if line.flipped_at is not None:
+            fig.add_annotation(
+                x=pd.Timestamp(line.flipped_at), y=line.center, text="flip",
+                showarrow=True, arrowhead=2, ax=0, ay=30,
             )
 
     fig.update_layout(
