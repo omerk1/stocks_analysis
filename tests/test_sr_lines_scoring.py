@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Event, EventType
@@ -23,6 +24,48 @@ def _touch(date: str, reaction: float = 2.0) -> Event:
 
 def _break(date: str) -> Event:
     return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0)
+
+
+def _body_fake(start: str, end: str) -> Event:
+    return Event(type=EventType.BODY_FAKE, start=start, end=end, penetration_atr=0.5, reaction_atr=0.0)
+
+
+def test_resilience_body_fake_decays_with_time_under_but_keeps_a_grace_floor():
+    bars = _flat_bars(60)
+    atr = _atr(bars)
+    config = SRConfig(window_years=3.0, fakeout_reclaim_bars=5)
+    idx = bars.index
+
+    quick_reclaim = [_body_fake(idx[10].isoformat(), idx[11].isoformat())]  # 1 bar under
+    slow_reclaim = [_body_fake(idx[10].isoformat(), idx[15].isoformat())]  # 5 bars under (the full window)
+
+    score_quick = score_line(quick_reclaim, bars, atr, 100.0, config)
+    score_slow = score_line(slow_reclaim, bars, atr, 100.0, config)
+
+    assert score_quick.resilience > score_slow.resilience
+    # Grace floor: even the slowest qualifying reclaim keeps meaningful
+    # credit rather than decaying to ~0 -- exactly 0.3 * 0.35 here (fully
+    # floored, since 5 bars under is the whole fakeout_reclaim_bars window).
+    assert score_slow.resilience == pytest.approx(0.3 * 0.35, abs=0.001)
+    # 1 bar under (the fastest a real BODY_FAKE can be -- reclaim always
+    # happens on a later bar than the break) is close to, not at, full
+    # credit: fraction_of_window=1/5=0.2 -> decay=1-(0.7*0.2)=0.86.
+    assert score_quick.resilience == pytest.approx(0.35 * 0.86, abs=0.01)
+
+
+def test_resilience_wick_fake_unaffected_by_duration_decay():
+    # Same-bar by construction (start == end) -- always full flat credit.
+    bars = _flat_bars(60)
+    atr = _atr(bars)
+    config = SRConfig(window_years=3.0)
+    idx = bars.index
+
+    events = [Event(type=EventType.WICK_FAKE, start=idx[10].isoformat(), end=idx[10].isoformat(),
+                     penetration_atr=0.5, reaction_atr=0.0)]
+
+    score = score_line(events, bars, atr, 100.0, config)
+
+    assert score.resilience == pytest.approx(0.15, abs=0.001)
 
 
 def test_broken_line_touch_quality_does_not_decay_further_once_dead():

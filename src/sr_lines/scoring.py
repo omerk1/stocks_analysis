@@ -20,6 +20,7 @@ from src.sr_lines.models import Event, EventType, ScoreBreakdown
 _REACTION_CAP_ATR = 5.0
 _WICK_FAKE_RESILIENCE = 0.15
 _BODY_FAKE_RESILIENCE = 0.35
+_BODY_FAKE_MIN_DECAY = 0.3
 _RESILIENCE_CAP = 1.0
 _PROXIMITY_ATR_SCALE = 5.0
 
@@ -95,10 +96,32 @@ def _duration_density(
     return span_score * float(fraction_in_play)
 
 
-def _resilience(events: list[Event]) -> float:
-    n_wick = sum(1 for e in events if e.type == EventType.WICK_FAKE)
-    n_body = sum(1 for e in events if e.type == EventType.BODY_FAKE and not e.pending)
-    total = n_wick * _WICK_FAKE_RESILIENCE + n_body * _BODY_FAKE_RESILIENCE
+def _bars_between(bars: pd.DataFrame, start: str, end: str) -> int:
+    return int(bars.index.get_loc(pd.Timestamp(end)) - bars.index.get_loc(pd.Timestamp(start)))
+
+
+def _resilience(events: list[Event], bars: pd.DataFrame, fakeout_reclaim_bars: int) -> float:
+    """Undercut-and-rally, graded, not flat: a WICK_FAKE is already same-bar
+    (the reclaim is instant, within the same candle), so it keeps full
+    per-event credit. A BODY_FAKE spans multiple bars -- the longer price
+    sat on the wrong side before reclaiming, the less convincing the
+    "defended" story, so its credit decays against how much of the
+    `fakeout_reclaim_bars` window it used. Floored at `_BODY_FAKE_MIN_DECAY`
+    rather than decaying to ~0 -- a slow reclaim right at the limit still
+    genuinely recovered, just less cleanly than an instant one, and should
+    keep meaningful credit for that.
+    """
+    total = 0.0
+    for e in events:
+        if e.type == EventType.WICK_FAKE:
+            total += _WICK_FAKE_RESILIENCE
+        elif e.type == EventType.BODY_FAKE and not e.pending:
+            bars_to_reclaim = _bars_between(bars, e.start, e.end)
+            fraction_of_window = (
+                min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
+            )
+            decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
+            total += _BODY_FAKE_RESILIENCE * decay
     return min(total, _RESILIENCE_CAP)
 
 
@@ -148,7 +171,7 @@ def score_line(
     decay_reference = _decay_reference(events, now)
     touch_quality = _touch_quality(events, decay_reference, half_life)
     duration_density = _duration_density(events, bars, atr, candidate_center, config.window_years)
-    resilience = _resilience(events)
+    resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
     role_reversal = _role_reversal(events)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
 
