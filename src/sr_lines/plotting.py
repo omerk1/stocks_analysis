@@ -56,7 +56,17 @@ def _hover_text(line: Line) -> str:
     )
 
 
-def render_review_chart(bars: pd.DataFrame, result: DetectionResult) -> go.Figure:
+def render_review_chart(
+    bars: pd.DataFrame, result: DetectionResult, reference_date: pd.Timestamp | None = None
+) -> go.Figure:
+    """`bars` is what gets drawn as candlesticks -- it can extend past the
+    detection's own cutoff (`reference_date`) so a backtest run can be
+    visually checked against what actually happened afterward, even though
+    the zones themselves were computed blind to that future. `reference_date`
+    defaults to `bars`' last timestamp (i.e. a non-backtest, "show everything
+    through today" call, where detection and display naturally end at the
+    same place).
+    """
     fig = go.Figure()
     fig.add_trace(
         go.Candlestick(
@@ -65,7 +75,12 @@ def render_review_chart(bars: pd.DataFrame, result: DetectionResult) -> go.Figur
         )
     )
 
-    last_bar_ts = bars.index[-1]
+    last_bar_ts = pd.Timestamp(reference_date) if reference_date is not None else bars.index[-1]
+    if last_bar_ts < bars.index[-1]:
+        fig.add_vline(
+            x=last_bar_ts, line_dash="dot", line_color="black",
+            annotation_text=f"as_of {last_bar_ts.date()}", annotation_position="top left",
+        )
 
     for line in result.lines:
         fill_color, border_color = _strength_colors(line.strength)

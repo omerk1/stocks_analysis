@@ -33,14 +33,33 @@ def main():
     if args.top_n is not None:
         sr_config.top_n = args.top_n
     result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
-    bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
+    detection_bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
 
-    if bars.empty:
+    if detection_bars.empty:
         print(f"No data for {args.ticker} (source={data_mod.REQUIRED_SOURCE}) in the requested window.")
         conn.close()
         return
 
-    fig = render_review_chart(bars, result)
+    reference_date = detection_bars.index[-1]
+
+    if args.as_of:
+        # Detection only ever sees bars up to as_of (no lookahead) -- but for
+        # manually eyeballing "did this zone hold up," the chart itself should
+        # keep showing real price action past that cutoff. Same start as the
+        # detection window, extended through whatever's latest available.
+        raw = db.read_bars(
+            conn, "bars_1d", ticker=args.ticker, source=data_mod.REQUIRED_SOURCE,
+            start=detection_bars.index[0].strftime("%Y-%m-%d"),
+        )
+        if "is_partial" in raw.columns:
+            raw = raw[raw["is_partial"] != 1]
+        display_bars, _ = data_mod.validate_bars(
+            raw[["open", "high", "low", "close", "volume"]], args.ticker, sr_config
+        )
+    else:
+        display_bars = detection_bars
+
+    fig = render_review_chart(display_bars, result, reference_date=reference_date)
     out_path = args.out or f"review_{args.ticker}.html"
     fig.write_html(out_path)
     print(f"{args.ticker}: {len(result.lines)} lines detected. Wrote {out_path}")
