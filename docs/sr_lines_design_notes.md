@@ -116,46 +116,54 @@ as a *weaker, decaying* version of a normal "touch and go" -- worth keeping
 this vocabulary for diagonal work too, since the same touch/wick-fake/
 body-fake/break taxonomy should apply to a sloped band, not just a flat one.
 
-## Open question: staleness/distance isn't gating the score, just nudging it
+### Resolved: proximity turned into a multiplicative relevance gate
 
-**Not yet implemented -- flagged for discussion before proceeding.**
+Concrete real-data example that motivated this (AAPL, full history, no
+`as_of`): a level around $51 from 2020 (AAPL now trades near $245, ~5x
+higher) scored **0.369** overall. `proximity=0.125` was correctly
+near-zero, but `resilience=0.856` and `role_reversal=1.0` alone contributed
+~0.33 of weighted total, completely swamping proximity's `0.10` additive
+weight. Several other ancient, far-away levels showed the same pattern.
 
-Concrete real-data example (AAPL, full history, no `as_of`): a level around
-$51 from 2020 (AAPL now trades near $245, ~5x higher) still scores **0.369**
-overall. `proximity=0.125` is correctly near-zero, but `resilience=0.856`
-and `role_reversal=1.0` alone contribute ~0.33 of weighted total, completely
-swamping proximity's `0.10` weight. Several other ancient, far-away levels
-(`h1` 0.220, `h2` 0.151, `h3` 0.288, `h4` 0.180) show the same pattern.
+User's framing, directly: *"Apple had great resistance at $100 some time,
+but now it is above $300 for two years. This R is not interesting. But if
+they have a massive trendline that was broken only lately and might revert
+soon, it is another thing."* -- a **soft**, not hard, judgment: recent-and-
+nearby should stay fully live; old-and-far should fade out; no clean binary
+cutoff.
 
-This is the user's stated concern directly: *"Apple had great resistance at
-$100 some time, but now it is above $300 for two years. This R is not
-interesting. But if they have a massive trendline that was broken only
-lately and might revert soon, it is another thing."* -- i.e. this needs to
-be a **soft**, not hard, judgment: recent-and-nearby should stay fully live;
-old-and-far should fade out; there's no clean binary cutoff.
-
-Diagnosis: with 5 independent additive terms, no single component's weight
-can *gate* the total -- increasing proximity's weight would only ever shave
-off a bounded amount, never suppress a level that's strong on every other
-axis. What's actually wanted is closer to a multiplicative relevance gate
-applied to the whole score:
+Fix (`scoring.py`): `proximity` no longer participates as a fifth additive
+term (with 5 independent weighted terms, no single weight could suppress a
+level strong on every other axis). Instead:
 
 ```
 total = (weighted sum of touch_quality, duration_density, resilience, role_reversal) * relevance_gate
+relevance_gate = proximity * recency
 ```
 
-where `relevance_gate` combines current distance-from-price *and* recency
-(time since last relevant) into one factor -- close-and-recent stays near
-1.0 (barely discounted), far-and-stale collapses toward 0 regardless of how
-strong the historical evidence was. Matches both halves of the user's
-example directly. **Not implemented yet** -- proposed, awaiting confirmation
-on the exact gate formula before touching `scoring.py` again.
+`recency` is a new decay factor (same half-life mechanism as
+`touch_quality`) measuring time since the line's last event -- critically,
+always against the real `now`, *never* frozen the way `touch_quality`'s
+`decay_reference` freezes for dead lines. That distinction matters: freezing
+would defeat the whole point here, since staleness is exactly what this
+needs to capture regardless of whether the line is technically dead.
+`config.scoring_weights` no longer has a `proximity` key; the remaining 4
+weights renormalize against their own sum rather than assuming they total
+1.0.
 
-This applies at least as strongly to diagonals: an old, steep trendline that
+Verified on real AAPL data: previously-competitive stale levels ($51, $55,
+$61, $73 from 2019-2020) no longer appear anywhere near the top -- the
+top-10 is now entirely 2024-2026 zones. Side effect worth remembering:
+overall score *scale* compressed (best line now ~0.15-0.30 vs ~0.5-0.6
+before), since almost nothing has a gate near 1.0 unless both very recent
+and very close to price -- any hardcoded strength thresholds from before
+this change need rechecking against the new scale.
+
+Applies at least as strongly to diagonals: an old, steep trendline that
 hasn't been near price in years should be even less "interesting" than a
-stale horizontal level, since a trendline's price keeps moving away from
-wherever it currently sits (in log-price space) purely due to slope, on top
-of whatever has happened to the stock's actual price.
+stale horizontal level, since a trendline's implied price keeps moving
+(in log-price space) purely due to slope, on top of whatever the stock's
+actual price has done.
 
 ## CLI knobs added so far (for tuning by eye, not guessing)
 
@@ -169,11 +177,15 @@ of whatever has happened to the stock's actual price.
 
 ## Still open / not yet built
 
-- The relevance-gate fix above.
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
   events can still hit the cap even after the time-decay fix, so the decay
   change had only a modest effect on one real chaotic-vs-clean comparison
   that motivated it. Flagged, not yet acted on.
+- `scoring._decay_reference` and `lifecycle._break_and_flip_status` are
+  still two independent implementations of the same "is this actually
+  flipped" check (see backtesting section above) -- already drifted out of
+  sync once; worth factoring into one shared function before diagonals
+  duplicate the risk a third time.
 - Milestones 5 (diagonals), 6 (`as_of` dedicated test coverage beyond what's
   already implicitly correct), 7 (systematic weight-tuning pass) are all
   still ahead, per the original spec's milestone order.
