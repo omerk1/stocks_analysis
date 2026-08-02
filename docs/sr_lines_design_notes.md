@@ -60,12 +60,40 @@ horizontal zones. Append to this rather than rewriting it.
 - Neither knob has a validated "right" default -- both are exposed on the
   CLI (`--zone-width-atr`, `--dedup-threshold`) specifically so they can be
   tuned by eyeballing real charts, not guessed.
+- **`zone_width_atr=1.5` breadth-checked across 6 tickers** (T, AAPL, GME,
+  KO, JPM, XOM; long_term preset): consistently reduced total candidate
+  count 25-40% vs. the 0.4 default, in every ticker regardless of volatility
+  profile. Direction is consistent -- reasonable evidence it generalizes as
+  a *default* -- but this is a breadth check, not per-ticker visual
+  validation; only T and AAPL got the detailed "does this actually look
+  right" review.
+- **Clustering thresholds now use ATR% of price, not raw dollar ATR.**
+  Raw-dollar ATR is *locally* computed per cluster, so it partly
+  self-normalizes across a single stock's own price history (a $50-era
+  cluster gets a smaller dollar threshold than a $300-era cluster of the
+  same stock) -- but that's incidental to using local ATR, not a real
+  price-relative guarantee, and does nothing for comparing the same
+  `zone_width_atr` value across *different* tickers' price levels. Concrete
+  evidence: AAPL's 2019-2020 zones (price $46-98) came out only ~$1.5-4
+  wide vs. ~$7-8 wide for its 2026 zones (price $240-280) at the identical
+  `zone_width_atr` -- each individually reasonable, but looking dense
+  together purely from the price-level difference. Fixed by deriving both
+  the clustering threshold and `half_width` from `atr_at_pivot / price`
+  (converted back to a dollar amount via the cluster's mean price).
+  **Empirically mixed, not a uniform win**: re-ran the same 6-ticker check
+  at `zone_width_atr=1.5` -- T improved further (17->13 candidates),
+  AAPL/KO/JPM unchanged, GME/XOM slightly *more* fragmented (18->19,
+  15->16). Kept anyway since it's more theoretically correct (removes a
+  real confound), not because it uniformly reduced clutter.
 - Diagonal equivalent: `config.diagonal`'s `zone_width_atr` reuse (band
   half-width around the fitted line, in log-ATR terms) will have the exact
   same "cluster too narrow -> fragments into near-duplicate trendlines"
   failure mode. Expect to need the same two-knob (fit tolerance vs.
-  post-hoc merge) split, and expect the same empirical-tuning-over-guessing
-  approach to be necessary.
+  post-hoc merge) split, the same empirical-tuning-over-guessing approach,
+  and probably the same ATR%-of-price (not raw ATR) normalization for the
+  same reason -- a trendline's band width needs to scale with the price
+  level it's currently near, not a fixed dollar amount from wherever it was
+  fitted.
 
 ## Zone start date: use the earliest *pivot*, not the earliest *event*
 
