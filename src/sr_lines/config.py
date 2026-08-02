@@ -9,12 +9,14 @@ from dataclasses import dataclass, field
 
 
 def _default_scoring_weights() -> dict:
+    # proximity is not in this dict -- it's applied as a multiplicative
+    # relevance gate (with recency) on the whole score, not an additive
+    # term. See scoring.py's score_line for why.
     return {
         "touch_quality": 0.35,
         "duration_density": 0.20,
         "resilience": 0.15,
         "role_reversal": 0.20,
-        "proximity": 0.10,
     }
 
 

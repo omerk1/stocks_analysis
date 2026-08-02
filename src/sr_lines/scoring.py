@@ -156,6 +156,22 @@ def _proximity(current_price: float, candidate_center: float, atr_now: float) ->
     return 1.0 / (1.0 + distance_atr / _PROXIMITY_ATR_SCALE)
 
 
+def _recency(last_event: pd.Timestamp | None, now: pd.Timestamp, half_life_years: float) -> float:
+    """How long ago was this line last actually relevant (touched, wick/body-
+    faked, or broken) -- unlike `_decay_reference`, this always measures
+    against the real `now`, even for a dead (BROKEN) line. That's the point:
+    an old level that hasn't mattered in years should fade out here
+    regardless of how good its evidence looked when it was still active.
+    """
+    if last_event is None:
+        return 1.0
+    half_life_days = half_life_years * 365.25
+    if half_life_days <= 0:
+        return 1.0
+    age_days = (now - last_event).days
+    return 0.5 ** (max(age_days, 0) / half_life_days)
+
+
 def score_line(
     events: list[Event],
     bars: pd.DataFrame,
@@ -175,20 +191,37 @@ def score_line(
     role_reversal = _role_reversal(events)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
 
+    last_event = pd.Timestamp(max((e.end for e in events), default=None)) if events else None
+    recency = _recency(last_event, now, half_life)
+    relevance_gate = proximity * recency
+
     diagonal_penalty = 0.0
     multiplier = 1.0
     if diagonal:
         multiplier = config.diagonal_score_multiplier
         diagonal_penalty = 0.0  # slope penalty is milestone 5
 
-    weighted = (
+    # proximity no longer participates as a fifth additive term -- with 5
+    # independent weighted terms, no single weight could suppress a level
+    # that scored well on every other axis (a real AAPL level from 2020, now
+    # ~5x below current price, still scored 0.37 this way). It's applied
+    # instead as a multiplicative gate (with recency) on the *whole* score,
+    # so old-and-far collapses toward 0 regardless of how strong the
+    # historical evidence looked, while recent-and-nearby stays fully live.
+    inner_weight_total = (
+        weights.get("touch_quality", 0.0)
+        + weights.get("duration_density", 0.0)
+        + weights.get("resilience", 0.0)
+        + weights.get("role_reversal", 0.0)
+    )
+    inner_weighted = (
         weights.get("touch_quality", 0.0) * touch_quality
         + weights.get("duration_density", 0.0) * duration_density
         + weights.get("resilience", 0.0) * resilience
         + weights.get("role_reversal", 0.0) * role_reversal
-        + weights.get("proximity", 0.0) * proximity
     )
-    total = max(0.0, weighted - diagonal_penalty) * multiplier
+    inner_score = inner_weighted / inner_weight_total if inner_weight_total > 0 else 0.0
+    total = max(0.0, inner_score - diagonal_penalty) * multiplier * relevance_gate
 
     return ScoreBreakdown(
         touch_quality=touch_quality,
@@ -196,6 +229,7 @@ def score_line(
         resilience=resilience,
         role_reversal=role_reversal,
         proximity=proximity,
+        relevance_gate=relevance_gate,
         diagonal_penalty=diagonal_penalty,
         total=total,
     )

@@ -77,6 +77,11 @@ class ScoreBreakdown:
     resilience: float = 0.0
     role_reversal: float = 0.0
     proximity: float = 0.0
+    # Multiplicative gate (proximity x recency) applied to the weighted sum
+    # of the other four components -- an old, far-from-price level can't be
+    # "saved" by strong historical evidence the way it could when proximity
+    # was just another additive term. 1.0 = fully relevant, ~0 = stale/far.
+    relevance_gate: float = 1.0
     diagonal_penalty: float = 0.0
     total: float = 0.0
 

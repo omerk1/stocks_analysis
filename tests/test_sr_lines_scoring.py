@@ -115,6 +115,65 @@ def test_flipped_line_touch_quality_still_decays_against_now_not_frozen_at_break
     assert score_later.touch_quality < score_soon.touch_quality
 
 
+def _strong_flipped_events(bars: pd.DataFrame) -> list[Event]:
+    # Plenty of touches, resilience-earning fakes (incl. quick body-fakes),
+    # and a confirmed flip -- strong on every component *except* relevance.
+    # Built from actual bar positions (not hardcoded date strings) so it
+    # works regardless of how many periods the caller's `bars` fixture has.
+    idx = bars.index
+    return [
+        _touch(idx[1].isoformat()), _touch(idx[2].isoformat()),
+        Event(type=EventType.WICK_FAKE, start=idx[3].isoformat(), end=idx[3].isoformat(),
+              penetration_atr=0.5, reaction_atr=0.0),
+        Event(type=EventType.BODY_FAKE, start=idx[4].isoformat(), end=idx[5].isoformat(),
+              penetration_atr=0.5, reaction_atr=0.0),
+        Event(type=EventType.BODY_FAKE, start=idx[6].isoformat(), end=idx[7].isoformat(),
+              penetration_atr=0.5, reaction_atr=0.0),
+        _break(idx[8].isoformat()),
+        _touch(idx[9].isoformat()), _touch(idx[10].isoformat()), _touch(idx[11].isoformat()),
+    ]
+
+
+def test_old_and_far_level_is_gated_down_despite_strong_historical_evidence():
+    # Real AAPL finding this reproduces: a level with strong resilience/
+    # role_reversal still scored 0.369 overall despite proximity=0.125,
+    # because no single additive weight could suppress a level strong
+    # everywhere else.
+    config = SRConfig(window_years=3.0)
+    bars_far_away = _flat_bars(600, price=300.0)  # candidate_center=100, price now 300 -- 3x away
+    events = _strong_flipped_events(bars_far_away)
+
+    score = score_line(events, bars_far_away, _atr(bars_far_away), 100.0, config)
+
+    assert score.resilience > 0.5
+    assert score.role_reversal == 1.0
+    assert score.relevance_gate < 0.05
+    assert score.total < 0.05  # gated down hard despite strong inner components
+
+
+def test_recent_and_nearby_level_with_same_evidence_stays_highly_relevant():
+    config = SRConfig(window_years=3.0)
+    bars_nearby_recent = _flat_bars(20, price=100.5)  # "now" shortly after the events, price barely moved
+    events = _strong_flipped_events(bars_nearby_recent)
+
+    score = score_line(events, bars_nearby_recent, _atr(bars_nearby_recent), 100.0, config)
+
+    assert score.relevance_gate > 0.85
+    assert score.total > 0.3
+
+
+def test_relevance_gate_is_the_product_of_proximity_and_recency():
+    events = [_touch("2020-01-10")]
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(600, price=150.0)
+
+    score = score_line(events, bars, _atr(bars), 100.0, config)
+
+    # proximity is independently reported; the gate must be proximity times
+    # a (separately unreported) recency factor, so it can't exceed proximity.
+    assert score.relevance_gate <= score.proximity
+
+
 def test_role_reversal_scales_with_confirming_evidence_not_binary():
     config = SRConfig(window_years=3.0)
     bars = _flat_bars(60)
