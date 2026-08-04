@@ -8,10 +8,12 @@ continuing on the same Line object.
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from src.sr_lines import scoring
-from src.sr_lines.candidates import HorizontalCandidate
+from src.sr_lines.candidates import Candidate, DiagonalCandidate
 from src.sr_lines.config import SRConfig
 from src.sr_lines.flip_status import break_and_flip_status
 from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown
@@ -19,7 +21,7 @@ from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, Line
 
 def build_line(
     line_id: str,
-    candidate: HorizontalCandidate,
+    candidate: Candidate,
     events: list[Event],
     original_side: str | None,
     scores: ScoreBreakdown,
@@ -51,16 +53,18 @@ def build_line(
     first_touch = min(p.timestamp for p in candidate.pivots)
     last_event = max((e.end for e in events), default=first_touch)
 
+    is_diagonal = isinstance(candidate, DiagonalCandidate)
+
     return Line(
         id=line_id,
-        kind=LineKind.HORIZONTAL,
+        kind=LineKind.DIAGONAL if is_diagonal else LineKind.HORIZONTAL,
         role=role,
         state=state,
-        center=candidate.center,
+        center=None if is_diagonal else candidate.center,
         half_width=candidate.half_width,
-        slope=None,
-        intercept=None,
-        origin_index=None,
+        slope=candidate.slope if is_diagonal else None,
+        intercept=candidate.intercept if is_diagonal else None,
+        origin_index=candidate.origin_index if is_diagonal else None,
         first_touch=first_touch,
         last_event=last_event,
         events=ordered,
@@ -97,23 +101,38 @@ def dedup_lines(lines: list[Line], bars: pd.DataFrame, atr: pd.Series, config: S
     BREAK marker from the absorbed line sat right on it, and meant top-N
     selection never actually benefited from the "more complete evidence"
     a merge is supposed to represent. `bars`/`atr` are needed here (not just
-    at build_line time) purely to support that rescoring. Diagonal dedup is
-    deferred to milestone 5.
+    at build_line time) purely to support that rescoring.
+
+    Diagonal-diagonal merges (v1, not a fully-reasoned final answer -- worth
+    tuning against real charts the same way `dedup_overlap_threshold` was):
+    same gap-based rule, but evaluated at the *current* reference bar (i.e.
+    compare where both bands actually sit right now, via `Line.price_at`)
+    rather than across their whole span, and gated by a slope-similarity
+    check first -- two trendlines can cross near "now" while diverging
+    everywhere else, and merging those would misrepresent both. Horizontal
+    and diagonal lines never merge with each other.
     """
+    now_bar_index = len(bars) - 1
     kept: list[Line] = []
     for line in sorted(lines, key=lambda l: -l.strength):
         merged_into = None
-        if line.kind == LineKind.HORIZONTAL:
-            for k in kept:
-                if k.kind != LineKind.HORIZONTAL:
-                    continue
+        for k in kept:
+            if k.kind != line.kind:
+                continue
+            if line.kind == LineKind.HORIZONTAL:
                 lo1, hi1 = line.center - line.half_width, line.center + line.half_width
                 lo2, hi2 = k.center - k.half_width, k.center + k.half_width
-                gap = max(lo1, lo2) - min(hi1, hi2)  # negative means overlapping
-                avg_width = ((hi1 - lo1) + (hi2 - lo2)) / 2
-                if avg_width > 0 and gap < config.dedup_overlap_threshold * avg_width:
-                    merged_into = k
-                    break
+            else:
+                if abs(line.slope - k.slope) > config.max_diagonal_slope_atr_per_bar:
+                    continue
+                c1, c2 = line.price_at(now_bar_index), k.price_at(now_bar_index)
+                lo1, hi1 = c1 * math.exp(-line.half_width), c1 * math.exp(line.half_width)
+                lo2, hi2 = c2 * math.exp(-k.half_width), c2 * math.exp(k.half_width)
+            gap = max(lo1, lo2) - min(hi1, hi2)  # negative means overlapping
+            avg_width = ((hi1 - lo1) + (hi2 - lo2)) / 2
+            if avg_width > 0 and gap < config.dedup_overlap_threshold * avg_width:
+                merged_into = k
+                break
         if merged_into is not None:
             _absorb(merged_into, line, bars, atr, config)
         else:
@@ -145,7 +164,14 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
     survivor.n_body_fakes = sum(1 for e in survivor.events if e.type == EventType.BODY_FAKE)
     survivor.n_breaks = sum(1 for e in survivor.events if e.type == EventType.BREAK)
 
-    survivor.scores = scoring.score_line(survivor.events, bars, atr, survivor.center, config, diagonal=False)
+    is_diagonal = survivor.kind == LineKind.DIAGONAL
+    now_bar_index = len(bars) - 1
+    candidate_center = survivor.price_at(now_bar_index) if is_diagonal else survivor.center
+    center_at = survivor.price_at if is_diagonal else None
+
+    survivor.scores = scoring.score_line(
+        survivor.events, bars, atr, candidate_center, config, diagonal=is_diagonal, center_at=center_at,
+    )
     survivor.strength = survivor.scores.total
     survivor.proximity = survivor.scores.proximity
 

@@ -1,7 +1,9 @@
+import math
+
 import pandas as pd
 import pytest
 
-from src.sr_lines.candidates import HorizontalCandidate
+from src.sr_lines.candidates import DiagonalCandidate, HorizontalCandidate
 from src.sr_lines.config import SRConfig
 from src.sr_lines.lifecycle import build_line, dedup_lines, select_lines
 from src.sr_lines.models import (
@@ -200,3 +202,76 @@ def test_a_pending_body_fake_after_a_break_does_not_confirm_the_flip():
 
     assert line.state == LineState.BROKEN
     assert line.flipped_at is None
+
+
+def _minimal_diagonal_candidate(
+    slope: float = 0.001, intercept: float = math.log(100.0), origin_index: int = 0, half_width: float = 0.02,
+) -> DiagonalCandidate:
+    pivot = Pivot(
+        kind=PivotKind.LOW, timestamp="2020-01-01", price=100.0,
+        confirmed_at="2020-01-05", atr_at_pivot=2.0, bar_index=0,
+    )
+    return DiagonalCandidate(slope=slope, intercept=intercept, origin_index=origin_index,
+                              half_width=half_width, pivots=[pivot, pivot])
+
+
+def _diag_line(
+    line_id: str, strength: float, slope: float = 0.001, intercept: float = math.log(100.0),
+    origin_index: int = 0, half_width: float = 0.02, events: list[Event] | None = None,
+) -> Line:
+    events = events or []
+    return Line(
+        id=line_id, kind=LineKind.DIAGONAL, role=LineRole.SUPPORT, state=LineState.ACTIVE,
+        center=None, half_width=half_width, slope=slope, intercept=intercept, origin_index=origin_index,
+        first_touch="2020-01-01", last_event="2020-01-01", events=events,
+        scores=ScoreBreakdown(total=strength), strength=strength,
+        n_breaks=sum(1 for e in events if e.type == EventType.BREAK),
+    )
+
+
+def test_build_line_populates_diagonal_geometry_not_a_flat_center():
+    candidate = _minimal_diagonal_candidate()
+
+    line = build_line("d0", candidate, events=[], original_side="above", scores=ScoreBreakdown())
+
+    assert line.kind == LineKind.DIAGONAL
+    assert line.center is None  # diagonal has no single center -- price_at() instead
+    assert line.slope == candidate.slope
+    assert line.intercept == candidate.intercept
+    assert line.origin_index == candidate.origin_index
+    assert line.half_width == candidate.half_width
+
+
+def test_dedup_merges_diagonal_lines_whose_bands_are_close_at_the_reference_bar():
+    bars = _flat_bars(60)  # reference bar index = 59
+    strong = _diag_line("strong", strength=0.8, intercept=math.log(100.0))
+    weak_close = _diag_line("weak_close", strength=0.3, intercept=math.log(100.3))
+    config = SRConfig(dedup_overlap_threshold=0.6)
+
+    deduped = dedup_lines([strong, weak_close], bars, _atr(bars), config)
+
+    assert {line.id for line in deduped} == {"strong"}
+
+
+def test_dedup_does_not_merge_diagonal_lines_with_different_slopes():
+    # Two lines whose bands happen to coincide at "now" but diverge
+    # everywhere else -- a real merge here would misrepresent both.
+    bars = _flat_bars(60)
+    up = _diag_line("up", strength=0.8, slope=0.01, intercept=math.log(100.0))
+    down = _diag_line("down", strength=0.5, slope=-0.01, intercept=math.log(100.0))
+    config = SRConfig(dedup_overlap_threshold=0.6, max_diagonal_slope_atr_per_bar=0.05)
+
+    deduped = dedup_lines([up, down], bars, _atr(bars), config)
+
+    assert {line.id for line in deduped} == {"up", "down"}
+
+
+def test_dedup_never_merges_a_horizontal_line_with_a_diagonal_line():
+    bars = _flat_bars(60)
+    horizontal = _line("h0", strength=0.8, center=100.0, half_width=1.0)
+    diagonal = _diag_line("d0", strength=0.5, slope=0.0, intercept=math.log(100.0), half_width=0.05)
+    config = SRConfig(dedup_overlap_threshold=0.6)
+
+    deduped = dedup_lines([horizontal, diagonal], bars, _atr(bars), config)
+
+    assert {line.id for line in deduped} == {"h0", "d0"}
