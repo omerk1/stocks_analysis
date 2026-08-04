@@ -71,6 +71,7 @@ def build_line(
         scores=scores,
         strength=scores.total,
         proximity=scores.proximity,
+        diagonal_fit_penalty=candidate.fit_rms_atr_pct if is_diagonal else 0.0,
         n_touches=sum(1 for e in events if e.type == EventType.TOUCH),
         n_wick_fakes=sum(1 for e in events if e.type == EventType.WICK_FAKE),
         n_body_fakes=sum(1 for e in events if e.type == EventType.BODY_FAKE),
@@ -171,6 +172,7 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
 
     survivor.scores = scoring.score_line(
         survivor.events, bars, atr, candidate_center, config, diagonal=is_diagonal, center_at=center_at,
+        diagonal_fit_penalty=survivor.diagonal_fit_penalty,
     )
     survivor.strength = survivor.scores.total
     survivor.proximity = survivor.scores.proximity

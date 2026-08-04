@@ -262,6 +262,26 @@ def test_role_reversal_counts_a_resolved_body_fake_as_confirmation_but_not_a_pen
     assert score_pending.role_reversal == 0
 
 
+def test_diagonal_fit_penalty_is_capped_and_reduces_total():
+    events = [_touch("2020-01-10", reaction=5.0), _touch("2020-01-20", reaction=5.0)]
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(30)
+    atr = _atr(bars)
+
+    score_tight_fit = score_line(events, bars, atr, 100.0, config, diagonal=True, diagonal_fit_penalty=0.0)
+    score_loose_fit = score_line(events, bars, atr, 100.0, config, diagonal=True, diagonal_fit_penalty=0.15)
+    score_at_cap = score_line(events, bars, atr, 100.0, config, diagonal=True, diagonal_fit_penalty=0.3)
+    # Far beyond the cap -- should clamp to the same penalty a fit right at
+    # the cap would get, not keep dragging the score down further.
+    score_way_over_cap = score_line(events, bars, atr, 100.0, config, diagonal=True, diagonal_fit_penalty=10.0)
+
+    assert score_tight_fit.diagonal_penalty == 0.0
+    assert score_loose_fit.diagonal_penalty == pytest.approx(0.15)
+    assert score_way_over_cap.diagonal_penalty == pytest.approx(0.3)  # _DIAGONAL_PENALTY_CAP
+    assert score_loose_fit.total < score_tight_fit.total
+    assert score_way_over_cap.total == pytest.approx(score_at_cap.total)
+
+
 def test_flip_is_sticky_even_after_an_unconfirmed_later_break():
     # Broke, was confirmed flipped, then broke *again* with no further
     # reclaim -- lifecycle.py's state is FLIPPED either way (there's no

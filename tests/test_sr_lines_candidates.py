@@ -94,6 +94,31 @@ def test_diagonal_fits_a_clean_uptrend_and_collects_all_its_pivots_as_inliers():
     cand = candidates[0]
     assert len(cand.pivots) == 5
     assert cand.slope == pytest.approx(slope, abs=1e-6)
+    # A perfect fit -- every inlier sits exactly on the line -- should have
+    # ~zero fit-quality penalty.
+    assert cand.fit_rms_atr_pct == pytest.approx(0.0, abs=1e-6)
+
+
+def test_diagonal_fit_rms_is_higher_for_a_looser_scattered_fit():
+    config = SRConfig(diagonal_enabled=True, zone_width_atr=1.0)
+    bar_indices = (0, 25, 50, 75, 100)
+    slope = 0.001
+
+    tight_pivots = [_diag_pivot(100.0 * math.exp(slope * bi), bi, 0.02) for bi in bar_indices]
+    # Same trend, but each point nudged by a random-ish offset within the
+    # inlier tolerance (zone_width_atr * atr_pct = 1.0 * 0.02 = 2% here) --
+    # still all inliers, just scattered instead of sitting exactly on the line.
+    offsets = [1.0, -1.006, 1.006, -1.0, 0.5]
+    scattered_pivots = [
+        _diag_pivot(100.0 * math.exp(slope * bi) * (1 + 0.019 * off), bi, 0.02)
+        for bi, off in zip(bar_indices, offsets)
+    ]
+
+    tight_cand = generate_diagonal_candidates(tight_pivots, config)[0]
+    scattered_cand = generate_diagonal_candidates(scattered_pivots, config)[0]
+
+    assert scattered_cand.fit_rms_atr_pct > tight_cand.fit_rms_atr_pct
+    assert scattered_cand.fit_rms_atr_pct > 0.05  # meaningfully loose, not just float noise
 
 
 def test_diagonal_half_width_is_price_level_invariant_in_log_space():

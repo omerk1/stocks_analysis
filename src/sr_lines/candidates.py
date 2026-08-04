@@ -101,6 +101,12 @@ class DiagonalCandidate:
     origin_index: int
     half_width: float
     pivots: list[Pivot] = field(default_factory=list)
+    # RMS of each inlier's fit deviation, normalized by its own
+    # zone_width_atr*ATR% tolerance (the same bound that made it an inlier
+    # in the first place) -- roughly 0 for a tight fit, approaching 1 for
+    # inliers scattered right at the tolerance edge. Feeds scoring.py's
+    # diagonal_penalty; see generate_diagonal_candidates.
+    fit_rms_atr_pct: float = 0.0
 
     def log_price_at(self, bar_index: int) -> float:
         return self.intercept + self.slope * (bar_index - self.origin_index)
@@ -210,10 +216,22 @@ def _fit_diagonal_candidates(same_kind_pivots: list[Pivot], config: SRConfig) ->
             atr_pcts = [p.atr_at_pivot / p.price for p in inliers]
             half_width = (config.zone_width_atr * statistics.median(atr_pcts)) / 2
 
+            # Fit-quality: each inlier's deviation from the *refit* line,
+            # normalized by its own zone_width_atr*ATR% tolerance -- the
+            # same bound that made it an inlier in the first place. RMS of
+            # those ratios is ~0 for a tight fit, approaching/exceeding 1
+            # for inliers scattered near the tolerance edge.
+            deviations = [
+                abs(math.log(p.price) - (intercept + refit_slope * (p.bar_index - origin_index)))
+                / (config.zone_width_atr * (p.atr_at_pivot / p.price))
+                for p in inliers
+            ]
+            fit_rms_atr_pct = float(np.sqrt(np.mean(np.square(deviations))))
+
             results.append(
                 DiagonalCandidate(
                     slope=float(refit_slope), intercept=intercept, origin_index=origin_index,
-                    half_width=half_width, pivots=inliers,
+                    half_width=half_width, pivots=inliers, fit_rms_atr_pct=fit_rms_atr_pct,
                 )
             )
     return results

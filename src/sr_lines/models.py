@@ -118,6 +118,11 @@ class Line:
     n_wick_fakes: int = 0
     n_body_fakes: int = 0
     n_breaks: int = 0
+    # Diagonal only: the fitted line's own fit-quality measure (see
+    # candidates.DiagonalCandidate.fit_rms_atr_pct), carried onto the built
+    # Line so lifecycle.dedup_lines can rescore a merged survivor with its
+    # own diagonal_penalty preserved rather than losing it after a merge.
+    diagonal_fit_penalty: float = 0.0
     broken_at: str | None = None
     flipped_at: str | None = None
 
@@ -150,6 +155,7 @@ class Line:
             "n_wick_fakes": self.n_wick_fakes,
             "n_body_fakes": self.n_body_fakes,
             "n_breaks": self.n_breaks,
+            "diagonal_fit_penalty": self.diagonal_fit_penalty,
             "broken_at": self.broken_at,
             "flipped_at": self.flipped_at,
         }

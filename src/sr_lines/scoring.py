@@ -6,8 +6,9 @@ per-component breakdown is always reported (ScoreBreakdown), not just the
 final number -- required for tuning via the review chart and for a future
 model consumer that might want the components individually.
 
-Diagonal-specific penalties (component 6 in the spec) are a no-op until
-milestone 5 -- `diagonal_penalty` is always 0.0 for horizontal lines.
+`diagonal_penalty` is always 0.0 for horizontal lines; for diagonal lines
+it's a fit-quality penalty (see `score_line`'s `diagonal_fit_penalty` param
+and `candidates.DiagonalCandidate.fit_rms_atr_pct`).
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ _BODY_FAKE_RESILIENCE = 0.35
 _BODY_FAKE_MIN_DECAY = 0.3
 _RESILIENCE_CAP = 1.0
 _PROXIMITY_ATR_SCALE = 5.0
+_DIAGONAL_PENALTY_CAP = 0.3
 
 
 def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
@@ -248,6 +250,7 @@ def score_line(
     config: SRConfig,
     diagonal: bool = False,
     center_at: Callable[[int], float] | None = None,
+    diagonal_fit_penalty: float = 0.0,
 ) -> ScoreBreakdown:
     """`candidate_center` is the zone's center *at the current reference bar*
     -- used for `_proximity`, which only ever cares about "how far is price
@@ -258,6 +261,11 @@ def score_line(
     returning `candidate_center` when not given. Diagonal callers should
     pass both: `candidate_center` evaluated at the reference bar, and
     `center_at` as the candidate's own per-bar center function.
+
+    `diagonal_fit_penalty`, only applied when `diagonal=True`, is the
+    candidate's own `DiagonalCandidate.fit_rms_atr_pct` -- how loosely its
+    inliers scattered around the fitted line, capped at `_DIAGONAL_PENALTY_CAP`
+    so one very sloppy fit can't push the score negative outright.
     """
     now = bars.index[-1]
     half_life = config.resolved_half_life_years()
@@ -280,7 +288,7 @@ def score_line(
     multiplier = 1.0
     if diagonal:
         multiplier = config.diagonal_score_multiplier
-        diagonal_penalty = 0.0  # slope penalty is milestone 5
+        diagonal_penalty = min(diagonal_fit_penalty, _DIAGONAL_PENALTY_CAP)
 
     # proximity no longer participates as a fifth additive term -- with 5
     # independent weighted terms, no single weight could suppress a level
