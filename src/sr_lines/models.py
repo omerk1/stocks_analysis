@@ -6,6 +6,7 @@ pandas objects, no engine internals leak through here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
@@ -46,6 +47,11 @@ class Pivot:
     price: float
     confirmed_at: str
     atr_at_pivot: float
+    # Integer position in the detection window's bar index -- the x-axis
+    # diagonal trendline fitting needs (log-price vs. bar-index, not
+    # price-only like horizontal clustering). Defaults to 0 so tests that
+    # construct a Pivot without a real bars context don't need to supply one.
+    bar_index: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -121,8 +127,6 @@ class Line:
         log-linear trend from origin_index."""
         if self.kind == LineKind.HORIZONTAL:
             return self.center
-        import math
-
         return math.exp(self.intercept + self.slope * (bar_index - self.origin_index))
 
     def to_dict(self) -> dict:
