@@ -415,6 +415,72 @@ diagonal-specific fix; nothing analogous exists for horizontal (single-pass
 clustering, not pairwise seed fitting, so this particular failure mode is
 structural to the RANSAC approach, not something horizontal shares).
 
+## Resolved: diagonal candidate-level dedup used pivot overlap, not price proximity
+
+Follow-up finding from the same chart review: even after the fix above,
+the top-15 for T was still dominated by 8+ near-identical-looking ascending
+lines. Checked concretely -- they weren't exact duplicates from the fixed
+bug (none shared pivots), but genuinely distinct RANSAC fits from disjoint
+pivot subsets that happened to track nearly the same price band (1.4-14%
+apart) on a long, channel-trending stock. The old dedup never compared
+them at all, since it only ever looked at candidates sharing pivot points.
+
+Replaced with an actual price-proximity check (`candidates.
+_candidates_are_duplicate`): two candidates are duplicates if their slopes
+are similar and their fitted prices stay within `dedup_overlap_threshold *
+(half_width_a + half_width_b)` of each other, sampled at both the later of
+their two starting points and at "now" -- reusing the existing
+`dedup_overlap_threshold`/`--dedup-threshold` knob rather than inventing a
+diagonal-only one. T's total diagonal count dropped 177 -> 132. Raising
+the threshold further (0.6 -> 6.0) only reduced it to 116 -- notably
+weaker than horizontal dedup's response to the same knob on a similar T
+cluster (28 -> 9 at `zone_width_atr=3.0`). Not fully understood: either
+these really are more genuinely-distinct trendlines than they visually
+appear (plausible, same as AAPL's COVID-era horizontal density turning out
+to be real), or the 2-point sampling is still missing pairs that are close
+across most of their range but diverge at one of the two checked points.
+
+## Resolved: diagonal merges were displaying/scoring events against the wrong geometry
+
+Most serious finding from the same review round -- user-reported "floating
+markers" and zones seeming to not start from any real bar. Root cause:
+`lifecycle._absorb` unioned pre-computed events from merged candidates
+directly, which is only safe when the merged zones are close *everywhere*,
+not just at the points a proximity check happened to sample. Horizontal's
+constant bounds guarantee this; diagonal's price-proximity dedup (see
+above) only samples 2 points, so two candidates could pass that check
+while diverging meaningfully elsewhere along their span. After merging,
+*every* event -- including ones originally validated against the *other*
+candidate's zone -- got displayed and scored against the survivor's single
+final geometry.
+
+Confirmed concretely on a real T line: a ~0.5%-wide band had dozens of
+touch/break events whose actual close price sat 5-49% away from it --
+physically impossible for a genuine interaction with that narrow a zone.
+
+Fixed by re-classifying events from scratch against the survivor's own
+kept geometry on every diagonal merge, instead of unioning stale ones
+(`events.classify_events` gained an optional `start_ts` override so it can
+be called with a `Line`, which has no `.pivots`, as the "candidate").
+Verified: max deviation on T's top-15 diagonal lines dropped from 49.6% to
+12.6%. The remaining gaps are explained, not bugs: mostly genuine (a BREAK
+event's `end` is several bars after the actual crossing, by which point
+price may have kept moving away -- that's what a real, continuing
+breakdown looks like) -- except one, a same-day TOUCH with a 12.6% gap on
+T, 2023-01-24, which traces to a **pre-existing bad data point**: that
+day's bar has `high=17.81` against `open=15.69`/`close=15.85`, an ~13%
+intraday spike that fully reverses within the same session. Not caught by
+the current validation gate (`data.py`'s hard checks only verify internal
+OHLC consistency; the soft day-over-day jump check only looks at
+close-to-close continuity, not intraday range plausibility) -- a real,
+separate data-quality gap, unrelated to sr_lines logic. Not yet
+investigated further or fixed; flagged in `docs/backlog.md`.
+
+Cost: `_absorb` now does a full `classify_events` pass (O(bars)) on every
+diagonal merge instead of a cheap list union -- detection is noticeably
+slower again (~25s vs ~8-10s on T's long_term window). Not yet optimized;
+correctness took priority.
+
 ## Idea, not yet built: a penetration-depth/volume "erosion" signal
 
 Raised as a question: does scoring account for how deep a wick/body-fake
