@@ -13,7 +13,7 @@ import math
 import pandas as pd
 
 from src.sr_lines import scoring
-from src.sr_lines.candidates import Candidate, DiagonalCandidate
+from src.sr_lines.candidates import Candidate, DiagonalCandidate, slopes_are_similar
 from src.sr_lines.config import SRConfig
 from src.sr_lines.flip_status import break_and_flip_status
 from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown
@@ -124,7 +124,7 @@ def dedup_lines(lines: list[Line], bars: pd.DataFrame, atr: pd.Series, config: S
                 lo1, hi1 = line.center - line.half_width, line.center + line.half_width
                 lo2, hi2 = k.center - k.half_width, k.center + k.half_width
             else:
-                if abs(line.slope - k.slope) > config.max_diagonal_slope_atr_per_bar:
+                if not slopes_are_similar(line.slope, k.slope):
                     continue
                 c1, c2 = line.price_at(now_bar_index), k.price_at(now_bar_index)
                 lo1, hi1 = c1 * math.exp(-line.half_width), c1 * math.exp(line.half_width)

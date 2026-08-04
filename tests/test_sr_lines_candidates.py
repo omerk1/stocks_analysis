@@ -2,7 +2,12 @@ import math
 
 import pytest
 
-from src.sr_lines.candidates import generate_diagonal_candidates, generate_horizontal_candidates
+from src.sr_lines.candidates import (
+    DiagonalCandidate,
+    _dedupe_diagonal_candidates,
+    generate_diagonal_candidates,
+    generate_horizontal_candidates,
+)
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Pivot, PivotKind
 
@@ -168,3 +173,39 @@ def test_diagonal_does_not_mix_high_and_low_pivots():
     for cand in candidates:
         kinds = {p.kind for p in cand.pivots}
         assert len(kinds) == 1
+
+
+def _bare_diag_candidate(slope: float, bar_indices: list[int]) -> DiagonalCandidate:
+    pivots = [_diag_pivot(100.0, bi, 0.02) for bi in bar_indices]
+    return DiagonalCandidate(slope=slope, intercept=math.log(100.0), origin_index=bar_indices[0],
+                              half_width=0.02, pivots=pivots)
+
+
+def test_dedup_does_not_drop_a_short_candidate_that_shares_pivots_but_not_slope():
+    # Regression: a real AAPL run had a short, visually obvious 3-pivot
+    # descending trendline discarded because it shared 2 of its 3 pivots
+    # with several longer, unrelated *ascending* candidates that had more
+    # inliers (sorted first) -- pivot overlap alone isn't proof of
+    # duplication; a single pivot can legitimately sit on two geometrically
+    # unrelated lines.
+    long_ascending = _bare_diag_candidate(slope=0.001, bar_indices=[0, 50, 100, 150])
+    short_descending = _bare_diag_candidate(slope=-0.01, bar_indices=[100, 150, 200])  # shares 2 of 3 pivots
+    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.05)
+
+    kept = _dedupe_diagonal_candidates([long_ascending, short_descending], config)
+
+    assert len(kept) == 2
+
+
+def test_dedup_still_drops_a_genuine_near_duplicate_with_a_similar_slope():
+    # Same pivot overlap as above, but this time the slopes *are* close --
+    # this is the real "same seed structure found the same line twice" case
+    # the dedup is actually meant to catch.
+    long_line = _bare_diag_candidate(slope=0.001, bar_indices=[0, 50, 100, 150])
+    near_duplicate = _bare_diag_candidate(slope=0.0011, bar_indices=[100, 150, 200])
+    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.05)
+
+    kept = _dedupe_diagonal_candidates([long_line, near_duplicate], config)
+
+    assert len(kept) == 1
+    assert kept[0] is long_line  # more pivots -> sorted/kept first

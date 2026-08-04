@@ -33,14 +33,23 @@ class SRConfig:
     zone_width_atr: float = 0.4
     min_pivots_per_cluster: int = 2
 
-    # Diagonal (unused until milestone 5; kept here so the config shape is
-    # stable across the milestone-4 review checkpoint)
+    # Diagonal (milestone 5)
     diagonal_enabled: bool = False
     diagonal_score_multiplier: float = 0.65
     max_diagonal_slope_atr_per_bar: float = 0.05
     diagonal_min_pivot_separation_bars: int = 20
     diagonal_min_inliers: int = 3
-    diagonal_max_candidates: int = 30
+    # 30 was too aggressive: a real AAPL run had 255 genuinely distinct
+    # candidates after proper (slope-aware) dedup, and ranking the survivors
+    # by raw pivot count before capping systematically favored long,
+    # low-precision multi-year lines over short, tight, recent ones --
+    # discarding a visually obvious 3-touch descending trendline before
+    # scoring ever got a chance to rank it. 300 comfortably covers real
+    # long_term windows (255/228 candidates seen on AAPL/T) so candidate
+    # generation stops pre-filtering by "most pivots" and leaves ranking to
+    # scoring's actual relevance/quality machinery, at the cost of a slower
+    # detection run (~8-10s vs ~1s on a long_term window).
+    diagonal_max_candidates: int = 300
 
     # Events
     fakeout_reclaim_bars: int = 5

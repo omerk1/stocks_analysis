@@ -16,6 +16,20 @@ import numpy as np
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Pivot, PivotKind
 
+# How close two diagonal candidates' slopes need to be to call them the same
+# line for dedup purposes. Deliberately *not* `max_diagonal_slope_atr_per_bar`
+# (the slope-rejection cap, ~0.05) -- real trendline slopes are typically two
+# orders of magnitude smaller than that (~0.0001-0.001), so using the cap as
+# a similarity tolerance would call almost any two same-signed slopes
+# "similar" and, worse, wouldn't even reliably separate a gentle ascending
+# line from a steep descending one. Opposite-signed slopes are never
+# similar, full stop; same-signed ones must be within 2x of each other.
+def slopes_are_similar(a: float, b: float) -> bool:
+    if (a > 0) != (b > 0):
+        return False
+    lo, hi = sorted((abs(a), abs(b)))
+    return True if hi == 0 else lo / hi >= 0.5
+
 
 @dataclass
 class HorizontalCandidate:
@@ -152,8 +166,20 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
        noisier slope than the full inlier set supports.
     5. Greedily dedupe: sort by inlier count descending, drop any candidate
        whose inlier set overlaps an already-kept candidate's by more than
-       half (the same seed structure repeatedly finds near-identical lines
-       through overlapping pivot subsets). Cap at `diagonal_max_candidates`.
+       half *and* whose slope is close to that kept candidate's (see
+       `slopes_are_similar` -- not `max_diagonal_slope_atr_per_bar`, which
+       is two orders of magnitude too loose for this) -- the same seed
+       structure repeatedly finds near-identical lines through overlapping pivot
+       subsets, but pivot overlap *alone* isn't enough to call two
+       candidates duplicates: a single pivot can legitimately sit on two
+       geometrically unrelated trendlines (e.g. a short, recent, steep
+       descending line and a long, shallow, multi-year ascending one that
+       happens to pass near the same point by coincidence). A real AAPL
+       case: a clean 3-pivot descending line (visually obvious on the
+       chart) was getting discarded because it shared 2 of its 3 pivots
+       with several unrelated ascending lines spanning 2018-2026 that had
+       more inliers and were kept first -- checking slope similarity too
+       fixes this. Cap at `diagonal_max_candidates`.
 
     `half_width` is the **log-space** band half-width (see `models.Line`'s
     own docstring, which already anticipates this contract): multiplicative
@@ -169,12 +195,26 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
         same_kind = sorted((p for p in pivots if p.kind == kind), key=lambda p: p.bar_index)
         candidates.extend(_fit_diagonal_candidates(same_kind, config))
 
-    candidates.sort(key=lambda c: -len(c.pivots))
+    return _dedupe_diagonal_candidates(candidates, config)
+
+
+def _dedupe_diagonal_candidates(
+    candidates: list[DiagonalCandidate], config: SRConfig
+) -> list[DiagonalCandidate]:
+    """Greedy dedup + cap, factored out so it's testable against hand-built
+    candidates without needing a full RANSAC fit -- see the "5." step in
+    `generate_diagonal_candidates`'s docstring for why the slope check
+    matters here, not just pivot overlap."""
+    candidates = sorted(candidates, key=lambda c: -len(c.pivots))
     kept: list[DiagonalCandidate] = []
     kept_index_sets: list[set[int]] = []
     for cand in candidates:
         idx_set = {p.bar_index for p in cand.pivots}
-        if any(len(idx_set & existing) / len(idx_set) > 0.5 for existing in kept_index_sets):
+        is_duplicate = any(
+            len(idx_set & existing) / len(idx_set) > 0.5 and slopes_are_similar(cand.slope, other.slope)
+            for existing, other in zip(kept_index_sets, kept)
+        )
+        if is_duplicate:
             continue
         kept.append(cand)
         kept_index_sets.append(idx_set)
