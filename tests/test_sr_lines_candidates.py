@@ -175,37 +175,62 @@ def test_diagonal_does_not_mix_high_and_low_pivots():
         assert len(kinds) == 1
 
 
-def _bare_diag_candidate(slope: float, bar_indices: list[int]) -> DiagonalCandidate:
+def _bare_diag_candidate(
+    slope: float, bar_indices: list[int], intercept: float = math.log(100.0), half_width: float = 0.02,
+) -> DiagonalCandidate:
     pivots = [_diag_pivot(100.0, bi, 0.02) for bi in bar_indices]
-    return DiagonalCandidate(slope=slope, intercept=math.log(100.0), origin_index=bar_indices[0],
-                              half_width=0.02, pivots=pivots)
+    return DiagonalCandidate(slope=slope, intercept=intercept, origin_index=bar_indices[0],
+                              half_width=half_width, pivots=pivots)
 
 
-def test_dedup_does_not_drop_a_short_candidate_that_shares_pivots_but_not_slope():
+def test_dedup_does_not_drop_a_candidate_with_a_different_slope_even_if_prices_happen_to_cross():
     # Regression: a real AAPL run had a short, visually obvious 3-pivot
     # descending trendline discarded because it shared 2 of its 3 pivots
     # with several longer, unrelated *ascending* candidates that had more
     # inliers (sorted first) -- pivot overlap alone isn't proof of
     # duplication; a single pivot can legitimately sit on two geometrically
-    # unrelated lines.
+    # unrelated lines. Anchored so their prices are close at bar 100 (where
+    # they'd have shared a pivot under the old pivot-overlap check) -- the
+    # slope difference alone must still be enough to keep both.
     long_ascending = _bare_diag_candidate(slope=0.001, bar_indices=[0, 50, 100, 150])
-    short_descending = _bare_diag_candidate(slope=-0.01, bar_indices=[100, 150, 200])  # shares 2 of 3 pivots
+    short_descending = _bare_diag_candidate(
+        slope=-0.01, bar_indices=[100, 150, 200], intercept=long_ascending.log_price_at(100),
+    )
     config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.05)
 
-    kept = _dedupe_diagonal_candidates([long_ascending, short_descending], config)
+    kept = _dedupe_diagonal_candidates([long_ascending, short_descending], 200, config)
 
     assert len(kept) == 2
 
 
-def test_dedup_still_drops_a_genuine_near_duplicate_with_a_similar_slope():
-    # Same pivot overlap as above, but this time the slopes *are* close --
-    # this is the real "same seed structure found the same line twice" case
-    # the dedup is actually meant to catch.
+def test_dedup_drops_a_geometrically_close_candidate_with_a_similar_slope():
+    # A real T run showed this: many diagonal candidates fit from entirely
+    # disjoint pivot subsets (so the old pivot-overlap check never even
+    # looked at them) but tracking nearly the same price band with a
+    # similar slope -- 8+ "different" ascending lines all within a few % of
+    # each other, cluttering the chart. Anchored close together at bar 100.
     long_line = _bare_diag_candidate(slope=0.001, bar_indices=[0, 50, 100, 150])
-    near_duplicate = _bare_diag_candidate(slope=0.0011, bar_indices=[100, 150, 200])
-    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.05)
+    near_duplicate = _bare_diag_candidate(
+        slope=0.0011, bar_indices=[300, 350, 400], intercept=long_line.log_price_at(300) + 0.005,
+    )
+    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.05, dedup_overlap_threshold=0.6)
 
-    kept = _dedupe_diagonal_candidates([long_line, near_duplicate], config)
+    kept = _dedupe_diagonal_candidates([long_line, near_duplicate], 400, config)
 
     assert len(kept) == 1
     assert kept[0] is long_line  # more pivots -> sorted/kept first
+
+
+def test_dedup_keeps_parallel_lines_that_are_offset_far_apart_in_price():
+    # Same slope, but genuinely different price levels (e.g. the top and
+    # bottom of a channel) -- must not be merged just because they're
+    # roughly parallel.
+    upper = _bare_diag_candidate(slope=0.001, bar_indices=[0, 50, 100, 150])
+    lower = _bare_diag_candidate(
+        slope=0.001, bar_indices=[0, 50, 100], intercept=upper.log_price_at(0) - 0.5,  # ~40% lower
+    )
+    config = SRConfig(diagonal_enabled=True, dedup_overlap_threshold=0.6)
+
+    kept = _dedupe_diagonal_candidates([upper, lower], 150, config)
+
+    assert len(kept) == 2

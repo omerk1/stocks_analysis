@@ -165,21 +165,27 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
        for a more robust final line -- two arbitrary pivots can imply a
        noisier slope than the full inlier set supports.
     5. Greedily dedupe: sort by inlier count descending, drop any candidate
-       whose inlier set overlaps an already-kept candidate's by more than
-       half *and* whose slope is close to that kept candidate's (see
-       `slopes_are_similar` -- not `max_diagonal_slope_atr_per_bar`, which
-       is two orders of magnitude too loose for this) -- the same seed
-       structure repeatedly finds near-identical lines through overlapping pivot
-       subsets, but pivot overlap *alone* isn't enough to call two
-       candidates duplicates: a single pivot can legitimately sit on two
-       geometrically unrelated trendlines (e.g. a short, recent, steep
-       descending line and a long, shallow, multi-year ascending one that
-       happens to pass near the same point by coincidence). A real AAPL
-       case: a clean 3-pivot descending line (visually obvious on the
-       chart) was getting discarded because it shared 2 of its 3 pivots
-       with several unrelated ascending lines spanning 2018-2026 that had
-       more inliers and were kept first -- checking slope similarity too
-       fixes this. Cap at `diagonal_max_candidates`.
+       whose *price* stays close to an already-kept candidate's -- within
+       `dedup_overlap_threshold * (half_width_a + half_width_b)`, checked at
+       both the later of their two starting bar-indices and at "now" (an
+       approximation: the latest bar-index among all pivots passed in) --
+       and whose slope is similar (see `slopes_are_similar`). This is a
+       *price*-proximity check, not a pivot-overlap one: two candidates
+       fit from entirely disjoint pivot subsets can still describe visually
+       redundant, near-parallel lines on a long, channel-trending stock
+       (confirmed on real T data -- 8+ "different" ascending lines all
+       within a few % of each other, none sharing pivots, all surviving as
+       separate top-N entries and cluttering the chart). Conversely, sharing
+       *some* pivots doesn't make two candidates duplicates either -- a
+       single pivot can legitimately sit on two geometrically unrelated
+       trendlines (a real AAPL case: a short, recent, steep descending line
+       shared 2 of its 3 pivots with several unrelated long, shallow,
+       multi-year ascending lines that happened to pass near the same
+       points). Reuses `dedup_overlap_threshold` (`--dedup-threshold`) --
+       the same knob horizontal dedup already exposes for "how aggressively
+       should close-but-not-identical zones merge" -- rather than inventing
+       a second, diagonal-only tuning parameter. Cap at
+       `diagonal_max_candidates`.
 
     `half_width` is the **log-space** band half-width (see `models.Line`'s
     own docstring, which already anticipates this contract): multiplicative
@@ -195,29 +201,41 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
         same_kind = sorted((p for p in pivots if p.kind == kind), key=lambda p: p.bar_index)
         candidates.extend(_fit_diagonal_candidates(same_kind, config))
 
-    return _dedupe_diagonal_candidates(candidates, config)
+    if not pivots:
+        return []
+    reference_bar_index = max(p.bar_index for p in pivots)
+    return _dedupe_diagonal_candidates(candidates, reference_bar_index, config)
+
+
+def _candidates_are_duplicate(
+    a: DiagonalCandidate, b: DiagonalCandidate, reference_bar_index: int, config: SRConfig
+) -> bool:
+    if not slopes_are_similar(a.slope, b.slope):
+        return False
+    span_start = max(min(p.bar_index for p in a.pivots), min(p.bar_index for p in b.pivots))
+    tolerance = config.dedup_overlap_threshold * (a.half_width + b.half_width)
+    return all(
+        abs(a.log_price_at(x) - b.log_price_at(x)) <= tolerance
+        for x in (span_start, reference_bar_index)
+    )
 
 
 def _dedupe_diagonal_candidates(
-    candidates: list[DiagonalCandidate], config: SRConfig
+    candidates: list[DiagonalCandidate], reference_bar_index: int, config: SRConfig
 ) -> list[DiagonalCandidate]:
     """Greedy dedup + cap, factored out so it's testable against hand-built
     candidates without needing a full RANSAC fit -- see the "5." step in
-    `generate_diagonal_candidates`'s docstring for why the slope check
-    matters here, not just pivot overlap."""
+    `generate_diagonal_candidates`'s docstring for why this is a price-
+    proximity check, not a pivot-overlap one. `reference_bar_index` is the
+    "now" point proximity is checked against (an approximation -- the
+    caller passes the latest bar-index among all pivots, close to but not
+    exactly the detection window's last bar)."""
     candidates = sorted(candidates, key=lambda c: -len(c.pivots))
     kept: list[DiagonalCandidate] = []
-    kept_index_sets: list[set[int]] = []
     for cand in candidates:
-        idx_set = {p.bar_index for p in cand.pivots}
-        is_duplicate = any(
-            len(idx_set & existing) / len(idx_set) > 0.5 and slopes_are_similar(cand.slope, other.slope)
-            for existing, other in zip(kept_index_sets, kept)
-        )
-        if is_duplicate:
+        if any(_candidates_are_duplicate(cand, k, reference_bar_index, config) for k in kept):
             continue
         kept.append(cand)
-        kept_index_sets.append(idx_set)
         if len(kept) >= config.diagonal_max_candidates:
             break
 
