@@ -315,12 +315,75 @@ closing back on the new side) and is now treated identically. A *pending*
 body-fake still doesn't count -- it hasn't resolved yet. Both checks now
 share one predicate, `flip_status.is_confirmation_event()`.
 
+## Milestone 5: diagonal (RANSAC-style, log-price) trendlines implemented
+
+Built on `feature/sr-lines-diagonals-and-scoring`, following the geometry
+contract `models.py` had already anticipated since milestone 4 (slope/
+intercept in log-price-per-bar-index space, `half_width` as a log-space
+band -- see `Line.price_at`/`Line.zone_at`).
+
+- `candidates.DiagonalCandidate` + `generate_diagonal_candidates`: seeds
+  from same-kind pivot pairs `>= diagonal_min_pivot_separation_bars` apart,
+  slope-capped via `max_diagonal_slope_atr_per_bar` (treated as a direct cap
+  on log-slope-per-bar, i.e. roughly "max % move per bar" -- the field
+  predates this work and its exact intended units were never pinned down
+  elsewhere, so this is a judgment call worth a gut-check if it turns out
+  wrong), inliers within `zone_width_atr * local ATR%` of the fit (same
+  formula shape as horizontal clustering), refit via least-squares over the
+  full inlier set, greedily deduped by inlier-set overlap, capped at
+  `diagonal_max_candidates`.
+- `events.classify_events` generalized to evaluate zone bounds *per bar* via
+  `candidate.zone_at(bar_index)` instead of once at the top -- required
+  since a diagonal band's position moves with its slope; verified
+  equivalent to the old fixed-scalar behavior for horizontal by the full
+  existing suite staying green throughout.
+- `scoring.score_line` gained an optional `center_at` callable (used by
+  `_duration_density`, which needs the center at every bar in its in-play
+  window) and `diagonal_fit_penalty`. Every existing horizontal call site
+  was left untouched (both are additive, defaulted params) rather than
+  changing `candidate_center`'s type everywhere.
+- `diagonal_penalty` implemented as `DiagonalCandidate.fit_rms_atr_pct`: RMS
+  of each inlier's deviation from the refit line, normalized by the same
+  tolerance that made it an inlier, capped at 0.3. A starting formulation,
+  not a final one -- like every other scoring constant here, it's meant to
+  be checked against real charts, not treated as settled on the first pass.
+- `lifecycle.py`: `build_line` branches on candidate type; `dedup_lines`
+  gained a diagonal-diagonal merge rule (v1, explicitly flagged as a
+  simplification): same gap-based check as horizontal but evaluated at the
+  current reference bar via `Line.price_at`, gated by a slope-similarity
+  check first so two trendlines that merely cross near "now" without
+  actually tracking together don't get merged. Horizontal and diagonal
+  lines never merge with each other.
+- `plotting.py`: diagonal bands render as a sloped 4-point polygon (`Line.
+  zone_at`) instead of a flat rectangle; event markers and break/flip
+  annotations follow `price_at(bar_index)` instead of a fixed height.
+- CLI: `--diagonals` (off by default, so existing horizontal-only charts
+  stay comparable to earlier runs).
+
+Real-data smoke test (AAPL, T; long_term preset, full history): both ran
+clean end-to-end, no degenerate geometry (price extrapolation stayed within
+a few percent of actual current price for the top-ranked diagonal lines on
+both tickers), `diagonal_penalty` visibly discriminating tight vs. loose
+fits, diagonal lines competing meaningfully in the top ranks alongside
+horizontal ones. **Both tickers hit the `diagonal_max_candidates` (30) cap
+before dedup** -- worth watching once the real charts are reviewed visually;
+may indicate the cap is too low for a busy 8-year window, or that the
+inlier tolerance is too loose and producing more near-duplicate candidates
+than it should. Not yet resolved -- first real-chart visual review round
+for diagonals is still pending, same as horizontal went through several
+rounds of before it stabilized.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
   events can still hit the cap even after the time-decay fix, so the decay
   change had only a modest effect on one real chaotic-vs-clean comparison
   that motivated it. Flagged, not yet acted on.
-- Milestones 5 (diagonals), 6 (`as_of` dedicated test coverage beyond what's
-  already implicitly correct), 7 (systematic weight-tuning pass) are all
-  still ahead, per the original spec's milestone order.
+- Diagonal real-chart visual review (band width, dedup aggressiveness, the
+  30-candidate cap, whether `max_diagonal_slope_atr_per_bar`'s log-slope
+  interpretation is the right one) -- structurally verified, not yet
+  visually validated.
+- Milestone 6 (`as_of` dedicated test coverage beyond what's already
+  implicitly correct) and milestone 7 (a systematic weight-tuning pass,
+  now including diagonal-specific weights/penalty calibration) are still
+  ahead, per the original spec's milestone order.
