@@ -32,12 +32,15 @@ horizontal zones. Append to this rather than rewriting it.
   more can happen to a dead line, so its historical strength shouldn't keep
   fading just because more calendar time passes. `ACTIVE`/`FLIPPED` lines
   (still in play) decay against the real reference date. This must stay in
-  sync with `lifecycle.py`'s "flipped is sticky" state determination (see
-  below) -- a line reported as FLIPPED must never have its score frozen as
-  if dead. `scoring._decay_reference` and `lifecycle._break_and_flip_status`
-  are two independent implementations of the same "is this actually flipped"
-  logic and have already drifted out of sync once (see below) -- worth
-  factoring into one shared function before diagonals duplicate the risk.
+  sync with the line's "flipped is sticky" state determination (see below)
+  -- a line reported as FLIPPED must never have its score frozen as if dead.
+  **Resolved**: `scoring._decay_reference` and `lifecycle.build_line` used to
+  be two independent implementations of "is this actually flipped" and had
+  already drifted out of sync once (see below). Factored into one shared
+  `flip_status.break_and_flip_status()` (plus `flip_status.is_confirmation_event()`
+  for the one-event predicate `_role_reversal` also needs) -- both
+  `lifecycle.py` and `scoring.py` now call the same function, so they
+  structurally can't disagree again.
 
 ## Zone geometry: two different knobs, easy to conflate
 
@@ -203,17 +206,83 @@ actual price has done.
 - `--zone-width-atr F` -- clustering-time tolerance (see zone geometry
   section above -- usually the more relevant knob of the two).
 
+## Resolved: BREAK/BODY_FAKE markers and break/flip labels were ambiguous on a real chart
+
+Twice on a real NVDA chart, a line with zero BREAK events (all its
+crossings were BODY_FAKE -- reclaimed within the window) was misread as
+having broken, because (1) BODY_FAKE (`"x"`, `#d62728`) and BREAK
+(`"x-thin"`, `#8c1414`) rendered as near-identical reddish X's at normal
+zoom, and (2) a *different*, price-adjacent line's real break/flip
+annotations, drawn at that other line's own `center` height, visually
+landed close enough to the first line's box to read as belonging to it --
+markers and annotations are both plotted at a flat `y=line.center`, so two
+lines whose centers are only a few dollars apart can have their event rows
+visually collide once compressed against the chart's full price range.
+
+Fixed in `plotting.py`: BREAK is now a bold solid black `"x"` (larger,
+thicker outline) instead of a slightly-darker-red thin X -- deliberately the
+most visually severe marker, matching that it's the only event type that
+actually costs a line its role. BODY_FAKE is now a hollow `"circle-open"` --
+reads as "attempted, not solid," the opposite of BREAK. Break/flip
+annotation text now includes the line ID (`"h19 break"`, not just
+`"break"`), so ambiguity between adjacent lines' labels is resolved by the
+text itself rather than needing to disambiguate by proximity.
+
+Diagonal equivalent: whatever diagonal event markers end up looking like,
+keep BREAK visually distinct from the reclaimed-fakeout types from the
+start, and keep line IDs in annotation text -- diagonal bands crossing each
+other or running close together in log-price space will have this exact
+collision risk too, likely worse since slope adds a second axis they can
+converge along.
+
+## Resolved: `dedup_lines` silently left merged lines stale
+
+Found in a pre-merge PR review of the milestone-4 checkpoint, not from a
+chart complaint. `lifecycle.dedup_lines` merges a weaker zone's events into
+the stronger survivor's `.events` list (that part was always correct and is
+the whole point of gap-aware dedup) but never recomputed anything *derived*
+from that event stream: `state`, `broken_at`/`flipped_at`, the
+`n_touches`/`n_wick_fakes`/`n_body_fakes`/`n_breaks` counts, or
+`scores`/`strength`/`proximity` -- all of that kept reflecting only the
+survivor's own pre-merge events. Confirmed concretely: merging an ACTIVE
+line with a BROKEN line (the latter carrying a real BREAK event) produced a
+result still reporting `state=ACTIVE`, `n_breaks=0`, `broken_at=None`,
+unchanged `strength` -- while `.events` now actually contained the break.
+On a chart that renders as a solid (ACTIVE-styled) box with no "break"
+annotation, but a break marker (✖) sitting right on it, and hover text
+claiming zero breaks. It also meant `select_lines`'s top-N ranking never
+benefited from a merge's "more complete evidence" at all, since it sorts on
+the never-updated `strength`.
+
+Fix: `dedup_lines` now takes `bars`/`atr` and, on every merge, calls
+`lifecycle._absorb()` to rebuild state (via `flip_status`), counts, and
+`scoring.score_line`'s full output from the *union* of events, in place, on
+the survivor. Regression test: `test_dedup_rescores_the_survivor_from_the_merged_event_union`
+in `tests/test_sr_lines_lifecycle.py`.
+
+Diagonal equivalent: whatever diagonal dedup ends up looking like (milestone
+5) needs the same discipline from the start -- merging bands' events without
+rescoring the survivor would reproduce this exact bug.
+
+## Resolved: a resolved body-fake after a break now also confirms a flip
+
+Same "Undercut and Rally (U&R)" idea already used for `resilience`
+(body-fakes are weaker-but-real evidence a side is being respected,
+see above), extended to flip *confirmation*: previously
+`lifecycle`'s break/flip status and `scoring._role_reversal` only accepted a
+TOUCH or WICK_FAKE after a break as proof the new side was being respected
+-- a resolved (non-pending) BODY_FAKE after a break is the same kind of
+evidence (price tried to fall back through toward the old side and failed,
+closing back on the new side) and is now treated identically. A *pending*
+body-fake still doesn't count -- it hasn't resolved yet. Both checks now
+share one predicate, `flip_status.is_confirmation_event()`.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
   events can still hit the cap even after the time-decay fix, so the decay
   change had only a modest effect on one real chaotic-vs-clean comparison
   that motivated it. Flagged, not yet acted on.
-- `scoring._decay_reference` and `lifecycle._break_and_flip_status` are
-  still two independent implementations of the same "is this actually
-  flipped" check (see backtesting section above) -- already drifted out of
-  sync once; worth factoring into one shared function before diagonals
-  duplicate the risk a third time.
 - Milestones 5 (diagonals), 6 (`as_of` dedicated test coverage beyond what's
   already implicitly correct), 7 (systematic weight-tuning pass) are all
   still ahead, per the original spec's milestone order.
