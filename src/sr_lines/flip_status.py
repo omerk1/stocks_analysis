@@ -45,7 +45,6 @@ def break_and_flip_status(events: list[Event]) -> BreakFlipStatus:
     ordered = sorted(events, key=lambda e: (e.start, e.end))
     saw_break = False
     is_flipped = False
-    first_break_at: str | None = None
     first_flip_confirmation_at: str | None = None
     last_break_at: str | None = None
 
@@ -53,8 +52,6 @@ def break_and_flip_status(events: list[Event]) -> BreakFlipStatus:
         if e.type == EventType.BREAK:
             saw_break = True
             last_break_at = e.start
-            if first_break_at is None:
-                first_break_at = e.start
         elif saw_break and not is_flipped and is_confirmation_event(e):
             is_flipped = True
             first_flip_confirmation_at = e.start
