@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 import pytest
 
@@ -7,7 +9,7 @@ from src.sr_lines import lifecycle
 from src.sr_lines import pivots as pivots_mod
 from src.sr_lines import scoring as scoring_mod
 from src.sr_lines.config import SRConfig
-from src.sr_lines.models import EventType, LineState
+from src.sr_lines.models import EventType, LineState, Pivot, PivotKind
 
 
 def _make_bars(rows: list[tuple]) -> pd.DataFrame:
@@ -177,6 +179,72 @@ def test_real_break_then_retest_flips_role():
     # the score is graded -- one confirming retest gets partial credit, not
     # the same full 1.0 a repeatedly-retested reversal would get.
     assert 0 < scores.role_reversal < 1.0
+
+
+def test_diagonal_events_are_classified_against_the_moving_band_not_a_fixed_one():
+    # Candidate constructed directly (not via the full RANSAC pipeline) to
+    # isolate classify_events/score_line's per-bar band tracking. Price
+    # generally trades 3% above a rising log-linear support trend; a touch
+    # is planted far along the trend, at bar 40, where the band's real-price
+    # position is very different from where it started at bar 5.
+    n = 60
+    slope = 0.01  # log-price per bar
+    dates = pd.bdate_range("2020-01-01", periods=n)
+
+    def band_price(i: int) -> float:
+        return 100.0 * math.exp(slope * i)
+
+    def market_price(i: int) -> float:
+        return band_price(i) * 1.03  # price trades 3% above the support band
+
+    closes = [market_price(i) for i in range(n)]
+    rows = [(dates[i], closes[i], closes[i] + 0.3, closes[i] - 0.3, closes[i], 1_000_000) for i in range(n)]
+    bars = _make_bars(rows)
+
+    pivot0 = Pivot(
+        kind=PivotKind.LOW, timestamp=dates[5].isoformat(), price=band_price(5),
+        confirmed_at=dates[5].isoformat(), atr_at_pivot=band_price(5) * 0.02, bar_index=5,
+    )
+    pivot1 = Pivot(
+        kind=PivotKind.LOW, timestamp=dates[10].isoformat(), price=band_price(10),
+        confirmed_at=dates[10].isoformat(), atr_at_pivot=band_price(10) * 0.02, bar_index=10,
+    )
+    cand = candidates_mod.DiagonalCandidate(
+        slope=slope, intercept=math.log(band_price(5)), origin_index=5,
+        half_width=0.02, pivots=[pivot0, pivot1],
+    )
+
+    config = SRConfig(window_years=1.0, fakeout_reclaim_bars=5)
+    atr = pd.Series([market_price(i) * 0.02 for i in range(n)], index=bars.index)
+
+    # Plant touches at bars 40 and 50: low dips into the band *at each
+    # bar's own position*, close snaps back above it. Two touches (not one)
+    # so duration_density -- which needs a real span between events -- has
+    # something to measure.
+    for i in (40, 50):
+        zone_lo_i, zone_hi_i = cand.zone_at(i)
+        d = dates[i]
+        bars.loc[d, ["open", "high", "low", "close"]] = [
+            zone_hi_i + 0.3, zone_hi_i + 0.4, zone_lo_i + 0.005, zone_hi_i + 0.2,
+        ]
+
+    evs, original_side = events_mod.classify_events(bars, cand, atr, config)
+
+    # Confirms the band actually moved meaningfully between bar 5 and bar
+    # 40 -- otherwise this test wouldn't distinguish "tracks the moving
+    # band" from "happened to work against a fixed snapshot."
+    zone_lo_5, zone_hi_5 = cand.zone_at(5)
+    zone_lo_40, _ = cand.zone_at(40)
+    assert zone_lo_40 > zone_hi_5
+
+    assert original_side == "above"
+    touch_dates = {e.start for e in evs if e.type == EventType.TOUCH}
+    assert touch_dates == {dates[40].isoformat(), dates[50].isoformat()}
+
+    scores = scoring_mod.score_line(
+        evs, bars, atr, cand.center_at(n - 1), config, diagonal=True, center_at=cand.center_at,
+    )
+    assert scores.duration_density > 0
 
 
 def test_pivots_alternate_and_confirmed_at_is_after_the_pivot():

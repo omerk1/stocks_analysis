@@ -23,6 +23,12 @@ class HorizontalCandidate:
     half_width: float
     pivots: list[Pivot] = field(default_factory=list)
 
+    def center_at(self, bar_index: int) -> float:
+        return self.center
+
+    def zone_at(self, bar_index: int) -> tuple[float, float]:
+        return self.center - self.half_width, self.center + self.half_width
+
 
 def generate_horizontal_candidates(
     pivots: list[Pivot], config: SRConfig
@@ -98,6 +104,16 @@ class DiagonalCandidate:
 
     def log_price_at(self, bar_index: int) -> float:
         return self.intercept + self.slope * (bar_index - self.origin_index)
+
+    def center_at(self, bar_index: int) -> float:
+        return math.exp(self.log_price_at(bar_index))
+
+    def zone_at(self, bar_index: int) -> tuple[float, float]:
+        log_center = self.log_price_at(bar_index)
+        return math.exp(log_center - self.half_width), math.exp(log_center + self.half_width)
+
+
+Candidate = HorizontalCandidate | DiagonalCandidate
 
 
 def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[DiagonalCandidate]:

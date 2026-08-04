@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.sr_lines.candidates import HorizontalCandidate
+from src.sr_lines.candidates import Candidate
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Event, EventType
 
@@ -42,7 +42,7 @@ def _close_side(close: float, zone_lo: float, zone_hi: float) -> str:
 
 def classify_events(
     bars: pd.DataFrame,
-    candidate: HorizontalCandidate,
+    candidate: Candidate,
     atr: pd.Series,
     config: SRConfig,
 ) -> tuple[list[Event], str | None]:
@@ -51,16 +51,22 @@ def classify_events(
     the side price first established relative to the zone, used by
     lifecycle.py to determine the line's role (support vs. resistance)
     independent of any later break/flip.
-    """
-    zone_lo = candidate.center - candidate.half_width
-    zone_hi = candidate.center + candidate.half_width
 
+    Zone bounds are evaluated *per bar* via `candidate.zone_at(bar_index)` --
+    constant for a `HorizontalCandidate`, but a diagonal candidate's band
+    moves with its slope, so "did price reclaim the established side" must
+    be checked against where the band actually is at each bar, not a single
+    fixed value. `bar_index` is the position in the *full* `bars` passed
+    here (matching `Pivot.bar_index`/`DiagonalCandidate.origin_index`'s
+    scale) -- not `sub`'s own local position, since `sub` is a suffix slice.
+    """
     start_ts = min(pd.Timestamp(p.timestamp) for p in candidate.pivots)
     sub = bars[bars.index >= start_ts]
     sub_atr = atr.reindex(sub.index)
     if len(sub) < 2:
         return [], None
 
+    global_offset = bars.index.get_loc(sub.index[0])
     idx = sub.index
     highs = sub["high"].to_numpy()
     lows = sub["low"].to_numpy()
@@ -94,6 +100,7 @@ def classify_events(
         return max(0.0, float(favorable / a))
 
     for i in range(n):
+        zone_lo, zone_hi = candidate.zone_at(global_offset + i)
         close_side = _close_side(closes[i], zone_lo, zone_hi)
         a = sub_atr.iloc[i]
 

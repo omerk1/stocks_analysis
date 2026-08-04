@@ -12,6 +12,8 @@ milestone 5 -- `diagonal_penalty` is always 0.0 for horizontal lines.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import pandas as pd
 
 from src.sr_lines.config import SRConfig
@@ -106,9 +108,16 @@ def _duration_density(
     events: list[Event],
     bars: pd.DataFrame,
     atr: pd.Series,
-    candidate_center: float,
     window_years: float,
+    center_at: Callable[[int], float],
 ) -> float:
+    """`center_at(bar_index)` is evaluated per bar in the in-play window, not
+    once -- a horizontal candidate's center is constant so this is
+    equivalent to the old fixed-scalar version, but a diagonal candidate's
+    center moves with its slope, and "how close did price stay to the level"
+    has to be judged against wherever the trend actually was at each bar,
+    not one snapshot value.
+    """
     if len(events) < 2:
         return 0.0
     first = pd.Timestamp(min(e.start for e in events))
@@ -120,7 +129,9 @@ def _duration_density(
     if in_play.empty:
         return 0.0
     a = atr.reindex(in_play.index)
-    distance_atr = (in_play["close"] - candidate_center).abs() / a.replace(0, pd.NA)
+    bar_indices = bars.index.get_indexer(in_play.index)
+    centers = pd.Series([center_at(int(i)) for i in bar_indices], index=in_play.index)
+    distance_atr = (in_play["close"] - centers).abs() / a.replace(0, pd.NA)
     fraction_in_play = (distance_atr <= 3).mean()
     if pd.isna(fraction_in_play):
         fraction_in_play = 0.0
@@ -236,14 +247,27 @@ def score_line(
     candidate_center: float,
     config: SRConfig,
     diagonal: bool = False,
+    center_at: Callable[[int], float] | None = None,
 ) -> ScoreBreakdown:
+    """`candidate_center` is the zone's center *at the current reference bar*
+    -- used for `_proximity`, which only ever cares about "how far is price
+    from the level right now." `center_at`, if given, is used by
+    `_duration_density` instead, which needs the center at every bar in its
+    in-play window, not just one snapshot -- for a horizontal candidate
+    that's the same constant either way, so it defaults to a closure
+    returning `candidate_center` when not given. Diagonal callers should
+    pass both: `candidate_center` evaluated at the reference bar, and
+    `center_at` as the candidate's own per-bar center function.
+    """
     now = bars.index[-1]
     half_life = config.resolved_half_life_years()
     weights = config.scoring_weights
+    if center_at is None:
+        center_at = lambda _bar_index: candidate_center  # noqa: E731
 
     decay_reference = _decay_reference(events, now)
     touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
-    duration_density = _duration_density(events, bars, atr, candidate_center, config.window_years)
+    duration_density = _duration_density(events, bars, atr, config.window_years, center_at)
     resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
     role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
