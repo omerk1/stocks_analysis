@@ -45,6 +45,7 @@ def classify_events(
     candidate: Candidate,
     atr: pd.Series,
     config: SRConfig,
+    start_ts: pd.Timestamp | None = None,
 ) -> tuple[list[Event], str | None]:
     """Returns (events, original_side) -- `original_side` ("above"/"below",
     or None if the zone was never clearly approached from either side) is
@@ -59,8 +60,14 @@ def classify_events(
     fixed value. `bar_index` is the position in the *full* `bars` passed
     here (matching `Pivot.bar_index`/`DiagonalCandidate.origin_index`'s
     scale) -- not `sub`'s own local position, since `sub` is a suffix slice.
+
+    `start_ts`, if given, overrides deriving it from `candidate.pivots` --
+    used by `lifecycle._absorb` to re-classify a merged diagonal survivor
+    (a `Line`, which has no `.pivots`) against its own kept geometry from
+    its own `first_touch` instead.
     """
-    start_ts = min(pd.Timestamp(p.timestamp) for p in candidate.pivots)
+    if start_ts is None:
+        start_ts = min(pd.Timestamp(p.timestamp) for p in candidate.pivots)
     sub = bars[bars.index >= start_ts]
     sub_atr = atr.reindex(sub.index)
     if len(sub) < 2:

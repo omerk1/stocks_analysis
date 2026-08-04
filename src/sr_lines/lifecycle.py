@@ -12,6 +12,7 @@ import math
 
 import pandas as pd
 
+from src.sr_lines import events as events_mod
 from src.sr_lines import scoring
 from src.sr_lines.candidates import Candidate, DiagonalCandidate, slopes_are_similar
 from src.sr_lines.config import SRConfig
@@ -142,12 +143,35 @@ def dedup_lines(lines: list[Line], bars: pd.DataFrame, atr: pd.Series, config: S
 
 
 def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, config: SRConfig) -> None:
-    """Merge `absorbed`'s events into `survivor` in place and recompute every
-    field derived from the event stream, so a merged line's state/score
-    reflect the *union* of evidence, not just whichever candidate happened to
-    keep its own geometry."""
-    survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
+    """Merge `absorbed` into `survivor` in place and recompute every field
+    derived from the event stream, so a merged line's state/score reflect
+    the *union* of evidence, not just whichever candidate happened to keep
+    its own geometry.
+
+    Horizontal: `absorbed`'s events are unioned directly into `survivor`'s
+    -- safe, since a horizontal zone's bounds are a constant (lo, hi), so if
+    two zones were close enough to merge, they were close *everywhere*, not
+    just at the points dedup happened to check.
+
+    Diagonal: a band's bounds move with its slope, and the dedup proximity
+    check (`candidates._candidates_are_duplicate`) only samples 2 points --
+    two candidates can pass that check while diverging elsewhere along
+    their span. Blindly unioning pre-computed events (each validated
+    against its *own* candidate's zone) would attach events to a final
+    geometry they don't actually match -- confirmed on a real T line: a
+    ~0.5%-wide band with dozens of "touch"/"break" events whose close price
+    sat 5-15% away from it, physically impossible for a genuine interaction
+    with that zone. Instead, re-classify from scratch against the
+    survivor's own kept geometry, so every event is always consistent with
+    what's actually rendered, regardless of how the merge happened.
+    """
     survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
+    if survivor.kind == LineKind.DIAGONAL:
+        survivor.events, _ = events_mod.classify_events(
+            bars, survivor, atr, config, start_ts=pd.Timestamp(survivor.first_touch),
+        )
+    else:
+        survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
     survivor.last_event = max((e.end for e in survivor.events), default=survivor.first_touch)
 
     status = break_and_flip_status(survivor.events)
