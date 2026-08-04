@@ -1,7 +1,17 @@
 import pandas as pd
 
-from src.sr_lines.models import DetectionResult, DataQualityReport
-from src.sr_lines.plotting import render_review_chart
+from src.sr_lines.models import (
+    DataQualityReport,
+    DetectionResult,
+    Event,
+    EventType,
+    Line,
+    LineKind,
+    LineRole,
+    LineState,
+    ScoreBreakdown,
+)
+from src.sr_lines.plotting import _EVENT_MARKERS, render_review_chart
 
 
 def _bars(n_days: int, price: float = 100.0) -> pd.DataFrame:
@@ -38,3 +48,51 @@ def test_cutoff_marker_shown_when_reference_date_is_before_the_last_bar():
 
     assert len(fig.layout.shapes) == 1
     assert fig.layout.shapes[0].x0 == fig.layout.shapes[0].x1 == reference_date
+
+
+def test_break_and_body_fake_markers_are_visually_distinct():
+    # Regression: a real NVDA chart showed BODY_FAKE ("x", dark red) and
+    # BREAK ("x-thin", darker red) reading as near-identical marks at normal
+    # zoom -- easy to misread a nearby line's real break as sitting on a
+    # zone that never actually broke. Symbol and color must both differ now.
+    break_symbol, break_color, *_ = _EVENT_MARKERS[EventType.BREAK]
+    body_fake_symbol, body_fake_color, *_ = _EVENT_MARKERS[EventType.BODY_FAKE]
+
+    assert break_symbol != body_fake_symbol
+    assert break_color != body_fake_color
+
+
+def _line_with_break_and_flip(line_id: str) -> Line:
+    events = [
+        Event(type=EventType.BREAK, start="2020-01-10", end="2020-01-10",
+              penetration_atr=1.0, reaction_atr=0.0),
+        Event(type=EventType.TOUCH, start="2020-01-20", end="2020-01-20",
+              penetration_atr=0.1, reaction_atr=1.0),
+    ]
+    return Line(
+        id=line_id, kind=LineKind.HORIZONTAL, role=LineRole.FLIPPED, state=LineState.FLIPPED,
+        center=100.0, half_width=1.0, slope=None, intercept=None, origin_index=None,
+        first_touch="2020-01-01", last_event="2020-01-20", events=events,
+        scores=ScoreBreakdown(total=0.5), strength=0.5,
+        broken_at="2020-01-10", flipped_at="2020-01-20",
+    )
+
+
+def test_break_and_flip_annotations_include_the_line_id():
+    # Regression: a bare "break"/"flip" label is ambiguous when two zones'
+    # centers are only a few dollars apart -- compressed against the chart's
+    # full price range, the label can visually read as belonging to whichever
+    # nearby box it happens to land closest to, not the line it's actually for.
+    bars = _bars(30)
+    line = _line_with_break_and_flip("h7")
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    annotation_texts = [a.text for a in fig.layout.annotations]
+    assert "h7 break" in annotation_texts
+    assert "h7 flip" in annotation_texts

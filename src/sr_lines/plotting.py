@@ -10,11 +10,18 @@ import plotly.graph_objects as go
 
 from src.sr_lines.models import DetectionResult, EventType, Line, LineState
 
+# (symbol, color, size, outline_width) -- BREAK is deliberately the odd one
+# out (solid black, bold, larger) rather than just a darker/thinner shade of
+# BODY_FAKE's red: a real NVDA chart showed the two reading as near-identical
+# marks at normal zoom, which made a genuinely never-reclaimed break next to
+# a nearby line's density of reclaimed body-fakes easy to misread as several
+# breaks on the wrong zone. BODY_FAKE is an open/hollow shape on purpose --
+# it visually reads as "attempted, not solid," the opposite of BREAK.
 _EVENT_MARKERS = {
-    EventType.TOUCH: ("triangle-up", "#2ca02c"),
-    EventType.WICK_FAKE: ("triangle-down", "#ff7f0e"),
-    EventType.BODY_FAKE: ("x", "#d62728"),
-    EventType.BREAK: ("x-thin", "#8c1414"),
+    EventType.TOUCH: ("triangle-up", "#2ca02c", 9, 1),
+    EventType.WICK_FAKE: ("triangle-down", "#ff7f0e", 9, 1),
+    EventType.BODY_FAKE: ("circle-open", "#d62728", 9, 2),
+    EventType.BREAK: ("x", "#000000", 13, 2),
 }
 
 
@@ -99,7 +106,7 @@ def render_review_chart(
             )
         )
 
-        for event_type, (symbol, marker_color) in _EVENT_MARKERS.items():
+        for event_type, (symbol, marker_color, size, outline_width) in _EVENT_MARKERS.items():
             matching = [e for e in line.events if e.type == event_type]
             if not matching:
                 continue
@@ -108,7 +115,10 @@ def render_review_chart(
                     x=[pd.Timestamp(e.end) for e in matching],
                     y=[line.center] * len(matching),
                     mode="markers",
-                    marker=dict(symbol=symbol, size=9, color=marker_color, line=dict(width=1, color="black")),
+                    marker=dict(
+                        symbol=symbol, size=size, color=marker_color,
+                        line=dict(width=outline_width, color="black"),
+                    ),
                     name=event_type.value,
                     legendgroup=f"{line.id}-events",
                     showlegend=False,
@@ -117,14 +127,19 @@ def render_review_chart(
                 )
             )
 
+        # Line ID is in the text itself, not just the hover -- on a chart
+        # where two zones' centers are only a few dollars apart (compressed
+        # to a handful of pixels against the chart's full price range), a
+        # bare "break"/"flip" label can visually read as belonging to
+        # whichever nearby box it happens to land closest to.
         if line.broken_at is not None:
             fig.add_annotation(
-                x=pd.Timestamp(line.broken_at), y=line.center, text="break",
+                x=pd.Timestamp(line.broken_at), y=line.center, text=f"{line.id} break",
                 showarrow=True, arrowhead=2, ax=0, ay=-30,
             )
         if line.flipped_at is not None:
             fig.add_annotation(
-                x=pd.Timestamp(line.flipped_at), y=line.center, text="flip",
+                x=pd.Timestamp(line.flipped_at), y=line.center, text=f"{line.id} flip",
                 showarrow=True, arrowhead=2, ax=0, ay=30,
             )
 
