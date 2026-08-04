@@ -277,6 +277,46 @@ closing back on the new side) and is now treated identically. A *pending*
 body-fake still doesn't count -- it hasn't resolved yet. Both checks now
 share one predicate, `flip_status.is_confirmation_event()`.
 
+## Idea, not yet built: a penetration-depth/volume "erosion" signal
+
+Raised as a question: does scoring account for how deep a wick/body-fake
+went, or penalize a level for being tested too many times? It doesn't --
+`Event.penetration_atr` and `Event.volume_ratio` are captured on *every*
+event but never referenced anywhere in `scoring.py`. Touch count today only
+ever helps (`touch_quality` sums quality-weighted touches up to a ceiling)
+and can never actively hurt a line's score, no matter how many times it's
+been tested.
+
+This maps onto a real, two-sided tension in TA: more touches can mean
+"well-established, real level" (the level keeps mattering, more
+participants have positioned around it) or "getting worn down, about to
+give way" (each test consumes the orders sitting there; the classic "the
+more times a level is tested, the more likely it breaks" heuristic). Count
+alone can't distinguish these -- the same 5-touch line could be either
+story depending on the *shape* of those 5 touches, not how many there are.
+
+Proposed approach (not yet built, not yet validated against real charts):
+treat this as a *trend* signal, not a count-based one. Look at
+`penetration_atr` (and optionally `volume_ratio`) across a line's touches
+in chronological order -- e.g. first-half vs. second-half average
+penetration, or a simple slope. Deepening penetration and/or declining
+volume on successive tests -> a small penalty (erosion, thesis B).
+Shallowing penetration and/or holding volume -> neutral or a small bonus
+(fortification, thesis A). Would live as its own signal rather than folded
+into `resilience`, since it measures evidence *direction* over time, not
+evidence *strength* -- a genuinely different question from what
+`resilience`/`touch_quality` already capture.
+
+Deferred to the milestone-7 weight-tuning pass, same as everything else
+scoring-related here: build it, then check it against real charts where a
+level visually reads as "getting eaten through" vs. "rock solid" and
+confirm the number agrees, rather than picking a formula and shipping it
+unchecked.
+
+Diagonal equivalent: the same trend-based approach should apply directly --
+a diagonal band being tested with deepening penetration on each touch is
+the same erosion story, just against a sloped level instead of a flat one.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
