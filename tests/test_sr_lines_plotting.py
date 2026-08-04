@@ -96,3 +96,58 @@ def test_break_and_flip_annotations_include_the_line_id():
     annotation_texts = [a.text for a in fig.layout.annotations]
     assert "h7 break" in annotation_texts
     assert "h7 flip" in annotation_texts
+
+
+def _diagonal_line(line_id: str) -> Line:
+    events = [
+        Event(type=EventType.BREAK, start="2020-01-10", end="2020-01-10",
+              penetration_atr=1.0, reaction_atr=0.0),
+        Event(type=EventType.TOUCH, start="2020-01-20", end="2020-01-20",
+              penetration_atr=0.1, reaction_atr=1.0),
+    ]
+    return Line(
+        id=line_id, kind=LineKind.DIAGONAL, role=LineRole.FLIPPED, state=LineState.FLIPPED,
+        center=None, half_width=0.02, slope=0.01, intercept=4.6052, origin_index=0,  # ln(100) ~= 4.6052
+        first_touch="2020-01-01", last_event="2020-01-20", events=events,
+        scores=ScoreBreakdown(total=0.5), strength=0.5,
+        broken_at="2020-01-10", flipped_at="2020-01-20",
+    )
+
+
+def test_diagonal_band_is_sloped_not_a_flat_rectangle():
+    bars = _bars(30)
+    line = _diagonal_line("d0")
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    band_trace = next(t for t in fig.data if t.name and t.name.startswith("d0 ["))
+    y = list(band_trace.y)
+    # 5-point closed polygon: [lo0, lo1, hi1, hi0, lo0] -- lo0 must differ
+    # from lo1 (and hi0 from hi1) for a genuinely sloped band, not a flat one.
+    assert y[0] != y[1]
+    assert y[2] != y[3]
+
+
+def test_diagonal_markers_and_annotations_follow_price_at_not_a_flat_center():
+    bars = _bars(30)
+    line = _diagonal_line("d0")
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    touch_trace = next(t for t in fig.data if t.name == "touch")
+    expected_y = line.price_at(bars.index.get_loc(pd.Timestamp("2020-01-20")))
+    assert touch_trace.y[0] == expected_y
+
+    break_annotation = next(a for a in fig.layout.annotations if a.text == "d0 break")
+    expected_break_y = line.price_at(bars.index.get_loc(pd.Timestamp("2020-01-10")))
+    assert break_annotation.y == expected_break_y

@@ -33,7 +33,13 @@ def main():
         help="Override the initial clustering tolerance (ATR multiple; default 0.4). Higher "
         "produces fewer, wider zones from the start -- the more direct lever than "
         "--dedup-threshold when several pivots that should read as one broad area keep "
-        "showing up as separate narrow zones.",
+        "showing up as separate narrow zones. Also used for diagonal band/inlier tolerance "
+        "when --diagonals is given.",
+    )
+    parser.add_argument(
+        "--diagonals", action="store_true",
+        help="Also detect diagonal (RANSAC-style, log-price) trendlines, not just horizontal "
+        "zones. Off by default so horizontal-only charts stay comparable to earlier runs.",
     )
     args = parser.parse_args()
 
@@ -49,6 +55,8 @@ def main():
         sr_config.dedup_overlap_threshold = args.dedup_threshold
     if args.zone_width_atr is not None:
         sr_config.zone_width_atr = args.zone_width_atr
+    if args.diagonals:
+        sr_config.diagonal_enabled = True
     result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
     detection_bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
 

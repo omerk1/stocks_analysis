@@ -134,6 +134,17 @@ class Line:
             return self.center
         return math.exp(self.intercept + self.slope * (bar_index - self.origin_index))
 
+    def zone_at(self, bar_index: int) -> tuple[float, float]:
+        """(lo, hi) band at a given bar index -- constant width for
+        horizontal, multiplicative (via `half_width`'s log-space band around
+        `price_at`) for diagonal, so the real-dollar width scales with price
+        along the trend the same way `candidates.DiagonalCandidate.zone_at`
+        does (reused here rather than reimplemented a third time)."""
+        if self.kind == LineKind.HORIZONTAL:
+            return self.center - self.half_width, self.center + self.half_width
+        center = self.price_at(bar_index)
+        return center * math.exp(-self.half_width), center * math.exp(self.half_width)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,

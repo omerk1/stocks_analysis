@@ -1,8 +1,8 @@
 """Public API: `detect(conn, ticker, config, as_of=None) -> DetectionResult`.
 
 Orchestrates data -> pivots -> candidates -> events -> scoring -> lifecycle.
-Diagonal candidates are not generated yet (milestone 5) -- only horizontal
-lines are produced for now.
+Diagonal candidates are only generated when `config.diagonal_enabled` is set
+(default `False`).
 
 Lookahead note: `as_of` simply loads bars only up to that date, which
 already gives pivot detection correct behavior for free (a pivot can only
@@ -68,11 +68,14 @@ def detect(
         )
         lines.append(lifecycle.build_line(f"h{i}", candidate, line_events, original_side, scores))
 
-    # Diagonal candidates are always empty until milestone 5; loop is a no-op
-    # for now but keeps the shape stable once generate_diagonal_candidates
-    # is implemented.
-    for i, _candidate in enumerate(diagonal_candidates):
-        raise NotImplementedError("Diagonal scoring/lifecycle wiring is milestone 5.")
+    now_bar_index = len(bars) - 1
+    for i, candidate in enumerate(diagonal_candidates):
+        line_events, original_side = events_mod.classify_events(bars, candidate, atr, config)
+        scores = scoring_mod.score_line(
+            line_events, bars, atr, candidate.center_at(now_bar_index), config,
+            diagonal=True, center_at=candidate.center_at, diagonal_fit_penalty=candidate.fit_rms_atr_pct,
+        )
+        lines.append(lifecycle.build_line(f"d{i}", candidate, line_events, original_side, scores))
 
     lines = lifecycle.dedup_lines(lines, bars, atr, config)
     lines = lifecycle.select_lines(lines, config, strength_floor=strength_floor)

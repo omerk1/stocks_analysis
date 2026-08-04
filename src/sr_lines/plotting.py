@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from src.sr_lines.models import DetectionResult, EventType, Line, LineState
+from src.sr_lines.models import DetectionResult, EventType, Line, LineKind, LineState
 
 # (symbol, color, size, outline_width) -- BREAK is deliberately the odd one
 # out (solid black, bold, larger) rather than just a darker/thinner shade of
@@ -48,6 +48,16 @@ def _relevant_range(line: Line, last_bar_ts: pd.Timestamp) -> tuple[pd.Timestamp
     or not it later broke or flipped -- state is a label/color, not
     something that should shorten the box."""
     return pd.Timestamp(line.first_touch), last_bar_ts
+
+
+def _y_at(line: Line, bars: pd.DataFrame, ts) -> float:
+    """The line's own price at a given timestamp -- flat `center` for
+    horizontal, `price_at(bar_index)` for diagonal (its price genuinely
+    moves with the trend, so a marker/annotation drawn at a fixed height
+    would drift off the sloped band over time)."""
+    if line.kind == LineKind.HORIZONTAL:
+        return line.center
+    return line.price_at(bars.index.get_loc(pd.Timestamp(ts)))
 
 
 def _hover_text(line: Line) -> str:
@@ -94,10 +104,20 @@ def render_review_chart(
         dash = "solid" if line.state == LineState.ACTIVE else "dash"
         x0, x1 = _relevant_range(line, last_bar_ts)
 
-        y_lo, y_hi = line.center - line.half_width, line.center + line.half_width
+        if line.kind == LineKind.DIAGONAL:
+            # Sloped 4-point band, not a flat rectangle -- zone_at() at each
+            # end of the box's time range, since a diagonal band's width in
+            # real-price terms changes along with its own price level.
+            lo0, hi0 = line.zone_at(bars.index.get_loc(x0))
+            lo1, hi1 = line.zone_at(bars.index.get_loc(x1))
+            poly_y = [lo0, lo1, hi1, hi0, lo0]
+        else:
+            y_lo, y_hi = line.center - line.half_width, line.center + line.half_width
+            poly_y = [y_lo, y_lo, y_hi, y_hi, y_lo]
+
         fig.add_trace(
             go.Scatter(
-                x=[x0, x1, x1, x0, x0], y=[y_lo, y_lo, y_hi, y_hi, y_lo],
+                x=[x0, x1, x1, x0, x0], y=poly_y,
                 mode="lines", fill="toself", fillcolor=fill_color,
                 line=dict(color=border_color, dash=dash, width=1 + 2 * line.strength),
                 name=f"{line.id} [{line.role.value}] {line.strength:.2f}",
@@ -113,7 +133,7 @@ def render_review_chart(
             fig.add_trace(
                 go.Scatter(
                     x=[pd.Timestamp(e.end) for e in matching],
-                    y=[line.center] * len(matching),
+                    y=[_y_at(line, bars, e.end) for e in matching],
                     mode="markers",
                     marker=dict(
                         symbol=symbol, size=size, color=marker_color,
@@ -134,12 +154,12 @@ def render_review_chart(
         # whichever nearby box it happens to land closest to.
         if line.broken_at is not None:
             fig.add_annotation(
-                x=pd.Timestamp(line.broken_at), y=line.center, text=f"{line.id} break",
+                x=pd.Timestamp(line.broken_at), y=_y_at(line, bars, line.broken_at), text=f"{line.id} break",
                 showarrow=True, arrowhead=2, ax=0, ay=-30,
             )
         if line.flipped_at is not None:
             fig.add_annotation(
-                x=pd.Timestamp(line.flipped_at), y=line.center, text=f"{line.id} flip",
+                x=pd.Timestamp(line.flipped_at), y=_y_at(line, bars, line.flipped_at), text=f"{line.id} flip",
                 showarrow=True, arrowhead=2, ax=0, ay=30,
             )
 
