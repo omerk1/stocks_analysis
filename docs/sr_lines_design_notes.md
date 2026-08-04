@@ -361,17 +361,59 @@ band -- see `Line.price_at`/`Line.zone_at`).
   stay comparable to earlier runs).
 
 Real-data smoke test (AAPL, T; long_term preset, full history): both ran
-clean end-to-end, no degenerate geometry (price extrapolation stayed within
-a few percent of actual current price for the top-ranked diagonal lines on
-both tickers), `diagonal_penalty` visibly discriminating tight vs. loose
-fits, diagonal lines competing meaningfully in the top ranks alongside
-horizontal ones. **Both tickers hit the `diagonal_max_candidates` (30) cap
-before dedup** -- worth watching once the real charts are reviewed visually;
-may indicate the cap is too low for a busy 8-year window, or that the
-inlier tolerance is too loose and producing more near-duplicate candidates
-than it should. Not yet resolved -- first real-chart visual review round
-for diagonals is still pending, same as horizontal went through several
-rounds of before it stabilized.
+clean end-to-end, no degenerate geometry, `diagonal_penalty` visibly
+discriminating tight vs. loose fits, diagonal lines competing meaningfully
+in the top ranks alongside horizontal ones.
+
+## Resolved: candidate-level dedup + the 30-candidate cap were silently discarding real, visually obvious trendlines
+
+First real-chart review found this directly: a clean, visually obvious
+3-touch descending resistance line on AAPL (Dec 2025 -> Feb 2026 highs,
+user hand-drew it on the chart) never appeared, even filtered down to
+"descending only." Root cause had two parts, both confirmed against the
+real AAPL data before fixing:
+
+1. **`generate_diagonal_candidates`'s dedup only checked pivot overlap, not
+   slope.** The exact 3-pivot line the user drew *was* generated as a raw
+   candidate (`slope=-0.00072`, matching their line almost exactly) -- it
+   just got discarded because it shared pivots with unrelated, longer,
+   *ascending* candidates that had more inliers and were kept first. A
+   single pivot can legitimately sit on two geometrically unrelated
+   trendlines (a short recent one and a long slow one just happen to cross
+   near it); pivot-set overlap alone can't tell them apart.
+2. **The similarity threshold used to gate that overlap check --
+   `max_diagonal_slope_atr_per_bar` (0.05, the *slope-rejection* cap) --
+   was two orders of magnitude too loose to matter anyway.** Real trendline
+   slopes run ~0.0001-0.001; a 0.05 tolerance calls almost any two
+   same-magnitude slopes "similar" and, worse, doesn't reliably separate a
+   gentle ascending line from a steep descending one. This exact bug
+   existed in *two* places -- `candidates.py`'s dedup and `lifecycle.py`'s
+   diagonal-diagonal merge check both reused this same too-loose constant.
+   Fixed with a dedicated `candidates.slopes_are_similar()` (opposite signs
+   are never similar; same-signed slopes must be within 2x of each other),
+   now the single shared implementation both modules call.
+3. **Even with dedup fixed, the pre-scoring cap still crowded it out.**
+   AAPL's HIGH pivots alone produced 1,069 raw seed-pair candidates; after
+   *correct* dedup, 255 genuinely distinct lines remained -- but sorting
+   survivors by raw pivot count before applying `diagonal_max_candidates=30`
+   still buried a real, tight, 3-pivot recent line 204th out of 241,
+   crowded out by long, low-precision multi-year lines with more inliers.
+   Raised the cap to 300 (comfortably covers 255/228 seen on AAPL/T) so
+   candidate generation stops pre-filtering by "most pivots" and leaves the
+   actual ranking to scoring's relevance/quality machinery, which is what
+   it's for. Cost: detection is noticeably slower on a long_term window
+   (~1s -> ~8-10s) -- acceptable for a CLI tool run occasionally, not
+   optimized further yet.
+
+Verified on the same AAPL run: descending diagonal count went from 1 (the
+bug) to 30; T went from 5 to 78. The exact line the user drew now survives
+and scores with a real (if unranked-in-top-N, since price broke through it
+by "now") strength.
+
+Diagonal equivalent note doesn't apply here -- this section *is* the
+diagonal-specific fix; nothing analogous exists for horizontal (single-pass
+clustering, not pairwise seed fitting, so this particular failure mode is
+structural to the RANSAC approach, not something horizontal shares).
 
 ## Idea, not yet built: a penetration-depth/volume "erosion" signal
 
