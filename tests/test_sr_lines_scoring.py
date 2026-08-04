@@ -118,6 +118,10 @@ def test_flipped_line_touch_quality_still_decays_against_now_not_frozen_at_break
 def _strong_flipped_events(bars: pd.DataFrame) -> list[Event]:
     # Plenty of touches, resilience-earning fakes (incl. quick body-fakes),
     # and a confirmed flip -- strong on every component *except* relevance.
+    # Post-break touches use a strong (cap-hitting) reaction so role_reversal
+    # (now quality-weighted, not just counted) actually reaches near-full
+    # credit when recent -- see test_role_reversal_scales_with_confirming_evidence_not_binary
+    # for why a weak reaction wouldn't demonstrate "strong evidence" anymore.
     # Built from actual bar positions (not hardcoded date strings) so it
     # works regardless of how many periods the caller's `bars` fixture has.
     idx = bars.index
@@ -130,7 +134,9 @@ def _strong_flipped_events(bars: pd.DataFrame) -> list[Event]:
         Event(type=EventType.BODY_FAKE, start=idx[6].isoformat(), end=idx[7].isoformat(),
               penetration_atr=0.5, reaction_atr=0.0),
         _break(idx[8].isoformat()),
-        _touch(idx[9].isoformat()), _touch(idx[10].isoformat()), _touch(idx[11].isoformat()),
+        _touch(idx[9].isoformat(), reaction=5.0),
+        _touch(idx[10].isoformat(), reaction=5.0),
+        _touch(idx[11].isoformat(), reaction=5.0),
     ]
 
 
@@ -146,7 +152,11 @@ def test_old_and_far_level_is_gated_down_despite_strong_historical_evidence():
     score = score_line(events, bars_far_away, _atr(bars_far_away), 100.0, config)
 
     assert score.resilience > 0.5
-    assert score.role_reversal == 1.0
+    # role_reversal is now quality-weighted (reaction x recency decay), same
+    # lens as touch_quality -- confirmations from ~2 years before "now" (bar
+    # 600 of a 600-bar window) are strong but stale, so this no longer hits
+    # the old flat 1.0 the count-based formula gave regardless of age.
+    assert 0 < score.role_reversal < 0.5
     assert score.relevance_gate < 0.05
     assert score.total < 0.05  # gated down hard despite strong inner components
 
@@ -158,6 +168,7 @@ def test_recent_and_nearby_level_with_same_evidence_stays_highly_relevant():
 
     score = score_line(events, bars_nearby_recent, _atr(bars_nearby_recent), 100.0, config)
 
+    assert score.role_reversal > 0.85  # strong, recent confirmations -> near-full credit
     assert score.relevance_gate > 0.85
     assert score.total > 0.3
 
@@ -178,21 +189,58 @@ def test_role_reversal_scales_with_confirming_evidence_not_binary():
     config = SRConfig(window_years=3.0)
     bars = _flat_bars(60)
     atr = _atr(bars)
+    idx = bars.index
+    now = idx[-1].isoformat()
 
-    one_confirmation = [_break("2020-02-01"), _touch("2020-02-15")]
+    # Strong (cap-hitting), essentially-undecayed confirmations right at
+    # "now" so this isolates count-scaling from the (separately-tested)
+    # quality-weighting below.
+    one_confirmation = [_break(idx[0].isoformat()), _touch(now, reaction=5.0)]
     three_confirmations = [
-        _break("2020-02-01"),
-        _touch("2020-02-15"),
-        _touch("2020-02-20"),
-        _touch("2020-02-25"),
+        _break(idx[0].isoformat()),
+        _touch(idx[-3].isoformat(), reaction=5.0),
+        _touch(idx[-2].isoformat(), reaction=5.0),
+        _touch(now, reaction=5.0),
     ]
 
     score_one = score_line(one_confirmation, bars, atr, 100.0, config)
     score_three = score_line(three_confirmations, bars, atr, 100.0, config)
 
     assert 0 < score_one.role_reversal < 1.0
-    assert score_three.role_reversal == 1.0
+    assert score_three.role_reversal == pytest.approx(1.0, abs=0.02)
     assert score_one.role_reversal < score_three.role_reversal
+
+
+def test_role_reversal_is_quality_weighted_not_just_counted():
+    # Regression for the AAPL finding that survived the binary-to-proportional
+    # fix: 3 confirmations *by raw count* used to always mean role_reversal=1.0
+    # regardless of how weak or stale they were, letting a barely-confirmed
+    # flip outscore a never-broken line with real touch-quality evidence. Same
+    # count (3), same recency (all at "now"), only reaction strength differs.
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(60)
+    atr = _atr(bars)
+    idx = bars.index
+    now = idx[-1].isoformat()
+
+    weak_confirmations = [
+        _break(idx[0].isoformat()),
+        _touch(idx[-3].isoformat(), reaction=0.1),
+        _touch(idx[-2].isoformat(), reaction=0.1),
+        _touch(now, reaction=0.1),
+    ]
+    strong_confirmations = [
+        _break(idx[0].isoformat()),
+        _touch(idx[-3].isoformat(), reaction=5.0),
+        _touch(idx[-2].isoformat(), reaction=5.0),
+        _touch(now, reaction=5.0),
+    ]
+
+    score_weak = score_line(weak_confirmations, bars, atr, 100.0, config)
+    score_strong = score_line(strong_confirmations, bars, atr, 100.0, config)
+
+    assert score_weak.role_reversal < 0.1
+    assert score_strong.role_reversal == pytest.approx(1.0, abs=0.02)
 
 
 def test_role_reversal_counts_a_resolved_body_fake_as_confirmation_but_not_a_pending_one():

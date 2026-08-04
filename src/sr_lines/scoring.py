@@ -44,16 +44,59 @@ def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
     return now
 
 
-def _touch_quality(events: list[Event], decay_reference: pd.Timestamp, half_life_years: float) -> float:
+def _event_quality_score(
+    events: list[Event],
+    bars: pd.DataFrame,
+    decay_reference: pd.Timestamp,
+    half_life_years: float,
+    fakeout_reclaim_bars: int,
+) -> float:
+    """Sum of per-event evidence *strength* (not just count) x recency decay
+    relative to `decay_reference`. TOUCH/WICK_FAKE use `reaction_atr` (how far
+    price moved away afterward -- a real signal for both, since a wick-fake's
+    reclaim is scored the same way a touch's bounce is). A resolved BODY_FAKE
+    has no `reaction_atr` of its own (events.py always sets it to 0.0 for
+    body-fakes/breaks), so it uses the same reclaim-speed decay `_resilience`
+    already computes for it instead -- a quick reclaim is strong evidence, a
+    slow one (up to the `fakeout_reclaim_bars` window) is weaker but still
+    real, per the same "Undercut and Rally" grading used there.
+
+    Shared by `_touch_quality` (over TOUCH events) and `_role_reversal` (over
+    confirming events after a break) so both measure strength, not raw count
+    -- a handful of tiny, long-decayed, or barely-reclaimed events shouldn't
+    score the same as a handful of strong, recent, cleanly-reclaimed ones just
+    because the counts match.
+    """
+    half_life_days = half_life_years * 365.25
+    total = 0.0
+    for e in events:
+        age_days = (decay_reference - pd.Timestamp(e.end)).days
+        decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
+        if e.type in (EventType.TOUCH, EventType.WICK_FAKE):
+            quality = min(e.reaction_atr, _REACTION_CAP_ATR) / _REACTION_CAP_ATR
+        elif e.type == EventType.BODY_FAKE and not e.pending:
+            bars_to_reclaim = _bars_between(bars, e.start, e.end)
+            fraction_of_window = (
+                min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
+            )
+            quality = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
+        else:
+            continue
+        total += quality * decay
+    return total
+
+
+def _touch_quality(
+    events: list[Event],
+    bars: pd.DataFrame,
+    decay_reference: pd.Timestamp,
+    half_life_years: float,
+    fakeout_reclaim_bars: int,
+) -> float:
     touches = [e for e in events if e.type == EventType.TOUCH]
     if not touches:
         return 0.0
-    half_life_days = half_life_years * 365.25
-    total = 0.0
-    for e in touches:
-        age_days = (decay_reference - pd.Timestamp(e.end)).days
-        decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
-        total += min(e.reaction_atr, _REACTION_CAP_ATR) / _REACTION_CAP_ATR * decay
+    total = _event_quality_score(touches, bars, decay_reference, half_life_years, fakeout_reclaim_bars)
     # Normalize against a generous ceiling of "6 strong recent touches" so a
     # single decent touch doesn't already saturate the component.
     return min(total / 6.0, 1.0)
@@ -117,26 +160,50 @@ def _resilience(events: list[Event], bars: pd.DataFrame, fakeout_reclaim_bars: i
 _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3
 
 
-def _role_reversal(events: list[Event]) -> float:
-    """Proportional, not binary: a real AAPL run showed a single confirming
-    touch right after a break getting the exact same full credit as a level
-    retested repeatedly from the new side, which let barely-confirmed flips
-    dominate the top-N purely from this one component. Scales with the
-    number of confirming events seen after *any* break (same
+def _role_reversal(
+    events: list[Event],
+    bars: pd.DataFrame,
+    decay_reference: pd.Timestamp,
+    half_life_years: float,
+    fakeout_reclaim_bars: int,
+) -> float:
+    """Proportional, not binary, *and* quality-weighted, not just counted.
+
+    First fix (kept): a real AAPL run showed a single confirming touch right
+    after a break getting the exact same full credit as a level retested
+    repeatedly from the new side, which let barely-confirmed flips dominate
+    the top-N purely from this one component. Scaled with the number of
+    confirming events seen after *any* break (same
     `flip_status.is_confirmation_event` predicate lifecycle.py uses for its
     sticky "ever confirmed" definition of FLIPPED -- state stays a binary
-    label, only the score contribution is graded), reaching full credit at
-    `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT`.
+    label, only the score contribution is graded).
+
+    Second fix: counting confirmations *by raw count* wasn't enough either --
+    a fresh AAPL smoke test after the first fix still showed a line with
+    `touch_quality=0.011` (almost no real evidence) but `role_reversal=1.0`
+    (exactly 3 confirming events, regardless of how weak) outranking a
+    never-broken line with `touch_quality=0.205` (real evidence) and
+    `role_reversal=0.0`. Now uses the same `_event_quality_score` weighting
+    `_touch_quality` uses (reaction-strength/reclaim-speed x recency decay),
+    applied to the confirming-event subset, normalized against
+    `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT` "strong recent
+    confirmations" instead of a raw count -- a flip "confirmed" by 3 tiny,
+    long-decayed touches (the same touches that keep that line's
+    `touch_quality` near zero) now also scores low here, while a flip
+    reconfirmed by several strong, recent touches still reaches full credit.
     """
     ordered = sorted(events, key=lambda e: (e.start, e.end))
     saw_break = False
-    confirmations = 0
+    confirming_events = []
     for e in ordered:
         if e.type == EventType.BREAK:
             saw_break = True
         elif saw_break and is_confirmation_event(e):
-            confirmations += 1
-    return min(confirmations / _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT, 1.0)
+            confirming_events.append(e)
+    if not confirming_events:
+        return 0.0
+    total = _event_quality_score(confirming_events, bars, decay_reference, half_life_years, fakeout_reclaim_bars)
+    return min(total / _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT, 1.0)
 
 
 def _proximity(current_price: float, candidate_center: float, atr_now: float) -> float:
@@ -175,10 +242,10 @@ def score_line(
     weights = config.scoring_weights
 
     decay_reference = _decay_reference(events, now)
-    touch_quality = _touch_quality(events, decay_reference, half_life)
+    touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     duration_density = _duration_density(events, bars, atr, candidate_center, config.window_years)
     resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
-    role_reversal = _role_reversal(events)
+    role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
 
     last_event = pd.Timestamp(max((e.end for e in events), default=None)) if events else None

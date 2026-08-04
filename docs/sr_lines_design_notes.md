@@ -118,16 +118,54 @@ exist in diagonal event classification if it reuses the same walk structure.
 
 ## Scoring calibration findings
 
-### `role_reversal` was binary -- fixed to be proportional
+### `role_reversal` was binary -- fixed to be proportional -- still not enough, fixed again to be quality-weighted
 
 Original: `1.0` if a break was *ever* followed by any confirming
 touch/wick-fake, `0.0` otherwise. Real AAPL data showed this let barely-
 confirmed flips (one weak retest, near-zero touch quality elsewhere)
 outscore never-broken lines with real touch-quality evidence, purely from
-this one all-or-nothing bonus. Now scales with the number of confirming
-touch/wick-fake events after the break, full credit at
-`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3`. `state` (FLIPPED) stays
-a binary label -- only the score contribution is graded.
+this one all-or-nothing bonus. First fix: scaled with the *number* of
+confirming touch/wick-fake events after the break, full credit at
+`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3`. `state` (FLIPPED) stayed
+a binary label -- only the score contribution was graded.
+
+**That fix only closed the "1 touch = full credit" case, not the underlying
+problem.** Flagged in the milestone-4 PR body and mistakenly marked resolved
+in `backlog.md` afterward -- it wasn't. Fresh AAPL smoke test (long_term,
+full history) after the count-based fix still showed a line with
+`touch_quality=0.011` (almost no real evidence) but `role_reversal=1.0`
+(exactly 3 confirming events, regardless of strength) outranking a
+never-broken line with `touch_quality=0.205` (real evidence) and
+`role_reversal=0.0` -- comparable `relevance_gate` on both, so the gate
+wasn't what separated them. 3 confirmations, however weak, was still an
+automatic 1.0.
+
+Second fix: `role_reversal` now reuses the same quality-weighting
+`touch_quality` already applies (reaction-strength/reclaim-speed x recency
+decay, factored into a shared `_event_quality_score` helper in
+`scoring.py`), evaluated over the confirming-event subset instead of raw
+count. A flip "confirmed" by 3 tiny, long-decayed touches -- the *same*
+touches keeping that line's `touch_quality` near zero -- now also scores low
+here, since it's the same evidence viewed through the same lens. A flip
+reconfirmed by several strong, recent touches still reaches full credit.
+Verified on the same AAPL run: the never-broken real-evidence line now
+outranks the near-zero-evidence flipped lines, as it should.
+
+Side effect worth remembering: because `role_reversal` now decays with the
+same `decay_reference` `touch_quality` uses, a flip's score contribution
+here is no longer recency-independent the way the count-based version was --
+an old, once-strongly-confirmed flip will fade here too, on top of whatever
+the relevance gate separately does to `total`. This is intentional (stale
+confirmations shouldn't count the same as fresh ones any more than stale
+touches should), not a second, redundant staleness mechanism -- `role_reversal`
+measures evidence *strength*, the relevance gate measures *whether the level
+still matters given where price is now*; a line can score low on one and
+fine on the other.
+
+Diagonal equivalent: this quality-weighting lens (not just event *count*)
+should carry over directly once diagonal role-reversal scoring exists --
+same `_event_quality_score` helper, no reason to duplicate the count-based
+mistake a second time for sloped bands.
 
 ### `resilience` (undercut-and-rally) was flat per event -- fixed to decay by time-under
 
