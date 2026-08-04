@@ -195,6 +195,25 @@ def test_role_reversal_scales_with_confirming_evidence_not_binary():
     assert score_one.role_reversal < score_three.role_reversal
 
 
+def test_role_reversal_counts_a_resolved_body_fake_as_confirmation_but_not_a_pending_one():
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(60)
+    atr = _atr(bars)
+
+    resolved = [_break("2020-02-01"), _body_fake("2020-02-10", "2020-02-12")]
+    pending_only = [
+        _break("2020-02-01"),
+        Event(type=EventType.BODY_FAKE, start="2020-02-10", end="2020-02-12",
+              penetration_atr=0.4, reaction_atr=0.0, pending=True),
+    ]
+
+    score_resolved = score_line(resolved, bars, atr, 100.0, config)
+    score_pending = score_line(pending_only, bars, atr, 100.0, config)
+
+    assert score_resolved.role_reversal > 0
+    assert score_pending.role_reversal == 0
+
+
 def test_flip_is_sticky_even_after_an_unconfirmed_later_break():
     # Broke, was confirmed flipped, then broke *again* with no further
     # reclaim -- lifecycle.py's state is FLIPPED either way (there's no

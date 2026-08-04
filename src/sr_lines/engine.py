@@ -74,7 +74,7 @@ def detect(
     for i, _candidate in enumerate(diagonal_candidates):
         raise NotImplementedError("Diagonal scoring/lifecycle wiring is milestone 5.")
 
-    lines = lifecycle.dedup_lines(lines, config)
+    lines = lifecycle.dedup_lines(lines, bars, atr, config)
     lines = lifecycle.select_lines(lines, config, strength_floor=strength_floor)
 
     return DetectionResult(

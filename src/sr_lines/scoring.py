@@ -15,6 +15,7 @@ from __future__ import annotations
 import pandas as pd
 
 from src.sr_lines.config import SRConfig
+from src.sr_lines.flip_status import break_and_flip_status, is_confirmation_event
 from src.sr_lines.models import Event, EventType, ScoreBreakdown
 
 _REACTION_CAP_ATR = 5.0
@@ -33,25 +34,13 @@ def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
     FLIPPED line is still in play and keeps decaying against the real
     reference date (`now`, i.e. as_of or the latest bar).
 
-    "Flipped" here is the same *sticky* check lifecycle.py uses (once any
-    break has ever been followed by a respecting touch/wick-fake, the line
-    counts as flipped permanently, even if it breaks again later without a
-    further reclaim) -- this must never disagree with lifecycle.py's state,
-    or a line reported as FLIPPED could still have its score frozen as if
-    dead.
+    Uses the same shared `flip_status.break_and_flip_status` lifecycle.py
+    uses for state -- this must never disagree with lifecycle.py's state, or
+    a line reported as FLIPPED could still have its score frozen as if dead.
     """
-    ordered = sorted(events, key=lambda e: (e.start, e.end))
-    saw_break = False
-    is_flipped = False
-    last_break_start = None
-    for e in ordered:
-        if e.type == EventType.BREAK:
-            saw_break = True
-            last_break_start = e.start
-        elif saw_break and e.type in (EventType.TOUCH, EventType.WICK_FAKE):
-            is_flipped = True
-    if saw_break and not is_flipped:
-        return pd.Timestamp(last_break_start)
+    status = break_and_flip_status(events)
+    if status.saw_break and not status.is_flipped:
+        return pd.Timestamp(status.broken_at)
     return now
 
 
@@ -133,10 +122,11 @@ def _role_reversal(events: list[Event]) -> float:
     touch right after a break getting the exact same full credit as a level
     retested repeatedly from the new side, which let barely-confirmed flips
     dominate the top-N purely from this one component. Scales with the
-    number of confirming touch/wick-fake events seen after *any* break
-    (matches lifecycle.py's sticky "ever confirmed" definition of FLIPPED --
-    state stays a binary label, only the score contribution is graded),
-    reaching full credit at `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT`.
+    number of confirming events seen after *any* break (same
+    `flip_status.is_confirmation_event` predicate lifecycle.py uses for its
+    sticky "ever confirmed" definition of FLIPPED -- state stays a binary
+    label, only the score contribution is graded), reaching full credit at
+    `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT`.
     """
     ordered = sorted(events, key=lambda e: (e.start, e.end))
     saw_break = False
@@ -144,7 +134,7 @@ def _role_reversal(events: list[Event]) -> float:
     for e in ordered:
         if e.type == EventType.BREAK:
             saw_break = True
-        elif saw_break and e.type in (EventType.TOUCH, EventType.WICK_FAKE):
+        elif saw_break and is_confirmation_event(e):
             confirmations += 1
     return min(confirmations / _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT, 1.0)
 

@@ -8,40 +8,13 @@ continuing on the same Line object.
 
 from __future__ import annotations
 
+import pandas as pd
+
+from src.sr_lines import scoring
 from src.sr_lines.candidates import HorizontalCandidate
 from src.sr_lines.config import SRConfig
+from src.sr_lines.flip_status import break_and_flip_status
 from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown
-
-
-def _break_and_flip_status(events: list[Event]) -> tuple[bool, bool, str | None, str | None]:
-    """Single source of truth for break/flip status, shared by state
-    determination and broken_at/flipped_at -- these must never disagree.
-
-    "Flipped" is sticky: once *any* break has ever been followed by a
-    respecting touch/wick-fake, the line counts as flipped permanently, even
-    if it breaks again later without a further reclaim (there's no separate
-    LineState for "flipped, then broken again" -- see the module docstring).
-    broken_at/flipped_at report the *first* break and its confirming event,
-    i.e. the pair that actually caused the flip.
-    """
-    ordered = sorted(events, key=lambda e: (e.start, e.end))
-    saw_break = False
-    is_flipped = False
-    first_break_at: str | None = None
-    first_flip_confirmation_at: str | None = None
-    last_break_at: str | None = None
-    for e in ordered:
-        if e.type == EventType.BREAK:
-            saw_break = True
-            last_break_at = e.start
-            if first_break_at is None:
-                first_break_at = e.start
-        elif saw_break and e.type in (EventType.TOUCH, EventType.WICK_FAKE) and not is_flipped:
-            is_flipped = True
-            first_flip_confirmation_at = e.start
-    broken_at = last_break_at if saw_break else None
-    flipped_at = first_flip_confirmation_at if is_flipped else None
-    return saw_break, is_flipped, broken_at, flipped_at
 
 
 def build_line(
@@ -51,7 +24,10 @@ def build_line(
     original_side: str | None,
     scores: ScoreBreakdown,
 ) -> Line:
-    has_break, flipped, broken_at, flipped_at = _break_and_flip_status(events)
+    status = break_and_flip_status(events)
+    has_break, flipped, broken_at, flipped_at = (
+        status.saw_break, status.is_flipped, status.broken_at, status.flipped_at,
+    )
     state = LineState.FLIPPED if flipped else (LineState.BROKEN if has_break else LineState.ACTIVE)
 
     if state == LineState.FLIPPED:
@@ -100,7 +76,7 @@ def build_line(
     )
 
 
-def dedup_lines(lines: list[Line], config: SRConfig) -> list[Line]:
+def dedup_lines(lines: list[Line], bars: pd.DataFrame, atr: pd.Series, config: SRConfig) -> list[Line]:
     """Merge lines whose zones are close relative to their own width -- not
     just zones that literally overlap. A real run showed candidates.py's
     clustering producing several genuinely-separate (non-overlapping)
@@ -112,8 +88,17 @@ def dedup_lines(lines: list[Line], config: SRConfig) -> list[Line]:
     overlapping by that much, positive = separated by that much) against
     `dedup_overlap_threshold` as a fraction of their average width -- so the
     same knob covers "deep overlap" and "close enough to be the same area"
-    with one rule. Keeps the better-scoring geometry, unions events.
-    Diagonal dedup is deferred to milestone 5.
+    with one rule. Keeps the better-scoring geometry, unions events -- and
+    rescores/re-derives state from that union (see `_absorb`): a merged-in
+    line's events used to just get appended to `.events` for display while
+    `state`/`broken_at`/`flipped_at`/counts/`scores`/`strength` silently kept
+    reflecting only the survivor's own pre-merge events. That let a merged
+    zone render as e.g. ACTIVE (solid border, no break annotation) while a
+    BREAK marker from the absorbed line sat right on it, and meant top-N
+    selection never actually benefited from the "more complete evidence"
+    a merge is supposed to represent. `bars`/`atr` are needed here (not just
+    at build_line time) purely to support that rescoring. Diagonal dedup is
+    deferred to milestone 5.
     """
     kept: list[Line] = []
     for line in sorted(lines, key=lambda l: -l.strength):
@@ -130,10 +115,39 @@ def dedup_lines(lines: list[Line], config: SRConfig) -> list[Line]:
                     merged_into = k
                     break
         if merged_into is not None:
-            merged_into.events = sorted(merged_into.events + line.events, key=lambda e: (e.start, e.end))
+            _absorb(merged_into, line, bars, atr, config)
         else:
             kept.append(line)
     return kept
+
+
+def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, config: SRConfig) -> None:
+    """Merge `absorbed`'s events into `survivor` in place and recompute every
+    field derived from the event stream, so a merged line's state/score
+    reflect the *union* of evidence, not just whichever candidate happened to
+    keep its own geometry."""
+    survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
+    survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
+    survivor.last_event = max((e.end for e in survivor.events), default=survivor.first_touch)
+
+    status = break_and_flip_status(survivor.events)
+    survivor.state = (
+        LineState.FLIPPED if status.is_flipped
+        else (LineState.BROKEN if status.saw_break else LineState.ACTIVE)
+    )
+    if survivor.state == LineState.FLIPPED:
+        survivor.role = LineRole.FLIPPED
+    survivor.broken_at = status.broken_at
+    survivor.flipped_at = status.flipped_at
+
+    survivor.n_touches = sum(1 for e in survivor.events if e.type == EventType.TOUCH)
+    survivor.n_wick_fakes = sum(1 for e in survivor.events if e.type == EventType.WICK_FAKE)
+    survivor.n_body_fakes = sum(1 for e in survivor.events if e.type == EventType.BODY_FAKE)
+    survivor.n_breaks = sum(1 for e in survivor.events if e.type == EventType.BREAK)
+
+    survivor.scores = scoring.score_line(survivor.events, bars, atr, survivor.center, config, diagonal=False)
+    survivor.strength = survivor.scores.total
+    survivor.proximity = survivor.scores.proximity
 
 
 def select_lines(lines: list[Line], config: SRConfig, strength_floor: float | None = None) -> list[Line]:
