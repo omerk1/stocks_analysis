@@ -553,6 +553,45 @@ top-10 horizontal zones, no degenerate output).
 text/JSON like every other component. Diagonal equivalent note doesn't
 apply -- this fix already covers both kinds identically, same formula.
 
+## Resolved: a diagonal merge could pull the survivor's displayed start back past its own fitted geometry
+
+Fourth diagonal dedup/merge bug found this review round, and found from a
+plain user question rather than a complaint: a fresh AAPL chart showed one
+clearly visible diagonal line, and the user asked "where is this starting
+from?"
+
+That line (`d81`) had `first_touch="2018-09-10"`. Its fitted price at that
+date was $67.97 -- but AAPL actually closed at $51.62 that day, a ~30%
+mismatch. Pulling the underlying candidate's raw pivot list directly showed
+all 5 of its actual defining pivots span 2020-07-13 through 2026-02-06 (each
+fitting the final line within 0.1-0.4%, an essentially perfect fit for the
+geometry the candidate was actually built from) -- nothing about the line's
+own geometry had anything to do with 2018.
+
+Root cause: `lifecycle._absorb`'s horizontal-derived line
+`survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)`
+was applied unconditionally, including for diagonal merges. That's valid
+for horizontal, where a zone's bounds are a constant (lo, hi) -- if the
+zone was there, "it was touched earlier too" holds regardless of when.
+It's not valid for diagonal: the survivor keeps its *own* slope/intercept
+through a merge (a merge never refits them), so pulling the displayed
+start back to an absorbed candidate's earlier `first_touch` renders the
+box across a period the survivor's fitted line was never actually fit
+against or validated for. Compounding this, the price-proximity dedup
+check that allows a diagonal merge (`candidates._candidates_are_duplicate`)
+only verifies agreement from the *later* of the two candidates' own starts
+onward -- it never checks the region before that, so nothing had ever
+confirmed the two candidates' geometries actually agreed back in 2018 in
+the first place.
+
+Fixed: `_absorb` now only extends `first_touch` backward for horizontal
+merges. Diagonal survivors keep their own original `first_touch`
+unconditionally, regardless of what gets absorbed into them. Verified on
+a fresh AAPL long_term detection run: the top diagonal line's `first_touch`
+is now `2020-07-13`, exactly its own earliest defining pivot, with a fitted
+price ($149.85) within 1.6% of the real close that day ($147.54) -- sane,
+where before the mismatch was ~30%.
+
 ## Still open: the penetration-depth *trend* half of the erosion signal
 
 The other half of the original idea -- is a level getting tested with
