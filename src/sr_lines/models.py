@@ -88,6 +88,14 @@ class ScoreBreakdown:
     # "saved" by strong historical evidence the way it could when proximity
     # was just another additive term. 1.0 = fully relevant, ~0 = stale/far.
     relevance_gate: float = 1.0
+    # Second multiplicative gate: fraction of this line's own lifetime that
+    # price actually spent near it, as opposed to the line extrapolating
+    # through empty space while real price action happened elsewhere. Same
+    # reasoning as relevance_gate -- couldn't be an additive term without
+    # letting a line saturated on touch_quality/resilience/role_reversal
+    # "buy back" a low in-play fraction. 1.0 = price tracked it throughout,
+    # ~0 = mostly hovering away from real price.
+    in_play_gate: float = 1.0
     diagonal_penalty: float = 0.0
     total: float = 0.0
 

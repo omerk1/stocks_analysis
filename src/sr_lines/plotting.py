@@ -67,6 +67,8 @@ def _hover_text(line: Line) -> str:
         f"strength={line.strength:.3f} proximity={line.proximity:.3f}<br>"
         f"touch_quality={s.touch_quality:.2f} duration_density={s.duration_density:.2f} "
         f"resilience={s.resilience:.2f} role_reversal={s.role_reversal:.2f}<br>"
+        f"relevance_gate={s.relevance_gate:.2f} in_play_gate={s.in_play_gate:.2f}"
+        f"{f' diagonal_penalty={s.diagonal_penalty:.2f}' if line.kind == LineKind.DIAGONAL else ''}<br>"
         f"touches={line.n_touches} wick_fakes={line.n_wick_fakes} "
         f"body_fakes={line.n_body_fakes} breaks={line.n_breaks}<br>"
         f"first_touch={line.first_touch} last_event={line.last_event}"

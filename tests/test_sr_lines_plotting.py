@@ -98,6 +98,25 @@ def test_break_and_flip_annotations_include_the_line_id():
     assert "h7 flip" in annotation_texts
 
 
+def test_hover_text_includes_the_gate_components():
+    # relevance_gate and in_play_gate are computed and stored on every
+    # ScoreBreakdown but were silently missing from the chart itself,
+    # forcing debugging via ad hoc scripts instead of just hovering.
+    bars = _bars(30)
+    line = _line_with_break_and_flip("h7")
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    band_trace = next(t for t in fig.data if t.name and t.name.startswith("h7 ["))
+    assert "relevance_gate=" in band_trace.hovertext
+    assert "in_play_gate=" in band_trace.hovertext
+
+
 def _diagonal_line(line_id: str) -> Line:
     events = [
         Event(type=EventType.BREAK, start="2020-01-10", end="2020-01-10",

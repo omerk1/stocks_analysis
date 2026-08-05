@@ -307,6 +307,50 @@ def test_diagonal_duration_density_uses_a_fixed_reference_not_the_full_window():
     assert score_horizontal.duration_density < 0.15  # ~1 year / 8 years, roughly what PAAS showed
 
 
+def test_in_play_gate_suppresses_a_line_that_mostly_hovers_away_from_price():
+    # Regression: a real AAPL run showed every line in a top-15 with
+    # touch_quality/resilience/role_reversal all saturated at/near 1.0 (a
+    # long-history line easily accumulates enough break/reclaim cycles to
+    # hit those caps over many years) -- duration_density's old
+    # ~0.20-of-0.90 additive weight couldn't meaningfully suppress a line
+    # that spent most of its life extrapolating through empty space while
+    # real price action happened elsewhere entirely ("hovering"). Construct
+    # exactly that: identical events (so touch_quality/relevance_gate are
+    # identical either way), but price sits far from the line for most of
+    # the events' own span in one case and stays near it throughout in the
+    # other -- only in_play_gate should differ, and it alone should
+    # meaningfully suppress the total.
+    n = 120
+    idx = pd.bdate_range("2020-01-01", periods=n)
+    near, far = 100.0, 300.0
+    prices = [near if i < 10 or i >= n - 10 else far for i in range(n)]
+    bars_hovering = pd.DataFrame(
+        {"open": prices, "high": [p + 1 for p in prices], "low": [p - 1 for p in prices],
+         "close": prices, "volume": 1_000_000},
+        index=idx,
+    )
+    bars_tracking = _flat_bars(n, price=near)  # control: price stays near the line throughout
+    config = SRConfig(window_years=3.0)
+
+    events = [
+        _touch(idx[1].isoformat(), reaction=5.0),
+        _touch(idx[2].isoformat(), reaction=5.0),
+        _break(idx[5].isoformat()),
+        _touch(idx[n - 10].isoformat(), reaction=5.0),
+        _touch(idx[n - 9].isoformat(), reaction=5.0),
+        _touch(idx[n - 8].isoformat(), reaction=5.0),
+    ]
+
+    score_hovering = score_line(events, bars_hovering, _atr(bars_hovering), near, config)
+    score_tracking = score_line(events, bars_tracking, _atr(bars_tracking), near, config)
+
+    assert score_hovering.in_play_gate < 0.3
+    assert score_tracking.in_play_gate > 0.9
+    assert score_hovering.touch_quality == pytest.approx(score_tracking.touch_quality)
+    assert score_hovering.relevance_gate == pytest.approx(score_tracking.relevance_gate)
+    assert score_hovering.total < score_tracking.total * 0.5
+
+
 def test_touch_quality_rewards_high_volume_over_low_volume_at_equal_count_and_reaction():
     # "A level touched 4 times with high volume should be weighted much
     # higher than a peak touched once on low volume" -- same count, same

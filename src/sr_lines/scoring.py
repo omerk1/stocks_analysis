@@ -137,33 +137,22 @@ def _touch_quality(
     return min(total / 6.0, 1.0)
 
 
-def _duration_density(
-    events: list[Event],
-    bars: pd.DataFrame,
-    atr: pd.Series,
-    window_years: float,
-    center_at: Callable[[int], float],
-    diagonal: bool = False,
-) -> float:
-    """`center_at(bar_index)` is evaluated per bar in the in-play window, not
-    once -- a horizontal candidate's center is constant so this is
-    equivalent to the old fixed-scalar version, but a diagonal candidate's
-    center moves with its slope, and "how close did price stay to the level"
-    has to be judged against wherever the trend actually was at each bar,
-    not one snapshot value.
+def _duration_score(events: list[Event], window_years: float, diagonal: bool = False) -> float:
+    """How long has this line's evidence span been going, normalized against
+    the *full detection window* for horizontal (a level mattering across the
+    whole window is meaningful), but against a fixed
+    `_DIAGONAL_DURATION_REFERENCE_YEARS` for diagonal -- a trendline that's
+    held for a year is already "mature" regardless of whether the detection
+    window happens to be 3 or 8 years. Confirmed on real PAAS data:
+    comparing against `window_years` (8, long_term preset) crushed a
+    genuinely strong, recent ~1-year trendline (touch_quality 0.37,
+    resilience 1.0, role_reversal 1.0 -- strong on every other axis) to
+    duration_density=0.089 purely for not spanning 8 years, while long,
+    multi-year lines got this component almost for free just by being long.
 
-    `span_score` normalizes against the *full detection window* for
-    horizontal (a level mattering across the whole window is meaningful),
-    but against a fixed `_DIAGONAL_DURATION_REFERENCE_YEARS` for diagonal --
-    a trendline that's held for a year is already "mature" regardless of
-    whether the detection window happens to be 3 or 8 years. Confirmed on
-    real PAAS data: comparing against `window_years` (8, long_term preset)
-    crushed a genuinely strong, recent ~1-year trendline (touch_quality
-    0.37, resilience 1.0, role_reversal 1.0 -- strong on every other axis)
-    to duration_density=0.089 purely for not spanning 8 years, while long,
-    multi-year lines got this component almost for free just by being long
-    -- a real structural bias toward long-history lines regardless of their
-    actual evidence quality.
+    This is *maturity in time* only -- see `_in_play_fraction` for "does
+    price actually track this line," which used to be multiplied in here
+    but is now a separate multiplicative gate (see `score_line`).
     """
     if len(events) < 2:
         return 0.0
@@ -171,8 +160,43 @@ def _duration_density(
     last = pd.Timestamp(max(e.end for e in events))
     span_days = max((last - first).days, 1)
     reference_years = _DIAGONAL_DURATION_REFERENCE_YEARS if diagonal else window_years
-    span_score = min(span_days / (reference_years * 365.25), 1.0)
+    return min(span_days / (reference_years * 365.25), 1.0)
 
+
+def _in_play_fraction(
+    events: list[Event],
+    bars: pd.DataFrame,
+    atr: pd.Series,
+    center_at: Callable[[int], float],
+) -> float:
+    """Fraction of bars, across this line's own [first_event, last_event]
+    span, where price actually stayed within 3 ATR of the line -- as
+    opposed to the line just extrapolating through empty space while real
+    price action happened somewhere else entirely.
+
+    `center_at(bar_index)` is evaluated per bar, not once -- a horizontal
+    candidate's center is constant so this is equivalent to a fixed-scalar
+    version, but a diagonal candidate's center moves with its slope, and
+    "how close did price stay to the level" has to be judged against
+    wherever the trend actually was at each bar, not one snapshot value.
+
+    Used as a multiplicative gate on the whole score (see `score_line`), not
+    folded into the additive weighted components the way it used to be:
+    a real AAPL run showed every line in the top-15 with
+    touch_quality/resilience/role_reversal all saturated at/near 1.0 (a
+    long-history line easily accumulates enough break/reclaim cycles to hit
+    those caps), which diluted this signal into irrelevance at its former
+    ~0.20-of-0.90 additive weight -- a line spending most of its life
+    "hovering" away from real price (low in-play fraction) couldn't be
+    meaningfully suppressed by one weighted term among several maxed-out
+    ones. Same structural fix already applied to `proximity` for the same
+    reason: some signals are prerequisites, not just one nice-to-have axis
+    among many, and can't be bought back by being strong elsewhere.
+    """
+    if len(events) < 2:
+        return 0.0
+    first = pd.Timestamp(min(e.start for e in events))
+    last = pd.Timestamp(max(e.end for e in events))
     in_play = bars[(bars.index >= first) & (bars.index <= last)]
     if in_play.empty:
         return 0.0
@@ -180,11 +204,8 @@ def _duration_density(
     bar_indices = bars.index.get_indexer(in_play.index)
     centers = pd.Series([center_at(int(i)) for i in bar_indices], index=in_play.index)
     distance_atr = (in_play["close"] - centers).abs() / a.replace(0, pd.NA)
-    fraction_in_play = (distance_atr <= 3).mean()
-    if pd.isna(fraction_in_play):
-        fraction_in_play = 0.0
-
-    return span_score * float(fraction_in_play)
+    fraction = (distance_atr <= 3).mean()
+    return 0.0 if pd.isna(fraction) else float(fraction)
 
 
 def _bars_between(bars: pd.DataFrame, start: str, end: str) -> int:
@@ -304,7 +325,7 @@ def score_line(
     """`candidate_center` is the zone's center *at the current reference bar*
     -- used for `_proximity`, which only ever cares about "how far is price
     from the level right now." `center_at`, if given, is used by
-    `_duration_density` instead, which needs the center at every bar in its
+    `_in_play_fraction` instead, which needs the center at every bar in its
     in-play window, not just one snapshot -- for a horizontal candidate
     that's the same constant either way, so it defaults to a closure
     returning `candidate_center` when not given. Diagonal callers should
@@ -315,6 +336,14 @@ def score_line(
     candidate's own `DiagonalCandidate.fit_rms_atr_pct` -- how loosely its
     inliers scattered around the fitted line, capped at `_DIAGONAL_PENALTY_CAP`
     so one very sloppy fit can't push the score negative outright.
+
+    `total` is gated by `relevance_gate` (proximity x recency -- is this
+    line still relevant *right now*) and `in_play_gate` (fraction of the
+    line's own lifetime price actually spent near it -- was this ever a
+    real, tracked trendline as opposed to one that mostly hovers through
+    empty space) multiplicatively, on top of the additively-weighted inner
+    components -- see `_in_play_fraction`'s docstring for why this can't be
+    an additive term the way `duration_density` used to include it.
     """
     now = bars.index[-1]
     half_life = config.resolved_half_life_years()
@@ -324,10 +353,11 @@ def score_line(
 
     decay_reference = _decay_reference(events, now)
     touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
-    duration_density = _duration_density(events, bars, atr, config.window_years, center_at, diagonal=diagonal)
+    duration_density = _duration_score(events, config.window_years, diagonal=diagonal)
     resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
     role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
+    in_play_gate = _in_play_fraction(events, bars, atr, center_at)
 
     last_event = pd.Timestamp(max((e.end for e in events), default=None)) if events else None
     recency = _recency(last_event, now, half_life)
@@ -359,7 +389,7 @@ def score_line(
         + weights.get("role_reversal", 0.0) * role_reversal
     )
     inner_score = inner_weighted / inner_weight_total if inner_weight_total > 0 else 0.0
-    total = max(0.0, inner_score - diagonal_penalty) * multiplier * relevance_gate
+    total = max(0.0, inner_score - diagonal_penalty) * multiplier * relevance_gate * in_play_gate
 
     return ScoreBreakdown(
         touch_quality=touch_quality,
@@ -368,6 +398,7 @@ def score_line(
         role_reversal=role_reversal,
         proximity=proximity,
         relevance_gate=relevance_gate,
+        in_play_gate=in_play_gate,
         diagonal_penalty=diagonal_penalty,
         total=total,
     )
