@@ -205,7 +205,9 @@ def classify_events(
 
 def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[Event]:
     """Merge consecutive same-type events within `_MERGE_GAP_BARS` bars into
-    one, keeping the max penetration/reaction seen across the merged group."""
+    one, keeping the max penetration/reaction/volume seen across the merged
+    group -- consistently the *strongest* individual interaction in the
+    cluster, not just whichever bar happened to come last."""
     if not events:
         return []
 
@@ -216,13 +218,14 @@ def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[E
         prev = merged[-1]
         gap = pos.get(pd.Timestamp(ev.start), 0) - pos.get(pd.Timestamp(prev.end), 0)
         if ev.type == prev.type and gap <= _MERGE_GAP_BARS:
+            vol_candidates = [v for v in (prev.volume_ratio, ev.volume_ratio) if v is not None]
             merged[-1] = Event(
                 type=prev.type,
                 start=prev.start,
                 end=ev.end,
                 penetration_atr=max(prev.penetration_atr, ev.penetration_atr),
                 reaction_atr=max(prev.reaction_atr, ev.reaction_atr),
-                volume_ratio=ev.volume_ratio if ev.volume_ratio is not None else prev.volume_ratio,
+                volume_ratio=max(vol_candidates) if vol_candidates else None,
                 pending=ev.pending,
             )
         else:

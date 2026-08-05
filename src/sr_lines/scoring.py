@@ -28,6 +28,20 @@ _BODY_FAKE_MIN_DECAY = 0.3
 _RESILIENCE_CAP = 1.0
 _PROXIMITY_ATR_SCALE = 5.0
 _DIAGONAL_PENALTY_CAP = 0.3
+# Volume weighting: a touch/wick-fake/body-fake reclaim on above-average
+# volume is more convincing evidence (more participants defending the
+# level) than the same interaction on thin volume -- a level "touched 4
+# times on high volume" should score higher than one touched the same way
+# on low volume, not just count touches. Graceful on both ends, matching
+# the style of every other per-event factor here (reaction_atr capped,
+# body-fake decay floored): never fully zeroes out a low-volume event
+# (it's still real price action) and never lets volume alone dominate
+# (capped boost). Neutral (1.0, no adjustment) when volume_ratio is
+# missing (e.g. the first 20 bars of a detection window, before the
+# rolling average warms up) rather than penalizing for absent data.
+_VOLUME_RATIO_FLOOR = 0.7
+_VOLUME_RATIO_CEILING = 1.3
+_VOLUME_RATIO_CAP = 2.0
 # Duration credit for a diagonal trendline is judged against a fixed
 # "mature trend" reference, not the full detection window -- see
 # _duration_density for why.
@@ -52,6 +66,13 @@ def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
     return now
 
 
+def _volume_factor(volume_ratio: float | None) -> float:
+    if volume_ratio is None:
+        return 1.0
+    vr = min(volume_ratio, _VOLUME_RATIO_CAP)
+    return _VOLUME_RATIO_FLOOR + (_VOLUME_RATIO_CEILING - _VOLUME_RATIO_FLOOR) * (vr / _VOLUME_RATIO_CAP)
+
+
 def _event_quality_score(
     events: list[Event],
     bars: pd.DataFrame,
@@ -68,6 +89,12 @@ def _event_quality_score(
     already computes for it instead -- a quick reclaim is strong evidence, a
     slow one (up to the `fakeout_reclaim_bars` window) is weaker but still
     real, per the same "Undercut and Rally" grading used there.
+
+    Also weighted by `_volume_factor(e.volume_ratio)` -- a touch on
+    above-average volume is more convincing evidence (more participants
+    defending the level) than the same interaction on thin volume, so a
+    level touched 4 times on high volume should outscore one touched the
+    same way on low volume, not just tie on count.
 
     Shared by `_touch_quality` (over TOUCH events) and `_role_reversal` (over
     confirming events after a break) so both measure strength, not raw count
@@ -90,7 +117,7 @@ def _event_quality_score(
             quality = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
         else:
             continue
-        total += quality * decay
+        total += quality * _volume_factor(e.volume_ratio) * decay
     return total
 
 
@@ -173,19 +200,22 @@ def _resilience(events: list[Event], bars: pd.DataFrame, fakeout_reclaim_bars: i
     `fakeout_reclaim_bars` window it used. Floored at `_BODY_FAKE_MIN_DECAY`
     rather than decaying to ~0 -- a slow reclaim right at the limit still
     genuinely recovered, just less cleanly than an instant one, and should
-    keep meaningful credit for that.
+    keep meaningful credit for that. Also weighted by `_volume_factor` --
+    a defense on above-average volume is more convincing than the same
+    reclaim on thin volume.
     """
     total = 0.0
     for e in events:
+        vol = _volume_factor(e.volume_ratio)
         if e.type == EventType.WICK_FAKE:
-            total += _WICK_FAKE_RESILIENCE
+            total += _WICK_FAKE_RESILIENCE * vol
         elif e.type == EventType.BODY_FAKE and not e.pending:
             bars_to_reclaim = _bars_between(bars, e.start, e.end)
             fraction_of_window = (
                 min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
             )
             decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
-            total += _BODY_FAKE_RESILIENCE * decay
+            total += _BODY_FAKE_RESILIENCE * decay * vol
     return min(total, _RESILIENCE_CAP)
 
 

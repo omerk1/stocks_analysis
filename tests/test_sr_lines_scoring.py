@@ -18,16 +18,18 @@ def _atr(bars: pd.DataFrame) -> pd.Series:
     return pd.Series(1.0, index=bars.index)
 
 
-def _touch(date: str, reaction: float = 2.0) -> Event:
-    return Event(type=EventType.TOUCH, start=date, end=date, penetration_atr=0.1, reaction_atr=reaction)
+def _touch(date: str, reaction: float = 2.0, volume: float | None = None) -> Event:
+    return Event(type=EventType.TOUCH, start=date, end=date, penetration_atr=0.1, reaction_atr=reaction,
+                 volume_ratio=volume)
 
 
 def _break(date: str) -> Event:
     return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0)
 
 
-def _body_fake(start: str, end: str) -> Event:
-    return Event(type=EventType.BODY_FAKE, start=start, end=end, penetration_atr=0.5, reaction_atr=0.0)
+def _body_fake(start: str, end: str, volume: float | None = None) -> Event:
+    return Event(type=EventType.BODY_FAKE, start=start, end=end, penetration_atr=0.5, reaction_atr=0.0,
+                 volume_ratio=volume)
 
 
 def test_resilience_body_fake_decays_with_time_under_but_keeps_a_grace_floor():
@@ -303,6 +305,42 @@ def test_diagonal_duration_density_uses_a_fixed_reference_not_the_full_window():
     assert score_diagonal.duration_density > score_horizontal.duration_density
     assert score_diagonal.duration_density == pytest.approx(1.0, abs=0.05)
     assert score_horizontal.duration_density < 0.15  # ~1 year / 8 years, roughly what PAAS showed
+
+
+def test_touch_quality_rewards_high_volume_over_low_volume_at_equal_count_and_reaction():
+    # "A level touched 4 times with high volume should be weighted much
+    # higher than a peak touched once on low volume" -- same count, same
+    # reaction strength, only volume differs.
+    config = SRConfig(window_years=3.0)
+    bars = _flat_bars(30)
+    atr = _atr(bars)
+
+    high_volume = [_touch("2020-01-10", reaction=2.0, volume=2.0), _touch("2020-01-20", reaction=2.0, volume=2.0)]
+    low_volume = [_touch("2020-01-10", reaction=2.0, volume=0.2), _touch("2020-01-20", reaction=2.0, volume=0.2)]
+    no_volume_data = [_touch("2020-01-10", reaction=2.0), _touch("2020-01-20", reaction=2.0)]
+
+    score_high = score_line(high_volume, bars, atr, 100.0, config)
+    score_low = score_line(low_volume, bars, atr, 100.0, config)
+    score_none = score_line(no_volume_data, bars, atr, 100.0, config)
+
+    assert score_high.touch_quality > score_low.touch_quality
+    # Missing volume data is neutral, not penalized -- sits between the two.
+    assert score_low.touch_quality < score_none.touch_quality < score_high.touch_quality
+
+
+def test_resilience_rewards_high_volume_reclaims():
+    config = SRConfig(window_years=3.0, fakeout_reclaim_bars=5)
+    bars = _flat_bars(30)
+    atr = _atr(bars)
+    idx = bars.index
+
+    high_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), volume=2.0)]
+    low_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), volume=0.2)]
+
+    score_high = score_line(high_volume, bars, atr, 100.0, config)
+    score_low = score_line(low_volume, bars, atr, 100.0, config)
+
+    assert score_high.resilience > score_low.resilience
 
 
 def test_flip_is_sticky_even_after_an_unconfirmed_later_break():

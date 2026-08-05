@@ -9,7 +9,7 @@ from src.sr_lines import lifecycle
 from src.sr_lines import pivots as pivots_mod
 from src.sr_lines import scoring as scoring_mod
 from src.sr_lines.config import SRConfig
-from src.sr_lines.models import EventType, LineState, Pivot, PivotKind
+from src.sr_lines.models import Event, EventType, LineState, Pivot, PivotKind
 
 
 def _make_bars(rows: list[tuple]) -> pd.DataFrame:
@@ -179,6 +179,26 @@ def test_real_break_then_retest_flips_role():
     # the score is graded -- one confirming retest gets partial credit, not
     # the same full 1.0 a repeatedly-retested reversal would get.
     assert 0 < scores.role_reversal < 1.0
+
+
+def test_merge_adjacent_keeps_the_max_volume_ratio_not_just_the_later_one():
+    bars = _oscillating_series(n_cycles=2, leg_bars=15, low=95.0, high=105.0)
+    idx = bars.index
+    events = [
+        Event(type=EventType.TOUCH, start=idx[10].isoformat(), end=idx[10].isoformat(),
+              penetration_atr=0.1, reaction_atr=1.0, volume_ratio=2.5),
+        # Within _MERGE_GAP_BARS, same type -> merges with the one above.
+        # Later in time, but *lower* volume -- the merged event should keep
+        # the stronger (higher) volume seen across the cluster, not just
+        # whichever bar happened to come last.
+        Event(type=EventType.TOUCH, start=idx[12].isoformat(), end=idx[12].isoformat(),
+              penetration_atr=0.1, reaction_atr=1.0, volume_ratio=0.5),
+    ]
+
+    merged = events_mod._merge_adjacent(events, bars.index)
+
+    assert len(merged) == 1
+    assert merged[0].volume_ratio == 2.5
 
 
 def test_diagonal_events_are_classified_against_the_moving_band_not_a_fixed_one():
