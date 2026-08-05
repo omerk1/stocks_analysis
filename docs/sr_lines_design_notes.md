@@ -481,41 +481,48 @@ diagonal merge instead of a cheap list union -- detection is noticeably
 slower again (~25s vs ~8-10s on T's long_term window). Not yet optimized;
 correctness took priority.
 
-## Idea, not yet built: a penetration-depth/volume "erosion" signal
+## Resolved (volume half): a level touched on high volume now outscores one touched on low volume
 
-Raised as a question: does scoring account for how deep a wick/body-fake
-went, or penalize a level for being tested too many times? It doesn't --
-`Event.penetration_atr` and `Event.volume_ratio` are captured on *every*
-event but never referenced anywhere in `scoring.py`. Touch count today only
-ever helps (`touch_quality` sums quality-weighted touches up to a ceiling)
-and can never actively hurt a line's score, no matter how many times it's
-been tested.
+Originally raised alongside penetration depth as a combined "erosion
+signal" idea (see below for the still-open penetration-*trend* half).
+`Event.volume_ratio` (vs. 20-day average volume) was captured on every
+event but never referenced anywhere in `scoring.py` -- a level touched 4
+times on high volume scored identically to one touched the same way on
+thin volume.
 
-This maps onto a real, two-sided tension in TA: more touches can mean
-"well-established, real level" (the level keeps mattering, more
-participants have positioned around it) or "getting worn down, about to
-give way" (each test consumes the orders sitting there; the classic "the
-more times a level is tested, the more likely it breaks" heuristic). Count
-alone can't distinguish these -- the same 5-touch line could be either
-story depending on the *shape* of those 5 touches, not how many there are.
+Fixed via a new `scoring._volume_factor(volume_ratio)`: neutral (1.0, no
+adjustment) at average volume or when volume data is missing (e.g. the
+first 20 bars, before the rolling average warms up -- absent data isn't
+penalized), capped boost up to 1.3x at 2x+ average volume, floored penalty
+down to 0.7x at zero volume -- graceful on both ends, matching the style of
+every other per-event factor here (`reaction_atr` capped, body-fake decay
+floored), never fully zeroing out a low-volume event since it's still real
+price action. Applied as a multiplier in `_event_quality_score` (so it
+affects both `touch_quality` and `role_reversal`, which both consume it)
+and separately in `_resilience` (a high-volume U&R reclaim is more
+convincing than the same reclaim on thin volume).
 
-Proposed approach (not yet built, not yet validated against real charts):
-treat this as a *trend* signal, not a count-based one. Look at
-`penetration_atr` (and optionally `volume_ratio`) across a line's touches
-in chronological order -- e.g. first-half vs. second-half average
-penetration, or a simple slope. Deepening penetration and/or declining
-volume on successive tests -> a small penalty (erosion, thesis B).
-Shallowing penetration and/or holding volume -> neutral or a small bonus
-(fortification, thesis A). Would live as its own signal rather than folded
-into `resilience`, since it measures evidence *direction* over time, not
-evidence *strength* -- a genuinely different question from what
-`resilience`/`touch_quality` already capture.
+Found and fixed a small related bug while in this code: `events.
+_merge_adjacent` picked whichever merged event's `volume_ratio` happened to
+be *later* in time, not the max -- inconsistent with `penetration_atr`/
+`reaction_atr`, which both already keep the max across a merged cluster.
+Fixed to match.
 
-Deferred to the milestone-7 weight-tuning pass, same as everything else
-scoring-related here: build it, then check it against real charts where a
-level visually reads as "getting eaten through" vs. "rock solid" and
-confirm the number agrees, rather than picking a formula and shipping it
-unchecked.
+## Still open: the penetration-depth *trend* half of the erosion signal
+
+The other half of the original idea -- is a level getting tested with
+*deepening* penetration over time (erosion, weakening) or *shallowing*
+penetration (fortification, strengthening) -- is still not built. This is
+a genuinely different question from volume (which is now resolved, see
+above) and from `resilience`/`touch_quality` (which measure evidence
+*strength*, not *direction* over time): the same 5-touch line could read
+as either story depending on the shape of those 5 touches' penetration
+depths, not their count or individual strength. Proposed approach
+unchanged from the original idea: first-half vs. second-half average
+`penetration_atr`, or a simple slope, as its own signal rather than folded
+into `resilience`. Deferred to the milestone-7 weight-tuning pass -- build
+it, then check it against real charts where a level visually reads as
+"getting eaten through" vs. "rock solid" and confirm the number agrees.
 
 Diagonal equivalent: the same trend-based approach should apply directly --
 a diagonal band being tested with deepening penetration on each touch is
@@ -527,6 +534,17 @@ the same erosion story, just against a sloped level instead of a flat one.
   events can still hit the cap even after the time-decay fix, so the decay
   change had only a modest effect on one real chaotic-vs-clean comparison
   that motivated it. Flagged, not yet acted on.
+- **Possible inversion in wick-fake vs. body-fake resilience credit,
+  flagged but not changed.** `_WICK_FAKE_RESILIENCE` (0.15, flat) is lower
+  than a *quick* `_BODY_FAKE_RESILIENCE` reclaim (0.35 x up to ~0.86 decay
+  ~= 0.30) -- meaning a level that never even closed through a zone
+  (wick-fake, same-bar instant reject) currently scores as *weaker*
+  evidence than one that did close through and had to recover within the
+  reclaim window (body-fake). Arguable either way (a wick could reflect a
+  more violent/uncertain test even though it held; a fast body-fake reclaim
+  could reflect stronger following-bar conviction) -- a values judgment
+  about market behavior, not an obvious bug, so left as-is pending real-chart
+  discussion rather than changed unilaterally.
 - Diagonal real-chart visual review (band width, dedup aggressiveness, the
   30-candidate cap, whether `max_diagonal_slope_atr_per_bar`'s log-slope
   interpretation is the right one) -- structurally verified, not yet
