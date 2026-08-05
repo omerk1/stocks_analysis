@@ -508,6 +508,51 @@ be *later* in time, not the max -- inconsistent with `penetration_atr`/
 `reaction_atr`, which both already keep the max across a merged cluster.
 Fixed to match.
 
+## Resolved: the "hovering" bug -- duration_density's in-play fraction diluted into irrelevance by saturated components
+
+Third real diagonal bug this review round, and the most fundamental one --
+user kept seeing the same "lines don't track real price" complaint across
+multiple rounds ("we don't get any progress") even after the dedup and
+event/geometry fixes above, on a fresh AAPL chart.
+
+Drilled into the actual top-15 AAPL diagonal lines directly rather than
+guessing further: **every single one** had `resilience=1.000` and
+`role_reversal=1.000` -- both fully saturated. Unsurprising for a
+long-history line: over 6-8 years a real stock crosses any given trendline
+many times, easily accumulating enough break/reclaim cycles to hit those
+caps. Meanwhile `duration_density` (which used to bundle `span_score *
+fraction_in_play` together) sat at 0.19-0.53 -- correctly detecting that
+these lines spent a lot of their claimed lifetime far from where price
+actually was, but at its ~0.20-of-0.90 additive weight, that signal
+couldn't meaningfully suppress a line that was maxed out on three other
+axes. Same failure shape as the original `proximity` bug: an additive term
+can't suppress a line that's strong everywhere else, because the other
+weights simply absorb the loss.
+
+**This is structurally the same bug, so it got the same fix.** Split
+`duration_density` into two things that were always conceptually different:
+- `_duration_score` (kept as the additive `duration_density` weighted
+  component): span length only -- "has this level/trend existed long
+  enough to be mature." Unchanged from the prior duration_density fix.
+- `_in_play_fraction` (new): fraction of the line's own [first_event,
+  last_event] span where price actually stayed within 3 ATR of it, as
+  opposed to the line extrapolating through empty space. This is now a
+  **second multiplicative gate** (`in_play_gate`, alongside `relevance_gate`)
+  on the whole score, not an additive term -- so it can no longer be
+  "bought back" by touch_quality/resilience/role_reversal being strong.
+
+Verified on the same AAPL run: `in_play_gate` values for the old top-15
+ranged 0.28-0.53, and applying it multiplicatively dropped the top score
+from 0.368 to 0.202 and meaningfully re-ranked the list (several lines with
+better in-play fractions displaced ones that were previously winning purely
+on saturated touch_quality/resilience/role_reversal). Applies uniformly to
+horizontal too (checked -- values there ranged 0.27-0.84 across AAPL's
+top-10 horizontal zones, no degenerate output).
+
+`ScoreBreakdown` gained an `in_play_gate` field so this is visible in hover
+text/JSON like every other component. Diagonal equivalent note doesn't
+apply -- this fix already covers both kinds identically, same formula.
+
 ## Still open: the penetration-depth *trend* half of the erosion signal
 
 The other half of the original idea -- is a level getting tested with
