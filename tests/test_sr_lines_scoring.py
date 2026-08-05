@@ -282,6 +282,29 @@ def test_diagonal_fit_penalty_is_capped_and_reduces_total():
     assert score_way_over_cap.total == pytest.approx(score_at_cap.total)
 
 
+def test_diagonal_duration_density_uses_a_fixed_reference_not_the_full_window():
+    # Regression: a real PAAS run showed a genuinely strong, recent ~1-year
+    # trendline (touch_quality 0.37, resilience 1.0, role_reversal 1.0 --
+    # strong on every other axis) crushed to duration_density=0.089 purely
+    # for not spanning the full 8-year long_term window, while multi-year
+    # lines got this component almost for free just by being long. A
+    # diagonal trendline that's held for ~1 year is already "mature" and
+    # shouldn't be judged against the detection window's length the way a
+    # horizontal level's multi-year persistence legitimately is.
+    bars = _flat_bars(400, price=100.0)
+    atr = _atr(bars)
+    idx = bars.index
+    events = [_touch(idx[0].isoformat()), _touch(idx[260].isoformat())]  # ~1 year apart
+    config = SRConfig(window_years=8.0)  # long_term preset scale
+
+    score_horizontal = score_line(events, bars, atr, 100.0, config, diagonal=False)
+    score_diagonal = score_line(events, bars, atr, 100.0, config, diagonal=True)
+
+    assert score_diagonal.duration_density > score_horizontal.duration_density
+    assert score_diagonal.duration_density == pytest.approx(1.0, abs=0.05)
+    assert score_horizontal.duration_density < 0.15  # ~1 year / 8 years, roughly what PAAS showed
+
+
 def test_flip_is_sticky_even_after_an_unconfirmed_later_break():
     # Broke, was confirmed flipped, then broke *again* with no further
     # reclaim -- lifecycle.py's state is FLIPPED either way (there's no

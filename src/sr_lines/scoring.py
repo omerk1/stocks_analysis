@@ -28,6 +28,10 @@ _BODY_FAKE_MIN_DECAY = 0.3
 _RESILIENCE_CAP = 1.0
 _PROXIMITY_ATR_SCALE = 5.0
 _DIAGONAL_PENALTY_CAP = 0.3
+# Duration credit for a diagonal trendline is judged against a fixed
+# "mature trend" reference, not the full detection window -- see
+# _duration_density for why.
+_DIAGONAL_DURATION_REFERENCE_YEARS = 1.0
 
 
 def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
@@ -112,6 +116,7 @@ def _duration_density(
     atr: pd.Series,
     window_years: float,
     center_at: Callable[[int], float],
+    diagonal: bool = False,
 ) -> float:
     """`center_at(bar_index)` is evaluated per bar in the in-play window, not
     once -- a horizontal candidate's center is constant so this is
@@ -119,13 +124,27 @@ def _duration_density(
     center moves with its slope, and "how close did price stay to the level"
     has to be judged against wherever the trend actually was at each bar,
     not one snapshot value.
+
+    `span_score` normalizes against the *full detection window* for
+    horizontal (a level mattering across the whole window is meaningful),
+    but against a fixed `_DIAGONAL_DURATION_REFERENCE_YEARS` for diagonal --
+    a trendline that's held for a year is already "mature" regardless of
+    whether the detection window happens to be 3 or 8 years. Confirmed on
+    real PAAS data: comparing against `window_years` (8, long_term preset)
+    crushed a genuinely strong, recent ~1-year trendline (touch_quality
+    0.37, resilience 1.0, role_reversal 1.0 -- strong on every other axis)
+    to duration_density=0.089 purely for not spanning 8 years, while long,
+    multi-year lines got this component almost for free just by being long
+    -- a real structural bias toward long-history lines regardless of their
+    actual evidence quality.
     """
     if len(events) < 2:
         return 0.0
     first = pd.Timestamp(min(e.start for e in events))
     last = pd.Timestamp(max(e.end for e in events))
     span_days = max((last - first).days, 1)
-    span_score = min(span_days / (window_years * 365.25), 1.0)
+    reference_years = _DIAGONAL_DURATION_REFERENCE_YEARS if diagonal else window_years
+    span_score = min(span_days / (reference_years * 365.25), 1.0)
 
     in_play = bars[(bars.index >= first) & (bars.index <= last)]
     if in_play.empty:
@@ -275,7 +294,7 @@ def score_line(
 
     decay_reference = _decay_reference(events, now)
     touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
-    duration_density = _duration_density(events, bars, atr, config.window_years, center_at)
+    duration_density = _duration_density(events, bars, atr, config.window_years, center_at, diagonal=diagonal)
     resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
     role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
