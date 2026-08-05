@@ -164,13 +164,30 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
     with that zone. Instead, re-classify from scratch against the
     survivor's own kept geometry, so every event is always consistent with
     what's actually rendered, regardless of how the merge happened.
+
+    `first_touch` is extended back to `absorbed`'s (if earlier) for
+    horizontal only, never for diagonal. For horizontal that's always valid
+    -- the zone's bounds are a constant, so "this same level was touched
+    earlier too" holds regardless of when. For diagonal it isn't: the
+    survivor keeps its *own* slope/intercept (a merge never changes them),
+    so pulling the displayed start back past the survivor's own earliest
+    defining pivot would render the box across a period its fitted geometry
+    was never actually fit against or validated for -- confirmed on a real
+    AAPL line whose `first_touch` got pulled back to 2018-09 from an
+    absorbed candidate, while every one of its own 5 defining pivots was
+    2020-07 through 2026-02; the fitted line at 2018-09-10 (~$68) had no
+    relationship to the real price that day (~$52), a pure unvalidated
+    backward extrapolation. The dedup check that allowed the merge only
+    verifies proximity from the *later* of the two candidates' starts
+    onward, never before it, so the pre-2020 period was never actually
+    checked for geometric agreement in the first place.
     """
-    survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
     if survivor.kind == LineKind.DIAGONAL:
         survivor.events, _ = events_mod.classify_events(
             bars, survivor, atr, config, start_ts=pd.Timestamp(survivor.first_touch),
         )
     else:
+        survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
         survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
     survivor.last_event = max((e.end for e in survivor.events), default=survivor.first_touch)
 

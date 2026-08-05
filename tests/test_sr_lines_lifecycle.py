@@ -218,12 +218,13 @@ def _minimal_diagonal_candidate(
 def _diag_line(
     line_id: str, strength: float, slope: float = 0.001, intercept: float = math.log(100.0),
     origin_index: int = 0, half_width: float = 0.02, events: list[Event] | None = None,
+    first_touch: str = "2020-01-01",
 ) -> Line:
     events = events or []
     return Line(
         id=line_id, kind=LineKind.DIAGONAL, role=LineRole.SUPPORT, state=LineState.ACTIVE,
         center=None, half_width=half_width, slope=slope, intercept=intercept, origin_index=origin_index,
-        first_touch="2020-01-01", last_event="2020-01-01", events=events,
+        first_touch=first_touch, last_event=first_touch, events=events,
         scores=ScoreBreakdown(total=strength), strength=strength,
         n_breaks=sum(1 for e in events if e.type == EventType.BREAK),
     )
@@ -251,6 +252,29 @@ def test_dedup_merges_diagonal_lines_whose_bands_are_close_at_the_reference_bar(
     deduped = dedup_lines([strong, weak_close], bars, _atr(bars), config)
 
     assert {line.id for line in deduped} == {"strong"}
+
+
+def test_dedup_does_not_pull_a_diagonal_survivors_first_touch_back_to_the_absorbed_lines():
+    # Regression: a real AAPL line had first_touch pulled back to 2018-09
+    # from an absorbed candidate, rendering its box across a period its own
+    # fitted geometry (slope/intercept, unchanged by the merge) was never
+    # actually fit against -- the fitted price 2 years before the survivor's
+    # own earliest defining pivot had no relationship to real price that
+    # far back. Valid for horizontal (constant bounds, so "touched earlier
+    # too" always holds) but not diagonal, where the survivor's own
+    # first_touch must stay put regardless of what gets absorbed into it.
+    bars = _flat_bars(60)
+    strong = _diag_line("strong", strength=0.8, intercept=math.log(100.0), first_touch="2020-01-15")
+    weak_close = _diag_line(
+        "weak_close", strength=0.3, intercept=math.log(100.3), first_touch="2020-01-02",
+    )
+    config = SRConfig(dedup_overlap_threshold=0.6)
+
+    deduped = dedup_lines([strong, weak_close], bars, _atr(bars), config)
+
+    assert len(deduped) == 1
+    assert deduped[0].id == "strong"
+    assert deduped[0].first_touch == "2020-01-15"  # survivor's own, not pulled back to 2020-01-02
 
 
 def test_dedup_does_not_merge_diagonal_lines_with_different_slopes():
