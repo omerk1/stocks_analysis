@@ -98,32 +98,21 @@ def test_break_and_flip_annotations_include_the_line_id():
     assert "h7 flip" in annotation_texts
 
 
-def test_box_starts_at_regime_start_not_first_touch_when_they_differ():
-    # Regression: the box used to always start at first_touch, even for a
-    # line whose regime_start reflects a real multi-year dormant gap before
-    # its current relevance began -- that would re-stretch the box across
-    # the exact dead time the in_play_gate score fix already excludes,
-    # reintroducing the "looks disconnected from real price" visual it
-    # fixed. Score and rendering must agree on what "relevant" means.
+def test_box_always_starts_at_first_touch_even_when_regime_start_differs():
+    # Regression (corrected): an earlier version of this keyed the box's
+    # start off regime_start instead of first_touch, reasoning that a box
+    # spanning a real dormant gap would look like clutter. That was wrong --
+    # it hid the very thing that makes a multi-year trendline recognizable
+    # (a real PAAS descending resistance from a 2020 high, dormant for ~3
+    # years, then broken in 2024: the box needs to visibly span from 2020,
+    # not just the last few months of the breakout). regime_start's actual
+    # job is deciding whether a line is good enough to make top-N in the
+    # first place (via in_play_gate) -- that's the real clutter filter, not
+    # box length. Once a line clears that bar, its box shows its full known
+    # history like every other line, regardless of regime_start.
     bars = _bars(30)
     line = _line_with_break_and_flip("h7")
-    line.regime_start = "2020-01-15"  # after first_touch ("2020-01-01"), before last_event
-    result = DetectionResult(
-        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
-        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
-        lines=[line],
-    )
-
-    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
-
-    band_trace = next(t for t in fig.data if t.name and t.name.startswith("h7 ["))
-    assert pd.Timestamp(band_trace.x[0]) == pd.Timestamp("2020-01-15")
-
-
-def test_box_falls_back_to_first_touch_when_regime_start_is_unset():
-    bars = _bars(30)
-    line = _line_with_break_and_flip("h7")
-    assert line.regime_start is None  # not set by this test helper -- old default behavior
+    line.regime_start = "2020-01-15"  # after first_touch ("2020-01-01") -- must not affect the box
     result = DetectionResult(
         ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
         data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
