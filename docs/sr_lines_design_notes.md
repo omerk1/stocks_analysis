@@ -820,6 +820,62 @@ mix of `regime_start == first_touch` (no gap, unaffected) and
 `regime_start` well after `first_touch` (genuine resets). 169 tests
 passing.
 
+## Resolved: `touch_quality`/`resilience`/`role_reversal` still saturated within a long but *continuous* regime -- `regime_start` alone wasn't the whole fix
+
+Found while sanity-checking the regime-scoping fix above before merging,
+prompted by a direct question ("are we ok with the implementation?") that
+was worth actually re-verifying with real numbers rather than just
+reasoning about design intent. Checked AAPL/PAAS/T's real top-15 again:
+`resilience` was saturated (1.0) for 9-12 of 15 lines, `role_reversal` for
+8-14 of 15 -- barely moved from before the `regime_start` fix, for the
+lines that *don't* have a multi-year dormancy gap in their history.
+
+Root cause, confirmed on a real AAPL line (`d81`): 46 genuine confirming
+events spread across a continuous ~4-year regime (no gap anywhere close to
+`regime_gap_years`, so `regime_start` correctly doesn't exclude any of
+it). Even with real exponential recency decay applied per-event, the
+quality-weighted sum came to ~11.7 against `role_reversal`'s divisor of
+3.0 -- decay shrinks each event's *individual* contribution as it ages,
+but doesn't shrink the *number* of terms in the sum, so any line active
+for long enough with events every few weeks will eventually clear any
+fixed divisor, entirely independent of whether the evidence is chop or
+genuinely good. `touch_quality`'s and `role_reversal`'s divisors were
+always *named* for a recent count ("6 strong recent touches", "3 strong
+recent confirmations") but the implementation never actually restricted
+*how many* events fed the sum -- only *which type* -- so "recent" was
+doing no real work beyond generic decay.
+
+Fixed: new `_most_recent(events, k)` restricts `touch_quality`,
+`resilience`, and `role_reversal` to literally their `k` most recent
+qualifying events (by end date) before summing -- `k=6` for
+`touch_quality` (renamed `_TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT`, same
+value as before, just now actually enforced by count) and `k=3` for both
+`resilience` and `role_reversal` (consolidated into one shared
+`_RECENT_EVENTS_FOR_FULL_CREDIT`, replacing the old
+`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT` -- `resilience` never had
+its own named divisor before, reusing role_reversal's is the least
+arbitrary choice given both showed near-identical saturation severity in
+the real data). This is the natural continuation of `_most_recent`'s own
+docstring reasoning applied consistently, not a new invented mechanism.
+
+Verified on real data: saturation nearly eliminated across all three
+tickers --
+
+| | before | after |
+|---|---|---|
+| AAPL resilience saturated | 12/15 | 0/15 |
+| AAPL role_reversal saturated | 14/15 | 2/15 |
+| PAAS resilience saturated | 9/15 | 0/15 |
+| PAAS role_reversal saturated | 13/15 | 0/15 |
+| T resilience saturated | 3/15 | 0/15 |
+| T role_reversal saturated | 8/15 | 0/15 |
+
+All three components now show real spread across every ticker's top-15
+instead of clustering at 1.0. Re-verified the original PAAS descending-
+resistance case (the reason `regime_start` exists) still holds after this
+second fix layered on top: the peak-anchored line (`d250`) is still in the
+top-15 as-of 2024-08-30, now ranked #5. 170 tests passing.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
