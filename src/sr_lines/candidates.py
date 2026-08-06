@@ -37,9 +37,6 @@ class HorizontalCandidate:
     half_width: float
     pivots: list[Pivot] = field(default_factory=list)
 
-    def center_at(self, bar_index: int) -> float:
-        return self.center
-
     def zone_at(self, bar_index: int) -> tuple[float, float]:
         return self.center - self.half_width, self.center + self.half_width
 

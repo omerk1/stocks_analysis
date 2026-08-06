@@ -1,7 +1,6 @@
 import math
 
 import pandas as pd
-import pytest
 
 from src.sr_lines import candidates as candidates_mod
 from src.sr_lines import events as events_mod
