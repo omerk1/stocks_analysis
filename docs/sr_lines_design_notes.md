@@ -612,36 +612,106 @@ Diagonal equivalent: the same trend-based approach should apply directly --
 a diagonal band being tested with deepening penetration on each touch is
 the same erosion story, just against a sloped level instead of a flat one.
 
-## Reviewed and confirmed by design: an old, decisively-broken trendline scores near zero once price has run away from it
+## Initially reviewed as "confirmed by design," then found to be a real bug -- see the regime_start fix below
 
 User hand-drew an obvious multi-year descending resistance on a PAAS chart
 (2020 high ~$37 down to ~$12-13 by 2026) and asked why nothing like it shows
-up in the top-N. Investigated with real data rather than assuming a bug:
-the matching candidate does exist and fits tightly --
-`fit_rms_atr_pct=0.075` (one of the best fits in the whole 300-candidate
-set) through pivots at 2020-08, 2021-02, 2021-05, 2024-05, 2024-08 -- and
-classifies exactly as expected: touches through 2021, a clean BREAK on
-2024-07-10, a fakeout retest, then a decisive break and flip to FLIPPED by
-2025-01-02. A textbook "broke out of a multi-year descending resistance"
-pattern.
+up in the top-N. First pass: the matching candidate does exist and fits
+tightly -- `fit_rms_atr_pct=0.075` (one of the best fits in the whole
+300-candidate set) through pivots at 2020-08, 2021-02, 2021-05, 2024-05,
+2024-08 -- and classifies exactly as expected: touches through 2021, a
+clean BREAK on 2024-07-10, a fakeout retest, then a decisive break and flip
+to FLIPPED by 2025-01-02. A textbook "broke out of a multi-year descending
+resistance" pattern. Score was 0.013, crushed by `relevance_gate=0.148`
+(PAAS is now ~3x above where the line sits today) and `in_play_gate=0.217`
+(a real ~3-year idle gap, 2021-05 to 2024-05, before the eventual breakout).
 
-Its score is 0.013, though, crushed by the same two gates that fixed the
-"hovering" bug (see above): `relevance_gate=0.148` (PAAS is now ~3x above
-where the line sits today, and the last event was ~19 months ago) and
-`in_play_gate=0.217` (there's a real ~3-year idle gap, 2021-05 to 2024-05,
-where price never came near the band before the eventual breakout -- the
-same shape as a genuinely hovering, never-tested line, even though this one
-*was* eventually tested and broken).
+Initially concluded this was the intended tradeoff (top-N tracks current
+relevance, an old broken level correctly ages out) and left it alone. But
+the user pushed back wanting the case re-tested *as of shortly after the
+break itself* -- and even there, the same candidate still scored only 0.032
+and didn't crack the top-15. `relevance_gate` was fine at that point
+(0.699 -- price was close, the event was recent), but `in_play_gate` was
+still only 0.150, because its denominator is the line's *entire*
+first-event-to-last-event span: the 3-year dead zone from 2021-2024 was
+still baked into that average regardless of "now." That's what exposed this
+as a real, structural bug rather than a values judgment -- see "Root cause
+and fix: `regime_start`" below for the actual resolution.
 
-Confirmed with the user this is the intended tradeoff, not a bug: top-N is
-about what's relevant to price *right now*, and a level price has
-decisively broken and moved 3x away from has correctly aged out, even
-though it was a real and well-fit pattern in its own era. No code change.
-If a future need comes up for surfacing historically-significant breaks
-regardless of current relevance (a separate "notable past breaks" view, or
-exempting strong role_reversal evidence from `relevance_gate`), those were
-the two live alternatives discussed and explicitly deferred -- see this
-section if this class of complaint recurs.
+## Root cause and fix: `regime_start` -- `in_play_gate` and the rendered box now judge a line by its current regime, not its entire history
+
+The user asked for a genuine root-cause fix rather than another one-off
+patch ("we just add some patches every time instead of tackling major root
+causes"). Investigated properly rather than re-tuning `in_play_gate`'s
+formula again:
+
+**Naive recency-weighting isn't enough.** Tried applying the same
+exponential half-life decay `touch_quality`/`role_reversal`/`relevance_gate`
+already use to `in_play_gate`'s per-bar average. Result on the real PAAS
+candidate: `0.150 -> 0.157`. The 3-year dead zone (~650 trading days)
+outweighs the real engagement (~65 days) 10:1, and a 2-year half-life only
+discounts old days by ~3x -- nowhere near enough to overcome that ratio.
+
+**The real flaw: `in_play_gate` measured the wrong thing.** A flat fraction
+of *all* time between first and last event conflates two situations that
+look statistically identical to that average but are conceptually
+opposite: a genuinely spurious/coincidental fit (the original "hovering"
+bug -- a loose line that only crosses price by chance, spread thin across
+years) vs. a real, tightly-fit trendline (this PAAS line, `fit_rms=0.068`,
+one of the best fits found) with an ordinary multi-year dormant gap before
+price legitimately came back and broke through it. Time spent away from any
+given level is *normal* market behavior -- price can't be near every
+historical level at once -- and shouldn't by itself invalidate the level.
+
+**Fix: `scoring.regime_start(events, gap_years, since=None)`.** Walks a
+line's events chronologically; whenever the gap since the previous event
+(or since `first_touch`, for the very first event) exceeds
+`config.regime_gap_years` (new knob, default 1.0), everything before that
+gap is treated as an earlier, separate regime, and the "current regime"
+resets to start there. Falls back to the old always-first-event/first_touch
+behavior when there's no gap that large -- the common case, verified
+unaffected against the existing hovering-bug regression test (its gap is
+~0.4 years, well under the 1.0-year default).
+
+Verified on the real PAAS candidate: `regime_start` correctly resets to
+`2024-05-20` (the actual start of the reactivation), `in_play_gate` jumps
+`0.150 -> 0.838` as-of shortly after the break, and the candidate's own
+score goes `0.032 -> 0.155` (evaluated as-of that date) / `0.032 -> 0.177`
+(hand-verified against a simulated regime-windowed gate before the full
+implementation) -- from "buried" to competitive with the top-ranked lines
+of that period. Spot-checked against today's actual top-ranked AAPL/PAAS/T
+lines beforehand to confirm no runaway inflation: most lines are unaffected
+(no gap that large in their history), a few shift moderately, nothing
+degenerate.
+
+**Score and rendering had to be fixed together, not just the score.**
+`plotting._relevant_range` always drew a line's box from `first_touch`
+(its very first pivot) through the reference date, regardless of dormancy.
+Fixing only `in_play_gate` would have let this exact PAAS line back into
+the top-N with its score correctly high, while its rendered box still
+stretched from 2020 to today -- crossing the same multi-year empty
+stretch that caused the original "hovering"/"disconnected from price"
+complaint in the first place. `_relevant_range` now uses `line.regime_start`
+(falling back to `first_touch` when unset, e.g. hand-built `Line`s in
+tests, or when they're equal -- the no-dormancy common case) so the score
+and the chart can no longer disagree about what "relevant" means.
+
+**Supporting consistency fix: `_resilience` now decays with recency too.**
+Found while auditing why the original "hovering" bug happened in the first
+place: `resilience` had *no* time decay at all, unlike `touch_quality` and
+`role_reversal` (both already fixed to decay in earlier rounds) -- an old
+defended level stayed worth exactly as much as a fresh one, which is part
+of why `resilience` could saturate at 1.0 purely from long accumulated
+history regardless of relevance. Now uses the same exponential half-life
+decay (`decay_reference`) the other two evidence-quality components use.
+This was a latent gap, not something the user had separately reported, but
+the same category of bug as the two already fixed.
+
+`Line.regime_start` is a new field (recomputed by `lifecycle._absorb` on
+every merge, same as every other event-derived field, since it's a pure
+function of the event timeline and a stale post-merge value would defeat
+the point) and is now surfaced in the chart's hover text alongside
+`first_touch`/`last_event`.
 
 ## Still open / not yet built
 
