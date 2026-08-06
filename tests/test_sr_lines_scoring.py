@@ -445,6 +445,51 @@ def test_regime_start_resets_after_a_gap_but_not_within_normal_quiet_periods():
     assert regime_start(dormant, gap_years=1.0) == pd.Timestamp(idx[1300])
 
 
+def test_evidence_components_are_scoped_to_the_current_regime_not_a_years_old_chop_cluster():
+    # Regression: a real PAAS descending trendline through the actual
+    # highest peak, with a tight fit (fit_rms=0.07) and just a handful of
+    # clean, well-spaced touches, scored *lower* than several looser-fit
+    # (fit_rms 0.3-0.5) lines that had racked up 8+ breaks and 17+ touches
+    # -- almost all from one chaotic ~11-month stretch years in the past --
+    # because touch_quality/resilience/role_reversal summed evidence across
+    # a line's *entire* history with no regard for how long ago or how
+    # densely clustered it was. A dozen-plus events from one old chop
+    # episode saturated all three caps just as easily as genuine, sustained
+    # respect would have -- the same "additive/cumulative signal can't
+    # distinguish real strength from noisy volume" failure shape as the
+    # original hovering bug, just in the evidence components instead of
+    # in_play_gate. Construct the same shape: a dense burst of alternating
+    # touch/break events in a long-past, gap-isolated regime (chop) vs. a
+    # sparse, clean regime -- only the isolated old chop should be excluded.
+    idx = pd.bdate_range("2020-01-01", periods=1600)
+    config = SRConfig(window_years=8.0, regime_gap_years=1.0)
+
+    old_chop = []
+    for i in range(0, 300, 15):  # dense alternating touch/break every ~3 weeks
+        old_chop.append(_touch(idx[i].isoformat(), reaction=3.0))
+        old_chop.append(_break(idx[i + 5].isoformat()))
+    recent_clean = [
+        _touch(idx[1550].isoformat(), reaction=3.0),
+        _touch(idx[1560].isoformat(), reaction=3.0),
+    ]  # gap from old_chop's last event (~idx 295) to idx 1550 is >1250 bars, well over 1yr
+
+    bars = _flat_bars(1600)
+    atr = _atr(bars)
+
+    chopped_line = score_line(old_chop + recent_clean, bars, atr, 100.0, config)
+    clean_only_line = score_line(recent_clean, bars, atr, 100.0, config)
+
+    # The old chop shouldn't inflate touch_quality/resilience/role_reversal
+    # beyond what the recent regime's own evidence supports -- scoping to
+    # the current regime makes a line with extra old chop score the same
+    # as one with only the recent, real evidence.
+    assert chopped_line.touch_quality == pytest.approx(clean_only_line.touch_quality)
+    assert chopped_line.role_reversal == pytest.approx(clean_only_line.role_reversal)
+    # duration_density is deliberately unaffected -- it measures maturity
+    # over the *full* history, not current evidence quality.
+    assert chopped_line.duration_density > clean_only_line.duration_density
+
+
 def test_touch_quality_rewards_high_volume_over_low_volume_at_equal_count_and_reaction():
     # "A level touched 4 times with high volume should be weighted much
     # higher than a peak touched once on low volume" -- same count, same

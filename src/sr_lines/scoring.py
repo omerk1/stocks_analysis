@@ -413,6 +413,23 @@ def score_line(
     the additively-weighted inner components -- see `_in_play_fraction`'s
     docstring for why this can't be an additive term the way
     `duration_density` used to include it.
+
+    `touch_quality`/`resilience`/`role_reversal` -- the three "evidence
+    quality" components -- are computed only from events within the
+    line's current regime (`regime_start` onward), not its whole history.
+    A line that broke and reformed many times in a short, long-past window
+    (chop -- price crossing back and forth, not a real level) can rack up
+    a dozen-plus "confirming" events across that mess and saturate all
+    three at their caps, while a tightly-fit line anchored at the actual
+    defining peak, with just a handful of clean, well-spaced touches, does
+    not -- confirmed on a real PAAS case where a loose (`fit_rms=0.4`)
+    trendline with 8 breaks and 17 touches, mostly from one chaotic
+    ~11-month stretch years ago, outscored a tightly-fit (`fit_rms=0.07`)
+    line through the line's own actual highest peak. `duration_density`
+    deliberately stays on the *full* event span (it measures maturity, not
+    current evidence quality -- a level mattering across its whole history
+    is meaningful regardless of whether it's chopping right now), and
+    `regime_start`/`in_play_gate` are unaffected (already regime-scoped).
     """
     now = bars.index[-1]
     half_life = config.resolved_half_life_years()
@@ -421,13 +438,20 @@ def score_line(
         center_at = lambda _bar_index: candidate_center  # noqa: E731
 
     decay_reference = _decay_reference(events, now)
-    touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
+    regime_window_start = regime_start(events, config.regime_gap_years) if events else now
+    current_regime_events = [e for e in events if pd.Timestamp(e.start) >= regime_window_start]
+    touch_quality = _touch_quality(
+        current_regime_events, bars, decay_reference, half_life, config.fakeout_reclaim_bars
+    )
     duration_density = _duration_score(events, config.window_years, diagonal=diagonal)
-    resilience = _resilience(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
-    role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
+    resilience = _resilience(
+        current_regime_events, bars, decay_reference, half_life, config.fakeout_reclaim_bars
+    )
+    role_reversal = _role_reversal(
+        current_regime_events, bars, decay_reference, half_life, config.fakeout_reclaim_bars
+    )
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
-    in_play_window_start = regime_start(events, config.regime_gap_years) if events else now
-    in_play_gate = _in_play_fraction(events, bars, atr, center_at, in_play_window_start)
+    in_play_gate = _in_play_fraction(events, bars, atr, center_at, regime_window_start)
 
     last_event = pd.Timestamp(max((e.end for e in events), default=None)) if events else None
     recency = _recency(last_event, now, half_life)
