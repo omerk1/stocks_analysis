@@ -684,17 +684,13 @@ lines beforehand to confirm no runaway inflation: most lines are unaffected
 (no gap that large in their history), a few shift moderately, nothing
 degenerate.
 
-**Score and rendering had to be fixed together, not just the score.**
-`plotting._relevant_range` always drew a line's box from `first_touch`
-(its very first pivot) through the reference date, regardless of dormancy.
-Fixing only `in_play_gate` would have let this exact PAAS line back into
-the top-N with its score correctly high, while its rendered box still
-stretched from 2020 to today -- crossing the same multi-year empty
-stretch that caused the original "hovering"/"disconnected from price"
-complaint in the first place. `_relevant_range` now uses `line.regime_start`
-(falling back to `first_touch` when unset, e.g. hand-built `Line`s in
-tests, or when they're equal -- the no-dormancy common case) so the score
-and the chart can no longer disagree about what "relevant" means.
+**Score and rendering initially got coupled, which was wrong -- see the
+correction below.** The first version of this fix also changed
+`plotting._relevant_range` to key the box's start off `regime_start`
+instead of `first_touch`, reasoning that a box spanning the real dormant
+gap would recreate the original hovering complaint's visual. That reasoning
+turned out to be wrong -- see "Corrected" below, filed right after this
+section once the mistake surfaced.
 
 **Supporting consistency fix: `_resilience` now decays with recency too.**
 Found while auditing why the original "hovering" bug happened in the first
@@ -712,6 +708,48 @@ every merge, same as every other event-derived field, since it's a pure
 function of the event timeline and a stale post-merge value would defeat
 the point) and is now surfaced in the chart's hover text alongside
 `first_touch`/`last_event`.
+
+## Corrected: the box's rendered extent should not have been keyed off `regime_start`
+
+Immediately after the `regime_start` fix above, the user re-checked with a
+PAAS as-of run timed right at the real breakout (2024-08-30) and reported
+the descending diagonal was *still* missing from the rendered chart -- with
+an explicit instruction not to special-case this one candidate, but to find
+the actual general bug.
+
+It was real, and self-inflicted by the fix above: `regime_start` correctly
+got the matching descending-resistance candidates (`d249`, `d102`, `d269`
+-- slightly different specific candidates than the earlier single "target"
+line, since dedup reshuffles which exact candidate wins, but the same real
+pattern) into the top-15 this time. But `_relevant_range` had also been
+changed to draw the box starting at `regime_start`, not `first_touch` --
+so each box was only drawn from its ~2024-04 reactivation onward, a few
+months wide, not from its actual 2020/2021 founding pivot. The line was
+technically "in" the result set, just visually invisible as the thing it
+actually is: a multi-year trendline. Confirmed directly: `d249`'s box was
+rendering as `2024-04-09 -> 2024-08-30` instead of `2020-06-02 -> 2024-08-30`.
+
+Root cause of the *original* mistake: conflating two different jobs.
+`in_play_gate`/`regime_start` decide whether a line is good enough to make
+top-N *at all* -- that's the actual mechanism that keeps clutter (spurious,
+never-really-tracked lines) off the chart. The box's job, once a line
+clears that bar, is just to show what it *is*: its full known history --
+exactly what every horizontal zone's box has always done on this chart
+(see "Zone extents always render to the reference date regardless of
+state" from the milestone-4 round -- box length was never meant to encode
+strength/relevance, color saturation and dash style already do that).
+Truncating a good, top-N-selected diagonal's box to its current regime
+throws away the exact visual that makes a multi-year trendline
+recognizable as one.
+
+Fixed: `_relevant_range` reverted to always use `first_touch`.
+`regime_start` still does real work -- it's what `in_play_gate` uses for
+scoring, and it's still shown in hover text -- it just never should have
+touched the render. Verified: `d249`/`d102`/`d269` (descending diagonals,
+slopes -0.0004 to -0.0007) now render their full 2020/2021 -> 2024-08-30
+boxes on the PAAS as-of-2024-08-30 chart. 168 tests passing (removed two
+tests asserting the now-reverted behavior, replaced with one asserting the
+box ignores `regime_start`).
 
 ## Still open / not yet built
 
