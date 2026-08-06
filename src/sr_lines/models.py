@@ -118,6 +118,13 @@ class Line:
     origin_index: int | None
     first_touch: str
     last_event: str
+    # Start of this line's *current* regime of engagement (see
+    # scoring.regime_start) -- may be well after first_touch if there was a
+    # real multi-year dormant gap before the line's current relevance began.
+    # None for lines not built through lifecycle.build_line (e.g. hand-built
+    # in tests), in which case consumers fall back to first_touch -- the old,
+    # pre-regime-concept behavior.
+    regime_start: str | None = None
     events: list[Event] = field(default_factory=list)
     scores: ScoreBreakdown = field(default_factory=ScoreBreakdown)
     strength: float = 0.0
@@ -165,6 +172,7 @@ class Line:
             "intercept": self.intercept,
             "origin_index": self.origin_index,
             "first_touch": self.first_touch,
+            "regime_start": self.regime_start,
             "last_event": self.last_event,
             "events": [e.to_dict() for e in self.events],
             "scores": self.scores.to_dict(),

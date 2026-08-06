@@ -163,16 +163,65 @@ def _duration_score(events: list[Event], window_years: float, diagonal: bool = F
     return min(span_days / (reference_years * 365.25), 1.0)
 
 
+def regime_start(
+    events: list[Event], gap_years: float, since: pd.Timestamp | str | None = None
+) -> pd.Timestamp:
+    """The start of this line's *current* regime of engagement -- not
+    necessarily its very first ever touch.
+
+    A real level/trendline can go dormant for years (price simply wanders
+    elsewhere) and then be legitimately retested -- that's normal market
+    behavior, not evidence the line is spurious. But a flat measure over the
+    line's *entire* [first_event, last_event] history can't tell that apart
+    from a genuinely loose/coincidental fit that only crosses price by
+    chance now and then, spread thin across years -- both look like "price
+    was rarely near this line." The distinguishing signal isn't how much
+    dead time there was, it's *when*: if the two look statistically
+    identical, judge the line by whatever's currently happening, not by
+    time that's already over.
+
+    Walks events chronologically; whenever the gap since the previous
+    event's end (or `since`, for the very first event) exceeds `gap_years`,
+    everything before that gap is treated as an earlier, separate regime,
+    and the current regime is reset to start there. `in_play_gate` and the
+    rendered box (`plotting.py`) both use this instead of the full event
+    span, so neither the score nor the chart penalizes/displays years of
+    unrelated dead time before the current regime began.
+
+    `since`, when given, is the line's actual founding date (its earliest
+    *pivot*, i.e. `first_touch` -- events.py deliberately doesn't emit an
+    event for the pivot bar itself, so without this the "current regime"
+    would always start a few bars after the founding pivot, even with no
+    real dormancy). Falls back to the first event's own start when `since`
+    isn't given (used by `score_line`, which only sees events, not the
+    candidate/pivots) or there's no gap that large either way.
+    """
+    ordered = sorted(events, key=lambda e: e.start)
+    gap_days = gap_years * 365.25
+    start = pd.Timestamp(since) if since is not None else pd.Timestamp(ordered[0].start)
+    prev_end = start
+    for e in ordered:
+        event_start = pd.Timestamp(e.start)
+        if (event_start - prev_end).days > gap_days:
+            start = event_start
+        prev_end = max(prev_end, pd.Timestamp(e.end))
+    return start
+
+
 def _in_play_fraction(
     events: list[Event],
     bars: pd.DataFrame,
     atr: pd.Series,
     center_at: Callable[[int], float],
+    window_start: pd.Timestamp,
 ) -> float:
-    """Fraction of bars, across this line's own [first_event, last_event]
-    span, where price actually stayed within 3 ATR of the line -- as
-    opposed to the line just extrapolating through empty space while real
-    price action happened somewhere else entirely.
+    """Fraction of bars, across [`window_start`, last_event], where price
+    actually stayed within 3 ATR of the line -- as opposed to the line just
+    extrapolating through empty space while real price action happened
+    somewhere else entirely. `window_start` is `regime_start`, not
+    necessarily the line's very first event -- see that function's
+    docstring for why the window has to exclude old, already-over dormant
+    periods rather than average across them.
 
     `center_at(bar_index)` is evaluated per bar, not once -- a horizontal
     candidate's center is constant so this is equivalent to a fixed-scalar
@@ -195,9 +244,8 @@ def _in_play_fraction(
     """
     if len(events) < 2:
         return 0.0
-    first = pd.Timestamp(min(e.start for e in events))
     last = pd.Timestamp(max(e.end for e in events))
-    in_play = bars[(bars.index >= first) & (bars.index <= last)]
+    in_play = bars[(bars.index >= window_start) & (bars.index <= last)]
     if in_play.empty:
         return 0.0
     a = atr.reindex(in_play.index)
@@ -212,7 +260,13 @@ def _bars_between(bars: pd.DataFrame, start: str, end: str) -> int:
     return int(bars.index.get_loc(pd.Timestamp(end)) - bars.index.get_loc(pd.Timestamp(start)))
 
 
-def _resilience(events: list[Event], bars: pd.DataFrame, fakeout_reclaim_bars: int) -> float:
+def _resilience(
+    events: list[Event],
+    bars: pd.DataFrame,
+    decay_reference: pd.Timestamp,
+    half_life_years: float,
+    fakeout_reclaim_bars: int,
+) -> float:
     """Undercut-and-rally, graded, not flat: a WICK_FAKE is already same-bar
     (the reclaim is instant, within the same candle), so it keeps full
     per-event credit. A BODY_FAKE spans multiple bars -- the longer price
@@ -224,19 +278,33 @@ def _resilience(events: list[Event], bars: pd.DataFrame, fakeout_reclaim_bars: i
     keep meaningful credit for that. Also weighted by `_volume_factor` --
     a defense on above-average volume is more convincing than the same
     reclaim on thin volume.
+
+    Also recency-decayed against `decay_reference`, same exponential
+    half-life `_event_quality_score` already applies to touch_quality/
+    role_reversal -- this was a real gap, not just a hypothetical
+    inconsistency: without it, a handful of defenses from a decade ago stay
+    permanently worth as much as ones from last month, and this component
+    saturates at its 1.0 cap purely from long accumulated history regardless
+    of whether any of it is still relevant. It's the same "some evidence
+    components decay, some don't" gap that let resilience/role_reversal both
+    sit maxed out in the original AAPL "hovering" case -- role_reversal was
+    already fixed to decay; this closes the matching gap here.
     """
+    half_life_days = half_life_years * 365.25
     total = 0.0
     for e in events:
         vol = _volume_factor(e.volume_ratio)
+        age_days = (decay_reference - pd.Timestamp(e.end)).days
+        decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
         if e.type == EventType.WICK_FAKE:
-            total += _WICK_FAKE_RESILIENCE * vol
+            total += _WICK_FAKE_RESILIENCE * vol * decay
         elif e.type == EventType.BODY_FAKE and not e.pending:
             bars_to_reclaim = _bars_between(bars, e.start, e.end)
             fraction_of_window = (
                 min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
             )
-            decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
-            total += _BODY_FAKE_RESILIENCE * decay * vol
+            reclaim_decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
+            total += _BODY_FAKE_RESILIENCE * reclaim_decay * vol * decay
     return min(total, _RESILIENCE_CAP)
 
 
@@ -339,11 +407,12 @@ def score_line(
 
     `total` is gated by `relevance_gate` (proximity x recency -- is this
     line still relevant *right now*) and `in_play_gate` (fraction of the
-    line's own lifetime price actually spent near it -- was this ever a
-    real, tracked trendline as opposed to one that mostly hovers through
-    empty space) multiplicatively, on top of the additively-weighted inner
-    components -- see `_in_play_fraction`'s docstring for why this can't be
-    an additive term the way `duration_density` used to include it.
+    line's own *current regime* -- see `regime_start` -- price actually
+    spent near it, was this ever a real, tracked trendline as opposed to
+    one that mostly hovers through empty space) multiplicatively, on top of
+    the additively-weighted inner components -- see `_in_play_fraction`'s
+    docstring for why this can't be an additive term the way
+    `duration_density` used to include it.
     """
     now = bars.index[-1]
     half_life = config.resolved_half_life_years()
@@ -354,10 +423,11 @@ def score_line(
     decay_reference = _decay_reference(events, now)
     touch_quality = _touch_quality(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     duration_density = _duration_score(events, config.window_years, diagonal=diagonal)
-    resilience = _resilience(events, bars, config.fakeout_reclaim_bars)
+    resilience = _resilience(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     role_reversal = _role_reversal(events, bars, decay_reference, half_life, config.fakeout_reclaim_bars)
     proximity = _proximity(bars["close"].iloc[-1], candidate_center, atr.iloc[-1])
-    in_play_gate = _in_play_fraction(events, bars, atr, center_at)
+    in_play_window_start = regime_start(events, config.regime_gap_years) if events else now
+    in_play_gate = _in_play_fraction(events, bars, atr, center_at, in_play_window_start)
 
     last_event = pd.Timestamp(max((e.end for e in events), default=None)) if events else None
     recency = _recency(last_event, now, half_life)

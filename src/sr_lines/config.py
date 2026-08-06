@@ -58,6 +58,19 @@ class SRConfig:
     # Scoring
     recency_half_life_years: float | None = None  # None -> window_years * 0.25
     scoring_weights: dict = field(default_factory=_default_scoring_weights)
+    # A line's events can have a real, multi-year gap in the middle -- price
+    # simply wandered elsewhere for a while, then came back to legitimately
+    # retest the level -- and that's normal market behavior, not evidence the
+    # line is spurious. If the gap between two consecutive events exceeds
+    # this, `scoring.regime_start` treats everything before it as an earlier,
+    # separate regime: `in_play_gate` and the rendered box both then judge
+    # the line only from its *current* regime onward, instead of averaging/
+    # spanning across dead time from years ago. Confirmed on a real PAAS
+    # trendline: a genuine, tightly-fit (fit_rms=0.07) descending resistance
+    # with a real ~3-year dormant gap before a decisive 2024 breakout scored
+    # 0.032 (buried) under the old flat full-history in_play_gate, vs. 0.177
+    # (top-ranked) once judged from the start of its current regime.
+    regime_gap_years: float = 1.0
 
     # Lifecycle / selection
     top_n: int = 10

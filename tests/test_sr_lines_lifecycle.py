@@ -142,9 +142,66 @@ def test_dedup_rescores_the_survivor_from_the_merged_event_union():
     assert survivor.strength != pytest.approx(0.8)
 
 
+def test_absorb_recomputes_regime_start_from_the_merged_event_union():
+    # regime_start is a pure function of the event timeline, so a merge that
+    # pulls in events from a different period must recompute it too, same
+    # as every other derived field _absorb already recomputes -- a stale
+    # pre-merge regime_start would defeat the whole point of the fix (the
+    # rendered box and in_play_gate would keep judging the line by an
+    # outdated notion of "current regime").
+    idx = pd.bdate_range("2020-01-01", periods=1500)
+    strong = _line(
+        "strong", strength=0.8, center=100.0, half_width=0.5, state=LineState.ACTIVE,
+        events=[_touch(idx[10].isoformat())],
+    )
+    weak_close = _line(
+        "weak_close", strength=0.3, center=100.4, half_width=0.5, state=LineState.ACTIVE,
+        events=[_touch(idx[1300].isoformat())],  # ~3.4yr gap from strong's own event
+    )
+    config = SRConfig(dedup_overlap_threshold=0.6, regime_gap_years=1.0)
+    bars = _flat_bars(1500)
+
+    deduped = dedup_lines([strong, weak_close], bars, _atr(bars), config)
+
+    assert len(deduped) == 1
+    survivor = deduped[0]
+    assert pd.Timestamp(survivor.regime_start) == pd.Timestamp(idx[1300])
+
+
 def _minimal_candidate() -> HorizontalCandidate:
     pivot = Pivot(kind=PivotKind.LOW, timestamp="2020-01-01", price=100.0, confirmed_at="2020-01-05", atr_at_pivot=1.0)
     return HorizontalCandidate(center=100.0, half_width=1.0, pivots=[pivot, pivot])
+
+
+def test_build_line_sets_regime_start_from_the_event_timeline():
+    candidate = _minimal_candidate()
+    idx = pd.bdate_range("2020-01-01", periods=1500)
+    events = [
+        _touch(idx[0].isoformat()),
+        _touch(idx[50].isoformat()),
+        _touch(idx[1300].isoformat()),  # gap of ~3.4 years since the previous event
+        _touch(idx[1350].isoformat()),
+    ]
+    config = SRConfig(regime_gap_years=1.0)
+
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config)
+
+    assert line.regime_start == idx[1300].isoformat()
+    assert line.regime_start != line.first_touch  # a real reset, not just coincidentally equal
+
+
+def test_build_line_regime_start_falls_back_to_first_touch_with_no_gap():
+    candidate = _minimal_candidate()
+    events = [_touch("2020-01-10"), _touch("2020-01-20")]
+    config = SRConfig(regime_gap_years=1.0)
+
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config)
+
+    # No gap large enough to reset the regime -- current regime starts at
+    # the line's actual founding pivot (first_touch), same instant either
+    # way (string formats can differ: pivot timestamps aren't always
+    # isoformat in test fixtures, unlike in the real pipeline).
+    assert pd.Timestamp(line.regime_start) == pd.Timestamp(line.first_touch) == pd.Timestamp("2020-01-01")
 
 
 def test_state_and_flipped_at_agree_even_after_an_unconfirmed_later_break():
@@ -162,7 +219,7 @@ def test_state_and_flipped_at_agree_even_after_an_unconfirmed_later_break():
     ]
     candidate = _minimal_candidate()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown())
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
 
     assert line.state == LineState.FLIPPED
     assert line.flipped_at is not None
@@ -182,7 +239,7 @@ def test_a_resolved_body_fake_after_a_break_confirms_the_flip_too():
     ]
     candidate = _minimal_candidate()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown())
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
 
     assert line.state == LineState.FLIPPED
     assert line.flipped_at == "2020-02-10"
@@ -198,7 +255,7 @@ def test_a_pending_body_fake_after_a_break_does_not_confirm_the_flip():
     ]
     candidate = _minimal_candidate()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown())
+    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
 
     assert line.state == LineState.BROKEN
     assert line.flipped_at is None
@@ -233,7 +290,7 @@ def _diag_line(
 def test_build_line_populates_diagonal_geometry_not_a_flat_center():
     candidate = _minimal_diagonal_candidate()
 
-    line = build_line("d0", candidate, events=[], original_side="above", scores=ScoreBreakdown())
+    line = build_line("d0", candidate, events=[], original_side="above", scores=ScoreBreakdown(), config=SRConfig())
 
     assert line.kind == LineKind.DIAGONAL
     assert line.center is None  # diagonal has no single center -- price_at() instead

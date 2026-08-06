@@ -62,7 +62,7 @@ def _run_horizontal_pipeline(bars: pd.DataFrame, config: SRConfig):
     for i, cand in enumerate(cands):
         evs, original_side = events_mod.classify_events(bars, cand, atr, config)
         scores = scoring_mod.score_line(evs, bars, atr, cand.center, config, diagonal=False)
-        lines.append(lifecycle.build_line(f"h{i}", cand, evs, original_side, scores))
+        lines.append(lifecycle.build_line(f"h{i}", cand, evs, original_side, scores, config))
     return lines, pivot_list, atr
 
 
@@ -105,7 +105,7 @@ def test_planted_wick_fake_is_classified_and_line_survives():
 
     assert any(e.type == EventType.WICK_FAKE for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
     assert line.state == LineState.ACTIVE
     assert scores.resilience > 0
 
@@ -136,7 +136,7 @@ def test_planted_body_fake_reclaims_and_stays_active():
     assert any(e.type == EventType.BODY_FAKE and not e.pending for e in evs)
     assert not any(e.type == EventType.BREAK for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
     assert line.state == LineState.ACTIVE
 
 
@@ -172,7 +172,7 @@ def test_real_break_then_retest_flips_role():
 
     assert any(e.type == EventType.BREAK for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
 
     assert line.state == LineState.FLIPPED
     # State is a binary label (one confirmation is enough to flip it), but

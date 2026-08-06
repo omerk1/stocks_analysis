@@ -26,6 +26,7 @@ def build_line(
     events: list[Event],
     original_side: str | None,
     scores: ScoreBreakdown,
+    config: SRConfig,
 ) -> Line:
     status = break_and_flip_status(events)
     has_break, flipped, broken_at, flipped_at = (
@@ -53,6 +54,10 @@ def build_line(
     # must take the min explicitly rather than assuming pivots[0].
     first_touch = min(p.timestamp for p in candidate.pivots)
     last_event = max((e.end for e in events), default=first_touch)
+    regime_start = (
+        scoring.regime_start(events, config.regime_gap_years, since=first_touch).isoformat()
+        if events else first_touch
+    )
 
     is_diagonal = isinstance(candidate, DiagonalCandidate)
 
@@ -67,6 +72,7 @@ def build_line(
         intercept=candidate.intercept if is_diagonal else None,
         origin_index=candidate.origin_index if is_diagonal else None,
         first_touch=first_touch,
+        regime_start=regime_start,
         last_event=last_event,
         events=ordered,
         scores=scores,
@@ -181,6 +187,11 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
     verifies proximity from the *later* of the two candidates' starts
     onward, never before it, so the pre-2020 period was never actually
     checked for geometric agreement in the first place.
+
+    `regime_start` (see `scoring.regime_start`) is likewise recomputed from
+    the final event set on every merge, for both kinds -- it's a pure
+    function of the event timeline, not something a merge can leave stale
+    the way a naive event union could.
     """
     if survivor.kind == LineKind.DIAGONAL:
         survivor.events, _ = events_mod.classify_events(
@@ -190,6 +201,10 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
         survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
         survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
     survivor.last_event = max((e.end for e in survivor.events), default=survivor.first_touch)
+    survivor.regime_start = (
+        scoring.regime_start(survivor.events, config.regime_gap_years, since=survivor.first_touch).isoformat()
+        if survivor.events else survivor.first_touch
+    )
 
     status = break_and_flip_status(survivor.events)
     survivor.state = (

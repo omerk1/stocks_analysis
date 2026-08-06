@@ -98,6 +98,44 @@ def test_break_and_flip_annotations_include_the_line_id():
     assert "h7 flip" in annotation_texts
 
 
+def test_box_starts_at_regime_start_not_first_touch_when_they_differ():
+    # Regression: the box used to always start at first_touch, even for a
+    # line whose regime_start reflects a real multi-year dormant gap before
+    # its current relevance began -- that would re-stretch the box across
+    # the exact dead time the in_play_gate score fix already excludes,
+    # reintroducing the "looks disconnected from real price" visual it
+    # fixed. Score and rendering must agree on what "relevant" means.
+    bars = _bars(30)
+    line = _line_with_break_and_flip("h7")
+    line.regime_start = "2020-01-15"  # after first_touch ("2020-01-01"), before last_event
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    band_trace = next(t for t in fig.data if t.name and t.name.startswith("h7 ["))
+    assert pd.Timestamp(band_trace.x[0]) == pd.Timestamp("2020-01-15")
+
+
+def test_box_falls_back_to_first_touch_when_regime_start_is_unset():
+    bars = _bars(30)
+    line = _line_with_break_and_flip("h7")
+    assert line.regime_start is None  # not set by this test helper -- old default behavior
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    band_trace = next(t for t in fig.data if t.name and t.name.startswith("h7 ["))
+    assert pd.Timestamp(band_trace.x[0]) == pd.Timestamp(line.first_touch)
+
+
 def test_hover_text_includes_the_gate_components():
     # relevance_gate and in_play_gate are computed and stored on every
     # ScoreBreakdown but were silently missing from the chart itself,

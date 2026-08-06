@@ -40,14 +40,24 @@ def _strength_colors(strength: float) -> tuple[str, str]:
 
 def _relevant_range(line: Line, last_bar_ts: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
     """The time span the engine actually determined this zone was relevant
-    for -- not the whole chart. Starts at `first_touch` (the earliest event,
-    or the defining pivot if there were none yet). Always ends at the run's
-    own reference date (the latest available bar -- which is `as_of` for a
-    frozen/backtest run), regardless of state: for backtesting, a zone that
-    was detected as of some date X should be shown in full as of X whether
-    or not it later broke or flipped -- state is a label/color, not
-    something that should shorten the box."""
-    return pd.Timestamp(line.first_touch), last_bar_ts
+    for -- not the whole chart. Starts at `regime_start` (the start of the
+    line's *current* regime of engagement -- see `scoring.regime_start`),
+    not `first_touch`: a real line can have a genuine multi-year dormant gap
+    before its current relevance began (price wandered elsewhere, then came
+    back), and drawing the box from its very first-ever pivot would stretch
+    it across that dead time, reintroducing the exact "looks disconnected
+    from real price" visual the `in_play_gate` score fix already excludes --
+    the two need to agree on what "relevant" means, not use two different
+    notions of it. Falls back to `first_touch` when `regime_start` isn't set
+    (e.g. a hand-built `Line` in a test) or equals it (no dormant gap, the
+    common case). Always ends at the run's own reference date (the latest
+    available bar -- which is `as_of` for a frozen/backtest run), regardless
+    of state: for backtesting, a zone that was detected as of some date X
+    should be shown in full as of X whether or not it later broke or
+    flipped -- state is a label/color, not something that should shorten
+    the box."""
+    start = line.regime_start if line.regime_start is not None else line.first_touch
+    return pd.Timestamp(start), last_bar_ts
 
 
 def _y_at(line: Line, bars: pd.DataFrame, ts) -> float:
@@ -71,7 +81,7 @@ def _hover_text(line: Line) -> str:
         f"{f' diagonal_penalty={s.diagonal_penalty:.2f}' if line.kind == LineKind.DIAGONAL else ''}<br>"
         f"touches={line.n_touches} wick_fakes={line.n_wick_fakes} "
         f"body_fakes={line.n_body_fakes} breaks={line.n_breaks}<br>"
-        f"first_touch={line.first_touch} last_event={line.last_event}"
+        f"first_touch={line.first_touch} regime_start={line.regime_start} last_event={line.last_event}"
     )
 
 
