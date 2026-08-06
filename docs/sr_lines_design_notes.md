@@ -751,6 +751,75 @@ boxes on the PAAS as-of-2024-08-30 chart. 168 tests passing (removed two
 tests asserting the now-reverted behavior, replaced with one asserting the
 box ignores `regime_start`).
 
+## Resolved: `touch_quality`/`resilience`/`role_reversal` summed evidence across a line's *entire* history, letting old chop outscore a tight, honest fit
+
+With the diagonal now correctly rendering (see above), the user asked a
+sharper question: why does the descending resistance line through PAAS's
+actual highest peak (2020-08-06, $36.25) *not* win outright, when three
+other, visibly near-duplicate descending lines (all starting from
+secondary, non-peak pivots) show up instead? Investigated with real data
+rather than assuming it was another dedup issue.
+
+It wasn't dedup -- the peak-anchored candidate exists, and its fit is
+objectively the best of the region: `fit_rms=0.068`, versus 0.32-0.5 for
+the three candidates actually shown. Not a fan of near-duplicates either:
+their extrapolated prices as-of 2024-08-30 were $1.65-$3.34 apart (spread
+was *larger*, $4-8, back in 2021-2022) -- genuinely distinct fits, not a
+missed merge.
+
+The real cause: one of the three shown lines (`d249`) had accumulated
+**17 touches and 8 breaks** over 3.5 years -- almost all of that from one
+chaotic ~11-month stretch (2021-07 to 2022-06) where price whipsawed back
+and forth across its (looser-fit, `fit_rms>0.3`) band constantly. Every
+individual event was real (genuinely classified against the actual moving
+band), but `touch_quality`/`resilience`/`role_reversal` summed evidence
+across a line's *entire* history with no regard for how densely clustered
+or how long ago it was -- so a dozen-plus events from one old chop episode
+saturated all three components' caps just as easily as genuine, sustained
+respect would have. The peak-anchored line, by contrast, had only a
+handful of clean, well-spaced touches (its tight fit means price rarely
+revisits it by coincidence) -- objectively better evidence of a real
+level, but *fewer* raw events, so it scored lower under the old
+accumulate-forever formulas. This is the same structural failure shape as
+the original "hovering" bug (a signal that can't distinguish real
+strength from noisy volume of evidence), just showing up in the evidence
+components instead of `in_play_gate`.
+
+Considered and rejected a "since the line's last BREAK" scoping (verified
+numerically first): it does isolate the recent regime, but is too blunt --
+a line currently ACTIVE since a break with no *fresh* wick/body-fakes yet
+(because it's simply been holding cleanly) sees `resilience` collapse to
+exactly 0.0, discarding real signal. Checked directly: this zeroed out
+`resilience` for several clearly-legitimate, currently-strong lines
+(`h16`, `h9`, `h8`, `h10`, `h7`, `h6`), not just the chop offenders --
+overcorrecting, the same "solve one bug by breaking a different case"
+shape flagged earlier this session.
+
+**Real fix: reuse `regime_start` (not a new mechanism) to scope all three
+evidence components, the same way it already scopes `in_play_gate`.**
+`touch_quality`, `resilience`, and `role_reversal` now only look at events
+within `[regime_start, last_event]`, not the full `[first_touch,
+last_event]` span. This is a pure extension of the existing, already-
+verified regime concept -- no new config knob, no new heuristic -- and
+avoids the "since last break" approach's cliff-to-zero problem, since
+`regime_start` only resets on a genuine multi-year dormancy gap (already
+tuned via `regime_gap_years`), not on every break. `duration_density`
+deliberately stays on the *full* event span -- it measures maturity (has
+this level mattered, cumulatively, over its whole history), a genuinely
+different question from "is the current evidence strong," and conflating
+the two was exactly the mistake milestone 5's earlier `duration_density`
+fix already corrected once.
+
+Verified on real PAAS data (as-of 2024-08-30): the peak-anchored line
+(`d250` after re-run) now makes the top-15, with `resilience` correctly
+dropping from a saturated 1.0-adjacent score to reflect only its own
+regime's evidence, while `d249` (the worst chop offender) drops *out* of
+the top-15 entirely. Spot-checked AAPL/PAAS/T's full top-15 afterward:
+strengths stay in a sane 0.06-0.36 range, no degenerate output, a healthy
+mix of `regime_start == first_touch` (no gap, unaffected) and
+`regime_start` well after `first_touch` (genuine resets). 169 tests
+passing.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
