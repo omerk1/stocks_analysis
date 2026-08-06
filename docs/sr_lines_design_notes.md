@@ -876,6 +876,47 @@ resistance case (the reason `regime_start` exists) still holds after this
 second fix layered on top: the peak-anchored line (`d250`) is still in the
 top-15 as-of 2024-08-30, now ranked #5. 170 tests passing.
 
+## Resolved: BREAK markers drawn at the resolution bar instead of the crossing bar read as floating
+
+User flagged (on a real, dense AAPL chart) that some arrow/X markers looked
+disconnected from any candle. Investigated with real data rather than
+assuming it was another scoring/geometry bug like the earlier "floating
+markers" issue this milestone: pulled every event landing in the exact
+window shown and checked each marker's Y-position (`_y_at`, the line's own
+`price_at`/`center`) against the real candle's close at that same
+timestamp, broken down by event type.
+
+TOUCH/WICK_FAKE/BODY_FAKE were all tight (~1.1-1.7% average deviation,
+well under 3%) -- correctly positioned, just belonging to *other* lines
+than the ones the user was looking at (a separate legibility point, not a
+bug: with 6-9 overlapping diagonal lines all sharing the same
+type-based marker styling, it's hard to tell by eye which marker belongs
+to which line without hovering). BREAK was the outlier: 2.60% average,
+5.50% max, 12 of 26 exceeding 3% -- roughly double every other type, and
+rendered as the boldest marker on the chart (solid black X, size 13), so
+it's the one that actually reads as floating.
+
+Root cause: `_y_at(line, bars, e.end)` places every marker using the
+event's `.end` timestamp. For TOUCH/WICK_FAKE that's the same bar as
+`.start` (same-bar events), and for BODY_FAKE the reclaim resolves quickly
+enough in practice that it wasn't causing a visible problem. But a BREAK's
+`.end` is deliberately the bar where the `fakeout_reclaim_bars` window
+elapsed *without* a reclaim (confirming a real break, not a fakeout) --
+correct for classification, but that can be several trading days after
+the actual crossing (`.start`), by which point a real, continuing
+breakdown has often moved price well away from the level. Also
+inconsistent with `flip_status.broken_at` (already anchored to `.start`,
+which is what the "break"/"flip" text annotations use) -- the scatter
+marker and the annotation were pointing at two different bars for the
+same break.
+
+Fixed: new `plotting._marker_ts(event)` returns `.start` for BREAK,
+`.end` for everything else, used for both the marker's x/y position (not
+hover text, which still shows the full `start->end` range). Verified on
+the same real AAPL window: BREAK's average deviation dropped 2.60% ->
+1.68%, max 5.50% -> 4.95%, outliers over 3% dropped 12 -> 3 -- now in
+line with every other marker type. 171 tests passing.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
