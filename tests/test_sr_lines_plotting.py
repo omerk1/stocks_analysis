@@ -197,3 +197,34 @@ def test_diagonal_markers_and_annotations_follow_price_at_not_a_flat_center():
     break_annotation = next(a for a in fig.layout.annotations if a.text == "d0 break")
     expected_break_y = line.price_at(bars.index.get_loc(pd.Timestamp("2020-01-10")))
     assert break_annotation.y == expected_break_y
+
+
+def test_break_marker_is_drawn_at_the_crossing_bar_not_the_resolution_bar():
+    # Regression: a BREAK's `.end` is the bar where the fakeout_reclaim_bars
+    # window elapsed without a reclaim -- correct for classification, but
+    # that can be several bars after the actual crossing (`.start`), by
+    # which point a real, continuing breakdown has often moved price well
+    # away from the level. Drawn at `.end`, the marker (a bold black X, the
+    # most visually prominent marker on the chart) read as floating in
+    # empty space -- confirmed on a real AAPL window where BREAK markers
+    # averaged 2.6% (up to 5.5%) deviation from real price, roughly double
+    # every other event type. `.start` is also what `broken_at`/the "break"
+    # annotation already anchor to (see the test above), so this makes the
+    # scatter marker agree with them instead of a third, inconsistent spot.
+    bars = _bars(30)
+    line = _diagonal_line("d0")
+    line.events = [
+        Event(type=EventType.BREAK, start="2020-01-10", end="2020-01-17",
+              penetration_atr=1.0, reaction_atr=0.0),
+    ]
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[line],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    break_trace = next(t for t in fig.data if t.name == "break")
+    assert pd.Timestamp(break_trace.x[0]) == pd.Timestamp("2020-01-10")
+    assert break_trace.y[0] == line.price_at(bars.index.get_loc(pd.Timestamp("2020-01-10")))

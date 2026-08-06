@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from src.sr_lines.models import DetectionResult, EventType, Line, LineKind, LineState
+from src.sr_lines.models import DetectionResult, Event, EventType, Line, LineKind, LineState
 
 # (symbol, color, size, outline_width) -- BREAK is deliberately the odd one
 # out (solid black, bold, larger) rather than just a darker/thinner shade of
@@ -75,6 +75,34 @@ def _y_at(line: Line, bars: pd.DataFrame, ts) -> float:
     if line.kind == LineKind.HORIZONTAL:
         return line.center
     return line.price_at(bars.index.get_loc(pd.Timestamp(ts)))
+
+
+def _marker_ts(event: Event) -> str:
+    """Where an event's marker should actually be drawn -- `event.start`
+    for BREAK, `event.end` for everything else.
+
+    A BREAK's `.end` is deliberately the bar where the `fakeout_reclaim_bars`
+    window elapsed *without* a reclaim (confirming it's a real break, not a
+    fakeout) -- correct for classification, but that bar can be several
+    trading days after the actual crossing, by which point a real,
+    continuing breakdown has often moved price well away from the level.
+    Plotted there, the marker (bold black X, the most visually prominent
+    marker on the chart) reads as floating in empty space, disconnected
+    from the candle where the break actually happened -- confirmed on a
+    real AAPL window where BREAK markers averaged 2.6% (up to 5.5%)
+    deviation from real price, roughly double every other event type
+    (all under ~1.7% on average, well under 3%). `.start` is the bar
+    where price first closed beyond the zone -- the actual break -- and is
+    already what `flip_status.broken_at` anchors the break/flip
+    annotations to, so this makes the scatter marker agree with them
+    instead of using a third, inconsistent position.
+
+    Every other event type is already same-bar (TOUCH/WICK_FAKE) or
+    resolves quickly enough in practice that `.end` reads fine (BODY_FAKE
+    averaged ~1.1% deviation in the same real check) -- left alone rather
+    than changed without a demonstrated problem.
+    """
+    return event.start if event.type == EventType.BREAK else event.end
 
 
 def _hover_text(line: Line) -> str:
@@ -151,8 +179,8 @@ def render_review_chart(
                 continue
             fig.add_trace(
                 go.Scatter(
-                    x=[pd.Timestamp(e.end) for e in matching],
-                    y=[_y_at(line, bars, e.end) for e in matching],
+                    x=[pd.Timestamp(_marker_ts(e)) for e in matching],
+                    y=[_y_at(line, bars, _marker_ts(e)) for e in matching],
                     mode="markers",
                     marker=dict(
                         symbol=symbol, size=size, color=marker_color,
