@@ -612,6 +612,37 @@ Diagonal equivalent: the same trend-based approach should apply directly --
 a diagonal band being tested with deepening penetration on each touch is
 the same erosion story, just against a sloped level instead of a flat one.
 
+## Reviewed and confirmed by design: an old, decisively-broken trendline scores near zero once price has run away from it
+
+User hand-drew an obvious multi-year descending resistance on a PAAS chart
+(2020 high ~$37 down to ~$12-13 by 2026) and asked why nothing like it shows
+up in the top-N. Investigated with real data rather than assuming a bug:
+the matching candidate does exist and fits tightly --
+`fit_rms_atr_pct=0.075` (one of the best fits in the whole 300-candidate
+set) through pivots at 2020-08, 2021-02, 2021-05, 2024-05, 2024-08 -- and
+classifies exactly as expected: touches through 2021, a clean BREAK on
+2024-07-10, a fakeout retest, then a decisive break and flip to FLIPPED by
+2025-01-02. A textbook "broke out of a multi-year descending resistance"
+pattern.
+
+Its score is 0.013, though, crushed by the same two gates that fixed the
+"hovering" bug (see above): `relevance_gate=0.148` (PAAS is now ~3x above
+where the line sits today, and the last event was ~19 months ago) and
+`in_play_gate=0.217` (there's a real ~3-year idle gap, 2021-05 to 2024-05,
+where price never came near the band before the eventual breakout -- the
+same shape as a genuinely hovering, never-tested line, even though this one
+*was* eventually tested and broken).
+
+Confirmed with the user this is the intended tradeoff, not a bug: top-N is
+about what's relevant to price *right now*, and a level price has
+decisively broken and moved 3x away from has correctly aged out, even
+though it was a real and well-fit pattern in its own era. No code change.
+If a future need comes up for surfacing historically-significant breaks
+regardless of current relevance (a separate "notable past breaks" view, or
+exempting strong role_reversal evidence from `relevance_gate`), those were
+the two live alternatives discussed and explicitly deferred -- see this
+section if this class of complaint recurs.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
