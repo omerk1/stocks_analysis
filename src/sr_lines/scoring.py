@@ -121,6 +121,35 @@ def _event_quality_score(
     return total
 
 
+def _most_recent(events: list[Event], k: int) -> list[Event]:
+    """The `k` most recent events, by end date.
+
+    Recency decay alone doesn't stop `_event_quality_score`'s sum from
+    growing without bound for a long-lived line: decay shrinks each event's
+    *individual* contribution, but a real, non-chop line with events every
+    few weeks for several years still has enough terms that the sum
+    comfortably clears any fixed divisor -- confirmed on a real AAPL line
+    with 46 genuine confirming events spread across a continuous ~4-year
+    regime (no gap large enough to trigger `regime_start`, so `regime_start`
+    alone doesn't help here): the raw quality-weighted sum came to ~11.7
+    against a divisor of 3.0, saturating `role_reversal` to 1.0 alongside
+    13-14 of 15 of AAPL's/PAAS's other real top-15 lines for `role_reversal`
+    and `resilience` -- evidence that was real, but no longer discriminating
+    between lines once nearly everything selected into the top-N saturates.
+    `_touch_quality`'s and `_role_reversal`'s divisors were always named for
+    a *recent* count ("6 strong recent touches", "3 strong recent
+    confirmations") but the implementation only ever restricted *which
+    events* by type, never by how many -- this closes that gap by actually
+    windowing to the named count, not just decaying by age.
+    """
+    if len(events) <= k:
+        return events
+    return sorted(events, key=lambda e: (e.end, e.start))[-k:]
+
+
+_TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT = 6
+
+
 def _touch_quality(
     events: list[Event],
     bars: pd.DataFrame,
@@ -131,10 +160,11 @@ def _touch_quality(
     touches = [e for e in events if e.type == EventType.TOUCH]
     if not touches:
         return 0.0
+    touches = _most_recent(touches, _TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT)
     total = _event_quality_score(touches, bars, decay_reference, half_life_years, fakeout_reclaim_bars)
     # Normalize against a generous ceiling of "6 strong recent touches" so a
     # single decent touch doesn't already saturate the component.
-    return min(total / 6.0, 1.0)
+    return min(total / _TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT, 1.0)
 
 
 def _duration_score(events: list[Event], window_years: float, diagonal: bool = False) -> float:
@@ -260,6 +290,9 @@ def _bars_between(bars: pd.DataFrame, start: str, end: str) -> int:
     return int(bars.index.get_loc(pd.Timestamp(end)) - bars.index.get_loc(pd.Timestamp(start)))
 
 
+_RECENT_EVENTS_FOR_FULL_CREDIT = 3
+
+
 def _resilience(
     events: list[Event],
     bars: pd.DataFrame,
@@ -289,16 +322,25 @@ def _resilience(
     components decay, some don't" gap that let resilience/role_reversal both
     sit maxed out in the original AAPL "hovering" case -- role_reversal was
     already fixed to decay; this closes the matching gap here.
+
+    Restricted to the `_RECENT_EVENTS_FOR_FULL_CREDIT` most recent
+    qualifying (WICK_FAKE/resolved BODY_FAKE) events, same reasoning as
+    `_most_recent`'s docstring -- flat per-event credit means as few as 3
+    body-fakes already reach the 1.0 cap, so a long-lived line with dozens
+    of real defenses spread over years saturated just as easily as one with
+    exactly 3 recent ones, decay notwithstanding.
     """
+    qualifying = [e for e in events if e.type in (EventType.WICK_FAKE, EventType.BODY_FAKE) and not e.pending]
+    qualifying = _most_recent(qualifying, _RECENT_EVENTS_FOR_FULL_CREDIT)
     half_life_days = half_life_years * 365.25
     total = 0.0
-    for e in events:
+    for e in qualifying:
         vol = _volume_factor(e.volume_ratio)
         age_days = (decay_reference - pd.Timestamp(e.end)).days
         decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
         if e.type == EventType.WICK_FAKE:
             total += _WICK_FAKE_RESILIENCE * vol * decay
-        elif e.type == EventType.BODY_FAKE and not e.pending:
+        else:
             bars_to_reclaim = _bars_between(bars, e.start, e.end)
             fraction_of_window = (
                 min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
@@ -306,9 +348,6 @@ def _resilience(
             reclaim_decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
             total += _BODY_FAKE_RESILIENCE * reclaim_decay * vol * decay
     return min(total, _RESILIENCE_CAP)
-
-
-_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3
 
 
 def _role_reversal(
@@ -337,11 +376,22 @@ def _role_reversal(
     `role_reversal=0.0`. Now uses the same `_event_quality_score` weighting
     `_touch_quality` uses (reaction-strength/reclaim-speed x recency decay),
     applied to the confirming-event subset, normalized against
-    `_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT` "strong recent
-    confirmations" instead of a raw count -- a flip "confirmed" by 3 tiny,
-    long-decayed touches (the same touches that keep that line's
-    `touch_quality` near zero) now also scores low here, while a flip
-    reconfirmed by several strong, recent touches still reaches full credit.
+    `_RECENT_EVENTS_FOR_FULL_CREDIT` "strong recent confirmations" instead
+    of a raw count -- a flip "confirmed" by 3 tiny, long-decayed touches
+    (the same touches that keep that line's `touch_quality` near zero) now
+    also scores low here, while a flip reconfirmed by several strong,
+    recent touches still reaches full credit.
+
+    Third fix: restricted to the `_RECENT_EVENTS_FOR_FULL_CREDIT` most
+    recent confirming events, not *every* confirming event since the break
+    -- see `_most_recent`'s docstring. Decay alone wasn't enough for a
+    line with a long but *continuous* regime (no gap for `regime_start` to
+    exclude): a real AAPL line had 46 genuine confirming events spread
+    across ~4 years, and even meaningfully decayed, the sum still cleared
+    the divisor by ~4x, saturating this component alongside 13-14 of 15 of
+    AAPL's/PAAS's other real top-15 lines -- evidence that was real, but no
+    longer discriminating between lines once nearly everything in the
+    top-N saturates the same way.
     """
     ordered = sorted(events, key=lambda e: (e.start, e.end))
     saw_break = False
@@ -353,8 +403,9 @@ def _role_reversal(
             confirming_events.append(e)
     if not confirming_events:
         return 0.0
+    confirming_events = _most_recent(confirming_events, _RECENT_EVENTS_FOR_FULL_CREDIT)
     total = _event_quality_score(confirming_events, bars, decay_reference, half_life_years, fakeout_reclaim_bars)
-    return min(total / _ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT, 1.0)
+    return min(total / _RECENT_EVENTS_FOR_FULL_CREDIT, 1.0)
 
 
 def _proximity(current_price: float, candidate_center: float, atr_now: float) -> float:

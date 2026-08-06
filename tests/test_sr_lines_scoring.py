@@ -490,6 +490,47 @@ def test_evidence_components_are_scoped_to_the_current_regime_not_a_years_old_ch
     assert chopped_line.duration_density > clean_only_line.duration_density
 
 
+def test_evidence_components_do_not_saturate_from_sheer_event_count_in_a_long_continuous_regime():
+    # Regression: a real AAPL line had 46 genuine confirming events spread
+    # across a continuous ~4-year regime -- no gap anywhere near
+    # regime_gap_years, so regime_start (the fix above) doesn't exclude any
+    # of it. Even meaningfully decayed, the sum of 46 real events still
+    # cleared role_reversal's divisor by ~4x, saturating it -- and
+    # resilience -- to 1.0 alongside 13-14 of 15 of AAPL's/PAAS's other
+    # real top-15 lines, collapsing all discriminating power between them.
+    # touch_quality's/role_reversal's divisors were always named for a
+    # *recent* count ("6 strong recent touches", "3 strong recent
+    # confirmations"), but nothing actually restricted *how many* events
+    # fed the sum by count, only by type -- decay shrinks each event's
+    # individual contribution but not the number of terms, so a long-lived
+    # line with events every few weeks still saturates any fixed divisor
+    # eventually, regardless of half-life.
+    idx = pd.bdate_range("2020-01-01", periods=1200)  # ~4.7 years, no year-plus gap anywhere
+    config = SRConfig(window_years=8.0, regime_gap_years=1.0)
+    bars = _flat_bars(1200)
+    atr = _atr(bars)
+
+    events_many = [_break(idx[0].isoformat())]
+    events_many += [_touch(idx[i].isoformat(), reaction=3.0) for i in range(20, 1200, 40)]  # ~29 touches
+
+    # An independent, self-contained "only the last 3 touches, nothing
+    # before" scenario -- built separately rather than by slicing
+    # events_many, since removing the events in between would itself
+    # introduce a multi-year gap and trip regime_start's own reset (a
+    # different, correct mechanism, not the one under test here).
+    events_recent_only = [_break(idx[1100].isoformat())]
+    events_recent_only += [_touch(idx[i].isoformat(), reaction=3.0) for i in (1120, 1160, 1199)]
+
+    score_many = score_line(events_many, bars, atr, 100.0, config)
+    score_recent_only = score_line(events_recent_only, bars, atr, 100.0, config)
+
+    assert score_many.role_reversal < 0.95  # doesn't saturate purely from having many events
+    # Windowed to the same "most recent 3", the 26 older touches shouldn't
+    # move the needle much beyond what those same 3 most-recent touches
+    # alone would already produce.
+    assert score_many.role_reversal == pytest.approx(score_recent_only.role_reversal, abs=0.1)
+
+
 def test_touch_quality_rewards_high_volume_over_low_volume_at_equal_count_and_reaction():
     # "A level touched 4 times with high volume should be weighted much
     # higher than a peak touched once on low volume" -- same count, same
