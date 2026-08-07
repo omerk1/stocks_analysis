@@ -203,10 +203,11 @@ def test_diagonal_does_not_mix_high_and_low_pivots():
 
 def _bare_diag_candidate(
     slope: float, bar_indices: list[int], intercept: float = math.log(100.0), half_width: float = 0.02,
+    fit_rms_atr_pct: float = 0.0,
 ) -> DiagonalCandidate:
     pivots = [_diag_pivot(100.0, bi, 0.02) for bi in bar_indices]
     return DiagonalCandidate(slope=slope, intercept=intercept, origin_index=bar_indices[0],
-                              half_width=half_width, pivots=pivots)
+                              half_width=half_width, pivots=pivots, fit_rms_atr_pct=fit_rms_atr_pct)
 
 
 def test_dedup_does_not_drop_a_candidate_with_a_different_slope_even_if_prices_happen_to_cross():
@@ -260,3 +261,36 @@ def test_dedup_keeps_parallel_lines_that_are_offset_far_apart_in_price():
     kept = _dedupe_diagonal_candidates([upper, lower], 150, config)
 
     assert len(kept) == 2
+
+
+def test_cap_truncates_by_fit_quality_not_by_processing_order():
+    # Regression: an earlier version applied `diagonal_max_candidates` mid-
+    # loop (stopping as soon as `len(kept)` hit the cap), with candidates
+    # processed in pivot-count-descending order -- a genuinely non-duplicate
+    # short, tightly-fit candidate simply never got a turn once the cap
+    # filled with longer, higher-touch-count (but worse-fit) lines ahead of
+    # it. Confirmed on real GEVO data: a real 3-pivot ~7-month ascending
+    # trendline was generated correctly but discarded this way, 300 raw
+    # candidates deep into a run that had 1,144 raw same-kind fits.
+    #
+    # Three genuinely distinct candidates (very different slopes/positions,
+    # so none collide under `_candidates_are_duplicate`): two long,
+    # high-touch-count but loosely-fit lines, and one short, low-touch-count
+    # but tightly-fit line. With a cap of 2, the tightest-fit one -- not the
+    # two with the most pivots -- must survive.
+    loose_long_a = _bare_diag_candidate(
+        slope=0.001, bar_indices=[0, 30, 60, 90, 120], fit_rms_atr_pct=0.9,
+    )
+    loose_long_b = _bare_diag_candidate(
+        slope=-0.001, bar_indices=[200, 230, 260, 290], intercept=math.log(300.0), fit_rms_atr_pct=0.8,
+    )
+    tight_short = _bare_diag_candidate(
+        slope=0.02, bar_indices=[500, 520, 540], intercept=math.log(700.0), fit_rms_atr_pct=0.05,
+    )
+    config = SRConfig(diagonal_enabled=True, diagonal_max_candidates=2)
+
+    kept = _dedupe_diagonal_candidates([loose_long_a, loose_long_b, tight_short], 540, config)
+
+    assert len(kept) == 2
+    assert tight_short in kept
+    assert loose_long_a not in kept  # worst fit -- dropped in favor of the tight short line

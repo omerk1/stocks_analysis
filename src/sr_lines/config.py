@@ -61,10 +61,16 @@ class SRConfig:
     # by raw pivot count before capping systematically favored long,
     # low-precision multi-year lines over short, tight, recent ones --
     # discarding a visually obvious 3-touch descending trendline before
-    # scoring ever got a chance to rank it. 300 comfortably covers real
-    # long_term windows (255/228 candidates seen on AAPL/T) so candidate
-    # generation stops pre-filtering by "most pivots" and leaves ranking to
-    # scoring's actual relevance/quality machinery, at the cost of a slower
+    # scoring ever got a chance to rank it. Raising the number to 300 turned
+    # out not to be the real fix, just a bigger version of the same one: a
+    # real GEVO run produced 1,144 raw same-kind fits from LOW pivots alone
+    # (804 genuinely distinct after dedup), so a 3-inlier short trendline
+    # could still lose its turn to hundreds of higher-touch-count long lines
+    # before the cap ever saw it. `_dedupe_diagonal_candidates` now applies
+    # this cap *after* dedup finishes (not mid-loop) and truncates by
+    # `fit_rms_atr_pct` -- fit tightness, not touch count -- so candidate
+    # generation actually leaves ranking to quality rather than raw pivot
+    # count, at the cost of a slower
     # detection run (~8-10s vs ~1s on a long_term window).
     diagonal_max_candidates: int = 300
 

@@ -188,8 +188,14 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
        points). Reuses `dedup_overlap_threshold` (`--dedup-threshold`) --
        the same knob horizontal dedup already exposes for "how aggressively
        should close-but-not-identical zones merge" -- rather than inventing
-       a second, diagonal-only tuning parameter. Cap at
-       `diagonal_max_candidates`.
+       a second, diagonal-only tuning parameter. Dedup itself always runs to
+       completion over every candidate; only *after* it finishes, if more
+       than `diagonal_max_candidates` genuinely-distinct survivors remain,
+       are they truncated -- by `fit_rms_atr_pct` ascending (tightest fit
+       first), not by pivot count (see `_dedupe_diagonal_candidates`'s own
+       docstring for why: sorting-then-capping in one pass silently starved
+       short, tight, low-touch-count lines that were never actually
+       duplicates of anything).
 
     `half_width` is the **log-space** band half-width (see `models.Line`'s
     own docstring, which already anticipates this contract): multiplicative
@@ -233,17 +239,40 @@ def _dedupe_diagonal_candidates(
     proximity check, not a pivot-overlap one. `reference_bar_index` is the
     "now" point proximity is checked against (an approximation -- the
     caller passes the latest bar-index among all pivots, close to but not
-    exactly the detection window's last bar)."""
-    candidates = sorted(candidates, key=lambda c: -len(c.pivots))
+    exactly the detection window's last bar).
+
+    Dedup itself always runs to completion over every candidate, regardless
+    of `diagonal_max_candidates` -- an earlier version applied the cap
+    *during* the dedup loop (stopping as soon as `len(kept)` reached it),
+    which meant candidates were evaluated in pivot-count order and a
+    genuinely non-duplicate candidate simply never got a turn once the cap
+    filled up with higher-touch-count lines ahead of it. Confirmed on real
+    GEVO data: a real, clean 3-pivot ~7-month ascending trendline was
+    generated correctly (3 inliers, comfortably passing every other filter)
+    but never reached scoring, discarded purely by processing order --
+    1,144 raw same-kind fits existed for that one ticker alone, dwarfing the
+    300 cap before a 3-inlier candidate's turn ever came up. The cap is only
+    applied *after* dedup now, and only truncates by `fit_rms_atr_pct`
+    ascending (tightest fit first) rather than by pivot count -- so a short,
+    cleanly-fit line competes with long ones on fit quality, not raw touch
+    count, which is exactly the "leave ranking to scoring's actual
+    relevance/quality machinery" principle `diagonal_max_candidates`'s own
+    history (see `SRConfig`) already established for the cap's *size*, now
+    applied to *which* candidates the cap keeps. Measured cost: full
+    uncapped dedup over ~2,200-2,300 raw candidates (GEVO/AAPL/T) completes
+    in 0.6-1.5s, not a meaningful regression against detection's existing
+    ~8-10s long_term runtime.
+    """
+    ranked_for_dedup = sorted(candidates, key=lambda c: -len(c.pivots))
     kept: list[DiagonalCandidate] = []
-    for cand in candidates:
+    for cand in ranked_for_dedup:
         if any(_candidates_are_duplicate(cand, k, reference_bar_index, config) for k in kept):
             continue
         kept.append(cand)
-        if len(kept) >= config.diagonal_max_candidates:
-            break
 
-    return kept
+    if len(kept) <= config.diagonal_max_candidates:
+        return kept
+    return sorted(kept, key=lambda c: c.fit_rms_atr_pct)[: config.diagonal_max_candidates]
 
 
 def _fit_diagonal_candidates(same_kind_pivots: list[Pivot], config: SRConfig) -> list[DiagonalCandidate]:
