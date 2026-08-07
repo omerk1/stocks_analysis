@@ -996,6 +996,51 @@ failure, and all scored strength <=0.005 (irrelevant to top-N regardless).
 174 tests passing (2 new: rejects a near-flat 3-pivot fit whose drift never
 clears its own half_width; keeps one that does).
 
+## Resolved: a real short/tight trendline was silently discarded before scoring ever saw it
+
+User hand-drew a genuine ~7-month ascending GEVO support line the algorithm
+hadn't surfaced and asked whether it needed to run detection at multiple
+horizons (short/medium/long) to catch this kind of thing. Investigated
+before answering: the matching candidate (pivots 2025-04-04/2025-06-05/
+2025-11-14, 3 inliers, ascending slope) *was* being generated correctly and
+passed every filter -- but never reached scoring or dedup's collision
+check. Root cause: `_dedupe_diagonal_candidates` applied
+`diagonal_max_candidates` (300) *inside* the greedy loop, breaking as soon
+as `len(kept)` hit the cap. Candidates are processed sorted by pivot count
+descending, so a 3-inlier candidate is at the very bottom of that queue --
+GEVO alone generated 1,144 raw same-kind fits from LOW pivots, so the cap
+filled entirely with higher-touch-count (usually multi-year) lines before a
+3-inlier candidate's turn ever came up. This is the same failure shape
+already fixed once before (Done #16, raising the cap 30 -> 300) -- it
+turned out to be the same bug at a bigger scale, not actually solved.
+
+This reframed the user's "run multiple horizons" question: the real
+mechanism isn't an absence of short-horizon detection, it's a single-run
+cap silently starving short/low-touch candidates by processing order,
+regardless of their actual quality.
+
+Fixed: dedup now always runs to completion over every candidate (no early
+break), and the cap is applied only *after*, truncating by
+`fit_rms_atr_pct` ascending (tightest fit first) instead of by pivot count
+-- a short, cleanly-fit line now competes with long ones on fit quality,
+not raw touch count. Measured cost: full uncapped dedup over GEVO's ~2,227
+raw candidates completes in 0.64s (804 genuinely distinct survivors before
+the cap) -- not a meaningful regression against the existing ~7-10s
+long_term detection runtime.
+
+Verified on real GEVO data: the target trendline now survives as its own
+line (`d111`, strength 0.041, 9 touches found once genuinely classified
+against real bars, not just its 3 defining pivots). It doesn't crack the
+actual top-15 -- a 3-touch, 7-month line legitimately scores lower than
+multi-year lines with dozens of touches on `touch_quality`/
+`duration_density`, which is correct scoring behavior, not something this
+fix was meant to change. What the fix guarantees is that it's no longer
+discarded before scoring gets a chance to judge it on its own merits. Side
+effect: GEVO's diagonal survivor pool grew 128 -> 172 (post drift-filter),
+and its top-15 diagonals now span a noticeably wider range of first_touch
+dates (including a 2024-04-25 line that wasn't there before) instead of
+being almost entirely 2018-2021 multi-year lines. 175 tests passing.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
