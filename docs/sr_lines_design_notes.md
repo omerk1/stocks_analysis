@@ -917,6 +917,42 @@ the same real AAPL window: BREAK's average deviation dropped 2.60% ->
 1.68%, max 5.50% -> 4.95%, outliers over 3% dropped 12 -> 3 -- now in
 line with every other marker type. 171 tests passing.
 
+## Resolved: event markers stayed fully bold/full-size regardless of how faded their own line's box was
+
+Follow-up to the BREAK positioning fix above: user circled several more
+"floating" marker clusters on a real AAPL chart. Investigated with real
+data rather than assuming another positioning bug -- checked every marker
+in all three circled regions (~40 events total) against its own line's
+price at its own timestamp: max deviation 4.2%, most under 2%. Nothing
+mispositioned.
+
+The actual cause: every marker in those circles belonged to a genuinely
+low-strength line (0.055-0.114 -- near the bottom of the top-15). Box
+fill for those lines is only 18-20% opaque with a border color that's
+essentially white-with-a-blue-tint (`_strength_colors` fades both toward
+strength 0), so the box itself is nearly invisible at normal zoom,
+especially stacked against other similarly weak, overlapping lines. Event
+markers, though, were always rendered fully bold and full-size regardless
+of the line's own strength -- solid black X's, solid colored triangles.
+Once a weak line's box faded into the background, its markers were the
+only thing left visible, reading as floating in empty space disconnected
+from anything, even though each one was correctly centered on its own
+(just-invisible) line.
+
+Fixed: new `plotting._marker_style_for_strength(strength) ->
+(opacity, size_scale)`, mirroring `_strength_colors`'s own fade curve --
+opacity 0.35-1.0, size 0.6x-1.0x, applied to every event marker via the
+existing per-line `marker=dict(...)` call. Floored well above zero
+(unlike the box's own fill, which can fade to 15%) -- a marker needs to
+stay perceptible and hoverable even for the single weakest line in the
+top-N, where the box fading toward invisible is exactly its intended job
+at that strength. Verified on real AAPL data: a strength-0.154 line's
+touch markers render at opacity 0.45/size ~6.0 vs. a strength-0.055
+line's at opacity 0.39/size ~5.6 -- modest in absolute terms (real top-15
+strengths rarely exceed ~0.3-0.5, same range the box's own fade already
+works within), but real and in the right direction, and no longer a fixed
+full-bold marker regardless of the line underneath it. 172 tests passing.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
