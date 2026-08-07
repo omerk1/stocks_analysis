@@ -953,6 +953,49 @@ strengths rarely exceed ~0.3-0.5, same range the box's own fade already
 works within), but real and in the right direction, and no longer a fixed
 full-bold marker regardless of the line underneath it. 172 tests passing.
 
+## Resolved: near-flat diagonal candidates silently duplicated horizontal lines in the same zone
+
+User asked (looking at a real GEVO chart) whether detection was working in
+linear or log scale, and separately flagged the chart as "too biased to far
+history & many similar lines." The scale question was easy: fitting/
+clustering is scale-relative (diagonals fit in real log-price/bar-index
+space; horizontal clustering uses ATR-as-%-of-price) but the chart itself
+renders on a plain linear price axis -- no mismatch, just worth stating
+explicitly since nothing in `plotting.py` sets `yaxis.type`.
+
+The "many similar lines" complaint was real and traced to a concrete
+mechanism: pulled GEVO's actual top-15 diagonals and found several with
+essentially zero slope -- `-0.000002` to `-0.000005`/bar, i.e. <0.1% total
+drift across a multi-year span. These sat in the *same* price band
+($1.4-$2.3, GEVO's whole recent range) as several of that same run's kept
+horizontal lines (h7-h14). Horizontal and diagonal candidates are
+deliberately never deduped against each other (a sloped and a flat line are
+usually genuinely different claims -- see `lifecycle.dedup_lines`), so a
+diagonal that's functionally flat rendered the same level a second time,
+indistinguishable from the horizontal box already covering it.
+
+Fixed at candidate generation, not dedup: a diagonal candidate is now
+rejected unless its total drift (`|slope| * inlier bar-index span`) exceeds
+its own `half_width` -- i.e. unless its price actually moves outside its
+own noise-tolerance band at some point across its own claimed lifetime.
+Below that, it's provably indistinguishable from flat over its entire
+fitted range, which is exactly `generate_horizontal_candidates`'s job, not
+a second, redundant diagonal one. New `SRConfig.diagonal_min_drift_to_
+half_width` (default 1.0), calibrated against real drift/half_width ratios
+pulled from GEVO/AAPL/PAAS/T: GEVO's degenerate near-flat survivors sat at
+0.16-0.95, while every real trend on those same four tickers sat at 1.4+
+(most well above 2, with a clear gap around 1-2). 1.0 is a conservative
+floor -- it only rejects candidates that never clear their *own* tolerance
+band, not merely gentle ones.
+
+Verified on real data: GEVO's near-flat diagonals (0 of them left, down
+from 2) are gone from the top-15; T still keeps a handful of very-low-slope
+survivors, but only because their *total* drift over their own (much
+longer) span still exceeds their band width -- correctly kept, not a filter
+failure, and all scored strength <=0.005 (irrelevant to top-N regardless).
+174 tests passing (2 new: rejects a near-flat 3-pivot fit whose drift never
+clears its own half_width; keeps one that does).
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
