@@ -228,3 +228,33 @@ def test_break_marker_is_drawn_at_the_crossing_bar_not_the_resolution_bar():
     break_trace = next(t for t in fig.data if t.name == "break")
     assert pd.Timestamp(break_trace.x[0]) == pd.Timestamp("2020-01-10")
     assert break_trace.y[0] == line.price_at(bars.index.get_loc(pd.Timestamp("2020-01-10")))
+
+
+def test_weak_lines_get_fainter_smaller_markers_not_full_bold_ones():
+    # Regression: a real AAPL chart showed several low-strength lines
+    # (0.055-0.114 -- box fill only 18-20% opaque, a near-white border)
+    # whose event markers were still rendered fully bold and full-size,
+    # regardless of how faded the line's own box was. Once the box faded
+    # into the background, the marker read as floating in empty space,
+    # disconnected from anything, even though it was correctly positioned
+    # exactly on its own (just-invisible) line.
+    bars = _bars(30)
+    weak = _diagonal_line("weak")
+    weak.strength = 0.05
+    strong = _diagonal_line("strong")
+    strong.strength = 0.95
+    result = DetectionResult(
+        ticker="TEST", source="yfinance", as_of=bars.index[-1].isoformat(), config_snapshot={},
+        data_quality=DataQualityReport(ticker="TEST", rows_loaded=30, rows_dropped=0, drop_rate=0.0),
+        lines=[weak, strong],
+    )
+
+    fig = render_review_chart(bars, result, reference_date=bars.index[-1])
+
+    weak_touch = next(t for t in fig.data if t.name == "touch" and t.legendgroup == "weak-events")
+    strong_touch = next(t for t in fig.data if t.name == "touch" and t.legendgroup == "strong-events")
+
+    assert weak_touch.marker.opacity < strong_touch.marker.opacity
+    assert weak_touch.marker.size < strong_touch.marker.size
+    # Never faded to the point of being imperceptible/unhoverable.
+    assert weak_touch.marker.opacity > 0.3

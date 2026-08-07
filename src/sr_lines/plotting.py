@@ -38,6 +38,29 @@ def _strength_colors(strength: float) -> tuple[str, str]:
     return fill, border
 
 
+def _marker_style_for_strength(strength: float) -> tuple[float, float]:
+    """(opacity, size_scale) for an event marker, scaled down with its
+    line's strength the same way the box's own fill/border already are --
+    multiply `size_scale` by each event type's own base size in
+    `_EVENT_MARKERS`.
+
+    Event markers used to always render at full opacity/size regardless of
+    how weak their line was. A real AAPL chart showed several low-strength
+    lines (0.055-0.114 -- box fill only 18-20% opaque, a near-white border)
+    whose markers were still bold, full-size, solid black/colored shapes --
+    once the box itself faded into the background, those markers read as
+    floating in empty space, disconnected from anything, even though each
+    one was correctly positioned exactly on its own (just-invisible) line.
+    Floored well above zero, unlike the box's own fill (which can fade to
+    15%) -- a marker needs to stay perceptible and hoverable even for the
+    single weakest line in the top-N, where the box fading toward invisible
+    is fine (the box's whole job at that strength is to recede)."""
+    t = max(0.0, min(strength, 1.0))
+    opacity = 0.35 + 0.65 * t
+    size_scale = 0.6 + 0.4 * t
+    return opacity, size_scale
+
+
 def _relevant_range(line: Line, last_bar_ts: pd.Timestamp) -> tuple[pd.Timestamp, pd.Timestamp]:
     """The time span the engine actually determined this zone was relevant
     for -- not the whole chart. Starts at `first_touch` (the earliest event,
@@ -173,6 +196,7 @@ def render_review_chart(
             )
         )
 
+        marker_opacity, marker_size_scale = _marker_style_for_strength(line.strength)
         for event_type, (symbol, marker_color, size, outline_width) in _EVENT_MARKERS.items():
             matching = [e for e in line.events if e.type == event_type]
             if not matching:
@@ -183,8 +207,8 @@ def render_review_chart(
                     y=[_y_at(line, bars, _marker_ts(e)) for e in matching],
                     mode="markers",
                     marker=dict(
-                        symbol=symbol, size=size, color=marker_color,
-                        line=dict(width=outline_width, color="black"),
+                        symbol=symbol, size=size * marker_size_scale, color=marker_color,
+                        opacity=marker_opacity, line=dict(width=outline_width, color="black"),
                     ),
                     name=event_type.value,
                     legendgroup=f"{line.id}-events",
