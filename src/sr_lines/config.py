@@ -39,6 +39,23 @@ class SRConfig:
     max_diagonal_slope_atr_per_bar: float = 0.05
     diagonal_min_pivot_separation_bars: int = 20
     diagonal_min_inliers: int = 3
+    # A candidate must move more than its own half_width (in log-price) over
+    # the span between its own first and last inlier, or it's rejected --
+    # otherwise its price never actually leaves its own noise band across its
+    # entire claimed lifetime, which makes it indistinguishable from a flat
+    # horizontal zone (already covered by generate_horizontal_candidates)
+    # wearing a slope. Confirmed on real GEVO/T data: several kept diagonals
+    # had slopes of -0.000002 to -0.000005/bar (total drift/half_width ratio
+    # 0.16-0.95) sitting in the exact same price band as several of that same
+    # run's top horizontal lines -- the same level rendered twice, once as a
+    # box, once as an indistinguishable near-flat streak, since horizontal
+    # and diagonal candidates are never deduped against each other (a sloped
+    # and a flat line are usually genuinely different claims, so that's
+    # deliberate -- see lifecycle.dedup_lines). Real trend lines on the same
+    # runs sat at ratio >= 1.4, with most well above 2 -- 1.0 is a
+    # conservative floor that only rejects candidates whose own fitted
+    # geometry never clears their own tolerance band, not merely gentle ones.
+    diagonal_min_drift_to_half_width: float = 1.0
     # 30 was too aggressive: a real AAPL run had 255 genuinely distinct
     # candidates after proper (slope-aware) dedup, and ranking the survivors
     # by raw pivot count before capping systematically favored long,

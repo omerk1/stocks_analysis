@@ -161,6 +161,13 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
     4. Refit via least-squares over *all* inliers (not just the seed pair)
        for a more robust final line -- two arbitrary pivots can imply a
        noisier slope than the full inlier set supports.
+    4b. Reject if the refit line's total drift (|slope| * inlier bar-index
+        span) doesn't exceed `diagonal_min_drift_to_half_width * half_width`
+        -- a line whose price never moves beyond its own noise band across
+        its own claimed lifetime is functionally flat, and a flat level is
+        already `generate_horizontal_candidates`'s job (see
+        `SRConfig.diagonal_min_drift_to_half_width` for the real numbers
+        that set this floor).
     5. Greedily dedupe: sort by inlier count descending, drop any candidate
        whose *price* stays close to an already-kept candidate's -- within
        `dedup_overlap_threshold * (half_width_a + half_width_b)`, checked at
@@ -270,6 +277,11 @@ def _fit_diagonal_candidates(same_kind_pivots: list[Pivot], config: SRConfig) ->
 
             atr_pcts = [p.atr_at_pivot / p.price for p in inliers]
             half_width = (config.zone_width_atr * statistics.median(atr_pcts)) / 2
+
+            inlier_span = max(p.bar_index for p in inliers) - min(p.bar_index for p in inliers)
+            total_drift = abs(refit_slope) * inlier_span
+            if half_width > 0 and total_drift < config.diagonal_min_drift_to_half_width * half_width:
+                continue
 
             # Fit-quality: each inlier's deviation from the *refit* line,
             # normalized by its own zone_width_atr*ATR% tolerance -- the

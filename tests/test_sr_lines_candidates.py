@@ -161,6 +161,32 @@ def test_diagonal_requires_minimum_pivot_separation():
     assert generate_diagonal_candidates(pivots, config) == []
 
 
+def test_diagonal_rejects_a_candidate_whose_drift_never_exceeds_its_own_half_width():
+    # Regression: a diagonal fit whose price barely moves across its own
+    # claimed lifetime is functionally a horizontal zone wearing a slope --
+    # confirmed on real GEVO data, where several kept diagonals had slopes
+    # of -0.000002 to -0.000005/bar (drift/half_width ratio 0.16-0.95) sitting
+    # in the identical price band as several of that same run's own kept
+    # horizontal lines, rendering the same level twice (horizontal and
+    # diagonal candidates are never deduped against each other).
+    config = SRConfig(diagonal_enabled=True, zone_width_atr=1.0, diagonal_min_inliers=3)
+    bar_indices = (0, 50, 100)
+    slope = 0.00005  # drift over 100 bars = 0.005; half_width = 0.01 -> ratio 0.5, below the 1.0 floor
+    pivots = [_diag_pivot(100.0 * math.exp(slope * bi), bi, 0.02) for bi in bar_indices]
+
+    assert generate_diagonal_candidates(pivots, config) == []
+
+
+def test_diagonal_keeps_a_candidate_whose_drift_clears_its_own_half_width():
+    config = SRConfig(diagonal_enabled=True, zone_width_atr=1.0, diagonal_min_inliers=3)
+    bar_indices = (0, 50, 100)
+    slope = 0.001  # drift over 100 bars = 0.1; half_width = 0.01 -> ratio 10, comfortably above the floor
+    pivots = [_diag_pivot(100.0 * math.exp(slope * bi), bi, 0.02) for bi in bar_indices]
+
+    candidates = generate_diagonal_candidates(pivots, config)
+    assert len(candidates) == 1
+
+
 def test_diagonal_does_not_mix_high_and_low_pivots():
     config = SRConfig(diagonal_enabled=True, diagonal_min_inliers=2)
     highs = [_diag_pivot(110.0, 0, 0.02, kind=PivotKind.HIGH), _diag_pivot(111.0, 25, 0.02, kind=PivotKind.HIGH)]
