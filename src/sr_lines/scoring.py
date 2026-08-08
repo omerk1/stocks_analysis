@@ -42,10 +42,11 @@ _DIAGONAL_PENALTY_CAP = 0.3
 _VOLUME_RATIO_FLOOR = 0.7
 _VOLUME_RATIO_CEILING = 1.3
 _VOLUME_RATIO_CAP = 2.0
-# Duration credit for a diagonal trendline is judged against a fixed
-# "mature trend" reference, not the full detection window -- see
-# _duration_density for why.
-_DIAGONAL_DURATION_REFERENCE_YEARS = 1.0
+# Duration credit is judged against window_years/3, not the full detection
+# window -- see _duration_score for why. Applied identically to horizontal
+# and diagonal; at medium_term (window_years=3.0) this is exactly 1.0,
+# reproducing the fixed 1-year reference diagonal alone used to get.
+_DURATION_REFERENCE_FRACTION_OF_WINDOW = 1 / 3
 
 
 def _decay_reference(events: list[Event], now: pd.Timestamp) -> pd.Timestamp:
@@ -167,18 +168,38 @@ def _touch_quality(
     return min(total / _TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT, 1.0)
 
 
-def _duration_score(events: list[Event], window_years: float, diagonal: bool = False) -> float:
+def _duration_score(events: list[Event], window_years: float) -> float:
     """How long has this line's evidence span been going, normalized against
-    the *full detection window* for horizontal (a level mattering across the
-    whole window is meaningful), but against a fixed
-    `_DIAGONAL_DURATION_REFERENCE_YEARS` for diagonal -- a trendline that's
-    held for a year is already "mature" regardless of whether the detection
-    window happens to be 3 or 8 years. Confirmed on real PAAS data:
-    comparing against `window_years` (8, long_term preset) crushed a
-    genuinely strong, recent ~1-year trendline (touch_quality 0.37,
-    resilience 1.0, role_reversal 1.0 -- strong on every other axis) to
-    duration_density=0.089 purely for not spanning 8 years, while long,
-    multi-year lines got this component almost for free just by being long.
+    `window_years / 3` -- a fixed fraction of the detection window, applied
+    identically to horizontal and diagonal.
+
+    Originally normalized against the *full* detection window for
+    horizontal but a fixed 1-year reference for diagonal. That fixed
+    reference was itself a real fix (confirmed on real PAAS data: comparing
+    a genuinely strong, recent ~1-year diagonal against the full 8-year
+    long_term window crushed it to duration_density=0.089 purely for not
+    spanning 8 years, while long multi-year diagonals got this component
+    almost for free just by being long) -- but applying it only to
+    diagonals created a new, equally real asymmetry the other way: *any*
+    diagonal older than 1 year auto-maxes this component, while a
+    horizontal needs to span the *entire* window to do the same. Confirmed
+    on real PAAS data (long_term, `window_years=8`): a diagonal with sparse
+    evidence (4 touches, 2 wick-fakes, 1 body-fake over 2.4 years) maxed at
+    duration_density=1.000, while a horizontal with *more* evidence (9
+    touches, 5 wick-fakes, 4 body-fakes over a similar span) sat at 0.628 --
+    letting the sparser line outrank the better-evidenced one on strength.
+
+    A survey of real span lengths across AAPL/PAAS/T/GEVO at both presets
+    found real spans cluster consistently around `window_years / 3`
+    regardless of kind (medium_term median ~0.6-0.7yr against a ~1yr
+    natural reference; long_term median ~2.6-3.1yr against a ~2.7yr
+    reference) -- window_years/3 keeps real discriminative spread at both
+    presets, unlike a flat 1-year reference (which would collapse
+    long_term's duration_density to a near-constant 1.0, since most
+    long_term survivors already exceed 1 year). At medium_term
+    (window_years=3.0) this is exactly 1.0, so diagonals there are
+    unaffected by this change -- only horizontals move, from needing the
+    full window down to a third of it.
 
     This is *maturity in time* only -- see `_in_play_fraction` for "does
     price actually track this line," which used to be multiplied in here
@@ -189,7 +210,7 @@ def _duration_score(events: list[Event], window_years: float, diagonal: bool = F
     first = pd.Timestamp(min(e.start for e in events))
     last = pd.Timestamp(max(e.end for e in events))
     span_days = max((last - first).days, 1)
-    reference_years = _DIAGONAL_DURATION_REFERENCE_YEARS if diagonal else window_years
+    reference_years = window_years * _DURATION_REFERENCE_FRACTION_OF_WINDOW
     return min(span_days / (reference_years * 365.25), 1.0)
 
 
@@ -494,7 +515,7 @@ def score_line(
     touch_quality = _touch_quality(
         current_regime_events, bars, decay_reference, half_life, config.fakeout_reclaim_bars
     )
-    duration_density = _duration_score(events, config.window_years, diagonal=diagonal)
+    duration_density = _duration_score(events, config.window_years)
     resilience = _resilience(
         current_regime_events, bars, decay_reference, half_life, config.fakeout_reclaim_bars
     )
