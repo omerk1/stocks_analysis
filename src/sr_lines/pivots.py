@@ -48,6 +48,7 @@ def detect_pivots(bars: pd.DataFrame, config: SRConfig, atr: pd.Series | None = 
             price=float(price),
             confirmed_at=idx[confirmed_i].isoformat(),
             atr_at_pivot=float(atr.iloc[at_i]),
+            bar_index=at_i,
         )
 
     for i in range(1, n):

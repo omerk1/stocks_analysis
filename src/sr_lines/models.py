@@ -6,6 +6,7 @@ pandas objects, no engine internals leak through here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
@@ -46,6 +47,11 @@ class Pivot:
     price: float
     confirmed_at: str
     atr_at_pivot: float
+    # Integer position in the detection window's bar index -- the x-axis
+    # diagonal trendline fitting needs (log-price vs. bar-index, not
+    # price-only like horizontal clustering). Defaults to 0 so tests that
+    # construct a Pivot without a real bars context don't need to supply one.
+    bar_index: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -82,6 +88,15 @@ class ScoreBreakdown:
     # "saved" by strong historical evidence the way it could when proximity
     # was just another additive term. 1.0 = fully relevant, ~0 = stale/far.
     relevance_gate: float = 1.0
+    # Second multiplicative gate: fraction of this line's *current regime*
+    # (see scoring.regime_start) that price actually spent near it, as
+    # opposed to the line extrapolating through empty space while real
+    # price action happened elsewhere. Same reasoning as relevance_gate --
+    # couldn't be an additive term without letting a line saturated on
+    # touch_quality/resilience/role_reversal "buy back" a low in-play
+    # fraction. 1.0 = price tracked it throughout its current regime, ~0 =
+    # mostly hovering away from real price.
+    in_play_gate: float = 1.0
     diagonal_penalty: float = 0.0
     total: float = 0.0
 
@@ -104,6 +119,13 @@ class Line:
     origin_index: int | None
     first_touch: str
     last_event: str
+    # Start of this line's *current* regime of engagement (see
+    # scoring.regime_start) -- may be well after first_touch if there was a
+    # real multi-year dormant gap before the line's current relevance began.
+    # None for lines not built through lifecycle.build_line (e.g. hand-built
+    # in tests), in which case consumers fall back to first_touch -- the old,
+    # pre-regime-concept behavior.
+    regime_start: str | None = None
     events: list[Event] = field(default_factory=list)
     scores: ScoreBreakdown = field(default_factory=ScoreBreakdown)
     strength: float = 0.0
@@ -112,6 +134,11 @@ class Line:
     n_wick_fakes: int = 0
     n_body_fakes: int = 0
     n_breaks: int = 0
+    # Diagonal only: the fitted line's own fit-quality measure (see
+    # candidates.DiagonalCandidate.fit_rms_atr_pct), carried onto the built
+    # Line so lifecycle.dedup_lines can rescore a merged survivor with its
+    # own diagonal_penalty preserved rather than losing it after a merge.
+    diagonal_fit_penalty: float = 0.0
     broken_at: str | None = None
     flipped_at: str | None = None
 
@@ -121,9 +148,18 @@ class Line:
         log-linear trend from origin_index."""
         if self.kind == LineKind.HORIZONTAL:
             return self.center
-        import math
-
         return math.exp(self.intercept + self.slope * (bar_index - self.origin_index))
+
+    def zone_at(self, bar_index: int) -> tuple[float, float]:
+        """(lo, hi) band at a given bar index -- constant width for
+        horizontal, multiplicative (via `half_width`'s log-space band around
+        `price_at`) for diagonal, so the real-dollar width scales with price
+        along the trend the same way `candidates.DiagonalCandidate.zone_at`
+        does (reused here rather than reimplemented a third time)."""
+        if self.kind == LineKind.HORIZONTAL:
+            return self.center - self.half_width, self.center + self.half_width
+        center = self.price_at(bar_index)
+        return center * math.exp(-self.half_width), center * math.exp(self.half_width)
 
     def to_dict(self) -> dict:
         return {
@@ -137,6 +173,7 @@ class Line:
             "intercept": self.intercept,
             "origin_index": self.origin_index,
             "first_touch": self.first_touch,
+            "regime_start": self.regime_start,
             "last_event": self.last_event,
             "events": [e.to_dict() for e in self.events],
             "scores": self.scores.to_dict(),
@@ -146,6 +183,7 @@ class Line:
             "n_wick_fakes": self.n_wick_fakes,
             "n_body_fakes": self.n_body_fakes,
             "n_breaks": self.n_breaks,
+            "diagonal_fit_penalty": self.diagonal_fit_penalty,
             "broken_at": self.broken_at,
             "flipped_at": self.flipped_at,
         }

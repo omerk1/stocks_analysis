@@ -118,16 +118,54 @@ exist in diagonal event classification if it reuses the same walk structure.
 
 ## Scoring calibration findings
 
-### `role_reversal` was binary -- fixed to be proportional
+### `role_reversal` was binary -- fixed to be proportional -- still not enough, fixed again to be quality-weighted
 
 Original: `1.0` if a break was *ever* followed by any confirming
 touch/wick-fake, `0.0` otherwise. Real AAPL data showed this let barely-
 confirmed flips (one weak retest, near-zero touch quality elsewhere)
 outscore never-broken lines with real touch-quality evidence, purely from
-this one all-or-nothing bonus. Now scales with the number of confirming
-touch/wick-fake events after the break, full credit at
-`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3`. `state` (FLIPPED) stays
-a binary label -- only the score contribution is graded.
+this one all-or-nothing bonus. First fix: scaled with the *number* of
+confirming touch/wick-fake events after the break, full credit at
+`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT = 3`. `state` (FLIPPED) stayed
+a binary label -- only the score contribution was graded.
+
+**That fix only closed the "1 touch = full credit" case, not the underlying
+problem.** Flagged in the milestone-4 PR body and mistakenly marked resolved
+in `backlog.md` afterward -- it wasn't. Fresh AAPL smoke test (long_term,
+full history) after the count-based fix still showed a line with
+`touch_quality=0.011` (almost no real evidence) but `role_reversal=1.0`
+(exactly 3 confirming events, regardless of strength) outranking a
+never-broken line with `touch_quality=0.205` (real evidence) and
+`role_reversal=0.0` -- comparable `relevance_gate` on both, so the gate
+wasn't what separated them. 3 confirmations, however weak, was still an
+automatic 1.0.
+
+Second fix: `role_reversal` now reuses the same quality-weighting
+`touch_quality` already applies (reaction-strength/reclaim-speed x recency
+decay, factored into a shared `_event_quality_score` helper in
+`scoring.py`), evaluated over the confirming-event subset instead of raw
+count. A flip "confirmed" by 3 tiny, long-decayed touches -- the *same*
+touches keeping that line's `touch_quality` near zero -- now also scores low
+here, since it's the same evidence viewed through the same lens. A flip
+reconfirmed by several strong, recent touches still reaches full credit.
+Verified on the same AAPL run: the never-broken real-evidence line now
+outranks the near-zero-evidence flipped lines, as it should.
+
+Side effect worth remembering: because `role_reversal` now decays with the
+same `decay_reference` `touch_quality` uses, a flip's score contribution
+here is no longer recency-independent the way the count-based version was --
+an old, once-strongly-confirmed flip will fade here too, on top of whatever
+the relevance gate separately does to `total`. This is intentional (stale
+confirmations shouldn't count the same as fresh ones any more than stale
+touches should), not a second, redundant staleness mechanism -- `role_reversal`
+measures evidence *strength*, the relevance gate measures *whether the level
+still matters given where price is now*; a line can score low on one and
+fine on the other.
+
+Diagonal equivalent: this quality-weighting lens (not just event *count*)
+should carry over directly once diagonal role-reversal scoring exists --
+same `_event_quality_score` helper, no reason to duplicate the count-based
+mistake a second time for sloped bands.
 
 ### `resilience` (undercut-and-rally) was flat per event -- fixed to decay by time-under
 
@@ -277,45 +315,731 @@ closing back on the new side) and is now treated identically. A *pending*
 body-fake still doesn't count -- it hasn't resolved yet. Both checks now
 share one predicate, `flip_status.is_confirmation_event()`.
 
-## Idea, not yet built: a penetration-depth/volume "erosion" signal
+## Milestone 5: diagonal (RANSAC-style, log-price) trendlines implemented
 
-Raised as a question: does scoring account for how deep a wick/body-fake
-went, or penalize a level for being tested too many times? It doesn't --
-`Event.penetration_atr` and `Event.volume_ratio` are captured on *every*
-event but never referenced anywhere in `scoring.py`. Touch count today only
-ever helps (`touch_quality` sums quality-weighted touches up to a ceiling)
-and can never actively hurt a line's score, no matter how many times it's
-been tested.
+Built on `feature/sr-lines-diagonals-and-scoring`, following the geometry
+contract `models.py` had already anticipated since milestone 4 (slope/
+intercept in log-price-per-bar-index space, `half_width` as a log-space
+band -- see `Line.price_at`/`Line.zone_at`).
 
-This maps onto a real, two-sided tension in TA: more touches can mean
-"well-established, real level" (the level keeps mattering, more
-participants have positioned around it) or "getting worn down, about to
-give way" (each test consumes the orders sitting there; the classic "the
-more times a level is tested, the more likely it breaks" heuristic). Count
-alone can't distinguish these -- the same 5-touch line could be either
-story depending on the *shape* of those 5 touches, not how many there are.
+- `candidates.DiagonalCandidate` + `generate_diagonal_candidates`: seeds
+  from same-kind pivot pairs `>= diagonal_min_pivot_separation_bars` apart,
+  slope-capped via `max_diagonal_slope_atr_per_bar` (treated as a direct cap
+  on log-slope-per-bar, i.e. roughly "max % move per bar" -- the field
+  predates this work and its exact intended units were never pinned down
+  elsewhere, so this is a judgment call worth a gut-check if it turns out
+  wrong), inliers within `zone_width_atr * local ATR%` of the fit (same
+  formula shape as horizontal clustering), refit via least-squares over the
+  full inlier set, greedily deduped by inlier-set overlap, capped at
+  `diagonal_max_candidates`.
+- `events.classify_events` generalized to evaluate zone bounds *per bar* via
+  `candidate.zone_at(bar_index)` instead of once at the top -- required
+  since a diagonal band's position moves with its slope; verified
+  equivalent to the old fixed-scalar behavior for horizontal by the full
+  existing suite staying green throughout.
+- `scoring.score_line` gained an optional `center_at` callable (used by
+  `_duration_density`, which needs the center at every bar in its in-play
+  window) and `diagonal_fit_penalty`. Every existing horizontal call site
+  was left untouched (both are additive, defaulted params) rather than
+  changing `candidate_center`'s type everywhere.
+- `diagonal_penalty` implemented as `DiagonalCandidate.fit_rms_atr_pct`: RMS
+  of each inlier's deviation from the refit line, normalized by the same
+  tolerance that made it an inlier, capped at 0.3. A starting formulation,
+  not a final one -- like every other scoring constant here, it's meant to
+  be checked against real charts, not treated as settled on the first pass.
+- `lifecycle.py`: `build_line` branches on candidate type; `dedup_lines`
+  gained a diagonal-diagonal merge rule (v1, explicitly flagged as a
+  simplification): same gap-based check as horizontal but evaluated at the
+  current reference bar via `Line.price_at`, gated by a slope-similarity
+  check first so two trendlines that merely cross near "now" without
+  actually tracking together don't get merged. Horizontal and diagonal
+  lines never merge with each other.
+- `plotting.py`: diagonal bands render as a sloped 4-point polygon (`Line.
+  zone_at`) instead of a flat rectangle; event markers and break/flip
+  annotations follow `price_at(bar_index)` instead of a fixed height.
+- CLI: `--diagonals` (off by default, so existing horizontal-only charts
+  stay comparable to earlier runs).
 
-Proposed approach (not yet built, not yet validated against real charts):
-treat this as a *trend* signal, not a count-based one. Look at
-`penetration_atr` (and optionally `volume_ratio`) across a line's touches
-in chronological order -- e.g. first-half vs. second-half average
-penetration, or a simple slope. Deepening penetration and/or declining
-volume on successive tests -> a small penalty (erosion, thesis B).
-Shallowing penetration and/or holding volume -> neutral or a small bonus
-(fortification, thesis A). Would live as its own signal rather than folded
-into `resilience`, since it measures evidence *direction* over time, not
-evidence *strength* -- a genuinely different question from what
-`resilience`/`touch_quality` already capture.
+Real-data smoke test (AAPL, T; long_term preset, full history): both ran
+clean end-to-end, no degenerate geometry, `diagonal_penalty` visibly
+discriminating tight vs. loose fits, diagonal lines competing meaningfully
+in the top ranks alongside horizontal ones.
 
-Deferred to the milestone-7 weight-tuning pass, same as everything else
-scoring-related here: build it, then check it against real charts where a
-level visually reads as "getting eaten through" vs. "rock solid" and
-confirm the number agrees, rather than picking a formula and shipping it
-unchecked.
+## Resolved: candidate-level dedup + the 30-candidate cap were silently discarding real, visually obvious trendlines
+
+First real-chart review found this directly: a clean, visually obvious
+3-touch descending resistance line on AAPL (Dec 2025 -> Feb 2026 highs,
+user hand-drew it on the chart) never appeared, even filtered down to
+"descending only." Root cause had two parts, both confirmed against the
+real AAPL data before fixing:
+
+1. **`generate_diagonal_candidates`'s dedup only checked pivot overlap, not
+   slope.** The exact 3-pivot line the user drew *was* generated as a raw
+   candidate (`slope=-0.00072`, matching their line almost exactly) -- it
+   just got discarded because it shared pivots with unrelated, longer,
+   *ascending* candidates that had more inliers and were kept first. A
+   single pivot can legitimately sit on two geometrically unrelated
+   trendlines (a short recent one and a long slow one just happen to cross
+   near it); pivot-set overlap alone can't tell them apart.
+2. **The similarity threshold used to gate that overlap check --
+   `max_diagonal_slope_atr_per_bar` (0.05, the *slope-rejection* cap) --
+   was two orders of magnitude too loose to matter anyway.** Real trendline
+   slopes run ~0.0001-0.001; a 0.05 tolerance calls almost any two
+   same-magnitude slopes "similar" and, worse, doesn't reliably separate a
+   gentle ascending line from a steep descending one. This exact bug
+   existed in *two* places -- `candidates.py`'s dedup and `lifecycle.py`'s
+   diagonal-diagonal merge check both reused this same too-loose constant.
+   Fixed with a dedicated `candidates.slopes_are_similar()` (opposite signs
+   are never similar; same-signed slopes must be within 2x of each other),
+   now the single shared implementation both modules call.
+3. **Even with dedup fixed, the pre-scoring cap still crowded it out.**
+   AAPL's HIGH pivots alone produced 1,069 raw seed-pair candidates; after
+   *correct* dedup, 255 genuinely distinct lines remained -- but sorting
+   survivors by raw pivot count before applying `diagonal_max_candidates=30`
+   still buried a real, tight, 3-pivot recent line 204th out of 241,
+   crowded out by long, low-precision multi-year lines with more inliers.
+   Raised the cap to 300 (comfortably covers 255/228 seen on AAPL/T) so
+   candidate generation stops pre-filtering by "most pivots" and leaves the
+   actual ranking to scoring's relevance/quality machinery, which is what
+   it's for. Cost: detection is noticeably slower on a long_term window
+   (~1s -> ~8-10s) -- acceptable for a CLI tool run occasionally, not
+   optimized further yet.
+
+Verified on the same AAPL run: descending diagonal count went from 1 (the
+bug) to 30; T went from 5 to 78. The exact line the user drew now survives
+and scores with a real (if unranked-in-top-N, since price broke through it
+by "now") strength.
+
+Diagonal equivalent note doesn't apply here -- this section *is* the
+diagonal-specific fix; nothing analogous exists for horizontal (single-pass
+clustering, not pairwise seed fitting, so this particular failure mode is
+structural to the RANSAC approach, not something horizontal shares).
+
+## Resolved: diagonal candidate-level dedup used pivot overlap, not price proximity
+
+Follow-up finding from the same chart review: even after the fix above,
+the top-15 for T was still dominated by 8+ near-identical-looking ascending
+lines. Checked concretely -- they weren't exact duplicates from the fixed
+bug (none shared pivots), but genuinely distinct RANSAC fits from disjoint
+pivot subsets that happened to track nearly the same price band (1.4-14%
+apart) on a long, channel-trending stock. The old dedup never compared
+them at all, since it only ever looked at candidates sharing pivot points.
+
+Replaced with an actual price-proximity check (`candidates.
+_candidates_are_duplicate`): two candidates are duplicates if their slopes
+are similar and their fitted prices stay within `dedup_overlap_threshold *
+(half_width_a + half_width_b)` of each other, sampled at both the later of
+their two starting points and at "now" -- reusing the existing
+`dedup_overlap_threshold`/`--dedup-threshold` knob rather than inventing a
+diagonal-only one. T's total diagonal count dropped 177 -> 132. Raising
+the threshold further (0.6 -> 6.0) only reduced it to 116 -- notably
+weaker than horizontal dedup's response to the same knob on a similar T
+cluster (28 -> 9 at `zone_width_atr=3.0`). Not fully understood: either
+these really are more genuinely-distinct trendlines than they visually
+appear (plausible, same as AAPL's COVID-era horizontal density turning out
+to be real), or the 2-point sampling is still missing pairs that are close
+across most of their range but diverge at one of the two checked points.
+
+## Resolved: diagonal merges were displaying/scoring events against the wrong geometry
+
+Most serious finding from the same review round -- user-reported "floating
+markers" and zones seeming to not start from any real bar. Root cause:
+`lifecycle._absorb` unioned pre-computed events from merged candidates
+directly, which is only safe when the merged zones are close *everywhere*,
+not just at the points a proximity check happened to sample. Horizontal's
+constant bounds guarantee this; diagonal's price-proximity dedup (see
+above) only samples 2 points, so two candidates could pass that check
+while diverging meaningfully elsewhere along their span. After merging,
+*every* event -- including ones originally validated against the *other*
+candidate's zone -- got displayed and scored against the survivor's single
+final geometry.
+
+Confirmed concretely on a real T line: a ~0.5%-wide band had dozens of
+touch/break events whose actual close price sat 5-49% away from it --
+physically impossible for a genuine interaction with that narrow a zone.
+
+Fixed by re-classifying events from scratch against the survivor's own
+kept geometry on every diagonal merge, instead of unioning stale ones
+(`events.classify_events` gained an optional `start_ts` override so it can
+be called with a `Line`, which has no `.pivots`, as the "candidate").
+Verified: max deviation on T's top-15 diagonal lines dropped from 49.6% to
+12.6%. The remaining gaps are explained, not bugs: mostly genuine (a BREAK
+event's `end` is several bars after the actual crossing, by which point
+price may have kept moving away -- that's what a real, continuing
+breakdown looks like) -- except one, a same-day TOUCH with a 12.6% gap on
+T, 2023-01-24, which traces to a **pre-existing bad data point**: that
+day's bar has `high=17.81` against `open=15.69`/`close=15.85`, an ~13%
+intraday spike that fully reverses within the same session. Not caught by
+the current validation gate (`data.py`'s hard checks only verify internal
+OHLC consistency; the soft day-over-day jump check only looks at
+close-to-close continuity, not intraday range plausibility) -- a real,
+separate data-quality gap, unrelated to sr_lines logic. Not yet
+investigated further or fixed; flagged in `docs/backlog.md`.
+
+Cost: `_absorb` now does a full `classify_events` pass (O(bars)) on every
+diagonal merge instead of a cheap list union -- detection is noticeably
+slower again (~25s vs ~8-10s on T's long_term window). Not yet optimized;
+correctness took priority.
+
+## Resolved (volume half): a level touched on high volume now outscores one touched on low volume
+
+Originally raised alongside penetration depth as a combined "erosion
+signal" idea (see below for the still-open penetration-*trend* half).
+`Event.volume_ratio` (vs. 20-day average volume) was captured on every
+event but never referenced anywhere in `scoring.py` -- a level touched 4
+times on high volume scored identically to one touched the same way on
+thin volume.
+
+Fixed via a new `scoring._volume_factor(volume_ratio)`: neutral (1.0, no
+adjustment) at average volume or when volume data is missing (e.g. the
+first 20 bars, before the rolling average warms up -- absent data isn't
+penalized), capped boost up to 1.3x at 2x+ average volume, floored penalty
+down to 0.7x at zero volume -- graceful on both ends, matching the style of
+every other per-event factor here (`reaction_atr` capped, body-fake decay
+floored), never fully zeroing out a low-volume event since it's still real
+price action. Applied as a multiplier in `_event_quality_score` (so it
+affects both `touch_quality` and `role_reversal`, which both consume it)
+and separately in `_resilience` (a high-volume U&R reclaim is more
+convincing than the same reclaim on thin volume).
+
+Found and fixed a small related bug while in this code: `events.
+_merge_adjacent` picked whichever merged event's `volume_ratio` happened to
+be *later* in time, not the max -- inconsistent with `penetration_atr`/
+`reaction_atr`, which both already keep the max across a merged cluster.
+Fixed to match.
+
+## Resolved: the "hovering" bug -- duration_density's in-play fraction diluted into irrelevance by saturated components
+
+Third real diagonal bug this review round, and the most fundamental one --
+user kept seeing the same "lines don't track real price" complaint across
+multiple rounds ("we don't get any progress") even after the dedup and
+event/geometry fixes above, on a fresh AAPL chart.
+
+Drilled into the actual top-15 AAPL diagonal lines directly rather than
+guessing further: **every single one** had `resilience=1.000` and
+`role_reversal=1.000` -- both fully saturated. Unsurprising for a
+long-history line: over 6-8 years a real stock crosses any given trendline
+many times, easily accumulating enough break/reclaim cycles to hit those
+caps. Meanwhile `duration_density` (which used to bundle `span_score *
+fraction_in_play` together) sat at 0.19-0.53 -- correctly detecting that
+these lines spent a lot of their claimed lifetime far from where price
+actually was, but at its ~0.20-of-0.90 additive weight, that signal
+couldn't meaningfully suppress a line that was maxed out on three other
+axes. Same failure shape as the original `proximity` bug: an additive term
+can't suppress a line that's strong everywhere else, because the other
+weights simply absorb the loss.
+
+**This is structurally the same bug, so it got the same fix.** Split
+`duration_density` into two things that were always conceptually different:
+- `_duration_score` (kept as the additive `duration_density` weighted
+  component): span length only -- "has this level/trend existed long
+  enough to be mature." Unchanged from the prior duration_density fix.
+- `_in_play_fraction` (new): fraction of the line's own [first_event,
+  last_event] span where price actually stayed within 3 ATR of it, as
+  opposed to the line extrapolating through empty space. This is now a
+  **second multiplicative gate** (`in_play_gate`, alongside `relevance_gate`)
+  on the whole score, not an additive term -- so it can no longer be
+  "bought back" by touch_quality/resilience/role_reversal being strong.
+
+Verified on the same AAPL run: `in_play_gate` values for the old top-15
+ranged 0.28-0.53, and applying it multiplicatively dropped the top score
+from 0.368 to 0.202 and meaningfully re-ranked the list (several lines with
+better in-play fractions displaced ones that were previously winning purely
+on saturated touch_quality/resilience/role_reversal). Applies uniformly to
+horizontal too (checked -- values there ranged 0.27-0.84 across AAPL's
+top-10 horizontal zones, no degenerate output).
+
+`ScoreBreakdown` gained an `in_play_gate` field so this is visible in hover
+text/JSON like every other component. Diagonal equivalent note doesn't
+apply -- this fix already covers both kinds identically, same formula.
+
+## Resolved: a diagonal merge could pull the survivor's displayed start back past its own fitted geometry
+
+Fourth diagonal dedup/merge bug found this review round, and found from a
+plain user question rather than a complaint: a fresh AAPL chart showed one
+clearly visible diagonal line, and the user asked "where is this starting
+from?"
+
+That line (`d81`) had `first_touch="2018-09-10"`. Its fitted price at that
+date was $67.97 -- but AAPL actually closed at $51.62 that day, a ~30%
+mismatch. Pulling the underlying candidate's raw pivot list directly showed
+all 5 of its actual defining pivots span 2020-07-13 through 2026-02-06 (each
+fitting the final line within 0.1-0.4%, an essentially perfect fit for the
+geometry the candidate was actually built from) -- nothing about the line's
+own geometry had anything to do with 2018.
+
+Root cause: `lifecycle._absorb`'s horizontal-derived line
+`survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)`
+was applied unconditionally, including for diagonal merges. That's valid
+for horizontal, where a zone's bounds are a constant (lo, hi) -- if the
+zone was there, "it was touched earlier too" holds regardless of when.
+It's not valid for diagonal: the survivor keeps its *own* slope/intercept
+through a merge (a merge never refits them), so pulling the displayed
+start back to an absorbed candidate's earlier `first_touch` renders the
+box across a period the survivor's fitted line was never actually fit
+against or validated for. Compounding this, the price-proximity dedup
+check that allows a diagonal merge (`candidates._candidates_are_duplicate`)
+only verifies agreement from the *later* of the two candidates' own starts
+onward -- it never checks the region before that, so nothing had ever
+confirmed the two candidates' geometries actually agreed back in 2018 in
+the first place.
+
+Fixed: `_absorb` now only extends `first_touch` backward for horizontal
+merges. Diagonal survivors keep their own original `first_touch`
+unconditionally, regardless of what gets absorbed into them. Verified on
+a fresh AAPL long_term detection run: the top diagonal line's `first_touch`
+is now `2020-07-13`, exactly its own earliest defining pivot, with a fitted
+price ($149.85) within 1.6% of the real close that day ($147.54) -- sane,
+where before the mismatch was ~30%.
+
+## Still open: the penetration-depth *trend* half of the erosion signal
+
+The other half of the original idea -- is a level getting tested with
+*deepening* penetration over time (erosion, weakening) or *shallowing*
+penetration (fortification, strengthening) -- is still not built. This is
+a genuinely different question from volume (which is now resolved, see
+above) and from `resilience`/`touch_quality` (which measure evidence
+*strength*, not *direction* over time): the same 5-touch line could read
+as either story depending on the shape of those 5 touches' penetration
+depths, not their count or individual strength. Proposed approach
+unchanged from the original idea: first-half vs. second-half average
+`penetration_atr`, or a simple slope, as its own signal rather than folded
+into `resilience`. Deferred to the milestone-7 weight-tuning pass -- build
+it, then check it against real charts where a level visually reads as
+"getting eaten through" vs. "rock solid" and confirm the number agrees.
 
 Diagonal equivalent: the same trend-based approach should apply directly --
 a diagonal band being tested with deepening penetration on each touch is
 the same erosion story, just against a sloped level instead of a flat one.
+
+## Initially reviewed as "confirmed by design," then found to be a real bug -- see the regime_start fix below
+
+User hand-drew an obvious multi-year descending resistance on a PAAS chart
+(2020 high ~$37 down to ~$12-13 by 2026) and asked why nothing like it shows
+up in the top-N. First pass: the matching candidate does exist and fits
+tightly -- `fit_rms_atr_pct=0.075` (one of the best fits in the whole
+300-candidate set) through pivots at 2020-08, 2021-02, 2021-05, 2024-05,
+2024-08 -- and classifies exactly as expected: touches through 2021, a
+clean BREAK on 2024-07-10, a fakeout retest, then a decisive break and flip
+to FLIPPED by 2025-01-02. A textbook "broke out of a multi-year descending
+resistance" pattern. Score was 0.013, crushed by `relevance_gate=0.148`
+(PAAS is now ~3x above where the line sits today) and `in_play_gate=0.217`
+(a real ~3-year idle gap, 2021-05 to 2024-05, before the eventual breakout).
+
+Initially concluded this was the intended tradeoff (top-N tracks current
+relevance, an old broken level correctly ages out) and left it alone. But
+the user pushed back wanting the case re-tested *as of shortly after the
+break itself* -- and even there, the same candidate still scored only 0.032
+and didn't crack the top-15. `relevance_gate` was fine at that point
+(0.699 -- price was close, the event was recent), but `in_play_gate` was
+still only 0.150, because its denominator is the line's *entire*
+first-event-to-last-event span: the 3-year dead zone from 2021-2024 was
+still baked into that average regardless of "now." That's what exposed this
+as a real, structural bug rather than a values judgment -- see "Root cause
+and fix: `regime_start`" below for the actual resolution.
+
+## Root cause and fix: `regime_start` -- `in_play_gate` and the rendered box now judge a line by its current regime, not its entire history
+
+The user asked for a genuine root-cause fix rather than another one-off
+patch ("we just add some patches every time instead of tackling major root
+causes"). Investigated properly rather than re-tuning `in_play_gate`'s
+formula again:
+
+**Naive recency-weighting isn't enough.** Tried applying the same
+exponential half-life decay `touch_quality`/`role_reversal`/`relevance_gate`
+already use to `in_play_gate`'s per-bar average. Result on the real PAAS
+candidate: `0.150 -> 0.157`. The 3-year dead zone (~650 trading days)
+outweighs the real engagement (~65 days) 10:1, and a 2-year half-life only
+discounts old days by ~3x -- nowhere near enough to overcome that ratio.
+
+**The real flaw: `in_play_gate` measured the wrong thing.** A flat fraction
+of *all* time between first and last event conflates two situations that
+look statistically identical to that average but are conceptually
+opposite: a genuinely spurious/coincidental fit (the original "hovering"
+bug -- a loose line that only crosses price by chance, spread thin across
+years) vs. a real, tightly-fit trendline (this PAAS line, `fit_rms=0.068`,
+one of the best fits found) with an ordinary multi-year dormant gap before
+price legitimately came back and broke through it. Time spent away from any
+given level is *normal* market behavior -- price can't be near every
+historical level at once -- and shouldn't by itself invalidate the level.
+
+**Fix: `scoring.regime_start(events, gap_years, since=None)`.** Walks a
+line's events chronologically; whenever the gap since the previous event
+(or since `first_touch`, for the very first event) exceeds
+`config.regime_gap_years` (new knob, default 1.0), everything before that
+gap is treated as an earlier, separate regime, and the "current regime"
+resets to start there. Falls back to the old always-first-event/first_touch
+behavior when there's no gap that large -- the common case, verified
+unaffected against the existing hovering-bug regression test (its gap is
+~0.4 years, well under the 1.0-year default).
+
+Verified on the real PAAS candidate: `regime_start` correctly resets to
+`2024-05-20` (the actual start of the reactivation), `in_play_gate` jumps
+`0.150 -> 0.838` as-of shortly after the break, and the candidate's own
+score goes `0.032 -> 0.155` (evaluated as-of that date) / `0.032 -> 0.177`
+(hand-verified against a simulated regime-windowed gate before the full
+implementation) -- from "buried" to competitive with the top-ranked lines
+of that period. Spot-checked against today's actual top-ranked AAPL/PAAS/T
+lines beforehand to confirm no runaway inflation: most lines are unaffected
+(no gap that large in their history), a few shift moderately, nothing
+degenerate.
+
+**Score and rendering initially got coupled, which was wrong -- see the
+correction below.** The first version of this fix also changed
+`plotting._relevant_range` to key the box's start off `regime_start`
+instead of `first_touch`, reasoning that a box spanning the real dormant
+gap would recreate the original hovering complaint's visual. That reasoning
+turned out to be wrong -- see "Corrected" below, filed right after this
+section once the mistake surfaced.
+
+**Supporting consistency fix: `_resilience` now decays with recency too.**
+Found while auditing why the original "hovering" bug happened in the first
+place: `resilience` had *no* time decay at all, unlike `touch_quality` and
+`role_reversal` (both already fixed to decay in earlier rounds) -- an old
+defended level stayed worth exactly as much as a fresh one, which is part
+of why `resilience` could saturate at 1.0 purely from long accumulated
+history regardless of relevance. Now uses the same exponential half-life
+decay (`decay_reference`) the other two evidence-quality components use.
+This was a latent gap, not something the user had separately reported, but
+the same category of bug as the two already fixed.
+
+`Line.regime_start` is a new field (recomputed by `lifecycle._absorb` on
+every merge, same as every other event-derived field, since it's a pure
+function of the event timeline and a stale post-merge value would defeat
+the point) and is now surfaced in the chart's hover text alongside
+`first_touch`/`last_event`.
+
+## Corrected: the box's rendered extent should not have been keyed off `regime_start`
+
+Immediately after the `regime_start` fix above, the user re-checked with a
+PAAS as-of run timed right at the real breakout (2024-08-30) and reported
+the descending diagonal was *still* missing from the rendered chart -- with
+an explicit instruction not to special-case this one candidate, but to find
+the actual general bug.
+
+It was real, and self-inflicted by the fix above: `regime_start` correctly
+got the matching descending-resistance candidates (`d249`, `d102`, `d269`
+-- slightly different specific candidates than the earlier single "target"
+line, since dedup reshuffles which exact candidate wins, but the same real
+pattern) into the top-15 this time. But `_relevant_range` had also been
+changed to draw the box starting at `regime_start`, not `first_touch` --
+so each box was only drawn from its ~2024-04 reactivation onward, a few
+months wide, not from its actual 2020/2021 founding pivot. The line was
+technically "in" the result set, just visually invisible as the thing it
+actually is: a multi-year trendline. Confirmed directly: `d249`'s box was
+rendering as `2024-04-09 -> 2024-08-30` instead of `2020-06-02 -> 2024-08-30`.
+
+Root cause of the *original* mistake: conflating two different jobs.
+`in_play_gate`/`regime_start` decide whether a line is good enough to make
+top-N *at all* -- that's the actual mechanism that keeps clutter (spurious,
+never-really-tracked lines) off the chart. The box's job, once a line
+clears that bar, is just to show what it *is*: its full known history --
+exactly what every horizontal zone's box has always done on this chart
+(see "Zone extents always render to the reference date regardless of
+state" from the milestone-4 round -- box length was never meant to encode
+strength/relevance, color saturation and dash style already do that).
+Truncating a good, top-N-selected diagonal's box to its current regime
+throws away the exact visual that makes a multi-year trendline
+recognizable as one.
+
+Fixed: `_relevant_range` reverted to always use `first_touch`.
+`regime_start` still does real work -- it's what `in_play_gate` uses for
+scoring, and it's still shown in hover text -- it just never should have
+touched the render. Verified: `d249`/`d102`/`d269` (descending diagonals,
+slopes -0.0004 to -0.0007) now render their full 2020/2021 -> 2024-08-30
+boxes on the PAAS as-of-2024-08-30 chart. 168 tests passing (removed two
+tests asserting the now-reverted behavior, replaced with one asserting the
+box ignores `regime_start`).
+
+## Resolved: `touch_quality`/`resilience`/`role_reversal` summed evidence across a line's *entire* history, letting old chop outscore a tight, honest fit
+
+With the diagonal now correctly rendering (see above), the user asked a
+sharper question: why does the descending resistance line through PAAS's
+actual highest peak (2020-08-06, $36.25) *not* win outright, when three
+other, visibly near-duplicate descending lines (all starting from
+secondary, non-peak pivots) show up instead? Investigated with real data
+rather than assuming it was another dedup issue.
+
+It wasn't dedup -- the peak-anchored candidate exists, and its fit is
+objectively the best of the region: `fit_rms=0.068`, versus 0.32-0.5 for
+the three candidates actually shown. Not a fan of near-duplicates either:
+their extrapolated prices as-of 2024-08-30 were $1.65-$3.34 apart (spread
+was *larger*, $4-8, back in 2021-2022) -- genuinely distinct fits, not a
+missed merge.
+
+The real cause: one of the three shown lines (`d249`) had accumulated
+**17 touches and 8 breaks** over 3.5 years -- almost all of that from one
+chaotic ~11-month stretch (2021-07 to 2022-06) where price whipsawed back
+and forth across its (looser-fit, `fit_rms>0.3`) band constantly. Every
+individual event was real (genuinely classified against the actual moving
+band), but `touch_quality`/`resilience`/`role_reversal` summed evidence
+across a line's *entire* history with no regard for how densely clustered
+or how long ago it was -- so a dozen-plus events from one old chop episode
+saturated all three components' caps just as easily as genuine, sustained
+respect would have. The peak-anchored line, by contrast, had only a
+handful of clean, well-spaced touches (its tight fit means price rarely
+revisits it by coincidence) -- objectively better evidence of a real
+level, but *fewer* raw events, so it scored lower under the old
+accumulate-forever formulas. This is the same structural failure shape as
+the original "hovering" bug (a signal that can't distinguish real
+strength from noisy volume of evidence), just showing up in the evidence
+components instead of `in_play_gate`.
+
+Considered and rejected a "since the line's last BREAK" scoping (verified
+numerically first): it does isolate the recent regime, but is too blunt --
+a line currently ACTIVE since a break with no *fresh* wick/body-fakes yet
+(because it's simply been holding cleanly) sees `resilience` collapse to
+exactly 0.0, discarding real signal. Checked directly: this zeroed out
+`resilience` for several clearly-legitimate, currently-strong lines
+(`h16`, `h9`, `h8`, `h10`, `h7`, `h6`), not just the chop offenders --
+overcorrecting, the same "solve one bug by breaking a different case"
+shape flagged earlier this session.
+
+**Real fix: reuse `regime_start` (not a new mechanism) to scope all three
+evidence components, the same way it already scopes `in_play_gate`.**
+`touch_quality`, `resilience`, and `role_reversal` now only look at events
+within `[regime_start, last_event]`, not the full `[first_touch,
+last_event]` span. This is a pure extension of the existing, already-
+verified regime concept -- no new config knob, no new heuristic -- and
+avoids the "since last break" approach's cliff-to-zero problem, since
+`regime_start` only resets on a genuine multi-year dormancy gap (already
+tuned via `regime_gap_years`), not on every break. `duration_density`
+deliberately stays on the *full* event span -- it measures maturity (has
+this level mattered, cumulatively, over its whole history), a genuinely
+different question from "is the current evidence strong," and conflating
+the two was exactly the mistake milestone 5's earlier `duration_density`
+fix already corrected once.
+
+Verified on real PAAS data (as-of 2024-08-30): the peak-anchored line
+(`d250` after re-run) now makes the top-15, with `resilience` correctly
+dropping from a saturated 1.0-adjacent score to reflect only its own
+regime's evidence, while `d249` (the worst chop offender) drops *out* of
+the top-15 entirely. Spot-checked AAPL/PAAS/T's full top-15 afterward:
+strengths stay in a sane 0.06-0.36 range, no degenerate output, a healthy
+mix of `regime_start == first_touch` (no gap, unaffected) and
+`regime_start` well after `first_touch` (genuine resets). 169 tests
+passing.
+
+## Resolved: `touch_quality`/`resilience`/`role_reversal` still saturated within a long but *continuous* regime -- `regime_start` alone wasn't the whole fix
+
+Found while sanity-checking the regime-scoping fix above before merging,
+prompted by a direct question ("are we ok with the implementation?") that
+was worth actually re-verifying with real numbers rather than just
+reasoning about design intent. Checked AAPL/PAAS/T's real top-15 again:
+`resilience` was saturated (1.0) for 9-12 of 15 lines, `role_reversal` for
+8-14 of 15 -- barely moved from before the `regime_start` fix, for the
+lines that *don't* have a multi-year dormancy gap in their history.
+
+Root cause, confirmed on a real AAPL line (`d81`): 46 genuine confirming
+events spread across a continuous ~4-year regime (no gap anywhere close to
+`regime_gap_years`, so `regime_start` correctly doesn't exclude any of
+it). Even with real exponential recency decay applied per-event, the
+quality-weighted sum came to ~11.7 against `role_reversal`'s divisor of
+3.0 -- decay shrinks each event's *individual* contribution as it ages,
+but doesn't shrink the *number* of terms in the sum, so any line active
+for long enough with events every few weeks will eventually clear any
+fixed divisor, entirely independent of whether the evidence is chop or
+genuinely good. `touch_quality`'s and `role_reversal`'s divisors were
+always *named* for a recent count ("6 strong recent touches", "3 strong
+recent confirmations") but the implementation never actually restricted
+*how many* events fed the sum -- only *which type* -- so "recent" was
+doing no real work beyond generic decay.
+
+Fixed: new `_most_recent(events, k)` restricts `touch_quality`,
+`resilience`, and `role_reversal` to literally their `k` most recent
+qualifying events (by end date) before summing -- `k=6` for
+`touch_quality` (renamed `_TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT`, same
+value as before, just now actually enforced by count) and `k=3` for both
+`resilience` and `role_reversal` (consolidated into one shared
+`_RECENT_EVENTS_FOR_FULL_CREDIT`, replacing the old
+`_ROLE_REVERSAL_CONFIRMATIONS_FOR_FULL_CREDIT` -- `resilience` never had
+its own named divisor before, reusing role_reversal's is the least
+arbitrary choice given both showed near-identical saturation severity in
+the real data). This is the natural continuation of `_most_recent`'s own
+docstring reasoning applied consistently, not a new invented mechanism.
+
+Verified on real data: saturation nearly eliminated across all three
+tickers --
+
+| | before | after |
+|---|---|---|
+| AAPL resilience saturated | 12/15 | 0/15 |
+| AAPL role_reversal saturated | 14/15 | 2/15 |
+| PAAS resilience saturated | 9/15 | 0/15 |
+| PAAS role_reversal saturated | 13/15 | 0/15 |
+| T resilience saturated | 3/15 | 0/15 |
+| T role_reversal saturated | 8/15 | 0/15 |
+
+All three components now show real spread across every ticker's top-15
+instead of clustering at 1.0. Re-verified the original PAAS descending-
+resistance case (the reason `regime_start` exists) still holds after this
+second fix layered on top: the peak-anchored line (`d250`) is still in the
+top-15 as-of 2024-08-30, now ranked #5. 170 tests passing.
+
+## Resolved: BREAK markers drawn at the resolution bar instead of the crossing bar read as floating
+
+User flagged (on a real, dense AAPL chart) that some arrow/X markers looked
+disconnected from any candle. Investigated with real data rather than
+assuming it was another scoring/geometry bug like the earlier "floating
+markers" issue this milestone: pulled every event landing in the exact
+window shown and checked each marker's Y-position (`_y_at`, the line's own
+`price_at`/`center`) against the real candle's close at that same
+timestamp, broken down by event type.
+
+TOUCH/WICK_FAKE/BODY_FAKE were all tight (~1.1-1.7% average deviation,
+well under 3%) -- correctly positioned, just belonging to *other* lines
+than the ones the user was looking at (a separate legibility point, not a
+bug: with 6-9 overlapping diagonal lines all sharing the same
+type-based marker styling, it's hard to tell by eye which marker belongs
+to which line without hovering). BREAK was the outlier: 2.60% average,
+5.50% max, 12 of 26 exceeding 3% -- roughly double every other type, and
+rendered as the boldest marker on the chart (solid black X, size 13), so
+it's the one that actually reads as floating.
+
+Root cause: `_y_at(line, bars, e.end)` places every marker using the
+event's `.end` timestamp. For TOUCH/WICK_FAKE that's the same bar as
+`.start` (same-bar events), and for BODY_FAKE the reclaim resolves quickly
+enough in practice that it wasn't causing a visible problem. But a BREAK's
+`.end` is deliberately the bar where the `fakeout_reclaim_bars` window
+elapsed *without* a reclaim (confirming a real break, not a fakeout) --
+correct for classification, but that can be several trading days after
+the actual crossing (`.start`), by which point a real, continuing
+breakdown has often moved price well away from the level. Also
+inconsistent with `flip_status.broken_at` (already anchored to `.start`,
+which is what the "break"/"flip" text annotations use) -- the scatter
+marker and the annotation were pointing at two different bars for the
+same break.
+
+Fixed: new `plotting._marker_ts(event)` returns `.start` for BREAK,
+`.end` for everything else, used for both the marker's x/y position (not
+hover text, which still shows the full `start->end` range). Verified on
+the same real AAPL window: BREAK's average deviation dropped 2.60% ->
+1.68%, max 5.50% -> 4.95%, outliers over 3% dropped 12 -> 3 -- now in
+line with every other marker type. 171 tests passing.
+
+## Resolved: event markers stayed fully bold/full-size regardless of how faded their own line's box was
+
+Follow-up to the BREAK positioning fix above: user circled several more
+"floating" marker clusters on a real AAPL chart. Investigated with real
+data rather than assuming another positioning bug -- checked every marker
+in all three circled regions (~40 events total) against its own line's
+price at its own timestamp: max deviation 4.2%, most under 2%. Nothing
+mispositioned.
+
+The actual cause: every marker in those circles belonged to a genuinely
+low-strength line (0.055-0.114 -- near the bottom of the top-15). Box
+fill for those lines is only 18-20% opaque with a border color that's
+essentially white-with-a-blue-tint (`_strength_colors` fades both toward
+strength 0), so the box itself is nearly invisible at normal zoom,
+especially stacked against other similarly weak, overlapping lines. Event
+markers, though, were always rendered fully bold and full-size regardless
+of the line's own strength -- solid black X's, solid colored triangles.
+Once a weak line's box faded into the background, its markers were the
+only thing left visible, reading as floating in empty space disconnected
+from anything, even though each one was correctly centered on its own
+(just-invisible) line.
+
+Fixed: new `plotting._marker_style_for_strength(strength) ->
+(opacity, size_scale)`, mirroring `_strength_colors`'s own fade curve --
+opacity 0.35-1.0, size 0.6x-1.0x, applied to every event marker via the
+existing per-line `marker=dict(...)` call. Floored well above zero
+(unlike the box's own fill, which can fade to 15%) -- a marker needs to
+stay perceptible and hoverable even for the single weakest line in the
+top-N, where the box fading toward invisible is exactly its intended job
+at that strength. Verified on real AAPL data: a strength-0.154 line's
+touch markers render at opacity 0.45/size ~6.0 vs. a strength-0.055
+line's at opacity 0.39/size ~5.6 -- modest in absolute terms (real top-15
+strengths rarely exceed ~0.3-0.5, same range the box's own fade already
+works within), but real and in the right direction, and no longer a fixed
+full-bold marker regardless of the line underneath it. 172 tests passing.
+
+## Resolved: near-flat diagonal candidates silently duplicated horizontal lines in the same zone
+
+User asked (looking at a real GEVO chart) whether detection was working in
+linear or log scale, and separately flagged the chart as "too biased to far
+history & many similar lines." The scale question was easy: fitting/
+clustering is scale-relative (diagonals fit in real log-price/bar-index
+space; horizontal clustering uses ATR-as-%-of-price) but the chart itself
+renders on a plain linear price axis -- no mismatch, just worth stating
+explicitly since nothing in `plotting.py` sets `yaxis.type`.
+
+The "many similar lines" complaint was real and traced to a concrete
+mechanism: pulled GEVO's actual top-15 diagonals and found several with
+essentially zero slope -- `-0.000002` to `-0.000005`/bar, i.e. <0.1% total
+drift across a multi-year span. These sat in the *same* price band
+($1.4-$2.3, GEVO's whole recent range) as several of that same run's kept
+horizontal lines (h7-h14). Horizontal and diagonal candidates are
+deliberately never deduped against each other (a sloped and a flat line are
+usually genuinely different claims -- see `lifecycle.dedup_lines`), so a
+diagonal that's functionally flat rendered the same level a second time,
+indistinguishable from the horizontal box already covering it.
+
+Fixed at candidate generation, not dedup: a diagonal candidate is now
+rejected unless its total drift (`|slope| * inlier bar-index span`) exceeds
+its own `half_width` -- i.e. unless its price actually moves outside its
+own noise-tolerance band at some point across its own claimed lifetime.
+Below that, it's provably indistinguishable from flat over its entire
+fitted range, which is exactly `generate_horizontal_candidates`'s job, not
+a second, redundant diagonal one. New `SRConfig.diagonal_min_drift_to_
+half_width` (default 1.0), calibrated against real drift/half_width ratios
+pulled from GEVO/AAPL/PAAS/T: GEVO's degenerate near-flat survivors sat at
+0.16-0.95, while every real trend on those same four tickers sat at 1.4+
+(most well above 2, with a clear gap around 1-2). 1.0 is a conservative
+floor -- it only rejects candidates that never clear their *own* tolerance
+band, not merely gentle ones.
+
+Verified on real data: GEVO's near-flat diagonals (0 of them left, down
+from 2) are gone from the top-15; T still keeps a handful of very-low-slope
+survivors, but only because their *total* drift over their own (much
+longer) span still exceeds their band width -- correctly kept, not a filter
+failure, and all scored strength <=0.005 (irrelevant to top-N regardless).
+174 tests passing (2 new: rejects a near-flat 3-pivot fit whose drift never
+clears its own half_width; keeps one that does).
+
+## Resolved: a real short/tight trendline was silently discarded before scoring ever saw it
+
+User hand-drew a genuine ~7-month ascending GEVO support line the algorithm
+hadn't surfaced and asked whether it needed to run detection at multiple
+horizons (short/medium/long) to catch this kind of thing. Investigated
+before answering: the matching candidate (pivots 2025-04-04/2025-06-05/
+2025-11-14, 3 inliers, ascending slope) *was* being generated correctly and
+passed every filter -- but never reached scoring or dedup's collision
+check. Root cause: `_dedupe_diagonal_candidates` applied
+`diagonal_max_candidates` (300) *inside* the greedy loop, breaking as soon
+as `len(kept)` hit the cap. Candidates are processed sorted by pivot count
+descending, so a 3-inlier candidate is at the very bottom of that queue --
+GEVO alone generated 1,144 raw same-kind fits from LOW pivots, so the cap
+filled entirely with higher-touch-count (usually multi-year) lines before a
+3-inlier candidate's turn ever came up. This is the same failure shape
+already fixed once before (Done #16, raising the cap 30 -> 300) -- it
+turned out to be the same bug at a bigger scale, not actually solved.
+
+This reframed the user's "run multiple horizons" question: the real
+mechanism isn't an absence of short-horizon detection, it's a single-run
+cap silently starving short/low-touch candidates by processing order,
+regardless of their actual quality.
+
+Fixed: dedup now always runs to completion over every candidate (no early
+break), and the cap is applied only *after*, truncating by
+`fit_rms_atr_pct` ascending (tightest fit first) instead of by pivot count
+-- a short, cleanly-fit line now competes with long ones on fit quality,
+not raw touch count. Measured cost: full uncapped dedup over GEVO's ~2,227
+raw candidates completes in 0.64s (804 genuinely distinct survivors before
+the cap) -- not a meaningful regression against the existing ~7-10s
+long_term detection runtime.
+
+Verified on real GEVO data: the target trendline now survives as its own
+line (`d111`, strength 0.041, 9 touches found once genuinely classified
+against real bars, not just its 3 defining pivots). It doesn't crack the
+actual top-15 -- a 3-touch, 7-month line legitimately scores lower than
+multi-year lines with dozens of touches on `touch_quality`/
+`duration_density`, which is correct scoring behavior, not something this
+fix was meant to change. What the fix guarantees is that it's no longer
+discarded before scoring gets a chance to judge it on its own merits. Side
+effect: GEVO's diagonal survivor pool grew 128 -> 172 (post drift-filter),
+and its top-15 diagonals now span a noticeably wider range of first_touch
+dates (including a 2024-04-25 line that wasn't there before) instead of
+being almost entirely 2018-2021 multi-year lines. 175 tests passing.
 
 ## Still open / not yet built
 
@@ -323,6 +1047,22 @@ the same erosion story, just against a sloped level instead of a flat one.
   events can still hit the cap even after the time-decay fix, so the decay
   change had only a modest effect on one real chaotic-vs-clean comparison
   that motivated it. Flagged, not yet acted on.
-- Milestones 5 (diagonals), 6 (`as_of` dedicated test coverage beyond what's
-  already implicitly correct), 7 (systematic weight-tuning pass) are all
-  still ahead, per the original spec's milestone order.
+- **Possible inversion in wick-fake vs. body-fake resilience credit,
+  flagged but not changed.** `_WICK_FAKE_RESILIENCE` (0.15, flat) is lower
+  than a *quick* `_BODY_FAKE_RESILIENCE` reclaim (0.35 x up to ~0.86 decay
+  ~= 0.30) -- meaning a level that never even closed through a zone
+  (wick-fake, same-bar instant reject) currently scores as *weaker*
+  evidence than one that did close through and had to recover within the
+  reclaim window (body-fake). Arguable either way (a wick could reflect a
+  more violent/uncertain test even though it held; a fast body-fake reclaim
+  could reflect stronger following-bar conviction) -- a values judgment
+  about market behavior, not an obvious bug, so left as-is pending real-chart
+  discussion rather than changed unilaterally.
+- Diagonal real-chart visual review (band width, dedup aggressiveness, the
+  30-candidate cap, whether `max_diagonal_slope_atr_per_bar`'s log-slope
+  interpretation is the right one) -- structurally verified, not yet
+  visually validated.
+- Milestone 6 (`as_of` dedicated test coverage beyond what's already
+  implicitly correct) and milestone 7 (a systematic weight-tuning pass,
+  now including diagonal-specific weights/penalty calibration) are still
+  ahead, per the original spec's milestone order.

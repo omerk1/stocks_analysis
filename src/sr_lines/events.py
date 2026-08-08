@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.sr_lines.candidates import HorizontalCandidate
+from src.sr_lines.candidates import Candidate
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Event, EventType
 
@@ -42,25 +42,38 @@ def _close_side(close: float, zone_lo: float, zone_hi: float) -> str:
 
 def classify_events(
     bars: pd.DataFrame,
-    candidate: HorizontalCandidate,
+    candidate: Candidate,
     atr: pd.Series,
     config: SRConfig,
+    start_ts: pd.Timestamp | None = None,
 ) -> tuple[list[Event], str | None]:
     """Returns (events, original_side) -- `original_side` ("above"/"below",
     or None if the zone was never clearly approached from either side) is
     the side price first established relative to the zone, used by
     lifecycle.py to determine the line's role (support vs. resistance)
     independent of any later break/flip.
-    """
-    zone_lo = candidate.center - candidate.half_width
-    zone_hi = candidate.center + candidate.half_width
 
-    start_ts = min(pd.Timestamp(p.timestamp) for p in candidate.pivots)
+    Zone bounds are evaluated *per bar* via `candidate.zone_at(bar_index)` --
+    constant for a `HorizontalCandidate`, but a diagonal candidate's band
+    moves with its slope, so "did price reclaim the established side" must
+    be checked against where the band actually is at each bar, not a single
+    fixed value. `bar_index` is the position in the *full* `bars` passed
+    here (matching `Pivot.bar_index`/`DiagonalCandidate.origin_index`'s
+    scale) -- not `sub`'s own local position, since `sub` is a suffix slice.
+
+    `start_ts`, if given, overrides deriving it from `candidate.pivots` --
+    used by `lifecycle._absorb` to re-classify a merged diagonal survivor
+    (a `Line`, which has no `.pivots`) against its own kept geometry from
+    its own `first_touch` instead.
+    """
+    if start_ts is None:
+        start_ts = min(pd.Timestamp(p.timestamp) for p in candidate.pivots)
     sub = bars[bars.index >= start_ts]
     sub_atr = atr.reindex(sub.index)
     if len(sub) < 2:
         return [], None
 
+    global_offset = bars.index.get_loc(sub.index[0])
     idx = sub.index
     highs = sub["high"].to_numpy()
     lows = sub["low"].to_numpy()
@@ -94,6 +107,7 @@ def classify_events(
         return max(0.0, float(favorable / a))
 
     for i in range(n):
+        zone_lo, zone_hi = candidate.zone_at(global_offset + i)
         close_side = _close_side(closes[i], zone_lo, zone_hi)
         a = sub_atr.iloc[i]
 
@@ -191,7 +205,9 @@ def classify_events(
 
 def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[Event]:
     """Merge consecutive same-type events within `_MERGE_GAP_BARS` bars into
-    one, keeping the max penetration/reaction seen across the merged group."""
+    one, keeping the max penetration/reaction/volume seen across the merged
+    group -- consistently the *strongest* individual interaction in the
+    cluster, not just whichever bar happened to come last."""
     if not events:
         return []
 
@@ -202,13 +218,14 @@ def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[E
         prev = merged[-1]
         gap = pos.get(pd.Timestamp(ev.start), 0) - pos.get(pd.Timestamp(prev.end), 0)
         if ev.type == prev.type and gap <= _MERGE_GAP_BARS:
+            vol_candidates = [v for v in (prev.volume_ratio, ev.volume_ratio) if v is not None]
             merged[-1] = Event(
                 type=prev.type,
                 start=prev.start,
                 end=ev.end,
                 penetration_atr=max(prev.penetration_atr, ev.penetration_atr),
                 reaction_atr=max(prev.reaction_atr, ev.reaction_atr),
-                volume_ratio=ev.volume_ratio if ev.volume_ratio is not None else prev.volume_ratio,
+                volume_ratio=max(vol_candidates) if vol_candidates else None,
                 pending=ev.pending,
             )
         else:
