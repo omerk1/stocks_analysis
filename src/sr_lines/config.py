@@ -24,6 +24,16 @@ def _default_scoring_weights() -> dict:
 class SRConfig:
     # Data window
     window_years: float = 3.0
+    # "1d" or "1w" -- mirrors the DB's own bars_1d/bars_1w table naming.
+    # "1w" bars are resampled live from bars_1d (see data.py), not read from
+    # the separately-ingested bars_1w table directly, which is incomplete
+    # for several tickers (e.g. T and GEVO both have zero bars_1w rows
+    # despite a fully backfilled bars_1d). Don't set this directly on a
+    # daily config and expect it to behave like a weekly one -- three other
+    # fields below are bar-count-denominated and need rescaling too; use
+    # `get_preset("<name>_weekly")` instead, which bundles both correctly
+    # (see PRESETS below).
+    bar_interval: str = "1d"
 
     # Pivot detection
     pivot_atr_mult: float = 2.0
@@ -113,9 +123,47 @@ class SRConfig:
         return d
 
 
+# Each preset is written out in full, independently of every other one --
+# no preset is derived from, or overwrites fields on, another. The
+# `_weekly` presets duplicate `window_years`/`pivot_atr_mult` from their
+# daily counterpart rather than building on top of it, on purpose: this
+# project has already gotten burned once by a config field silently ending
+# up in an inconsistent combination (regime_start, an earlier round --
+# see design notes), and a value here is either right for that preset or
+# it isn't, regardless of what some other preset happens to say. The three
+# bar-count-denominated fields that actually differ between a daily and
+# weekly preset of the same span (fakeout_reclaim_bars,
+# touch_reaction_window_bars, diagonal_min_pivot_separation_bars) are a
+# first-pass starting point (same real-world span the daily default
+# covered, divided by ~5 and rounded), NOT an empirically validated
+# calibration -- every other bar-count knob in this project (zone_width_atr,
+# dedup_overlap_threshold, the diagonal candidate cap, etc.) got its own
+# dedicated real-chart review round after its mechanism landed, and these
+# should get the same treatment as separate, deliberately-scoped follow-up
+# work. `atr_period` is deliberately the same 14 in both -- an idiomatic
+# ATR lookback regardless of timeframe (ATR(14) is standard on weekly
+# charts too), not actually coupled to daily-ness the way the other three
+# are. Everything else (including all of scoring.py's decay/regime
+# machinery -- `recency_half_life_years`, `regime_gap_years`, `window_years`
+# itself) already operates in real calendar time, not bar counts, so daily
+# and weekly genuinely share the same right answer there.
 PRESETS: dict[str, SRConfig] = {
-    "medium_term": SRConfig(window_years=3.0, pivot_atr_mult=2.0),
-    "long_term": SRConfig(window_years=8.0, pivot_atr_mult=3.0),
+    "medium_term": SRConfig(
+        window_years=3.0, pivot_atr_mult=2.0, bar_interval="1d",
+        fakeout_reclaim_bars=5, touch_reaction_window_bars=10, diagonal_min_pivot_separation_bars=20,
+    ),
+    "long_term": SRConfig(
+        window_years=8.0, pivot_atr_mult=3.0, bar_interval="1d",
+        fakeout_reclaim_bars=5, touch_reaction_window_bars=10, diagonal_min_pivot_separation_bars=20,
+    ),
+    "medium_term_weekly": SRConfig(
+        window_years=3.0, pivot_atr_mult=2.0, bar_interval="1w",
+        fakeout_reclaim_bars=1, touch_reaction_window_bars=2, diagonal_min_pivot_separation_bars=4,
+    ),
+    "long_term_weekly": SRConfig(
+        window_years=8.0, pivot_atr_mult=3.0, bar_interval="1w",
+        fakeout_reclaim_bars=1, touch_reaction_window_bars=2, diagonal_min_pivot_separation_bars=4,
+    ),
 }
 
 

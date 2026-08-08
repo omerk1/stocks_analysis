@@ -1,8 +1,10 @@
 import argparse
 
+import pandas as pd
 from dotenv import load_dotenv
 
 from src.data_processing import db
+from src.data_processing import resample as resample_mod
 from src.sr_lines import data as data_mod
 from src.sr_lines import engine
 from src.sr_lines.config import get_preset
@@ -41,6 +43,14 @@ def main():
         help="Also detect diagonal (RANSAC-style, log-price) trendlines, not just horizontal "
         "zones. Off by default so horizontal-only charts stay comparable to earlier runs.",
     )
+    parser.add_argument(
+        "--timeframe", default="daily", choices=["daily", "weekly"],
+        help="Bar resolution. 'weekly' resamples live from daily bars (see "
+        "data.load_bars/resample.to_weekly) and rescales the bar-count-denominated config "
+        "knobs (fakeout_reclaim_bars, touch_reaction_window_bars, "
+        "diagonal_min_pivot_separation_bars) to a first-pass weekly-equivalent -- not yet "
+        "empirically calibrated against real charts.",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -48,7 +58,8 @@ def main():
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
 
-    sr_config = get_preset(args.preset)
+    preset_name = f"{args.preset}_weekly" if args.timeframe == "weekly" else args.preset
+    sr_config = get_preset(preset_name)
     if args.top_n is not None:
         sr_config.top_n = args.top_n
     if args.dedup_threshold is not None:
@@ -72,15 +83,31 @@ def main():
         # manually eyeballing "did this zone hold up," the chart itself should
         # keep showing real price action past that cutoff. Same start as the
         # detection window, extended through whatever's latest available.
+        # For weekly, the detection window's own start already fell on a
+        # calendar Monday (load_bars resampled it that way) -- read daily
+        # bars from that same Monday so to_weekly's week buckets line up
+        # identically, then resample and validate at daily resolution
+        # *before* aggregating, same as load_bars itself does.
         raw = db.read_bars(
             conn, "bars_1d", ticker=args.ticker, source=data_mod.REQUIRED_SOURCE,
             start=detection_bars.index[0].strftime("%Y-%m-%d"),
         )
         if "is_partial" in raw.columns:
             raw = raw[raw["is_partial"] != 1]
-        display_bars, _ = data_mod.validate_bars(
-            raw[["open", "high", "low", "close", "volume"]], args.ticker, sr_config
-        )
+        raw = raw[["open", "high", "low", "close", "volume"]]
+        display_bars, _ = data_mod.validate_bars(raw, args.ticker, sr_config)
+        if sr_config.bar_interval == "1w":
+            # as_of=display_bars.index.max(), not wall-clock "now" -- same
+            # reasoning as data.load_bars: judging week-closure against real
+            # time instead of the data's own latest timestamp can silently
+            # treat a week the local DB hasn't fully caught up on yet as
+            # closed. See data.py's load_bars for the real PAAS case that
+            # caught this.
+            as_of = display_bars.index.max() if not display_bars.empty else pd.Timestamp.now()
+            weekly = resample_mod.to_weekly(display_bars.assign(is_partial=False), as_of=as_of)
+            display_bars = weekly[weekly["is_partial"] != True][  # noqa: E712
+                ["open", "high", "low", "close", "volume"]
+            ]
     else:
         display_bars = detection_bars
 
