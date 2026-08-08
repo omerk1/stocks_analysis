@@ -1041,6 +1041,178 @@ and its top-15 diagonals now span a noticeably wider range of first_touch
 dates (including a 2024-04-25 line that wasn't there before) instead of
 being almost entirely 2018-2021 multi-year lines. 175 tests passing.
 
+## Weekly-bar detection: mechanism, a config-design correction, and a real lookahead bug
+
+Built on `feature/sr-lines-weekly-bars`, following the user's own idea
+from an earlier session: run detection against weekly-resampled bars
+instead of daily, on the theory that aggregating 5 daily candles into one
+weekly candle should convert some same-day BODY_FAKEs into WICK_FAKEs
+(real noise reduction) and reduce RANSAC over-fitting into near-duplicate
+diagonals (the GEVO clutter findings, Done #28/#29).
+
+**Data source investigated before writing any code.** `bars_1w`
+(pre-aggregated weekly, ingested separately) exists but is incomplete --
+populated for AAPL/PAAS but zero rows for T and GEVO, two of this
+project's four standard review tickers. A dedicated `resample_bulk.py`
+script exists specifically to backfill it from `bars_1d` (no API calls
+needed) but was apparently never run against the full universe after the
+bulk daily backfill (Done #12). `bars_1d` itself is fully backfilled, so
+`load_bars` resamples live from it instead -- via
+`data_processing.resample.to_weekly`, the same already-tested (9 existing
+tests) utility `resample_bulk.py` itself uses, not a hand-rolled
+reimplementation. Verified this reproduces vendor's own `bars_1w` exactly
+(0.000000% diff, 417/417 weeks, AAPL and PAAS) once a real lookahead bug
+(below) was fixed.
+
+**Real bug found via this investigation**: `bars_1w` isn't just sometimes
+missing, it can contain not-yet-finalized data -- confirmed directly on
+real PAAS data (`bars_1d`'s 2026-08-05 row was flagged `is_partial=1`, an
+intraday snapshot, and `bars_1w`'s week-of-2026-08-03 row correctly
+inherited that same flag). This settled the "why not prefer `bars_1w`
+when available" question: it needs the exact same partial-row filtering
+discipline as daily bars before it's safe to use, so preferring it
+wouldn't save any real logic, only add two failure modes (missing
+entirely for some tickers, and drift from `bars_1d` after future
+ingestion) for zero fidelity gain.
+
+**A second, more serious bug surfaced during verification, not code
+review**: `load_bars`'s own weekly-closure check initially compared
+against wall-clock "now" rather than the data's own latest timestamp.
+Since this project's local `bars_1d` lags real time by however long it's
+been since the last ingestion run (confirmed: PAAS's latest row was
+2026-08-05, three real days behind "now"), a week with only Mon-Wed rows
+locally could read as "closed" purely because enough wall-clock time had
+passed -- silently aggregating an incomplete week as if it were final.
+Fixed by judging closure against `raw.index.max()` (the actual latest bar
+we have) instead of wall-clock time -- this can only ever make the check
+*more* conservative (a genuinely-closed week landing on a weekend as_of
+might wait one extra day), never silently wrong the other way. Confirmed
+this fix restored the exact-match verification above (0.061%/6.7% diff
+before the fix, on the current-week-only, down to 0.000000% after).
+
+**Config design corrected after direct user feedback, twice.** First
+version mutated a daily `SRConfig` in place
+(`config.bar_interval = "1w"; config.fakeout_reclaim_bars = 1; ...`) --
+flagged as an anti-pattern. Second version moved the same overwrite into a
+`_weekly_variant(daily)` helper building a preset dict entry via
+`{**daily.to_dict(), ...}` -- still the same overwrite, just relocated,
+correctly called out as not actually fixing the complaint. Final version:
+four fully independent, explicit `SRConfig(...)` calls in `PRESETS`
+(`medium_term`, `long_term`, `medium_term_weekly`, `long_term_weekly`),
+every relevant field spelled out on every preset, nothing derived from or
+patched onto another. `--timeframe {daily,weekly}` composes the preset
+name (`f"{preset}_weekly"`) rather than mutating a constructed config.
+
+**Bar-count-denominated config knobs**: only three fields are genuinely
+bar-count-denominated (`fakeout_reclaim_bars`, `touch_reaction_window_bars`,
+`diagonal_min_pivot_separation_bars`) -- everything else, including all of
+`scoring.py`'s decay/regime machinery (`recency_half_life_years`,
+`regime_gap_years`, `window_years` itself), already operates in real
+calendar time, verified by grepping every `config.bar_interval` reference
+in the codebase and confirming none of them touch scoring at all. The
+three weekly values (1, 2, 4) are a first-pass starting point (same
+real-world span the daily default covered, ÷5, rounded) explicitly NOT
+treated as validated -- flagged for its own future real-chart calibration
+round, same as every other tuned constant in this project.
+
+**Verification**: 185 tests passing at the mechanism's completion; real
+weekly review charts generated for AAPL/PAAS/T/GEVO (detection now runs in
+0.15-0.65s on long_term windows, down from ~7-8s daily, since weekly
+windows have ~5x fewer bars); zero data-quality drops for all four
+tickers including T/GEVO despite their `bars_1w` gap.
+
+## Fixed: duration_density's diagonal/horizontal normalization was asymmetric
+
+User asked, looking at a real PAAS weekly chart, why a long ascending
+diagonal (`d22`: 4 touches, 2 wick-fakes, 1 body-fake over 2.4 years) beat
+a horizontal (`h4`: 9 touches, 5 wick-fakes, 4 body-fakes over a similar
+span) with visibly *more* evidence -- "no obvious reason." Root cause:
+`duration_density` normalized diagonal span against a fixed 1-year
+reference but horizontal against the *full* detection window (a prior,
+separate fix -- see `duration_density`'s bias-toward-long-history-diagonals
+entry above -- that solved a real problem but only for diagonals). Any
+diagonal older than 1 year auto-maxed this component; a horizontal needed
+to span the entire 8-year long_term window to do the same. `d22` maxed at
+`duration_density=1.000`; `h4` sat at `0.628`, purely from this asymmetry.
+
+Considered and rejected: applying the fixed 1-year reference to both kinds
+(would collapse long_term's `duration_density` to a near-constant 1.0,
+since most real long_term survivors already exceed 1 year -- checked via a
+real span-length survey across AAPL/PAAS/T/GEVO at both presets). Real fix:
+both kinds now use `window_years / 3` -- chosen because real median spans
+at both presets cluster consistently around that fraction regardless of
+kind (medium_term median ~0.6-0.7yr against a ~1yr reference; long_term
+median ~2.6-3.1yr against a ~2.7yr reference), and because at medium_term
+(`window_years=3`) this is *exactly* 1.0, reproducing the old diagonal-only
+reference precisely -- diagonals at that preset are provably unaffected.
+
+Verified this isn't overfit to the one PAAS example, per explicit user
+request to re-check: (1) byte-identical to the old formula across 2,509
+real diagonals on a genuinely random 20-ticker sample at medium_term,
+0 mismatches; (2) divisor sensitivity swept `/2` through `/4` on real
+long_term data across 4 tickers -- smooth, gradual change, no cliff at
+`/3` specifically; (3) spot-checked AAPL/T/GEVO's post-fix top-10 directly
+-- every previously-maxed diagonal stays maxed, every horizontal moves up
+and only up, nothing nonsensical jumps to #1 purely from this; (4)
+confirmed interval-agnostic by running the identical byte-for-byte check
+on `medium_term_weekly` (0 mismatches). `d22` vs `h4`: strength gap closed
+from 0.070 to 0.019 (0.164->0.142 and 0.094->0.123 respectively) -- driven
+by real evidence differences now, not an artificial ceiling effect.
+179 tests passing.
+
+## Fixed: duration_density's span-only formula let sparse-but-old lines max out too
+
+Same investigation, a further question from the user: does *any* param
+let a "weak" (low-evidence) line hit 1.0 just because its ceiling is set
+too low? Checked rather than assumed: `_duration_score` only ever looks at
+`min(event.start)`/`max(event.end)` -- the span between first and last
+event says nothing about how densely populated that span actually was.
+Confirmed on a real 20-ticker random sample (not the usual four): 17 of
+3,314 real lines had <=3 total touch-type events yet still maxed
+`duration_density=1.000`, purely because their first and last event
+happened to be calendar-far-apart (e.g. a diagonal with exactly 2 touches,
+4.75 years apart). Checked whether this was already covered by
+`in_play_gate` (price proximity over time) before assuming a fix was
+needed -- it isn't: `in_play_gate` was high (mean 0.877) for these same 17
+lines, since price can sit near a level for a long stretch without
+triggering the specific ATR-penetration criteria a formal touch event
+requires. What actually suppresses these 17 in practice is
+`touch_quality` (weight 0.35, larger than `duration_density`'s 0.20) --
+all 17 scored overall `strength` between 0.0000 and 0.0935, correctly low,
+so this was a real but currently low-impact gap, not a proven
+top-N-corrupting bug the way the horizontal/diagonal asymmetry was.
+
+Fixed anyway, since it was cheap: `_duration_score` now multiplies its
+span-based score by `min(len(events) / _MIN_EVENTS_FOR_FULL_DURATION_CREDIT, 1.0)`
+(`_MIN_EVENTS_FOR_FULL_DURATION_CREDIT = 4`, counting all event types --
+touch/wick/body/break -- the same population `_duration_score` already
+receives). Verified: sparse-and-maxed count on the same 20-ticker sample
+dropped 17 -> 8 (the remainder have a few breaks pushing their *total*
+event count over the threshold even with few touches -- expected, not a
+bug, since the factor counts all event types, matching what
+`_duration_score` already operated on). `d22`/`h4` unaffected (both have
+well over 4 events). 181 tests passing.
+
+**Investigated but explicitly did not change, in the same round**: the
+`touch_quality`/`role_reversal` count-based divisor mechanism
+(`_TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT=6`, `_RECENT_EVENTS_FOR_FULL_CREDIT=3`),
+initially suspected of under-crediting a single strong-but-sparse touch --
+motivated by a real case (`h6`: one decisive break-then-reclaim touch,
+`reaction_atr=1.83`, visually a big bounce on the chart, but
+`role_reversal` only 0.097). Checked the real distribution before touching
+shared, load-bearing code (`_event_quality_score` feeds `touch_quality`,
+`role_reversal`, and indirectly `resilience`): pulled `reaction_atr` from
+28,789 real touch/wick-fake events across 12 tickers.
+`_REACTION_CAP_ATR=5.0` sits at the genuine ~95th percentile (5.28% of all
+real reactions reach it) -- not an unrealistically high bar silently
+deflating every touch's quality score, which was the working hypothesis.
+`h6`'s own 1.83 ATR reaction is actually just slightly above the real
+median (42% of all real touches are stronger) -- what looked dramatic on
+one chart is statistically ordinary once compared against real data. No
+evidence the divisor mechanism itself is miscalibrated, so left unchanged
+rather than force a fix without real grounding, especially given Done #25
+specifically calibrated these divisors to *prevent* easy saturation.
+
 ## Still open / not yet built
 
 - Whether `resilience`'s cap (1.0) needs revisiting -- a zone with enough
