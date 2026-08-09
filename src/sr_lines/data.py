@@ -27,6 +27,7 @@ import sqlite3
 import pandas as pd
 
 from src.data_processing import db
+from src.data_processing import resample as resample_mod
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import DataQualityReport
 
@@ -44,9 +45,18 @@ def load_bars(
     config: SRConfig,
     end: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Load daily bars for `ticker` from `bars_1d`, source=yfinance only,
-    windowed to `config.window_years` ending at `end` (default: latest
-    available), excluding partial (same-day) rows.
+    """Load bars for `ticker` from `bars_1d`, source=yfinance only, windowed
+    to `config.window_years` ending at `end` (default: latest available),
+    excluding partial (same-day) rows. If `config.bar_interval == "1w"`,
+    resamples to weekly via `resample.to_weekly` (the same utility bulk
+    ingestion's `resample_bulk.py` uses to populate `bars_1w`) -- always
+    from `bars_1d`, never the separately-ingested `bars_1w` table directly.
+    `bars_1w` is incomplete for several tickers (e.g. T and GEVO both have
+    zero rows despite a fully backfilled `bars_1d` -- `resample_bulk.py`
+    exists to fix that but was apparently never run against the full
+    universe after the bulk daily backfill). Resampling live from `bars_1d`
+    sidesteps that gap and can never drift out of sync with it in the
+    future either.
 
     Returns a DataFrame indexed by a sorted, deduplicated DatetimeIndex with
     columns open/high/low/close/volume -- raw, pre-validation.
@@ -63,6 +73,28 @@ def load_bars(
     raw = raw[["open", "high", "low", "close", "volume"]]
 
     raw = raw[~raw.index.duplicated(keep="last")].sort_index()
+
+    if config.bar_interval == "1w":
+        # Every remaining daily row already survived the is_partial filter
+        # above, so `is_partial=False` here -- to_weekly still correctly
+        # flags the current in-progress week as partial purely from its own
+        # calendar-closure rule, it just won't also see a same-day partial
+        # constituent to flag on.
+        #
+        # `as_of` is deliberately `raw.index.max()`, not `end_ts` -- this
+        # DB's daily data lags real wall-clock time by however long it's
+        # been since the last ingestion run (confirmed on real PAAS data:
+        # bars_1d's latest row was 2026-08-05, three real days behind
+        # "now"). Judging week-closure against wall-clock "now" let a week
+        # with only Mon-Wed rows read as "closed" purely because enough
+        # real time had passed, silently aggregating an incomplete week as
+        # if it were final -- a worse failure than the reverse: judging
+        # against the data's own latest timestamp can only ever be *too*
+        # conservative (a genuinely-closed week landing on a weekend as_of
+        # might wait one extra day to be included), never silently wrong.
+        as_of = raw.index.max() if not raw.empty else end_ts
+        weekly = resample_mod.to_weekly(raw.assign(is_partial=False), as_of=as_of)
+        raw = weekly[weekly["is_partial"] != True][["open", "high", "low", "close", "volume"]]  # noqa: E712
     return raw
 
 

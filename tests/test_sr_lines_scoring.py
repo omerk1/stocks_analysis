@@ -321,27 +321,91 @@ def test_diagonal_fit_penalty_is_capped_and_reduces_total():
     assert score_way_over_cap.total == pytest.approx(score_at_cap.total)
 
 
-def test_diagonal_duration_density_uses_a_fixed_reference_not_the_full_window():
-    # Regression: a real PAAS run showed a genuinely strong, recent ~1-year
-    # trendline (touch_quality 0.37, resilience 1.0, role_reversal 1.0 --
-    # strong on every other axis) crushed to duration_density=0.089 purely
-    # for not spanning the full 8-year long_term window, while multi-year
-    # lines got this component almost for free just by being long. A
-    # diagonal trendline that's held for ~1 year is already "mature" and
-    # shouldn't be judged against the detection window's length the way a
-    # horizontal level's multi-year persistence legitimately is.
+def _touches(dates: list[str]) -> list[Event]:
+    return [_touch(d) for d in dates]
+
+
+def test_duration_density_treats_horizontal_and_diagonal_identically():
+    # Regression, corrected: an earlier version normalized diagonal duration
+    # against a fixed 1-year reference but horizontal against the *full*
+    # detection window -- fixing a real problem (a genuinely strong, recent
+    # ~1-year diagonal crushed to duration_density=0.089 purely for not
+    # spanning 8 years) but creating a new, equally real one the other way:
+    # any diagonal older than 1 year auto-maxed this component while a
+    # horizontal needed to span the entire window to do the same. Confirmed
+    # on a real PAAS run (long_term): a diagonal with *sparser* evidence (4
+    # touches, 2 wick-fakes, 1 body-fake) maxed at duration_density=1.000
+    # while a horizontal with *more* evidence (9/5/4) sat at 0.628, purely
+    # from this asymmetry, letting the sparser line outrank the
+    # better-evidenced one. Both kinds now use the same window_years/3
+    # reference -- for the same event span, they must score identically.
+    # 4 events (clears _MIN_EVENTS_FOR_FULL_DURATION_CREDIT) to isolate the
+    # span/reference logic from the density factor tested separately below.
     bars = _flat_bars(400, price=100.0)
     atr = _atr(bars)
     idx = bars.index
-    events = [_touch(idx[0].isoformat()), _touch(idx[260].isoformat())]  # ~1 year apart
+    events = _touches([idx[0].isoformat(), idx[90].isoformat(), idx[180].isoformat(), idx[260].isoformat()])
     config = SRConfig(window_years=8.0)  # long_term preset scale
 
     score_horizontal = score_line(events, bars, atr, 100.0, config, diagonal=False)
     score_diagonal = score_line(events, bars, atr, 100.0, config, diagonal=True)
 
-    assert score_diagonal.duration_density > score_horizontal.duration_density
-    assert score_diagonal.duration_density == pytest.approx(1.0, abs=0.05)
-    assert score_horizontal.duration_density < 0.15  # ~1 year / 8 years, roughly what PAAS showed
+    assert score_diagonal.duration_density == pytest.approx(score_horizontal.duration_density)
+    # ~1 year / (8/3 years) -- no longer maxed for either kind, and no
+    # longer crushed to near-zero for either kind either.
+    assert 0.3 < score_diagonal.duration_density < 0.45
+
+
+def test_duration_density_still_maxes_out_for_a_long_lived_line_of_either_kind():
+    bars = _flat_bars(2200, price=100.0)
+    atr = _atr(bars)
+    idx = bars.index
+    events = _touches([
+        idx[0].isoformat(), idx[700].isoformat(), idx[1400].isoformat(), idx[2100].isoformat(),
+    ])  # ~8 years apart, 4 events -- clears the density floor too
+    config = SRConfig(window_years=8.0)
+
+    score_horizontal = score_line(events, bars, atr, 100.0, config, diagonal=False)
+    score_diagonal = score_line(events, bars, atr, 100.0, config, diagonal=True)
+
+    assert score_horizontal.duration_density == pytest.approx(1.0)
+    assert score_diagonal.duration_density == pytest.approx(1.0)
+
+
+def test_duration_density_is_scaled_down_by_sparse_events_even_with_a_long_span():
+    # Regression: a real 20-ticker random sample (not the usual AAPL/PAAS/
+    # T/GEVO four) found 17 of 3,314 real lines with <=3 total touch-type
+    # events still maxing duration_density=1.000, purely because their
+    # first and last event happened to be calendar-far-apart -- the span
+    # alone says nothing about how populated it was in between. A line with
+    # only 2 events, however far apart, should score below one with 4+
+    # events spanning the identical period.
+    bars = _flat_bars(2200, price=100.0)
+    atr = _atr(bars)
+    idx = bars.index
+    sparse = _touches([idx[0].isoformat(), idx[2100].isoformat()])  # 2 events, ~8yr apart
+    dense = _touches([
+        idx[0].isoformat(), idx[700].isoformat(), idx[1400].isoformat(), idx[2100].isoformat(),
+    ])  # 4 events, same ~8yr span
+    config = SRConfig(window_years=8.0)
+
+    score_sparse = score_line(sparse, bars, atr, 100.0, config, diagonal=False)
+    score_dense = score_line(dense, bars, atr, 100.0, config, diagonal=False)
+
+    assert score_sparse.duration_density == pytest.approx(0.5)  # 2/4 events -> half credit
+    assert score_dense.duration_density == pytest.approx(1.0)
+    assert score_sparse.duration_density < score_dense.duration_density
+
+
+def test_duration_density_zero_below_two_events_regardless_of_density_factor():
+    bars = _flat_bars(30, price=100.0)
+    atr = _atr(bars)
+    events = _touches([bars.index[0].isoformat()])  # single event -- no span at all
+    config = SRConfig(window_years=8.0)
+
+    score = score_line(events, bars, atr, 100.0, config, diagonal=False)
+
+    assert score.duration_density == 0.0
 
 
 def test_in_play_gate_suppresses_a_line_that_mostly_hovers_away_from_price():
