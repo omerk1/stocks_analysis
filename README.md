@@ -124,25 +124,28 @@ to get every stored interval, including past (non-current) memberships.
 ```bash
 python -m src.sr_lines.cli AAPL --preset long_term --out review_AAPL.html \
     [--as-of 2025-07-01] [--top-n 10 | --strength-floor 0.2] \
-    [--dedup-threshold 0.6] [--zone-width-atr 0.4]
+    [--dedup-threshold 0.6] [--zone-width-atr 0.4] \
+    [--diagonals] [--timeframe daily|weekly]
 ```
 
-Detects horizontal S/R zones from daily bars (`bars_1d`, yfinance only —
-Polygon/yfinance use different adjustment conventions, never mixed here),
-scores each zone's strength (touch quality, duration/density, resilience to
-failed breaks, role-reversal — gated by a multiplicative proximity x recency
-relevance factor so old, far-from-price levels fade out regardless of how
-strong their historical evidence was), and renders an interactive Plotly
-review chart. With `--as-of`, detection only ever sees bars up to that date
-(no lookahead), while the chart still shows real price action past it, for
-manual backtest review. The engine (`engine.detect()`) returns a plain,
+Detects horizontal zones and (with `--diagonals`) RANSAC-style diagonal
+trendlines, from daily or (`--timeframe weekly`) resampled weekly bars
+(`bars_1d`, yfinance only — Polygon/yfinance use different adjustment
+conventions, never mixed here), scores each line's strength (touch
+quality, duration/density, resilience to failed breaks, role-reversal —
+gated by a multiplicative proximity x recency relevance factor so old,
+far-from-price levels fade out regardless of how strong their historical
+evidence was), and renders an interactive Plotly review chart. With
+`--as-of`, detection only ever sees bars up to that date (no lookahead),
+while the chart still shows real price action past it, for manual
+backtest review. The engine (`engine.detect()`) returns a plain,
 JSON-serializable `DetectionResult` with no plotting/DB coupling, so a
 future model consumer can use line features directly.
 
-**Status: milestone-4 checkpoint, review round in progress** (see
-`docs/backlog.md` and `docs/sr_lines_design_notes.md` for the full log) —
-horizontal lines only; diagonals, full `as_of()` lookahead test coverage,
-and a systematic weight-tuning pass on real charts are staged next.
+**Status: milestone 5 (diagonals + weekly bars) done, review ongoing**
+(see `docs/done.md`, `docs/backlog.md`, and `docs/sr_lines_design_notes.md`
+for the full log) — full `as_of()` lookahead test coverage and a
+systematic weight-tuning pass on real charts are staged next.
 
 ## Project Structure
 
