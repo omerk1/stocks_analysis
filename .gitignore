@@ -3,6 +3,7 @@ data/raw/*
 data/processed/*
 data/features/*
 data/models/*
+data/derived/*
 !data/**/.gitkeep
 *.sqlite
 *.db

@@ -1,0 +1,170 @@
+"""Schema creation + upserts for fib_sets/fib_levels in the shared derived-
+results DB (`data/derived/analysis.sqlite`) -- see `market_common.
+derived_db` for the `runs` table every module (gaps/divergences/
+fibonacci/avwap) shares alongside its own result table(s).
+"""
+
+from __future__ import annotations
+
+import sqlite3
+
+from src.fibonacci.models import FibLevel, FibLevelKind, FibSet, FibSetStatus, FibSwing, SwingDirection
+from src.market_common.models import Timeframe
+
+_FIB_SETS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fib_sets (
+    id TEXT PRIMARY KEY,
+    ticker TEXT, timeframe TEXT,
+    direction TEXT,
+    scale_mult REAL,
+    origin_date TEXT, origin_price REAL, end_date TEXT, end_price REAL,
+    magnitude_atr REAL, duration_bars INTEGER,
+    weight REAL, status TEXT,
+    invalidated_date TEXT,
+    confirmed_at TEXT, run_id TEXT,
+    UNIQUE (ticker, timeframe, origin_date, end_date, scale_mult)
+);
+"""
+
+_FIB_LEVELS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fib_levels (
+    id TEXT PRIMARY KEY,
+    fib_set_id TEXT REFERENCES fib_sets(id),
+    ratio REAL, kind TEXT,
+    price REAL,
+    UNIQUE (fib_set_id, ratio, kind)
+);
+"""
+
+# `id` deliberately excluded from DO UPDATE SET, same reasoning as gaps.
+# store's own upsert: on conflict, SQLite leaves any column not named in
+# SET untouched, so the row's original uuid4 id survives a re-run even
+# though this INSERT's own VALUES clause always carries a freshly minted
+# one. `RETURNING id` then hands back whichever id actually ended up on
+# the row (the fresh one on first insert, the preserved original on a
+# conflict) in the same round-trip -- needed here (unlike gaps, which has
+# no child table) so fib_levels rows below can be linked to the *real*
+# parent id without a separate SELECT.
+_UPSERT_SET_SQL = """
+INSERT INTO fib_sets (
+    id, ticker, timeframe, direction, scale_mult,
+    origin_date, origin_price, end_date, end_price,
+    magnitude_atr, duration_bars, weight, status, invalidated_date,
+    confirmed_at, run_id
+) VALUES (
+    :id, :ticker, :timeframe, :direction, :scale_mult,
+    :origin_date, :origin_price, :end_date, :end_price,
+    :magnitude_atr, :duration_bars, :weight, :status, :invalidated_date,
+    :confirmed_at, :run_id
+)
+ON CONFLICT (ticker, timeframe, origin_date, end_date, scale_mult) DO UPDATE SET
+    weight = excluded.weight,
+    status = excluded.status,
+    invalidated_date = excluded.invalidated_date,
+    run_id = excluded.run_id
+RETURNING id
+"""
+
+_UPSERT_LEVEL_SQL = """
+INSERT INTO fib_levels (id, fib_set_id, ratio, kind, price)
+VALUES (:id, :fib_set_id, :ratio, :kind, :price)
+ON CONFLICT (fib_set_id, ratio, kind) DO UPDATE SET
+    price = excluded.price
+"""
+
+
+def create_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(_FIB_SETS_SCHEMA)
+    conn.execute(_FIB_LEVELS_SCHEMA)
+    conn.commit()
+
+
+def upsert_fib_set(conn: sqlite3.Connection, fib_set: FibSet, run_id: str) -> str:
+    """Insert or refresh one FibSet + its child levels, keyed by the
+    swing's own natural key (ticker, timeframe, origin_date, end_date,
+    scale_mult). Returns the row's persisted id (== fib_set.id on first
+    insert, the pre-existing id on a re-run) -- callers don't need to
+    track which case happened.
+    """
+    swing = fib_set.swing
+    row = conn.execute(
+        _UPSERT_SET_SQL,
+        {
+            "id": fib_set.id,
+            "ticker": fib_set.ticker,
+            "timeframe": fib_set.timeframe.value if hasattr(fib_set.timeframe, "value") else fib_set.timeframe,
+            "direction": swing.direction.value,
+            "scale_mult": swing.scale_mult,
+            "origin_date": swing.origin_date,
+            "origin_price": swing.origin_price,
+            "end_date": swing.end_date,
+            "end_price": swing.end_price,
+            "magnitude_atr": swing.magnitude_atr,
+            "duration_bars": swing.duration_bars,
+            "weight": fib_set.weight,
+            "status": fib_set.status.value,
+            "invalidated_date": fib_set.invalidated_date,
+            "confirmed_at": swing.confirmed_at,
+            "run_id": run_id,
+        },
+    ).fetchone()
+    persisted_id = row[0]
+
+    for level in fib_set.levels:
+        conn.execute(
+            _UPSERT_LEVEL_SQL,
+            {
+                "id": level.id,
+                "fib_set_id": persisted_id,
+                "ratio": level.ratio,
+                "kind": level.kind.value,
+                "price": level.price,
+            },
+        )
+
+    conn.commit()
+    return persisted_id
+
+
+def load_fib_set(conn: sqlite3.Connection, set_id: str) -> FibSet | None:
+    """Reconstitute one persisted FibSet (+ its levels) by id -- used by
+    cli.py's `--set-id` flag to plot a single previously-stored set rather
+    than whatever a fresh detection run's own top-K happens to select.
+    """
+    row = conn.execute(
+        """
+        SELECT id, ticker, timeframe, direction, scale_mult,
+               origin_date, origin_price, end_date, end_price,
+               magnitude_atr, duration_bars, weight, status, invalidated_date,
+               confirmed_at, run_id
+        FROM fib_sets WHERE id = ?
+        """,
+        (set_id,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    (
+        id_, ticker, timeframe, direction, scale_mult,
+        origin_date, origin_price, end_date, end_price,
+        magnitude_atr, duration_bars, weight, status, invalidated_date,
+        confirmed_at, run_id,
+    ) = row
+
+    swing = FibSwing(
+        origin_date=origin_date, origin_price=origin_price,
+        end_date=end_date, end_price=end_price,
+        direction=SwingDirection(direction), scale_mult=scale_mult,
+        magnitude_atr=magnitude_atr, duration_bars=duration_bars, confirmed_at=confirmed_at,
+    )
+    levels = [
+        FibLevel(id=lvl_id, ratio=ratio, kind=FibLevelKind(kind), price=price)
+        for lvl_id, ratio, kind, price in conn.execute(
+            "SELECT id, ratio, kind, price FROM fib_levels WHERE fib_set_id = ?", (id_,)
+        ).fetchall()
+    ]
+
+    return FibSet(
+        id=id_, ticker=ticker, timeframe=Timeframe(timeframe), swing=swing, levels=levels,
+        weight=weight, status=FibSetStatus(status), invalidated_date=invalidated_date, run_id=run_id,
+    )
