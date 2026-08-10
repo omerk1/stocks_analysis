@@ -10,6 +10,7 @@ class DataPathsConfig(BaseModel):
     processed: str
     features: str
     models: str
+    derived: str
 
 
 class Config(BaseModel):

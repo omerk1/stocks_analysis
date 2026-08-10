@@ -3,3 +3,4 @@ data_paths:
   processed: data/processed
   features: data/features
   models: data/models
+  derived: data/derived

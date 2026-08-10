@@ -10,6 +10,14 @@ import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 
+from src.market_common.models import DataQualityReport, Pivot, PivotKind
+
+__all__ = [
+    "DataQualityReport", "Pivot", "PivotKind",
+    "LineKind", "LineRole", "LineState", "EventType",
+    "Event", "ScoreBreakdown", "Line", "DetectionResult",
+]
+
 
 class LineKind(str, Enum):
     HORIZONTAL = "horizontal"
@@ -33,28 +41,6 @@ class EventType(str, Enum):
     WICK_FAKE = "wick_fake"
     BODY_FAKE = "body_fake"
     BREAK = "break"
-
-
-class PivotKind(str, Enum):
-    HIGH = "high"
-    LOW = "low"
-
-
-@dataclass
-class Pivot:
-    kind: PivotKind
-    timestamp: str
-    price: float
-    confirmed_at: str
-    atr_at_pivot: float
-    # Integer position in the detection window's bar index -- the x-axis
-    # diagonal trendline fitting needs (log-price vs. bar-index, not
-    # price-only like horizontal clustering). Defaults to 0 so tests that
-    # construct a Pivot without a real bars context don't need to supply one.
-    bar_index: int = 0
-
-    def to_dict(self) -> dict:
-        return asdict(self)
 
 
 @dataclass
@@ -187,19 +173,6 @@ class Line:
             "broken_at": self.broken_at,
             "flipped_at": self.flipped_at,
         }
-
-
-@dataclass
-class DataQualityReport:
-    ticker: str
-    rows_loaded: int
-    rows_dropped: int
-    drop_rate: float
-    suspicious_jump_dates: list[str] = field(default_factory=list)
-    unreliable: bool = False
-
-    def to_dict(self) -> dict:
-        return asdict(self)
 
 
 @dataclass
