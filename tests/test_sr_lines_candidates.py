@@ -14,16 +14,16 @@ from src.sr_lines.models import Pivot, PivotKind
 
 def _pivot(price: float, atr_pct: float, timestamp: str) -> Pivot:
     return Pivot(
-        kind=PivotKind.LOW, timestamp=timestamp, price=price,
-        confirmed_at=timestamp, atr_at_pivot=price * atr_pct,
+        kind=PivotKind.LOW, timestamp=timestamp, value=price,
+        confirmed_at=timestamp, threshold_at_pivot=price * atr_pct,
     )
 
 
 def _diag_pivot(price: float, bar_index: int, atr_pct: float, kind: PivotKind = PivotKind.HIGH) -> Pivot:
     return Pivot(
         kind=kind, timestamp=f"2020-{1 + bar_index // 28:02d}-{1 + bar_index % 28:02d}",
-        price=price, confirmed_at="irrelevant-for-diagonal-fitting",
-        atr_at_pivot=price * atr_pct, bar_index=bar_index,
+        value=price, confirmed_at="irrelevant-for-diagonal-fitting",
+        threshold_at_pivot=price * atr_pct, bar_index=bar_index,
     )
 
 

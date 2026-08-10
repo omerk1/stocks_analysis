@@ -169,7 +169,7 @@ def test_absorb_recomputes_regime_start_from_the_merged_event_union():
 
 
 def _minimal_candidate() -> HorizontalCandidate:
-    pivot = Pivot(kind=PivotKind.LOW, timestamp="2020-01-01", price=100.0, confirmed_at="2020-01-05", atr_at_pivot=1.0)
+    pivot = Pivot(kind=PivotKind.LOW, timestamp="2020-01-01", value=100.0, confirmed_at="2020-01-05", threshold_at_pivot=1.0)
     return HorizontalCandidate(center=100.0, half_width=1.0, pivots=[pivot, pivot])
 
 
@@ -265,8 +265,8 @@ def _minimal_diagonal_candidate(
     slope: float = 0.001, intercept: float = math.log(100.0), origin_index: int = 0, half_width: float = 0.02,
 ) -> DiagonalCandidate:
     pivot = Pivot(
-        kind=PivotKind.LOW, timestamp="2020-01-01", price=100.0,
-        confirmed_at="2020-01-05", atr_at_pivot=2.0, bar_index=0,
+        kind=PivotKind.LOW, timestamp="2020-01-01", value=100.0,
+        confirmed_at="2020-01-05", threshold_at_pivot=2.0, bar_index=0,
     )
     return DiagonalCandidate(slope=slope, intercept=intercept, origin_index=origin_index,
                               half_width=half_width, pivots=[pivot, pivot])

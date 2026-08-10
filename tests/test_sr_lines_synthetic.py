@@ -221,12 +221,12 @@ def test_diagonal_events_are_classified_against_the_moving_band_not_a_fixed_one(
     bars = _make_bars(rows)
 
     pivot0 = Pivot(
-        kind=PivotKind.LOW, timestamp=dates[5].isoformat(), price=band_price(5),
-        confirmed_at=dates[5].isoformat(), atr_at_pivot=band_price(5) * 0.02, bar_index=5,
+        kind=PivotKind.LOW, timestamp=dates[5].isoformat(), value=band_price(5),
+        confirmed_at=dates[5].isoformat(), threshold_at_pivot=band_price(5) * 0.02, bar_index=5,
     )
     pivot1 = Pivot(
-        kind=PivotKind.LOW, timestamp=dates[10].isoformat(), price=band_price(10),
-        confirmed_at=dates[10].isoformat(), atr_at_pivot=band_price(10) * 0.02, bar_index=10,
+        kind=PivotKind.LOW, timestamp=dates[10].isoformat(), value=band_price(10),
+        confirmed_at=dates[10].isoformat(), threshold_at_pivot=band_price(10) * 0.02, bar_index=10,
     )
     cand = candidates_mod.DiagonalCandidate(
         slope=slope, intercept=math.log(band_price(5)), origin_index=5,
