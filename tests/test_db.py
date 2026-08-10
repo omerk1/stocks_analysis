@@ -317,6 +317,54 @@ def test_read_ticker_metadata_without_ticker_returns_all_rows(conn):
     assert set(result["ticker"]) == {"AAPL", "MSFT"}
 
 
+def _shares(rows):
+    """rows: list of (date_str, shares_outstanding)"""
+    dates = pd.to_datetime([r[0] for r in rows])
+    return pd.Series([r[1] for r in rows], index=dates, name="shares_outstanding")
+
+
+def test_upsert_and_read_shares_outstanding_roundtrip(conn):
+    db.upsert_shares_outstanding(
+        conn, "AAPL", db.YFINANCE,
+        _shares([("2020-01-01", 4_600_000_000), ("2020-06-01", 4_500_000_000)]),
+    )
+
+    result = db.read_shares_outstanding(conn, "AAPL", db.YFINANCE)
+
+    assert len(result) == 2
+    assert list(result["date"]) == ["2020-01-01", "2020-06-01"]
+    assert result.iloc[0]["shares_outstanding"] == 4_600_000_000
+    assert result.iloc[1]["shares_outstanding"] == 4_500_000_000
+
+
+def test_upsert_shares_outstanding_replaces_existing_date_not_duplicates(conn):
+    db.upsert_shares_outstanding(conn, "AAPL", db.YFINANCE, _shares([("2020-01-01", 4_600_000_000)]))
+    db.upsert_shares_outstanding(conn, "AAPL", db.YFINANCE, _shares([("2020-01-01", 4_275_630_080)]))
+
+    result = db.read_shares_outstanding(conn, "AAPL", db.YFINANCE)
+
+    assert len(result) == 1
+    assert result.iloc[0]["shares_outstanding"] == 4_275_630_080
+
+
+def test_shares_outstanding_different_sources_do_not_collide(conn):
+    db.upsert_shares_outstanding(conn, "AAPL", db.YFINANCE, _shares([("2020-01-01", 4_600_000_000)]))
+    db.upsert_shares_outstanding(conn, "AAPL", db.POLYGON, _shares([("2020-01-01", 4_601_000_000)]))
+
+    yf_result = db.read_shares_outstanding(conn, "AAPL", db.YFINANCE)
+    polygon_result = db.read_shares_outstanding(conn, "AAPL", db.POLYGON)
+
+    assert yf_result.iloc[0]["shares_outstanding"] == 4_600_000_000
+    assert polygon_result.iloc[0]["shares_outstanding"] == 4_601_000_000
+
+
+def test_upsert_shares_outstanding_ignores_an_empty_series(conn):
+    db.upsert_shares_outstanding(conn, "AAPL", db.YFINANCE, pd.Series(dtype="float64"))
+
+    result = db.read_shares_outstanding(conn, "AAPL", db.YFINANCE)
+    assert result.empty
+
+
 def _membership_df(rows):
     """rows: list of (ticker, start_date, end_date)"""
     return pd.DataFrame(rows, columns=["ticker", "start_date", "end_date"])

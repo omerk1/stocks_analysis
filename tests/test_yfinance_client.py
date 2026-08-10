@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -65,3 +65,50 @@ def test_end_date_is_shifted_to_be_inclusive(mock_ticker_cls):
 
     _, kwargs = mock_ticker_cls.return_value.history.call_args
     assert kwargs["end"] == "2024-01-04"
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_shares_outstanding_drops_time_and_tz(mock_ticker_cls):
+    index = pd.to_datetime(["2020-08-03 00:00:00-04:00", "2020-08-04 00:00:00-04:00"])
+    mock_ticker_cls.return_value.get_shares_full.return_value = pd.Series(
+        [4_283_940_096, 4_275_630_080], index=index
+    )
+
+    result = YFinanceClient().get_shares_outstanding("AAPL", "2020-08-01", "2020-08-10")
+
+    assert result.index.tz is None
+    assert (result.index == result.index.normalize()).all()
+    assert result.name == "shares_outstanding"
+    assert result.index.name == "date"
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_shares_outstanding_deduplicates_same_day_entries_keeping_last(mock_ticker_cls):
+    # Regression: real AAPL data around its 2020-08-31 4-for-1 split has
+    # genuine same-calendar-day duplicate rows (2 of 6 in a real check),
+    # most likely a same-day filing revision -- the later value should win,
+    # same "keep last" convention used elsewhere in this project
+    # (sr_lines/data.py's load_bars).
+    index = pd.to_datetime([
+        "2020-08-04 00:00:00-04:00", "2020-08-04 00:00:00-04:00", "2020-08-31 00:00:00-04:00",
+    ])
+    mock_ticker_cls.return_value.get_shares_full.return_value = pd.Series(
+        [4_383_370_240, 4_275_630_080, 4_275_630_080], index=index
+    )
+
+    result = YFinanceClient().get_shares_outstanding("AAPL", "2020-08-01", "2020-09-01")
+
+    assert len(result) == 2
+    assert result.iloc[0] == 4_275_630_080  # the later of the two 2020-08-04 rows
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_shares_outstanding_handles_none_response(mock_ticker_cls):
+    # get_shares_full returns None (not an empty Series/DataFrame) for a
+    # ticker with no share-count history available.
+    mock_ticker_cls.return_value.get_shares_full.return_value = None
+
+    result = YFinanceClient().get_shares_outstanding("XYZ", "2020-01-01", "2020-02-01")
+
+    assert result.empty
+    assert result.name == "shares_outstanding"
