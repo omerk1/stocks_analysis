@@ -17,6 +17,41 @@ class YFinanceClient:
         not raise."""
         return self._fetch(ticker, start, end, interval="1h", keep_time=True)
 
+    def get_shares_outstanding(self, ticker: str, start, end) -> pd.Series:
+        """Real historical share counts (from actual filing dates), not just
+        a current snapshot -- confirmed on real AAPL data going back to
+        2015, hundreds to 1000+ points per ticker depending on filing
+        frequency. This is the only source of shares-outstanding *history*
+        this project has access to: Polygon's equivalent (financials/balance
+        sheet endpoints) returned NOT_AUTHORIZED on our current plan.
+
+        Deliberately NOT split-adjusted, unlike this project's bars_1d price
+        series -- confirmed directly on real AAPL data: the raw count jumps
+        ~4x exactly on 2020-08-31, AAPL's real 4-for-1 split date, rather
+        than reading as a smooth pre/post-split-adjusted series. A caller
+        wanting a real historical market cap (price x shares) must
+        reconcile this against bars_1d's own split-adjustment convention
+        first -- multiplying the two blindly will be wrong across any split.
+        Not attempted here; this method only returns the raw, as-reported
+        counts.
+
+        Also deduplicated (keep last) on same-calendar-day entries -- Yahoo's
+        underlying data has genuine same-day duplicate rows around
+        volatile filing periods (confirmed on the same real AAPL split
+        window: 2 of 6 raw rows shared a date with another row, values
+        differing by ~2%, most likely a same-day filing revision).
+        """
+        raw = yf.Ticker(ticker).get_shares_full(start=start, end=end)
+        if raw is None or raw.empty:
+            return pd.Series(dtype="float64", name="shares_outstanding").rename_axis("date")
+
+        idx = raw.index.tz_convert("UTC").tz_localize(None).normalize()
+        raw = raw.set_axis(idx)
+        raw = raw[~raw.index.duplicated(keep="last")].sort_index()
+        raw.index.name = "date"
+        raw.name = "shares_outstanding"
+        return raw
+
     @staticmethod
     def _fetch(ticker: str, start, end, interval: str, keep_time: bool) -> pd.DataFrame:
         # yfinance's `end` is exclusive (Python-slice style) -- confirmed directly:

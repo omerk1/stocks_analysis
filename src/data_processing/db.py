@@ -96,6 +96,27 @@ CREATE TABLE IF NOT EXISTS ticker_metadata (
 );
 """
 
+# Real historical time series, unlike ticker_metadata above -- yfinance's
+# get_shares_full(ticker, start, end) returns actual point-in-time share
+# counts (from real filing dates), not just a current snapshot. Deliberately
+# NOT split-adjusted to match bars_1d's adjusted price convention -- these are
+# the raw counts as reported, so a naive shares_outstanding x price market-cap
+# calculation will be wrong across a stock split unless the caller explicitly
+# reconciles the two conventions first (see yfinance_client.py's docstring for
+# the real AAPL example that surfaced this: a ~4x jump in raw share count
+# lands exactly on the 2020-08-31 4-for-1 split date). Source is part of the
+# key even though only yfinance is wired up today -- consistent with every
+# other per-source table in this file.
+_SHARES_OUTSTANDING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS shares_outstanding (
+    ticker TEXT NOT NULL,
+    date TEXT NOT NULL,
+    shares_outstanding REAL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (ticker, date, source)
+);
+"""
+
 
 def default_db_path(raw_data_dir: str | Path) -> Path:
     return Path(raw_data_dir) / "market_data.sqlite"
@@ -112,6 +133,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_FETCH_JOBS_SCHEMA)
     conn.execute(_TICKER_METADATA_SCHEMA)
     conn.execute(_INDEX_MEMBERSHIP_SCHEMA)
+    conn.execute(_SHARES_OUTSTANDING_SCHEMA)
     conn.commit()
 
 
@@ -290,6 +312,33 @@ def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) ->
         query += " AND ticker = ?"
         params.append(ticker)
     return pd.read_sql_query(query, conn, params=params)
+
+
+def upsert_shares_outstanding(conn: sqlite3.Connection, ticker: str, source: str, shares: pd.Series) -> None:
+    """Insert or replace rows in the `shares_outstanding` table for
+    `ticker`/`source`. `shares` must be a Series of share counts indexed by
+    date -- a real historical time series, unlike `upsert_ticker_metadata`'s
+    single overwritten row. A re-run just fills in/refreshes whatever dates
+    the caller passes, same overwrite-on-conflict semantics as `upsert_bars`.
+    """
+    if shares.empty:
+        return
+    rows = [(ticker, _serialize_date(date), _as_float(value), source) for date, value in shares.items()]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO shares_outstanding (ticker, date, shares_outstanding, source)
+        VALUES (?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_shares_outstanding(conn: sqlite3.Connection, ticker: str, source: str) -> pd.DataFrame:
+    return pd.read_sql_query(
+        "SELECT date, shares_outstanding FROM shares_outstanding WHERE ticker = ? AND source = ? ORDER BY date",
+        conn, params=(ticker, source),
+    )
 
 
 def replace_index_membership(conn: sqlite3.Connection, index_name: str, membership: pd.DataFrame) -> None:
