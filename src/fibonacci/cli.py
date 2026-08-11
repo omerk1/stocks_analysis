@@ -39,15 +39,12 @@ def _run_one(raw_conn, derived_conn, ticker, timeframe, config, as_of, plot_path
         derived_conn, "fibonacci", ticker, result.timeframe, result.as_of,
         json.dumps(config.to_dict()), result.quality.rows_dropped, result.quality.unreliable,
     )
-    # upsert_fib_set returns the row's *persisted* id -- on a re-run of a
+    # upsert_fib_sets returns each set's *persisted* id -- on a re-run of a
     # swing detected before, that's the original id (preserved across the
     # ON CONFLICT DO UPDATE), not fib_set.id's freshly-minted-this-run
     # value. Printing the persisted id is what makes a later `--set-id`
     # copy-pasted from this output actually resolve.
-    persisted_ids = {
-        fib_set.id: store_mod.upsert_fib_set(derived_conn, fib_set, run_id)
-        for fib_set in result.selected_sets
-    }
+    persisted_ids = store_mod.upsert_fib_sets(derived_conn, result.selected_sets, run_id)
 
     print(
         f"{ticker}/{result.timeframe}: {len(result.all_sets)} swing(s) detected, "

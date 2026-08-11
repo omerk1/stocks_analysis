@@ -79,13 +79,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def upsert_fib_set(conn: sqlite3.Connection, fib_set: FibSet, run_id: str) -> str:
-    """Insert or refresh one FibSet + its child levels, keyed by the
-    swing's own natural key (ticker, timeframe, origin_date, end_date,
-    scale_mult). Returns the row's persisted id (== fib_set.id on first
-    insert, the pre-existing id on a re-run) -- callers don't need to
-    track which case happened.
-    """
+def _upsert_fib_set_no_commit(conn: sqlite3.Connection, fib_set: FibSet, run_id: str) -> str:
     swing = fib_set.swing
     row = conn.execute(
         _UPSERT_SET_SQL,
@@ -122,8 +116,39 @@ def upsert_fib_set(conn: sqlite3.Connection, fib_set: FibSet, run_id: str) -> st
             },
         )
 
+    return persisted_id
+
+
+def upsert_fib_set(conn: sqlite3.Connection, fib_set: FibSet, run_id: str) -> str:
+    """Insert or refresh one FibSet + its child levels, keyed by the
+    swing's own natural key (ticker, timeframe, origin_date, end_date,
+    scale_mult). Returns the row's persisted id (== fib_set.id on first
+    insert, the pre-existing id on a re-run) -- callers don't need to
+    track which case happened.
+
+    Single-set convenience wrapper that commits immediately. For
+    persisting a whole detection run's selected sets, use
+    `upsert_fib_sets` instead -- it shares one commit across the batch
+    rather than one per set.
+    """
+    persisted_id = _upsert_fib_set_no_commit(conn, fib_set, run_id)
     conn.commit()
     return persisted_id
+
+
+def upsert_fib_sets(conn: sqlite3.Connection, fib_sets: list[FibSet], run_id: str) -> dict[str, str]:
+    """Insert/refresh every fib_set in one transaction, returning
+    {fib_set.id: persisted_id} for each. Same result shape cli.py
+    previously built itself via a dict comprehension over per-set
+    `upsert_fib_set` calls, but with a single shared commit -- matching
+    gaps.store.upsert_gaps / divergences.store.upsert_divergences /
+    avwap.store.upsert_anchors, which all batch-commit their whole list
+    rather than committing once per row. Guards against a crash partway
+    through a multi-set run leaving only some of that run's sets persisted.
+    """
+    persisted_ids = {fib_set.id: _upsert_fib_set_no_commit(conn, fib_set, run_id) for fib_set in fib_sets}
+    conn.commit()
+    return persisted_ids
 
 
 def load_fib_set(conn: sqlite3.Connection, set_id: str) -> FibSet | None:

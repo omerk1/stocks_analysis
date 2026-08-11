@@ -82,8 +82,13 @@ def detect(
     close = bars["close"]
     atr = atr_indicator(bars, config.atr_period)
 
-    trimmed_close = close.iloc[config.warmup_bars:]
-    trimmed_atr = atr.iloc[config.warmup_bars:]
+    # Clamped against len(bars) -- nothing enforces warmup_bars < min_bars,
+    # and an unclamped trim can empty trimmed_close/trimmed_atr with no
+    # error when warmup_bars is configured close to or above min_bars.
+    # Matches gaps/divergences/avwap's own equivalent clamps.
+    warmup = min(config.warmup_bars, max(len(bars) - 2, 0))
+    trimmed_close = close.iloc[warmup:]
+    trimmed_atr = atr.iloc[warmup:]
 
     swings = detect_swings(trimmed_close, trimmed_atr, config)
     last_bar_index = len(trimmed_close) - 1
