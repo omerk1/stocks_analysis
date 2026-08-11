@@ -96,25 +96,40 @@ def _current_role_map(bars: pd.DataFrame, timeframe: Timeframe, config: AvwapCon
 def _apply_cap(
     entries: dict[str, tuple[frozenset[AnchorType], AnchorStatus]], max_total: int
 ) -> dict[str, tuple[frozenset[AnchorType], AnchorStatus]]:
-    if len(entries) <= max_total:
+    """Demote the oldest ACTIVE pure-cycle anchors to STALE once ACTIVE count
+    exceeds `max_total` -- demote, not delete, so every capped-out anchor
+    still gets its `current_value`/`updated_through` refreshed by `detect()`
+    below (like any other stale anchor) instead of being silently dropped
+    from the upsert batch and left frozen in the DB with whatever
+    status/value it happened to have from the run before it got capped.
+    Already-STALE entries are left alone -- they're not competing for the
+    cap, and re-demoting them would just be a no-op status write.
+    """
+    active_count = sum(1 for _, status in entries.values() if status == AnchorStatus.ACTIVE)
+    if active_count <= max_total:
         return entries
 
     # ISO date strings sort chronologically, so a plain sorted() gives
     # oldest-first without parsing back to Timestamp.
-    removable = sorted(d for d, (types, _status) in entries.items() if is_pure_cycle(types))
+    demotable = sorted(
+        d for d, (types, status) in entries.items()
+        if status == AnchorStatus.ACTIVE and is_pure_cycle(types)
+    )
 
     kept = dict(entries)
-    for d in removable:
-        if len(kept) <= max_total:
+    for d in demotable:
+        if active_count <= max_total:
             break
-        del kept[d]
+        types, _status = kept[d]
+        kept[d] = (types, AnchorStatus.STALE)
+        active_count -= 1
 
-    if len(kept) > max_total:
+    if active_count > max_total:
         logger.warning(
-            "avwap: %d anchors still exceed max_anchors_total=%d after trimming every "
-            "prunable pure-cycle anchor -- exceeding the cap rather than touching a "
+            "avwap: %d active anchors still exceed max_anchors_total=%d after demoting every "
+            "demotable pure-cycle anchor -- exceeding the cap rather than touching a "
             "protected (ath/atl/52w_*) anchor",
-            len(kept), max_total,
+            active_count, max_total,
         )
     return kept
 

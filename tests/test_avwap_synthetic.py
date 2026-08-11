@@ -227,12 +227,18 @@ def test_cap_trims_oldest_pure_cycle_anchors_first_and_never_protected_ones():
         trailing_window_bars={"daily": 252, "weekly": 52},
     )
     capped = discover_anchor_dates(bars, "TEST", Timeframe.DAILY, config_capped)
-    capped_dates = {a.anchor_date for a in capped}
+    # Exceeding the cap demotes the oldest pure-cycle anchors to stale rather
+    # than deleting them outright -- every anchor discovered this run is
+    # still returned (and so still gets its current_value/updated_through
+    # refreshed by detect() below), just not all of them ACTIVE.
+    active_dates = {a.anchor_date for a in capped if a.status == AnchorStatus.ACTIVE}
+    stale_dates = {a.anchor_date for a in capped if a.status == AnchorStatus.STALE}
 
-    assert len(capped) == 5
-    assert capped_dates.isdisjoint(set(pure_cycle_dates[:3]))  # oldest 3 trimmed
-    assert set(pure_cycle_dates[3:]) <= capped_dates             # newest 3 kept
-    assert protected_dates <= capped_dates                       # never trimmed
+    assert len(capped) == len(uncapped)
+    assert len(active_dates) == 5
+    assert stale_dates == set(pure_cycle_dates[:3])   # oldest 3 demoted to stale
+    assert set(pure_cycle_dates[3:]) <= active_dates  # newest 3 still active
+    assert protected_dates <= active_dates            # never trimmed
 
 
 def test_52w_low_anchor_goes_stale_then_reactivates():

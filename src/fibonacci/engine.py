@@ -38,6 +38,14 @@ class DetectionResult:
     # actually writes.
     selected_sets: list[FibSet] = field(default_factory=list)
     quality: DataQualityReport | None = None
+    # Set only when detection was skipped for min_bars. `quality.rows_loaded`
+    # is the *pre-validation* raw count (see market_common/data.py) and is
+    # not the number this module's own min_bars check actually gates on --
+    # callers (the CLI) must use this field, not re-derive the skip decision
+    # from quality themselves, or a ticker that has enough raw rows but
+    # drops below min_bars after OHLC validation would be silently counted
+    # as "ok" with zero sets stored.
+    skip_reason: str | None = None
 
 
 def _as_of_str(as_of: str | pd.Timestamp | None) -> str | None:
@@ -64,11 +72,12 @@ def detect(
     tf_str = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
 
     if len(bars) < config.min_bars:
-        logger.warning(
-            "%s/%s: %d bars available, below min_bars=%d -- skipping detection",
-            ticker, tf_str, len(bars), config.min_bars,
+        reason = f"only {len(bars)} bars available (< min_bars={config.min_bars})"
+        logger.warning("%s/%s: skipping detection -- %s", ticker, tf_str, reason)
+        return DetectionResult(
+            ticker=ticker, timeframe=tf_str, as_of=_as_of_str(as_of),
+            quality=quality, skip_reason=reason,
         )
-        return DetectionResult(ticker=ticker, timeframe=tf_str, as_of=_as_of_str(as_of), quality=quality)
 
     close = bars["close"]
     atr = atr_indicator(bars, config.atr_period)

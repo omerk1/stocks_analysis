@@ -31,11 +31,8 @@ def _all_tickers(conn) -> list[str]:
 def _run_one(raw_conn, derived_conn, ticker, timeframe, config, as_of, plot_path, set_id) -> bool:
     result = detect(raw_conn, ticker, timeframe, config, as_of=as_of)
 
-    if result.quality.rows_loaded < config.min_bars:
-        print(
-            f"{ticker}/{result.timeframe}: only {result.quality.rows_loaded} bars "
-            f"(< min_bars={config.min_bars}) -- skipped"
-        )
+    if result.skip_reason is not None:
+        print(f"{ticker}/{result.timeframe}: {result.skip_reason} -- skipped")
         return False
 
     run_id = derived_db.record_run(

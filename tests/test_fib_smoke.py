@@ -100,7 +100,7 @@ def test_smoke_ticker_with_too_little_history_is_skipped_not_crashed():
     result = detect(conn, "GEVO", Timeframe.DAILY, config)
 
     assert result.quality is not None
-    if result.quality.rows_loaded < config.min_bars:
+    if result.skip_reason is not None:
         assert result.all_sets == []
         assert result.selected_sets == []
     else:

@@ -65,28 +65,35 @@ def _price_pivots_and_atr(
 def _indicator_pivots(
     indicator_name: str, indicator_series: pd.Series, config: DivergenceConfig
 ):
-    """Indicator pivots plus a `threshold_at(bar_index)` callable usable
+    """Indicator pivots plus a `magnitude_at(bar_index)` callable usable
     against the same warmup-sliced position space as the price pivots
     returned by `_price_pivots_and_atr` (both slice by the same
     `config.warmup_bars` off series that share the same original index).
 
-    RSI uses a flat points threshold; macd_hist/obv/volume use a rolling-std
-    threshold computed on the *full*, unsliced series first (so the rolling
-    window's own warmup draws on real pre-cutoff history) and only sliced
-    afterward, matching how ATR is handled for price pivots above.
+    RSI uses a flat points threshold for both confirming pivots *and* as the
+    strength-score magnitude. macd_hist/obv/volume confirm pivots against
+    `std_reversal_mult * rolling_std` but the strength score's `indicator_gap`
+    needs the *raw*, unscaled rolling std -- otherwise strength would be an
+    artifact of the confirmation-sensitivity knob rather than the divergence
+    itself (the same threshold_fn/magnitude_fn split `market_common.pivots`
+    already draws for exactly this reason). The rolling std is computed on
+    the *full*, unsliced series first (so the window's own warmup draws on
+    real pre-cutoff history) and only sliced afterward, matching ATR above.
     """
     warmup = _warmup_offset(len(indicator_series), config.warmup_bars)
     series_s = indicator_series.iloc[warmup:]
 
     if indicator_name == "rsi":
         threshold_at = lambda i: config.rsi_reversal_points  # noqa: E731
+        magnitude_at = threshold_at
     else:
         std_full = indicator_series.rolling(config.std_window).std()
         std_s = std_full.iloc[warmup:]
         threshold_at = lambda i: config.std_reversal_mult * std_s.iloc[i]  # noqa: E731
+        magnitude_at = lambda i: std_s.iloc[i]  # noqa: E731
 
     pivots = detect_pivots(series_s, threshold_fn=threshold_at)
-    return pivots, threshold_at
+    return pivots, magnitude_at
 
 
 def _pair_pivots(
@@ -130,7 +137,7 @@ def _evaluate_pairs(
     price_pivots: list[Pivot],
     paired: dict[int, Pivot],
     atr_s: pd.Series,
-    threshold_at,
+    magnitude_at,
     config: DivergenceConfig,
     ticker: str,
     timeframe: Timeframe,
@@ -176,10 +183,10 @@ def _evaluate_pairs(
             if not (price_cond and indicator_cond):
                 continue
 
-            thr = threshold_at(p2.bar_index)
+            mag = magnitude_at(p2.bar_index)
             indicator_gap = (
-                0.0 if pd.isna(thr) or thr <= 0
-                else _clip01(abs(ip2.value - ip1.value) / thr / 3)
+                0.0 if pd.isna(mag) or mag <= 0
+                else _clip01(abs(ip2.value - ip1.value) / mag / 3)
             )
             price_move = _clip01(abs(p2.value - p1.value) / atr_at_p2 / 6)
             span = _clip01((p2.bar_index - p1.bar_index) / 60)
@@ -231,10 +238,10 @@ def detect_for_indicator(
         return []
 
     price_pivots, atr_s = _price_pivots_and_atr(bars, config)
-    indicator_pivots, threshold_at = _indicator_pivots(indicator_name, indicator_series, config)
+    indicator_pivots, magnitude_at = _indicator_pivots(indicator_name, indicator_series, config)
     paired = _pair_pivots(price_pivots, indicator_pivots, config.pairing_window)
     return _evaluate_pairs(
-        price_pivots, paired, atr_s, threshold_at, config, ticker, timeframe, indicator_name
+        price_pivots, paired, atr_s, magnitude_at, config, ticker, timeframe, indicator_name
     )
 
 
