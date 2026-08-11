@@ -46,15 +46,36 @@ def _warmup_offset(n: int, warmup_bars: int) -> int:
     return min(warmup_bars, max(n - 2, 0))
 
 
+def _warmup_for(indicator_name: str, config: DivergenceConfig) -> int:
+    """RSI's threshold is a flat constant, so `config.warmup_bars` alone is
+    enough lookback. macd_hist/obv/volume confirm pivots against a rolling
+    std that itself needs `config.std_window` bars before it's non-NaN --
+    with the defaults (std_window=100 > warmup_bars=50), slicing at
+    warmup_bars alone left a ~49-bar NaN tail in the confirmation threshold,
+    so any candidate pivot whose bar fell in that gap could never confirm
+    and was silently, permanently dropped once a later bar replaced it as
+    the running candidate. Using the larger of the two closes that gap."""
+    if indicator_name == "rsi":
+        return config.warmup_bars
+    return max(config.warmup_bars, config.std_window)
+
+
 def _price_pivots_and_atr(
-    bars: pd.DataFrame, config: DivergenceConfig
+    bars: pd.DataFrame, config: DivergenceConfig, warmup_bars: int
 ) -> tuple[list[Pivot], pd.Series]:
     """Price pivots on close, ATR-scaled reversal threshold. Returns the
     pivots plus the *warmup-sliced* ATR series (same slice offset applied to
     close before pivot detection), so callers can look up ATR at any
-    resulting pivot's own `bar_index` directly via `.iloc[]`."""
+    resulting pivot's own `bar_index` directly via `.iloc[]`.
+
+    `warmup_bars` is the caller's already-resolved effective offset (see
+    `_warmup_for`), not read off `config.warmup_bars` directly -- it must
+    match whatever offset the paired `_indicator_pivots` call used, since
+    `_pair_pivots`' distance matching only makes sense if both pivot lists'
+    `bar_index` values share the same slice origin.
+    """
     atr_series = indicators.atr(bars, config.atr_period)
-    warmup = _warmup_offset(len(bars), config.warmup_bars)
+    warmup = _warmup_offset(len(bars), warmup_bars)
     close_s = bars["close"].iloc[warmup:]
     atr_s = atr_series.iloc[warmup:]
 
@@ -63,12 +84,14 @@ def _price_pivots_and_atr(
 
 
 def _indicator_pivots(
-    indicator_name: str, indicator_series: pd.Series, config: DivergenceConfig
+    indicator_name: str, indicator_series: pd.Series, config: DivergenceConfig, warmup_bars: int
 ):
     """Indicator pivots plus a `magnitude_at(bar_index)` callable usable
     against the same warmup-sliced position space as the price pivots
     returned by `_price_pivots_and_atr` (both slice by the same
-    `config.warmup_bars` off series that share the same original index).
+    `warmup_bars` offset off series that share the same original index --
+    see `_warmup_for` for why that offset can differ from plain
+    `config.warmup_bars`).
 
     RSI uses a flat points threshold for both confirming pivots *and* as the
     strength-score magnitude. macd_hist/obv/volume confirm pivots against
@@ -80,7 +103,7 @@ def _indicator_pivots(
     the *full*, unsliced series first (so the window's own warmup draws on
     real pre-cutoff history) and only sliced afterward, matching ATR above.
     """
-    warmup = _warmup_offset(len(indicator_series), config.warmup_bars)
+    warmup = _warmup_offset(len(indicator_series), warmup_bars)
     series_s = indicator_series.iloc[warmup:]
 
     if indicator_name == "rsi":
@@ -236,18 +259,36 @@ def detect_for_indicator(
     config: DivergenceConfig,
     ticker: str,
     timeframe: Timeframe,
+    price_cache: dict[int, tuple[list[Pivot], pd.Series]] | None = None,
 ) -> list[Divergence]:
     """Full pivot-pairing + evaluation pipeline for one indicator, given an
     already-computed `indicator_series` sharing `bars`' index. Kept separate
     from `detect_divergences` so tests can hand-construct both `bars` and
     `indicator_series` directly, without depending on the real talib-backed
     indicator computation for deterministic pivot placement.
+
+    `price_cache`, if given, memoizes `_price_pivots_and_atr`'s result by the
+    effective warmup value (see `_warmup_for`) -- price pivots/ATR depend
+    only on `bars`/`config`/that offset, not on which indicator is being
+    evaluated, so indicators sharing the same std_window-driven offset (any
+    two of macd_hist/obv/volume) reuse one computation instead of repeating
+    an identical O(n) ATR + pivot-detection pass per indicator.
+    `detect_divergences` passes one shared cache across its whole
+    `config.indicators` loop; direct callers (including this module's own
+    tests) are unaffected since it defaults to None.
     """
     if len(bars) < 3 or len(indicator_series) < 3:
         return []
 
-    price_pivots, atr_s = _price_pivots_and_atr(bars, config)
-    indicator_pivots, magnitude_at = _indicator_pivots(indicator_name, indicator_series, config)
+    warmup_bars = _warmup_for(indicator_name, config)
+    if price_cache is not None and warmup_bars in price_cache:
+        price_pivots, atr_s = price_cache[warmup_bars]
+    else:
+        price_pivots, atr_s = _price_pivots_and_atr(bars, config, warmup_bars)
+        if price_cache is not None:
+            price_cache[warmup_bars] = (price_pivots, atr_s)
+
+    indicator_pivots, magnitude_at = _indicator_pivots(indicator_name, indicator_series, config, warmup_bars)
     paired = _pair_pivots(price_pivots, indicator_pivots, config.pairing_window)
     return _evaluate_pairs(
         price_pivots, paired, atr_s, magnitude_at, config, ticker, timeframe, indicator_name
@@ -278,14 +319,17 @@ def detect_divergences(
     bars: pd.DataFrame, ticker: str, timeframe: Timeframe, config: DivergenceConfig
 ) -> list[Divergence]:
     """Pure function over an already-loaded/validated bars frame -- runs
-    `detect_for_indicator` for every indicator in `config.indicators`."""
+    `detect_for_indicator` for every indicator in `config.indicators`, sharing
+    one price-pivot cache across the whole loop (see `detect_for_indicator`'s
+    `price_cache` param)."""
     if len(bars) < 3:
         return []
 
+    price_cache: dict[int, tuple[list[Pivot], pd.Series]] = {}
     results: list[Divergence] = []
     for name in config.indicators:
         series = compute_indicator_series(bars, name, config)
-        results.extend(detect_for_indicator(bars, name, series, config, ticker, timeframe))
+        results.extend(detect_for_indicator(bars, name, series, config, ticker, timeframe, price_cache))
     return results
 
 
