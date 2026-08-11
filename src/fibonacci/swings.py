@@ -22,6 +22,7 @@ import pandas as pd
 
 from src.fibonacci.config import FibConfig
 from src.fibonacci.models import FibSwing, SwingDirection
+from src.market_common.indicators import scale_consistent
 from src.market_common.models import Pivot, PivotKind
 from src.market_common.pivots import detect_pivots
 
@@ -37,8 +38,16 @@ def _swings_from_pivots(pivots: list[Pivot], scale_mult: float, atr: pd.Series) 
             continue  # unreachable given detect_pivots' alternation guarantee
 
         end_atr = atr.iloc[end.bar_index]
+        origin_atr = atr.iloc[origin.bar_index]
         if pd.isna(end_atr) or end_atr <= 0:
             continue  # can't compute a meaningful magnitude_atr; skip rather than divide by ~0
+        if not scale_consistent(origin_atr, end_atr):
+            # ATR at the swing's two ends is on wildly different scales --
+            # almost always a large stock split between them (see
+            # scale_consistent's docstring) -- dividing the raw price delta
+            # by just the end-side ATR would produce a magnitude_atr that's
+            # off by whatever factor the split applied, not a real swing size.
+            continue
 
         swings.append(
             FibSwing(

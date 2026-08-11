@@ -168,8 +168,16 @@ def _evaluate_pairs(
             if ip1 is None or ip2 is None:
                 continue
 
+            atr_at_p1 = atr_s.iloc[p1.bar_index]
             atr_at_p2 = atr_s.iloc[p2.bar_index]
             if pd.isna(atr_at_p2) or atr_at_p2 <= 0:
+                continue
+            if not indicators.scale_consistent(atr_at_p1, atr_at_p2):
+                # p1/p2 straddle a regime change (almost always a large
+                # stock split -- see scale_consistent's docstring): a raw
+                # price/indicator delta spanning them, normalized by only
+                # one end's ATR/magnitude, would be off by whatever factor
+                # caused the regime change, not a real move size.
                 continue
             tol = config.extreme_equality_tolerance_atr * atr_at_p2
 
@@ -184,8 +192,9 @@ def _evaluate_pairs(
                 continue
 
             mag = magnitude_at(p2.bar_index)
+            mag_at_p1 = magnitude_at(p1.bar_index)
             indicator_gap = (
-                0.0 if pd.isna(mag) or mag <= 0
+                0.0 if pd.isna(mag) or mag <= 0 or not indicators.scale_consistent(mag_at_p1, mag)
                 else _clip01(abs(ip2.value - ip1.value) / mag / 3)
             )
             price_move = _clip01(abs(p2.value - p1.value) / atr_at_p2 / 6)
