@@ -10,8 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 
-from dotenv import load_dotenv
-
 from src.data_processing import db as raw_db
 from src.fibonacci import store as store_mod
 from src.fibonacci.config import FibConfig
@@ -20,7 +18,6 @@ from src.fibonacci.plotting import render_fib_chart
 from src.market_common import data as data_mod
 from src.market_common import derived_db
 from src.market_common.models import Timeframe
-from src.utils.config_loader import load_config
 
 
 def _all_tickers(conn) -> list[str]:
@@ -96,17 +93,7 @@ def main():
     if not args.all and not args.ticker:
         parser.error("TICKER is required unless --all is given")
 
-    load_dotenv()
-    app_config = load_config()
-
-    raw_conn = raw_db.get_connection(raw_db.default_db_path(app_config.data_paths.raw))
-    raw_db.create_tables(raw_conn)
-
-    derived_path = derived_db.default_derived_db_path(app_config.data_paths.derived)
-    derived_path.parent.mkdir(parents=True, exist_ok=True)
-    derived_conn = derived_db.get_connection(derived_path)
-    derived_db.create_runs_table(derived_conn)
-    store_mod.create_tables(derived_conn)
+    raw_conn, derived_conn = derived_db.bootstrap_cli(store_mod.create_tables)
 
     config = FibConfig()
     timeframes = (

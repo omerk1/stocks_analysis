@@ -15,8 +15,6 @@ import argparse
 import dataclasses
 import json
 
-from dotenv import load_dotenv
-
 from src.avwap import store
 from src.avwap.anchors import detect
 from src.avwap.config import AvwapConfig
@@ -25,7 +23,6 @@ from src.avwap.plotting import render_avwap_chart
 from src.data_processing import db
 from src.market_common import data as data_mod
 from src.market_common import derived_db
-from src.utils.config_loader import load_config
 
 
 def _timeframes_for(arg: str) -> list[Timeframe]:
@@ -97,16 +94,7 @@ def main():
     if args.plot and (args.all or args.timeframe == "both"):
         parser.error("--plot requires a single TICKER and a single --timeframe (not --all/'both')")
 
-    load_dotenv()
-    config = load_config()
-    raw_conn = db.get_connection(db.default_db_path(config.data_paths.raw))
-    db.create_tables(raw_conn)
-
-    derived_db_path = derived_db.default_derived_db_path(config.data_paths.derived)
-    derived_db_path.parent.mkdir(parents=True, exist_ok=True)
-    derived_conn = derived_db.get_connection(derived_db_path)
-    derived_db.create_runs_table(derived_conn)
-    store.create_avwap_table(derived_conn)
+    raw_conn, derived_conn = derived_db.bootstrap_cli(store.create_avwap_table)
 
     avwap_config = AvwapConfig()
     timeframes = _timeframes_for(args.timeframe)

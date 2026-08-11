@@ -10,8 +10,6 @@ import argparse
 import json
 import logging
 
-from dotenv import load_dotenv
-
 from src.data_processing import db
 from src.divergences.config import DivergenceConfig
 from src.divergences.detect import compute_indicator_series, detect
@@ -20,7 +18,6 @@ from src.divergences.store import create_divergences_table, upsert_divergences
 from src.market_common import data as data_mod
 from src.market_common import derived_db
 from src.market_common.models import Timeframe
-from src.utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +73,7 @@ def main():
     if args.all and args.plot:
         parser.error("--plot is not supported together with --all")
 
-    load_dotenv()
-    app_config = load_config()
-    conn = db.get_connection(db.default_db_path(app_config.data_paths.raw))
-    db.create_tables(conn)
-
-    derived_path = derived_db.default_derived_db_path(app_config.data_paths.derived)
-    derived_path.parent.mkdir(parents=True, exist_ok=True)
-    derived_conn = derived_db.get_connection(derived_path)
-    derived_db.create_runs_table(derived_conn)
-    create_divergences_table(derived_conn)
+    conn, derived_conn = derived_db.bootstrap_cli(create_divergences_table)
 
     config = DivergenceConfig()
     timeframes = (

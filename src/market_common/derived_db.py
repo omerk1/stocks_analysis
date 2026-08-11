@@ -16,8 +16,13 @@ from __future__ import annotations
 import sqlite3
 import uuid
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
+from dotenv import load_dotenv
+
+from src.data_processing import db as raw_db
+from src.utils.config_loader import load_config
 
 _RUNS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -75,3 +80,35 @@ def record_run(
     )
     conn.commit()
     return run_id
+
+
+def bootstrap_cli(
+    create_result_table: Callable[[sqlite3.Connection], None],
+) -> tuple[sqlite3.Connection, sqlite3.Connection]:
+    """Standard CLI startup sequence -- load .env + app config, open the raw
+    and derived DB connections, ensure both schemas exist (raw tables, the
+    shared `runs` table, and this module's own result table via
+    `create_result_table`), and make sure the derived DB's parent directory
+    exists. Returns (raw_conn, derived_conn).
+
+    Every gaps/divergences/fibonacci/avwap cli.py repeated this exact
+    sequence by hand (same reasoning as this module's own `runs` table --
+    one shared implementation instead of four independently-maintained
+    copies that could silently drift out of sync). `create_result_table`
+    is each module's own store.py table-creation function (e.g.
+    `gaps.store.create_gaps_table`), the one piece of this sequence that's
+    genuinely module-specific.
+    """
+    load_dotenv()
+    app_config = load_config()
+
+    raw_conn = raw_db.get_connection(raw_db.default_db_path(app_config.data_paths.raw))
+    raw_db.create_tables(raw_conn)
+
+    derived_path = default_derived_db_path(app_config.data_paths.derived)
+    derived_path.parent.mkdir(parents=True, exist_ok=True)
+    derived_conn = get_connection(derived_path)
+    create_runs_table(derived_conn)
+    create_result_table(derived_conn)
+
+    return raw_conn, derived_conn
