@@ -53,6 +53,14 @@ class DivergenceConfig:
     extreme_equality_tolerance_atr: float = 0.0
 
     strength_weights: dict = field(default_factory=_default_strength_weights)
+    # Normalization caps for the three strength components -- a pair whose
+    # raw indicator_gap/price_move/span meets or exceeds its cap maps to
+    # that component's full [0, 1] weight. indicator_gap_cap is in units of
+    # "x the raw indicator magnitude", price_move_cap in "x ATR", span_cap
+    # in bars.
+    indicator_gap_cap: float = 3.0
+    price_move_cap: float = 6.0
+    span_cap_bars: int = 60
 
     # Skip (ticker, timeframe) with fewer rows than this after filtering --
     # log a warning, don't attempt detection on too short a history.

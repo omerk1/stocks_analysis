@@ -60,8 +60,8 @@ def compute_weight(swing: FibSwing, bars_since_end: int, config: FibConfig) -> f
     that -- see FibConfig.weight_components' docstring in the spec for why
     that's intentional, not an oversight.
     """
-    magnitude = _clip(swing.magnitude_atr / 40, 0.0, 1.0)
-    duration = _clip(swing.duration_bars / 250, 0.0, 1.0)
+    magnitude = _clip(swing.magnitude_atr / config.magnitude_atr_cap, 0.0, 1.0)
+    duration = _clip(swing.duration_bars / config.duration_bars_cap, 0.0, 1.0)
     recency = 0.5 ** (bars_since_end / config.recency_half_life_bars)
 
     w = config.weight_components

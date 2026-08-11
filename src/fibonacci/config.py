@@ -47,6 +47,12 @@ class FibConfig:
     dedup_bar_tolerance: int = 3
     recency_half_life_bars: int = 250
     weight_components: dict = field(default_factory=_default_weight_components)
+    # Normalization caps for the magnitude/duration weight components --
+    # a swing at or above this magnitude_atr/duration_bars maps to that
+    # component's full [0, 1] weight. Exposed alongside recency_half_life_bars
+    # (the third component's own knob) rather than left as fixed divisors.
+    magnitude_atr_cap: float = 40.0
+    duration_bars_cap: int = 250
 
     min_bars: int = 150
     warmup_bars: int = 50

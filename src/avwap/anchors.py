@@ -29,12 +29,6 @@ from src.market_common.pivots import PivotKind, detect_pivots
 
 logger = logging.getLogger(__name__)
 
-# Not part of AvwapConfig -- the brief's config table is exhaustive and
-# doesn't expose an ATR period, so this is a fixed local constant (same
-# default gaps.config.GapConfig.atr_period uses) rather than a knob nobody
-# asked for.
-_CYCLE_ATR_PERIOD = 14
-
 
 def _extreme_dates(bars: pd.DataFrame) -> tuple[str, str]:
     # idxmax/idxmin both return the *first* occurrence of the extreme value,
@@ -61,7 +55,7 @@ def _cycle_pivot_dates(bars: pd.DataFrame, config: AvwapConfig) -> list[tuple[st
     close = bars["close"].iloc[start:]
     if len(close) < 2:
         return []
-    atr_series = indicators.atr(bars, _CYCLE_ATR_PERIOD).iloc[start:]
+    atr_series = indicators.atr(bars, config.cycle_atr_period).iloc[start:]
 
     pivots = detect_pivots(close, threshold_fn=lambda i: config.cycle_scale_mult * atr_series.iloc[i])
     pivots = sorted(pivots, key=lambda p: p.timestamp, reverse=True)[: config.max_cycle_anchors]

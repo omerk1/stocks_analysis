@@ -218,10 +218,10 @@ def _evaluate_pairs(
             mag_at_p1 = magnitude_at(p1.bar_index)
             indicator_gap = (
                 0.0 if pd.isna(mag) or mag <= 0 or not indicators.scale_consistent(mag_at_p1, mag)
-                else _clip01(abs(ip2.value - ip1.value) / mag / 3)
+                else _clip01(abs(ip2.value - ip1.value) / mag / config.indicator_gap_cap)
             )
-            price_move = _clip01(abs(p2.value - p1.value) / atr_at_p2 / 6)
-            span = _clip01((p2.bar_index - p1.bar_index) / 60)
+            price_move = _clip01(abs(p2.value - p1.value) / atr_at_p2 / config.price_move_cap)
+            span = _clip01((p2.bar_index - p1.bar_index) / config.span_cap_bars)
             strength = (
                 weights["indicator_gap"] * indicator_gap
                 + weights["price_move"] * price_move
