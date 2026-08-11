@@ -13,35 +13,66 @@ import plotly.graph_objects as go
 
 from src.avwap import compute
 from src.avwap.config import AvwapConfig
-from src.avwap.models import AnchoredVwap, AnchorStatus, AnchorType, primary_role
+from src.avwap.models import AnchoredVwap, AnchorStatus, SENIORITY, primary_role
 
-# Most senior role present decides both color family and saturation --
-# ath/atl most saturated, 52w_* next, cycle_* most muted (see
-# models.primary_role for the seniority ranking these opacities mirror).
-_ROLE_RGB = {
-    AnchorType.ATH: (31, 119, 180),
-    AnchorType.ATL: (31, 119, 180),
-    AnchorType.WEEK_52_HIGH: (255, 127, 14),
-    AnchorType.WEEK_52_LOW: (255, 127, 14),
-    AnchorType.CYCLE_HIGH: (127, 127, 127),
-    AnchorType.CYCLE_LOW: (127, 127, 127),
-}
+# Categorical palette (dataviz skill's validated default, light-mode column --
+# this chart is a static plotly_white export, not a theme-aware artifact).
+# Assigned per drawn line (one per cluster, see `_cluster_close_anchors`) by
+# position, not by role: the previous scheme colored every cycle_high/
+# cycle_low anchor the same flat gray, which made 3-4 simultaneous cycle
+# anchors indistinguishable from each other. Seniority still comes through
+# via opacity (below), so ath/atl still visually lead even though every line
+# now has its own hue.
+_LINE_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 _ROLE_OPACITY = {
-    AnchorType.ATH: 1.0, AnchorType.ATL: 1.0,
-    AnchorType.WEEK_52_HIGH: 0.75, AnchorType.WEEK_52_LOW: 0.75,
-    AnchorType.CYCLE_HIGH: 0.45, AnchorType.CYCLE_LOW: 0.45,
+    0: 1.0,   # ath/atl
+    1: 0.80,  # 52w_high/52w_low
+    2: 0.60,  # cycle_high/cycle_low
 }
 
+# Weekend-closed markets leave a blank gap between Friday and Monday
+# candles on a plain datetime x-axis -- collapse those empty slots so
+# consecutive trading days render adjacent.
+_WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
 
-def _color(anchor: AnchoredVwap) -> str:
-    role = primary_role(anchor.anchor_types)
-    r, g, b = _ROLE_RGB[role]
-    return f"rgba({r},{g},{b},{_ROLE_OPACITY[role]:.2f})"
+# Two anchors this close together (regardless of which roles they carry)
+# mark practically the same market event -- e.g. a cycle_high pivot
+# confirmed the day before the very bar that also happens to be the
+# all-time high. Drawing both as separate near-identical AVWAP lines from
+# almost the same start date is visual noise, not two distinct signals, so
+# they're clustered into one drawn line (see `_cluster_close_anchors`).
+_CLUSTER_TOLERANCE_DAYS = 5
 
 
 def _label(anchor: AnchoredVwap) -> str:
     types = "+".join(sorted(t.value for t in anchor.anchor_types))
     return f"{anchor.anchor_date[:10]} [{types}]{' (stale)' if anchor.status == AnchorStatus.STALE else ''}"
+
+
+def _cluster_close_anchors(anchors: list[AnchoredVwap]) -> list[list[AnchoredVwap]]:
+    """Chain-merge anchors whose dates land within `_CLUSTER_TOLERANCE_DAYS`
+    of their cluster's most recent member -- a simple interval-style merge
+    (not gaps.plotting's zone-overlap union-find) since anchors are single
+    dates, not price ranges."""
+    ordered = sorted(anchors, key=lambda a: a.anchor_date)
+    clusters: list[list[AnchoredVwap]] = []
+    for anchor in ordered:
+        if clusters:
+            last = clusters[-1][-1]
+            gap_days = (pd.Timestamp(anchor.anchor_date) - pd.Timestamp(last.anchor_date)).days
+            if gap_days <= _CLUSTER_TOLERANCE_DAYS:
+                clusters[-1].append(anchor)
+                continue
+        clusters.append([anchor])
+    return clusters
+
+
+def _representative(cluster: list[AnchoredVwap]) -> AnchoredVwap:
+    """The most senior-role anchor in the cluster is the one whose AVWAP
+    actually gets drawn -- e.g. an ath beats a cycle_high pivot confirmed
+    the day before, since the ath is almost certainly the more meaningful
+    of the two nearly-simultaneous events. Ties broken by earliest date."""
+    return min(cluster, key=lambda a: (SENIORITY[primary_role(a.anchor_types)], a.anchor_date))
 
 
 def render_avwap_chart(
@@ -52,10 +83,11 @@ def render_avwap_chart(
     config: AvwapConfig | None = None,
     include_stale: bool = False,
 ) -> go.Figure:
-    """`bars` is what gets drawn as candlesticks; each anchor's AVWAP line
-    is drawn from its own anchor_date to the last available bar. Stale
-    anchors are skipped unless `include_stale`, in which case they're drawn
-    dashed to read as "no longer current" at a glance."""
+    """`bars` is what gets drawn as candlesticks. Anchors within
+    `_CLUSTER_TOLERANCE_DAYS` of each other are merged into one drawn line
+    (from the cluster's most senior anchor) rather than one line per anchor.
+    Stale anchors are skipped unless `include_stale`, in which case they're
+    drawn dashed to read as "no longer current" at a glance."""
     config = config or AvwapConfig()
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -63,22 +95,27 @@ def render_avwap_chart(
         name=ticker, showlegend=False,
     ))
 
-    for anchor in anchors:
-        if anchor.status == AnchorStatus.STALE and not include_stale:
-            continue
+    drawable = [a for a in anchors if include_stale or a.status == AnchorStatus.ACTIVE]
 
-        series = compute.anchored_vwap(bars, anchor.anchor_date, config.price_source)
-        anchor_ts = pd.Timestamp(anchor.anchor_date)
+    for i, cluster in enumerate(_cluster_close_anchors(drawable)):
+        rep = _representative(cluster)
+        color = _LINE_COLORS[i % len(_LINE_COLORS)]
+        opacity = _ROLE_OPACITY[SENIORITY[primary_role(rep.anchor_types)]]
+
+        series = compute.anchored_vwap(bars, rep.anchor_date, config.price_source)
+        anchor_ts = pd.Timestamp(rep.anchor_date)
         visible = series.loc[series.index >= anchor_ts]
         if visible.empty:
             continue
-        color = _color(anchor)
-        dash = "dash" if anchor.status == AnchorStatus.STALE else "solid"
+        dash = "dash" if any(a.status == AnchorStatus.STALE for a in cluster) else "solid"
+        label = " + ".join(_label(a) for a in cluster)
 
         fig.add_trace(go.Scatter(
             x=visible.index, y=visible.values, mode="lines",
             line=dict(color=color, width=1.5, dash=dash),
-            name=_label(anchor),
+            opacity=opacity,
+            name=label,
+            legendgroup=rep.id,
         ))
 
         if anchor_ts in bars.index:
@@ -86,12 +123,15 @@ def render_avwap_chart(
             fig.add_trace(go.Scatter(
                 x=[anchor_ts], y=[anchor_bar["high"]], mode="markers",
                 marker=dict(color=color, size=9, symbol="triangle-down"),
-                showlegend=False, hovertext=_label(anchor), hoverinfo="text",
+                opacity=opacity,
+                showlegend=False, legendgroup=rep.id,
+                hovertext=label, hoverinfo="text",
             ))
 
     fig.update_layout(
         title=f"{ticker} anchored VWAP ({getattr(timeframe, 'value', timeframe)})",
         xaxis_rangeslider_visible=False,
+        xaxis_rangebreaks=_WEEKEND_RANGEBREAKS,
         template="plotly_white",
     )
     return fig

@@ -13,6 +13,11 @@ data/derived/*
 # sr_lines CLI review charts (generated output, not source)
 review_*.html
 
+# Generated chart/analysis outputs (regenerable from src/*/plotting.py +
+# the DBs, not source -- same reasoning as review_*.html above)
+output/*
+!output/**/.gitkeep
+
 # Python
 __pycache__/
 *.py[cod]

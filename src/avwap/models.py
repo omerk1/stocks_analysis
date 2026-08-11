@@ -12,7 +12,7 @@ from src.market_common.models import Timeframe
 
 __all__ = [
     "Timeframe", "AnchorType", "AnchorStatus", "AnchoredVwap",
-    "CYCLE_ROLES", "is_pure_cycle", "primary_role",
+    "CYCLE_ROLES", "is_pure_cycle", "primary_role", "SENIORITY",
 ]
 
 
@@ -36,7 +36,7 @@ CYCLE_ROLES = frozenset({AnchorType.CYCLE_HIGH, AnchorType.CYCLE_LOW})
 # never ath/atl/52w_*) and plotting.py (color/saturation keyed off the most
 # senior role present) -- one ranking, not two independently-maintained
 # copies that could drift.
-_SENIORITY = {
+SENIORITY = {
     AnchorType.ATH: 0, AnchorType.ATL: 0,
     AnchorType.WEEK_52_HIGH: 1, AnchorType.WEEK_52_LOW: 1,
     AnchorType.CYCLE_HIGH: 2, AnchorType.CYCLE_LOW: 2,
@@ -49,7 +49,7 @@ def is_pure_cycle(types) -> bool:
 
 
 def primary_role(types) -> AnchorType:
-    return min(types, key=lambda t: _SENIORITY[t])
+    return min(types, key=lambda t: SENIORITY[t])
 
 
 @dataclass

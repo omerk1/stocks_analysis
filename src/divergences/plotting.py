@@ -22,6 +22,11 @@ _DIRECTION_COLORS = {
     Direction.BEARISH: "#d62728",
 }
 
+# Weekend-closed markets leave a blank gap between Friday and Monday
+# candles on a plain datetime x-axis -- collapse those empty slots so
+# consecutive trading days render adjacent.
+_WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
+
 
 def render_divergence_chart(
     bars: pd.DataFrame,
@@ -95,4 +100,5 @@ def render_divergence_chart(
         template="plotly_white",
         legend=dict(groupclick="togglegroup"),
     )
+    fig.update_xaxes(rangebreaks=_WEEKEND_RANGEBREAKS)
     return fig
