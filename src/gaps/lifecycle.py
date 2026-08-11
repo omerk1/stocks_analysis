@@ -9,6 +9,7 @@ it was detected on would see bars its own detection never had.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.gaps.config import GapConfig
@@ -48,46 +49,71 @@ def _status_for(max_fill_pct: float, soft_close_pct: float) -> GapStatus:
     return GapStatus.OPEN
 
 
-def _walk(bars: pd.DataFrame, gap: Gap, config: GapConfig) -> None:
-    created_ts = pd.Timestamp(gap.created_at)
+def _walk(
+    idx: pd.DatetimeIndex, price_by_direction: dict[Direction, "np.ndarray"], gap: Gap, config: GapConfig
+) -> None:
+    """Vectorized mirror of `_penetration_pct`'s exact formula/clamping,
+    computed for every bar in the gap's active window at once (numpy) rather
+    than one `.iloc[i]` row-construction + function call per bar -- see
+    `apply_lifecycle`'s docstring for why. Any change to `_penetration_pct`'s
+    price-selection or formula must be mirrored here."""
     try:
-        created_pos = bars.index.get_loc(created_ts)
+        created_pos = idx.get_loc(pd.Timestamp(gap.created_at))
     except KeyError:
         # The bars frame this gap was detected on isn't the one it's being
         # walked against (e.g. mismatched test fixtures) -- nothing sound
         # to walk; leave the gap at its dataclass defaults (OPEN, no dates).
         return
 
-    max_fill = 0.0
-    first_touch: str | None = None
-    soft_closed: str | None = None
-    closed: str | None = None
+    start = created_pos + 1
+    height = gap.zone_top - gap.zone_bottom
+    if start >= len(idx) or height <= 0:
+        gap.max_fill_pct = 0.0
+        gap.status = _status_for(0.0, config.soft_close_pct)
+        return
 
-    for i in range(created_pos + 1, len(bars)):
-        bar = bars.iloc[i]
-        pct = _penetration_pct(gap.direction, gap.zone_top, gap.zone_bottom, bar, config.fill_by)
-        bar_date = bars.index[i].isoformat()
+    price = price_by_direction[gap.direction][start:]
+    if gap.direction == Direction.BULLISH:
+        pct = (gap.zone_top - price) / height * 100.0
+    else:
+        pct = (price - gap.zone_bottom) / height * 100.0
+    pct = np.clip(pct, 0.0, 100.0)
+    cummax = np.maximum.accumulate(pct)
 
-        if pct > 0.0 and first_touch is None:
-            first_touch = bar_date
-        if pct > max_fill:
-            max_fill = pct
-        if max_fill >= config.soft_close_pct and soft_closed is None:
-            soft_closed = bar_date
-        if max_fill >= 100.0 and closed is None:
-            closed = bar_date
-            break  # CLOSED is terminal -- later re-entries change nothing
+    def _date_at(mask) -> str | None:
+        hit = np.flatnonzero(mask)
+        return idx[start + hit[0]].isoformat() if hit.size else None
 
+    max_fill = float(cummax[-1])
     gap.max_fill_pct = max_fill
-    gap.first_touch_date = first_touch
-    gap.soft_closed_date = soft_closed
-    gap.closed_date = closed
+    gap.first_touch_date = _date_at(pct > 0.0)
+    gap.soft_closed_date = _date_at(cummax >= config.soft_close_pct)
+    gap.closed_date = _date_at(cummax >= 100.0)
     gap.status = _status_for(max_fill, config.soft_close_pct)
 
 
 def apply_lifecycle(bars: pd.DataFrame, gaps: list[Gap], config: GapConfig) -> list[Gap]:
     """Mutates and returns `gaps` with status/max_fill_pct/*_date fields
-    populated by walking `bars` forward from each gap's own creation bar."""
+    populated by walking `bars` forward from each gap's own creation bar.
+
+    The fill-by-wick vs fill-by-body price series (open/high/low/close never
+    change per-gap, only each gap's own zone/direction do) are computed once
+    here, shared across every gap in `gaps`, rather than every gap
+    re-deriving its own per-bar prices independently.
+    """
+    open_arr = bars["open"].to_numpy()
+    high_arr = bars["high"].to_numpy()
+    low_arr = bars["low"].to_numpy()
+    close_arr = bars["close"].to_numpy()
+
+    if config.fill_by == "wick":
+        price_by_direction = {Direction.BULLISH: low_arr, Direction.BEARISH: high_arr}
+    else:
+        price_by_direction = {
+            Direction.BULLISH: np.minimum(open_arr, close_arr),
+            Direction.BEARISH: np.maximum(open_arr, close_arr),
+        }
+
     for gap in gaps:
-        _walk(bars, gap, config)
+        _walk(bars.index, price_by_direction, gap, config)
     return gaps
