@@ -93,7 +93,11 @@ def main():
     )
 
     if args.all:
-        tickers = [row[0] for row in conn.execute("SELECT DISTINCT ticker FROM bars_1d").fetchall()]
+        tickers = [
+            row[0] for row in conn.execute(
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+            ).fetchall()
+        ]
         total, skipped, failed, unreliable = 0, 0, 0, 0
         for ticker in tickers:
             for tf in timeframes:

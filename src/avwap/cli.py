@@ -113,7 +113,9 @@ def main():
 
     if args.all:
         tickers = [
-            row[0] for row in raw_conn.execute("SELECT DISTINCT ticker FROM bars_1d").fetchall()
+            row[0] for row in raw_conn.execute(
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+            ).fetchall()
         ]
     else:
         tickers = [args.ticker]
