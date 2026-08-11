@@ -110,13 +110,19 @@ def detect_pivots(
                 cand_high_price, cand_high_i = highs_arr[i], i
 
         elif direction == "seeking_low":
-            if pd.notna(thr_low) and (highs_arr[i] - cand_low_price) >= thr_low:
+            # cand_low_i < i (same guard the bootstrap branch above already
+            # has): without it, a bar that both sets a new candidate low AND
+            # whose own high already clears the reversal threshold from that
+            # same just-set low would confirm a pivot against itself -- a
+            # pivot must be confirmed by a *later* bar's price action, never
+            # its own, or as_of/lookahead-safety downstream silently breaks.
+            if cand_low_i < i and pd.notna(thr_low) and (highs_arr[i] - cand_low_price) >= thr_low:
                 pivots.append(_make_pivot(PivotKind.LOW, cand_low_price, cand_low_i, i))
                 direction = "seeking_high"
                 cand_high_price, cand_high_i = highs_arr[i], i
 
         else:  # seeking_high
-            if pd.notna(thr_high) and (cand_high_price - lows_arr[i]) >= thr_high:
+            if cand_high_i < i and pd.notna(thr_high) and (cand_high_price - lows_arr[i]) >= thr_high:
                 pivots.append(_make_pivot(PivotKind.HIGH, cand_high_price, cand_high_i, i))
                 direction = "seeking_low"
                 cand_low_price, cand_low_i = lows_arr[i], i
