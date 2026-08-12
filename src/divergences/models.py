@@ -57,6 +57,23 @@ class Divergence:
     # computed reliably -- see detect.py's scale_consistent guard (the same
     # case that makes the clipped `indicator_gap` component fall back to 0.0).
     indicator_gap_raw: float | None = None
+    # Populated by lifecycle.apply_outcome -- did the divergence's implied
+    # reversal actually happen, walking forward from confirmed_at for up to
+    # config.outcome_window_bars. All None/False ("not yet resolved") when
+    # there are no bars past confirmed_at yet (a divergence confirmed on the
+    # data's very last available bar).
+    max_favorable_move_atr: float | None = None  # ATR-normalized best move in the implied direction
+    bars_to_max_favorable_move: int | None = None
+    # True if price ever moved beyond p2's own extreme (a new lower low for
+    # a bullish divergence, a new higher high for a bearish one) within the
+    # outcome window -- the pattern's own "price makes a higher low/lower
+    # high" thesis failed, independent of whether a favorable move also
+    # happened at some other point in the same window.
+    invalidated: bool = False
+    invalidated_at: str | None = None
+    # Last bar this row's outcome fields actually reflect -- None if no
+    # bars past confirmed_at were available to walk at all.
+    outcome_computed_through: str | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:

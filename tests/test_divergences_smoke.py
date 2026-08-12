@@ -57,6 +57,16 @@ def test_aapl_daily_detection_runs_without_crashing_and_looks_sane(conn):
             assert d.i2_value < d.i1_value
         else:
             assert d.i2_value > d.i1_value
+        # Outcome tracking: None only for a divergence confirmed on the
+        # data's very last available bar (no bars left to walk yet) --
+        # true for at most one divergence in practice, everything else
+        # should resolve.
+        if d.outcome_computed_through is not None:
+            assert pd.Timestamp(d.outcome_computed_through) > pd.Timestamp(d.confirmed_at)
+            assert d.max_favorable_move_atr is not None
+            assert d.max_favorable_move_atr >= 0.0
+        if d.invalidated:
+            assert d.invalidated_at is not None
 
 
 def test_aapl_weekly_detection_runs_without_crashing(conn):
