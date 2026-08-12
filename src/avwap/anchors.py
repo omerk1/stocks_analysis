@@ -19,8 +19,8 @@ from datetime import date
 
 import pandas as pd
 
-from src.avwap import compute
 from src.avwap.config import AvwapConfig
+from src.avwap.lifecycle import apply_interaction_tracking
 from src.avwap.models import AnchoredVwap, AnchorStatus, AnchorType, is_pure_cycle
 from src.market_common import data as data_mod
 from src.market_common import indicators
@@ -191,11 +191,11 @@ def detect(
 
     anchors = discover_anchor_dates(bars, ticker, timeframe, config, previous_anchor_types)
 
-    updated_through = bars.index[-1].isoformat()
+    # Same ATR series/period cycle-pivot detection above already uses
+    # (config.cycle_atr_period) -- reused here rather than adding a second
+    # ATR knob just for interaction tracking.
+    atr = indicators.atr(bars, config.cycle_atr_period)
     for anchor in anchors:
-        series = compute.anchored_vwap(bars, anchor.anchor_date, config.price_source)
-        value = series.iloc[-1]
-        anchor.current_value = float(value) if pd.notna(value) else None
-        anchor.updated_through = updated_through
+        apply_interaction_tracking(bars, atr, anchor, config)
 
     return anchors, report, None

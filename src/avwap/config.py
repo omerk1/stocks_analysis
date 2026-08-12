@@ -51,3 +51,15 @@ class AvwapConfig:
     # deliberately searched over the *full* available history regardless of
     # this setting (see anchors.py).
     warmup_bars: int = 50
+
+    # Interaction tracking (see lifecycle.apply_interaction_tracking).
+    # ATR-normalized "how close does close need to be to the AVWAP line to
+    # count as a touch" -- same tolerance concept as
+    # fibonacci.FibConfig.level_touch_atr_tolerance, reused here at the
+    # same default since an AVWAP line and a fib level are both "a single
+    # price series price interacts with." Starting point, not validated.
+    distance_tolerance_atr: float = 0.3
+    # Forward window (bars) for measuring how far price moved away after a
+    # touch, ATR-normalized -- mirrors SRConfig.touch_reaction_window_bars /
+    # FibConfig's field of the same name.
+    touch_reaction_window_bars: int = 10

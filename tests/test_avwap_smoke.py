@@ -111,5 +111,12 @@ def test_smoke_real_aapl_daily_ticker_detection():
         assert anchor.anchor_types
         if anchor.current_value is not None:
             assert anchor.current_value > 0
+        # Interaction tracking: every anchor has at least one bar after its
+        # own anchor date (the anchor date itself), so these should always
+        # be populated for a real, successfully-detected anchor.
+        assert anchor.n_crosses >= 0
+        if anchor.pct_bars_above is not None:
+            assert anchor.pct_bars_below is not None
+            assert anchor.pct_bars_above + anchor.pct_bars_below == pytest.approx(1.0)
 
     conn.close()
