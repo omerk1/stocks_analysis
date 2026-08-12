@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS avwap_anchors (
     anchor_types TEXT,
     status TEXT,
     current_value REAL, updated_through TEXT,
+    distance_atr REAL, n_crosses INTEGER,
+    pct_bars_above REAL, pct_bars_below REAL,
+    last_cross_date TEXT, avg_reaction_atr_on_touch REAL,
     run_id TEXT,
     UNIQUE (ticker, timeframe, anchor_date)
 );
@@ -27,15 +30,25 @@ CREATE TABLE IF NOT EXISTS avwap_anchors (
 _UPSERT_SQL = """
 INSERT INTO avwap_anchors
     (id, ticker, timeframe, anchor_date, anchor_types, status,
-     current_value, updated_through, run_id)
+     current_value, updated_through,
+     distance_atr, n_crosses, pct_bars_above, pct_bars_below,
+     last_cross_date, avg_reaction_atr_on_touch, run_id)
 VALUES
     (:id, :ticker, :timeframe, :anchor_date, :anchor_types, :status,
-     :current_value, :updated_through, :run_id)
+     :current_value, :updated_through,
+     :distance_atr, :n_crosses, :pct_bars_above, :pct_bars_below,
+     :last_cross_date, :avg_reaction_atr_on_touch, :run_id)
 ON CONFLICT (ticker, timeframe, anchor_date) DO UPDATE SET
     anchor_types = excluded.anchor_types,
     status = excluded.status,
     current_value = excluded.current_value,
     updated_through = excluded.updated_through,
+    distance_atr = excluded.distance_atr,
+    n_crosses = excluded.n_crosses,
+    pct_bars_above = excluded.pct_bars_above,
+    pct_bars_below = excluded.pct_bars_below,
+    last_cross_date = excluded.last_cross_date,
+    avg_reaction_atr_on_touch = excluded.avg_reaction_atr_on_touch,
     run_id = excluded.run_id
 """
 
