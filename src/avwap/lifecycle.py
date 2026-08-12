@@ -5,9 +5,13 @@ previously the only thing ever read from it was `.iloc[-1]`, a bare
 snapshot. This walks the same series against `bars["close"/"high"/"low"]`
 from the anchor date onward, the same "how has price actually interacted
 with this line" question `sr_lines/events.py` and `fibonacci/lifecycle.py`
-already ask of a zone/level, adapted to a single continuously-moving line
-(no band/zone to track a "side" bootstrap against -- `close >= avwap` at
-the very first bar already tells you which side price starts on).
+already ask of a zone/level -- including the same "a zone/tolerance band,
+not a bare price" discipline those two already apply. A cross is judged
+against `config.distance_tolerance_atr`, the exact same tolerance used for
+touch detection below, not a bare `close >= avwap` comparison: without a
+band, a `close` chattering back and forth across the raw line every single
+day would inflate `n_crosses` with noise indistinguishable from one real
+crossover, the same failure mode a zoneless sr_lines/fibonacci would have.
 """
 
 from __future__ import annotations
@@ -45,22 +49,6 @@ def apply_interaction_tracking(
     atr_vals = atr.reindex(idx).to_numpy()
     n = len(sub)
 
-    # Ties (close == avwap) count as "above" -- an arbitrary but consistent
-    # convention, same spirit as sr_lines._close_side treating the exact
-    # boundary as belonging to one side rather than a third "on the line"
-    # state that would otherwise need its own handling everywhere below.
-    side_above = closes >= avwap_vals
-
-    n_crosses = 0
-    last_cross_date: str | None = None
-    for i in range(1, n):
-        if side_above[i] != side_above[i - 1]:
-            n_crosses += 1
-            last_cross_date = idx[i].isoformat()
-
-    pct_above = float(side_above.mean())
-    pct_below = 1.0 - pct_above
-
     def _reaction_atr(i: int, side_is_above: bool) -> float | None:
         window_end = min(i + 1 + config.touch_reaction_window_bars, n)
         if i + 1 >= window_end:
@@ -74,16 +62,46 @@ def apply_interaction_tracking(
             favorable = closes[i] - lows[i + 1 : window_end].min()
         return max(0.0, float(favorable / a))
 
+    # A cross requires close to move from clearly established on one side
+    # of the tolerance band to clearly established on the other -- a bar
+    # still inside the band (including every bar before any side has ever
+    # been established) inherits the last established side rather than
+    # flipping the count on its own; `current_side is None` bars (only
+    # possible while price has never yet cleared the band either way) fall
+    # back to a bare sign comparison so pct_bars_above/below stay defined
+    # from the very first bar.
+    current_side: str | None = None
+    n_crosses = 0
+    last_cross_date: str | None = None
+    above_flags: list[bool] = []
     reactions: list[float] = []
+
     for i in range(n):
         a = atr_vals[i]
-        if pd.isna(a) or a == 0:
-            continue
-        distance = abs(closes[i] - avwap_vals[i]) / a
-        if distance <= config.distance_tolerance_atr:
-            r = _reaction_atr(i, bool(side_above[i]))
+        tolerance = config.distance_tolerance_atr * a if pd.notna(a) and a > 0 else 0.0
+        diff = closes[i] - avwap_vals[i]
+
+        if diff > tolerance:
+            raw_side = "above"
+        elif diff < -tolerance:
+            raw_side = "below"
+        else:
+            raw_side = "inside"
+
+        if raw_side != "inside":
+            if current_side is not None and raw_side != current_side:
+                n_crosses += 1
+                last_cross_date = idx[i].isoformat()
+            current_side = raw_side
+        elif pd.notna(a) and a > 0:
+            r = _reaction_atr(i, bool(current_side == "above" if current_side else diff >= 0))
             if r is not None:
                 reactions.append(r)
+
+        above_flags.append(current_side == "above" if current_side is not None else diff >= 0)
+
+    pct_above = sum(above_flags) / n
+    pct_below = 1.0 - pct_above
 
     now_atr = atr_vals[-1]
     distance_atr = (

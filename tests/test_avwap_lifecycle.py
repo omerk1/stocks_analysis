@@ -42,7 +42,12 @@ def test_crosses_counted_when_close_moves_to_the_other_side_of_the_line():
     # price_source="close", constant volume -> avwap is a plain running
     # average of close. closes=[100,100,90,90,110,110]:
     # avwap: 100, 100, 96.67, 95, 98, 100
-    # side:  above,above,below,below,above,above -> 2 crosses (bar2, bar4)
+    # diff:  0,   0,   -6.67, -5, 12, 10 (tolerance = 0.3*2.0 = 0.6)
+    # Bars 0-1 sit exactly on the line (inside tolerance, ambiguous). Bar 2
+    # is the *first* bar to clearly commit to a side ("below") -- a
+    # bootstrap, not a cross, same convention sr_lines/fibonacci already
+    # use for establishing an initial side. Only bar 4 (below -> above) is
+    # a real crossover.
     rows = [(c, c, c, 100) for c in [100, 100, 90, 90, 110, 110]]
     bars = _bars(rows)
     atr = pd.Series(2.0, index=bars.index)
@@ -51,10 +56,32 @@ def test_crosses_counted_when_close_moves_to_the_other_side_of_the_line():
 
     apply_interaction_tracking(bars, atr, anchor, config)
 
-    assert anchor.n_crosses == 2
+    assert anchor.n_crosses == 1
     assert anchor.last_cross_date == bars.index[4].isoformat()
     assert anchor.pct_bars_above == pytest.approx(4 / 6)
     assert anchor.pct_bars_below == pytest.approx(2 / 6)
+
+
+def test_daily_chatter_within_tolerance_does_not_inflate_n_crosses():
+    # Regression: bar0 (huge volume) anchors avwap near 100; bar1 (tiny
+    # volume, so it barely moves the running average) establishes a clear
+    # "below" side. Bars 2-9 then chatter +-0.1 around the still-~100
+    # average every single day (tiny volume again) -- well inside the
+    # 0.3*atr=0.6 tolerance band, so this must NOT count as 8 separate
+    # crosses just because the sign of (close - avwap) flips daily. Only
+    # the real move back above in the final bar is a genuine cross.
+    closes = [100.0, 95.0, 100.1, 99.9, 100.1, 99.9, 100.1, 99.9, 100.1, 99.9, 130.0]
+    volumes = [1_000_000] + [1] * 10
+    rows = [(c, c, c, v) for c, v in zip(closes, volumes)]
+    bars = _bars(rows)
+    atr = pd.Series(2.0, index=bars.index)
+    anchor = _anchor(bars.index[0].isoformat())
+    config = AvwapConfig(price_source="close", distance_tolerance_atr=0.3)
+
+    apply_interaction_tracking(bars, atr, anchor, config)
+
+    assert anchor.n_crosses == 1
+    assert anchor.last_cross_date == bars.index[-1].isoformat()
 
 
 def test_distance_atr_and_reaction_only_counted_within_tolerance():
