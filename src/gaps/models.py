@@ -41,6 +41,13 @@ class Gap:
     first_touch_date: str | None = None
     soft_closed_date: str | None = None
     closed_date: str | None = None
+    # Bar-count companions to the three dates above -- the exact same
+    # milestones, in "bars since created_at" rather than calendar dates, so
+    # a consumer doesn't have to re-join against bars_1d just to convert.
+    # None wherever the corresponding date is None (milestone never reached).
+    bars_to_first_touch: int | None = None
+    bars_to_soft_closed: int | None = None
+    bars_to_closed: int | None = None
     # Set only on an FVG row whose same-bar, same-direction classic gap was
     # also detected (see detect.py) -- the classic row's own related_id
     # always stays None, so the link is one-directional (FVG -> classic).

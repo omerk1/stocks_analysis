@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS gaps (
     status TEXT,
     max_fill_pct REAL,
     first_touch_date TEXT, soft_closed_date TEXT, closed_date TEXT,
+    bars_to_first_touch INTEGER, bars_to_soft_closed INTEGER, bars_to_closed INTEGER,
     related_id TEXT, run_id TEXT,
     UNIQUE (ticker, timeframe, kind, created_at, direction)
 );
@@ -30,17 +31,22 @@ _UPSERT_SQL = """
 INSERT INTO gaps
     (id, ticker, timeframe, kind, direction, created_at,
      zone_top, zone_bottom, size_atr, status, max_fill_pct,
-     first_touch_date, soft_closed_date, closed_date, related_id, run_id)
+     first_touch_date, soft_closed_date, closed_date,
+     bars_to_first_touch, bars_to_soft_closed, bars_to_closed, related_id, run_id)
 VALUES
     (:id, :ticker, :timeframe, :kind, :direction, :created_at,
      :zone_top, :zone_bottom, :size_atr, :status, :max_fill_pct,
-     :first_touch_date, :soft_closed_date, :closed_date, :related_id, :run_id)
+     :first_touch_date, :soft_closed_date, :closed_date,
+     :bars_to_first_touch, :bars_to_soft_closed, :bars_to_closed, :related_id, :run_id)
 ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
     status = excluded.status,
     max_fill_pct = excluded.max_fill_pct,
     first_touch_date = excluded.first_touch_date,
     soft_closed_date = excluded.soft_closed_date,
     closed_date = excluded.closed_date,
+    bars_to_first_touch = excluded.bars_to_first_touch,
+    bars_to_soft_closed = excluded.bars_to_soft_closed,
+    bars_to_closed = excluded.bars_to_closed,
     run_id = excluded.run_id
 """
 

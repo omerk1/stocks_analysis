@@ -80,15 +80,20 @@ def _walk(
     pct = np.clip(pct, 0.0, 100.0)
     cummax = np.maximum.accumulate(pct)
 
-    def _date_at(mask) -> str | None:
+    def _milestone(mask) -> tuple[str | None, int | None]:
         hit = np.flatnonzero(mask)
-        return idx[start + hit[0]].isoformat() if hit.size else None
+        if not hit.size:
+            return None, None
+        # +1 so "1 bar later" means the very next bar after creation
+        # (created_at itself is bar 0), matching how a human would count it.
+        bars_since_creation = int(hit[0]) + 1
+        return idx[start + hit[0]].isoformat(), bars_since_creation
 
     max_fill = float(cummax[-1])
     gap.max_fill_pct = max_fill
-    gap.first_touch_date = _date_at(pct > 0.0)
-    gap.soft_closed_date = _date_at(cummax >= config.soft_close_pct)
-    gap.closed_date = _date_at(cummax >= 100.0)
+    gap.first_touch_date, gap.bars_to_first_touch = _milestone(pct > 0.0)
+    gap.soft_closed_date, gap.bars_to_soft_closed = _milestone(cummax >= config.soft_close_pct)
+    gap.closed_date, gap.bars_to_closed = _milestone(cummax >= 100.0)
     gap.status = _status_for(max_fill, config.soft_close_pct)
 
 
