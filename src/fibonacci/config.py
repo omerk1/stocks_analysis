@@ -57,6 +57,23 @@ class FibConfig:
     min_bars: int = 150
     warmup_bars: int = 50
 
+    # Level touch/respect tracking (see lifecycle.evaluate_level_touches).
+    # Full-width ATR-dollar tolerance band around a level's exact price --
+    # smaller than sr_lines.SRConfig.zone_width_atr's 0.4 (a level here is a
+    # single computed price, not a pre-clustered zone of real pivots, so a
+    # tighter band is the more honest starting point). Starting point, not
+    # validated -- needs the same real-chart tuning pass every new knob in
+    # this project gets.
+    level_touch_atr_tolerance: float = 0.3
+    # How many bars a close that crossed a level's tolerance band gets to
+    # close back on the original side before the interaction counts as a
+    # violation instead of a (weaker, still-respected) touch -- same
+    # reasoning as SRConfig.fakeout_reclaim_bars, just level-scoped.
+    level_violation_reclaim_bars: int = 5
+    # Forward window (bars) for measuring how far price moved away after a
+    # touch, ATR-normalized -- mirrors SRConfig.touch_reaction_window_bars.
+    touch_reaction_window_bars: int = 10
+
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["scales"] = list(self.scales)
