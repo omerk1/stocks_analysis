@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS gaps (
     max_fill_pct REAL,
     first_touch_date TEXT, soft_closed_date TEXT, closed_date TEXT,
     bars_to_first_touch INTEGER, bars_to_soft_closed INTEGER, bars_to_closed INTEGER,
+    n_approaches INTEGER, volume_ratio_at_creation REAL,
+    reaction_atr_after_close REAL, bars_to_reaction_peak INTEGER,
     related_id TEXT, run_id TEXT,
     UNIQUE (ticker, timeframe, kind, created_at, direction)
 );
@@ -32,12 +34,16 @@ INSERT INTO gaps
     (id, ticker, timeframe, kind, direction, created_at,
      zone_top, zone_bottom, size_atr, status, max_fill_pct,
      first_touch_date, soft_closed_date, closed_date,
-     bars_to_first_touch, bars_to_soft_closed, bars_to_closed, related_id, run_id)
+     bars_to_first_touch, bars_to_soft_closed, bars_to_closed,
+     n_approaches, volume_ratio_at_creation,
+     reaction_atr_after_close, bars_to_reaction_peak, related_id, run_id)
 VALUES
     (:id, :ticker, :timeframe, :kind, :direction, :created_at,
      :zone_top, :zone_bottom, :size_atr, :status, :max_fill_pct,
      :first_touch_date, :soft_closed_date, :closed_date,
-     :bars_to_first_touch, :bars_to_soft_closed, :bars_to_closed, :related_id, :run_id)
+     :bars_to_first_touch, :bars_to_soft_closed, :bars_to_closed,
+     :n_approaches, :volume_ratio_at_creation,
+     :reaction_atr_after_close, :bars_to_reaction_peak, :related_id, :run_id)
 ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
     status = excluded.status,
     max_fill_pct = excluded.max_fill_pct,
@@ -47,7 +53,14 @@ ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
     bars_to_first_touch = excluded.bars_to_first_touch,
     bars_to_soft_closed = excluded.bars_to_soft_closed,
     bars_to_closed = excluded.bars_to_closed,
+    n_approaches = excluded.n_approaches,
+    reaction_atr_after_close = excluded.reaction_atr_after_close,
+    bars_to_reaction_peak = excluded.bars_to_reaction_peak,
     run_id = excluded.run_id
+    -- volume_ratio_at_creation deliberately excluded, same reasoning as
+    -- zone_top/zone_bottom/size_atr above it: fully deterministic from the
+    -- creation bar's own (never-changing) historical volume, so it's
+    -- geometry, not a mutable lifecycle field.
 """
 
 

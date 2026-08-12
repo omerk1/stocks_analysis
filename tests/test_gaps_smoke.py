@@ -119,5 +119,15 @@ def test_smoke_real_aapl_daily_ticker_detection():
         assert gap.zone_top > gap.zone_bottom
         assert gap.size_atr >= config.min_gap_atr
         assert 0.0 <= gap.max_fill_pct <= 100.0
+        # Approach-event/volume/reaction tracking, added alongside the
+        # existing fill-percentage curve.
+        assert gap.n_approaches >= 0
+        # A gap that was ever touched at all had at least one approach.
+        if gap.max_fill_pct > 0.0:
+            assert gap.n_approaches >= 1
+        if gap.volume_ratio_at_creation is not None:
+            assert gap.volume_ratio_at_creation >= 0.0
+        if gap.status == GapStatus.CLOSED and gap.reaction_atr_after_close is not None:
+            assert gap.reaction_atr_after_close >= 0.0
 
     conn.close()

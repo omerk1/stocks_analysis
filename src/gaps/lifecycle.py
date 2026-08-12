@@ -14,6 +14,7 @@ import pandas as pd
 
 from src.gaps.config import GapConfig
 from src.gaps.models import Direction, Gap, GapStatus
+from src.market_common import indicators
 
 
 def _penetration_pct(
@@ -49,8 +50,64 @@ def _status_for(max_fill_pct: float, soft_close_pct: float) -> GapStatus:
     return GapStatus.OPEN
 
 
+def _apply_reaction(
+    idx: pd.DatetimeIndex,
+    high_arr: np.ndarray,
+    low_arr: np.ndarray,
+    close_arr: np.ndarray,
+    atr_arr: np.ndarray,
+    gap: Gap,
+    config: GapConfig,
+) -> None:
+    """Only called once `gap.status == GapStatus.CLOSED` (see `_walk`).
+    ATR-normalized max favorable move *back in the gap's original
+    direction* within `config.reaction_window_bars` bars after
+    `closed_date` -- the classic "fill then reverse" check, same
+    forward-window mechanics as `sr_lines.events._reaction_atr`/
+    `fibonacci.lifecycle.evaluate_level_touches`/
+    `avwap.lifecycle.apply_interaction_tracking`, anchored at the bar
+    where the gap first fully closed rather than at a touch/level/line
+    interaction.
+    """
+    closed_pos = idx.get_loc(pd.Timestamp(gap.closed_date))
+    window_end = min(closed_pos + 1 + config.reaction_window_bars, len(idx))
+    if closed_pos + 1 >= window_end:
+        return
+
+    ref_close = close_arr[closed_pos]
+    max_favorable = 0.0
+    bars_to_peak: int | None = None
+    any_valid = False
+
+    for j in range(closed_pos + 1, window_end):
+        a = atr_arr[j]
+        if pd.isna(a) or a == 0:
+            continue
+        any_valid = True
+        if gap.direction == Direction.BULLISH:
+            favorable = max(0.0, (high_arr[j] - ref_close) / a)
+        else:
+            favorable = max(0.0, (ref_close - low_arr[j]) / a)
+        if favorable > max_favorable:
+            max_favorable = favorable
+            bars_to_peak = j - closed_pos
+
+    if any_valid:
+        gap.reaction_atr_after_close = max_favorable
+        gap.bars_to_reaction_peak = bars_to_peak
+
+
 def _walk(
-    idx: pd.DatetimeIndex, price_by_direction: dict[Direction, "np.ndarray"], gap: Gap, config: GapConfig
+    idx: pd.DatetimeIndex,
+    price_by_direction: dict[Direction, "np.ndarray"],
+    high_arr: np.ndarray,
+    low_arr: np.ndarray,
+    close_arr: np.ndarray,
+    vol_arr: np.ndarray,
+    vol_avg20_arr: np.ndarray,
+    atr_arr: np.ndarray,
+    gap: Gap,
+    config: GapConfig,
 ) -> None:
     """Vectorized mirror of `_penetration_pct`'s exact formula/clamping,
     computed for every bar in the gap's active window at once (numpy) rather
@@ -64,6 +121,12 @@ def _walk(
         # walked against (e.g. mismatched test fixtures) -- nothing sound
         # to walk; leave the gap at its dataclass defaults (OPEN, no dates).
         return
+
+    # Independent of whether there are any bars *after* creation -- the
+    # creation bar itself always exists.
+    avg = vol_avg20_arr[created_pos]
+    if pd.notna(avg) and avg > 0:
+        gap.volume_ratio_at_creation = float(vol_arr[created_pos] / avg)
 
     start = created_pos + 1
     height = gap.zone_top - gap.zone_bottom
@@ -79,6 +142,16 @@ def _walk(
         pct = (price - gap.zone_bottom) / height * 100.0
     pct = np.clip(pct, 0.0, 100.0)
     cummax = np.maximum.accumulate(pct)
+
+    # Distinct approach events: rising edges of "currently touching the
+    # zone" -- the running cummax above answers "how deep has price ever
+    # gotten," this answers "how many separate times did price come back,"
+    # neither recoverable from the other (a gap touched once for 40 bars
+    # straight and one touched 10 times briefly can share the same
+    # max_fill_pct/first_touch_date but tell very different stories).
+    touching = pct > 0.0
+    rising = touching & ~np.concatenate(([False], touching[:-1]))
+    gap.n_approaches = int(rising.sum())
 
     def _milestone(mask) -> tuple[str | None, int | None]:
         hit = np.flatnonzero(mask)
@@ -96,20 +169,28 @@ def _walk(
     gap.closed_date, gap.bars_to_closed = _milestone(cummax >= 100.0)
     gap.status = _status_for(max_fill, config.soft_close_pct)
 
+    if gap.status == GapStatus.CLOSED:
+        _apply_reaction(idx, high_arr, low_arr, close_arr, atr_arr, gap, config)
+
 
 def apply_lifecycle(bars: pd.DataFrame, gaps: list[Gap], config: GapConfig) -> list[Gap]:
-    """Mutates and returns `gaps` with status/max_fill_pct/*_date fields
+    """Mutates and returns `gaps` with status/max_fill_pct/*_date/
+    n_approaches/volume_ratio_at_creation/reaction_atr_after_close fields
     populated by walking `bars` forward from each gap's own creation bar.
 
     The fill-by-wick vs fill-by-body price series (open/high/low/close never
-    change per-gap, only each gap's own zone/direction do) are computed once
-    here, shared across every gap in `gaps`, rather than every gap
-    re-deriving its own per-bar prices independently.
+    change per-gap, only each gap's own zone/direction do), the rolling
+    volume-ratio series, and the ATR series are all computed once here,
+    shared across every gap in `gaps`, rather than every gap re-deriving
+    its own per-bar prices independently.
     """
     open_arr = bars["open"].to_numpy()
     high_arr = bars["high"].to_numpy()
     low_arr = bars["low"].to_numpy()
     close_arr = bars["close"].to_numpy()
+    vol_arr = bars["volume"].to_numpy()
+    vol_avg20_arr = bars["volume"].rolling(20).mean().to_numpy()
+    atr_arr = indicators.atr(bars, config.atr_period).to_numpy()
 
     if config.fill_by == "wick":
         price_by_direction = {Direction.BULLISH: low_arr, Direction.BEARISH: high_arr}
@@ -120,5 +201,8 @@ def apply_lifecycle(bars: pd.DataFrame, gaps: list[Gap], config: GapConfig) -> l
         }
 
     for gap in gaps:
-        _walk(bars.index, price_by_direction, gap, config)
+        _walk(
+            bars.index, price_by_direction, high_arr, low_arr, close_arr,
+            vol_arr, vol_avg20_arr, atr_arr, gap, config,
+        )
     return gaps
