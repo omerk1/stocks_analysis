@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from src.divergences.config import DivergenceConfig
+from src.divergences.lifecycle import apply_outcome
 from src.divergences.models import Direction, Divergence, IndicatorKind, Timeframe
 from src.market_common import data as data_mod
 from src.market_common import indicators
@@ -332,7 +333,16 @@ def detect_divergences(
     """Pure function over an already-loaded/validated bars frame -- runs
     `detect_for_indicator` for every indicator in `config.indicators`, sharing
     one price-pivot cache across the whole loop (see `detect_for_indicator`'s
-    `price_cache` param)."""
+    `price_cache` param), then walks each resulting divergence's outcome
+    forward from its own `confirmed_at` (see `lifecycle.apply_outcome`).
+
+    The outcome walk deliberately uses a fresh, *unwarmup-sliced* ATR series
+    over the full `bars` frame -- unlike `atr_s` inside `_evaluate_pairs`
+    (warmup-sliced to match whichever indicator's pivot-detection offset
+    produced the pair), outcome tracking has nothing to do with pivot
+    detection and needs to reach every bar after `confirmed_at`, which can
+    fall well past any single indicator's own warmup-trimmed pivot series.
+    """
     if len(bars) < 3:
         return []
 
@@ -341,6 +351,12 @@ def detect_divergences(
     for name in config.indicators:
         series = compute_indicator_series(bars, name, config)
         results.extend(detect_for_indicator(bars, name, series, config, ticker, timeframe, price_cache))
+
+    if results:
+        outcome_atr = indicators.atr(bars, config.atr_period)
+        for divergence in results:
+            apply_outcome(bars, outcome_atr, divergence, config)
+
     return results
 
 

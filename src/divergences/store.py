@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS divergences (
     strength REAL,
     duration_bars INTEGER, price_move_atr REAL, indicator_gap_raw REAL,
     appeared_at TEXT, confirmed_at TEXT,
+    max_favorable_move_atr REAL, bars_to_max_favorable_move INTEGER,
+    invalidated INTEGER, invalidated_at TEXT, outcome_computed_through TEXT,
     run_id TEXT,
     UNIQUE (ticker, timeframe, indicator, direction, p2_date)
 );
@@ -30,11 +32,15 @@ _UPSERT_SQL = """
 INSERT INTO divergences
     (id, ticker, timeframe, indicator, direction, p1_date, p2_date,
      p1_price, p2_price, i1_value, i2_value, strength,
-     duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at, run_id)
+     duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at,
+     max_favorable_move_atr, bars_to_max_favorable_move,
+     invalidated, invalidated_at, outcome_computed_through, run_id)
 VALUES
     (:id, :ticker, :timeframe, :indicator, :direction, :p1_date, :p2_date,
      :p1_price, :p2_price, :i1_value, :i2_value, :strength,
-     :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at, :run_id)
+     :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at,
+     :max_favorable_move_atr, :bars_to_max_favorable_move,
+     :invalidated, :invalidated_at, :outcome_computed_through, :run_id)
 ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
     strength = excluded.strength,
     i1_value = excluded.i1_value,
@@ -43,6 +49,15 @@ ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
     price_move_atr = excluded.price_move_atr,
     indicator_gap_raw = excluded.indicator_gap_raw,
     confirmed_at = excluded.confirmed_at,
+    -- Outcome fields are mutable, unlike p1/p2 geometry -- a rerun with
+    -- more bars available (a later as_of, or simply more time having
+    -- passed) can walk further and should refresh these, same reasoning
+    -- gaps' lifecycle fields are already in this SET list for.
+    max_favorable_move_atr = excluded.max_favorable_move_atr,
+    bars_to_max_favorable_move = excluded.bars_to_max_favorable_move,
+    invalidated = excluded.invalidated,
+    invalidated_at = excluded.invalidated_at,
+    outcome_computed_through = excluded.outcome_computed_through,
     run_id = excluded.run_id
 """
 

@@ -69,3 +69,11 @@ class DivergenceConfig:
     # guarantees every indicator/ATR/rolling-std series is fully warmed up
     # (no NaN warmup tail) before any pivot search starts.
     warmup_bars: int = 50
+
+    # Outcome tracking (see lifecycle.apply_outcome). Forward window, in
+    # bars past confirmed_at, for measuring whether the divergence's
+    # implied reversal actually happened -- longer than
+    # SRConfig/FibConfig/AvwapConfig's touch_reaction_window_bars=10 since
+    # a divergence's thesis is a multi-bar trend reversal, not an
+    # immediate single-touch bounce. Starting point, not validated.
+    outcome_window_bars: int = 20
