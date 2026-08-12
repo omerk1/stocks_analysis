@@ -19,6 +19,10 @@ from src.sr_lines.models import DetectionResult, Event, EventType, Line, LineKin
 # it visually reads as "attempted, not solid," the opposite of BREAK.
 _EVENT_MARKERS = {
     EventType.TOUCH: ("triangle-up", "#2ca02c", 9, 1),
+    # Filled, darker-green variant of TOUCH's own marker -- same symbol
+    # family (a deeper, more convincing test of the level), distinct color
+    # weight so it doesn't read as identical to a wick-only touch.
+    EventType.BODY_TOUCH: ("triangle-up", "#145214", 9, 2),
     EventType.WICK_FAKE: ("triangle-down", "#ff7f0e", 9, 1),
     EventType.BODY_FAKE: ("circle-open", "#d62728", 9, 2),
     EventType.BREAK: ("x", "#000000", 13, 2),
@@ -130,15 +134,23 @@ def _marker_ts(event: Event) -> str:
 
 def _hover_text(line: Line) -> str:
     s = line.scores
+    tc = line.touch_counts
+    slope_bit = (
+        f" slope_atr/bar={line.slope_atr_per_bar:.3f}"
+        if line.kind == LineKind.DIAGONAL and line.slope_atr_per_bar is not None else ""
+    )
     return (
         f"{line.id} | {line.role.value} | {line.state.value}<br>"
         f"strength={line.strength:.3f} proximity={line.proximity:.3f}<br>"
         f"touch_quality={s.touch_quality:.2f} duration_density={s.duration_density:.2f} "
         f"resilience={s.resilience:.2f} role_reversal={s.role_reversal:.2f}<br>"
         f"relevance_gate={s.relevance_gate:.2f} in_play_gate={s.in_play_gate:.2f}"
-        f"{f' diagonal_penalty={s.diagonal_penalty:.2f}' if line.kind == LineKind.DIAGONAL else ''}<br>"
-        f"touches={line.n_touches} wick_fakes={line.n_wick_fakes} "
-        f"body_fakes={line.n_body_fakes} breaks={line.n_breaks}<br>"
+        f"{f' diagonal_penalty={s.diagonal_penalty:.2f}' if line.kind == LineKind.DIAGONAL else ''}"
+        f"{slope_bit}<br>"
+        f"touches(wick/body/wick_fake/U&R)={tc.wick}/{tc.body}/{tc.wick_fake}/{tc.undercut_and_rally} "
+        f"total={tc.total} breaks={tc.breaks} (reclaimed={tc.breaks_reclaimed})<br>"
+        f"age_days(total/regime)={line.age_days_total}/{line.age_days_regime} "
+        f"days_since_last_event={line.days_since_last_event}<br>"
         f"first_touch={line.first_touch} regime_start={line.regime_start} last_event={line.last_event}"
     )
 

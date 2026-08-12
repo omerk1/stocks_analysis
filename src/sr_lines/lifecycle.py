@@ -9,15 +9,135 @@ continuing on the same Line object.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import pandas as pd
 
 from src.sr_lines import events as events_mod
+from src.sr_lines import flip_status
 from src.sr_lines import scoring
-from src.sr_lines.candidates import Candidate, DiagonalCandidate, slopes_are_similar
+from src.sr_lines.candidates import Candidate, DiagonalCandidate, slope_atr_per_bar, slopes_are_similar
 from src.sr_lines.config import SRConfig
-from src.sr_lines.flip_status import break_and_flip_status
-from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown
+from src.sr_lines.flip_status import BreakFlipStatus, break_and_flip_status
+from src.sr_lines.models import (
+    Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown, TouchCounts,
+)
+
+_REACTION_EVENT_TYPES = (EventType.TOUCH, EventType.BODY_TOUCH, EventType.WICK_FAKE)
+
+
+@dataclass
+class _EventDerivedFields:
+    status: BreakFlipStatus
+    state: LineState
+    regime_start: str
+    last_event: str
+    touch_counts: TouchCounts
+    avg_penetration_first_half: float | None
+    avg_penetration_second_half: float | None
+    penetration_trend: float | None
+    avg_reaction_atr_touch: float | None
+    avg_volume_ratio_touch: float | None
+    avg_volume_ratio_break: float | None
+    age_days_total: int
+    age_days_regime: int
+    days_since_last_event: int
+
+
+def _derive_event_fields(
+    events: list[Event], bars: pd.DataFrame, config: SRConfig, first_touch: str,
+) -> _EventDerivedFields:
+    """Everything `build_line`/`_absorb` derive purely from a line's own
+    event stream (plus `bars`, for age/reference-bar math) -- factored out
+    of both so the growing pile of counts/aggregates below has exactly one
+    home instead of drifting into a second, third, ... copy every time a
+    new one is added (this already happened once, pre-session, with
+    `break_and_flip_status`/`regime_start` themselves being computed
+    independently in `build_line` and `_absorb`).
+
+    `touch_counts` covers the line's *whole* documented history (`events`,
+    not regime-scoped) -- matching the pre-existing n_touches/n_wick_fakes/
+    n_body_fakes/n_breaks convention this replaces. These are raw counts,
+    not "current evidence quality" the way touch_quality/resilience/
+    role_reversal are (scoring.py deliberately regime-scopes those), and
+    `duration_density` already establishes the "full history is the right
+    scope for how much has ever happened here" precedent this follows.
+
+    Penetration-trend and reaction/volume averages, by contrast, *are*
+    regime-scoped (current-regime events only) -- same reasoning
+    `scoring.score_line` already applies to touch_quality/resilience/
+    role_reversal: a line's current regime is what's actually relevant to
+    "is this level behaving differently lately," not diluted by a long-past,
+    possibly-unrelated dormant stretch.
+    """
+    status = break_and_flip_status(events)
+    state = (
+        LineState.FLIPPED if status.is_flipped
+        else (LineState.BROKEN if status.saw_break else LineState.ACTIVE)
+    )
+    last_event = max((e.end for e in events), default=first_touch)
+    regime_start_ts = (
+        scoring.regime_start(events, config.regime_gap_years, since=first_touch)
+        if events else pd.Timestamp(first_touch)
+    )
+    regime_start_str = regime_start_ts.isoformat() if events else first_touch
+
+    wick = sum(1 for e in events if e.type == EventType.TOUCH)
+    body = sum(1 for e in events if e.type == EventType.BODY_TOUCH)
+    wick_fake = sum(1 for e in events if e.type == EventType.WICK_FAKE)
+    ur_events = [e for e in events if e.type == EventType.BODY_FAKE and not e.pending]
+    undercut_and_rally = len(ur_events)
+    ur_durations = [e.bars_to_reclaim for e in ur_events if e.bars_to_reclaim is not None]
+    avg_bars_to_reclaim_ur = (sum(ur_durations) / len(ur_durations)) if ur_durations else None
+
+    break_reclaims = flip_status.pair_break_reclaims(events, bars)
+    # Attach the pairing result back onto the actual Event objects -- Event
+    # isn't frozen, so this in-place mutation is safe and requires no
+    # rebuilding of `events`.
+    for br in break_reclaims:
+        br.break_event.reclaimed = br.reclaimed
+        br.break_event.reclaimed_at = br.reclaimed_at
+        br.break_event.bars_to_reclaim = br.bars_to_reclaim
+    breaks_reclaimed = sum(1 for br in break_reclaims if br.reclaimed)
+    break_durations = [br.bars_to_reclaim for br in break_reclaims if br.reclaimed]
+
+    touch_counts = TouchCounts(
+        wick=wick, body=body, wick_fake=wick_fake, undercut_and_rally=undercut_and_rally,
+        total=wick + body + wick_fake + undercut_and_rally,
+        avg_bars_to_reclaim_ur=avg_bars_to_reclaim_ur,
+        breaks=len(break_reclaims), breaks_reclaimed=breaks_reclaimed,
+        avg_bars_to_reclaim_break=(sum(break_durations) / len(break_durations)) if break_durations else None,
+        bars_to_reclaim_last_break=break_reclaims[-1].bars_to_reclaim if break_reclaims else None,
+    )
+
+    regime_events = [e for e in events if pd.Timestamp(e.start) >= regime_start_ts]
+    avg_first, avg_second, trend = scoring.penetration_depth_trend(regime_events)
+
+    reaction_events = [e for e in regime_events if e.type in _REACTION_EVENT_TYPES]
+    avg_reaction_atr_touch = (
+        sum(e.reaction_atr for e in reaction_events) / len(reaction_events) if reaction_events else None
+    )
+    touch_volumes = [e.volume_ratio for e in reaction_events if e.volume_ratio is not None]
+    avg_volume_ratio_touch = (sum(touch_volumes) / len(touch_volumes)) if touch_volumes else None
+    break_events_regime = [e for e in regime_events if e.type == EventType.BREAK]
+    break_volumes = [e.volume_ratio for e in break_events_regime if e.volume_ratio is not None]
+    avg_volume_ratio_break = (sum(break_volumes) / len(break_volumes)) if break_volumes else None
+
+    now = bars.index[-1]
+    age_days_total = (now - pd.Timestamp(first_touch)).days
+    age_days_regime = (now - regime_start_ts).days
+    days_since_last_event = (now - pd.Timestamp(last_event)).days
+
+    return _EventDerivedFields(
+        status=status, state=state, regime_start=regime_start_str, last_event=last_event,
+        touch_counts=touch_counts,
+        avg_penetration_first_half=avg_first, avg_penetration_second_half=avg_second, penetration_trend=trend,
+        avg_reaction_atr_touch=avg_reaction_atr_touch,
+        avg_volume_ratio_touch=avg_volume_ratio_touch,
+        avg_volume_ratio_break=avg_volume_ratio_break,
+        age_days_total=age_days_total, age_days_regime=age_days_regime,
+        days_since_last_event=days_since_last_event,
+    )
 
 
 def build_line(
@@ -27,16 +147,10 @@ def build_line(
     original_side: str | None,
     scores: ScoreBreakdown,
     config: SRConfig,
+    bars: pd.DataFrame,
+    atr: pd.Series,
 ) -> Line:
-    status = break_and_flip_status(events)
-    has_break, flipped, broken_at, flipped_at = (
-        status.saw_break, status.is_flipped, status.broken_at, status.flipped_at,
-    )
-    state = LineState.FLIPPED if flipped else (LineState.BROKEN if has_break else LineState.ACTIVE)
-
-    if state == LineState.FLIPPED:
-        role = LineRole.FLIPPED
-    elif original_side == "above":
+    if original_side == "above":
         role = LineRole.SUPPORT
     elif original_side == "below":
         role = LineRole.RESISTANCE
@@ -53,38 +167,50 @@ def build_line(
     # sorted by time (candidates.py sorts by price for clustering), so this
     # must take the min explicitly rather than assuming pivots[0].
     first_touch = min(p.timestamp for p in candidate.pivots)
-    last_event = max((e.end for e in events), default=first_touch)
-    regime_start = (
-        scoring.regime_start(events, config.regime_gap_years, since=first_touch).isoformat()
-        if events else first_touch
-    )
+
+    derived = _derive_event_fields(ordered, bars, config, first_touch)
+    if derived.state == LineState.FLIPPED:
+        role = LineRole.FLIPPED
 
     is_diagonal = isinstance(candidate, DiagonalCandidate)
+    now_bar_index = len(bars) - 1
+    slope_atr = (
+        slope_atr_per_bar(candidate.slope, candidate.center_at(now_bar_index), atr.iloc[-1])
+        if is_diagonal else None
+    )
 
     return Line(
         id=line_id,
         kind=LineKind.DIAGONAL if is_diagonal else LineKind.HORIZONTAL,
         role=role,
-        state=state,
+        state=derived.state,
         center=None if is_diagonal else candidate.center,
         half_width=candidate.half_width,
         slope=candidate.slope if is_diagonal else None,
         intercept=candidate.intercept if is_diagonal else None,
         origin_index=candidate.origin_index if is_diagonal else None,
         first_touch=first_touch,
-        regime_start=regime_start,
-        last_event=last_event,
+        regime_start=derived.regime_start,
+        last_event=derived.last_event,
         events=ordered,
         scores=scores,
         strength=scores.total,
         proximity=scores.proximity,
         diagonal_fit_penalty=candidate.fit_rms_atr_pct if is_diagonal else 0.0,
-        n_touches=sum(1 for e in events if e.type == EventType.TOUCH),
-        n_wick_fakes=sum(1 for e in events if e.type == EventType.WICK_FAKE),
-        n_body_fakes=sum(1 for e in events if e.type == EventType.BODY_FAKE),
-        n_breaks=sum(1 for e in events if e.type == EventType.BREAK),
-        broken_at=broken_at,
-        flipped_at=flipped_at,
+        broken_at=derived.status.broken_at,
+        flipped_at=derived.status.flipped_at,
+        origin_side=original_side,
+        slope_atr_per_bar=slope_atr,
+        touch_counts=derived.touch_counts,
+        avg_penetration_first_half=derived.avg_penetration_first_half,
+        avg_penetration_second_half=derived.avg_penetration_second_half,
+        penetration_trend=derived.penetration_trend,
+        avg_reaction_atr_touch=derived.avg_reaction_atr_touch,
+        avg_volume_ratio_touch=derived.avg_volume_ratio_touch,
+        avg_volume_ratio_break=derived.avg_volume_ratio_break,
+        age_days_total=derived.age_days_total,
+        age_days_regime=derived.age_days_regime,
+        days_since_last_event=derived.days_since_last_event,
     )
 
 
@@ -188,10 +314,14 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
     onward, never before it, so the pre-2020 period was never actually
     checked for geometric agreement in the first place.
 
-    `regime_start` (see `scoring.regime_start`) is likewise recomputed from
-    the final event set on every merge, for both kinds -- it's a pure
-    function of the event timeline, not something a merge can leave stale
-    the way a naive event union could.
+    Every field `_derive_event_fields` computes (state, regime_start,
+    last_event, touch_counts, penetration/reaction/volume aggregates, age
+    fields) is likewise recomputed from the final event set on every merge,
+    for both kinds -- all of it is a pure function of the event timeline,
+    not something a merge can leave stale the way a naive event union
+    could. `origin_side` is the one exception, deliberately: it's the
+    line's founding identity, frozen at `build_line` time, and a merge
+    enriches evidence without redefining what founded it.
     """
     if survivor.kind == LineKind.DIAGONAL:
         survivor.events, _ = events_mod.classify_events(
@@ -200,31 +330,34 @@ def _absorb(survivor: Line, absorbed: Line, bars: pd.DataFrame, atr: pd.Series, 
     else:
         survivor.first_touch = min(survivor.first_touch, absorbed.first_touch)
         survivor.events = sorted(survivor.events + absorbed.events, key=lambda e: (e.start, e.end))
-    survivor.last_event = max((e.end for e in survivor.events), default=survivor.first_touch)
-    survivor.regime_start = (
-        scoring.regime_start(survivor.events, config.regime_gap_years, since=survivor.first_touch).isoformat()
-        if survivor.events else survivor.first_touch
-    )
 
-    status = break_and_flip_status(survivor.events)
-    survivor.state = (
-        LineState.FLIPPED if status.is_flipped
-        else (LineState.BROKEN if status.saw_break else LineState.ACTIVE)
-    )
+    derived = _derive_event_fields(survivor.events, bars, config, survivor.first_touch)
+    survivor.state = derived.state
+    survivor.regime_start = derived.regime_start
+    survivor.last_event = derived.last_event
+    survivor.touch_counts = derived.touch_counts
+    survivor.avg_penetration_first_half = derived.avg_penetration_first_half
+    survivor.avg_penetration_second_half = derived.avg_penetration_second_half
+    survivor.penetration_trend = derived.penetration_trend
+    survivor.avg_reaction_atr_touch = derived.avg_reaction_atr_touch
+    survivor.avg_volume_ratio_touch = derived.avg_volume_ratio_touch
+    survivor.avg_volume_ratio_break = derived.avg_volume_ratio_break
+    survivor.age_days_total = derived.age_days_total
+    survivor.age_days_regime = derived.age_days_regime
+    survivor.days_since_last_event = derived.days_since_last_event
+
     if survivor.state == LineState.FLIPPED:
         survivor.role = LineRole.FLIPPED
-    survivor.broken_at = status.broken_at
-    survivor.flipped_at = status.flipped_at
-
-    survivor.n_touches = sum(1 for e in survivor.events if e.type == EventType.TOUCH)
-    survivor.n_wick_fakes = sum(1 for e in survivor.events if e.type == EventType.WICK_FAKE)
-    survivor.n_body_fakes = sum(1 for e in survivor.events if e.type == EventType.BODY_FAKE)
-    survivor.n_breaks = sum(1 for e in survivor.events if e.type == EventType.BREAK)
+    survivor.broken_at = derived.status.broken_at
+    survivor.flipped_at = derived.status.flipped_at
 
     is_diagonal = survivor.kind == LineKind.DIAGONAL
     now_bar_index = len(bars) - 1
     candidate_center = survivor.price_at(now_bar_index) if is_diagonal else survivor.center
     center_at = survivor.price_at if is_diagonal else None
+
+    if is_diagonal:
+        survivor.slope_atr_per_bar = slope_atr_per_bar(survivor.slope, candidate_center, atr.iloc[-1])
 
     survivor.scores = scoring.score_line(
         survivor.events, bars, atr, candidate_center, config, diagonal=is_diagonal, center_at=center_at,

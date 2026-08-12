@@ -16,11 +16,18 @@ from src.sr_lines.models import (
     Pivot,
     PivotKind,
     ScoreBreakdown,
+    TouchCounts,
 )
 
 
 def _flat_bars(n_days: int = 60, price: float = 100.0) -> pd.DataFrame:
-    idx = pd.bdate_range("2020-01-01", periods=n_days)
+    # Calendar days, not business days -- several tests below hand-write
+    # literal date strings and rely on flip_status.pair_break_reclaims'
+    # bars_between (a bars.index.get_loc lookup) succeeding for a break's
+    # confirming event. A real pipeline only ever produces event dates from
+    # actual bars.index entries (see events.py), so this never bites in
+    # production; it's purely a synthetic-fixture concern here.
+    idx = pd.date_range("2020-01-01", periods=n_days, freq="D")
     return pd.DataFrame(
         {"open": price, "high": price + 1, "low": price - 1, "close": price, "volume": 1_000_000},
         index=idx,
@@ -51,7 +58,7 @@ def _line(
         events=events,
         scores=ScoreBreakdown(total=strength),
         strength=strength,
-        n_breaks=sum(1 for e in events if e.type == EventType.BREAK),
+        touch_counts=TouchCounts(breaks=sum(1 for e in events if e.type == EventType.BREAK)),
     )
 
 
@@ -136,7 +143,7 @@ def test_dedup_rescores_the_survivor_from_the_merged_event_union():
     # The union now genuinely contains a break with no confirming event --
     # the survivor must report that, not stay ACTIVE from its own pre-merge events.
     assert survivor.state == LineState.BROKEN
-    assert survivor.n_breaks == 1
+    assert survivor.touch_counts.breaks == 1
     assert survivor.broken_at == "2020-03-01"
     # Score must be recomputed from the union too, not left at the stale 0.8.
     assert survivor.strength != pytest.approx(0.8)
@@ -183,8 +190,12 @@ def test_build_line_sets_regime_start_from_the_event_timeline():
         _touch(idx[1350].isoformat()),
     ]
     config = SRConfig(regime_gap_years=1.0)
+    bars = _flat_bars(1500)
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config)
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config,
+        bars=bars, atr=_atr(bars),
+    )
 
     assert line.regime_start == idx[1300].isoformat()
     assert line.regime_start != line.first_touch  # a real reset, not just coincidentally equal
@@ -194,8 +205,12 @@ def test_build_line_regime_start_falls_back_to_first_touch_with_no_gap():
     candidate = _minimal_candidate()
     events = [_touch("2020-01-10"), _touch("2020-01-20")]
     config = SRConfig(regime_gap_years=1.0)
+    bars = _flat_bars()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config)
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config,
+        bars=bars, atr=_atr(bars),
+    )
 
     # No gap large enough to reset the regime -- current regime starts at
     # the line's actual founding pivot (first_touch), same instant either
@@ -218,8 +233,12 @@ def test_state_and_flipped_at_agree_even_after_an_unconfirmed_later_break():
         _break("2021-01-01"),
     ]
     candidate = _minimal_candidate()
+    bars = _flat_bars(300)
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig(),
+        bars=bars, atr=_atr(bars),
+    )
 
     assert line.state == LineState.FLIPPED
     assert line.flipped_at is not None
@@ -235,11 +254,16 @@ def test_a_resolved_body_fake_after_a_break_confirms_the_flip_too():
     events = [
         _break("2020-02-01"),
         Event(type=EventType.BODY_FAKE, start="2020-02-10", end="2020-02-12",
-              penetration_atr=0.4, reaction_atr=0.0, pending=False),
+              penetration_atr=0.4, reaction_atr=0.0, pending=False,
+              reclaimed=True, reclaimed_at="2020-02-12", bars_to_reclaim=2),
     ]
     candidate = _minimal_candidate()
+    bars = _flat_bars()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig(),
+        bars=bars, atr=_atr(bars),
+    )
 
     assert line.state == LineState.FLIPPED
     assert line.flipped_at == "2020-02-10"
@@ -254,8 +278,12 @@ def test_a_pending_body_fake_after_a_break_does_not_confirm_the_flip():
               penetration_atr=0.4, reaction_atr=0.0, pending=True),
     ]
     candidate = _minimal_candidate()
+    bars = _flat_bars()
 
-    line = build_line("h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig())
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=SRConfig(),
+        bars=bars, atr=_atr(bars),
+    )
 
     assert line.state == LineState.BROKEN
     assert line.flipped_at is None
@@ -283,14 +311,18 @@ def _diag_line(
         center=None, half_width=half_width, slope=slope, intercept=intercept, origin_index=origin_index,
         first_touch=first_touch, last_event=first_touch, events=events,
         scores=ScoreBreakdown(total=strength), strength=strength,
-        n_breaks=sum(1 for e in events if e.type == EventType.BREAK),
+        touch_counts=TouchCounts(breaks=sum(1 for e in events if e.type == EventType.BREAK)),
     )
 
 
 def test_build_line_populates_diagonal_geometry_not_a_flat_center():
     candidate = _minimal_diagonal_candidate()
+    bars = _flat_bars()
 
-    line = build_line("d0", candidate, events=[], original_side="above", scores=ScoreBreakdown(), config=SRConfig())
+    line = build_line(
+        "d0", candidate, events=[], original_side="above", scores=ScoreBreakdown(), config=SRConfig(),
+        bars=bars, atr=_atr(bars),
+    )
 
     assert line.kind == LineKind.DIAGONAL
     assert line.center is None  # diagonal has no single center -- price_at() instead

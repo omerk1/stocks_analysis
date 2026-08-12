@@ -31,6 +31,20 @@ def slopes_are_similar(a: float, b: float) -> bool:
     return True if hi == 0 else lo / hi >= 0.5
 
 
+def slope_atr_per_bar(slope: float, price_at_ref: float, atr_at_ref: float) -> float:
+    """A fitted log-price-per-bar `slope`, converted to "how many ATRs of
+    real price movement per bar" at a given reference price/ATR. Exact (not
+    a first-order approximation): the real-price change over one bar at
+    `price_at_ref` is `price_at_ref * (exp(slope) - 1)`, normalized by the
+    ATR at that same reference point. Sign-preserving; 0.0 if `atr_at_ref`
+    is missing/zero -- callers own picking a reference point (a candidate's
+    fit-time seed pivot vs. "now" mean genuinely different things; see
+    callers for which)."""
+    if not atr_at_ref or math.isnan(atr_at_ref):
+        return 0.0
+    return price_at_ref * math.expm1(slope) / atr_at_ref
+
+
 @dataclass
 class HorizontalCandidate:
     center: float
@@ -148,11 +162,11 @@ def generate_diagonal_candidates(pivots: list[Pivot], config: SRConfig) -> list[
     1. Seed: every same-kind pivot pair >= `diagonal_min_pivot_separation_bars`
        apart in bar-index defines a candidate line through their
        (bar_index, ln(price)) points.
-    2. Reject if the fitted slope exceeds `max_diagonal_slope_atr_per_bar` --
-       treated as a direct cap on log-price-per-bar (i.e. roughly "max %
-       price move per bar along the trend"), the diagonal analogue of
-       treating `zone_width_atr` as an ATR% multiplier rather than a raw
-       dollar amount (see the horizontal clustering docstring above).
+    2. Reject if the fitted slope, converted to ATR-normalized terms via
+       `slope_atr_per_bar` (evaluated at the later seed pivot's own local
+       price/ATR -- the diagonal analogue of treating `zone_width_atr` as an
+       ATR% multiplier rather than a raw dollar amount, see the horizontal
+       clustering docstring above), exceeds `max_diagonal_slope_atr_per_bar`.
     3. Inliers: every same-kind pivot within `zone_width_atr * (its own
        atr_at_pivot / price)` (log-space, additive -- a close first-order
        approximation of the same % tolerance in real price terms) of the
@@ -287,7 +301,15 @@ def _fit_diagonal_candidates(same_kind_pivots: list[Pivot], config: SRConfig) ->
             x_i, x_j = p_i.bar_index, p_j.bar_index
             y_i, y_j = math.log(p_i.price), math.log(p_j.price)
             slope = (y_j - y_i) / (x_j - x_i)
-            if abs(slope) > config.max_diagonal_slope_atr_per_bar:
+            # Cap is ATR-normalized (see slope_atr_per_bar), evaluated at the
+            # later seed pivot's own local price/ATR -- the only reference
+            # point available at this stage (no bars/atr series threaded
+            # into candidate generation). This can, in principle, disagree
+            # with the same candidate's *stored* Line.slope_atr_per_bar
+            # (evaluated at "now" in lifecycle.py) if the ticker's price/ATR%
+            # regime shifted materially between the seed pivot and today --
+            # an accepted, documented inconsistency, not a bug to chase here.
+            if abs(slope_atr_per_bar(slope, p_j.price, p_j.atr_at_pivot)) > config.max_diagonal_slope_atr_per_bar:
                 continue
 
             inliers = [

@@ -146,8 +146,10 @@ def test_diagonal_half_width_is_price_level_invariant_in_log_space():
 
 
 def test_diagonal_rejects_seed_pairs_exceeding_the_slope_cap():
-    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=0.01, diagonal_min_inliers=2)
-    # log-slope ~0.0277/bar between every pair -- well above the 0.01 cap.
+    # Cap is ATR-normalized (candidates.slope_atr_per_bar): raw log-slope
+    # ~0.0277/bar between every pair, at each pivot's 2% ATR -- converts to
+    # ~1.41 ATR/bar (expm1(0.0277)/0.02), well above the 1.0 cap here.
+    config = SRConfig(diagonal_enabled=True, max_diagonal_slope_atr_per_bar=1.0, diagonal_min_inliers=2)
     pivots = [_diag_pivot(100.0, 0, 0.02), _diag_pivot(200.0, 25, 0.02), _diag_pivot(400.0, 50, 0.02)]
 
     assert generate_diagonal_candidates(pivots, config) == []
