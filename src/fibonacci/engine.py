@@ -15,7 +15,7 @@ import pandas as pd
 
 from src.fibonacci.config import FibConfig
 from src.fibonacci.levels import compute_levels, compute_weight
-from src.fibonacci.lifecycle import evaluate_lifecycle
+from src.fibonacci.lifecycle import evaluate_level_touches, evaluate_lifecycle
 from src.fibonacci.models import FibSet
 from src.fibonacci.swings import detect_swings
 from src.market_common import data as data_mod
@@ -118,6 +118,15 @@ def detect(
     # status, already achieves this without extra handling.
     all_sets.sort(key=lambda s: s.weight, reverse=True)
     selected_sets = all_sets[: config.max_sets]
+
+    # Level touch/respect tracking is a real per-bar walk per level --
+    # deliberately run only for the sets that actually survive ranking
+    # (`selected_sets`), not every candidate in `all_sets`, since a
+    # discarded swing's levels never reach storage. `selected_sets` holds
+    # the same FibSet objects as `all_sets` (a slice, not a copy), so
+    # mutating a set's levels here is visible through both lists.
+    for fib_set in selected_sets:
+        evaluate_level_touches(fib_set.levels, bars, atr, fib_set.swing, config)
 
     return DetectionResult(
         ticker=ticker, timeframe=tf_str, as_of=_as_of_str(as_of),

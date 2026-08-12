@@ -35,6 +35,7 @@ def test_smoke_real_aapl_daily_detection_and_store():
     assert 0 <= len(result.selected_sets) <= config.max_sets
     assert len(result.selected_sets) <= len(result.all_sets)
 
+    selected_ids = {fib_set.id for fib_set in result.selected_sets}
     for fib_set in result.all_sets:
         assert fib_set.swing.origin_date < fib_set.swing.end_date
         assert fib_set.swing.magnitude_atr >= config.min_swing_atr
@@ -46,6 +47,19 @@ def test_smoke_real_aapl_daily_detection_and_store():
                 # ratio on a big down-swing can legitimately extrapolate
                 # below zero; that's correct linear extrapolation, not a bug.
                 assert level.price > 0
+            # Level touch/respect tracking is deliberately only run for
+            # selected_sets (engine.py) -- a discarded candidate's levels
+            # stay at their untouched defaults.
+            if fib_set.id not in selected_ids:
+                assert level.n_touches == 0
+                assert level.n_violations == 0
+                assert level.respected is False
+
+    for fib_set in result.selected_sets:
+        for level in fib_set.levels:
+            assert level.n_touches >= 0
+            assert level.n_violations >= 0
+            assert level.respected == (level.n_violations == 0 and level.n_touches > 0)
 
     run_id = derived_db.record_run(
         derived_conn, "fibonacci", "AAPL", "daily", None, "{}",

@@ -76,6 +76,21 @@ class FibLevel:
     ratio: float
     kind: FibLevelKind
     price: float
+    # Populated by lifecycle.evaluate_level_touches -- how price has
+    # actually interacted with this level since the swing completed, not
+    # just its static ratio->price mapping. All default to "never tested"
+    # (0/None/False) for a level that's too new to have any bars after it.
+    n_touches: int = 0
+    n_violations: int = 0
+    first_touch_date: str | None = None
+    last_touch_date: str | None = None
+    # ATR-normalized average forward-favorable-move across touches (does
+    # price actually bounce off this level, not just brush it) -- same
+    # mechanics as sr_lines.events._reaction_atr.
+    avg_reaction_atr: float | None = None
+    # Cheap derived summary (n_violations == 0 and n_touches > 0) so a model
+    # can filter without recomputing from the raw counts.
+    respected: bool = False
 
     def to_dict(self) -> dict:
         d = asdict(self)

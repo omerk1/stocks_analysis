@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS fib_levels (
     fib_set_id TEXT REFERENCES fib_sets(id),
     ratio REAL, kind TEXT,
     price REAL,
+    n_touches INTEGER, n_violations INTEGER,
+    first_touch_date TEXT, last_touch_date TEXT,
+    avg_reaction_atr REAL, respected INTEGER,
     UNIQUE (fib_set_id, ratio, kind)
 );
 """
@@ -66,10 +69,20 @@ RETURNING id
 """
 
 _UPSERT_LEVEL_SQL = """
-INSERT INTO fib_levels (id, fib_set_id, ratio, kind, price)
-VALUES (:id, :fib_set_id, :ratio, :kind, :price)
+INSERT INTO fib_levels (
+    id, fib_set_id, ratio, kind, price,
+    n_touches, n_violations, first_touch_date, last_touch_date,
+    avg_reaction_atr, respected
+) VALUES (
+    :id, :fib_set_id, :ratio, :kind, :price,
+    :n_touches, :n_violations, :first_touch_date, :last_touch_date,
+    :avg_reaction_atr, :respected
+)
 ON CONFLICT (fib_set_id, ratio, kind) DO UPDATE SET
-    price = excluded.price
+    price = excluded.price,
+    n_touches = excluded.n_touches, n_violations = excluded.n_violations,
+    first_touch_date = excluded.first_touch_date, last_touch_date = excluded.last_touch_date,
+    avg_reaction_atr = excluded.avg_reaction_atr, respected = excluded.respected
 """
 
 
@@ -113,6 +126,12 @@ def _upsert_fib_set_no_commit(conn: sqlite3.Connection, fib_set: FibSet, run_id:
                 "ratio": level.ratio,
                 "kind": level.kind.value,
                 "price": level.price,
+                "n_touches": level.n_touches,
+                "n_violations": level.n_violations,
+                "first_touch_date": level.first_touch_date,
+                "last_touch_date": level.last_touch_date,
+                "avg_reaction_atr": level.avg_reaction_atr,
+                "respected": int(level.respected),
             },
         )
 
@@ -183,9 +202,22 @@ def load_fib_set(conn: sqlite3.Connection, set_id: str) -> FibSet | None:
         magnitude_atr=magnitude_atr, duration_bars=duration_bars, confirmed_at=confirmed_at,
     )
     levels = [
-        FibLevel(id=lvl_id, ratio=ratio, kind=FibLevelKind(kind), price=price)
-        for lvl_id, ratio, kind, price in conn.execute(
-            "SELECT id, ratio, kind, price FROM fib_levels WHERE fib_set_id = ?", (id_,)
+        FibLevel(
+            id=lvl_id, ratio=ratio, kind=FibLevelKind(kind), price=price,
+            n_touches=n_touches, n_violations=n_violations,
+            first_touch_date=first_touch_date, last_touch_date=last_touch_date,
+            avg_reaction_atr=avg_reaction_atr, respected=bool(respected),
+        )
+        for (
+            lvl_id, ratio, kind, price, n_touches, n_violations,
+            first_touch_date, last_touch_date, avg_reaction_atr, respected,
+        ) in conn.execute(
+            """
+            SELECT id, ratio, kind, price, n_touches, n_violations,
+                   first_touch_date, last_touch_date, avg_reaction_atr, respected
+            FROM fib_levels WHERE fib_set_id = ?
+            """,
+            (id_,),
         ).fetchall()
     ]
 
