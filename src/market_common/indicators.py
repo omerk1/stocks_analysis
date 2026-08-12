@@ -43,3 +43,24 @@ def macd(
 
 def obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     return on_balance_volume(close, volume)
+
+
+def scale_consistent(a: float, b: float, max_ratio: float = 10.0) -> bool:
+    """True if two same-unit magnitude samples (typically ATR, or an ATR-
+    derived threshold) -- taken at two different points of a swing/pivot
+    pair that can be years apart -- are close enough in scale that dividing
+    a delta spanning them by just one of the two is still meaningful.
+
+    Exists because a raw price delta straddling a large stock split (e.g. a
+    reverse split) inherits whatever back-adjustment factor applied to the
+    older side, while an ATR/threshold sampled at only one end doesn't --
+    confirmed on real data: AMC's 2023 1-for-10 reverse split leaves
+    ATR(14) at ~27.7 shortly before it and ~0.23 shortly after (119x), while
+    every legitimate large swing checked (SMCI, LCID, MU, MA) stayed under
+    5x. `max_ratio=10.0` sits with real margin on both sides of that split.
+    NaN/non-positive inputs can't be judged and are treated as inconsistent
+    (caller should skip, not divide by them anyway).
+    """
+    if pd.isna(a) or pd.isna(b) or a <= 0 or b <= 0:
+        return False
+    return max(a, b) / min(a, b) <= max_ratio

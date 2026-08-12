@@ -3,6 +3,7 @@ data/raw/*
 data/processed/*
 data/features/*
 data/models/*
+data/derived/*
 !data/**/.gitkeep
 *.sqlite
 *.db
@@ -11,6 +12,11 @@ data/models/*
 
 # sr_lines CLI review charts (generated output, not source)
 review_*.html
+
+# Generated chart/analysis outputs (regenerable from src/*/plotting.py +
+# the DBs, not source -- same reasoning as review_*.html above)
+output/*
+!output/**/.gitkeep
 
 # Python
 __pycache__/
