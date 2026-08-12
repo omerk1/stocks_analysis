@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS divergences (
     p1_price REAL, p2_price REAL,
     i1_value REAL, i2_value REAL,
     strength REAL,
+    duration_bars INTEGER, price_move_atr REAL, indicator_gap_raw REAL,
     appeared_at TEXT, confirmed_at TEXT,
     run_id TEXT,
     UNIQUE (ticker, timeframe, indicator, direction, p2_date)
@@ -28,14 +29,19 @@ CREATE TABLE IF NOT EXISTS divergences (
 _UPSERT_SQL = """
 INSERT INTO divergences
     (id, ticker, timeframe, indicator, direction, p1_date, p2_date,
-     p1_price, p2_price, i1_value, i2_value, strength, appeared_at, confirmed_at, run_id)
+     p1_price, p2_price, i1_value, i2_value, strength,
+     duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at, run_id)
 VALUES
     (:id, :ticker, :timeframe, :indicator, :direction, :p1_date, :p2_date,
-     :p1_price, :p2_price, :i1_value, :i2_value, :strength, :appeared_at, :confirmed_at, :run_id)
+     :p1_price, :p2_price, :i1_value, :i2_value, :strength,
+     :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at, :run_id)
 ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
     strength = excluded.strength,
     i1_value = excluded.i1_value,
     i2_value = excluded.i2_value,
+    duration_bars = excluded.duration_bars,
+    price_move_atr = excluded.price_move_atr,
+    indicator_gap_raw = excluded.indicator_gap_raw,
     confirmed_at = excluded.confirmed_at,
     run_id = excluded.run_id
 """

@@ -216,12 +216,20 @@ def _evaluate_pairs(
 
             mag = magnitude_at(p2.bar_index)
             mag_at_p1 = magnitude_at(p1.bar_index)
+            mag_reliable = not (pd.isna(mag) or mag <= 0 or not indicators.scale_consistent(mag_at_p1, mag))
+            # Raw (pre-clip) values, kept on the row for anyone using them as
+            # model features -- see Divergence's own field docstring for why
+            # these aren't just recoverable from the clipped components.
+            indicator_gap_raw = abs(ip2.value - ip1.value) / mag if mag_reliable else None
+            price_move_atr = abs(p2.value - p1.value) / atr_at_p2
+            duration_bars = p2.bar_index - p1.bar_index
+
             indicator_gap = (
-                0.0 if pd.isna(mag) or mag <= 0 or not indicators.scale_consistent(mag_at_p1, mag)
-                else _clip01(abs(ip2.value - ip1.value) / mag / config.indicator_gap_cap)
+                0.0 if indicator_gap_raw is None
+                else _clip01(indicator_gap_raw / config.indicator_gap_cap)
             )
-            price_move = _clip01(abs(p2.value - p1.value) / atr_at_p2 / config.price_move_cap)
-            span = _clip01((p2.bar_index - p1.bar_index) / config.span_cap_bars)
+            price_move = _clip01(price_move_atr / config.price_move_cap)
+            span = _clip01(duration_bars / config.span_cap_bars)
             strength = (
                 weights["indicator_gap"] * indicator_gap
                 + weights["price_move"] * price_move
@@ -244,6 +252,9 @@ def _evaluate_pairs(
                     i1_value=ip1.value,
                     i2_value=ip2.value,
                     strength=strength,
+                    duration_bars=duration_bars,
+                    price_move_atr=price_move_atr,
+                    indicator_gap_raw=indicator_gap_raw,
                     appeared_at=p2.timestamp,
                     confirmed_at=confirmed_at.isoformat(),
                 )

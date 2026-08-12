@@ -39,8 +39,24 @@ class Divergence:
     i1_value: float
     i2_value: float
     strength: float
+    # The raw, unclipped inputs strength is built from (see detect.py's
+    # _evaluate_pairs) -- strength itself caps each component to [0, 1]
+    # before weighting, which is the right behavior for a bounded display
+    # score but throws away real magnitude information above the cap (an
+    # 8x-ATR move and a 50x-ATR move both read as 1.0). Kept here
+    # unclipped for anyone using these as model features rather than a
+    # display label. duration_bars = p2.bar_index - p1.bar_index;
+    # price_move_atr = |p2.value - p1.value| / ATR at p2's bar;
+    # indicator_gap_raw = |ip2.value - ip1.value| / the indicator's own
+    # magnitude at p2's bar.
+    duration_bars: int
+    price_move_atr: float
     appeared_at: str
     confirmed_at: str
+    # None when the indicator's own magnitude at p2's bar couldn't be
+    # computed reliably -- see detect.py's scale_consistent guard (the same
+    # case that makes the clipped `indicator_gap` component fall back to 0.0).
+    indicator_gap_raw: float | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:
