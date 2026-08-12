@@ -60,6 +60,23 @@ dates that disagree beyond a tolerance (default 1%). `YFinanceClient` also
 exposes `get_hourly_bars` for intraday data Polygon's free tier doesn't
 provide — Yahoo retains roughly the trailing 730 days of hourly history.
 
+### Macro / meta-financial data
+
+```bash
+# Add your FRED API key (free: https://fred.stlouisfed.org/docs/api/api_key.html) to .env
+
+python -m src.data_processing.fetch_macro --series all             # curated list (see fred_client.CURATED_SERIES)
+python -m src.data_processing.fetch_macro --series M2SL,DGS10,SP500 # explicit series ids
+```
+
+Pulls series (money supply, Fed balance sheet, rates, the Treasury curve,
+CPI/PCE inflation, GDP, unemployment, credit spreads, a dollar index, the
+S&P 500 level) from FRED and stores them in `data/raw/market_data.sqlite`'s
+`macro_series` table, keyed by `(series_id, date, source)`. `--start`/`--end`
+are optional — FRED returns full available history by default. A rerun
+overwrites each date to FRED's latest-known value rather than tracking
+revision history (e.g. GDP gets revised after its first release).
+
 ### Bulk ingestion (the whole market, not just a few tickers)
 
 `fetch_data.py` is for a handful of known tickers. For "give me every stock,"

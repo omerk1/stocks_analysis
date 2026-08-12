@@ -365,6 +365,54 @@ def test_upsert_shares_outstanding_ignores_an_empty_series(conn):
     assert result.empty
 
 
+def _macro_values(rows):
+    """rows: list of (date_str, value)"""
+    dates = pd.to_datetime([r[0] for r in rows])
+    return pd.Series([r[1] for r in rows], index=dates, name="value")
+
+
+def test_upsert_and_read_macro_series_roundtrip(conn):
+    db.upsert_macro_series(
+        conn, "M2SL", db.FRED,
+        _macro_values([("2024-01-01", 20800.5), ("2024-02-01", 20900.1)]),
+    )
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+
+    assert len(result) == 2
+    assert list(result["date"]) == ["2024-01-01", "2024-02-01"]
+    assert result.iloc[0]["value"] == 20800.5
+    assert result.iloc[1]["value"] == 20900.1
+
+
+def test_upsert_macro_series_replaces_existing_date_not_duplicates(conn):
+    db.upsert_macro_series(conn, "M2SL", db.FRED, _macro_values([("2024-01-01", 20800.5)]))
+    db.upsert_macro_series(conn, "M2SL", db.FRED, _macro_values([("2024-01-01", 20805.2)]))
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+
+    assert len(result) == 1
+    assert result.iloc[0]["value"] == 20805.2
+
+
+def test_macro_series_different_series_ids_do_not_collide(conn):
+    db.upsert_macro_series(conn, "M2SL", db.FRED, _macro_values([("2024-01-01", 20800.5)]))
+    db.upsert_macro_series(conn, "DGS10", db.FRED, _macro_values([("2024-01-01", 4.02)]))
+
+    m2 = db.read_macro_series(conn, "M2SL", db.FRED)
+    dgs10 = db.read_macro_series(conn, "DGS10", db.FRED)
+
+    assert m2.iloc[0]["value"] == 20800.5
+    assert dgs10.iloc[0]["value"] == 4.02
+
+
+def test_upsert_macro_series_ignores_an_empty_series(conn):
+    db.upsert_macro_series(conn, "M2SL", db.FRED, pd.Series(dtype="float64"))
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+    assert result.empty
+
+
 def _membership_df(rows):
     """rows: list of (ticker, start_date, end_date)"""
     return pd.DataFrame(rows, columns=["ticker", "start_date", "end_date"])
