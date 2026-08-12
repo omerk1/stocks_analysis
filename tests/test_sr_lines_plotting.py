@@ -62,6 +62,17 @@ def test_break_and_body_fake_markers_are_visually_distinct():
     assert break_color != body_fake_color
 
 
+def test_body_touch_has_its_own_marker_entry():
+    # Regression: the render loop only iterates _EVENT_MARKERS.items(), so
+    # an EventType with no entry there isn't a KeyError -- it's just
+    # silently never drawn. BODY_TOUCH must have its own mapping, distinct
+    # from plain TOUCH.
+    assert EventType.BODY_TOUCH in _EVENT_MARKERS
+    touch_symbol, touch_color, *_ = _EVENT_MARKERS[EventType.TOUCH]
+    body_touch_symbol, body_touch_color, *_ = _EVENT_MARKERS[EventType.BODY_TOUCH]
+    assert (touch_symbol, touch_color) != (body_touch_symbol, body_touch_color)
+
+
 def _line_with_break_and_flip(line_id: str) -> Line:
     events = [
         Event(type=EventType.BREAK, start="2020-01-10", end="2020-01-10",

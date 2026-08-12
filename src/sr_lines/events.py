@@ -1,19 +1,29 @@
-"""Per-line event classification: TOUCH, WICK_FAKE, BODY_FAKE, BREAK.
+"""Per-line event classification: TOUCH, BODY_TOUCH, WICK_FAKE, BODY_FAKE, BREAK.
 
 Walks bars chronologically against one candidate zone, tracking which side
 of the zone price currently "belongs" to (its established role side) and
 classifying each interaction:
 
 - TOUCH: range intersects the zone, close snaps back to the established side
-  without breaching the zone's far edge.
+  without breaching the zone's far edge, and the bar's *body* (open/close
+  range) never actually entered the zone -- a pure wick brush.
+- BODY_TOUCH: same as TOUCH, except the body did enter the zone (a deeper,
+  more convincing test that still didn't breach the far edge or close beyond
+  it).
 - WICK_FAKE: the wick breaches the zone's *far* edge (a deeper intrabar
   penetration than a touch) but the close still ends up back on the
   established side, same bar -- a failed break / stop hunt. Scores as a
   small positive (see scoring.py) since the level survived a harder test.
 - BODY_FAKE: the close itself ends up on the *other* side of the zone, but
-  reclaims (close back on the established side) within `fakeout_reclaim_bars`.
+  reclaims (close back on the established side) within `fakeout_reclaim_bars`
+  -- this codebase's own established "Undercut and Rally" (U&R) term (see
+  docs/sr_lines_design_notes.md). Reclaim timing is baked into the
+  classification itself, so a resolved BODY_FAKE's `reclaimed`/`reclaimed_at`/
+  `bars_to_reclaim` are always set (see the reclaim branch below).
 - BREAK: a body-close-beyond-zone that is *not* reclaimed within the window
-  -- the established side flips, ending the candidate's prior phase.
+  -- the established side flips, ending the candidate's prior phase. A BREAK
+  may still be reclaimed much later, well outside the fakeout window --
+  tracked separately by `flip_status.pair_break_reclaims`, not here.
 
 A body-break still awaiting its K-bar reclaim window at the end of the
 available data (or at `as_of`) is emitted as a BODY_FAKE with `pending=True`
@@ -75,6 +85,7 @@ def classify_events(
 
     global_offset = bars.index.get_loc(sub.index[0])
     idx = sub.index
+    opens = sub["open"].to_numpy()
     highs = sub["high"].to_numpy()
     lows = sub["low"].to_numpy()
     closes = sub["close"].to_numpy()
@@ -122,6 +133,9 @@ def classify_events(
                         reaction_atr=0.0,
                         volume_ratio=pending_break["volume_ratio"],
                         pending=False,
+                        reclaimed=True,
+                        reclaimed_at=idx[i].isoformat(),
+                        bars_to_reclaim=i - pending_break["start_i"],
                     )
                 )
                 current_side = pending_break["origin_side"]
@@ -165,7 +179,12 @@ def classify_events(
                 breached_far = highs[i] > zone_hi
                 depth = (highs[i] - zone_hi) if breached_far else (highs[i] - zone_lo)
             penetration_atr = float(depth / a) if pd.notna(a) and a != 0 else 0.0
-            event_type = EventType.WICK_FAKE if breached_far else EventType.TOUCH
+            if breached_far:
+                event_type = EventType.WICK_FAKE
+            else:
+                body_lo, body_hi = min(opens[i], closes[i]), max(opens[i], closes[i])
+                body_intersects = body_hi >= zone_lo and body_lo <= zone_hi
+                event_type = EventType.BODY_TOUCH if body_intersects else EventType.TOUCH
             raw_events.append(
                 Event(
                     type=event_type,
@@ -227,6 +246,13 @@ def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[E
                 reaction_atr=max(prev.reaction_atr, ev.reaction_atr),
                 volume_ratio=max(vol_candidates) if vol_candidates else None,
                 pending=ev.pending,
+                # Same "take the later event's own value" convention `pending`
+                # already uses above -- a merged BODY_FAKE/BREAK's reclaim
+                # fields reflect where the merged group ended up, not its
+                # earlier (superseded) occurrence.
+                reclaimed=ev.reclaimed,
+                reclaimed_at=ev.reclaimed_at,
+                bars_to_reclaim=ev.bars_to_reclaim,
             )
         else:
             merged.append(ev)

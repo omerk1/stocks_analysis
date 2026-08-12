@@ -66,7 +66,9 @@ def detect(
         scores = scoring_mod.score_line(
             line_events, bars, atr, candidate.center, config, diagonal=False
         )
-        lines.append(lifecycle.build_line(f"h{i}", candidate, line_events, original_side, scores, config))
+        lines.append(
+            lifecycle.build_line(f"h{i}", candidate, line_events, original_side, scores, config, bars, atr)
+        )
 
     now_bar_index = len(bars) - 1
     for i, candidate in enumerate(diagonal_candidates):
@@ -75,7 +77,9 @@ def detect(
             line_events, bars, atr, candidate.center_at(now_bar_index), config,
             diagonal=True, center_at=candidate.center_at, diagonal_fit_penalty=candidate.fit_rms_atr_pct,
         )
-        lines.append(lifecycle.build_line(f"d{i}", candidate, line_events, original_side, scores, config))
+        lines.append(
+            lifecycle.build_line(f"d{i}", candidate, line_events, original_side, scores, config, bars, atr)
+        )
 
     lines = lifecycle.dedup_lines(lines, bars, atr, config)
     lines = lifecycle.select_lines(lines, config, strength_floor=strength_floor)

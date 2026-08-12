@@ -27,9 +27,13 @@ def _break(date: str) -> Event:
     return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0)
 
 
-def _body_fake(start: str, end: str, volume: float | None = None) -> Event:
+def _body_fake(start: str, end: str, bars_to_reclaim: int, volume: float | None = None) -> Event:
+    # A resolved BODY_FAKE always carries reclaimed/reclaimed_at/bars_to_reclaim
+    # (set directly by events.py's reclaim branch at classification time) --
+    # this hand-built fixture mirrors that invariant explicitly rather than
+    # leaving it None, matching what a real detection run would produce.
     return Event(type=EventType.BODY_FAKE, start=start, end=end, penetration_atr=0.5, reaction_atr=0.0,
-                 volume_ratio=volume)
+                 volume_ratio=volume, reclaimed=True, reclaimed_at=end, bars_to_reclaim=bars_to_reclaim)
 
 
 def test_resilience_body_fake_decays_with_time_under_but_keeps_a_grace_floor():
@@ -42,8 +46,8 @@ def test_resilience_body_fake_decays_with_time_under_but_keeps_a_grace_floor():
     # is negligible for both -- isolates the reclaim-speed decay this test
     # is actually about, separate from test_resilience_decays_with_recency's
     # time dimension.
-    quick_reclaim = [_body_fake(idx[-3].isoformat(), idx[-2].isoformat())]  # 1 bar under
-    slow_reclaim = [_body_fake(idx[-7].isoformat(), idx[-2].isoformat())]  # 5 bars under (the full window)
+    quick_reclaim = [_body_fake(idx[-3].isoformat(), idx[-2].isoformat(), bars_to_reclaim=1)]
+    slow_reclaim = [_body_fake(idx[-7].isoformat(), idx[-2].isoformat(), bars_to_reclaim=5)]  # full window
 
     score_quick = score_line(quick_reclaim, bars, atr, 100.0, config)
     score_slow = score_line(slow_reclaim, bars, atr, 100.0, config)
@@ -166,9 +170,11 @@ def _strong_flipped_events(bars: pd.DataFrame) -> list[Event]:
         Event(type=EventType.WICK_FAKE, start=idx[3].isoformat(), end=idx[3].isoformat(),
               penetration_atr=0.5, reaction_atr=0.0),
         Event(type=EventType.BODY_FAKE, start=idx[4].isoformat(), end=idx[5].isoformat(),
-              penetration_atr=0.5, reaction_atr=0.0),
+              penetration_atr=0.5, reaction_atr=0.0,
+              reclaimed=True, reclaimed_at=idx[5].isoformat(), bars_to_reclaim=1),
         Event(type=EventType.BODY_FAKE, start=idx[6].isoformat(), end=idx[7].isoformat(),
-              penetration_atr=0.5, reaction_atr=0.0),
+              penetration_atr=0.5, reaction_atr=0.0,
+              reclaimed=True, reclaimed_at=idx[7].isoformat(), bars_to_reclaim=1),
         _break(idx[8].isoformat()),
         _touch(idx[9].isoformat(), reaction=5.0),
         _touch(idx[10].isoformat(), reaction=5.0),
@@ -287,7 +293,7 @@ def test_role_reversal_counts_a_resolved_body_fake_as_confirmation_but_not_a_pen
     bars = _flat_bars(60)
     atr = _atr(bars)
 
-    resolved = [_break("2020-02-01"), _body_fake("2020-02-10", "2020-02-12")]
+    resolved = [_break("2020-02-01"), _body_fake("2020-02-10", "2020-02-12", bars_to_reclaim=2)]
     pending_only = [
         _break("2020-02-01"),
         Event(type=EventType.BODY_FAKE, start="2020-02-10", end="2020-02-12",
@@ -622,8 +628,8 @@ def test_resilience_rewards_high_volume_reclaims():
     atr = _atr(bars)
     idx = bars.index
 
-    high_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), volume=2.0)]
-    low_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), volume=0.2)]
+    high_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), bars_to_reclaim=1, volume=2.0)]
+    low_volume = [_body_fake(idx[10].isoformat(), idx[11].isoformat(), bars_to_reclaim=1, volume=0.2)]
 
     score_high = score_line(high_volume, bars, atr, 100.0, config)
     score_low = score_line(low_volume, bars, atr, 100.0, config)

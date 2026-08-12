@@ -15,7 +15,7 @@ from src.market_common.models import DataQualityReport, Pivot, PivotKind
 __all__ = [
     "DataQualityReport", "Pivot", "PivotKind",
     "LineKind", "LineRole", "LineState", "EventType",
-    "Event", "ScoreBreakdown", "Line", "DetectionResult",
+    "Event", "TouchCounts", "ScoreBreakdown", "Line", "DetectionResult",
 ]
 
 
@@ -38,6 +38,7 @@ class LineState(str, Enum):
 
 class EventType(str, Enum):
     TOUCH = "touch"
+    BODY_TOUCH = "body_touch"
     WICK_FAKE = "wick_fake"
     BODY_FAKE = "body_fake"
     BREAK = "break"
@@ -55,11 +56,62 @@ class Event:
     # None while a candidate body-break is still within its reclaim window
     # and hasn't yet been classified as BODY_FAKE or BREAK (as_of mode).
     pending: bool = False
+    # Set for BODY_FAKE and BREAK -- the two event types that represent a
+    # close-beyond-zone. None (all three fields) for TOUCH/BODY_TOUCH/
+    # WICK_FAKE (never applicable -- those never crossed in the first
+    # place). For BODY_FAKE, set directly at classification time in
+    # events.py: it's already, by definition, a close-beyond-zone that
+    # reclaimed within `fakeout_reclaim_bars` -- that reclaim IS what makes
+    # it a BODY_FAKE rather than a BREAK, so `reclaimed` is always True and
+    # `bars_to_reclaim` always <= fakeout_reclaim_bars for one. For BREAK,
+    # left None at classification time and filled in later (possibly
+    # never) by `flip_status.pair_break_reclaims` -- a break can be
+    # reclaimed long after the fakeout window that would have made it a
+    # BODY_FAKE instead, which is exactly the slower, second-chance "did
+    # the market change its mind" question these fields answer for a
+    # BREAK specifically. `reclaimed` is bool|None (not plain bool) so
+    # "not applicable" stays distinguishable from "did cross, never
+    # reclaimed" (False).
+    reclaimed: bool | None = None
+    reclaimed_at: str | None = None
+    bars_to_reclaim: int | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["type"] = self.type.value
         return d
+
+
+@dataclass
+class TouchCounts:
+    """Every classified interaction between price and a line, bucketed by
+    how the level held (or didn't). `wick`, `body`, `wick_fake`, and
+    `undercut_and_rally` are the four "held" flavors -- different depths/
+    conviction, but in every one of them the level was tested and still
+    respected -- and all four roll into `total`. A resolved BODY_FAKE
+    ("Undercut and Rally", this codebase's own established term -- see
+    docs/sr_lines_design_notes.md -- a close-beyond-zone that reclaimed
+    within `fakeout_reclaim_bars`) genuinely counts as a touch here: the
+    level ultimately held, just via a slower, weaker path than a same-bar
+    touch or wick-fake. `breaks` is tracked on its own axis (the level did
+    NOT hold within its own event) -- a break that's later reclaimed
+    (`breaks_reclaimed`, via flip_status.pair_break_reclaims, a longer,
+    separate horizon than U&R's bounded window) is still a break event; it
+    doesn't retroactively move into `total`.
+    """
+    wick: int = 0                  # EventType.TOUCH -- wick-only, body never entered zone
+    body: int = 0                  # EventType.BODY_TOUCH -- body entered zone, held
+    wick_fake: int = 0             # EventType.WICK_FAKE -- wick breached far edge, held
+    undercut_and_rally: int = 0    # EventType.BODY_FAKE, resolved (not pending) -- "U&R"
+    total: int = 0                 # wick + body + wick_fake + undercut_and_rally
+    avg_bars_to_reclaim_ur: float | None = None  # mean Event.bars_to_reclaim over undercut_and_rally
+    breaks: int = 0                # EventType.BREAK -- level did NOT hold
+    breaks_reclaimed: int = 0      # of `breaks`, how many were later reclaimed (pair_break_reclaims)
+    avg_bars_to_reclaim_break: float | None = None
+    bars_to_reclaim_last_break: int | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 @dataclass
@@ -116,10 +168,6 @@ class Line:
     scores: ScoreBreakdown = field(default_factory=ScoreBreakdown)
     strength: float = 0.0
     proximity: float = 0.0
-    n_touches: int = 0
-    n_wick_fakes: int = 0
-    n_body_fakes: int = 0
-    n_breaks: int = 0
     # Diagonal only: the fitted line's own fit-quality measure (see
     # candidates.DiagonalCandidate.fit_rms_atr_pct), carried onto the built
     # Line so lifecycle.dedup_lines can rescore a merged survivor with its
@@ -127,6 +175,32 @@ class Line:
     diagonal_fit_penalty: float = 0.0
     broken_at: str | None = None
     flipped_at: str | None = None
+    # Founding side ("above"/"below"), frozen at build_line time, never
+    # touched by _absorb (a merge enriches evidence, must not redefine
+    # founding identity -- same reasoning already applied to diagonal
+    # first_touch/slope survival on merge). Used by store.py's natural key.
+    origin_side: str | None = None
+    # Diagonal only: ATR-normalized slope (see candidates.slope_atr_per_bar),
+    # evaluated at "now" (bars.index[-1]). None for horizontal.
+    slope_atr_per_bar: float | None = None
+    touch_counts: TouchCounts = field(default_factory=TouchCounts)
+    # First-half vs second-half avg penetration_atr over current-regime
+    # TOUCH/BODY_TOUCH/WICK_FAKE/BODY_FAKE events (BREAK excluded --
+    # terminal, not "a test that reverted"). trend = second - first; >0 =
+    # deepening (erosion/weakening), <0 = shallowing (fortification/
+    # strengthening). None (all 3) if <4 qualifying events. Data only --
+    # deliberately NOT wired into ScoreBreakdown/score_line.
+    avg_penetration_first_half: float | None = None
+    avg_penetration_second_half: float | None = None
+    penetration_trend: float | None = None
+    avg_reaction_atr_touch: float | None = None   # over TOUCH+BODY_TOUCH+WICK_FAKE
+    avg_volume_ratio_touch: float | None = None   # over TOUCH+BODY_TOUCH+WICK_FAKE
+    avg_volume_ratio_break: float | None = None   # over BREAK events
+    # "How long has this area been valid" -- calendar days, evaluated
+    # against `now` (bars.index[-1]) at build time.
+    age_days_total: int = 0        # now - first_touch
+    age_days_regime: int = 0       # now - regime_start; primary "how long valid"
+    days_since_last_event: int = 0 # now - last_event (recency)
 
     def price_at(self, bar_index: int) -> float:
         """Zone center price at a given integer bar index. For horizontal
@@ -165,13 +239,21 @@ class Line:
             "scores": self.scores.to_dict(),
             "strength": self.strength,
             "proximity": self.proximity,
-            "n_touches": self.n_touches,
-            "n_wick_fakes": self.n_wick_fakes,
-            "n_body_fakes": self.n_body_fakes,
-            "n_breaks": self.n_breaks,
             "diagonal_fit_penalty": self.diagonal_fit_penalty,
             "broken_at": self.broken_at,
             "flipped_at": self.flipped_at,
+            "origin_side": self.origin_side,
+            "slope_atr_per_bar": self.slope_atr_per_bar,
+            "touch_counts": self.touch_counts.to_dict(),
+            "avg_penetration_first_half": self.avg_penetration_first_half,
+            "avg_penetration_second_half": self.avg_penetration_second_half,
+            "penetration_trend": self.penetration_trend,
+            "avg_reaction_atr_touch": self.avg_reaction_atr_touch,
+            "avg_volume_ratio_touch": self.avg_volume_ratio_touch,
+            "avg_volume_ratio_break": self.avg_volume_ratio_break,
+            "age_days_total": self.age_days_total,
+            "age_days_regime": self.age_days_regime,
+            "days_since_last_event": self.days_since_last_event,
         }
 
 

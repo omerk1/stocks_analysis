@@ -8,6 +8,10 @@ def test_weekly_preset_sets_bar_interval_and_rescales_bar_count_knobs():
     assert config.fakeout_reclaim_bars == 1
     assert config.touch_reaction_window_bars == 2
     assert config.diagonal_min_pivot_separation_bars == 4
+    # Scales the *opposite* direction from the other three -- slope is a
+    # "movement per bar" rate, which grows (not shrinks) under weekly, since
+    # each bar now spans ~5x the calendar time of a daily bar.
+    assert config.max_diagonal_slope_atr_per_bar == 1.75
 
 
 def test_weekly_preset_matches_its_daily_counterpart_on_everything_else():
@@ -22,7 +26,7 @@ def test_weekly_preset_matches_its_daily_counterpart_on_everything_else():
     daily_fields = daily.to_dict()
     weekly_fields = weekly.to_dict()
     rescaled = {
-        "bar_interval", "fakeout_reclaim_bars",
+        "bar_interval", "fakeout_reclaim_bars", "max_diagonal_slope_atr_per_bar",
         "touch_reaction_window_bars", "diagonal_min_pivot_separation_bars",
     }
     for field_name in daily_fields:

@@ -1,23 +1,65 @@
+"""python -m src.sr_lines.cli TICKER [--preset ...] [--timeframe daily|weekly] [--as-of YYYY-MM-DD] [--out PATH]
+python -m src.sr_lines.cli --all [--preset ...] [--timeframe daily|weekly] [--as-of YYYY-MM-DD]
+
+Detects support/resistance lines (horizontal, optionally diagonal via
+--diagonals), upserts them into the derived DB, and -- single-ticker only
+-- writes a Plotly review chart. `--all` iterates every distinct ticker in
+`bars_1d` instead of one named TICKER -- continue-on-error per ticker, with
+a pass/fail/skip tally at the end, matching gaps/cli.py's pattern; chart
+rendering is skipped entirely under --all (would otherwise write one HTML
+file per ticker in the whole universe).
+"""
+
+from __future__ import annotations
+
 import argparse
+import json
 
 import pandas as pd
-from dotenv import load_dotenv
 
 from src.data_processing import db
 from src.data_processing import resample as resample_mod
+from src.market_common import derived_db
 from src.sr_lines import data as data_mod
 from src.sr_lines import engine
-from src.sr_lines.config import get_preset
+from src.sr_lines import store
+from src.sr_lines.config import SRConfig, get_preset
+from src.sr_lines.models import DetectionResult
 from src.sr_lines.plotting import render_review_chart
-from src.utils.config_loader import load_config
+
+
+def _run_for_ticker(
+    raw_conn, derived_conn, ticker: str, sr_config: SRConfig, preset: str, timeframe: str,
+    as_of: str | None, strength_floor: float | None = None,
+) -> DetectionResult:
+    """Runs detection and persists the result. Always records a `runs` row
+    when detection actually ran and found data (even if it found zero
+    lines) -- a run that legitimately found nothing is still a completed
+    run, distinct from one skipped outright for too little data (see the
+    `rows_loaded == 0` check, mirroring gaps/cli.py's `skip_reason`)."""
+    result = engine.detect(raw_conn, ticker, sr_config, as_of=as_of, strength_floor=strength_floor)
+    if result.data_quality.rows_loaded == 0:
+        return result
+
+    run_id = derived_db.record_run(
+        derived_conn, "sr_lines", ticker, timeframe, as_of,
+        json.dumps(sr_config.to_dict()), result.data_quality.rows_dropped, result.data_quality.unreliable,
+    )
+    store.upsert_lines(derived_conn, result.lines, ticker, timeframe, preset, run_id)
+    return result
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Render an S/R line detection review chart")
-    parser.add_argument("ticker")
+    parser = argparse.ArgumentParser(description="Detect support/resistance lines (horizontal, optionally diagonal)")
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("ticker", nargs="?", help="Ticker to run detection for")
+    target.add_argument("--all", action="store_true", help="Run for every distinct ticker in bars_1d")
     parser.add_argument("--preset", default="medium_term", choices=["medium_term", "long_term"])
     parser.add_argument("--as-of", default=None, help="YYYY-MM-DD; default: latest available data")
-    parser.add_argument("--out", default=None, help="Output HTML path (default: review_<ticker>.html)")
+    parser.add_argument(
+        "--out", default=None,
+        help="Output HTML path (default: review_<ticker>.html). Single-ticker only.",
+    )
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--top-n", type=int, default=None, help="Override the preset's top-N line count")
     selection.add_argument(
@@ -48,15 +90,15 @@ def main():
         help="Bar resolution. 'weekly' resamples live from daily bars (see "
         "data.load_bars/resample.to_weekly) and rescales the bar-count-denominated config "
         "knobs (fakeout_reclaim_bars, touch_reaction_window_bars, "
-        "diagonal_min_pivot_separation_bars) to a first-pass weekly-equivalent -- not yet "
-        "empirically calibrated against real charts.",
+        "diagonal_min_pivot_separation_bars, max_diagonal_slope_atr_per_bar) to a first-pass "
+        "weekly-equivalent -- not yet empirically calibrated against real charts.",
     )
     args = parser.parse_args()
 
-    load_dotenv()
-    config = load_config()
-    conn = db.get_connection(db.default_db_path(config.data_paths.raw))
-    db.create_tables(conn)
+    if args.out and args.all:
+        parser.error("--out requires a single TICKER (not --all)")
+
+    raw_conn, derived_conn = derived_db.bootstrap_cli(store.create_sr_lines_tables)
 
     preset_name = f"{args.preset}_weekly" if args.timeframe == "weekly" else args.preset
     sr_config = get_preset(preset_name)
@@ -68,12 +110,48 @@ def main():
         sr_config.zone_width_atr = args.zone_width_atr
     if args.diagonals:
         sr_config.diagonal_enabled = True
-    result = engine.detect(conn, args.ticker, sr_config, as_of=args.as_of, strength_floor=args.strength_floor)
-    detection_bars, _ = data_mod.load_and_validate(conn, args.ticker, sr_config, end=args.as_of)
+
+    if args.all:
+        tickers = [
+            row[0] for row in raw_conn.execute(
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+            ).fetchall()
+        ]
+        n_success, n_failed, n_empty = 0, 0, 0
+        for ticker in tickers:
+            try:
+                result = _run_for_ticker(
+                    raw_conn, derived_conn, ticker, sr_config, args.preset, args.timeframe, args.as_of,
+                    strength_floor=args.strength_floor,
+                )
+            except Exception as exc:  # continue-on-error per ticker, as specced
+                n_failed += 1
+                print(f"{ticker}: FAILED -- {exc}")
+                continue
+
+            if result.data_quality.rows_loaded == 0:
+                n_empty += 1
+                print(f"{ticker}: SKIPPED -- no data")
+                continue
+
+            n_success += 1
+            print(f"{ticker}: {len(result.lines)} lines detected")
+
+        print(f"\nDone: {n_success} succeeded, {n_empty} skipped, {n_failed} failed")
+        raw_conn.close()
+        derived_conn.close()
+        return
+
+    result = _run_for_ticker(
+        raw_conn, derived_conn, args.ticker, sr_config, args.preset, args.timeframe, args.as_of,
+        strength_floor=args.strength_floor,
+    )
+    detection_bars, _ = data_mod.load_and_validate(raw_conn, args.ticker, sr_config, end=args.as_of)
 
     if detection_bars.empty:
         print(f"No data for {args.ticker} (source={data_mod.REQUIRED_SOURCE}) in the requested window.")
-        conn.close()
+        raw_conn.close()
+        derived_conn.close()
         return
 
     reference_date = detection_bars.index[-1]
@@ -89,7 +167,7 @@ def main():
         # identically, then resample and validate at daily resolution
         # *before* aggregating, same as load_bars itself does.
         raw = db.read_bars(
-            conn, "bars_1d", ticker=args.ticker, source=data_mod.REQUIRED_SOURCE,
+            raw_conn, "bars_1d", ticker=args.ticker, source=data_mod.REQUIRED_SOURCE,
             start=detection_bars.index[0].strftime("%Y-%m-%d"),
         )
         if "is_partial" in raw.columns:
@@ -116,7 +194,8 @@ def main():
     fig.write_html(out_path)
     print(f"{args.ticker}: {len(result.lines)} lines detected. Wrote {out_path}")
 
-    conn.close()
+    raw_conn.close()
+    derived_conn.close()
 
 
 if __name__ == "__main__":

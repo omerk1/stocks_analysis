@@ -46,7 +46,19 @@ class SRConfig:
     # Diagonal (milestone 5)
     diagonal_enabled: bool = False
     diagonal_score_multiplier: float = 0.65
-    max_diagonal_slope_atr_per_bar: float = 0.05
+    # ATR-normalized (see candidates.slope_atr_per_bar): roughly "how many
+    # ATRs of real price movement per bar, along the trend." Real trendline
+    # slopes are documented elsewhere in this file as ~0.0001-0.001 raw
+    # log-price/bar; at a typical daily-equity ATR% (~2%, price/ATR~=50)
+    # that normalizes to roughly 0.005-0.05 ATR/bar. 0.35 keeps the same
+    # "generous, rarely binding" character the old raw cap (0.05, applied
+    # directly to log-slope with no ATR normalization at all) had -- but
+    # unlike that one, now means the same thing for every ticker regardless
+    # of its own price/ATR% regime, rather than being inconsistently loose
+    # for low-ATR%/mega-caps and comparatively tight for high-ATR%/small-caps.
+    # A starting point, not a final answer -- needs the same real-chart
+    # tuning pass every other knob here already went through.
+    max_diagonal_slope_atr_per_bar: float = 0.35
     diagonal_min_pivot_separation_bars: int = 20
     diagonal_min_inliers: int = 3
     # A candidate must move more than its own half_width (in log-price) over
@@ -147,6 +159,16 @@ class SRConfig:
 # machinery -- `recency_half_life_years`, `regime_gap_years`, `window_years`
 # itself) already operates in real calendar time, not bar counts, so daily
 # and weekly genuinely share the same right answer there.
+#
+# `max_diagonal_slope_atr_per_bar` is also bar-count-denominated (it's a
+# rate *per bar*), but scales the *opposite* direction from the other three:
+# those are "how many bars until X" thresholds, which shrink under weekly
+# since fewer, longer bars are needed to span the same calendar time; slope
+# is "movement per bar", which grows under weekly since each bar now spans
+# ~5x the calendar time (and therefore accumulates ~5x the price movement)
+# of a daily bar for the same real-world trend. Same "divide/multiply
+# daily's default by ~5" unvalidated first pass as the other three, just in
+# the opposite direction.
 PRESETS: dict[str, SRConfig] = {
     "medium_term": SRConfig(
         window_years=3.0, pivot_atr_mult=2.0, bar_interval="1d",
@@ -159,10 +181,12 @@ PRESETS: dict[str, SRConfig] = {
     "medium_term_weekly": SRConfig(
         window_years=3.0, pivot_atr_mult=2.0, bar_interval="1w",
         fakeout_reclaim_bars=1, touch_reaction_window_bars=2, diagonal_min_pivot_separation_bars=4,
+        max_diagonal_slope_atr_per_bar=1.75,
     ),
     "long_term_weekly": SRConfig(
         window_years=8.0, pivot_atr_mult=3.0, bar_interval="1w",
         fakeout_reclaim_bars=1, touch_reaction_window_bars=2, diagonal_min_pivot_separation_bars=4,
+        max_diagonal_slope_atr_per_bar=1.75,
     ),
 }
 

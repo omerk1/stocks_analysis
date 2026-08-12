@@ -85,14 +85,15 @@ def _event_quality_score(
     fakeout_reclaim_bars: int,
 ) -> float:
     """Sum of per-event evidence *strength* (not just count) x recency decay
-    relative to `decay_reference`. TOUCH/WICK_FAKE use `reaction_atr` (how far
-    price moved away afterward -- a real signal for both, since a wick-fake's
-    reclaim is scored the same way a touch's bounce is). A resolved BODY_FAKE
-    has no `reaction_atr` of its own (events.py always sets it to 0.0 for
-    body-fakes/breaks), so it uses the same reclaim-speed decay `_resilience`
-    already computes for it instead -- a quick reclaim is strong evidence, a
-    slow one (up to the `fakeout_reclaim_bars` window) is weaker but still
-    real, per the same "Undercut and Rally" grading used there.
+    relative to `decay_reference`. TOUCH/BODY_TOUCH/WICK_FAKE use
+    `reaction_atr` (how far price moved away afterward -- a real signal for
+    all three, since a wick-fake's reclaim is scored the same way a touch's
+    bounce is). A resolved BODY_FAKE has no `reaction_atr` of its own
+    (events.py always sets it to 0.0 for body-fakes/breaks), so it uses the
+    same reclaim-speed decay `_resilience` already computes for it instead --
+    a quick reclaim is strong evidence, a slow one (up to the
+    `fakeout_reclaim_bars` window) is weaker but still real, per the same
+    "Undercut and Rally" grading used there.
 
     Also weighted by `_volume_factor(e.volume_ratio)` -- a touch on
     above-average volume is more convincing evidence (more participants
@@ -100,23 +101,24 @@ def _event_quality_score(
     level touched 4 times on high volume should outscore one touched the
     same way on low volume, not just tie on count.
 
-    Shared by `_touch_quality` (over TOUCH events) and `_role_reversal` (over
-    confirming events after a break) so both measure strength, not raw count
-    -- a handful of tiny, long-decayed, or barely-reclaimed events shouldn't
-    score the same as a handful of strong, recent, cleanly-reclaimed ones just
-    because the counts match.
+    Shared by `_touch_quality` (over TOUCH/BODY_TOUCH events) and
+    `_role_reversal` (over confirming events after a break) so both measure
+    strength, not raw count -- a handful of tiny, long-decayed, or
+    barely-reclaimed events shouldn't score the same as a handful of strong,
+    recent, cleanly-reclaimed ones just because the counts match.
     """
     half_life_days = half_life_years * 365.25
     total = 0.0
     for e in events:
         age_days = (decay_reference - pd.Timestamp(e.end)).days
         decay = 0.5 ** (max(age_days, 0) / half_life_days) if half_life_days > 0 else 1.0
-        if e.type in (EventType.TOUCH, EventType.WICK_FAKE):
+        if e.type in (EventType.TOUCH, EventType.BODY_TOUCH, EventType.WICK_FAKE):
             quality = min(e.reaction_atr, _REACTION_CAP_ATR) / _REACTION_CAP_ATR
         elif e.type == EventType.BODY_FAKE and not e.pending:
-            bars_to_reclaim = _bars_between(bars, e.start, e.end)
+            # bars_to_reclaim is always set for a resolved (non-pending)
+            # BODY_FAKE -- see events.py's reclaim branch.
             fraction_of_window = (
-                min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
+                min(e.bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
             )
             quality = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
         else:
@@ -161,7 +163,7 @@ def _touch_quality(
     half_life_years: float,
     fakeout_reclaim_bars: int,
 ) -> float:
-    touches = [e for e in events if e.type == EventType.TOUCH]
+    touches = [e for e in events if e.type in (EventType.TOUCH, EventType.BODY_TOUCH)]
     if not touches:
         return 0.0
     touches = _most_recent(touches, _TOUCH_QUALITY_TOUCHES_FOR_FULL_CREDIT)
@@ -327,10 +329,6 @@ def _in_play_fraction(
     return 0.0 if pd.isna(fraction) else float(fraction)
 
 
-def _bars_between(bars: pd.DataFrame, start: str, end: str) -> int:
-    return int(bars.index.get_loc(pd.Timestamp(end)) - bars.index.get_loc(pd.Timestamp(start)))
-
-
 _RECENT_EVENTS_FOR_FULL_CREDIT = 3
 
 
@@ -382,9 +380,10 @@ def _resilience(
         if e.type == EventType.WICK_FAKE:
             total += _WICK_FAKE_RESILIENCE * vol * decay
         else:
-            bars_to_reclaim = _bars_between(bars, e.start, e.end)
+            # bars_to_reclaim is always set for a resolved (non-pending)
+            # BODY_FAKE -- see events.py's reclaim branch.
             fraction_of_window = (
-                min(bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
+                min(e.bars_to_reclaim / fakeout_reclaim_bars, 1.0) if fakeout_reclaim_bars > 0 else 1.0
             )
             reclaim_decay = 1.0 - (1.0 - _BODY_FAKE_MIN_DECAY) * fraction_of_window
             total += _BODY_FAKE_RESILIENCE * reclaim_decay * vol * decay
@@ -447,6 +446,33 @@ def _role_reversal(
     confirming_events = _most_recent(confirming_events, _RECENT_EVENTS_FOR_FULL_CREDIT)
     total = _event_quality_score(confirming_events, bars, decay_reference, half_life_years, fakeout_reclaim_bars)
     return min(total / _RECENT_EVENTS_FOR_FULL_CREDIT, 1.0)
+
+
+_MIN_EVENTS_FOR_PENETRATION_TREND = 4
+_PENETRATION_TREND_TYPES = (EventType.TOUCH, EventType.BODY_TOUCH, EventType.WICK_FAKE, EventType.BODY_FAKE)
+
+
+def penetration_depth_trend(events: list[Event]) -> tuple[float | None, float | None, float | None]:
+    """(avg_first_half, avg_second_half, trend) of `penetration_atr` over
+    TOUCH/BODY_TOUCH/WICK_FAKE/BODY_FAKE events (BREAK excluded -- it's the
+    terminal event, not a "test that reverted"), ordered chronologically and
+    split by position. trend > 0: deepening (erosion/weakening); trend < 0:
+    shallowing (fortification/strengthening). All None below
+    `_MIN_EVENTS_FOR_PENETRATION_TREND` qualifying events, for a stable
+    comparison. Data only -- not wired into `ScoreBreakdown`/`score_line`,
+    left for a future weight-tuning pass to decide how (or whether) to use.
+    """
+    qualifying = sorted(
+        (e for e in events if e.type in _PENETRATION_TREND_TYPES),
+        key=lambda e: (e.start, e.end),
+    )
+    if len(qualifying) < _MIN_EVENTS_FOR_PENETRATION_TREND:
+        return None, None, None
+    mid = len(qualifying) // 2
+    first, second = qualifying[:mid], qualifying[mid:]
+    avg_first = sum(e.penetration_atr for e in first) / len(first)
+    avg_second = sum(e.penetration_atr for e in second) / len(second)
+    return avg_first, avg_second, avg_second - avg_first
 
 
 def _proximity(current_price: float, candidate_center: float, atr_now: float) -> float:

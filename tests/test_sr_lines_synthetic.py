@@ -61,7 +61,7 @@ def _run_horizontal_pipeline(bars: pd.DataFrame, config: SRConfig):
     for i, cand in enumerate(cands):
         evs, original_side = events_mod.classify_events(bars, cand, atr, config)
         scores = scoring_mod.score_line(evs, bars, atr, cand.center, config, diagonal=False)
-        lines.append(lifecycle.build_line(f"h{i}", cand, evs, original_side, scores, config))
+        lines.append(lifecycle.build_line(f"h{i}", cand, evs, original_side, scores, config, bars, atr))
     return lines, pivot_list, atr
 
 
@@ -78,7 +78,10 @@ def test_flat_level_finds_one_line_near_each_extreme():
     assert any(abs(c - 105.0) < 1.0 for c in centers)
 
     low_line = min(lines, key=lambda l: l.center)
-    assert low_line.n_touches >= 2
+    # >=2 touches of *some* held flavor (wick-only or body) -- the exact
+    # wick-vs-body split of a deterministic sawtooth's reversal candle isn't
+    # what this test is about, so it checks the unified total.
+    assert low_line.touch_counts.total >= 2
 
 
 def test_planted_wick_fake_is_classified_and_line_survives():
@@ -104,7 +107,7 @@ def test_planted_wick_fake_is_classified_and_line_survives():
 
     assert any(e.type == EventType.WICK_FAKE for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config, bars, atr)
     assert line.state == LineState.ACTIVE
     assert scores.resilience > 0
 
@@ -135,7 +138,7 @@ def test_planted_body_fake_reclaims_and_stays_active():
     assert any(e.type == EventType.BODY_FAKE and not e.pending for e in evs)
     assert not any(e.type == EventType.BREAK for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config, bars, atr)
     assert line.state == LineState.ACTIVE
 
 
@@ -171,7 +174,7 @@ def test_real_break_then_retest_flips_role():
 
     assert any(e.type == EventType.BREAK for e in evs)
     scores = scoring_mod.score_line(evs, bars, atr, low_cand.center, config, diagonal=False)
-    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config)
+    line = lifecycle.build_line("h0", low_cand, evs, original_side, scores, config, bars, atr)
 
     assert line.state == LineState.FLIPPED
     # State is a binary label (one confirmation is enough to flip it), but
