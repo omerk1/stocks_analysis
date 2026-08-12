@@ -16,6 +16,13 @@ from src.gaps.config import GapConfig
 from src.gaps.models import Direction, Gap, GapStatus
 from src.market_common import indicators
 
+# How many consecutive not-touching bars a brief recede-and-return gets
+# before it counts as a genuinely separate approach rather than the same
+# one continuing -- same "don't let mechanical noise fragment one real
+# interaction into several" reasoning, and the same value, as
+# sr_lines/events.py's _MERGE_GAP_BARS.
+_APPROACH_MERGE_GAP_BARS = 3
+
 
 def _penetration_pct(
     direction: Direction, zone_top: float, zone_bottom: float, bar: pd.Series, fill_by: str
@@ -38,6 +45,30 @@ def _penetration_pct(
         price = bar["high"] if fill_by == "wick" else max(bar["open"], bar["close"])
         pct = (price - zone_bottom) / height * 100.0
     return max(0.0, min(100.0, pct))
+
+
+def _merge_nearby_touches(touching: np.ndarray, max_gap_bars: int) -> np.ndarray:
+    """Bridges any not-touching stretch of `max_gap_bars` or fewer bars that
+    sits *between* two touching runs, so a brief 1-2 bar recede-and-return
+    isn't counted as two separate approaches. A leading or trailing
+    not-touching stretch (nothing touching before/after it in the walked
+    window) is never bridged -- there's no run on the other side to merge
+    with.
+    """
+    bridged = touching.copy()
+    n = len(touching)
+    i = 0
+    while i < n:
+        if not touching[i]:
+            j = i
+            while j < n and not touching[j]:
+                j += 1
+            if i > 0 and j < n and (j - i) <= max_gap_bars:
+                bridged[i:j] = True
+            i = j
+        else:
+            i += 1
+    return bridged
 
 
 def _status_for(max_fill_pct: float, soft_close_pct: float) -> GapStatus:
@@ -149,8 +180,27 @@ def _walk(
     # neither recoverable from the other (a gap touched once for 40 bars
     # straight and one touched 10 times briefly can share the same
     # max_fill_pct/first_touch_date but tell very different stories).
-    touching = pct > 0.0
-    rising = touching & ~np.concatenate(([False], touching[:-1]))
+    #
+    # Two corrections on top of a bare "count the rising edges" pass, both
+    # confirmed against real data before landing:
+    # 1. Bounded to the gap's own active lifetime -- once cummax first
+    #    reaches 100%, the gap is fully closed and done; without this, a
+    #    real AAPL gap that closed on day 19 of its life kept accumulating
+    #    "approaches" for two more *years* as price wandered back through
+    #    the same historical price level for entirely unrelated reasons.
+    #    A gap that never closes still walks to the end of available data,
+    #    same as every other field here.
+    # 2. Merged via `_merge_nearby_touches` -- a bare `pct > 0` transition
+    #    has no tolerance at all, so a brief 1-bar recede-and-return
+    #    (confirmed in the same real gap: several runs were separated by
+    #    exactly 1 bar) would otherwise inflate the count with noise, the
+    #    same class of bug `avwap.lifecycle`'s `n_crosses` had before its
+    #    own tolerance-band fix.
+    hit_100 = np.flatnonzero(cummax >= 100.0)
+    approach_end = int(hit_100[0]) + 1 if hit_100.size else len(pct)
+    touching = pct[:approach_end] > 0.0
+    bridged = _merge_nearby_touches(touching, _APPROACH_MERGE_GAP_BARS)
+    rising = bridged & ~np.concatenate(([False], bridged[:-1]))
     gap.n_approaches = int(rising.sum())
 
     def _milestone(mask) -> tuple[str | None, int | None]:

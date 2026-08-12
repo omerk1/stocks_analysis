@@ -30,17 +30,21 @@ def _bullish_gap(created_at: str, zone_bottom: float = 100.0, zone_top: float = 
 
 
 def test_n_approaches_counts_distinct_reentries_not_just_the_running_max():
-    # zone=[100,105]. Touches (wick/low dips into the zone) at bars 2 and 5,
-    # receding fully out of the zone in between -- two separate approaches,
-    # never fully filling (max_fill_pct stays at 40, from bar 5).
+    # zone=[100,105]. Touches (wick/low dips into the zone) at bars 2 and 7,
+    # receding fully out of the zone for 4 bars in between (more than
+    # _APPROACH_MERGE_GAP_BARS=3, so these stay genuinely separate) --
+    # two separate approaches, never fully filling (max_fill_pct stays at
+    # 40, from bar 7).
     bars = _flat_bars(20)
     bars = _extend(bars, [
         (106.0, 107.0, 106.0, 106.0, 1000.0),  # bar1: low=106, not touching
         (104.0, 105.0, 104.0, 104.0, 1000.0),  # bar2: low=104, touching (pct=20) -- approach 1
         (106.0, 107.0, 106.0, 106.0, 1000.0),  # bar3: recedes
         (107.0, 108.0, 107.0, 107.0, 1000.0),  # bar4: still out
-        (103.0, 104.0, 103.0, 103.0, 1000.0),  # bar5: low=103, touching (pct=40) -- approach 2
-        (106.0, 107.0, 106.0, 106.0, 1000.0),  # bar6: recedes
+        (107.0, 108.0, 107.0, 107.0, 1000.0),  # bar5: still out
+        (107.0, 108.0, 107.0, 107.0, 1000.0),  # bar6: still out (4-bar gap now)
+        (103.0, 104.0, 103.0, 103.0, 1000.0),  # bar7: low=103, touching (pct=40) -- approach 2
+        (106.0, 107.0, 106.0, 106.0, 1000.0),  # bar8: recedes
     ])
     gap = _bullish_gap(created_at=bars.index[19].isoformat())
     config = GapConfig(atr_period=5, warmup_bars=0)
@@ -50,6 +54,51 @@ def test_n_approaches_counts_distinct_reentries_not_just_the_running_max():
     assert gap.n_approaches == 2
     assert gap.max_fill_pct == pytest.approx(40.0)
     assert gap.status == GapStatus.PARTIAL
+
+
+def test_a_brief_recede_and_return_does_not_inflate_n_approaches():
+    # Regression: zone=[100,105]. Touch, recede for exactly 1 bar, touch
+    # again -- this must count as ONE continuous approach, not two, the
+    # same class of fix avwap.lifecycle's n_crosses needed for bare
+    # boundary-flip noise.
+    bars = _flat_bars(20)
+    bars = _extend(bars, [
+        (104.0, 105.0, 104.0, 104.0, 1000.0),  # bar1: touching
+        (106.0, 107.0, 106.0, 106.0, 1000.0),  # bar2: recedes for exactly 1 bar
+        (103.0, 104.0, 103.0, 103.0, 1000.0),  # bar3: touching again
+    ])
+    gap = _bullish_gap(created_at=bars.index[19].isoformat())
+    config = GapConfig(atr_period=5, warmup_bars=0)
+
+    apply_lifecycle(bars, [gap], config)
+
+    assert gap.n_approaches == 1
+
+
+def test_n_approaches_does_not_count_activity_after_the_gap_has_closed():
+    # Regression: once the gap fully closes, later, unrelated revisits to
+    # the same price level (which can happen years later in real data)
+    # must not keep inflating n_approaches -- it should reflect the gap's
+    # own active lifetime, not the rest of history.
+    bars = _flat_bars(20)
+    bars = _extend(bars, [
+        (99.0, 100.0, 99.0, 99.0, 1000.0),      # bar1: low=99 <= zone_bottom=100 -> fully closed here
+        (110.0, 111.0, 109.0, 110.0, 1000.0),   # bar2: far away, irrelevant
+        (110.0, 111.0, 109.0, 110.0, 1000.0),   # bar3
+        (110.0, 111.0, 109.0, 110.0, 1000.0),   # bar4
+        (110.0, 111.0, 109.0, 110.0, 1000.0),   # bar5
+        (104.0, 105.0, 104.0, 104.0, 1000.0),   # bar6: price wanders back through the zone, long after closing
+        (110.0, 111.0, 109.0, 110.0, 1000.0),   # bar7
+    ])
+    gap = _bullish_gap(created_at=bars.index[19].isoformat())
+    config = GapConfig(atr_period=5, warmup_bars=0)
+
+    apply_lifecycle(bars, [gap], config)
+
+    assert gap.status == GapStatus.CLOSED
+    # Only the closing bar itself counts -- bar6's later revisit (well
+    # after closed_date) must not add a second approach.
+    assert gap.n_approaches == 1
 
 
 def test_volume_ratio_at_creation_uses_the_rolling_20_bar_average():
