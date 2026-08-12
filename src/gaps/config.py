@@ -37,3 +37,11 @@ class GapConfig:
     # any gap is ever sized against it. Gaps created inside the warmup
     # window are simply never recorded, not recorded-then-discarded.
     warmup_bars: int = 50
+
+    # Post-close reaction tracking (see lifecycle._apply_reaction). Forward
+    # window, in bars past closed_date, for measuring whether price
+    # reverses back in the gap's original direction after fully filling --
+    # the classic "fill then reverse" check. Same bounded-window convention
+    # as sr_lines/fibonacci/avwap/divergences' own reaction/outcome
+    # windows. Starting point, not validated.
+    reaction_window_bars: int = 10

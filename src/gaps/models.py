@@ -52,6 +52,23 @@ class Gap:
     # also detected (see detect.py) -- the classic row's own related_id
     # always stays None, so the link is one-directional (FVG -> classic).
     related_id: str | None = None
+    # Populated by lifecycle.apply_lifecycle -- insight that was already
+    # being computed bar-by-bar but previously collapsed straight to
+    # max_fill_pct/status without being kept. n_approaches: distinct times
+    # price entered the zone and receded, not just the single running-max
+    # fill curve (a gap can be approached repeatedly without ever fully
+    # filling). volume_ratio_at_creation: rolling-20-bar ratio at the
+    # creation bar, same calc as sr_lines.events._vol_ratio -- was a gap
+    # created on unusually high volume. reaction_atr_after_close/
+    # bars_to_reaction_peak: once status reaches CLOSED, the ATR-normalized
+    # best move *back in the gap's original direction* within
+    # config.reaction_window_bars -- the classic "fill then reverse" check.
+    # None/0 ("not yet applicable") while still open or too near the data's
+    # edge for a full reaction window.
+    n_approaches: int = 0
+    volume_ratio_at_creation: float | None = None
+    reaction_atr_after_close: float | None = None
+    bars_to_reaction_peak: int | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:
