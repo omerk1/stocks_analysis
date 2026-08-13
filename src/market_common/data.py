@@ -25,6 +25,7 @@ import pandas as pd
 
 from src.data_processing import db
 from src.data_processing import resample as resample_mod
+from src.market_common import indicators
 from src.market_common.models import DataQualityReport, Timeframe
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,26 @@ REQUIRED_SOURCE = db.YFINANCE
 
 _JUMP_RATIO_LOW = 1 / 3
 _JUMP_RATIO_HIGH = 3.0
+
+# ATR period for the intraday-range check below -- 14 is the idiomatic
+# default every other module in this project uses for ATR (sr_lines,
+# gaps, divergences, fibonacci, avwap configs all default atr_period=14).
+_INTRADAY_ATR_PERIOD = 14
+
+# A bar's (high - low) vs. the *prior* bar's ATR(14) -- prior, not the
+# same bar's own ATR, so one huge spike day can't inflate the very
+# baseline it's being measured against. Tuned against real data (see
+# docs/done.md): T's real 2023-01-24 bar -- a ~13% intraday spike that
+# fully round-trips by the close, invisible to the close-to-close check
+# above -- comes in at ratio 7.9, by far T's own all-time high (next
+# highest in T's ~16y history: 5.4). Spot-checked against ~10 other real
+# tickers spanning blue-chip (AAPL, MSFT, KO, JNJ) to meme/penny-stock
+# volatility (GEVO, AMC, SMCI): a 3.0 threshold flags roughly 0.1-1.3% of
+# trading days per ticker -- rare enough not to be "every normal volatile
+# day," while still catching genuine outliers (including real, non-data-
+# error events like AMC's 2021 short squeeze -- a soft flag surfacing
+# those for review is correct, not a false positive).
+_INTRADAY_RANGE_ATR_RATIO = 3.0
 
 # 0.5% -- matches sr_lines' own long-standing default (SRConfig.
 # corruption_warning_threshold). Not a config field here since this
@@ -115,10 +136,17 @@ def validate_bars(
       low <= min(open, close), max(open, close) <= high, low <= high,
       volume >= 0, all prices > 0.
 
-    Soft check (logged, not dropped): day-over-day close ratio outside
-    [1/3, 3] -- splits are already adjusted in this data, so a 3x jump is
-    suspicious, but not necessarily wrong, so it's flagged for review rather
-    than auto-dropped.
+    Soft checks (logged, not dropped):
+      - day-over-day close ratio outside [1/3, 3] -- splits are already
+        adjusted in this data, so a 3x jump is suspicious, but not
+        necessarily wrong, so it's flagged for review rather than
+        auto-dropped.
+      - intraday range (high - low) more than 3x the prior bar's ATR(14)
+        -- catches a same-day spike-and-round-trip (e.g. T's real
+        2023-01-24 bar) that the close-based check above can't see, since
+        the close ends up looking perfectly normal. Same soft treatment:
+        flagged, not dropped -- a single unusually volatile-but-real
+        trading day shouldn't get silently deleted from history.
 
     Defensive: if `bars` carries a `source` column (e.g. a hand-built or
     multi-source frame passed in directly rather than via `load_bars`),
@@ -152,10 +180,26 @@ def validate_bars(
     suspicious_mask = (close_ratio < _JUMP_RATIO_LOW) | (close_ratio > _JUMP_RATIO_HIGH)
     suspicious_dates = [ts.strftime("%Y-%m-%d") for ts in clean.index[suspicious_mask.fillna(False)]]
 
+    prior_atr = indicators.atr(clean, _INTRADAY_ATR_PERIOD).shift(1)
+    intraday_range = clean["high"] - clean["low"]
+    intraday_ratio = intraday_range / prior_atr
+    # `prior_atr > 0` also excludes the NaN ATR warmup tail (NaN comparisons
+    # are always False), same effect as suspicious_mask's `.fillna(False)`
+    # above, just applied a step earlier since this mask feeds a ratio too.
+    intraday_range_mask = (prior_atr > 0) & (intraday_ratio > _INTRADAY_RANGE_ATR_RATIO)
+    suspicious_intraday_range_dates = [
+        ts.strftime("%Y-%m-%d") for ts in clean.index[intraday_range_mask]
+    ]
+
     if dropped:
         logger.warning("Dropped %d row(s) with invalid OHLC values for %s", dropped, ticker)
     for d in suspicious_dates:
         logger.warning("Suspicious day-over-day close jump for %s on %s (ratio outside [1/3, 3])", ticker, d)
+    for d in suspicious_intraday_range_dates:
+        logger.warning(
+            "Suspicious intraday range for %s on %s (high-low > %.1fx prior ATR(%d))",
+            ticker, d, _INTRADAY_RANGE_ATR_RATIO, _INTRADAY_ATR_PERIOD,
+        )
 
     drop_rate = dropped / rows_loaded if rows_loaded else 0.0
     unreliable = drop_rate > corruption_warning_threshold
@@ -171,6 +215,7 @@ def validate_bars(
         rows_dropped=dropped,
         drop_rate=drop_rate,
         suspicious_jump_dates=suspicious_dates,
+        suspicious_intraday_range_dates=suspicious_intraday_range_dates,
         unreliable=unreliable,
     )
     return clean, report
