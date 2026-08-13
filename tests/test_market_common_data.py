@@ -1,9 +1,15 @@
+import sqlite3
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
 from src.data_processing import db
 from src.market_common.data import load_and_validate, load_bars, validate_bars
 from src.market_common.models import Timeframe
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
 
 
 @pytest.fixture
@@ -164,6 +170,56 @@ def test_validate_bars_uses_given_threshold_not_a_hardcoded_default():
 
     assert lenient.unreliable is False
     assert strict.unreliable is True
+
+
+def test_validate_bars_flags_intraday_spike_that_fully_round_trips():
+    # 20 quiet business days (range ~1.0, so ATR(14) settles near 1.0),
+    # then a bar that spikes to a high of 130 and a low of 99 intraday but
+    # closes essentially flat -- the close-to-close check above can't see
+    # this at all (ratio ~1.0), only the intraday-range-vs-ATR check can.
+    idx = pd.bdate_range("2024-01-01", periods=20)
+    rows = [(d.strftime("%Y-%m-%d"), 100.0, 101.0, 99.0, 100.0, 1000, 0) for d in idx]
+    spike_date = (idx[-1] + pd.Timedelta(days=3)).strftime("%Y-%m-%d")  # next business day
+    rows.append((spike_date, 100.0, 130.0, 99.0, 100.5, 1000, 0))
+    bars = _bars(rows).drop(columns=["is_partial"])
+
+    clean, report = validate_bars(bars, "TEST")
+
+    assert len(clean) == len(rows)  # soft flag -- nothing dropped
+    assert spike_date in report.suspicious_intraday_range_dates
+    assert spike_date not in report.suspicious_jump_dates  # close-to-close looked normal
+
+
+def test_validate_bars_does_not_flag_normal_intraday_ranges():
+    # Same quiet 20-day baseline, but every bar (including the last) stays
+    # well within the ATR(14) established by the baseline -- no bar should
+    # trip the intraday-range check.
+    idx = pd.bdate_range("2024-01-01", periods=25)
+    rows = [(d.strftime("%Y-%m-%d"), 100.0, 101.0, 99.0, 100.0, 1000, 0) for d in idx]
+    bars = _bars(rows).drop(columns=["is_partial"])
+
+    _, report = validate_bars(bars, "TEST")
+
+    assert report.suspicious_intraday_range_dates == []
+
+
+def test_validate_bars_flags_real_att_2023_01_24_intraday_spike():
+    # Real-data acceptance case (docs/backlog.md): T's 2023-01-24 daily bar
+    # spikes to a high of ~17.81 (open ~15.69, prior close ~15.80) and
+    # fully reverses to close at ~15.85 -- a ~13% intraday round-trip the
+    # close-to-close check can't catch, since close-to-close looks
+    # completely normal (~+0.3% vs. the prior close).
+    if not REAL_DB_PATH.exists():
+        pytest.skip(f"real DB not found at {REAL_DB_PATH}")
+
+    conn = sqlite3.connect(REAL_DB_PATH)
+    clean, report = load_and_validate(conn, "T", Timeframe.DAILY, as_of="2023-02-01")
+    conn.close()
+
+    bar = clean.loc["2023-01-24"]
+    assert bar["high"] > bar["open"] * 1.10  # confirms the real spike is present in this DB
+    assert "2023-01-24" in report.suspicious_intraday_range_dates
+    assert "2023-01-24" not in report.suspicious_jump_dates
 
 
 def test_load_and_validate_round_trip(conn):
