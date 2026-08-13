@@ -128,6 +128,41 @@ class PolygonClient:
             "list_date": details.list_date,
         }
 
+    def get_splits(self, ticker: str) -> pd.DataFrame:
+        """Fetch `ticker`'s full historical stock-split record: execution
+        date plus the from/to factors of the split ratio (e.g. split_from=1,
+        split_to=4 for a 4-for-1 forward split; split_from=10, split_to=1
+        for a 1-for-10 reverse split). Confirmed live on the free tier --
+        unlike financials, this reference endpoint isn't paid-tier gated.
+        Real ground truth, not inferred from other data: e.g. AAPL's real
+        2020-08-31 4-for-1 split comes back with that exact execution date,
+        unlike `shares_outstanding`'s own raw share-count jump for the same
+        split, which only shows up ~7 weeks later due to filing lag.
+
+        Returns a DataFrame sorted ascending by execution_date with columns:
+        execution_date (Timestamp), split_from, split_to, ratio (split_to /
+        split_from -- the real-share-count multiplier callers like
+        `market_cap.py` need directly). One call regardless of how many
+        splits a ticker has (like `get_ticker_details` -- no bulk
+        equivalent), rather than page-by-page like
+        `list_common_stock_tickers`: a ticker accumulating enough splits to
+        span multiple response pages (default page size 10) in practice
+        doesn't happen on real data.
+        """
+        self._rate_limiter.wait()
+        splits = self._client.list_splits(ticker=ticker)
+        rows = [
+            {
+                "execution_date": pd.Timestamp(s.execution_date),
+                "split_from": s.split_from,
+                "split_to": s.split_to,
+                "ratio": s.split_to / s.split_from,
+            }
+            for s in splits
+        ]
+        df = pd.DataFrame(rows, columns=["execution_date", "split_from", "split_to", "ratio"])
+        return df.sort_values("execution_date").reset_index(drop=True)
+
     def list_common_stock_tickers(self, active: bool, page_size: int = 1000) -> pd.DataFrame:
         """Page through Polygon's reference tickers for common stock (type=CS).
 
