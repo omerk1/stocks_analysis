@@ -36,6 +36,7 @@ CURATED_SERIES = {
     "BAMLH0A0HYM2": "High-yield credit spread (OAS)",
     "DTWEXBGS": "Trade-weighted broad dollar index",
     "SP500": "S&P 500 index level (daily)",
+    "VIXCLS": "CBOE Volatility Index (VIX, daily close)",
 }
 
 
