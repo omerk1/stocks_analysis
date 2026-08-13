@@ -74,16 +74,17 @@ def test_reconcile_market_cap_hand_computed_across_a_4_for_1_split():
     assert list(result["cumulative_split_ratio"]) == pytest.approx([4.0, 4.0, 4.0, 1.0, 1.0])
 
 
-def test_reconcile_market_cap_understates_during_a_real_style_filing_lag_window():
-    # Documents a known, real caveat (see market_cap.py's module docstring)
-    # rather than leaving it as an undocumented landmine: shares_outstanding
-    # can carry a filing dated on/after a split's true execution date that
-    # still holds the stale pre-split count -- confirmed directly on real
-    # AAPL data (the entry literally dated 2020-08-31, AAPL's real split
-    # day, still reports the pre-split share count; it doesn't update to
-    # the post-split count until an entry dated 2020-10-22). This mirrors
-    # that exact pattern: a stale filing dated on the split day itself,
-    # and a fresh filing only much later.
+def test_reconcile_market_cap_bridges_a_real_style_filing_lag_window():
+    # shares_outstanding can carry a filing dated on/after a split's true
+    # execution date that still holds the stale pre-split count --
+    # confirmed directly on real AAPL data (the entry literally dated
+    # 2020-08-31, AAPL's real split day, still reports the pre-split share
+    # count; it doesn't update to the post-split count until an entry dated
+    # 2020-10-22). This mirrors that exact pattern: a stale filing dated on
+    # the split day itself, and a fresh filing only much later. Without
+    # _bridge_filing_lag, market_cap would dip 4x through the lag window
+    # (2024-01-10 through 2024-02-01) even though bars_1d's price has no
+    # such gap -- see this module's git history for that exact regression.
     dates = ["2024-01-05", "2024-01-10", "2024-02-01", "2024-03-05"]
     # bars_1d has no such lag -- prices are correctly split-adjusted from
     # the true execution date onward, same as real data.
@@ -95,17 +96,40 @@ def test_reconcile_market_cap_understates_during_a_real_style_filing_lag_window(
 
     result = reconcile_market_cap(prices, shares, splits)
 
-    # Correct before the split (uses the 2024-01-01 filing, still ahead of
-    # the split so cumulative_split_ratio scales it up).
-    assert result.loc["2024-01-05", "market_cap"] == pytest.approx(50.0 * 100 * 4)
-    # Understated on/after the split, through the lag window: the stale
-    # 2024-01-10 filing (100) is used verbatim since no split is left
-    # *ahead* of these dates (cumulative_split_ratio is correctly 1.0) --
-    # the real count was already 400, so this is 4x too low.
-    assert result.loc["2024-01-10", "market_cap"] == pytest.approx(52.0 * 100 * 1)
-    assert result.loc["2024-02-01", "market_cap"] == pytest.approx(53.0 * 100 * 1)
-    # Correct again once shares_outstanding's own filing catches up.
-    assert result.loc["2024-03-05", "market_cap"] == pytest.approx(54.0 * 400 * 1)
+    # Continuous throughout: the effective (post-split-equivalent) share
+    # count is 400 the whole time -- 100 x cumulative_split_ratio=4 before
+    # the split, and the synthesized/bridged 100 x 4 = 400 through the lag
+    # window, then the real 400 once shares_outstanding itself catches up.
+    expected = pd.Series(
+        [50.0 * 400, 52.0 * 400, 53.0 * 400, 54.0 * 400], index=_dates(dates)
+    )
+    pd.testing.assert_series_equal(result["market_cap"], expected, check_names=False)
+
+
+def test_bridge_filing_lag_corrects_multiple_stale_rows_then_trusts_the_real_catchup():
+    # A more surgical check on the bridge itself (via
+    # shares_outstanding_used, with prices held at 1.0 so market_cap reads
+    # directly as the corrected share count): two consecutive stale rows
+    # after the split -- with a bit of organic noise (101, then 99) so the
+    # test also proves small drift doesn't break the "still stale" check --
+    # both get synthesized from the *same* pre-split baseline (100) and
+    # ratio (4) to exactly 400. The eventual real catch-up filing (405, not
+    # exactly baseline x ratio -- real filings aren't perfectly clean) is
+    # trusted verbatim once it's clearly diverged from the baseline, not
+    # coerced to match.
+    dates = ["2024-01-01", "2024-01-10", "2024-02-01", "2024-02-15", "2024-03-01"]
+    prices = pd.Series([1.0, 1.0, 1.0, 1.0, 1.0], index=_dates(dates))
+    shares = pd.Series([100, 101, 99, 100, 405], index=_dates(dates))
+    splits = _splits([("2024-01-10", 4.0)])
+
+    result = reconcile_market_cap(prices, shares, splits)
+
+    assert result.loc["2024-01-01", "shares_outstanding_used"] == pytest.approx(100)
+    assert result.loc["2024-01-10", "shares_outstanding_used"] == pytest.approx(400)
+    assert result.loc["2024-02-01", "shares_outstanding_used"] == pytest.approx(400)
+    assert result.loc["2024-02-15", "shares_outstanding_used"] == pytest.approx(400)
+    # The real catch-up filing is trusted as-is, not forced to baseline x ratio.
+    assert result.loc["2024-03-01", "shares_outstanding_used"] == pytest.approx(405)
 
 
 def test_reconcile_market_cap_reverse_split():

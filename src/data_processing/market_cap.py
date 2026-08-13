@@ -35,30 +35,32 @@ kept as a second, parallel source of truth -- see `tests/test_market_cap.py`
 for the old statistical approach, repurposed there as a regression fixture
 proving this explicit-data path reproduces the same validated results.
 
-KNOWN CAVEAT, surfaced by this switch and confirmed on real AAPL data: using
-Polygon's true execution date exposes a *separate*, pre-existing data-quality
-gap in `shares_outstanding` itself that the old statistical-inference
-approach had accidentally been masking. `raw_shares(d)` is an as-of/
-forward-filled lookup of whatever `shares_outstanding` last reported on or
-before `d` -- but a filing can be dated on or after a split's true execution
-date while still holding the stale, pre-split count (confirmed directly:
-AAPL's `shares_outstanding` entry literally dated 2020-08-31, its real split
-day, still reports the pre-split 4,275,630,080 count; the value doesn't
-actually update to the post-split 17,102,499,840 until an entry dated
-2020-10-22). Since `cumulative_split_ratio(d)` now correctly flips to 1.0
-starting at the *true* 2020-08-31 execution date while `raw_shares(d)` stays
-stuck at the stale pre-split count until 2020-10-22, `real_market_cap(d)` is
-understated by exactly the split ratio for that whole window -- a real,
-reproducible artifact, not a formula bug (the old inferred-date approach
-avoided this specific symptom only because it derived the split's "date"
-from that same lagged jump in the first place, so both sides of the
-formula were laggy together and cancelled by coincidence, not because it
-was more correct). Fixing this would require value-level validation of
-`shares_outstanding` entries against Polygon's known split ratios -- exactly
-the kind of raw-shares statistical inspection this module deliberately
-avoids as a *detection* mechanism now, so it's left as a known, tested
-(`test_reconcile_market_cap_understates_during_a_real_style_filing_lag_window`)
-limitation rather than patched here.
+FILING-LAG BRIDGE: using Polygon's true execution date exposed a *separate*,
+pre-existing data-quality gap in `shares_outstanding` itself -- a filing can
+be dated on or after a split's true execution date while still holding the
+stale, pre-split count (confirmed directly on real AAPL data: the entry
+literally dated 2020-08-31, the real split day, still reports the pre-split
+4,275,630,080 count; the value doesn't actually update to the post-split
+17,102,499,840 until an entry dated 2020-10-22, seven weeks later). Naively
+trusting `shares_outstanding` at face value understates `real_market_cap(d)`
+by the split ratio for that whole window.
+
+This is fixed by `_bridge_filing_lag`, *not* by reintroducing the removed
+statistical split detection: that removed logic had to guess whether a split
+happened at all from a noisy jump. Here the split's existence, date, and
+exact ratio are already known facts from `PolygonClient.get_splits` -- the
+only open question is whether a specific `shares_outstanding` row at/after a
+*known* split's execution date has caught up to that already-known fact yet.
+For each split, in chronological order, `_bridge_filing_lag` takes the last
+raw value before the split as the pre-split baseline, then walks forward
+through rows at/after the execution date: as long as a row is still
+`scale_consistent` with that baseline (i.e. within `FILING_LAG_TOLERANCE` --
+reusing the same instinct as the removed split-jump detector, just at a
+tighter threshold since this is a narrower yes/no question with a known
+target, not an open-ended "did anything change" scan) it's replaced with
+`baseline * ratio`; the first row that's *not* still close to the baseline is
+assumed to be the real post-split filing finally landing, and every row from
+there on is trusted as-is, un-synthesized.
 """
 
 from __future__ import annotations
@@ -70,6 +72,17 @@ import pandas as pd
 
 from src.data_processing import db
 from src.data_processing.polygon_client import PolygonClient
+from src.market_common.indicators import scale_consistent
+
+# How close a shares_outstanding row at/after a known split's execution date
+# can still be to the pre-split baseline before it's trusted as the real,
+# caught-up post-split filing. Tighter than the removed split-*detection*
+# threshold (1.5) on purpose: real organic quarter-over-quarter drift caps
+# out well under this on real data (AAPL 2015-2026: ~1.08x max), and unlike
+# detection this only has to distinguish "still near the *known* baseline"
+# from "diverged from it" for one specific, already-known split -- no need
+# for the wider margin blind jump detection required.
+FILING_LAG_TOLERANCE = 1.2
 
 
 def _split_ratio_events(splits: pd.DataFrame) -> pd.Series:
@@ -101,6 +114,36 @@ def _cumulative_split_ratio(dates: pd.Index, events: pd.Series) -> pd.Series:
     return pd.Series(ratio, index=dates, name="cumulative_split_ratio")
 
 
+def _bridge_filing_lag(
+    shares: pd.Series, events: pd.Series, tolerance: float = FILING_LAG_TOLERANCE
+) -> pd.Series:
+    """Synthesize corrected values for `shares_outstanding` rows that fall
+    at/after a known split's execution date but still hold the stale
+    pre-split count (see this module's docstring). `shares` must already be
+    sorted ascending and NaN-free; `events` is `_split_ratio_events`'s
+    output (execution date -> ratio), also sorted ascending.
+
+    Processes splits in chronological order so a later split's baseline
+    reflects any earlier correction already applied. A split with no row
+    before its execution date (no baseline to compare against) is left
+    alone -- nothing to bridge.
+    """
+    corrected = shares.copy()
+    for execution_date, ratio in events.items():
+        prior = corrected[corrected.index < execution_date]
+        if prior.empty:
+            continue
+        baseline = prior.iloc[-1]
+
+        for date in corrected.index[corrected.index >= execution_date]:
+            if not scale_consistent(corrected.loc[date], baseline, max_ratio=tolerance):
+                # Diverged from the pre-split baseline -- the real post-split
+                # filing has landed; trust it and everything after it as-is.
+                break
+            corrected.loc[date] = baseline * ratio
+    return corrected
+
+
 def reconcile_market_cap(
     prices: pd.Series,
     shares: pd.Series,
@@ -119,7 +162,11 @@ def reconcile_market_cap(
 
     `shares` is sparse (filing dates only) and as-of/forward-filled onto
     `prices`' dates -- a date before `shares`' first filing gets NaN
-    throughout (no data to reconcile against yet).
+    throughout (no data to reconcile against yet). Before that lookup,
+    `shares` rows that fall at/after a known split's execution date but
+    still hold a stale, not-yet-updated pre-split count are bridged (see
+    `_bridge_filing_lag` and this module's docstring) so `market_cap` stays
+    continuous across the split rather than dipping during the filing lag.
     """
     prices = prices.dropna().sort_index()
     shares = shares.dropna().sort_index()
@@ -129,6 +176,7 @@ def reconcile_market_cap(
         return pd.DataFrame(columns=columns).rename_axis(prices.index.name or "date")
 
     events = _split_ratio_events(splits)
+    shares = _bridge_filing_lag(shares, events)
     shares_asof = shares.reindex(prices.index, method="ffill")
     cumulative_ratio = _cumulative_split_ratio(prices.index, events)
 
