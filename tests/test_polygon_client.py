@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from src.data_processing.polygon_client import PolygonClient
@@ -109,6 +110,42 @@ def test_get_ticker_details_shapes_dict_and_paces_through_rate_limiter(mock_rest
         "list_date": "1980-12-12",
     }
     rate_limiter.wait.assert_called_once()
+
+
+@patch("src.data_processing.polygon_client.RESTClient")
+def test_get_splits_shapes_dataframe_sorted_ascending_and_paces_through_rate_limiter(mock_rest_client_cls):
+    mock_client = mock_rest_client_cls.return_value
+    # Out of order on purpose (real API returns newest-first) -- confirms
+    # get_splits sorts ascending rather than trusting call order.
+    mock_client.list_splits.return_value = iter(
+        [
+            MagicMock(execution_date="2020-08-31", split_from=1, split_to=4, ticker="AAPL"),
+            MagicMock(execution_date="2014-06-09", split_from=1, split_to=7, ticker="AAPL"),
+        ]
+    )
+    rate_limiter = MagicMock()
+
+    client = PolygonClient(api_key="fake-key", rate_limiter=rate_limiter)
+    splits = client.get_splits("AAPL")
+
+    assert list(splits["execution_date"]) == list(pd.to_datetime(["2014-06-09", "2020-08-31"]))
+    assert list(splits["split_from"]) == [1, 1]
+    assert list(splits["split_to"]) == [7, 4]
+    assert list(splits["ratio"]) == [7.0, 4.0]
+    rate_limiter.wait.assert_called_once()
+
+
+@patch("src.data_processing.polygon_client.RESTClient")
+def test_get_splits_empty_when_no_splits(mock_rest_client_cls):
+    mock_client = mock_rest_client_cls.return_value
+    mock_client.list_splits.return_value = iter([])
+    rate_limiter = MagicMock()
+
+    client = PolygonClient(api_key="fake-key", rate_limiter=rate_limiter)
+    splits = client.get_splits("XYZ")
+
+    assert splits.empty
+    assert list(splits.columns) == ["execution_date", "split_from", "split_to", "ratio"]
 
 
 @patch("src.data_processing.polygon_client.RESTClient")

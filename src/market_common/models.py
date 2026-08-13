@@ -71,6 +71,13 @@ class DataQualityReport:
     rows_dropped: int
     drop_rate: float
     suspicious_jump_dates: list[str] = field(default_factory=list)
+    # Bars whose intraday range (high - low) is anomalously large relative
+    # to that ticker's own recent ATR, even when the close-to-close move
+    # looks completely normal -- catches a same-day spike-and-round-trip
+    # that `suspicious_jump_dates` (close-based) can't see. See
+    # `validate_bars`'s docstring for the exact ratio/threshold. Soft flag,
+    # same as `suspicious_jump_dates` -- not a row drop.
+    suspicious_intraday_range_dates: list[str] = field(default_factory=list)
     unreliable: bool = False
 
     def to_dict(self) -> dict:
