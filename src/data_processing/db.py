@@ -12,6 +12,7 @@ TABLES = ("bars_1d", "bars_1w", "bars_1mo", "bars_1h")
 # could typo-diverge (e.g. "yfinance" vs "y_finance") across modules.
 POLYGON = "polygon"
 YFINANCE = "yfinance"
+FRED = "fred"
 
 BAR_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "is_partial"]
 
@@ -117,6 +118,23 @@ CREATE TABLE IF NOT EXISTS shares_outstanding (
 );
 """
 
+# Macro/meta-financial time series (e.g. FRED's M2SL, DGS10, CPIAUCSL) --
+# same shape as shares_outstanding above with ticker swapped for series_id,
+# since these are market-wide series with no associated ticker. A refresh
+# overwrites to the source's latest-known value per date (INSERT OR REPLACE,
+# same as every other table here) rather than tracking revision vintages --
+# e.g. FRED revises GDP repeatedly after first release, and we deliberately
+# only keep "current best known value," not an ALFRED-style history of edits.
+_MACRO_SERIES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS macro_series (
+    series_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    value REAL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (series_id, date, source)
+);
+"""
+
 
 def default_db_path(raw_data_dir: str | Path) -> Path:
     return Path(raw_data_dir) / "market_data.sqlite"
@@ -134,6 +152,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_TICKER_METADATA_SCHEMA)
     conn.execute(_INDEX_MEMBERSHIP_SCHEMA)
     conn.execute(_SHARES_OUTSTANDING_SCHEMA)
+    conn.execute(_MACRO_SERIES_SCHEMA)
     conn.commit()
 
 
@@ -338,6 +357,32 @@ def read_shares_outstanding(conn: sqlite3.Connection, ticker: str, source: str) 
     return pd.read_sql_query(
         "SELECT date, shares_outstanding FROM shares_outstanding WHERE ticker = ? AND source = ? ORDER BY date",
         conn, params=(ticker, source),
+    )
+
+
+def upsert_macro_series(conn: sqlite3.Connection, series_id: str, source: str, values: pd.Series) -> None:
+    """Insert or replace rows in the `macro_series` table for `series_id`/
+    `source`. `values` must be a Series of floats indexed by date -- same
+    overwrite-on-conflict semantics as `upsert_shares_outstanding` (a re-run
+    refreshes to the source's latest-known value per date).
+    """
+    if values.empty:
+        return
+    rows = [(series_id, _serialize_date(date), _as_float(value), source) for date, value in values.items()]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO macro_series (series_id, date, value, source)
+        VALUES (?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_macro_series(conn: sqlite3.Connection, series_id: str, source: str = FRED) -> pd.DataFrame:
+    return pd.read_sql_query(
+        "SELECT date, value FROM macro_series WHERE series_id = ? AND source = ? ORDER BY date",
+        conn, params=(series_id, source),
     )
 
 
