@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS divergences (
     appeared_at TEXT, confirmed_at TEXT,
     max_favorable_move_atr REAL, bars_to_max_favorable_move INTEGER,
     invalidated INTEGER, invalidated_at TEXT, outcome_computed_through TEXT,
+    confluence_count INTEGER, agreeing_indicators TEXT,
     run_id TEXT,
     UNIQUE (ticker, timeframe, indicator, direction, p2_date)
 );
@@ -34,13 +35,15 @@ INSERT INTO divergences
      p1_price, p2_price, i1_value, i2_value, strength,
      duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at,
      max_favorable_move_atr, bars_to_max_favorable_move,
-     invalidated, invalidated_at, outcome_computed_through, run_id)
+     invalidated, invalidated_at, outcome_computed_through,
+     confluence_count, agreeing_indicators, run_id)
 VALUES
     (:id, :ticker, :timeframe, :indicator, :direction, :p1_date, :p2_date,
      :p1_price, :p2_price, :i1_value, :i2_value, :strength,
      :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at,
      :max_favorable_move_atr, :bars_to_max_favorable_move,
-     :invalidated, :invalidated_at, :outcome_computed_through, :run_id)
+     :invalidated, :invalidated_at, :outcome_computed_through,
+     :confluence_count, :agreeing_indicators, :run_id)
 ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
     strength = excluded.strength,
     i1_value = excluded.i1_value,
@@ -58,6 +61,12 @@ ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
     invalidated = excluded.invalidated,
     invalidated_at = excluded.invalidated_at,
     outcome_computed_through = excluded.outcome_computed_through,
+    -- Cluster membership can change across a rerun (a differently-scoped
+    -- config.indicators list, or an as_of change altering which same-swing
+    -- rows are even visible) -- same mutability bucket as the outcome
+    -- fields just above.
+    confluence_count = excluded.confluence_count,
+    agreeing_indicators = excluded.agreeing_indicators,
     run_id = excluded.run_id
 """
 

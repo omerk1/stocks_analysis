@@ -136,6 +136,7 @@ def classify_events(
                         reclaimed=True,
                         reclaimed_at=idx[i].isoformat(),
                         bars_to_reclaim=i - pending_break["start_i"],
+                        side=pending_break["origin_side"],
                     )
                 )
                 current_side = pending_break["origin_side"]
@@ -151,6 +152,7 @@ def classify_events(
                         reaction_atr=0.0,
                         volume_ratio=pending_break["volume_ratio"],
                         pending=False,
+                        side=pending_break["origin_side"],
                     )
                 )
                 current_side = pending_break["break_side"]
@@ -193,6 +195,7 @@ def classify_events(
                     penetration_atr=penetration_atr,
                     reaction_atr=_reaction_atr(i, current_side),
                     volume_ratio=_vol_ratio(i),
+                    side=current_side,
                 )
             )
         else:
@@ -216,6 +219,7 @@ def classify_events(
                 reaction_atr=0.0,
                 volume_ratio=pending_break["volume_ratio"],
                 pending=True,
+                side=pending_break["origin_side"],
             )
         )
 
@@ -246,6 +250,11 @@ def _merge_adjacent(events: list[Event], full_index: pd.DatetimeIndex) -> list[E
                 reaction_atr=max(prev.reaction_atr, ev.reaction_atr),
                 volume_ratio=max(vol_candidates) if vol_candidates else None,
                 pending=ev.pending,
+                # side is constant within a merged same-type run by
+                # construction -- a real side change would mean a different
+                # current_side and thus a different (non-mergeable) event
+                # boundary in the first place.
+                side=prev.side,
                 # Same "take the later event's own value" convention `pending`
                 # already uses above -- a merged BODY_FAKE/BREAK's reclaim
                 # fields reflect where the merged group ended up, not its

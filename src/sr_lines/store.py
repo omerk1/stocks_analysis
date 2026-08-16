@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS sr_lines (
     -- object, so these mirror its fields 1:1 under a touch_/break_ prefix.
     touch_wick INTEGER NOT NULL, touch_body INTEGER NOT NULL, touch_wick_fake INTEGER NOT NULL,
     touch_undercut_and_rally INTEGER NOT NULL, touch_total INTEGER NOT NULL,
+    touch_total_from_above INTEGER NOT NULL, touch_total_from_below INTEGER NOT NULL,
     avg_bars_to_reclaim_ur REAL,
     breaks INTEGER NOT NULL, breaks_reclaimed INTEGER NOT NULL,
+    touch_breaks_from_above INTEGER NOT NULL, touch_breaks_from_below INTEGER NOT NULL,
     avg_bars_to_reclaim_break REAL, bars_to_reclaim_last_break INTEGER,
     avg_penetration_first_half REAL, avg_penetration_second_half REAL, penetration_trend REAL,
     avg_reaction_atr_touch REAL, avg_volume_ratio_touch REAL, avg_volume_ratio_break REAL,
@@ -69,7 +71,8 @@ CREATE TABLE IF NOT EXISTS sr_line_events (
     type TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL,
     penetration_atr REAL NOT NULL, reaction_atr REAL NOT NULL, volume_ratio REAL,
     pending INTEGER NOT NULL,
-    reclaimed INTEGER, reclaimed_at TEXT, bars_to_reclaim INTEGER
+    reclaimed INTEGER, reclaimed_at TEXT, bars_to_reclaim INTEGER,
+    side TEXT
 );
 """
 
@@ -84,7 +87,9 @@ INSERT INTO sr_lines
      regime_start, last_event, age_days_total, age_days_regime, days_since_last_event,
      strength, proximity,
      touch_wick, touch_body, touch_wick_fake, touch_undercut_and_rally, touch_total,
+     touch_total_from_above, touch_total_from_below,
      avg_bars_to_reclaim_ur, breaks, breaks_reclaimed,
+     touch_breaks_from_above, touch_breaks_from_below,
      avg_bars_to_reclaim_break, bars_to_reclaim_last_break,
      avg_penetration_first_half, avg_penetration_second_half, penetration_trend,
      avg_reaction_atr_touch, avg_volume_ratio_touch, avg_volume_ratio_break,
@@ -95,7 +100,9 @@ VALUES
      :regime_start, :last_event, :age_days_total, :age_days_regime, :days_since_last_event,
      :strength, :proximity,
      :touch_wick, :touch_body, :touch_wick_fake, :touch_undercut_and_rally, :touch_total,
+     :touch_total_from_above, :touch_total_from_below,
      :avg_bars_to_reclaim_ur, :breaks, :breaks_reclaimed,
+     :touch_breaks_from_above, :touch_breaks_from_below,
      :avg_bars_to_reclaim_break, :bars_to_reclaim_last_break,
      :avg_penetration_first_half, :avg_penetration_second_half, :penetration_trend,
      :avg_reaction_atr_touch, :avg_volume_ratio_touch, :avg_volume_ratio_break,
@@ -118,8 +125,12 @@ ON CONFLICT (ticker, timeframe, preset, kind, first_touch, origin_side, geometry
     touch_wick = excluded.touch_wick, touch_body = excluded.touch_body,
     touch_wick_fake = excluded.touch_wick_fake,
     touch_undercut_and_rally = excluded.touch_undercut_and_rally, touch_total = excluded.touch_total,
+    touch_total_from_above = excluded.touch_total_from_above,
+    touch_total_from_below = excluded.touch_total_from_below,
     avg_bars_to_reclaim_ur = excluded.avg_bars_to_reclaim_ur,
     breaks = excluded.breaks, breaks_reclaimed = excluded.breaks_reclaimed,
+    touch_breaks_from_above = excluded.touch_breaks_from_above,
+    touch_breaks_from_below = excluded.touch_breaks_from_below,
     avg_bars_to_reclaim_break = excluded.avg_bars_to_reclaim_break,
     bars_to_reclaim_last_break = excluded.bars_to_reclaim_last_break,
     avg_penetration_first_half = excluded.avg_penetration_first_half,
@@ -137,10 +148,10 @@ RETURNING id
 _EVENT_INSERT_SQL = """
 INSERT INTO sr_line_events
     (line_id, run_id, seq, type, start, end, penetration_atr, reaction_atr, volume_ratio,
-     pending, reclaimed, reclaimed_at, bars_to_reclaim)
+     pending, reclaimed, reclaimed_at, bars_to_reclaim, side)
 VALUES
     (:line_id, :run_id, :seq, :type, :start, :end, :penetration_atr, :reaction_atr, :volume_ratio,
-     :pending, :reclaimed, :reclaimed_at, :bars_to_reclaim)
+     :pending, :reclaimed, :reclaimed_at, :bars_to_reclaim, :side)
 """
 
 
@@ -180,8 +191,10 @@ def _line_row(line: Line, ticker: str, timeframe: str, preset: str, run_id: str)
         "strength": line.strength, "proximity": line.proximity,
         "touch_wick": tc.wick, "touch_body": tc.body, "touch_wick_fake": tc.wick_fake,
         "touch_undercut_and_rally": tc.undercut_and_rally, "touch_total": tc.total,
+        "touch_total_from_above": tc.total_from_above, "touch_total_from_below": tc.total_from_below,
         "avg_bars_to_reclaim_ur": tc.avg_bars_to_reclaim_ur,
         "breaks": tc.breaks, "breaks_reclaimed": tc.breaks_reclaimed,
+        "touch_breaks_from_above": tc.breaks_from_above, "touch_breaks_from_below": tc.breaks_from_below,
         "avg_bars_to_reclaim_break": tc.avg_bars_to_reclaim_break,
         "bars_to_reclaim_last_break": tc.bars_to_reclaim_last_break,
         "avg_penetration_first_half": line.avg_penetration_first_half,
@@ -206,6 +219,7 @@ def _event_row(line_id: str, run_id: str, seq: int, event) -> dict:
         "pending": int(event.pending),
         "reclaimed": None if event.reclaimed is None else int(event.reclaimed),
         "reclaimed_at": event.reclaimed_at, "bars_to_reclaim": event.bars_to_reclaim,
+        "side": event.side,
     }
 
 

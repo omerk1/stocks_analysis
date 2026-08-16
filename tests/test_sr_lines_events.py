@@ -44,6 +44,7 @@ def test_wick_only_touch_when_body_stays_outside_the_zone():
     touches = [e for e in evs if e.start == dates[2].isoformat()]
     assert len(touches) == 1
     assert touches[0].type == EventType.TOUCH
+    assert touches[0].side == "above"
 
 
 def test_body_touch_when_body_enters_the_zone():
@@ -68,6 +69,7 @@ def test_body_touch_when_body_enters_the_zone():
     matching = [e for e in evs if e.start == dates[2].isoformat()]
     assert len(matching) == 1
     assert matching[0].type == EventType.BODY_TOUCH
+    assert matching[0].side == "above"
 
 
 def test_resolved_body_fake_sets_reclaim_fields():
@@ -93,6 +95,7 @@ def test_resolved_body_fake_sets_reclaim_fields():
     assert bf.reclaimed is True
     assert bf.reclaimed_at == dates[3].isoformat()
     assert bf.bars_to_reclaim == 1
+    assert bf.side == "above"
 
 
 def test_pending_body_fake_leaves_reclaim_fields_none():
@@ -116,6 +119,7 @@ def test_pending_body_fake_leaves_reclaim_fields_none():
     assert bf.reclaimed is None
     assert bf.reclaimed_at is None
     assert bf.bars_to_reclaim is None
+    assert bf.side == "above"
 
 
 def test_break_leaves_reclaim_fields_none_at_classification_time():
@@ -144,6 +148,7 @@ def test_break_leaves_reclaim_fields_none_at_classification_time():
     assert breaks[0].reclaimed is None
     assert breaks[0].reclaimed_at is None
     assert breaks[0].bars_to_reclaim is None
+    assert breaks[0].side == "above"
 
 
 def test_merge_adjacent_carries_forward_the_later_events_reclaim_fields():
@@ -155,11 +160,13 @@ def test_merge_adjacent_carries_forward_the_later_events_reclaim_fields():
         type=EventType.BODY_FAKE, start=idx[0].isoformat(), end=idx[1].isoformat(),
         penetration_atr=0.3, reaction_atr=0.0,
         reclaimed=True, reclaimed_at=idx[1].isoformat(), bars_to_reclaim=1,
+        side="above",
     )
     second = Event(
         type=EventType.BODY_FAKE, start=idx[3].isoformat(), end=idx[4].isoformat(),
         penetration_atr=0.5, reaction_atr=0.0,
         reclaimed=True, reclaimed_at=idx[4].isoformat(), bars_to_reclaim=1,
+        side="above",
     )
 
     merged = events_mod._merge_adjacent([first, second], idx)
@@ -167,3 +174,36 @@ def test_merge_adjacent_carries_forward_the_later_events_reclaim_fields():
     assert len(merged) == 1
     assert merged[0].reclaimed_at == second.reclaimed_at
     assert merged[0].bars_to_reclaim == second.bars_to_reclaim
+    assert merged[0].side == "above"
+
+
+def test_touch_after_a_break_reports_the_new_side_not_the_original_side():
+    # Line originally established "above" (support). A break flips the
+    # established side to "below"; a later touch against the new side must
+    # report side="below", not the frozen original_side -- this is what
+    # lets a flipped line's later touches be attributed correctly.
+    dates = pd.date_range("2020-01-01", periods=8, freq="D")
+    rows = [
+        (dates[0], 103.0, 103.5, 102.5, 103.0, 1_000_000),  # establishes "above"
+        (dates[1], 103.0, 103.2, 102.8, 103.0, 1_000_000),
+        (dates[2], 97.0, 97.5, 96.5, 97.0, 1_000_000),  # closes beyond zone_lo -> pending break
+        (dates[3], 96.0, 96.5, 95.5, 96.0, 1_000_000),  # stays beyond -> resolves to BREAK, side flips to "below"
+        (dates[4], 96.0, 96.5, 95.5, 96.0, 1_000_000),
+        (dates[5], 98.5, 100.5, 98.0, 98.5, 1_000_000),  # touches the zone from below, closes back below
+        (dates[6], 96.0, 96.5, 95.5, 96.0, 1_000_000),
+        (dates[7], 96.0, 96.5, 95.5, 96.0, 1_000_000),
+    ]
+    bars = _bars(rows)
+    candidate = _candidate(center=100.0, half_width=1.0, first_touch=dates[0].isoformat())
+    config = SRConfig(fakeout_reclaim_bars=1)
+
+    evs, original_side = events_mod.classify_events(bars, candidate, _atr(bars), config)
+
+    assert original_side == "above"
+    breaks = [e for e in evs if e.type == EventType.BREAK]
+    assert len(breaks) == 1
+    assert breaks[0].side == "above"  # broke away from the original "above" side
+
+    touches = [e for e in evs if e.start == dates[5].isoformat()]
+    assert len(touches) == 1
+    assert touches[0].side == "below"  # tested from the NEW (post-flip) side, not original_side

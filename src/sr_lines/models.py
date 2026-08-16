@@ -75,6 +75,16 @@ class Event:
     reclaimed: bool | None = None
     reclaimed_at: str | None = None
     bars_to_reclaim: int | None = None
+    # "above"/"below" -- the established side price was testing *from* (for
+    # TOUCH/BODY_TOUCH/WICK_FAKE) or breaking *away from* (for BODY_FAKE/
+    # BREAK, both pending and resolved) at this event. Distinct from
+    # Line.origin_side, which is frozen at the line's founding touch and
+    # never updated -- a line that's since flipped role needs this per-event
+    # value to know which side a *later* event actually approached from.
+    # None only in the same never-classified edge case origin_side can be
+    # None for (see classify_events' docstring); not expected on any real
+    # detected line.
+    side: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -109,6 +119,19 @@ class TouchCounts:
     breaks_reclaimed: int = 0      # of `breaks`, how many were later reclaimed (pair_break_reclaims)
     avg_bars_to_reclaim_break: float | None = None
     bars_to_reclaim_last_break: int | None = None
+    # Split of `total`/`breaks` by which side each event's Event.side
+    # recorded -- e.g. a line currently acting as support was tested
+    # total_from_below times (price approaching from below, the normal
+    # "support" direction) vs total_from_above times (price dipping through
+    # and testing it from above -- can happen even pre-flip, e.g. a brief
+    # wick). Not narrowed to the current regime or current role -- a
+    # straight per-event side tally over whatever `total`/`breaks` already
+    # covers, so total_from_above + total_from_below == total (same for
+    # breaks) always holds.
+    total_from_above: int = 0
+    total_from_below: int = 0
+    breaks_from_above: int = 0
+    breaks_from_below: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)

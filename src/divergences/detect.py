@@ -360,6 +360,54 @@ def detect_divergences(
     return results
 
 
+def _flush_confluence_cluster(cluster: list[Divergence]) -> None:
+    if not cluster:
+        return
+    indicators = sorted({d.indicator.value for d in cluster})
+    for d in cluster:
+        d.confluence_count = len(indicators)
+        d.agreeing_indicators = ",".join(indicators)
+
+
+def _apply_confluence(divergences: list[Divergence], bars: pd.DataFrame, pairing_window: int) -> None:
+    """Groups divergences firing off the same underlying price swing across
+    different indicators -- if RSI and MACD-hist both diverge off pivots
+    landing within `pairing_window` bars of each other, that's corroborated
+    evidence, not just two independent signals. Mutates each Divergence's
+    `confluence_count`/`agreeing_indicators` in place; `strength` is
+    deliberately untouched (see its field docstring in models.py).
+
+    Clustering is a simple bar-index-proximity walk within each `direction`
+    group (direction already segregates HIGH/LOW pivots) -- sort by p2 bar
+    index, start a new cluster whenever the gap to the previous member
+    exceeds `pairing_window`. Deliberately not `_pair_pivots`'s 1:1
+    claim-matching: that pairs exactly two distinct lists, whereas this
+    groups an unbounded number of same-swing rows (across up to 4
+    indicators, occasionally more rows if chained pivot pairs both land in
+    the window) together. Reuses `pairing_window` as the tolerance rather
+    than a new config knob: it's already this config's own notion of "how
+    close in bars counts as the same pivot," and indicators with differing
+    warmup offsets (see `_warmup_for`) can land their price pivots a few
+    bars apart for what is, chartwise, the same swing.
+    """
+    by_direction: dict[Direction, list[tuple[int, Divergence]]] = {}
+    for d in divergences:
+        bar_index = bars.index.get_loc(pd.Timestamp(d.p2_date))
+        by_direction.setdefault(d.direction, []).append((bar_index, d))
+
+    for group in by_direction.values():
+        group.sort(key=lambda pair: pair[0])
+        cluster: list[Divergence] = []
+        prev_index: int | None = None
+        for bar_index, d in group:
+            if prev_index is not None and bar_index - prev_index > pairing_window:
+                _flush_confluence_cluster(cluster)
+                cluster = []
+            cluster.append(d)
+            prev_index = bar_index
+        _flush_confluence_cluster(cluster)
+
+
 def detect(
     conn: sqlite3.Connection,
     ticker: str,
@@ -377,6 +425,14 @@ def detect(
     pivot's `confirmed_at` is already <= as_of by construction -- the
     explicit filter below is a defensive, spec-mandated belt-and-braces
     check, not dead weight covering a real gap in the truncation.
+
+    Confluence (`_apply_confluence`) is computed *after* this as_of filter,
+    not inside `detect_divergences` -- if it ran earlier, a divergence
+    visible as-of a given date could report a `confluence_count` inflated by
+    a same-pivot divergence from a different indicator that only confirms
+    later (indicator pivot confirmation lag differs by indicator), leaking
+    future information into a currently-visible row. Running it here means
+    confluence only ever reflects what was actually knowable as of `as_of`.
     """
     timeframe = Timeframe(timeframe)
     bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
@@ -391,5 +447,8 @@ def detect(
     if as_of is not None:
         as_of_ts = pd.Timestamp(as_of)
         divergences = [d for d in divergences if pd.Timestamp(d.confirmed_at) <= as_of_ts]
+
+    if divergences:
+        _apply_confluence(divergences, bars, config.pairing_window)
 
     return divergences, report, None

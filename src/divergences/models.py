@@ -74,6 +74,19 @@ class Divergence:
     # Last bar this row's outcome fields actually reflect -- None if no
     # bars past confirmed_at were available to walk at all.
     outcome_computed_through: str | None = None
+    # Populated by detect._apply_confluence -- how many *distinct* indicators
+    # (this one included) diverge off the same underlying price swing (their
+    # p2 pivots land within config.pairing_window bars of each other).
+    # confluence_count=1/agreeing_indicators="<own indicator>" for a
+    # solo divergence -- always set, never None, so a consumer doesn't need
+    # a special case for "no confluence data yet" vs. "no confluence found."
+    # `strength` is deliberately NOT boosted by this -- its weights are
+    # already tuned/validated on their own; confluence is reported as a
+    # separate signal for a consumer to combine however it wants.
+    # agreeing_indicators is a comma-joined, sorted string (SQLite has no
+    # native array/list column type).
+    confluence_count: int = 1
+    agreeing_indicators: str | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:
