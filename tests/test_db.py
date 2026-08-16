@@ -413,6 +413,48 @@ def test_upsert_macro_series_ignores_an_empty_series(conn):
     assert result.empty
 
 
+def test_upsert_macro_series_without_publication_leaves_new_columns_null(conn):
+    db.upsert_macro_series(conn, "M2SL", db.FRED, _macro_values([("2024-01-01", 20800.5)]))
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+
+    assert pd.isna(result.iloc[0]["published_at"])
+    assert pd.isna(result.iloc[0]["first_published_value"])
+
+
+def test_upsert_macro_series_stores_publication_pair(conn):
+    values = _macro_values([("2024-01-01", 20800.5), ("2024-02-01", 20900.1)])
+    publication = pd.DataFrame(
+        {"published_at": ["2024-01-10", "2024-02-12"], "first_published_value": [20790.0, 20895.0]},
+        index=values.index,
+    )
+
+    db.upsert_macro_series(conn, "M2SL", db.FRED, values, publication=publication)
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+    assert list(result["published_at"]) == ["2024-01-10", "2024-02-12"]
+    assert list(result["first_published_value"]) == [20790.0, 20895.0]
+    # value (latest-known) is untouched by publication -- distinct meaning.
+    assert list(result["value"]) == [20800.5, 20900.1]
+
+
+def test_upsert_macro_series_publication_partially_covering_values_leaves_the_rest_null(conn):
+    # publication need not cover every date `values` does -- e.g. a
+    # first-release query returned a narrower window than the plain pull.
+    values = _macro_values([("2024-01-01", 20800.5), ("2024-02-01", 20900.1)])
+    publication = pd.DataFrame(
+        {"published_at": ["2024-01-10"], "first_published_value": [20790.0]},
+        index=pd.to_datetime(["2024-01-01"]),
+    )
+
+    db.upsert_macro_series(conn, "M2SL", db.FRED, values, publication=publication)
+
+    result = db.read_macro_series(conn, "M2SL", db.FRED)
+    assert result.iloc[0]["published_at"] == "2024-01-10"
+    assert pd.isna(result.iloc[1]["published_at"])
+    assert pd.isna(result.iloc[1]["first_published_value"])
+
+
 def _membership_df(rows):
     """rows: list of (ticker, start_date, end_date)"""
     return pd.DataFrame(rows, columns=["ticker", "start_date", "end_date"])
