@@ -102,6 +102,16 @@ def test_all_default_indicators_run_end_to_end_and_store_roundtrips(conn):
     stored_count = derived_conn.execute("SELECT COUNT(*) FROM divergences").fetchone()[0]
     assert stored_count == len(divergences)
 
+    # Every real row gets real confluence fields -- never left NULL/unset --
+    # regardless of whether it actually clustered with anything.
+    confluence_rows = derived_conn.execute(
+        "SELECT confluence_count, agreeing_indicators FROM divergences"
+    ).fetchall()
+    assert confluence_rows
+    for confluence_count, agreeing_indicators in confluence_rows:
+        assert confluence_count >= 1
+        assert agreeing_indicators
+
     # Re-run the exact same detection and upsert again -- row count must
     # not double (see test_divergences_synthetic's dedicated idempotency
     # test for the natural-key mechanics; this just confirms it holds

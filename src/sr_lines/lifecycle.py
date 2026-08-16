@@ -101,6 +101,17 @@ def _derive_event_fields(
     breaks_reclaimed = sum(1 for br in break_reclaims if br.reclaimed)
     break_durations = [br.bars_to_reclaim for br in break_reclaims if br.reclaimed]
 
+    held_events = [
+        e for e in events
+        if e.type in (EventType.TOUCH, EventType.BODY_TOUCH, EventType.WICK_FAKE)
+        or (e.type == EventType.BODY_FAKE and not e.pending)
+    ]
+    total_from_above = sum(1 for e in held_events if e.side == "above")
+    total_from_below = sum(1 for e in held_events if e.side == "below")
+    break_events = [e for e in events if e.type == EventType.BREAK]
+    breaks_from_above = sum(1 for e in break_events if e.side == "above")
+    breaks_from_below = sum(1 for e in break_events if e.side == "below")
+
     touch_counts = TouchCounts(
         wick=wick, body=body, wick_fake=wick_fake, undercut_and_rally=undercut_and_rally,
         total=wick + body + wick_fake + undercut_and_rally,
@@ -108,6 +119,8 @@ def _derive_event_fields(
         breaks=len(break_reclaims), breaks_reclaimed=breaks_reclaimed,
         avg_bars_to_reclaim_break=(sum(break_durations) / len(break_durations)) if break_durations else None,
         bars_to_reclaim_last_break=break_reclaims[-1].bars_to_reclaim if break_reclaims else None,
+        total_from_above=total_from_above, total_from_below=total_from_below,
+        breaks_from_above=breaks_from_above, breaks_from_below=breaks_from_below,
     )
 
     regime_events = [e for e in events if pd.Timestamp(e.start) >= regime_start_ts]

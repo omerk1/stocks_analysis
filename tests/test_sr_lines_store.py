@@ -20,15 +20,18 @@ def _line(
     center: float = 100.0, strength: float = 0.5, touch_wick: int = 2, n_events: int = 2,
 ) -> Line:
     events = [
-        Event(type=EventType.TOUCH, start="2020-01-10", end="2020-01-10", penetration_atr=0.1, reaction_atr=1.0),
-        Event(type=EventType.BODY_TOUCH, start="2020-01-20", end="2020-01-20", penetration_atr=0.2, reaction_atr=1.0),
+        Event(type=EventType.TOUCH, start="2020-01-10", end="2020-01-10", penetration_atr=0.1, reaction_atr=1.0, side="above"),
+        Event(type=EventType.BODY_TOUCH, start="2020-01-20", end="2020-01-20", penetration_atr=0.2, reaction_atr=1.0, side="above"),
     ][:n_events]
     return Line(
         id="h0", kind=LineKind.HORIZONTAL, role=LineRole.SUPPORT, state=LineState.ACTIVE,
         center=center, half_width=1.0, slope=None, intercept=None, origin_index=None,
         first_touch="2020-01-01", last_event="2020-01-20", regime_start="2020-01-01",
         events=events, scores=ScoreBreakdown(total=strength), strength=strength, proximity=0.5,
-        origin_side="above", touch_counts=TouchCounts(wick=touch_wick, total=touch_wick),
+        origin_side="above",
+        touch_counts=TouchCounts(
+            wick=touch_wick, total=touch_wick, total_from_above=touch_wick, breaks_from_above=1,
+        ),
         age_days_total=100, age_days_regime=100, days_since_last_event=5,
     )
 
@@ -76,13 +79,18 @@ def test_upsert_lines_updates_geometry_and_touch_counts_on_conflict(derived_conn
 
     line.center = 100.004  # still rounds to the same 100.0 geometry_bucket
     line.strength = 0.9
-    line.touch_counts = TouchCounts(wick=5, total=5)
+    line.touch_counts = TouchCounts(
+        wick=5, total=5, total_from_above=3, total_from_below=2,
+        breaks=1, breaks_from_below=1,
+    )
     store.upsert_lines(derived_conn, [line], "AAPL", "daily", "medium_term", run_id="run-2")
 
     row = derived_conn.execute(
-        "SELECT center, strength, touch_wick, touch_total, run_id FROM sr_lines"
+        "SELECT center, strength, touch_wick, touch_total, "
+        "touch_total_from_above, touch_total_from_below, "
+        "touch_breaks_from_above, touch_breaks_from_below, run_id FROM sr_lines"
     ).fetchone()
-    assert row == (100.004, 0.9, 5, 5, "run-2")
+    assert row == (100.004, 0.9, 5, 5, 3, 2, 0, 1, "run-2")
 
 
 def test_a_center_drift_crossing_into_a_new_geometry_bucket_creates_a_separate_row(derived_conn):
@@ -105,9 +113,9 @@ def test_sr_line_events_are_rekeyed_to_the_persisted_id_on_conflict(derived_conn
     store.upsert_lines(derived_conn, [line], "AAPL", "daily", "medium_term", run_id="run-1")
     persisted_id = derived_conn.execute("SELECT id FROM sr_lines").fetchone()[0]
     events_after_first = derived_conn.execute(
-        "SELECT line_id, type FROM sr_line_events"
+        "SELECT line_id, type, side FROM sr_line_events"
     ).fetchall()
-    assert events_after_first == [(persisted_id, "touch")]
+    assert events_after_first == [(persisted_id, "touch", "above")]
 
     # Rerun with a different (larger) event set -- the child table must be
     # wholesale replaced, re-keyed to the same (preserved) parent id.

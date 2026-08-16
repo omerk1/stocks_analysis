@@ -62,12 +62,12 @@ def _line(
     )
 
 
-def _touch(date: str) -> Event:
-    return Event(type=EventType.TOUCH, start=date, end=date, penetration_atr=0.1, reaction_atr=1.0)
+def _touch(date: str, side: str | None = None) -> Event:
+    return Event(type=EventType.TOUCH, start=date, end=date, penetration_atr=0.1, reaction_atr=1.0, side=side)
 
 
-def _break(date: str) -> Event:
-    return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0)
+def _break(date: str, side: str | None = None) -> Event:
+    return Event(type=EventType.BREAK, start=date, end=date, penetration_atr=1.0, reaction_atr=0.0, side=side)
 
 
 def test_select_lines_defaults_to_fixed_top_n():
@@ -217,6 +217,31 @@ def test_build_line_regime_start_falls_back_to_first_touch_with_no_gap():
     # way (string formats can differ: pivot timestamps aren't always
     # isoformat in test fixtures, unlike in the real pipeline).
     assert pd.Timestamp(line.regime_start) == pd.Timestamp(line.first_touch) == pd.Timestamp("2020-01-01")
+
+
+def test_touch_counts_side_rollups_split_by_event_side_and_sum_to_the_totals():
+    candidate = _minimal_candidate()
+    events = [
+        _touch("2020-01-10", side="above"),
+        _touch("2020-01-20", side="above"),
+        _touch("2020-01-30", side="below"),
+        _break("2020-02-10", side="above"),
+    ]
+    config = SRConfig()
+    bars = _flat_bars()
+
+    line = build_line(
+        "h0", candidate, events, original_side="above", scores=ScoreBreakdown(), config=config,
+        bars=bars, atr=_atr(bars),
+    )
+
+    tc = line.touch_counts
+    assert tc.total_from_above == 2
+    assert tc.total_from_below == 1
+    assert tc.total_from_above + tc.total_from_below == tc.total
+    assert tc.breaks_from_above == 1
+    assert tc.breaks_from_below == 0
+    assert tc.breaks_from_above + tc.breaks_from_below == tc.breaks
 
 
 def test_state_and_flipped_at_agree_even_after_an_unconfirmed_later_break():
