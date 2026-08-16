@@ -131,6 +131,17 @@ CREATE TABLE IF NOT EXISTS macro_series (
     date TEXT NOT NULL,
     value REAL,
     source TEXT NOT NULL,
+    -- Point-in-time pair, nullable -- when this (series_id, date)
+    -- observation was actually first published, and what it said at that
+    -- moment (fred_client.get_series_first_release/ALFRED vintage data).
+    -- Distinct from `value`, which stays "latest-known/most-revised" --
+    -- these are for a point-in-time-safe join (market_common.macro.
+    -- as_of_join), not a replacement for `value`'s existing meaning. NULL
+    -- for rows fetched before this column existed, or where FRED couldn't
+    -- serve first-release data (see SAME_DAY_PUBLISHED_SERIES for the one
+    -- case that's expected, not just "not backfilled yet").
+    published_at TEXT,
+    first_published_value REAL,
     PRIMARY KEY (series_id, date, source)
 );
 """
@@ -360,19 +371,40 @@ def read_shares_outstanding(conn: sqlite3.Connection, ticker: str, source: str) 
     )
 
 
-def upsert_macro_series(conn: sqlite3.Connection, series_id: str, source: str, values: pd.Series) -> None:
+def upsert_macro_series(
+    conn: sqlite3.Connection,
+    series_id: str,
+    source: str,
+    values: pd.Series,
+    publication: pd.DataFrame | None = None,
+) -> None:
     """Insert or replace rows in the `macro_series` table for `series_id`/
     `source`. `values` must be a Series of floats indexed by date -- same
     overwrite-on-conflict semantics as `upsert_shares_outstanding` (a re-run
     refreshes to the source's latest-known value per date).
+
+    `publication`, if given, is indexed by date with `published_at`/
+    `first_published_value` columns (see `fred_client.get_series_first_release`)
+    -- looked up per date in `values.index` (the authoritative date axis;
+    `publication` need not cover every date `values` does, e.g. a date
+    outside whatever window a first-release query happened to return).
+    Missing/absent dates get NULL for both new columns.
     """
     if values.empty:
         return
-    rows = [(series_id, _serialize_date(date), _as_float(value), source) for date, value in values.items()]
+    rows = []
+    for date, value in values.items():
+        pub_row = publication.loc[date] if publication is not None and date in publication.index else None
+        published_at = None if pub_row is None else pub_row["published_at"]
+        first_published_value = None if pub_row is None else _as_float(pub_row["first_published_value"])
+        rows.append(
+            (series_id, _serialize_date(date), _as_float(value), source, published_at, first_published_value)
+        )
     conn.executemany(
         """
-        INSERT OR REPLACE INTO macro_series (series_id, date, value, source)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO macro_series
+            (series_id, date, value, source, published_at, first_published_value)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -381,7 +413,8 @@ def upsert_macro_series(conn: sqlite3.Connection, series_id: str, source: str, v
 
 def read_macro_series(conn: sqlite3.Connection, series_id: str, source: str = FRED) -> pd.DataFrame:
     return pd.read_sql_query(
-        "SELECT date, value FROM macro_series WHERE series_id = ? AND source = ? ORDER BY date",
+        "SELECT date, value, published_at, first_published_value "
+        "FROM macro_series WHERE series_id = ? AND source = ? ORDER BY date",
         conn, params=(series_id, source),
     )
 
