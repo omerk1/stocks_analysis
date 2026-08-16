@@ -17,6 +17,8 @@ from __future__ import annotations
 import pandas as pd
 
 from src.feature_engineering.price_based_indicators import (
+    exponential_moving_average,
+    moving_average,
     moving_average_convergence_divergence,
     relative_strength_index,
 )
@@ -26,6 +28,14 @@ from src.feature_engineering.volume_indicators import on_balance_volume
 
 def atr(df: pd.DataFrame, period: int) -> pd.Series:
     return average_true_range(df["high"], df["low"], df["close"], timeperiod=period)
+
+
+def sma(close: pd.Series, period: int) -> pd.Series:
+    return moving_average(close, period)
+
+
+def ema(close: pd.Series, period: int) -> pd.Series:
+    return exponential_moving_average(close, period)
 
 
 def rsi(close: pd.Series, period: int) -> pd.Series:

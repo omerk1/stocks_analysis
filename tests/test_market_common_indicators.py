@@ -1,6 +1,8 @@
 import pandas as pd
 
 from src.feature_engineering.price_based_indicators import (
+    exponential_moving_average,
+    moving_average,
     moving_average_convergence_divergence,
     relative_strength_index,
 )
@@ -58,5 +60,23 @@ def test_obv_matches_feature_engineering_directly():
     expected = on_balance_volume(df["close"], df["volume"])
 
     result = indicators.obv(df["close"], df["volume"])
+
+    pd.testing.assert_series_equal(result, expected, check_names=False)
+
+
+def test_sma_matches_feature_engineering_directly():
+    df = _bars()
+    expected = moving_average(df["close"], 10)
+
+    result = indicators.sma(df["close"], 10)
+
+    pd.testing.assert_series_equal(result, expected, check_names=False)
+
+
+def test_ema_matches_feature_engineering_directly():
+    df = _bars()
+    expected = exponential_moving_average(df["close"], 10)
+
+    result = indicators.ema(df["close"], 10)
 
     pd.testing.assert_series_equal(result, expected, check_names=False)
