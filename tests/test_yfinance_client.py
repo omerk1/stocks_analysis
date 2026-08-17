@@ -83,6 +83,27 @@ def test_get_shares_outstanding_drops_time_and_tz(mock_ticker_cls):
 
 
 @patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_shares_outstanding_handles_a_tz_naive_index(mock_ticker_cls):
+    # Regression: confirmed live against several real delisted/acquired
+    # tickers (e.g. X, XEC, XLNX, YHOO) -- yfinance returns a tz-naive index
+    # for these instead of the usual tz-aware one, and the old code's
+    # unconditional tz_convert("UTC") raised TypeError ("Cannot convert
+    # tz-naive timestamps") for every one of them (167 failures in one real
+    # ~1,400-ticker backfill run, all this exact error).
+    index = pd.to_datetime(["2015-11-04", "2016-03-14"])
+    assert index.tz is None
+    mock_ticker_cls.return_value.get_shares_full.return_value = pd.Series(
+        [200_000_000, 199_000_000], index=index
+    )
+
+    result = YFinanceClient().get_shares_outstanding("X", "2010-01-01", "2020-01-01")
+
+    assert result.index.tz is None
+    assert list(result.values) == [200_000_000, 199_000_000]
+    assert (result.index == result.index.normalize()).all()
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
 def test_get_shares_outstanding_deduplicates_same_day_entries_keeping_last(mock_ticker_cls):
     # Regression: real AAPL data around its 2020-08-31 4-for-1 split has
     # genuine same-calendar-day duplicate rows (2 of 6 in a real check),
