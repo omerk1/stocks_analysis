@@ -45,7 +45,13 @@ class YFinanceClient:
         if raw is None or raw.empty:
             return pd.Series(dtype="float64", name="shares_outstanding").rename_axis("date")
 
-        idx = raw.index.tz_convert("UTC").tz_localize(None).normalize()
+        # Usually tz-aware (confirmed on real AAPL data), but not always --
+        # confirmed live on several delisted/acquired tickers (e.g. X, XEC,
+        # XLNX, YHOO) where yfinance returns a tz-naive index instead.
+        # tz_convert requires tz-aware input, so it's only safe to call when
+        # there's actually a timezone to convert from.
+        idx = raw.index.tz_convert("UTC").tz_localize(None) if raw.index.tz is not None else raw.index
+        idx = idx.normalize()
         raw = raw.set_axis(idx)
         raw = raw[~raw.index.duplicated(keep="last")].sort_index()
         raw.index.name = "date"
