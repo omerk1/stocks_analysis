@@ -79,6 +79,19 @@ def test_failed_ticker_is_flagged_not_retried_forever_in_place(conn):
     assert db.read_shares_outstanding(conn, "AAPL", db.YFINANCE).empty
 
 
+def test_explicit_tickers_param_overrides_the_reference_table_universe(conn):
+    # Simulates the --indices CLI option: an explicit ticker list scopes
+    # the run instead of every active common stock in the reference table.
+    client = MagicMock()
+    client.get_shares_outstanding.side_effect = lambda t, s, e: _shares(["2020-01-01"])
+
+    backfill_shares_outstanding(client, conn, "2010-01-01", "2024-01-01", tickers=["MSFT"])
+
+    client.get_shares_outstanding.assert_called_once_with("MSFT", "2010-01-01", "2024-01-01")
+    assert db.read_shares_outstanding(conn, "AAPL", db.YFINANCE).empty
+    assert not db.read_shares_outstanding(conn, "MSFT", db.YFINANCE).empty
+
+
 def test_a_later_run_retries_only_the_previously_failed_ticker(conn):
     client = MagicMock()
     client.get_shares_outstanding.side_effect = ConnectionError("boom")

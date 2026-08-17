@@ -18,9 +18,9 @@ def backfill_shares_outstanding(
     start: str,
     end: str,
     retry_backoff_seconds: float = 5.0,
+    tickers: list[str] | None = None,
 ) -> None:
-    """Backfill `shares_outstanding` for every active common stock in the
-    `tickers` reference table, from yfinance's `get_shares_full` (see
+    """Backfill `shares_outstanding` from yfinance's `get_shares_full` (see
     `YFinanceClient.get_shares_outstanding` -- Polygon's equivalent
     endpoint returned NOT_AUTHORIZED on our current plan, so yfinance is
     the only source wired up for this).
@@ -32,20 +32,24 @@ def backfill_shares_outstanding(
     missing or previously failed. `start`/`end` bound the request but a
     ticker's own available range may be narrower.
 
-    Scoped to active tickers only, matching how the deep-history daily bar
-    backfill (Done #12) was actually run in practice -- broadening to
-    delisted tickers (real, meaningful history in principle, unlike a
-    delisted ticker's *current* market cap) is a possible future extension,
-    not attempted here.
+    `tickers`, if given, is the exact universe to backfill (e.g.
+    `db.read_index_universe_tickers(conn, ["sp500", "nasdaq100"])` -- see
+    `main`'s `--indices` option). Omitted (the default), falls back to
+    every active common stock in the `tickers` reference table, matching
+    how the deep-history daily bar backfill (Done #12) was actually run in
+    practice -- broadening to delisted tickers (real, meaningful history in
+    principle, unlike a delisted ticker's *current* market cap) is a
+    possible future extension, not attempted here.
     """
-    tickers = db.read_tickers(conn, type_="CS", active=True)
-    if tickers.empty:
-        raise RuntimeError(
-            "No tickers in the reference table -- run ticker_universe.py first "
-            "to populate it before bulk ingestion."
-        )
-    all_tickers = sorted(tickers["ticker"])
-    pending = db.pending_keys(conn, JOB_TYPE, all_tickers)
+    if tickers is None:
+        ticker_rows = db.read_tickers(conn, type_="CS", active=True)
+        if ticker_rows.empty:
+            raise RuntimeError(
+                "No tickers in the reference table -- run ticker_universe.py first "
+                "to populate it before bulk ingestion."
+            )
+        tickers = sorted(ticker_rows["ticker"])
+    pending = db.pending_keys(conn, JOB_TYPE, tickers)
 
     for ticker in pending:
         ok, shares, error = attempt_with_limited_retries(
@@ -70,6 +74,11 @@ def main():
     parser.add_argument("--start", default="2010-01-01", help="Requested start date (yfinance's own "
         "actual coverage floor per ticker may be later)")
     parser.add_argument("--end", default=None, help="Requested end date (default: today)")
+    parser.add_argument(
+        "--indices", default=None,
+        help="Comma-separated index_membership index_names (e.g. 'sp500,nasdaq100') to scope the "
+        "ticker universe to, instead of every active common stock in the tickers reference table",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -81,9 +90,13 @@ def main():
     db.create_tables(conn)
 
     end = args.end or pd.Timestamp.today().strftime("%Y-%m-%d")
+    tickers = (
+        db.read_index_universe_tickers(conn, [s.strip() for s in args.indices.split(",")])
+        if args.indices else None
+    )
 
     client = YFinanceClient()
-    backfill_shares_outstanding(client, conn, args.start, end)
+    backfill_shares_outstanding(client, conn, args.start, end, tickers=tickers)
 
     conn.close()
 

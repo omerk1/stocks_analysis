@@ -199,15 +199,22 @@ def historical_market_cap(
     table: str = "bars_1d",
     price_source: str = db.POLYGON,
     shares_source: str = db.YFINANCE,
+    splits: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """DB-facing wrapper around `reconcile_market_cap`: reads `table`'s
     close prices for `ticker`/`price_source` and `shares_outstanding` for
-    `ticker`/`shares_source` from `conn`, fetches `ticker`'s real split
-    history live via `polygon_client.get_splits` (a network call -- the
-    only reason this wrapper needs a client passed in, unlike a pure
-    DB read), aligns everything, and returns the reconciled market-cap
+    `ticker`/`shares_source` from `conn`, aligns everything against
+    `ticker`'s split history, and returns the reconciled market-cap
     DataFrame (see `reconcile_market_cap`). Doesn't write anything back to
-    `conn` or cache the splits call.
+    `conn`.
+
+    `splits`, if given (e.g. `db.read_splits(conn, ticker)`, from the local
+    cache `bulk_splits_ingest.py` builds), is used directly instead of
+    fetching live -- skips both the network call and Polygon's free-tier
+    5-calls/min rate limit, the real cost of computing this in bulk across
+    many tickers. Omitted (the default), falls back to the original
+    behavior: one live `polygon_client.get_splits(ticker)` call per
+    invocation, uncached.
     """
     bars = db.read_bars(conn, table, ticker=ticker, source=price_source)
     prices = bars["close"].rename("close")
@@ -221,6 +228,7 @@ def historical_market_cap(
         name="shares_outstanding",
     ).rename_axis("date")
 
-    splits = polygon_client.get_splits(ticker)
+    if splits is None:
+        splits = polygon_client.get_splits(ticker)
 
     return reconcile_market_cap(prices, shares, splits)

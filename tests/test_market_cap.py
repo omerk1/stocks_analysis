@@ -305,6 +305,26 @@ def test_historical_market_cap_reads_from_db_and_reconciles(conn):
     polygon_client.get_splits.assert_called_once_with("TEST")
 
 
+def test_historical_market_cap_with_a_prefetched_splits_frame_skips_the_live_call(conn):
+    dates = ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04"]
+    adjusted_closes = [50.0, 51.0, 102.0, 104.0]
+    db.upsert_bars(conn, "bars_1d", "TEST", db.POLYGON, _bars(dates, adjusted_closes))
+    raw_shares = pd.Series([100, 100, 200, 200], index=_dates(dates), name="shares_outstanding")
+    db.upsert_shares_outstanding(conn, "TEST", db.YFINANCE, raw_shares)
+
+    polygon_client = MagicMock()
+    prefetched_splits = _splits([("2024-01-03", 2.0)])
+
+    result = historical_market_cap(
+        conn, "TEST", polygon_client, price_source=db.POLYGON, shares_source=db.YFINANCE,
+        splits=prefetched_splits,
+    )
+
+    expected = pd.Series([10_000.0, 10_200.0, 20_400.0, 20_800.0], index=_dates(dates))
+    pd.testing.assert_series_equal(result["market_cap"], expected, check_names=False, check_freq=False)
+    polygon_client.get_splits.assert_not_called()
+
+
 def test_historical_market_cap_empty_when_no_data(conn):
     polygon_client = MagicMock()
     polygon_client.get_splits.return_value = _splits([])

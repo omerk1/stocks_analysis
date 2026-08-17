@@ -118,6 +118,24 @@ CREATE TABLE IF NOT EXISTS shares_outstanding (
 );
 """
 
+# Local cache of a ticker's stock-split history (PolygonClient.get_splits) --
+# built so market_cap.py's historical_market_cap can be given a pre-fetched
+# splits frame instead of making a live, rate-limited (5/min free-tier) call
+# every invocation. `source` included for consistency with every other table
+# here even though Polygon is the only wired-up source today (same as
+# macro_series always being source=FRED today).
+_SPLITS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS splits (
+    ticker TEXT NOT NULL,
+    execution_date TEXT NOT NULL,
+    split_from REAL,
+    split_to REAL,
+    ratio REAL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (ticker, execution_date, source)
+);
+"""
+
 # Macro/meta-financial time series (e.g. FRED's M2SL, DGS10, CPIAUCSL) --
 # same shape as shares_outstanding above with ticker swapped for series_id,
 # since these are market-wide series with no associated ticker. A refresh
@@ -164,6 +182,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_INDEX_MEMBERSHIP_SCHEMA)
     conn.execute(_SHARES_OUTSTANDING_SCHEMA)
     conn.execute(_MACRO_SERIES_SCHEMA)
+    conn.execute(_SPLITS_SCHEMA)
     conn.commit()
 
 
@@ -371,6 +390,40 @@ def read_shares_outstanding(conn: sqlite3.Connection, ticker: str, source: str) 
     )
 
 
+def upsert_splits(conn: sqlite3.Connection, ticker: str, source: str, splits: pd.DataFrame) -> None:
+    """Insert or replace rows in the `splits` table for `ticker`/`source`.
+    `splits` must have columns execution_date/split_from/split_to/ratio (see
+    `PolygonClient.get_splits`'s return shape) -- a ticker's full split
+    history in one frame, same overwrite-on-conflict semantics as
+    `upsert_shares_outstanding`.
+    """
+    if splits.empty:
+        return
+    rows = [
+        (
+            ticker, _serialize_date(row.execution_date),
+            _as_float(row.split_from), _as_float(row.split_to), _as_float(row.ratio), source,
+        )
+        for row in splits.itertuples()
+    ]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO splits (ticker, execution_date, split_from, split_to, ratio, source)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_splits(conn: sqlite3.Connection, ticker: str, source: str = POLYGON) -> pd.DataFrame:
+    return pd.read_sql_query(
+        "SELECT execution_date, split_from, split_to, ratio FROM splits "
+        "WHERE ticker = ? AND source = ? ORDER BY execution_date",
+        conn, params=(ticker, source), parse_dates=["execution_date"],
+    )
+
+
 def upsert_macro_series(
     conn: sqlite3.Connection,
     series_id: str,
@@ -468,6 +521,24 @@ def read_index_membership(
         query += " AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)"
         params.extend([as_of_str, as_of_str])
     return pd.read_sql_query(query, conn, params=params)
+
+
+def read_index_universe_tickers(conn: sqlite3.Connection, index_names: list[str]) -> list[str]:
+    """Every distinct ticker that has *ever* been a member of any of
+    `index_names` -- not just today's roster (matches `index_membership`'s
+    own point-in-time scope). Shared by bulk backfill scripts that need "all
+    S&P 500 + Nasdaq-100 tickers, ever" as their universe (e.g.
+    `bulk_splits_ingest.py`, `bulk_shares_outstanding_ingest.py`'s
+    `--indices` option) rather than each re-deriving the same query.
+    """
+    if not index_names:
+        return []
+    placeholders = ",".join("?" for _ in index_names)
+    rows = conn.execute(
+        f"SELECT DISTINCT ticker FROM index_membership WHERE index_name IN ({placeholders})",
+        index_names,
+    ).fetchall()
+    return sorted(row[0] for row in rows)
 
 
 def _serialize_date(value) -> str | None:
