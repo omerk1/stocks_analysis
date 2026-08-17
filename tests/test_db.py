@@ -521,3 +521,75 @@ def test_record_job_result_accumulates_attempts(conn):
     ).fetchone()
 
     assert row == (2, "success")
+
+
+def _splits_df(rows):
+    """rows: list of (execution_date, split_from, split_to, ratio)"""
+    return pd.DataFrame(
+        {
+            "execution_date": pd.to_datetime([r[0] for r in rows]),
+            "split_from": [r[1] for r in rows], "split_to": [r[2] for r in rows], "ratio": [r[3] for r in rows],
+        }
+    )
+
+
+def test_upsert_and_read_splits_roundtrip(conn):
+    db.upsert_splits(conn, "AAPL", db.POLYGON, _splits_df([("2020-08-31", 1.0, 4.0, 4.0)]))
+
+    result = db.read_splits(conn, "AAPL", db.POLYGON)
+
+    assert len(result) == 1
+    assert result.iloc[0]["execution_date"] == pd.Timestamp("2020-08-31")
+    assert result.iloc[0]["split_from"] == 1.0
+    assert result.iloc[0]["split_to"] == 4.0
+    assert result.iloc[0]["ratio"] == 4.0
+
+
+def test_upsert_splits_replaces_existing_execution_date_not_duplicates(conn):
+    db.upsert_splits(conn, "AAPL", db.POLYGON, _splits_df([("2020-08-31", 1.0, 4.0, 4.0)]))
+    db.upsert_splits(conn, "AAPL", db.POLYGON, _splits_df([("2020-08-31", 1.0, 4.0, 4.0)]))
+
+    result = db.read_splits(conn, "AAPL", db.POLYGON)
+    assert len(result) == 1
+
+
+def test_splits_different_tickers_do_not_collide(conn):
+    db.upsert_splits(conn, "AAPL", db.POLYGON, _splits_df([("2020-08-31", 1.0, 4.0, 4.0)]))
+    db.upsert_splits(conn, "TSLA", db.POLYGON, _splits_df([("2020-08-31", 1.0, 5.0, 5.0)]))
+
+    aapl = db.read_splits(conn, "AAPL", db.POLYGON)
+    tsla = db.read_splits(conn, "TSLA", db.POLYGON)
+
+    assert aapl.iloc[0]["ratio"] == 4.0
+    assert tsla.iloc[0]["ratio"] == 5.0
+
+
+def test_upsert_splits_ignores_an_empty_frame(conn):
+    db.upsert_splits(conn, "AAPL", db.POLYGON, pd.DataFrame(columns=["execution_date", "split_from", "split_to", "ratio"]))
+
+    result = db.read_splits(conn, "AAPL", db.POLYGON)
+    assert result.empty
+
+
+def test_read_index_universe_tickers_dedups_across_indices_and_sorts(conn):
+    db.replace_index_membership(conn, "sp500", _membership_df([("AAPL", "1996-01-02", None), ("MSFT", "1996-01-02", None)]))
+    db.replace_index_membership(conn, "nasdaq100", _membership_df([("MSFT", "2000-01-01", None), ("GOOGL", "2000-01-01", None)]))
+
+    result = db.read_index_universe_tickers(conn, ["sp500", "nasdaq100"])
+
+    assert result == ["AAPL", "GOOGL", "MSFT"]
+
+
+def test_read_index_universe_tickers_includes_past_non_current_members(conn):
+    # A ticker that left the index years ago must still appear -- this
+    # feeds bulk backfill scripts that need the *all-time* universe, not
+    # today's roster.
+    db.replace_index_membership(conn, "sp500", _membership_df([("AABA", "1999-12-08", "2017-06-19")]))
+
+    result = db.read_index_universe_tickers(conn, ["sp500"])
+
+    assert result == ["AABA"]
+
+
+def test_read_index_universe_tickers_empty_index_list_returns_empty(conn):
+    assert db.read_index_universe_tickers(conn, []) == []
