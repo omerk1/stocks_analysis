@@ -14,6 +14,17 @@ def _default_indices() -> list[str]:
     return ["sp500", "nasdaq100"]
 
 
+# Every breadth metric is really a weighted aggregate over an index's
+# constituents -- "equal" weights every member 1.0 (today's original
+# behavior, exactly reproduced -- see compute.py), "cap" weights each
+# member by its real historical market cap that date (bars_1d price x
+# shares_outstanding, split-reconciled via data_processing.market_cap --
+# unblocked now that both shares_outstanding and a local splits cache are
+# backfilled for sp500+nasdaq100; previously deferred here as a blocked
+# backlog item for exactly that reason).
+WEIGHTING_CHOICES = ("equal", "cap")
+
+
 @dataclass
 class BreadthConfig:
     # Which index_membership index_names to compute breadth for. "nasdaq100"
@@ -25,7 +36,6 @@ class BreadthConfig:
     indices: list[str] = field(default_factory=_default_indices)
     sma_periods: tuple[int, ...] = (50, 200)
     ema_periods: tuple[int, ...] = (8, 21)
-    # Equal-weight only -- market-cap weighting is a separate, currently
-    # blocked backlog item (shares_outstanding has no local backfill yet,
-    # and market_cap.py has no local splits cache for ~500-ticker scale).
     price_source: str = db.YFINANCE
+    # See WEIGHTING_CHOICES above.
+    weighting: str = "equal"
