@@ -136,6 +136,20 @@ CREATE TABLE IF NOT EXISTS splits (
 );
 """
 
+# Point-in-time snapshot of GICS-style sector/industry classification, from
+# yfinance's `.info` -- a different taxonomy from ticker_metadata's Polygon
+# SIC code/description above, kept in its own table rather than folded into
+# ticker_metadata since the source and column shape both differ. Current
+# state only (overwritten on refresh), same convention as ticker_metadata.
+_TICKER_SECTOR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ticker_sector (
+    ticker TEXT PRIMARY KEY,
+    sector TEXT,
+    industry TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+
 # Macro/meta-financial time series (e.g. FRED's M2SL, DGS10, CPIAUCSL) --
 # same shape as shares_outstanding above with ticker swapped for series_id,
 # since these are market-wide series with no associated ticker. A refresh
@@ -179,6 +193,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_TICKERS_SCHEMA)
     conn.execute(_FETCH_JOBS_SCHEMA)
     conn.execute(_TICKER_METADATA_SCHEMA)
+    conn.execute(_TICKER_SECTOR_SCHEMA)
     conn.execute(_INDEX_MEMBERSHIP_SCHEMA)
     conn.execute(_SHARES_OUTSTANDING_SCHEMA)
     conn.execute(_MACRO_SERIES_SCHEMA)
@@ -356,6 +371,37 @@ def upsert_ticker_metadata(conn: sqlite3.Connection, metadata: pd.DataFrame) -> 
 
 def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) -> pd.DataFrame:
     query = "SELECT * FROM ticker_metadata WHERE 1=1"
+    params: list = []
+    if ticker is not None:
+        query += " AND ticker = ?"
+        params.append(ticker)
+    return pd.read_sql_query(query, conn, params=params)
+
+
+def upsert_ticker_sector(conn: sqlite3.Connection, sectors: pd.DataFrame) -> None:
+    """Insert or replace rows in the `ticker_sector` table.
+
+    `sectors` must have columns: ticker, sector, industry. Each ticker is a
+    single overwritten row (a current snapshot, not a history), same
+    convention as `upsert_ticker_metadata`.
+    """
+    if sectors.empty:
+        return
+
+    now = pd.Timestamp.now("UTC").isoformat()
+    rows = [(row.ticker, row.sector, row.industry, now) for row in sectors.itertuples()]
+    conn.executemany(
+        """
+        INSERT OR REPLACE INTO ticker_sector (ticker, sector, industry, updated_at)
+        VALUES (?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_ticker_sector(conn: sqlite3.Connection, ticker: str | None = None) -> pd.DataFrame:
+    query = "SELECT * FROM ticker_sector WHERE 1=1"
     params: list = []
     if ticker is not None:
         query += " AND ticker = ?"

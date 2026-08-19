@@ -133,3 +133,23 @@ def test_get_shares_outstanding_handles_none_response(mock_ticker_cls):
 
     assert result.empty
     assert result.name == "shares_outstanding"
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_sector_info_extracts_sector_and_industry(mock_ticker_cls):
+    mock_ticker_cls.return_value.get_info.return_value = {
+        "sector": "Technology", "industry": "Consumer Electronics", "longName": "Apple Inc.",
+    }
+
+    result = YFinanceClient().get_sector_info("AAPL")
+
+    assert result == {"ticker": "AAPL", "sector": "Technology", "industry": "Consumer Electronics"}
+
+
+@patch("src.data_processing.yfinance_client.yf.Ticker")
+def test_get_sector_info_handles_missing_fields(mock_ticker_cls):
+    mock_ticker_cls.return_value.get_info.return_value = {}
+
+    result = YFinanceClient().get_sector_info("XYZ")
+
+    assert result == {"ticker": "XYZ", "sector": None, "industry": None}

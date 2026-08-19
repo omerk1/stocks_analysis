@@ -55,6 +55,40 @@ def obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     return on_balance_volume(close, volume)
 
 
+def ratio(target: pd.Series, benchmark: pd.Series) -> pd.Series:
+    """`target / benchmark`, aligned on their common date index (inner join)
+    -- the first cross-*ticker* join primitive in this codebase (every
+    existing reindex/align elsewhere here is within one ticker's own
+    series). Used by `relative_strength` to build an RS ratio line between
+    a stock/sector and its benchmark; a date either series lacks a value
+    for (e.g. before the benchmark ETF's own listing date) is simply
+    dropped, not filled or guessed.
+    """
+    aligned_target, aligned_benchmark = target.align(benchmark, join="inner")
+    return aligned_target / aligned_benchmark
+
+
+def percentile_rank(values: pd.Series) -> pd.Series:
+    """Percentile rank (0-100) of each value within `values` -- e.g. all
+    tickers' trailing returns on one date, for the IBD-style RS Rating.
+    NaNs are excluded from the ranking (not ranked, not counted as peers)
+    and pass through as NaN in the result.
+    """
+    return values.rank(pct=True) * 100
+
+
+def mansfield_rs(ratio_series: pd.Series, period: int = 52) -> pd.Series:
+    """Mansfield relative-strength oscillator: how far `ratio_series` (an
+    RS ratio line, e.g. from `ratio()`) sits above/below its own trailing
+    `period`-length average, as a percentage. Positive means the
+    outperformance embedded in the ratio is currently strengthening beyond
+    its own recent norm, not just "is outperforming" (that's the raw ratio
+    trending up already) -- 0 is "right at its own recent average," not
+    "target == benchmark."
+    """
+    return (ratio_series / sma(ratio_series, period) - 1) * 100
+
+
 def scale_consistent(a: float, b: float, max_ratio: float = 10.0) -> bool:
     """True if two same-unit magnitude samples (typically ATR, or an ATR-
     derived threshold) -- taken at two different points of a swing/pivot

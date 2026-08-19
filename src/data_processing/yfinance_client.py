@@ -58,6 +58,19 @@ class YFinanceClient:
         raw.name = "shares_outstanding"
         return raw
 
+    def get_sector_info(self, ticker: str) -> dict:
+        """GICS-style sector/industry classification from yfinance's `.info`
+        -- confirmed live against real tickers (AAPL/JPM/XOM/JNJ) to use a
+        fixed 11-sector taxonomy ("Technology", "Financial Services",
+        "Energy", "Healthcare", ...) that maps one-to-one onto the 11 SPDR
+        sector ETFs (see `relative_strength.config.SECTOR_ETF_MAP`).
+
+        No bulk endpoint -- one call per ticker, same shape as
+        `PolygonClient.get_ticker_details`.
+        """
+        info = yf.Ticker(ticker).get_info()
+        return {"ticker": ticker, "sector": info.get("sector"), "industry": info.get("industry")}
+
     @staticmethod
     def _fetch(ticker: str, start, end, interval: str, keep_time: bool) -> pd.DataFrame:
         # yfinance's `end` is exclusive (Python-slice style) -- confirmed directly:
