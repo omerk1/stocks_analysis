@@ -94,9 +94,13 @@ def _load_splits(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
     return pd.read_sql_query(query, conn, params=[db.POLYGON, *tickers], parse_dates=["execution_date"])
 
 
-def _load_market_caps(conn: sqlite3.Connection, tickers: list[str], price_source: str) -> pd.DataFrame:
+def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """Bulk market cap per (ticker, date) for `tickers` -- long format:
-    ticker, date, market_cap. Three bulk queries total (prices, shares
+    ticker, date, market_cap. `prices` is the caller's *already-loaded*
+    `_load_closes` result (not re-queried here -- `compute_breadth` loads
+    it once for the whole run; re-fetching the same close prices a second
+    time just for this would double the `bars_1d` read on every cap-
+    weighted run for no reason). Two more bulk queries (shares
     outstanding, splits), then `market_cap.reconcile_market_cap` (a pure,
     no-DB-access function) is looped per ticker in Python to do the actual
     split-reconciliation -- not `market_cap.historical_market_cap`, which
@@ -108,7 +112,6 @@ def _load_market_caps(conn: sqlite3.Connection, tickers: list[str], price_source
     A ticker with no shares_outstanding data at all contributes no rows
     (not zero-filled) -- nothing to reconcile against yet.
     """
-    prices = _load_closes(conn, tickers, price_source)
     if prices.empty:
         return pd.DataFrame(columns=["ticker", "date", "market_cap"])
 
@@ -243,7 +246,7 @@ def compute_breadth(
     members = merged[in_interval].copy()
 
     if config.weighting == "cap":
-        market_caps = _load_market_caps(conn, tickers, config.price_source)
+        market_caps = _load_market_caps(conn, prices, tickers)
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")

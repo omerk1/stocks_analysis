@@ -51,7 +51,48 @@ CREATE TABLE IF NOT EXISTS breadth (
 
 
 def create_breadth_table(conn: sqlite3.Connection) -> None:
+    _migrate_pre_weighting_schema(conn)
     conn.execute(_BREADTH_SCHEMA)
+    conn.commit()
+
+
+def _migrate_pre_weighting_schema(conn: sqlite3.Connection) -> None:
+    """One-time migration for a `breadth` table created before this PR's
+    `weighting` column/PK change (PR #31's original schema: PK
+    `(index_name, date)`, no `weighting` column, `n_advancing`/
+    `n_declining` INTEGER). `CREATE TABLE IF NOT EXISTS` alone silently
+    no-ops against that old table -- confirmed against a real local
+    `analysis.sqlite` that already had 4,172 equal-weight rows from before
+    this column existed -- so every subsequent `upsert_breadth` call would
+    hit `sqlite3.OperationalError: table breadth has no column named
+    weighting`. SQLite can't ALTER a PRIMARY KEY or widen an INTEGER
+    column via `ALTER TABLE`, so this rebuilds the table under a temp
+    name, copies every existing row forward with `weighting='equal'` (the
+    only weighting that existed before this column did), and drops the
+    old one. No-op if the table doesn't exist yet (nothing to migrate --
+    `create_breadth_table`'s own `CREATE TABLE IF NOT EXISTS` handles that
+    case right after this) or already has the new schema.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(breadth)").fetchall()}
+    if not columns or "weighting" in columns:
+        return
+
+    conn.execute("ALTER TABLE breadth RENAME TO breadth_pre_weighting_migration")
+    conn.execute(_BREADTH_SCHEMA)
+    conn.execute(
+        """
+        INSERT INTO breadth
+            (index_name, date, weighting, n_constituents, n_with_data,
+             pct_above_sma50, pct_above_sma200, pct_above_ema8, pct_above_ema21,
+             pct_golden_cross, n_advancing, n_declining, net_advances, ad_ratio, run_id)
+        SELECT
+            index_name, date, 'equal', n_constituents, n_with_data,
+            pct_above_sma50, pct_above_sma200, pct_above_ema8, pct_above_ema21,
+            pct_golden_cross, n_advancing, n_declining, net_advances, ad_ratio, run_id
+        FROM breadth_pre_weighting_migration
+        """
+    )
+    conn.execute("DROP TABLE breadth_pre_weighting_migration")
     conn.commit()
 
 
