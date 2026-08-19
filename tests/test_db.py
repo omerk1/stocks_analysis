@@ -317,6 +317,44 @@ def test_read_ticker_metadata_without_ticker_returns_all_rows(conn):
     assert set(result["ticker"]) == {"AAPL", "MSFT"}
 
 
+def _sector_df(rows):
+    """rows: list of (ticker, sector, industry)"""
+    return pd.DataFrame(rows, columns=["ticker", "sector", "industry"])
+
+
+def test_upsert_and_read_ticker_sector_roundtrip(conn):
+    db.upsert_ticker_sector(conn, _sector_df([("AAPL", "Technology", "Consumer Electronics")]))
+
+    result = db.read_ticker_sector(conn, ticker="AAPL")
+    assert len(result) == 1
+    assert result.iloc[0]["sector"] == "Technology"
+    assert result.iloc[0]["industry"] == "Consumer Electronics"
+
+
+def test_upsert_ticker_sector_replaces_existing_row(conn):
+    db.upsert_ticker_sector(conn, _sector_df([("AAPL", "Technology", "Consumer Electronics")]))
+    db.upsert_ticker_sector(conn, _sector_df([("AAPL", "Technology", "Consumer Electronics Revised")]))
+
+    result = db.read_ticker_sector(conn, ticker="AAPL")
+    assert len(result) == 1
+    assert result.iloc[0]["industry"] == "Consumer Electronics Revised"
+
+
+def test_read_ticker_sector_without_ticker_returns_all_rows(conn):
+    db.upsert_ticker_sector(
+        conn,
+        _sector_df(
+            [
+                ("AAPL", "Technology", "Consumer Electronics"),
+                ("JPM", "Financial Services", "Banks - Diversified"),
+            ]
+        ),
+    )
+
+    result = db.read_ticker_sector(conn)
+    assert set(result["ticker"]) == {"AAPL", "JPM"}
+
+
 def _shares(rows):
     """rows: list of (date_str, shares_outstanding)"""
     dates = pd.to_datetime([r[0] for r in rows])
