@@ -190,6 +190,24 @@ def _rs_frame(
     )
 
 
+def _filter_date_window(
+    result: pd.DataFrame, start: str | None, end: str | None
+) -> pd.DataFrame:
+    """Trim `result`'s `date` column to `[start, end]` -- applied only
+    after every ratio/Mansfield/rs_rating column has already been computed
+    over each ticker's *full* available history (same "warm up on the
+    full series, slice after" pattern `breadth.compute_breadth` uses for
+    its own `start`/`end`), so a windowed call still gets a warmed-up
+    Mansfield/rs_rating on its first row rather than an artificially NaN
+    one.
+    """
+    if start is not None:
+        result = result[result["date"] >= pd.Timestamp(start)]
+    if end is not None:
+        result = result[result["date"] <= pd.Timestamp(end)]
+    return result
+
+
 def _restrict_to_membership(frame: pd.DataFrame, membership: pd.DataFrame) -> pd.DataFrame:
     """Survivorship-safe interval join -- same pattern as
     `breadth/compute.py`'s membership merge: a ticker only counts for
@@ -203,13 +221,16 @@ def _restrict_to_membership(frame: pd.DataFrame, membership: pd.DataFrame) -> pd
 
 
 def compute_stock_vs_market(
-    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig
+    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig,
+    start: str | None = None, end: str | None = None,
 ) -> pd.DataFrame:
     """Per (ticker, date): RS ratio/Mansfield oscillator against
     `config.market_benchmark`, and an rs_rating percentile-ranked against
     every other ticker in `index_name`'s point-in-time membership that
     date. Empty if the index has no membership rows or the benchmark has
-    no local price data.
+    no local price data. `start`/`end` (YYYY-MM-DD) trim the *output*
+    window only -- every ticker is still warmed up on its full history
+    first (see `_filter_date_window`).
     """
     membership = db.read_index_membership(conn, index_name)
     if membership.empty:
@@ -254,11 +275,13 @@ def compute_stock_vs_market(
         indicators.percentile_rank
     )
 
+    result = _filter_date_window(result, start, end)
     return result[_RESULT_COLUMNS].sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
 def compute_stock_vs_sector(
-    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig
+    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig,
+    start: str | None = None, end: str | None = None,
 ) -> pd.DataFrame:
     """Per (ticker, date): RS ratio/Mansfield oscillator against the
     ticker's own sector's SPDR ETF (via `db.read_ticker_sector` ->
@@ -266,7 +289,8 @@ def compute_stock_vs_sector(
     same-sector peers that date -- deliberately *not* the whole index (see
     `compute_stock_vs_market` for that). A ticker with no sector on file,
     or a sector this codebase has no ETF mapping for, is skipped -- no
-    data to compare it against, not a wrong 0.
+    data to compare it against, not a wrong 0. `start`/`end` (YYYY-MM-DD)
+    trim the *output* window only (see `_filter_date_window`).
     """
     membership = db.read_index_membership(conn, index_name)
     if membership.empty:
@@ -319,11 +343,13 @@ def compute_stock_vs_sector(
         indicators.percentile_rank
     )
 
+    result = _filter_date_window(result, start, end)
     return result[_RESULT_COLUMNS].sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
 def compute_sector_vs_market(
-    conn: sqlite3.Connection, config: RelativeStrengthConfig
+    conn: sqlite3.Connection, config: RelativeStrengthConfig,
+    start: str | None = None, end: str | None = None,
 ) -> pd.DataFrame:
     """Per (sector, date): the sector's SPDR ETF itself as the target,
     RS ratio/Mansfield oscillator against `config.market_benchmark`, and
@@ -331,6 +357,8 @@ def compute_sector_vs_market(
     necessarily coarse with only 11 points, the standard limitation of any
     sector-rotation view, not a bug. Not index_membership-scoped -- sector
     ETFs trade continuously once ingested, no point-in-time roster concept.
+    `start`/`end` (YYYY-MM-DD) trim the *output* window only (see
+    `_filter_date_window`).
     """
     etf_tickers = sorted(set(SECTOR_ETF_MAP.values()))
     etf_prices = _load_closes(conn, etf_tickers, config.price_source)
@@ -367,4 +395,5 @@ def compute_sector_vs_market(
         indicators.percentile_rank
     )
 
+    combined = _filter_date_window(combined, start, end)
     return combined[_SECTOR_RESULT_COLUMNS].sort_values(["date", "sector"]).reset_index(drop=True)

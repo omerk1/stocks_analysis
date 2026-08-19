@@ -142,6 +142,24 @@ def test_a_ticker_leaving_the_index_stops_contributing_after_its_end_date(conn):
     assert result["date"].max() == _DATES[4]
 
 
+def test_start_end_filter_the_output_but_not_the_warmup(conn):
+    # Regression: --start/--end were parsed by the CLI but never actually
+    # passed to any compute_* function, so they silently did nothing.
+    db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _bars([100] * 10))
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [_DATES[0]], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_stock_vs_market(conn, "test_idx", _config(), start=_DATES[5].isoformat())
+
+    assert result["date"].min() == _DATES[5]
+    # rs_rating is still valid on the first row of the windowed output --
+    # warmed up on AAA's full series, not just the post-start window (same
+    # "warm up on the full series, slice after" guarantee breadth's own
+    # start/end filtering makes).
+    assert pd.notna(result.iloc[0]["rs_rating"])
+
+
 def test_empty_membership_returns_empty_frame(conn):
     result = compute_stock_vs_market(conn, "nonexistent_idx", _config())
     assert result.empty
