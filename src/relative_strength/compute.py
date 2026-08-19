@@ -76,7 +76,9 @@ def _weekly_close(conn: sqlite3.Connection, ticker: str) -> pd.Series:
     handling, not a new inconsistency.
     """
     weekly = load_bars(conn, ticker, Timeframe.WEEKLY)
-    return weekly["close"] if not weekly.empty else pd.Series(dtype="float64", name="close")
+    if weekly.empty:
+        return pd.Series(dtype="float64", name="close", index=pd.DatetimeIndex([]))
+    return weekly["close"]
 
 
 def _weekly_mansfield(
@@ -92,7 +94,13 @@ def _weekly_mansfield(
     """
     weekly_ratio = indicators.ratio(target_weekly_close, benchmark_weekly_close)
     if weekly_ratio.empty:
-        return pd.Series(dtype="float64")
+        # Empty, but a real DatetimeIndex (not the default RangeIndex) --
+        # `_rs_frame` reindexes this with method="ffill" against a
+        # DatetimeIndex, which pandas can't do across mismatched index
+        # dtypes (raises TypeError, not just "no matches"). Hit whenever a
+        # ticker/benchmark has daily bars but not yet one full completed
+        # trading week (e.g. just added to index_membership).
+        return pd.Series(dtype="float64", index=pd.DatetimeIndex([]))
     return indicators.mansfield_rs(weekly_ratio, period)
 
 
@@ -104,6 +112,11 @@ def _ibd_weighted_return(
     every window has real history to look back on -- never a partial score
     computed from only the windows that happen to be available yet.
     """
+    if len(windows) != len(weights):
+        raise ValueError(
+            f"rs_rating_windows ({len(windows)}) and rs_rating_weights ({len(weights)}) "
+            "must be the same length -- zip() would otherwise silently truncate to the shorter one"
+        )
     total = pd.Series(0.0, index=close.index)
     for window, weight in zip(windows, weights):
         total = total + weight * (close / close.shift(window) - 1)

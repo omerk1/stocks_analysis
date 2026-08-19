@@ -93,6 +93,31 @@ def test_mansfield_is_computed_on_weekly_bars_not_daily(conn):
     assert result["rs_mansfield"].dropna().nunique() > 1
 
 
+def test_a_ticker_with_no_completed_weekly_bar_yet_gets_nan_mansfield_not_a_crash(conn):
+    # Regression: a ticker with daily bars but not yet one full completed
+    # trading week (e.g. just added to index_membership a few days ago)
+    # used to crash the whole compute_stock_vs_market run -- the empty
+    # weekly-Mansfield fallback had a default RangeIndex, and reindexing
+    # that with method="ffill" against rs_ratio's DatetimeIndex raised
+    # TypeError: Cannot compare dtypes int64 and datetime64[us].
+    db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _bars([100.0] * 10))
+    short_dates = _DATES[:3]
+    aaa = pd.DataFrame(
+        {
+            "timestamp": short_dates, "open": [10.0] * 3, "high": [10.5] * 3, "low": [9.5] * 3,
+            "close": [10.0] * 3, "volume": [1000] * 3, "is_partial": [0] * 3,
+        }
+    ).set_index("timestamp")
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, aaa)
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [short_dates[0]], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_stock_vs_market(conn, "test_idx", _config())
+
+    assert len(result) == 3
+    assert result["rs_mansfield"].isna().all()
+
+
 def test_stock_vs_market_rs_rating_ranks_within_the_index(conn):
     db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _bars([100] * 10))
     db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
