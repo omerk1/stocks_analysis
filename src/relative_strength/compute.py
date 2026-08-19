@@ -27,9 +27,8 @@ import sqlite3
 import pandas as pd
 
 from src.data_processing import db
+from src.data_processing import resample as resample_mod
 from src.market_common import indicators
-from src.market_common.data import load_bars
-from src.market_common.models import Timeframe
 from src.relative_strength.config import SECTOR_ETF_MAP, RelativeStrengthConfig
 
 _RESULT_COLUMNS = ["ticker", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_rating"]
@@ -60,25 +59,62 @@ def _closes_by_ticker(prices: pd.DataFrame) -> dict[str, pd.Series]:
     }
 
 
-def _weekly_close(conn: sqlite3.Connection, ticker: str) -> pd.Series:
-    """Weekly close series for `ticker`, resampled live from `bars_1d` --
-    reuses `market_common.data.load_bars(..., Timeframe.WEEKLY)` directly
-    rather than reading the separately-ingested `bars_1w` table (known
-    incomplete for several tickers, e.g. T and GEVO both have zero rows
-    despite a fully backfilled `bars_1d`) or duplicating its resample
-    logic here.
+_EMPTY_CLOSE = pd.Series(dtype="float64", name="close", index=pd.DatetimeIndex([]))
 
-    `load_bars` hardcodes source=yfinance (every weekly consumer in this
-    codebase does -- mixing Polygon/yfinance adjustment conventions
-    produces phantom levels, per `market_common/data.py`'s docstring), so
-    this is yfinance-only regardless of `RelativeStrengthConfig
-    .price_source` -- consistent with the rest of the codebase's weekly
-    handling, not a new inconsistency.
+
+def _load_daily_ohlcv(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
+    """Bulk-load full daily OHLCV+is_partial `bars_1d` rows for `tickers`
+    (one query, not one per ticker) -- feeds `_bulk_weekly_closes`' resample
+    below. Hardcoded to source=yfinance regardless of
+    `RelativeStrengthConfig.price_source`: every weekly consumer in this
+    codebase is yfinance-only (mixing Polygon/yfinance adjustment
+    conventions produces phantom levels, per `market_common/data.py`'s
+    docstring), same reasoning `_bulk_weekly_closes` inherits.
     """
-    weekly = load_bars(conn, ticker, Timeframe.WEEKLY)
-    if weekly.empty:
-        return pd.Series(dtype="float64", name="close", index=pd.DatetimeIndex([]))
-    return weekly["close"]
+    if not tickers:
+        return pd.DataFrame(columns=["ticker", "timestamp", "open", "high", "low", "close", "volume", "is_partial"])
+    placeholders = ",".join("?" for _ in tickers)
+    query = (
+        "SELECT ticker, timestamp, open, high, low, close, volume, is_partial FROM bars_1d "
+        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, timestamp"
+    )
+    return pd.read_sql_query(query, conn, params=[db.YFINANCE, *tickers], parse_dates=["timestamp"])
+
+
+def _bulk_weekly_closes(conn: sqlite3.Connection, tickers: list[str]) -> dict[str, pd.Series]:
+    """Weekly close series for every ticker in `tickers`, resampled live
+    from one bulk-loaded `bars_1d` query -- same `resample.to_weekly`
+    logic `market_common.data.load_bars` uses for a single ticker (drop
+    partial/duplicate daily rows, resample, drop the still-in-progress
+    trailing week), just batched so a full index run isn't one DB query +
+    resample per ticker. Not reused from `load_bars` directly: that
+    helper is inherently single-ticker (one `db.read_bars` call per
+    invocation), so bulk-loading here needs its own query either way; the
+    resample step itself mirrors it exactly rather than diverging.
+
+    Never reads the separately-ingested `bars_1w` table directly -- known
+    incomplete for several tickers (e.g. T and GEVO both have zero rows
+    despite a fully backfilled `bars_1d`).
+
+    Ticker missing from the result dict (not even an empty Series) means
+    no daily data at all; callers should fall back to `_EMPTY_CLOSE`.
+    """
+    raw = _load_daily_ohlcv(conn, tickers)
+    if raw.empty:
+        return {}
+
+    result = {}
+    for ticker, group in raw.groupby("ticker"):
+        daily = group.set_index("timestamp")[["open", "high", "low", "close", "volume", "is_partial"]]
+        daily = daily[daily["is_partial"] != 1]
+        daily = daily[~daily.index.duplicated(keep="last")].sort_index()
+        if daily.empty:
+            continue
+        weekly = resample_mod.to_weekly(daily.assign(is_partial=False), as_of=daily.index.max())
+        weekly = weekly[weekly["is_partial"] != True]  # noqa: E712
+        if not weekly.empty:
+            result[ticker] = weekly["close"]
+    return result
 
 
 def _weekly_mansfield(
@@ -100,7 +136,7 @@ def _weekly_mansfield(
         # dtypes (raises TypeError, not just "no matches"). Hit whenever a
         # ticker/benchmark has daily bars but not yet one full completed
         # trading week (e.g. just added to index_membership).
-        return pd.Series(dtype="float64", index=pd.DatetimeIndex([]))
+        return _EMPTY_CLOSE.rename(None)
     return indicators.mansfield_rs(weekly_ratio, period)
 
 
@@ -191,12 +227,14 @@ def compute_stock_vs_market(
     if benchmark_prices.empty:
         return pd.DataFrame()
     benchmark_close = benchmark_prices.set_index("date")["close"].sort_index()
-    benchmark_weekly_close = _weekly_close(conn, config.market_benchmark)
+
+    weekly_closes = _bulk_weekly_closes(conn, [*tickers, config.market_benchmark])
+    benchmark_weekly_close = weekly_closes.get(config.market_benchmark, _EMPTY_CLOSE)
 
     frames = []
     for ticker, close in _closes_by_ticker(prices).items():
         weekly_mansfield = _weekly_mansfield(
-            _weekly_close(conn, ticker), benchmark_weekly_close, config.mansfield_period
+            weekly_closes.get(ticker, _EMPTY_CLOSE), benchmark_weekly_close, config.mansfield_period
         )
         frame = _rs_frame(
             "ticker", ticker, close, config.market_benchmark, benchmark_close,
@@ -247,7 +285,9 @@ def compute_stock_vs_sector(
 
     etf_tickers = sorted(set(SECTOR_ETF_MAP.values()))
     etf_close = _closes_by_ticker(_load_closes(conn, etf_tickers, config.price_source))
-    etf_weekly_close = {etf: _weekly_close(conn, etf) for etf in etf_tickers}
+
+    weekly_closes = _bulk_weekly_closes(conn, [*tickers, *etf_tickers])
+    etf_weekly_close = {etf: weekly_closes.get(etf, _EMPTY_CLOSE) for etf in etf_tickers}
 
     frames = []
     sector_by_row_ticker = {}
@@ -257,7 +297,7 @@ def compute_stock_vs_sector(
         if benchmark_ticker is None or benchmark_ticker not in etf_close:
             continue
         weekly_mansfield = _weekly_mansfield(
-            _weekly_close(conn, ticker), etf_weekly_close[benchmark_ticker], config.mansfield_period
+            weekly_closes.get(ticker, _EMPTY_CLOSE), etf_weekly_close[benchmark_ticker], config.mansfield_period
         )
         frame = _rs_frame(
             "ticker", ticker, close, benchmark_ticker, etf_close[benchmark_ticker],
@@ -301,7 +341,9 @@ def compute_sector_vs_market(
     if benchmark_prices.empty:
         return pd.DataFrame()
     benchmark_close = benchmark_prices.set_index("date")["close"].sort_index()
-    benchmark_weekly_close = _weekly_close(conn, config.market_benchmark)
+
+    weekly_closes = _bulk_weekly_closes(conn, [*etf_tickers, config.market_benchmark])
+    benchmark_weekly_close = weekly_closes.get(config.market_benchmark, _EMPTY_CLOSE)
 
     sector_by_etf = {etf: sector for sector, etf in SECTOR_ETF_MAP.items()}
 
@@ -309,7 +351,7 @@ def compute_sector_vs_market(
     for etf_ticker, close in _closes_by_ticker(etf_prices).items():
         sector = sector_by_etf.get(etf_ticker, etf_ticker)
         weekly_mansfield = _weekly_mansfield(
-            _weekly_close(conn, etf_ticker), benchmark_weekly_close, config.mansfield_period
+            weekly_closes.get(etf_ticker, _EMPTY_CLOSE), benchmark_weekly_close, config.mansfield_period
         )
         frame = _rs_frame(
             "sector", sector, close, config.market_benchmark, benchmark_close,
