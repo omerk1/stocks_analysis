@@ -48,3 +48,21 @@ def bollinger_bands(
         matype=matype,
     )
     return upper_bb, middle_bb, lower_bb
+
+
+def bollinger_band_width(
+    upper_bb: pd.Series, lower_bb: pd.Series, middle_bb: pd.Series
+) -> pd.Series:
+    """Absolute band width normalized by the middle band (%): (upper - lower)
+    / middle * 100. Widens in high-volatility regimes, squeezes in low ones."""
+    return (upper_bb - lower_bb) / middle_bb * 100
+
+
+def bollinger_band_width_atr(
+    upper_bb: pd.Series, lower_bb: pd.Series, atr: pd.Series
+) -> pd.Series:
+    """Band width expressed in ATR units: (upper - lower) / atr. Lets width
+    be compared across regimes/tickers independent of the price-vs-volatility
+    normalization %-of-price uses; pass `average_true_range` from
+    `trend_indicators.py` (same timeperiod as the bands, ideally)."""
+    return (upper_bb - lower_bb) / atr
