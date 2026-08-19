@@ -25,11 +25,11 @@ from src.relative_strength.config import RelativeStrengthConfig
 _TIERS = ("stock-vs-market", "stock-vs-sector", "sector-vs-market")
 
 
-def run_stock_tier(raw_conn, derived_conn, tier: str, index_name: str, config: RelativeStrengthConfig):
+def run_stock_tier(raw_conn, derived_conn, tier: str, index_name: str, config: RelativeStrengthConfig, start, end):
     compute_fn = compute_stock_vs_market if tier == "stock-vs-market" else compute_stock_vs_sector
     comparison = "vs_market" if tier == "stock-vs-market" else "vs_sector"
 
-    rs = compute_fn(raw_conn, index_name, config)
+    rs = compute_fn(raw_conn, index_name, config, start=start, end=end)
     if rs.empty:
         return rs, "no membership/price/sector data for this index"
 
@@ -41,8 +41,8 @@ def run_stock_tier(raw_conn, derived_conn, tier: str, index_name: str, config: R
     return rs, None
 
 
-def run_sector_tier(raw_conn, derived_conn, config: RelativeStrengthConfig):
-    rs = compute_sector_vs_market(raw_conn, config)
+def run_sector_tier(raw_conn, derived_conn, config: RelativeStrengthConfig, start, end):
+    rs = compute_sector_vs_market(raw_conn, config, start=start, end=end)
     if rs.empty:
         return rs, "no sector-ETF/benchmark price data"
 
@@ -70,7 +70,7 @@ def main():
 
     for tier in tiers:
         if tier == "sector-vs-market":
-            rs, skip_reason = run_sector_tier(raw_conn, derived_conn, config)
+            rs, skip_reason = run_sector_tier(raw_conn, derived_conn, config, args.start, args.end)
             if skip_reason is not None:
                 print(f"sector-vs-market: SKIPPED -- {skip_reason}")
                 continue
@@ -82,7 +82,7 @@ def main():
             continue
 
         for index_name in index_names:
-            rs, skip_reason = run_stock_tier(raw_conn, derived_conn, tier, index_name, config)
+            rs, skip_reason = run_stock_tier(raw_conn, derived_conn, tier, index_name, config, args.start, args.end)
             if skip_reason is not None:
                 print(f"{tier}/{index_name}: SKIPPED -- {skip_reason}")
                 continue
