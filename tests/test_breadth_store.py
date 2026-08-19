@@ -80,3 +80,47 @@ def test_upsert_raises_on_missing_expected_columns(derived_conn):
 
     with pytest.raises(ValueError, match="pct_above_sma200"):
         store.upsert_breadth(derived_conn, "sp500", incomplete, run_id="run-1")
+
+
+def test_equal_and_cap_weighting_do_not_collide_for_the_same_index_and_date(derived_conn):
+    dates = pd.bdate_range("2020-01-01", periods=2)
+    store.upsert_breadth(
+        derived_conn, "sp500", _breadth(dates, pct_above_sma50=0.5), run_id="run-1", weighting="equal"
+    )
+    store.upsert_breadth(
+        derived_conn, "sp500", _breadth(dates, pct_above_sma50=0.9), run_id="run-1", weighting="cap"
+    )
+
+    equal = store.read_breadth(derived_conn, "sp500", weighting="equal")
+    cap = store.read_breadth(derived_conn, "sp500", weighting="cap")
+
+    assert len(equal) == 2
+    assert len(cap) == 2
+    assert (equal["pct_above_sma50"] == 0.5).all()
+    assert (cap["pct_above_sma50"] == 0.9).all()
+    assert (equal["weighting"] == "equal").all()
+    assert (cap["weighting"] == "cap").all()
+
+
+def test_upsert_and_read_default_to_equal_weighting(derived_conn):
+    # Backward-compat: existing callers that don't pass `weighting` at all
+    # (every pre-cap-weighting call site) keep working unchanged.
+    dates = pd.bdate_range("2020-01-01", periods=2)
+    store.upsert_breadth(derived_conn, "sp500", _breadth(dates), run_id="run-1")
+
+    result = store.read_breadth(derived_conn, "sp500")
+
+    assert len(result) == 2
+    assert (result["weighting"] == "equal").all()
+
+
+def test_rerun_with_a_different_weighting_does_not_overwrite_the_other(derived_conn):
+    dates = pd.bdate_range("2020-01-01", periods=2)
+    store.upsert_breadth(derived_conn, "sp500", _breadth(dates, pct_above_sma50=0.5), run_id="run-1", weighting="equal")
+    store.upsert_breadth(derived_conn, "sp500", _breadth(dates, pct_above_sma50=0.9), run_id="run-2", weighting="cap")
+    # Re-running "equal" again shouldn't touch the "cap" rows.
+    store.upsert_breadth(derived_conn, "sp500", _breadth(dates, pct_above_sma50=0.55), run_id="run-3", weighting="equal")
+
+    cap = store.read_breadth(derived_conn, "sp500", weighting="cap")
+    assert (cap["pct_above_sma50"] == 0.9).all()
+    assert (cap["run_id"] == "run-2").all()

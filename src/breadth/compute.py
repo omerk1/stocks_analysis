@@ -11,6 +11,18 @@ on the dates it was actually a member, and a ticker that joined late is
 excluded before its own start_date. This is the same survivorship-bias
 concern `as_of` truncation guards elsewhere in this codebase, just on the
 membership axis instead of the price-bar axis.
+
+WEIGHTING: every metric below is really a weighted aggregate over a date's
+members -- `config.weighting="equal"` (the original, still-default
+behavior) gives every member weight 1.0, so each formula reduces exactly
+to a plain count/mean; `weighting="cap"` weights each member by its real
+historical market cap that date instead, via `_load_market_caps`
+(`data_processing.market_cap.reconcile_market_cap`, split-reconciled,
+using the local splits cache so no live Polygon call is made). A member
+with no weight available for a date (cap-weighted: no market-cap data yet,
+e.g. before its shares_outstanding history starts) is excluded from both
+the numerator and denominator that date, same treatment as an unwarmed-up
+SMA -- never silently a wrong 0.
 """
 
 from __future__ import annotations
@@ -20,8 +32,9 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from src.breadth.config import BreadthConfig
+from src.breadth.config import WEIGHTING_CHOICES, BreadthConfig
 from src.data_processing import db
+from src.data_processing import market_cap
 from src.market_common import indicators
 
 _GOLDEN_CROSS_FAST = 50
@@ -48,6 +61,89 @@ def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> p
     return df
 
 
+def _load_shares_outstanding(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
+    """Bulk-load `shares_outstanding` for every ticker in `tickers` (one
+    query, not one per ticker, same discipline as `_load_closes`) --
+    source hardcoded to yfinance, the only source with real historical
+    share-count data (see `yfinance_client.get_shares_outstanding`'s
+    docstring; Polygon's equivalent isn't authorized on this project's
+    plan)."""
+    if not tickers:
+        return pd.DataFrame(columns=["ticker", "date", "shares_outstanding"])
+    placeholders = ",".join("?" for _ in tickers)
+    query = (
+        f"SELECT ticker, date, shares_outstanding FROM shares_outstanding "
+        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, date"
+    )
+    return pd.read_sql_query(query, conn, params=[db.YFINANCE, *tickers], parse_dates=["date"])
+
+
+def _load_splits(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
+    """Bulk-load the local `splits` cache for every ticker in `tickers`
+    (one query, not one per ticker) -- source hardcoded to Polygon, the
+    only wired-up splits source (matches `db.read_splits`'s own default).
+    Never a live Polygon call: this reads the cache `bulk_splits_ingest.py`
+    already backfilled, exactly what it was built for."""
+    if not tickers:
+        return pd.DataFrame(columns=["ticker", "execution_date", "split_from", "split_to", "ratio"])
+    placeholders = ",".join("?" for _ in tickers)
+    query = (
+        f"SELECT ticker, execution_date, split_from, split_to, ratio FROM splits "
+        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, execution_date"
+    )
+    return pd.read_sql_query(query, conn, params=[db.POLYGON, *tickers], parse_dates=["execution_date"])
+
+
+def _load_market_caps(conn: sqlite3.Connection, tickers: list[str], price_source: str) -> pd.DataFrame:
+    """Bulk market cap per (ticker, date) for `tickers` -- long format:
+    ticker, date, market_cap. Three bulk queries total (prices, shares
+    outstanding, splits), then `market_cap.reconcile_market_cap` (a pure,
+    no-DB-access function) is looped per ticker in Python to do the actual
+    split-reconciliation -- not `market_cap.historical_market_cap`, which
+    is single-ticker end-to-end (its own `db.read_bars`/
+    `db.read_shares_outstanding` calls per invocation) and would reissue
+    one query per ticker per table here, exactly the N+1 pattern this
+    module's `_load_closes` docstring already rejects.
+
+    A ticker with no shares_outstanding data at all contributes no rows
+    (not zero-filled) -- nothing to reconcile against yet.
+    """
+    prices = _load_closes(conn, tickers, price_source)
+    if prices.empty:
+        return pd.DataFrame(columns=["ticker", "date", "market_cap"])
+
+    shares = _load_shares_outstanding(conn, tickers)
+    if shares.empty:
+        return pd.DataFrame(columns=["ticker", "date", "market_cap"])
+    splits = _load_splits(conn, tickers)
+
+    shares_by_ticker = {
+        ticker: group.set_index("date")["shares_outstanding"]
+        for ticker, group in shares.groupby("ticker")
+    }
+    splits_by_ticker = dict(tuple(splits.groupby("ticker"))) if not splits.empty else {}
+
+    frames = []
+    for ticker, price_group in prices.groupby("ticker"):
+        ticker_shares = shares_by_ticker.get(ticker)
+        if ticker_shares is None or ticker_shares.empty:
+            continue
+        price_series = price_group.set_index("date")["close"].sort_index()
+        reconciled = market_cap.reconcile_market_cap(
+            price_series, ticker_shares, splits_by_ticker.get(ticker)
+        )
+        if reconciled.empty:
+            continue
+        frames.append(
+            pd.DataFrame(
+                {"ticker": ticker, "date": reconciled.index, "market_cap": reconciled["market_cap"].to_numpy()}
+            )
+        )
+    if not frames:
+        return pd.DataFrame(columns=["ticker", "date", "market_cap"])
+    return pd.concat(frames, ignore_index=True)
+
+
 def _constituent_counts(membership: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.Series:
     """Point-in-time member count per date, derived purely from membership
     intervals -- independent of whether a member actually has price data
@@ -66,6 +162,27 @@ def _constituent_counts(membership: pd.DataFrame, dates: pd.DatetimeIndex) -> pd
     return timeline.reindex(dates, method="ffill").fillna(0).astype(int)
 
 
+def _weighted_fraction(
+    condition: pd.Series, valid: pd.Series, weight: pd.Series, date: pd.Series
+) -> pd.Series:
+    """Weighted mean of boolean `condition` among rows where `valid` is
+    True and `weight` isn't NaN -- weight=1.0 everywhere reduces exactly to
+    a plain fraction (today's original equal-weight pct_above_sma/ema/
+    golden_cross behavior: count(condition)/count(valid))."""
+    valid = valid & weight.notna()
+    numerator = (condition.astype(float) * weight).where(valid, 0.0).groupby(date).sum()
+    denominator = weight.where(valid, 0.0).groupby(date).sum()
+    return numerator / denominator.replace(0, np.nan)
+
+
+def _weighted_sum(condition: pd.Series, valid: pd.Series, weight: pd.Series, date: pd.Series) -> pd.Series:
+    """Weighted sum of boolean `condition` among rows where `valid` is True
+    and `weight` isn't NaN -- weight=1.0 everywhere reduces exactly to a
+    plain count (today's original equal-weight n_advancing/n_declining)."""
+    valid = valid & weight.notna()
+    return (condition.astype(float) * weight).where(valid, 0.0).groupby(date).sum()
+
+
 def compute_breadth(
     conn: sqlite3.Connection,
     index_name: str,
@@ -75,14 +192,21 @@ def compute_breadth(
 ) -> pd.DataFrame:
     """One row per date: % of `index_name`'s point-in-time constituents
     above each configured SMA/EMA, golden-cross breadth (% SMA50 > SMA200),
-    and advance/decline counts. Equal-weighted only -- see BreadthConfig.
+    and advance/decline -- weighted per `config.weighting` (see this
+    module's docstring and BreadthConfig.weighting).
 
     Returns a DataFrame indexed by date with columns: n_constituents,
-    n_with_data, pct_above_sma{period} (per config.sma_periods),
+    n_with_data (both always unweighted -- a member-count question is
+    meaningless to weight), pct_above_sma{period} (per config.sma_periods),
     pct_above_ema{period} (per config.ema_periods), pct_golden_cross
-    (only if 50 and 200 are both in sma_periods), n_advancing, n_declining,
-    net_advances, ad_ratio. Empty if the index has no membership rows.
+    (only if 50 and 200 are both in sma_periods), n_advancing, n_declining
+    (weighted sums -- literal counts under "equal", summed market cap under
+    "cap"), net_advances, ad_ratio. Empty if the index has no membership
+    rows, or (cap-weighted only) no member has any market-cap data yet.
     """
+    if config.weighting not in WEIGHTING_CHOICES:
+        raise ValueError(f"Unknown weighting {config.weighting!r} -- expected one of {WEIGHTING_CHOICES}")
+
     membership = db.read_index_membership(conn, index_name)
     if membership.empty:
         return pd.DataFrame()
@@ -118,6 +242,15 @@ def compute_breadth(
     )
     members = merged[in_interval].copy()
 
+    if config.weighting == "cap":
+        market_caps = _load_market_caps(conn, tickers, config.price_source)
+        if market_caps.empty:
+            return pd.DataFrame()
+        members = members.merge(market_caps, on=["ticker", "date"], how="left")
+        members["weight"] = members["market_cap"]
+    else:
+        members["weight"] = 1.0
+
     dates = pd.DatetimeIndex(sorted(prices["date"].unique()))
     n_constituents = _constituent_counts(membership, dates)
 
@@ -132,27 +265,43 @@ def compute_breadth(
     result["n_with_data"] = grouped.size()
     result["n_with_data"] = result["n_with_data"].fillna(0).astype(int)
 
+    weight, date = members["weight"], members["date"]
+
     for period in config.sma_periods:
-        above = (members["close"] > members[f"sma{period}"]).where(members[f"sma{period}"].notna())
-        result[f"pct_above_sma{period}"] = above.groupby(members["date"]).mean()
+        above = members["close"] > members[f"sma{period}"]
+        valid = members[f"sma{period}"].notna()
+        result[f"pct_above_sma{period}"] = _weighted_fraction(above, valid, weight, date)
     for period in config.ema_periods:
-        above = (members["close"] > members[f"ema{period}"]).where(members[f"ema{period}"].notna())
-        result[f"pct_above_ema{period}"] = above.groupby(members["date"]).mean()
+        above = members["close"] > members[f"ema{period}"]
+        valid = members[f"ema{period}"].notna()
+        result[f"pct_above_ema{period}"] = _weighted_fraction(above, valid, weight, date)
 
     if _GOLDEN_CROSS_FAST in config.sma_periods and _GOLDEN_CROSS_SLOW in config.sma_periods:
         fast_col, slow_col = f"sma{_GOLDEN_CROSS_FAST}", f"sma{_GOLDEN_CROSS_SLOW}"
         both_valid = members[fast_col].notna() & members[slow_col].notna()
-        golden = (members[fast_col] > members[slow_col]).where(both_valid)
-        result["pct_golden_cross"] = golden.groupby(members["date"]).mean()
+        golden = members[fast_col] > members[slow_col]
+        result["pct_golden_cross"] = _weighted_fraction(golden, both_valid, weight, date)
     else:
         result["pct_golden_cross"] = np.nan
 
-    advancing = (members["close"] > members["prior_close"]).where(members["prior_close"].notna())
-    declining = (members["close"] < members["prior_close"]).where(members["prior_close"].notna())
-    result["n_advancing"] = advancing.groupby(members["date"]).sum()
-    result["n_declining"] = declining.groupby(members["date"]).sum()
-    result["n_advancing"] = result["n_advancing"].fillna(0).astype(int)
-    result["n_declining"] = result["n_declining"].fillna(0).astype(int)
+    prior_valid = members["prior_close"].notna()
+    advancing = members["close"] > members["prior_close"]
+    declining = members["close"] < members["prior_close"]
+    # Assign first (aligns the groupby result onto result's full date
+    # index -- a date with zero rows in `members` at all, not just NaN
+    # values, isn't a key in the groupby output and becomes NaN here),
+    # *then* fillna -- fillna before this alignment (on the smaller,
+    # groupby-only series) wouldn't touch those missing-key dates at all.
+    result["n_advancing"] = _weighted_sum(advancing, prior_valid, weight, date)
+    result["n_declining"] = _weighted_sum(declining, prior_valid, weight, date)
+    result["n_advancing"] = result["n_advancing"].fillna(0)
+    result["n_declining"] = result["n_declining"].fillna(0)
+    if config.weighting == "equal":
+        # Preserve the original equal-weight dtype exactly (plain integer
+        # counts) -- cap-weighted sums are real dollar figures, not counts,
+        # so they stay float.
+        result["n_advancing"] = result["n_advancing"].astype(int)
+        result["n_declining"] = result["n_declining"].astype(int)
     result["net_advances"] = result["n_advancing"] - result["n_declining"]
     result["ad_ratio"] = result["n_advancing"] / result["n_declining"].replace(0, np.nan)
 
