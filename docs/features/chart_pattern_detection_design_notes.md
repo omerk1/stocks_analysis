@@ -5,6 +5,50 @@ same spirit as `docs/features/sr_lines_design_notes.md`. Written so none of
 this has to be re-derived when Phase 2 (H&S) and beyond start. Append to
 this rather than rewriting it.
 
+## Progress / build order
+
+The full plan (module layout, why this order, what's stubbed vs. built)
+was worked out interactively before any code was written and lives here,
+not just in chat history — update the checkmarks below as phases land, add
+a new phase entry rather than editing an old one's description after the
+fact.
+
+- [x] **Phase 0 — shared toolkit.** `src/patterns/{models,config,base,
+  trendlines,volume,scoring}.py` + `market_common/trendline_fit.py`.
+  Landed in PR #39 (`docs/done.md` #48).
+- [x] **Phase 1 — Double Top/Bottom, first full vertical slice.**
+  `detectors/double_top_bottom.py`, `lifecycle.py` (generic state machine,
+  reusable as-is), `scanner.py`, `store.py`, `cli.py`, `plotting.py`,
+  `backtest/labeler.py`. Landed in PR #39 (`docs/done.md` #48).
+- [ ] **Phase 2 — Head & Shoulders + Inverse.** Extends double-top's
+  neckline/symmetry/target logic to 5 pivots; adds head-exceeded and
+  failed-breakout invalidation; adds §6.1's price+time symmetry
+  cleanliness metric. Next up.
+- [ ] **Phase 3 — Triangles (asc/desc/symmetric) + Wedges.** New shared
+  infra: convergence/apex math in `trendlines.py`. Wedges near-free once
+  triangle fitting exists.
+- [ ] **Phase 4 — Cup & Handle + Inverse + Rounding.** Isolate the
+  quadratic roundedness fit (`fit_roundedness(prices) -> r_squared`) as
+  its own tested primitive before wiring into the full detector.
+- [ ] **Phase 5 — VCP.** Most novel logic (Trend Template gate, monotonic
+  contraction sequence), least standardized in the source material,
+  depends on none of the trendline/quadratic infra — sequenced last among
+  primary patterns.
+- [ ] **Phase 6 (bonus) — Flags/Pennants, Rounding top/bottom.** Only
+  after 1–5 are validated. Rounding is nearly free off Phase 4's quadratic
+  fit.
+
+Also still open, deferred deliberately (see `docs/backlog.md` for the full
+reasoning, not duplicated here): the backtest/evaluator harness (§7.2/7.3),
+a real precision/recall pass via `backtest/labeler.py`'s growing label set,
+and any threshold tuning against real chart review (every numeric knob
+added so far is an unvalidated first pass, same status every sr_lines knob
+started at).
+
+To resume cold: read this section, skim "Decisions resolved..." below for
+the *why* behind the architecture, then `git log --oneline -- src/patterns`
+for what's actually landed vs. this checklist's claims.
+
 ## Decisions resolved against existing repo convention, not the design doc's literal text
 
 The design doc (`chart_pattern_detection_design.md`) was written as a
