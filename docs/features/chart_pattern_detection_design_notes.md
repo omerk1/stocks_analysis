@@ -1,0 +1,126 @@
+# Chart pattern detection design notes
+
+Running log of decisions and findings from building `src/patterns/`, in the
+same spirit as `docs/features/sr_lines_design_notes.md`. Written so none of
+this has to be re-derived when Phase 2 (H&S) and beyond start. Append to
+this rather than rewriting it.
+
+## Decisions resolved against existing repo convention, not the design doc's literal text
+
+The design doc (`chart_pattern_detection_design.md`) was written as a
+standalone brief and, in a few places, proposes conventions this repo
+already solved differently. Deliberately followed repo precedent instead:
+
+- **Pivot extraction (§2) is already built.** `market_common.pivots.
+  detect_pivots` + `market_common.models.Pivot`/`PivotKind` *is* the doc's
+  ATR-scaled ZigZag spec. No new pivot-extraction code -- detectors take an
+  already-extracted `list[Pivot]`. PIP (§2b) stays unbuilt; the trigger to
+  revisit it is if triangle/wedge §6.1 cleanliness scores look
+  systematically off during real-data tuning (ZigZag pivots sparse/oddly
+  placed for that specific geometry), not before.
+- **Config is a plain dataclass (`PatternConfig`), not the doc's `config/
+  pattern_thresholds.yaml`.** Every existing detection module (SRConfig,
+  GapConfig, DivergenceConfig, FibConfig) does it this way; asset-class/
+  timeframe profiles are `PRESETS` dict entries (daily/weekly here, mirroring
+  SRConfig's medium_term/long_term/*_weekly), not separate config files. The
+  repo does have a YAML+pydantic loader (`utils/config_loader.py`), but it's
+  scoped to static infra paths (`configs/config.yaml`), not per-module
+  tunable thresholds -- no precedent there for detection config.
+- **Storage: one `pattern_matches` table, `pattern_type` discriminator
+  column** -- confirmed by reading `sr_lines/store.py` that this is exactly
+  how sr_lines already handles horizontal vs. diagonal (one table, `kind`
+  column, geometry columns nullable per kind). Natural key: (ticker,
+  timeframe, pattern_type, formation_start, formation_end).
+- **Current-state-only, not a history table.** A later run's `ON CONFLICT
+  ... DO UPDATE` overwrites an earlier run's mutable fields (confidence/
+  status/etc.) on the same natural key -- same as gaps/divergences/sr_lines.
+  Confirmed with the user this is fine for now; a dedicated backtest
+  harness (re-running `scanner.detect(as_of=X)` fresh against raw bars,
+  not reading this table's history) is deferred -- see `docs/backlog.md`.
+- **Overlap handling (§9)**: adopted the doc's own recommendation --
+  return every detector's matches independently, never force mutual
+  exclusivity. Same principle sr_lines already applies to horizontal vs.
+  diagonal lines coexisting.
+
+## `sr_lines`/`patterns` trendline-fitting: what's shared, what isn't
+
+User pushback ("core logic sounds around the same, what am I missing?")
+was fair and worth recording precisely, not just asserting "they're
+different." The one truly shared primitive -- least-squares line fit,
+`np.polyfit(xs, ys, 1)` -- is now `market_common.trendline_fit.fit_line`,
+used by both `sr_lines.candidates._fit_diagonal_candidates` (refactored to
+call it, verified via `test_sr_lines_candidates.py` staying green) and
+`patterns.trendlines.fit_line` (re-exported for Phase 3's triangle/wedge
+detectors). Everything *around* that call differs by design and is NOT
+shared:
+
+| | sr_lines diagonals | triangle/wedge (Phase 3, not yet built) |
+|---|---|---|
+| Pivot selection | RANSAC search over a stock's *entire* history to discover which pivots form a good line | Already known -- the pattern matcher already picked the recent N pivots |
+| Outlier handling | Needed (inlier/outlier separation) | Not needed -- every pivot in the fixed window is meant to be part of the shape |
+| Price space | log-price (candidate lines can span a 5x price move over years) | plain price (a triangle lives weeks-to-months) |
+| Dedup | Heavy (hundreds of near-duplicate fits) | Trivial/absent |
+
+## Phase 1: Double Top/Bottom built first, not H&S
+
+Simplest pivot sequence (3 pivots: H-L-H or L-H-L, guaranteed by
+`detect_pivots`' strict alternation -- any 3 consecutive pivots already
+have the right shape), reuses neckline/measured-move logic H&S also needs.
+Built specifically to prove the full vertical slice (detector -> lifecycle
+-> scanner -> store -> cli -> plotting -> labeler) end-to-end before
+investing in the pricier detectors. H&S (Phase 2) should be a small
+extension of this, not a first-of-its-kind build.
+
+### `has_prior_trend` bug found while writing its own synthetic tests
+
+First implementation searched the *entire* lookback window for whichever
+extreme maximized the measured move, then separately checked that extreme
+was >= `min_bars` away from the pivot (intended as "reject a 2-bar spike
+dressed up as a trend"). Broke on a flat-plateau-then-spike fixture: a
+20%-in-2-bars spike sitting at the end of a 10-bar flat plateau passed,
+because the *plateau's own start* (not the spike) was the found extreme,
+and it was trivially >10 bars back. The distance check was measuring the
+wrong thing -- proximity of *whichever extreme the search happened to
+find*, not whether the move itself took a plausible number of bars.
+
+Root cause of the confusion: the design doc's §3.1 wording ("≥X% over
+≥N bars") doesn't actually ask for anti-spike/monotonicity filtering --
+that's a separate, pattern-specific concern the doc only raises for cup &
+handle's own roundedness check (§4.4: "no single-bar move accounts for a
+large fraction of the total cup depth"). Fixed by simplifying
+`has_prior_trend`/`prior_trend_pct` to a plain magnitude-over-available-
+history check, dropping the distance-from-extreme guard entirely, and
+documenting explicitly that single-bar-dominance filtering is out of scope
+here. If a future pattern needs that filtering (cup & handle will, per
+§4.4), it should get its own dedicated check, not a generalization of this
+helper.
+
+### Real-data smoke test (AAPL, full history, daily)
+
+`python -m src.patterns.cli AAPL --timeframe daily --plot ...` ran clean
+end-to-end: 105 patterns detected, status distribution `active=3,
+expired=17, hit_target=19, invalidated=41, invalidated_failed_breakout=25`
+-- spread across every terminal state, nothing degenerate (e.g. everything
+landing in one bucket). Spot-checked geometry directly against the derived
+DB: double_top rows have `target_price < stop_price` with `entry_price`
+(breakout close) sitting between them and below the neckline, as expected
+for a bearish breakout; double_bottom rows mirror that correctly upward.
+`SELECT COUNT(*) WHERE confidence < 0 OR confidence > 1` returned 0 across
+all 105 rows. Not yet reviewed chart-by-chart for whether individual
+matches *look* like real double tops to a human eye -- that's what
+`backtest/labeler.py` + a real precision/recall pass (§7.2, still not
+built) is for, this was only a detection-pipeline sanity check.
+
+## Config knobs added so far, unvalidated starting points (same caveat every SRConfig knob carries)
+
+`pivot_atr_mult=2.5`, `prior_trend_min_pct=15.0`/`min_bars=20`,
+`touch_tolerance_atr_mult=0.5`/`pct=0.005`, `breakout_volume_mult=1.4`,
+`breakout_buffer_pct=0.001`, `expire_lifespan_mult=2.0`,
+`failed_breakout_reclaim_bars=5`, §6 `scoring_weights` (30/25/15/15/15),
+`double_top_symmetry_hard_gate_pct=8.0` (a hard outer bound so an
+unbounded search doesn't explode into noise -- the doc's own "~3%" figure
+is treated as a *soft*-scored target via `scoring.price_symmetry`, not a
+hard gate, per §6's "only true structural invariants hard-gate" principle),
+`double_top_typical_min/max_bars=10/120`. None of these have been tuned
+against real chart review yet -- same status every sr_lines knob started
+at before its own dedicated tuning rounds.

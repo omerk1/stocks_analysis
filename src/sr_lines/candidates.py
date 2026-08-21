@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from src.market_common.trendline_fit import fit_line
 from src.sr_lines.config import SRConfig
 from src.sr_lines.models import Pivot, PivotKind
 
@@ -322,7 +323,7 @@ def _fit_diagonal_candidates(same_kind_pivots: list[Pivot], config: SRConfig) ->
 
             xs = np.array([p.bar_index for p in inliers], dtype=float)
             ys = np.array([math.log(p.price) for p in inliers], dtype=float)
-            refit_slope, refit_intercept_at_zero = np.polyfit(xs, ys, 1)
+            refit_slope, refit_intercept_at_zero = fit_line(xs, ys)
             origin_index = inliers[0].bar_index
             intercept = float(refit_intercept_at_zero + refit_slope * origin_index)
 
