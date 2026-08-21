@@ -113,6 +113,28 @@ class PatternConfig:
     double_top_typical_min_bars: int = 10
     double_top_typical_max_bars: int = 120
 
+    # §4.1 Head & Shoulders / Inverse. Same "hard outer bound, soft score
+    # within it" reasoning as double_top_symmetry_hard_gate_pct -- the
+    # design doc's own quoted "~10-15%" shoulder-symmetry tolerance is
+    # treated as the hard gate (15, the top of that range), with
+    # scoring.hs_price_symmetry providing the *soft*, continuous score.
+    head_shoulders_symmetry_hard_gate_pct: float = 15.0
+    # §4.1 point 6: "each leg >= 5 trading days" -- hard gate against a
+    # 3-bar noise quintuple posing as a real 5-pivot formation.
+    head_shoulders_min_leg_bars: int = 5
+    # §4.1 point 5: neckline slope cap -- reject if the fitted T1->T2
+    # neckline implies more than this % price change over its own span. No
+    # explicit figure in the design doc ("cap slope... reject if... >X%
+    # change"); a first-pass starting point, same unvalidated status as
+    # every other knob here.
+    head_shoulders_neckline_max_slope_pct: float = 10.0
+    # duration_fit typical range -- wider than double top's (10/120) since
+    # a 5-pivot H&S formation is structurally larger than a 3-pivot double
+    # top. No explicit bar-count figure in the design doc; first-pass
+    # starting point.
+    head_shoulders_typical_min_bars: int = 20
+    head_shoulders_typical_max_bars: int = 180
+
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["scoring_weights"] = dict(self.scoring_weights)

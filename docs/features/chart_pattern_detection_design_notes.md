@@ -20,10 +20,12 @@ fact.
   `detectors/double_top_bottom.py`, `lifecycle.py` (generic state machine,
   reusable as-is), `scanner.py`, `store.py`, `cli.py`, `plotting.py`,
   `backtest/labeler.py`. Landed in PR #39 (`docs/done.md` #48).
-- [ ] **Phase 2 — Head & Shoulders + Inverse.** Extends double-top's
+- [x] **Phase 2 — Head & Shoulders + Inverse.** Extends double-top's
   neckline/symmetry/target logic to 5 pivots; adds head-exceeded and
   failed-breakout invalidation; adds §6.1's price+time symmetry
-  cleanliness metric. Next up.
+  cleanliness metric. `detectors/head_shoulders.py`, `scanner.py`
+  registration, `plotting.py` sloped-neckline support. Landed in PR #41
+  (`docs/done.md` #49).
 - [ ] **Phase 3 — Triangles (asc/desc/symmetric) + Wedges.** New shared
   infra: convergence/apex math in `trendlines.py`. Wedges near-free once
   triangle fitting exists.
@@ -168,3 +170,74 @@ hard gate, per §6's "only true structural invariants hard-gate" principle),
 `double_top_typical_min/max_bars=10/120`. None of these have been tuned
 against real chart review yet -- same status every sr_lines knob started
 at before its own dedicated tuning rounds.
+
+## Phase 2: Head & Shoulders + Inverse
+
+Built as a close sibling of Phase 1's double top/bottom, not a fresh
+design -- same sliding-window-over-strictly-alternating-pivots structure
+(5 pivots instead of 3), same `lifecycle.py` state machine reused
+completely unchanged, same score-component shape. The two genuinely new
+pieces:
+
+- **Sloped neckline.** Double top/bottom's neckline is a single trough
+  point (trivially flat). H&S's neckline is fit (`trendlines.fit_line`,
+  2 points -> exact line) through T1/T2, and can be sloped. `lifecycle.py`
+  already accepted a `trigger_at(bar_index) -> float` callable rather than
+  a flat constant specifically so this would need zero changes there --
+  confirmed true, only the detector and `plotting.py` needed work.
+- **Target computed at formation-end, not at breakout.** The design doc's
+  literal formula is `neckline_price_at_breakout - head_height`, but
+  `apply_lifecycle` needs one fixed `target_price` float *before* it walks
+  forward to discover where the breakout even happens -- a constraint
+  double top/bottom's flat neckline never surfaces, since "neckline at
+  breakout" and "neckline at formation end" are the same number there by
+  construction. Resolved by using the neckline's own value at the right
+  shoulder's bar index as the stand-in for "neckline at breakout" -- a
+  documented approximation, not the literal doc formula. Worth revisiting
+  if real-data review shows this drifts meaningfully from the neckline's
+  actual value at the real breakout bar (a steep-but-still-under-cap
+  neckline slope over a long PENDING window is the scenario where this
+  approximation would drift most).
+- **Hard gates added, beyond double top/bottom's single symmetry gate:**
+  `head_exceeds_shoulders` (strict -- also covers the doc's separate
+  "right shoulder above head -> reject" case, since if RS > head then
+  head > RS already fails), `head_shoulders_min_leg_bars=5` (doc's literal
+  "each leg >= 5 trading days"), and a new
+  `head_shoulders_neckline_max_slope_pct=10.0` gate (doc says "cap slope...
+  reject if... >X% change" without naming X -- picked 10% as a first-pass
+  figure, unvalidated like every other knob here). `stop_price` is set to
+  the head itself, the same level `pre_breakout_invalidated_at` treats as
+  the structural invalidation line -- unlike double top/bottom, where stop
+  is `max/min(p1, p2)` since there's no third, more-extreme point to use.
+- **§6.1 price+time symmetry**, per the doc's own explicit H&S formulas
+  (`scoring.hs_price_symmetry`/`hs_time_symmetry`) -- distinct from double
+  top/bottom's `price_symmetry` (normalized by `avg(a,b)`; H&S's own is
+  normalized by head height, per §6.1's literal wording). Blended 50/50
+  into `geometric_cleanliness`, replacing double top/bottom's price-only
+  version (no second symmetric axis exists with only 3 pivots).
+- **`plotting.py` generalized**, not H&S-specific-cased: `PatternMatch`
+  already had a `trendlines` field (§5's data model) double top/bottom
+  never populated. Now `render_pattern_chart` draws from
+  `match.trendlines["neckline"]` (two endpoints off the fitted line,
+  exact since it's linear) when present, falling back to the old flat
+  `key_levels["neckline"]` line for patterns that don't set it -- covers
+  triangle/wedge boundaries in later phases for free, no further plotting
+  changes anticipated there.
+
+### Real-data smoke test (AAPL, full history, daily)
+
+`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with both
+detectors registered: 118 patterns total (105 double top/bottom, unchanged
+from Phase 1, + 13 new: 8 head_and_shoulders, 5
+inverse_head_and_shoulders), status distribution spread across every
+terminal state (`active`, `expired`, `hit_target`, `invalidated`,
+`invalidated_failed_breakout`), nothing degenerate. Spot-checked H&S
+geometry directly in the derived DB: every `head_and_shoulders` row has
+`head > left_shoulder` and `head > right_shoulder`, `target_price <
+stop_price(=head)`, and (when present) `entry_price` between them; every
+`inverse_head_and_shoulders` row mirrors correctly upward (`head` is the
+dominant lowest low, `target_price > stop_price`). `confidence` in [0, 1]
+for all rows. Same caveat as Phase 1's own smoke test: this confirms the
+detection *pipeline*, not yet whether individual matches look like real
+head-and-shoulders to a human eye -- that's `backtest/labeler.py` +
+§7.2's still-unbuilt precision/recall pass.

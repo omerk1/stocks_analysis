@@ -23,9 +23,10 @@ from src.market_common.pivots import detect_pivots
 from src.patterns.base import PatternDetector
 from src.patterns.config import PatternConfig
 from src.patterns.detectors.double_top_bottom import DoubleTopBottomDetector
+from src.patterns.detectors.head_shoulders import HeadShouldersDetector
 from src.patterns.models import PatternMatch
 
-DEFAULT_DETECTORS: list[PatternDetector] = [DoubleTopBottomDetector()]
+DEFAULT_DETECTORS: list[PatternDetector] = [DoubleTopBottomDetector(), HeadShouldersDetector()]
 
 
 def scan_bars(

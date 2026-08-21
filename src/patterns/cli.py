@@ -1,7 +1,8 @@
 """python -m src.patterns.cli TICKER --timeframe daily|weekly|both [--as-of YYYY-MM-DD] [--plot out.html]
 
-Detects chart patterns (double top/bottom for now), upserts them into the
-derived DB, and prints a summary table. `--all` iterates every distinct
+Detects chart patterns (double top/bottom, head & shoulders + inverse so
+far), upserts them into the derived DB, and prints a summary table.
+`--all` iterates every distinct
 ticker in `bars_1d` instead of one named TICKER -- continue-on-error per
 ticker, same shape as gaps.cli/divergences.cli. No `--preset` flag yet:
 unlike SRConfig's asset-class presets, `config.PRESETS` today only
@@ -68,7 +69,7 @@ def run_for_ticker(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Detect chart patterns (double top/bottom, ...)")
+    parser = argparse.ArgumentParser(description="Detect chart patterns (double top/bottom, head & shoulders, ...)")
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("ticker", nargs="?", help="Ticker to run detection for")
     target.add_argument("--all", action="store_true", help="Run for every distinct ticker in bars_1d")

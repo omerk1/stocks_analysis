@@ -34,6 +34,26 @@ def price_symmetry(a: float, b: float) -> float:
     return _clip01(1 - abs(a - b) / avg)
 
 
+def hs_price_symmetry(left_shoulder: float, right_shoulder: float, head: float) -> float:
+    """§6.1 H&S/Inverse-H&S price symmetry: `1 - |LS-RS|/Head`, clipped to
+    [0,1] -- the design doc's own explicit H&S formula. Distinct from
+    `price_symmetry` (normalized by avg(a,b), what double top/bottom uses):
+    here the natural normalizer is head height, since LS/RS are being
+    compared to each other in the context of a much taller head."""
+    if head <= 0:
+        return 0.0
+    return _clip01(1 - abs(left_shoulder - right_shoulder) / head)
+
+
+def hs_time_symmetry(bars_ls_to_head: int, bars_head_to_rs: int, bars_ls_to_rs: int) -> float:
+    """§6.1: `1 - |bars(LS->Head) - bars(Head->RS)| / bars(LS->RS)`, clipped
+    to [0,1] -- does the pattern take roughly the same number of bars to
+    form on each side of the head, independent of price symmetry."""
+    if bars_ls_to_rs <= 0:
+        return 0.0
+    return _clip01(1 - abs(bars_ls_to_head - bars_head_to_rs) / bars_ls_to_rs)
+
+
 def breakout_close_strength(
     breakout_close: float, level_price: float, atr: float | None, direction: Direction, cap_atr: float
 ) -> float:
