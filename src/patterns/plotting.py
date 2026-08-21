@@ -6,9 +6,14 @@ gaps/sr_lines' own plotting.py separation.
 Drawing `match.pivots` as a connected polyline (rather than anything
 double-top-specific) is deliberately pattern-agnostic -- it works
 unchanged for H&S's 5 pivots, a triangle's N pivots, etc. once those
-detectors land, without this module needing to change. `key_levels`'
-"neckline" entry is looked up defensively (`.get`), since not every future
-pattern type will have one.
+detectors land, without this module needing to change. The neckline/
+trigger line is drawn from `match.trendlines["neckline"]` (slope,
+intercept in bar-index space) when a detector supplies one -- H&S's
+neckline can be sloped, so two endpoints computed off the fitted line are
+enough to draw it exactly (it's linear by construction). Falls back to a
+flat line at `key_levels["neckline"]` for double top/bottom, which has no
+`trendlines` entry at all. Both looked up defensively (`.get`), since not
+every future pattern type will have either.
 """
 
 from __future__ import annotations
@@ -91,17 +96,32 @@ def render_pattern_chart(
         )
 
         x_end = bars.index[match.breakout_bar] if match.breakout_bar is not None else last_bar_ts
+        x_end_idx = match.breakout_bar if match.breakout_bar is not None else len(bars) - 1
 
-        neckline = match.key_levels.get("neckline")
-        if neckline is not None:
-            x_start = pivot_x[1] if len(pivot_x) > 1 else pivot_x[0]
+        neckline_fit = match.trendlines.get("neckline")
+        if neckline_fit is not None:
+            slope, intercept = neckline_fit
+            x_start_idx = match.pivots[1].bar_index
+            x_start = bars.index[x_start_idx]
             fig.add_trace(
                 go.Scatter(
-                    x=[x_start, x_end], y=[neckline, neckline],
+                    x=[x_start, x_end],
+                    y=[slope * x_start_idx + intercept, slope * x_end_idx + intercept],
                     mode="lines", line=dict(color=color, width=1, dash="dot"),
                     showlegend=False, hoverinfo="skip",
                 )
             )
+        else:
+            neckline = match.key_levels.get("neckline")
+            if neckline is not None:
+                x_start = pivot_x[1] if len(pivot_x) > 1 else pivot_x[0]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[x_start, x_end], y=[neckline, neckline],
+                        mode="lines", line=dict(color=color, width=1, dash="dot"),
+                        showlegend=False, hoverinfo="skip",
+                    )
+                )
 
         if match.breakout_bar is not None and match.target_price is not None:
             fig.add_trace(
