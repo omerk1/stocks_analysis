@@ -26,9 +26,13 @@ fact.
   cleanliness metric. `detectors/head_shoulders.py`, `scanner.py`
   registration, `plotting.py` sloped-neckline support. Landed in PR #41
   (`docs/done.md` #49).
-- [ ] **Phase 3 — Triangles (asc/desc/symmetric) + Wedges.** New shared
-  infra: convergence/apex math in `trendlines.py`. Wedges near-free once
-  triangle fitting exists.
+- [x] **Phase 3 — Triangles (asc/desc/symmetric) + Wedges.** New shared
+  infra: convergence/apex math in `trendlines.py`, a bidirectional
+  lifecycle entry point (breakout side isn't fixed by the pattern's
+  geometry, unlike H&S/double-top). `detectors/triangles.py` covers all
+  five shapes in one detector, per the design doc's own module layout.
+  Landed in PR #42 (`docs/done.md` #50) -- see this file's own Phase 3
+  section below for the full narrative.
 - [ ] **Phase 4 — Cup & Handle + Inverse + Rounding.** Isolate the
   quadratic roundedness fit (`fit_roundedness(prices) -> r_squared`) as
   its own tested primitive before wiring into the full detector.
@@ -97,10 +101,10 @@ different." The one truly shared primitive -- least-squares line fit,
 used by both `sr_lines.candidates._fit_diagonal_candidates` (refactored to
 call it, verified via `test_sr_lines_candidates.py` staying green) and
 `patterns.trendlines.fit_line` (re-exported for Phase 3's triangle/wedge
-detectors). Everything *around* that call differs by design and is NOT
+detector). Everything *around* that call differs by design and is NOT
 shared:
 
-| | sr_lines diagonals | triangle/wedge (Phase 3, not yet built) |
+| | sr_lines diagonals | triangle/wedge (Phase 3) |
 |---|---|---|
 | Pivot selection | RANSAC search over a stock's *entire* history to discover which pivots form a good line | Already known -- the pattern matcher already picked the recent N pivots |
 | Outlier handling | Needed (inlier/outlier separation) | Not needed -- every pivot in the fixed window is meant to be part of the shape |
@@ -241,3 +245,192 @@ for all rows. Same caveat as Phase 1's own smoke test: this confirms the
 detection *pipeline*, not yet whether individual matches look like real
 head-and-shoulders to a human eye -- that's `backtest/labeler.py` +
 §7.2's still-unbuilt precision/recall pass.
+
+## Phase 3: Triangles (ascending/descending/symmetric) + Wedges
+
+The one genuinely new architectural problem this phase introduces, not
+present in Phase 1/2: **a triangle's breakout side isn't fixed by the
+pattern's own geometry.** Double top/bottom is always bearish (breaks the
+trough) or always bullish (breaks the peak); H&S is always bearish (breaks
+the neckline down) or always bullish (inverse, up). A triangle confirms on
+a close beyond *either* boundary -- direction is only known once it
+happens, and per §4.3's own explicit wording for ascending/descending
+("note whether breakout direction matches the pattern's directional
+bias... still tag it, don't discard"), the "wrong-side" break is a real,
+valid outcome that must be recorded, not rejected. `apply_lifecycle`
+(Phase 1/2) can't express this at all -- it takes one fixed
+`match.direction` and one `trigger_at` callable, decided by the caller
+before the walk even starts.
+
+Resolved with two coordinated additions rather than bolting something
+awkward onto the existing function:
+
+- **`Direction.NEUTRAL`** added to `market_common.models.Direction` (the
+  shared enum `gaps`/`divergences` also use). A still-forming symmetric
+  triangle genuinely has no directional bias -- `NEUTRAL` is its initial
+  `PatternMatch.direction` until a real breakout resolves it one way or
+  the other. Checked this was safe first: grepped every `gaps`/
+  `divergences` use of `Direction` and confirmed neither ever constructs
+  anything but `BULLISH`/`BEARISH`, so the addition is purely additive for
+  both -- zero behavior change. `patterns.plotting`'s own
+  `_DIRECTION_RGB` dict needed a `NEUTRAL` entry (neutral gray) to avoid a
+  `KeyError` on a still-PENDING symmetric triangle.
+- **`lifecycle.apply_lifecycle_bidirectional`**, a second entry point
+  alongside `apply_lifecycle`. Refactored the post-breakout half of the
+  original function out into a shared `_walk_post_breakout` first (target-
+  hit / failed-breakout-reclaim / active resolution is identical either
+  way) -- both entry points call it, so there's exactly one copy of that
+  logic, not two drifting in parallel. The bidirectional version watches
+  `upper_trigger_at`/`lower_trigger_at` each bar; whichever breaks first
+  sets `match.direction`/`target_price`/`stop_price` to that side's
+  pre-computed values (both sides' targets/stops are computed once at
+  detection time, before either is known to be "the" real one -- possible
+  because `PatternMatch.target_price`/`stop_price` are already `Optional`
+  in the §5 data model, so a still-PENDING/unresolved match legitimately
+  has both as `None` with no dataclass change needed). Verified the
+  refactor changed nothing for Phase 1/2: reran their full test suites
+  immediately after, before writing a single line of triangle code.
+- Also added an optional `pending_deadline_bar_index` override to both
+  entry points. §4.3 expires a triangle that reaches its apex without
+  breaking out, on top of the standard `expire_lifespan_mult *
+  formation_bars` deadline every pattern already has -- computed as
+  `min(standard_deadline, apex_bar)` in the detector and passed straight
+  through, no new expiry logic needed in `lifecycle.py` itself. Verified
+  directly (both a dedicated `apply_lifecycle_bidirectional` unit test and
+  a full detector-level test) that this actually fires *before* the
+  standard 2x-formation deadline would have, not just that EXPIRED is
+  reachable at all.
+
+### Convergence/apex math (`trendlines.py`)
+
+`convergence_apex_bar(upper_slope, upper_intercept, lower_slope,
+lower_intercept)` solves where the two fitted boundaries intersect.
+Noticed while writing it that the design doc's own "check `range_at_start
+> range_at_end`" wording is redundant once both boundaries are linear:
+`range(i) = upper_at(i) - lower_at(i)` is itself linear in `i`, so it's
+strictly monotonic (or constant, if parallel) for *any* two points, not
+just start/end -- `upper_slope < lower_slope` is the single condition
+under which range shrinks as `i` increases, full stop. One comparison
+replaces two evaluations. `r_squared(xs, ys, slope, intercept)` is the
+§6.1 "trendline fit" cleanliness metric H&S's 2-point neckline never
+needed (trivially 1.0 with only 2 points) -- now genuinely differentiates
+with a triangle boundary's 3+ points.
+
+### A metric that would have always scored 1.0 -- caught before shipping
+
+First pass at §6.1's "how monotonically the range narrows leg-over-leg"
+cleanliness metric evaluated the *fitted* boundary lines' own range at
+each pivot's bar index. Since range between two linear boundaries is
+itself perfectly linear (see above), and the convergence hard gate
+already requires `upper_slope < lower_slope`, this would have scored
+`1.0` for literally every triangle that passed the hard gate -- a
+completely non-differentiating metric shipped as if it were real signal.
+Caught during design, before writing the test that would have "confirmed"
+it. Fixed by computing `range_monotonicity_score` off the **raw pivot-to-
+pivot price legs** instead (`abs(window[k+1].price - window[k].price)`,
+same idea as VCP's own §4.5 contraction-leg definition) -- real, noisy
+zigzag data, not the smoothed regression fit, so it actually varies
+per-candidate. `apex_proximity_score` (the other half of `§6.1`'s
+convergence-quality addition, how close the window's last pivot sits to
+the apex) has no equivalent degeneracy risk -- kept as originally
+designed.
+
+### Classification + gating order
+
+One detector (`TriangleWedgeDetector`) covers all 5 shapes, per the
+design doc's own module layout ("triangles.py -- ascending/descending/
+symmetric + wedges, shared trendline logic"). Pivot window: the design
+doc's "most recent 5-6 pivots" naturally generalizes to a full sliding
+window (`config.triangle_window_pivots=6`, even so the 3/3 high/low split
+is always balanced) across the *entire* pivot history when scanning full
+history, same as Phase 1/2 already do with their own "N most recent"
+framing.
+
+Gate order, cheapest/most-structural first: (1) enough highs/lows on each
+side for `min_touches_per_line` (reuses the existing generic §3.2 knob,
+no new one needed -- the doc's own "2 per line, 4 total" hard floor); (2)
+convergence (`upper_slope < lower_slope`, a true structural invariant per
+§6); (3) shape classification via ATR-normalized slope vs.
+`triangle_flat_slope_atr_mult` (same ATR-normalization reasoning as
+sr_lines' own `slope_atr_per_bar`, Done #35) -- unclassifiable slope
+combinations (e.g. upper rising with lower flat) are rejected here, though
+in practice most of them already fail gate (2) first; (4) apex ahead of
+the window's own last pivot, not already stale; (5) a real bar-by-bar
+touch count (not just the defining pivots) against `min_touches_per_line`
+again, now over the whole formation window. No prior-trend hard gate --
+§4.3 doesn't cite one the way H&S/cup&handle cite §3.1 -- but it's still
+*measured* as a soft scoring input (§6's universal weight table), taken as
+whichever of up/down shows the larger prior move, since a triangle's own
+eventual breakout direction isn't known at measurement time.
+
+No hard pre-breakout invalidation condition beyond apex-expiry is
+documented for this pattern family (§4.3's "wick-only trendline violation"
+is explicitly soft/scored, not modeled in this first pass -- same kind of
+deliberate deferral as Phase 0's PIP or the config-YAML decision).
+`pre_breakout_invalidated_at` is a hard-coded `False` for every triangle/
+wedge candidate.
+
+### Target/stop, and why triangle stops point at the opposite boundary
+
+Same constraint Phase 2 already hit with H&S's sloped neckline, doubled:
+`upper_target`/`lower_target` are both computed once at detection time
+using the window's own last-pivot boundary values (not "at breakout,"
+unknown yet) plus the pattern's height at its widest point (the window's
+first pivot, per §3.6's "widest point" convention -- always the leftmost
+point here since range is provably monotonic once the convergence gate
+passes). No doc-specified stop convention for triangles (unlike double
+top's `max/min(p1,p2)`) -- `upper_stop`/`lower_stop` are each set to the
+*opposite* boundary's own value at the window's end, our own reasonable
+default: a break up that later falls back through the (still-live) lower
+support has failed on its own terms, and vice versa.
+
+### Apex-deadline off-by-one, caught in code review before merge
+
+`pending_deadline`'s apex half used `int(apex_bar)` (floor) to turn the
+fractional apex bar into a whole-bar deadline. A code review caught that
+this silently discards a legitimate breakout whenever the true apex lands
+inside the very first bar past the window's end (e.g. `apex_bar=34.5`,
+`window_end_i=34`): flooring gives `pending_deadline=34`, and the walk's
+first loop iteration is `i=35` -- `35 > 34` fires immediately, EXPIRED,
+before that bar's actual close is ever checked. Reproduced directly
+(swapped `ceil` back to `int` in a scratch run against a hand-built
+fixture with exactly this apex, confirmed EXPIRED/`breakout_bar=None`
+under the old code vs. a real resolved breakout under the fix) before
+trusting the fix. Switching to `math.ceil` fixed the discard but
+introduced a second, more subtle bug on the very same fixture: a
+genuinely-should-be-exact apex (a perfectly flat/linear synthetic
+triangle, `apex_bar` mathematically exactly `44.0`) came back as
+`44.00000000000008` from `np.polyfit`'s own floating-point noise --
+ceiling that *raw* overcorrects to `45`, granting a bar of "room" that
+was never really there and silently changing the existing apex-deadline
+test's expected outcome. Fixed by rounding to 6dp before ceiling
+(`math.ceil(round(apex_bar, 6))`) -- eliminates float noise at that scale
+while still preserving a genuinely fractional apex like `34.5`. Both
+scenarios are now permanent regression tests (`test_expired_at_apex_
+deadline_not_standard_deadline` for the original case,
+`test_fractional_apex_still_gives_the_next_bar_a_real_breakout_chance`
+for the off-by-one).
+
+### Real-data smoke test (AAPL, full history, daily + weekly)
+
+Daily, all three detectors registered: 226 total patterns (118 unchanged
+from Phase 1/2 + 108 new triangle/wedge matches: 56 rising_wedge, 17
+ascending_triangle, 14 descending_triangle, 14 falling_wedge, 7
+symmetric_triangle), spread across every terminal status. The one thing
+specifically worth checking for this phase -- bidirectional resolution
+actually producing *both* outcomes for a biased shape, not just the
+expected one -- confirmed directly: `ascending_triangle` shows both
+`bullish` (6 hit_target + 3 failed-breakout) *and* `bearish` (4 hit_target
++ 2 failed-breakout + 2 active) rows; same true-both-ways pattern for
+`descending_triangle`, `rising_wedge`, `falling_wedge`, and
+`symmetric_triangle`. Zero rows persisted with `direction='neutral'`
+(every symmetric triangle in AAPL's real history had already resolved one
+way or the other by the run's cutoff -- expected given the long history,
+not a gap). `target_price`/`stop_price` correctly ordered on the right
+side of `direction` for all 108 resolved rows (0 failures on a query
+checking exactly that), 0 out-of-range confidence values. Weekly run
+(49 patterns) additionally surfaced a real EXPIRED row -- not a
+triangle/wedge in this particular run (a double_top), so the apex-based
+expiry path's real-data exercise so far comes from the unit tests, not
+this smoke test; not a gap, just what the current data happened to
+produce.

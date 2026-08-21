@@ -135,6 +135,28 @@ class PatternConfig:
     head_shoulders_typical_min_bars: int = 20
     head_shoulders_typical_max_bars: int = 180
 
+    # §4.3/§4.6 Triangles (asc/desc/symmetric) + Wedges. `min_touches_per_
+    # line` (already defined above, §3.2) doubles as this pattern family's
+    # own "2 per line, 4 total" hard floor -- no separate knob needed.
+    # `triangle_window_pivots=6` -- the doc's own "5-6 pivots" convention;
+    # picked the even end for a clean 3-highs/3-lows split against
+    # detect_pivots' strict alternation. `triangle_flat_slope_atr_mult`
+    # decides "flat/horizontal" for shape classification (ascending vs.
+    # descending vs. symmetric vs. wedge) -- ATR-normalized rather than a
+    # raw price-per-bar %, same reasoning sr_lines' own diagonal-slope
+    # classification uses (Done #35's `slope_atr_per_bar`). Neither figure
+    # is named explicitly in the design doc; first-pass starting points.
+    triangle_window_pivots: int = 6
+    triangle_flat_slope_atr_mult: float = 0.05
+    # duration_fit typical range -- doc's own "several weeks to a few
+    # months on daily charts" (point 6), treated as a *soft* score like
+    # every other duration figure here (§6's weight table lists "Duration
+    # within the typical range" as one of 5 universal soft components,
+    # despite point 6's "reject" wording -- same soft-vs-hard resolution
+    # double top/H&S already apply to their own duration figures).
+    triangle_typical_min_bars: int = 15
+    triangle_typical_max_bars: int = 90
+
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["scoring_weights"] = dict(self.scoring_weights)

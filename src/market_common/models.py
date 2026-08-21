@@ -21,6 +21,13 @@ class Direction(str, Enum):
 
     BULLISH = "bullish"
     BEARISH = "bearish"
+    # patterns-only (design doc §5's own PatternMatch.direction type):
+    # a still-forming symmetric triangle has no directional bias until it
+    # actually breaks out either way. gaps/divergences never produce this
+    # -- purely additive, doesn't change either module's exhaustive
+    # BULLISH/BEARISH keyed lookups (e.g. their own plotting.py color
+    # dicts).
+    NEUTRAL = "neutral"
 
 
 class PivotKind(str, Enum):

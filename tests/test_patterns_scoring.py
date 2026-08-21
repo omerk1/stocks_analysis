@@ -3,10 +3,15 @@ import pytest
 from src.market_common.models import Direction
 from src.patterns.config import PatternConfig
 from src.patterns.scoring import (
+    apex_proximity_score,
     breakout_close_strength,
     duration_fit,
+    hs_price_symmetry,
+    hs_time_symmetry,
+    point_count_score,
     price_symmetry,
     prior_trend_strength,
+    range_monotonicity_score,
     score_pattern,
     volume_signature_score,
 )
@@ -89,3 +94,51 @@ def test_score_pattern_zero_components_scores_zero():
     components = {k: 0.0 for k in config.scoring_weights}
     confidence, _ = score_pattern(components, config)
     assert confidence == 0.0
+
+
+def test_hs_price_symmetry_identical_shoulders_scores_one():
+    assert hs_price_symmetry(100.0, 100.0, 140.0) == pytest.approx(1.0)
+
+
+def test_hs_price_symmetry_normalized_by_head_not_avg():
+    # |100-110|/140 = 0.0714 -- distinct from price_symmetry's avg(a,b)
+    # normalization (|100-110|/105 = 0.0952).
+    assert hs_price_symmetry(100.0, 110.0, 140.0) == pytest.approx(1 - 10 / 140)
+
+
+def test_hs_time_symmetry_equal_halves_scores_one():
+    assert hs_time_symmetry(bars_ls_to_head=10, bars_head_to_rs=10, bars_ls_to_rs=20) == pytest.approx(1.0)
+
+
+def test_hs_time_symmetry_lopsided_halves_scores_below_one():
+    score = hs_time_symmetry(bars_ls_to_head=5, bars_head_to_rs=15, bars_ls_to_rs=20)
+    assert score == pytest.approx(0.5)
+
+
+def test_point_count_score_caps_at_one():
+    assert point_count_score(n_touches=2, min_required=2) == pytest.approx(1.0)
+    assert point_count_score(n_touches=5, min_required=2) == pytest.approx(1.0)
+    assert point_count_score(n_touches=1, min_required=2) == pytest.approx(0.5)
+
+
+def test_range_monotonicity_score_all_shrinking_is_one():
+    assert range_monotonicity_score([40.0, 25.0, 10.0, 3.0]) == pytest.approx(1.0)
+
+
+def test_range_monotonicity_score_widening_leg_penalized():
+    # 40->25 shrinks, 25->30 widens, 30->10 shrinks -- 2 of 3 pairs shrink.
+    assert range_monotonicity_score([40.0, 25.0, 30.0, 10.0]) == pytest.approx(2 / 3)
+
+
+def test_range_monotonicity_score_fewer_than_two_legs_is_vacuously_one():
+    assert range_monotonicity_score([40.0]) == 1.0
+    assert range_monotonicity_score([]) == 1.0
+
+
+def test_apex_proximity_score_scales_with_progress_to_apex():
+    # Window spans bar 10->30, apex at bar 50 -- 20/40 = 0.5 of the way there.
+    assert apex_proximity_score(window_start_bar=10, window_end_bar=30, apex_bar=50) == pytest.approx(0.5)
+
+
+def test_apex_proximity_score_near_apex_scores_high():
+    assert apex_proximity_score(window_start_bar=10, window_end_bar=48, apex_bar=50) == pytest.approx(0.95)

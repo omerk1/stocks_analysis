@@ -54,6 +54,48 @@ def hs_time_symmetry(bars_ls_to_head: int, bars_head_to_rs: int, bars_ls_to_rs: 
     return _clip01(1 - abs(bars_ls_to_head - bars_head_to_rs) / bars_ls_to_rs)
 
 
+def point_count_score(n_touches: int, min_required: int) -> float:
+    """§6.1 "Point count vs. minimum": `min(n_touches/min_required, 1.0)` --
+    a boundary with more touches than the bare hard-gate floor scores
+    higher, capping once it reaches the floor's own multiple of itself."""
+    if min_required <= 0:
+        return 0.0
+    return _clip01(n_touches / min_required)
+
+
+def range_monotonicity_score(leg_ranges: list[float]) -> float:
+    """§6.1 triangle/wedge addition: fraction of consecutive leg-to-leg
+    amplitude pairs that actually shrink (`leg_ranges[k+1] <=
+    leg_ranges[k]`), same "successive contraction" idea VCP's own
+    monotonicity check (§4.5) will use -- penalizes a triangle whose range
+    widens on an intermediate swing before resuming convergence, even
+    though the *fitted* boundary lines (linear by construction) always
+    converge cleanly once the hard convergence gate has passed. Computed
+    from `leg_ranges`, not the fitted lines, for exactly that reason: a
+    monotonicity check against the fitted lines' own evaluated values
+    would be vacuously 1.0 every time. Vacuously 1.0 itself when fewer
+    than 2 legs are given (nothing to compare)."""
+    if len(leg_ranges) < 2:
+        return 1.0
+    pairs = list(zip(leg_ranges, leg_ranges[1:]))
+    shrank = sum(1 for a, b in pairs if b <= a)
+    return shrank / len(pairs)
+
+
+def apex_proximity_score(window_start_bar: int, window_end_bar: int, apex_bar: float) -> float:
+    """§6.1: how close the pattern's last known pivot sits to its apex,
+    as a fraction of the window's own span to the apex -- "too early =
+    little conviction yet ... right before the apex = classic
+    high-conviction zone." Clipped to [0,1]; callers already hard-gate
+    `apex_bar > window_end_bar`, so this is always a fraction short of a
+    full "reached the apex" 1.0 in practice, not literally guaranteed to
+    hit it."""
+    denom = apex_bar - window_start_bar
+    if denom <= 0:
+        return 0.0
+    return _clip01((window_end_bar - window_start_bar) / denom)
+
+
 def breakout_close_strength(
     breakout_close: float, level_price: float, atr: float | None, direction: Direction, cap_atr: float
 ) -> float:
