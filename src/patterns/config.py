@@ -203,6 +203,16 @@ class PatternConfig:
     cup_typical_min_bars: int = 25
     cup_typical_max_bars: int = 150
 
+    # §4.8 Rounding Bottom/Top (Phase 6) -- "cup and handle without the
+    # handle," sharing every gate above (rim symmetry, depth, prior
+    # trend, roundedness) except the handle-specific ones. Only its own
+    # knob: a duration range operationalizing the doc's "require a longer
+    # duration than a typical cup" as "at or beyond a typical cup's own
+    # upper bound," soft-scored like every duration figure here despite
+    # the doc's "require" wording.
+    rounding_typical_min_bars: int = 150
+    rounding_typical_max_bars: int = 400
+
     # §4.5 VCP. The one pattern needing its own bar-count-scaled knobs
     # baked directly into `PatternConfig` rather than left to `PRESETS`'
     # usual "just prior_trend_min_bars differs" convention -- VCP's
@@ -259,6 +269,61 @@ class PatternConfig:
     vcp_52w_high_lookback_bars: int = 252
     vcp_typical_min_bars: int = 15
     vcp_typical_max_bars: int = 90
+
+    # §4.7 Flags/Pennants (Phase 6, bonus). The one pattern family using a
+    # *fixed* consolidation pivot count rather than a sliding range
+    # (triangles' 2-6 contractions, VCP's 2-6 legs) -- the doc doesn't
+    # name a variable range for flags the way it does for those, and
+    # `flag_consolidation_pivots=4` is already the minimum for 2 touches
+    # per boundary (§3.2's own floor), so a fixed size is the more
+    # doc-faithful choice here, not a corner cut. `flag_pole_min_pct`/
+    # `flag_pole_max_bars` operationalize "large % move in few bars";
+    # `flag_consolidation_max_bars` is a hard ceiling (unlike every other
+    # duration figure here) since "much shorter than the patterns above"
+    # is closer to this pattern's own structural definition than a
+    # tunable quality signal -- a consolidation that ran for months
+    # wouldn't be a flag, it'd just be whatever triangle/wedge it turned
+    # into, already a separate detector. `flag_max_retrace_pct=50.0` is
+    # the doc's own "commonly under ~50%" figure, doing double duty as
+    # both the detection-time gate and (via the same threshold) an
+    # ongoing pre-breakout invalidation check, same pattern cup & handle's
+    # own handle-depth figure already established. `flag_consolidation_
+    # max_range_ratio` operationalizes "low-volatility relative to the
+    # flagpole" as a direct amplitude ratio, no new ATR machinery needed
+    # -- checked directly against real AAPL history before shipping, same
+    # discipline as VCP's own calibration finding: an initial "textbook"
+    # 0.5 ceiling produced zero real matches even after fixing the pivot-
+    # granularity issue below -- the (small, n=4) sample of candidates
+    # that passed every earlier gate had range_ratio between 0.64 and
+    # 1.15, all above 0.5. Raised to 1.0 (admits 3 of those 4) -- a
+    # consolidation's amplitude no larger than the pole's own height is
+    # still a real, meaningful "low volatility relative to the flagpole"
+    # bar, just a materially weaker one than the doc's own implicit
+    # textbook picture.
+    #
+    # `flag_pivot_atr_mult=1.5` -- checked directly against real AAPL
+    # history before shipping (same discipline as VCP's own calibration
+    # finding): the scanner's shared coarse pass (2.5x ATR) has a *median*
+    # gap of 11 bars between consecutive pivots, so a 4-pivot
+    # consolidation window built from it spans ~35-85 bars in practice --
+    # nowhere close to "much shorter than the patterns above" (point (a)
+    # of §4.7's own definition), and looser than even triangles' own
+    # typical range. Rather than loosen flag_consolidation_max_bars to
+    # match (which would erase the thing that makes a flag a flag, not
+    # just a small triangle), this is the second detector (after VCP) to
+    # run its own, finer `detect_pivots` pass -- see base.py's docstring.
+    # 1.5x ATR (between the shared pass's 2.5 and VCP's own 1.0) brings
+    # the median gap down to 4 bars, comfortably inside the 20-bar
+    # ceiling below.
+    flag_pivot_atr_mult: float = 1.5
+    flag_pole_min_pct: float = 15.0
+    flag_pole_max_bars: int = 10
+    flag_consolidation_pivots: int = 4
+    flag_consolidation_max_bars: int = 20
+    flag_max_retrace_pct: float = 50.0
+    flag_consolidation_max_range_ratio: float = 1.0
+    flag_typical_min_bars: int = 3
+    flag_typical_max_bars: int = 20
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)

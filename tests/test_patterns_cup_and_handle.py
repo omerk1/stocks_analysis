@@ -111,6 +111,43 @@ def test_inverse_cup_and_handle_mirrors_cup_and_handle():
     assert m.status == PatternStatus.HIT_TARGET
 
 
+def test_rounding_bottom_confirmed_breakout_hits_target():
+    # No handle pivot at all -- rim2 is the window's last pivot, the
+    # "genuinely no second pullback" case §4.8 describes, not just an
+    # invalid handle falling through.
+    df = _cup_df(np.linspace(132.0, 200.0, 20))
+    pivots = _cup_pivots(df)[:3]
+    config = _config(rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.pattern_type == PatternType.ROUNDING_BOTTOM
+    assert m.direction == Direction.BULLISH
+    assert "handle" not in m.key_levels
+    assert m.target_price == pytest.approx(180.0)
+    assert m.stop_price == pytest.approx(100.0)
+    assert m.breakout_bar == 72
+    assert m.status == PatternStatus.HIT_TARGET
+
+
+def test_rounding_top_mirrors_rounding_bottom():
+    df = _inverse_cup_df(np.linspace(148.0, 80.0, 20))
+    pivots = _inverse_cup_pivots(df)[:3]
+    config = _config(rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.pattern_type == PatternType.ROUNDING_TOP
+    assert m.direction == Direction.BEARISH
+    assert m.target_price == pytest.approx(100.0)
+    assert m.stop_price == pytest.approx(180.0)
+    assert m.status == PatternStatus.HIT_TARGET
+
+
 def test_rim_symmetry_gate_rejects_weak_recovery():
     # Right rim recovering only to 120 -- 120 < 140*(1-0.05)=133.
     df = _cup_df(np.linspace(132.0, 200.0, 20))
@@ -142,25 +179,33 @@ def test_depth_hard_gate_rejects_too_deep_for_configured_ceiling():
     assert matches == []
 
 
-def test_handle_below_cup_midpoint_rejects_candidate():
-    # midpoint=(140+100)/2=120; a handle at 110 sits in the lower half.
+def test_handle_below_cup_midpoint_falls_through_to_rounding():
+    # midpoint=(140+100)/2=120; a handle at 110 sits in the lower half --
+    # not a valid handle, so this now falls through to a Rounding Bottom
+    # match (every other gate still passes) instead of no match at all.
     df = _cup_df(np.linspace(132.0, 200.0, 20))
     pivots = _cup_pivots(df)
     pivots[3] = _pivot(68, 110.0, PivotKind.LOW, df)
     config = _config()
 
     matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
-    assert matches == []
+
+    assert len(matches) == 1
+    assert matches[0].pattern_type == PatternType.ROUNDING_BOTTOM
+    assert "handle" not in matches[0].key_levels
 
 
-def test_handle_retrace_gate_rejects_when_configured_tighter_than_actual():
-    # The fixture's real handle retrace is 25% of the cup's advance.
+def test_handle_retrace_gate_falls_through_to_rounding_when_configured_tighter_than_actual():
+    # The fixture's real handle retrace is 25% of the cup's advance --
+    # disqualified as a handle here, so this falls through to Rounding.
     df = _cup_df(np.linspace(132.0, 200.0, 20))
     pivots = _cup_pivots(df)
     config = _config(cup_handle_max_retrace_pct=10.0)
 
     matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
-    assert matches == []
+
+    assert len(matches) == 1
+    assert matches[0].pattern_type == PatternType.ROUNDING_BOTTOM
 
 
 def test_weak_prior_trend_rejects_candidate():

@@ -34,10 +34,13 @@ class PatternDetector(ABC):
         detectors use this directly rather than calling detect_pivots
         themselves, so the same pivot sequence (and its bar_index
         alignment with `df`) is shared across every registered detector in
-        one scan (see scanner.py). VCP (Phase 5) is the documented
-        exception: its base structure needs a *finer* pivot pass than the
-        shared one to catch each individual contraction leg (§2c), so it
-        calls detect_pivots itself with its own ATR multiple and ignores
-        this argument -- anticipated from Phase 0 onward, not a late
-        architectural surprise."""
+        one scan (see scanner.py). Two documented exceptions, both
+        anticipated from Phase 0 onward (§2c: "different patterns want
+        different pivot granularity"), not late architectural surprises:
+        VCP (Phase 5) needs a *finer* pass to catch each individual
+        contraction leg; Flags/Pennants (Phase 6) needs one too, checked
+        directly against real data -- the shared pass's pivots are simply
+        too sparse in time to form a consolidation "much shorter than the
+        patterns above" (§4.7). Both ignore this argument entirely and
+        call detect_pivots themselves with their own ATR multiple."""
         ...

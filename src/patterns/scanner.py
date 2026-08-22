@@ -24,6 +24,7 @@ from src.patterns.base import PatternDetector
 from src.patterns.config import PatternConfig
 from src.patterns.detectors.cup_and_handle import CupAndHandleDetector
 from src.patterns.detectors.double_top_bottom import DoubleTopBottomDetector
+from src.patterns.detectors.flags_pennants import FlagPennantDetector
 from src.patterns.detectors.head_shoulders import HeadShouldersDetector
 from src.patterns.detectors.triangles import TriangleWedgeDetector
 from src.patterns.detectors.vcp import VCPDetector
@@ -31,6 +32,7 @@ from src.patterns.models import PatternMatch
 
 DEFAULT_DETECTORS: list[PatternDetector] = [
     DoubleTopBottomDetector(), HeadShouldersDetector(), TriangleWedgeDetector(), CupAndHandleDetector(), VCPDetector(),
+    FlagPennantDetector(),
 ]
 
 
