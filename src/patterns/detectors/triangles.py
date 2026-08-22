@@ -49,6 +49,10 @@ _SHAPE_BIAS = {
 }
 
 
+def _line_at(i: float, slope: float, intercept: float) -> float:
+    return slope * i + intercept
+
+
 def _classify(upper_atr_slope: float, lower_atr_slope: float, flat: float) -> PatternType | None:
     upper_flat = abs(upper_atr_slope) < flat
     lower_flat = abs(lower_atr_slope) < flat
@@ -124,22 +128,16 @@ class TriangleWedgeDetector(PatternDetector):
         if apex_bar is None or apex_bar <= window_end_i:
             return None
 
-        def upper_at(i: int) -> float:
-            return upper_slope * i + upper_intercept
-
-        def lower_at(i: int) -> float:
-            return lower_slope * i + lower_intercept
-
         window_df = df.iloc[window_start_i : window_end_i + 1]
         window_atr = atr.iloc[window_start_i : window_end_i + 1]
         n_upper_touches = tl.count_touches(
             window_df["high"], window_df["low"], window_atr,
-            level_at=lambda i: upper_at(window_start_i + i),
+            level_at=lambda i: _line_at(window_start_i + i, upper_slope, upper_intercept),
             atr_mult=config.touch_tolerance_atr_mult, pct=config.touch_tolerance_pct,
         )
         n_lower_touches = tl.count_touches(
             window_df["high"], window_df["low"], window_atr,
-            level_at=lambda i: lower_at(window_start_i + i),
+            level_at=lambda i: _line_at(window_start_i + i, lower_slope, lower_intercept),
             atr_mult=config.touch_tolerance_atr_mult, pct=config.touch_tolerance_pct,
         )
         # §4.3 point 4: "2 per trendline (4 total)" hard floor -- reuses
@@ -160,12 +158,8 @@ class TriangleWedgeDetector(PatternDetector):
         n_upper_touches, n_lower_touches, highs, lows,
     ) -> PatternMatch:
         window_start_i, window_end_i = window[0].bar_index, window[-1].bar_index
-
-        def upper_at(i: int) -> float:
-            return upper_slope * i + upper_intercept
-
-        def lower_at(i: int) -> float:
-            return lower_slope * i + lower_intercept
+        upper_at = lambda i: _line_at(i, upper_slope, upper_intercept)  # noqa: E731
+        lower_at = lambda i: _line_at(i, lower_slope, lower_intercept)  # noqa: E731
 
         # §3.6 measured-move height at the pattern's widest (leftmost)
         # point -- range is linear between two linear boundaries, and
@@ -309,7 +303,7 @@ class TriangleWedgeDetector(PatternDetector):
             resolved_slope, resolved_intercept = match.trendlines[
                 "upper" if match.direction == Direction.BULLISH else "lower"
             ]
-            level_price = resolved_slope * match.breakout_bar + resolved_intercept
+            level_price = _line_at(match.breakout_bar, resolved_slope, resolved_intercept)
             breakout_close = float(df["close"].iloc[match.breakout_bar])
             atr_at_breakout = atr.iloc[match.breakout_bar]
             atr_at_breakout = None if pd.isna(atr_at_breakout) else float(atr_at_breakout)
