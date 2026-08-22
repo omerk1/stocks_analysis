@@ -5,15 +5,14 @@ gaps/sr_lines' own plotting.py separation.
 
 Drawing `match.pivots` as a connected polyline (rather than anything
 double-top-specific) is deliberately pattern-agnostic -- it works
-unchanged for H&S's 5 pivots, a triangle's N pivots, etc. once those
-detectors land, without this module needing to change. The neckline/
-trigger line is drawn from `match.trendlines["neckline"]` (slope,
-intercept in bar-index space) when a detector supplies one -- H&S's
-neckline can be sloped, so two endpoints computed off the fitted line are
-enough to draw it exactly (it's linear by construction). Falls back to a
-flat line at `key_levels["neckline"]` for double top/bottom, which has no
-`trendlines` entry at all. Both looked up defensively (`.get`), since not
-every future pattern type will have either.
+unchanged for H&S's 5 pivots, a triangle's 6 pivots, etc. without this
+module needing to change. Every entry in `match.trendlines` (slope,
+intercept in bar-index space) is drawn as its own line -- one for H&S's
+"neckline", two ("upper"/"lower") for a triangle/wedge -- since each is
+linear by construction, two endpoints computed off the fit are enough to
+draw it exactly. Falls back to a flat line at `key_levels["neckline"]` for
+double top/bottom, which has no `trendlines` entry at all. Both looked up
+defensively (`.get`), since not every pattern type populates either.
 """
 
 from __future__ import annotations
@@ -33,6 +32,10 @@ _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
 _DIRECTION_RGB = {
     Direction.BULLISH: (44, 160, 44),
     Direction.BEARISH: (214, 39, 40),
+    # A still-PENDING symmetric triangle has no breakout-resolved
+    # direction yet (Direction.NEUTRAL, Phase 3) -- neutral gray until it
+    # actually breaks one way or the other.
+    Direction.NEUTRAL: (127, 127, 127),
 }
 
 _STATUS_OPACITY = {
@@ -98,19 +101,22 @@ def render_pattern_chart(
         x_end = bars.index[match.breakout_bar] if match.breakout_bar is not None else last_bar_ts
         x_end_idx = match.breakout_bar if match.breakout_bar is not None else len(bars) - 1
 
-        neckline_fit = match.trendlines.get("neckline")
-        if neckline_fit is not None:
-            slope, intercept = neckline_fit
-            x_start_idx = match.pivots[1].bar_index
-            x_start = bars.index[x_start_idx]
-            fig.add_trace(
-                go.Scatter(
-                    x=[x_start, x_end],
-                    y=[slope * x_start_idx + intercept, slope * x_end_idx + intercept],
-                    mode="lines", line=dict(color=color, width=1, dash="dot"),
-                    showlegend=False, hoverinfo="skip",
+        if match.trendlines:
+            for name, (slope, intercept) in match.trendlines.items():
+                # H&S's neckline is only defined by its own two trough/
+                # peak pivots (index 1), not the whole pivot list -- a
+                # triangle/wedge's upper/lower lines are fit through the
+                # entire window, so they're drawn from its first pivot.
+                x_start_idx = match.pivots[1].bar_index if name == "neckline" and len(match.pivots) > 1 else match.pivots[0].bar_index
+                x_start = bars.index[x_start_idx]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[x_start, x_end],
+                        y=[slope * x_start_idx + intercept, slope * x_end_idx + intercept],
+                        mode="lines", line=dict(color=color, width=1, dash="dot"),
+                        showlegend=False, hoverinfo="skip",
+                    )
                 )
-            )
         else:
             neckline = match.key_levels.get("neckline")
             if neckline is not None:

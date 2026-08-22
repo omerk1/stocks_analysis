@@ -4,7 +4,8 @@ import pytest
 
 from src.market_common.models import Pivot, PivotKind
 from src.patterns.trendlines import (
-    count_touches, fit_line, has_prior_trend, level_tolerance, prior_trend_pct, touches_level,
+    convergence_apex_bar, count_touches, fit_line, has_prior_trend, level_tolerance, prior_trend_pct,
+    r_squared, touches_level,
 )
 
 
@@ -115,3 +116,34 @@ def test_count_touches_counts_bars_within_tolerance_of_a_flat_level():
         bars["high"], bars["low"], atr, level_at=lambda i: 100.0, atr_mult=0.5, pct=0.005
     )
     assert count == 4
+
+
+def test_r_squared_exact_line_is_one():
+    xs = np.array([0.0, 10.0, 20.0])
+    ys = np.array([100.0, 150.0, 200.0])
+    slope, intercept = fit_line(xs, ys)
+    assert r_squared(xs, ys, slope, intercept) == pytest.approx(1.0)
+
+
+def test_r_squared_noisy_points_below_one():
+    xs = np.array([0.0, 10.0, 20.0])
+    ys = np.array([100.0, 160.0, 195.0])  # not quite colinear
+    slope, intercept = fit_line(xs, ys)
+    assert 0.0 < r_squared(xs, ys, slope, intercept) < 1.0
+
+
+def test_r_squared_constant_ys_is_one():
+    # ss_tot == 0 (no variance to explain) -- trivially a perfect "fit".
+    xs = np.array([0.0, 10.0, 20.0])
+    ys = np.array([100.0, 100.0, 100.0])
+    assert r_squared(xs, ys, 0.0, 100.0) == 1.0
+
+
+def test_convergence_apex_bar_solves_intersection():
+    # upper: y = 150 (flat); lower: y = i + 106 -- intersect at i=44.
+    apex = convergence_apex_bar(0.0, 150.0, 1.0, 106.0)
+    assert apex == pytest.approx(44.0)
+
+
+def test_convergence_apex_bar_none_when_parallel():
+    assert convergence_apex_bar(0.5, 100.0, 0.5, 90.0) is None

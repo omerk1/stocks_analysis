@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Callable, Literal
 
+import numpy as np
 import pandas as pd
 
 from src.market_common.models import Pivot
@@ -20,6 +21,7 @@ from src.market_common.trendline_fit import fit_line
 
 __all__ = [
     "fit_line", "prior_trend_pct", "has_prior_trend", "level_tolerance", "touches_level", "count_touches",
+    "r_squared", "convergence_apex_bar",
 ]
 
 
@@ -120,3 +122,42 @@ def count_touches(
         if touches_level(highs_arr[i], level, tol) or touches_level(lows_arr[i], level, tol):
             count += 1
     return count
+
+
+def r_squared(xs: np.ndarray, ys: np.ndarray, slope: float, intercept: float) -> float:
+    """§6.1 "Trendline fit (R²)" cleanliness metric: how well `ys` actually
+    sits on the fitted line `slope*xs+intercept`, vs. just being the
+    least-squares best-effort through noisy points. Trivially 1.0 for a
+    2-point line (H&S's neckline) -- only differentiates once a line has
+    3+ points behind it (a triangle boundary, Phase 3), per §6.1's own
+    note. Can be negative for a genuinely bad fit; callers wanting a
+    [0,1] score clip it themselves (same division of labor as elsewhere
+    in this module: geometry here, score-shaping in scoring.py)."""
+    predicted = slope * xs + intercept
+    ss_res = float(np.sum((ys - predicted) ** 2))
+    ss_tot = float(np.sum((ys - np.mean(ys)) ** 2))
+    if ss_tot == 0:
+        return 1.0
+    return 1 - ss_res / ss_tot
+
+
+def convergence_apex_bar(
+    upper_slope: float, upper_intercept: float, lower_slope: float, lower_intercept: float,
+) -> float | None:
+    """Bar index (may be fractional) where two fitted boundary lines
+    intersect -- a triangle/wedge's apex (§4.3 point 5 / §4.6). None if
+    the lines are parallel (upper_slope == lower_slope): no convergence,
+    not a valid triangle/wedge at all. Solves
+    `upper_slope*x + upper_intercept == lower_slope*x + lower_intercept`.
+
+    Range-at-a-bar (`upper_at(i) - lower_at(i)`) is linear in `i` since
+    both boundaries are linear, so checking convergence doesn't need to
+    separately evaluate "range at start" vs. "range at end" the way the
+    design doc's wording suggests -- `upper_slope < lower_slope` (the
+    upper boundary rising slower / falling faster than the lower one) is
+    the single condition under which range shrinks as `i` increases,
+    for *any* pair of points. Callers gate on that directly."""
+    denom = upper_slope - lower_slope
+    if denom == 0:
+        return None
+    return (lower_intercept - upper_intercept) / denom
