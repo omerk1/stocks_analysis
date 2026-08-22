@@ -157,6 +157,52 @@ class PatternConfig:
     triangle_typical_min_bars: int = 15
     triangle_typical_max_bars: int = 90
 
+    # §4.4 Cup & Handle + Inverse. `cup_prior_trend_min_pct=30.0` is the
+    # doc's own explicit figure for this pattern (vs. the generic 15%) --
+    # passed directly to `trendlines.prior_trend_pct`, same precedent H&S
+    # already established for its own pattern-specific threshold.
+    # `cup_rim_symmetry_max_pct=5.0` -- doc's own "~0-5%" tolerance for how
+    # far short of the left rim the right rim is allowed to recover (no
+    # upper bound: doc explicitly says a right rim *above* the left rim is
+    # fine, "often bullish"). `cup_depth_hard_min/max_pct` are outer bounds
+    # around the doc's own soft 12-50% depth range (same "hard floor
+    # beneath an unbounded search" reasoning as double_top_symmetry_hard_
+    # gate_pct); `cup_depth_typical_min/max_pct` are the doc's literal
+    # "12-33% retracement" ideal range, soft-scored (reusing `duration_
+    # fit`'s own ramp shape for "ideal middle, tolerated further out,
+    # floors rather than zeroes") rather than hard-gated at 33%, matching
+    # the doc's own "flag as lower-confidence rather than rejecting
+    # outright" wording for the 33-50% band. `cup_roundedness_min_r2` gates
+    # `curves.fit_roundedness` -- the doc's own primary "rounded not
+    # V-shaped" operationalization (§4.4 point 3's first approach); the
+    # doc's alternative "simpler heuristic" (multiple pivots per leg, no
+    # single-bar-dominance) is deliberately not built alongside it -- one
+    # principled mechanism, not two. `cup_max_span_pivots` bounds the
+    # left-rim/right-rim pivot search (the doc gives no explicit pivot
+    # count for "possibly several pivots" forming the rounding).
+    # `cup_handle_max_retrace_pct=50.0` is the doc's own outer "up to 50%
+    # in choppier tape" bound for how deep the handle retraces the cup's
+    # total advance -- also functions as this detector's version of the
+    # invalidation section's "handle depth exceeding ~50% of cup depth ->
+    # structurally broken," treated as the same figure since "advance"
+    # (right rim - cup extreme) and "depth" (left rim - cup extreme) are
+    # already close given the rim-symmetry gate. `cup_typical_min/max_
+    # bars` approximate the doc's separate cup (1-6 months) + handle (1-4
+    # weeks) durations as one combined formation-length range, soft-scored
+    # like every other pattern's duration figure. All first-pass starting
+    # points except the two explicitly-named doc figures (30%, 5%).
+    cup_prior_trend_min_pct: float = 30.0
+    cup_rim_symmetry_max_pct: float = 5.0
+    cup_depth_hard_min_pct: float = 5.0
+    cup_depth_hard_max_pct: float = 60.0
+    cup_depth_typical_min_pct: float = 12.0
+    cup_depth_typical_max_pct: float = 33.0
+    cup_roundedness_min_r2: float = 0.5
+    cup_max_span_pivots: int = 12
+    cup_handle_max_retrace_pct: float = 50.0
+    cup_typical_min_bars: int = 25
+    cup_typical_max_bars: int = 150
+
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["scoring_weights"] = dict(self.scoring_weights)

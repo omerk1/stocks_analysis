@@ -120,7 +120,13 @@ def render_pattern_chart(
         else:
             neckline = match.key_levels.get("neckline")
             if neckline is not None:
-                x_start = pivot_x[1] if len(pivot_x) > 1 else pivot_x[0]
+                # The trigger-level pivot is always second-to-last in
+                # match.pivots -- double top/bottom's trough (3-pivot
+                # list: [p1, trough, p2]) and cup & handle's right rim
+                # (variable-length list: [rim1, ..., rim2, handle]) both
+                # land there. Index 1 only coincides with that for a
+                # fixed 3-pivot list; -2 is the actual invariant.
+                x_start = pivot_x[-2] if len(pivot_x) > 1 else pivot_x[0]
                 fig.add_trace(
                     go.Scatter(
                         x=[x_start, x_end], y=[neckline, neckline],
