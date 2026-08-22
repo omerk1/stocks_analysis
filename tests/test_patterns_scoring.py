@@ -5,6 +5,7 @@ from src.patterns.config import PatternConfig
 from src.patterns.scoring import (
     apex_proximity_score,
     breakout_close_strength,
+    contraction_tightness_score,
     duration_fit,
     hs_price_symmetry,
     hs_time_symmetry,
@@ -142,3 +143,15 @@ def test_apex_proximity_score_scales_with_progress_to_apex():
 
 def test_apex_proximity_score_near_apex_scores_high():
     assert apex_proximity_score(window_start_bar=10, window_end_bar=48, apex_bar=50) == pytest.approx(0.95)
+
+
+def test_contraction_tightness_score_zero_ratio_is_one():
+    assert contraction_tightness_score(ratio=0.0, max_ratio=0.6) == pytest.approx(1.0)
+
+
+def test_contraction_tightness_score_at_ceiling_is_zero():
+    assert contraction_tightness_score(ratio=0.6, max_ratio=0.6) == pytest.approx(0.0)
+
+
+def test_contraction_tightness_score_scales_linearly():
+    assert contraction_tightness_score(ratio=0.3, max_ratio=0.6) == pytest.approx(0.5)

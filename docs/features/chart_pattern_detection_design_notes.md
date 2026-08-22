@@ -42,10 +42,15 @@ fact.
   more detailed Phase 6 wording, not a new deviation). Landed in PR #43
   (`docs/done.md` #51) -- see this file's own Phase 4 section below for
   the full narrative.
-- [ ] **Phase 5 — VCP.** Most novel logic (Trend Template gate, monotonic
+- [x] **Phase 5 — VCP.** Most novel logic (Trend Template gate, monotonic
   contraction sequence), least standardized in the source material,
   depends on none of the trendline/quadratic infra — sequenced last among
-  primary patterns.
+  primary patterns. The first detector to run its own, finer `detect_
+  pivots` pass rather than the scanner's shared coarse one (anticipated
+  since Phase 0/1, see base.py's own updated docstring). Landed in PR #44
+  (`docs/done.md` #52) -- see this file's own Phase 5 section below for
+  the full narrative, including a real-data calibration finding on the
+  ATR-contraction ratio gate that was fixed before merge.
 - [ ] **Phase 6 (bonus) — Flags/Pennants, Rounding top/bottom.** Only
   after 1–5 are validated. Rounding is nearly free off Phase 4's quadratic
   fit.
@@ -540,3 +545,84 @@ DB: 0 rows where `target_price`/`stop_price` land on the wrong side of
 `direction`, `cup_extreme < left_rim`/`cup_extreme < right_rim` and
 `handle` sitting between them (upper half) held on every sampled row, 0
 out-of-range confidence values.
+
+## Phase 5: VCP
+
+### Its own, finer pivot pass -- the exception Phase 0/1 already anticipated
+
+Every prior detector consumed the `pivots` argument `scan()` receives (the
+scanner's one shared, coarse pass) unchanged. VCP is the first to ignore
+it and call `detect_pivots` itself with `config.vcp_pivot_atr_mult=1.0`
+(vs. the shared pass's 2.5) -- §2c explicitly calls for finer pivots here
+to catch each individual contraction leg, and Phase 0/1's own design notes
+already flagged this as the trigger for eventually building per-detector
+granularity ("the fuller design wants different pivot granularity per
+pattern... Phase 1's single detector doesn't need that yet... per-detector
+granularity is a later-phase concern"). `base.py`'s `PatternDetector.scan`
+docstring updated to document VCP as the exception, since it previously
+stated flatly that "detectors never call detect_pivots themselves" --
+keeping that claim accurate mattered more than leaving it alone.
+
+### Trend Template as the prior-trend qualifier, not a separate check
+
+§4.5 point 1 groups "require a prior uptrend" and "a Trend Template gate"
+into one requirement, calling the pairing "closely tied to Minervini's
+methodology." Treated literally: no separate `has_prior_trend` call the
+way H&S/cup & handle each pass their own threshold to it. Price sitting
+above rising 150/200-day MAs, with the 50-day MA stacked above both, near
+its own 52-week high, already *is* the doc's own more specific stand-in
+for "prior uptrend" here -- adding a redundant generic check on top would
+just be re-testing a weaker version of the same thing.
+
+### A straight linear ramp satisfies every Trend Template condition for free
+
+Worth recording since it made the whole test suite tractable: on
+perfectly linear price data, `SMA(N)` at bar `i` is just the price `N/2`
+bars back (the average of an arithmetic sequence is its midpoint). For a
+monotonically rising ramp, that means `SMA50 > SMA150 > SMA200` and both
+the medium/long MAs "rising" over any lookback fall out automatically,
+with zero risk of an off-by-one in constructing a fixture by hand -- no
+need to hand-tune a specific shape the way, say, cup & handle's roundedness
+check required. Every synthetic test fixture here uses a plain ramp as its
+"already in a Stage-2 uptrend" prefix for exactly this reason.
+
+### A real calibration finding, checked before shipping, not assumed away
+
+Initial `vcp_atr_contraction_max_ratio` was 0.6 (already looser than the
+doc's own "commonly cited ~1/3" figure for a textbook contraction). The
+real-AAPL smoke test came back with **zero** VCP matches -- not a
+plausible "this pattern is just rare" outcome by itself, so traced it
+before accepting it: instrumented the gate funnel directly against AAPL's
+real daily history. 2,458 bars passed the Trend Template gate and 393
+candidates cleared both the monotonic-depth and higher-lows checks, but
+every one of their `ATR(short)/ATR(long)` ratios sat between 0.68 and
+1.81 (median ~1.03) -- literally none cleared 0.6. The real finding: a
+shrinking *percentage* retracement (what points 4/5 check, off the pivot
+prices) doesn't reliably predict a shrinking *ATR* (what point 7 checks,
+off the bars' own true ranges) -- a leg can retrace a smaller % of price
+while still being individually choppy. Raised the ceiling to 1.0 ("recent
+volatility no higher than the longer-term baseline" -- a materially
+weaker bar than the doc's textbook figure, but one that actually admits
+real candidates) and re-verified: 167 real VCP matches on AAPL daily, 24
+on weekly (confirming the weekly `PRESETS` overrides -- 10/30/40-week MAs,
+ATR(2)/ATR(10) -- work too), spread across every terminal status.
+`scoring.contraction_tightness_score` still rewards a tighter ratio
+continuously within the new ceiling, so a genuinely textbook ~0.33
+candidate still scores far higher than one just under 1.0 -- only the
+hard gate moved, not what counts as "clean."
+
+### Real-data smoke test (AAPL, full history, daily + weekly)
+
+`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with all
+five detectors registered: 466 total daily patterns (299 unchanged from
+Phase 1-4 + 167 new VCP), spread across every terminal status
+(`active=21, expired=22, hit_target=210, invalidated=76, invalidated_
+failed_breakout=137`). Spot-checked geometry directly in the derived DB:
+0 rows where `target_price <= stop_price` (every VCP match is bullish, so
+this should never happen), several sampled rows show exactly one
+non-shrinking contraction-depth pair -- confirmed this is the doc's own
+explicit one-violation tolerance working as intended (§4.5 point 4), not
+a bug, before treating it as expected rather than alarming. Weekly run:
+107 total patterns including 24 VCP, confirming the weekly-preset MA/ATR
+periods actually fire on real data, not just in unit tests. 0 out-of-range
+confidence values in either run.
