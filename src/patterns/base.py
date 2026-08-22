@@ -30,8 +30,14 @@ class PatternDetector(ABC):
         """`df`: OHLCV bars (DatetimeIndex, open/high/low/close/volume
         columns) already loaded/validated/as_of-truncated by the caller.
         `pivots`: already extracted via market_common.pivots.detect_pivots
-        against `df` -- detectors never call detect_pivots themselves, so
-        the same pivot sequence (and its bar_index alignment with `df`) is
-        shared across every registered detector in one scan (see
-        scanner.py)."""
+        against `df`, at the scanner's shared coarse granularity -- most
+        detectors use this directly rather than calling detect_pivots
+        themselves, so the same pivot sequence (and its bar_index
+        alignment with `df`) is shared across every registered detector in
+        one scan (see scanner.py). VCP (Phase 5) is the documented
+        exception: its base structure needs a *finer* pivot pass than the
+        shared one to catch each individual contraction leg (§2c), so it
+        calls detect_pivots itself with its own ATR multiple and ignores
+        this argument -- anticipated from Phase 0 onward, not a late
+        architectural surprise."""
         ...

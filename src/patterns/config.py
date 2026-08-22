@@ -203,21 +203,87 @@ class PatternConfig:
     cup_typical_min_bars: int = 25
     cup_typical_max_bars: int = 150
 
+    # §4.5 VCP. The one pattern needing its own bar-count-scaled knobs
+    # baked directly into `PatternConfig` rather than left to `PRESETS`'
+    # usual "just prior_trend_min_bars differs" convention -- VCP's
+    # Trend Template gate is inherently tied to specific daily-bar MA
+    # windows (50/150/200-day, from the methodology itself), so its
+    # weekly equivalents (10/30/40-week) need their own PRESETS overrides
+    # below, not a /5 scaling of the same field.
+    #
+    # `vcp_pivot_atr_mult=1.0` -- finer than the shared coarse pass's 2.5
+    # (§2c: "VCP wants fine-grained pivots to catch each contraction leg")
+    # -- VCP is the first detector to actually need this, so it runs its
+    # own `detect_pivots` call rather than using the `pivots` argument
+    # `scan()` receives (see base.py's updated docstring).
+    # `vcp_min/max_contractions=2/6` -- the doc's own explicit range.
+    # `vcp_contraction_violations_allowed=1` -- the doc's own explicit
+    # "allow one minor tolerance violation, don't require perfect
+    # monotonicity." Higher-lows (point 5) gets no such tolerance in the
+    # doc's own text, so that check stays strict (zero violations).
+    # `vcp_atr_contraction_max_ratio=1.0` -- the doc cites "commonly ~1/3"
+    # as what a *textbook* contraction looks like, and an initial 0.6
+    # ceiling (already looser than that) was checked directly against
+    # real AAPL history before shipping: 393 candidates cleared the
+    # monotonic-depth/higher-lows gates, but their ATR(short)/ATR(long)
+    # ratios clustered at a median of ~1.03 (range 0.68-1.81) -- literally
+    # zero cleared 0.6, meaning the pivot-depth-based contraction checks
+    # (points 4/5) don't reliably correlate with real ATR-based
+    # contraction (a shrinking % retracement doesn't guarantee the bars
+    # composing it are individually calmer). Raised to 1.0 -- "short-term
+    # volatility no higher than the longer-term baseline," a materially
+    # weaker bar than the doc's own textbook figure, but one that actually
+    # admits real candidates rather than gating out every single one on
+    # real data. `scoring.contraction_tightness_score` still rewards a
+    # tighter ratio continuously within that ceiling, so a genuinely
+    # textbook ~0.33 candidate still scores far higher than one just
+    # under 1.0.
+    # `vcp_sma_*_period`/`vcp_ma_rising_lookback_bars`/`vcp_pct_from_52w_
+    # high_max`/`vcp_52w_high_lookback_bars` -- the doc's own Trend
+    # Template checklist (§4.5 point 1); 25% off the 52-week high is a
+    # commonly-cited figure associated with the methodology, not itself
+    # quoted in this design doc's text -- flagged as such, not
+    # doc-sourced like the 2/6 contraction range is.
+    vcp_pivot_atr_mult: float = 1.0
+    vcp_min_contractions: int = 2
+    vcp_max_contractions: int = 6
+    vcp_contraction_violations_allowed: int = 1
+    vcp_atr_contraction_max_ratio: float = 1.0
+    vcp_atr_short_period: int = 10
+    vcp_atr_long_period: int = 50
+    vcp_sma_short_period: int = 50
+    vcp_sma_medium_period: int = 150
+    vcp_sma_long_period: int = 200
+    vcp_ma_rising_lookback_bars: int = 20
+    vcp_pct_from_52w_high_max: float = 25.0
+    vcp_52w_high_lookback_bars: int = 252
+    vcp_typical_min_bars: int = 15
+    vcp_typical_max_bars: int = 90
+
     def to_dict(self) -> dict:
         d = dict(self.__dict__)
         d["scoring_weights"] = dict(self.scoring_weights)
         return d
 
 
-# Bar-count knobs (currently just prior_trend_min_bars) get a weekly value
-# roughly daily/5, same unvalidated first-pass scaling SRConfig.PRESETS
-# uses for its own weekly presets -- calendar-time/ratio knobs (the %s,
-# ATR multiples, breakout_volume_mult, expire_lifespan_mult) are shared as-
-# is between daily and weekly, same reasoning SRConfig documents for why
-# its own scoring/decay knobs don't get weekly variants.
+# Bar-count knobs get a weekly value roughly daily/5, same unvalidated
+# first-pass scaling SRConfig.PRESETS uses for its own weekly presets --
+# calendar-time/ratio knobs (the %s, ATR multiples, breakout_volume_mult,
+# expire_lifespan_mult) are shared as-is between daily and weekly, same
+# reasoning SRConfig documents for why its own scoring/decay knobs don't
+# get weekly variants. VCP's own MA-period knobs are the one exception --
+# 50/150/200-*day* and ATR(10)/ATR(50) are specific, named daily-bar
+# windows from the methodology itself, not a generic bar-count needing a
+# blanket /5 scale, so their weekly equivalents (10/30/40-week,
+# ATR(2)/ATR(10)) are set explicitly below rather than derived.
 PRESETS: dict[str, PatternConfig] = {
     "daily": PatternConfig(timeframe=Timeframe.DAILY, prior_trend_min_bars=20),
-    "weekly": PatternConfig(timeframe=Timeframe.WEEKLY, prior_trend_min_bars=4),
+    "weekly": PatternConfig(
+        timeframe=Timeframe.WEEKLY, prior_trend_min_bars=4,
+        vcp_sma_short_period=10, vcp_sma_medium_period=30, vcp_sma_long_period=40,
+        vcp_atr_short_period=2, vcp_atr_long_period=10,
+        vcp_ma_rising_lookback_bars=4, vcp_52w_high_lookback_bars=52,
+    ),
 }
 
 

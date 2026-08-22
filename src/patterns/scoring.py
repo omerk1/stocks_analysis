@@ -96,6 +96,19 @@ def apex_proximity_score(window_start_bar: int, window_end_bar: int, apex_bar: f
     return _clip01((window_end_bar - window_start_bar) / denom)
 
 
+def contraction_tightness_score(ratio: float, max_ratio: float) -> float:
+    """§4.5 point 7 / §6.1 VCP addition: the ATR(short)/ATR(long)
+    contraction ratio, turned into a continuous [0,1] cleanliness score --
+    0 at the hard gate's own ceiling (`max_ratio`), 1.0 at a fully
+    contracted ratio of 0. Distinct from the hard gate itself (which
+    rejects any candidate above `max_ratio` outright); this scores *how*
+    tight a passing candidate's final contraction actually is, since two
+    candidates can both clear the same gate by very different margins."""
+    if max_ratio <= 0:
+        return 0.0
+    return _clip01(1 - ratio / max_ratio)
+
+
 def breakout_close_strength(
     breakout_close: float, level_price: float, atr: float | None, direction: Direction, cap_atr: float
 ) -> float:
