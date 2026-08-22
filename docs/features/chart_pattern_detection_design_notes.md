@@ -656,6 +656,29 @@ invalid handle; the correct new assertion is "falls through to Rounding
 instead"), confirmed each rewritten test would have failed against the
 old code before locking in the new expectation.
 
+A second, more subtle regression from the same refactor was caught by
+code review before merge: `plotting.py`'s `key_levels["neckline"]`
+fallback branch (fixed in Phase 4, `docs/done.md` #51, to use
+`pivots[-2]` after `pivots[1]` broke for cup & handle's variable-length
+list) assumed "second-to-last" was the universal invariant for the
+neckline pivot -- true for double top/bottom's trough and cup & handle's
+right rim (both followed by one more pivot: `p2`/`handle`), but false for
+Rounding, whose window ends *at* the right rim with nothing after it, so
+it lands at index -1, not -2. The same class of bug the -2 fix itself
+was written to replace, reintroduced by the very phase that added the
+first pattern type without a trailing pivot. Fixed properly this time,
+not with another guessed index: locate the actual neckline pivot by
+*price* instead of position (every detector sets `key_levels["neckline"]`
+from a pivot object that's also literally in `match.pivots`, so it's an
+exact float match, not a fragile recomputed comparison), searched from
+the end of the list since an earlier pivot can legitimately share the
+same exact price (a cup/rounding's rim1 and rim2, gated to be close, are
+sometimes exactly equal -- confirmed this collision for real in the
+existing shared test fixture, which is exactly why the fix searches
+backward, not forward). Covered by a new regression test, confirmed to
+fail against the pre-fix code first, same as the original -2 fix's own
+regression test.
+
 ### Flags/Pennants: the second detector to need its own finer pivot pass
 
 Initially built against the scanner's shared coarse pivot pass, on the
