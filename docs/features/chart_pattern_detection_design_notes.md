@@ -33,9 +33,15 @@ fact.
   five shapes in one detector, per the design doc's own module layout.
   Landed in PR #42 (`docs/done.md` #50) -- see this file's own Phase 3
   section below for the full narrative.
-- [ ] **Phase 4 — Cup & Handle + Inverse + Rounding.** Isolate the
-  quadratic roundedness fit (`fit_roundedness(prices) -> r_squared`) as
-  its own tested primitive before wiring into the full detector.
+- [x] **Phase 4 — Cup & Handle + Inverse.** New `curves.fit_roundedness`,
+  isolated and independently tested before wiring into the detector, per
+  this checklist's own original note. Scoped to Cup & Handle + Inverse
+  only, not Rounding -- Phase 6's own description already deferred
+  Rounding until after 1-5 are validated, superseding this line's title
+  (a pre-existing inconsistency in the plan, resolved in favor of the
+  more detailed Phase 6 wording, not a new deviation). Landed in PR #43
+  (`docs/done.md` #51) -- see this file's own Phase 4 section below for
+  the full narrative.
 - [ ] **Phase 5 — VCP.** Most novel logic (Trend Template gate, monotonic
   contraction sequence), least standardized in the source material,
   depends on none of the trendline/quadratic infra — sequenced last among
@@ -434,3 +440,84 @@ triangle/wedge in this particular run (a double_top), so the apex-based
 expiry path's real-data exercise so far comes from the unit tests, not
 this smoke test; not a gap, just what the current data happened to
 produce.
+
+## Phase 4: Cup & Handle + Inverse
+
+### Scope: Cup & Handle + Inverse only, not Rounding
+
+This checklist's own Phase 4 title says "+ Rounding," but Phase 6's own
+entry independently says Rounding is a bonus pattern deferred "only after
+1-5 are validated" and "nearly free off Phase 4's quadratic fit" -- the
+plan contradicts itself on when Rounding lands. Resolved in favor of
+Phase 6's more detailed wording: built Cup & Handle + Inverse only here,
+leaving Rounding as a genuinely cheap follow-up once `curves.
+fit_roundedness` has a second real caller to prove it's actually generic
+(right now it's only ever been exercised by one detector).
+
+### No fixed pivot count, unlike every prior pattern
+
+Double top (3 pivots), H&S (5), triangles (6 by config) all scan a
+*fixed-size* sliding window. Cup & handle's own pivot sequence (§4.4)
+explicitly can't be: "LOW(cup bottom, *possibly several pivots* forming
+the rounding)" -- the rounding phase might be one clean pivot or a dozen,
+depending on how choppy the base is. Resolved by decoupling the two
+concerns the fixed-window patterns conflate: the *pivots* only anchor
+three fixed points (left rim, right rim, handle), scanned as
+`(rim1_index, rim2_index)` pairs bounded by `config.cup_max_span_pivots`
+(the handle is always the very next pivot after rim2, guaranteed by
+`detect_pivots`' strict alternation); the *roundedness* is checked
+against the **raw close-price path** between the rims
+(`curves.fit_roundedness`), independent of how many pivots happen to fall
+inside that span. `match.pivots` still stores every intermediate pivot in
+the window (`pivots[i:j+2]`) for an accurate polyline, even though only
+three of them (rim1, rim2, handle) drive any actual geometry/gating.
+
+### No approximation needed for target -- the trigger level is genuinely flat
+
+H&S's sloped neckline and a triangle's two moving boundaries both forced
+an explicit "value at formation end, not literal breakout" approximation
+for `target_price` (documented in both of those phases' own sections).
+Cup & handle's trigger level (`right_rim.price`) never moves -- it's the
+same flat number at formation time and at the real breakout bar, the same
+way double top/bottom's flat neckline already was. So `target = rim2.price
++ (rim2.price - cup_extreme)` is the design doc's literal §3.6 formula,
+not an approximation of it. Deliberately anchored the height calculation
+to `rim2` rather than `rim1` (the doc says "cup_high - cup_low" without
+specifying which rim) so the trigger level and the height share one
+reference point, not two independently-symmetric-but-not-identical rim
+values.
+
+### Roundedness alone doesn't distinguish a real cup from a plain V
+
+Checked this directly before trusting the R² gate as the sole roundedness
+mechanism: a plain, symmetric V-shape (equal-length straight decline then
+straight recovery, same width/depth as a realistic cup) scores R²≈0.94
+against a parabola -- comfortably above the default `cup_roundedness_
+min_r2=0.5` floor, meaning the R² test alone would **not** reject an
+obviously-sharp V. This matches the design doc's own framing (R² is
+offered as one of "two practical approaches," not a claimed-perfect
+discriminator) -- not a bug, but worth recording so a future reviewer
+doesn't assume R² alone rules out V-shapes. The doc's alternative
+"simpler heuristic" (multiple pivots per leg, no single-bar-dominance) was
+deliberately not built alongside it, per the progress tracker's own
+framing of `fit_roundedness` as *the* primitive to isolate -- one
+principled mechanism, not two redundant ones. `min_r2=0.5` still does
+real work: it catches genuinely degenerate/angular cases (a single-bar
+spike straight to the bottom and back scores R²≈0.03), just not a
+smooth-but-still-technically-sharp V. Revisit if real chart review shows
+V-shaped false positives are common enough to matter.
+
+### Real-data smoke test (AAPL, full history, daily)
+
+`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with all
+four detectors registered: 299 total patterns (226 unchanged from Phase
+1-3 + 73 new: 72 cup_and_handle, 1 inverse_cup_and_handle). The
+72-vs-1 skew makes sense given AAPL's own history -- inverse cup & handle
+requires a qualifying ≥30% *downtrend* into the left rim (§4.4's own
+figure, distinct from the generic 15%), materially rarer across a
+predominantly-uptrending mega-cap's full history than the ≥30% uptrend
+the regular pattern needs. Spot-checked geometry directly in the derived
+DB: 0 rows where `target_price`/`stop_price` land on the wrong side of
+`direction`, `cup_extreme < left_rim`/`cup_extreme < right_rim` and
+`handle` sitting between them (upper half) held on every sampled row, 0
+out-of-range confidence values.
