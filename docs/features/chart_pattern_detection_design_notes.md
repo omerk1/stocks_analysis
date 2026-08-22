@@ -507,6 +507,25 @@ spike straight to the bottom and back scores R²≈0.03), just not a
 smooth-but-still-technically-sharp V. Revisit if real chart review shows
 V-shaped false positives are common enough to matter.
 
+### `plotting.py`'s neckline fallback assumed a fixed 3-pivot list -- caught by code review
+
+`render_pattern_chart`'s `key_levels["neckline"]` fallback branch (used by
+any pattern with no `trendlines` entry -- double top/bottom and now cup &
+handle) started the drawn trigger line at `match.pivots[1]`. That's
+correct for double top/bottom's fixed `[p1, trough, p2]` list (index 1 is
+the trough, the pivot that actually set the neckline price) but wrong for
+cup & handle's variable-length `[rim1, ..., rim2, handle]` list, where
+index 1 is just whatever pivot happens to follow the left rim -- the cup's
+own bottom in the shipped test fixture, not the right rim that actually
+set the trigger level. The chart would have drawn the flat trigger line
+starting from partway down the cup's decline leg instead of from the
+right rim. The real invariant both patterns share is "second-to-last
+pivot," not "index 1" -- they only coincide for double top/bottom because
+its list happens to be exactly 3 long. Fixed (`pivot_x[1]` ->
+`pivot_x[-2]`) and covered by a permanent regression test in `tests/
+test_patterns_plotting.py`, confirmed to fail against the pre-fix code
+before trusting it.
+
 ### Real-data smoke test (AAPL, full history, daily)
 
 `python -m src.patterns.cli AAPL --timeframe daily --plot ...` with all
