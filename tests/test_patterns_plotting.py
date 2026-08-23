@@ -75,3 +75,40 @@ def test_cup_and_handle_neckline_starts_at_right_rim_not_the_second_pivot():
     ]
     assert len(neckline_traces) == 1
     assert neckline_traces[0].x[0] == bars.index[64]  # right rim, not pivots[1] (bar 44)
+
+
+def test_rounding_bottom_neckline_starts_at_right_rim_not_the_second_to_last_pivot():
+    # Regression: a Rounding match's window ends *at* the right rim (no
+    # trailing handle pivot), landing rim2 at index -1 rather than -2 --
+    # the fixed "-2 is the invariant" fix (the test above) breaks for
+    # exactly this case. rim1 and rim2 also share the exact same price
+    # here (both 140.0), so the fix's own price-based lookup must prefer
+    # the *later* match (rim2), not silently pick rim1 instead.
+    uptrend = np.linspace(80.0, 140.0, 25)
+    t = np.arange(41, dtype=float)
+    cup = (0.1 * (t - 20) ** 2 + 100.0)[1:]
+    tail = np.linspace(132.0, 200.0, 20)
+    closes = np.concatenate([uptrend, cup, tail])
+    idx = pd.bdate_range("2020-01-01", periods=len(closes))
+    bars = pd.DataFrame(
+        {"open": closes, "high": closes + 0.3, "low": closes - 0.3, "close": closes, "volume": 1000.0}, index=idx,
+    )
+
+    def _pivot(i: int, price: float, kind: PivotKind) -> Pivot:
+        ts = bars.index[i].isoformat()
+        return Pivot(kind=kind, timestamp=ts, value=price, confirmed_at=ts, threshold_at_pivot=1.0, bar_index=i)
+
+    # No handle pivot at all -- rim2 (bar 64) is the window's last pivot.
+    pivots = [_pivot(24, 140.0, PivotKind.HIGH), _pivot(44, 100.0, PivotKind.LOW), _pivot(64, 140.0, PivotKind.HIGH)]
+    config = PatternConfig(atr_period=3, volume_sma_period=5, prior_trend_min_bars=5,
+                            rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+    matches = CupAndHandleDetector().scan(bars, pivots, "TST", Timeframe.DAILY, config)
+    assert len(matches) == 1
+    assert matches[0].pattern_type.value == "rounding_bottom"
+
+    fig = render_pattern_chart(bars, matches, ticker="TST", timeframe=Timeframe.DAILY)
+    neckline_traces = [
+        tr for tr in fig.data if tr.type == "scatter" and tr.mode == "lines" and tr.line.dash == "dot"
+    ]
+    assert len(neckline_traces) == 1
+    assert neckline_traces[0].x[0] == bars.index[64]  # right rim, not pivots[-2] (bar 44)

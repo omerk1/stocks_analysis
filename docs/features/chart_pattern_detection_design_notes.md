@@ -51,9 +51,15 @@ fact.
   (`docs/done.md` #52) -- see this file's own Phase 5 section below for
   the full narrative, including a real-data calibration finding on the
   ATR-contraction ratio gate that was fixed before merge.
-- [ ] **Phase 6 (bonus) — Flags/Pennants, Rounding top/bottom.** Only
-  after 1–5 are validated. Rounding is nearly free off Phase 4's quadratic
-  fit.
+- [x] **Phase 6 (bonus) — Flags/Pennants, Rounding top/bottom.** Rounding
+  landed inside `detectors/cup_and_handle.py` itself, per the design doc's
+  own §8 module layout, as the fallback classification when a candidate's
+  handle isn't valid -- reused Phase 4's quadratic fit directly, as
+  anticipated. Flags/Pennants turned out to need its own finer pivot pass
+  too (the second detector after VCP), a real finding from checking
+  real data before shipping, not assumed from the "cheap given zigzag
+  infra" framing. Landed in PR #45 (`docs/done.md` #53) -- see this
+  file's own Phase 6 section below for the full narrative.
 
 Also still open, deferred deliberately (see `docs/backlog.md` for the full
 reasoning, not duplicated here): the backtest/evaluator harness (§7.2/7.3),
@@ -626,3 +632,135 @@ a bug, before treating it as expected rather than alarming. Weekly run:
 107 total patterns including 24 VCP, confirming the weekly-preset MA/ATR
 periods actually fire on real data, not just in unit tests. 0 out-of-range
 confidence values in either run.
+
+## Phase 6 (bonus): Flags/Pennants + Rounding
+
+### Rounding: the fallback classification, not a second scan
+
+§4.8 frames Rounding as "cup and handle without the handle," and §8's own
+module layout says it lives in `cup_and_handle.py`, not a separate file --
+followed both literally. Rather than running the rim-scan loop twice
+(once requiring a handle, once not, producing two independent, often
+near-duplicate matches for the same base), refactored the existing
+detector to check every shared gate (rim symmetry, depth, prior trend,
+roundedness -- computed once, since both outcomes need the same three
+values) and only *afterward* decide: a valid handle right after rim2
+produces a Cup & Handle match, no valid handle (including rim2 sitting at
+the very end of the pivot list, i.e. no handle pivot at all) produces a
+Rounding match instead, scored against a longer typical-duration range.
+This is a genuine refactor of already-merged, already-tested Phase 4
+code, not a bolt-on -- caught two of Phase 4's own existing tests that
+needed updating (`test_handle_below_cup_midpoint_rejects_candidate` and
+the retrace-gate equivalent both asserted "no match at all" for an
+invalid handle; the correct new assertion is "falls through to Rounding
+instead"), confirmed each rewritten test would have failed against the
+old code before locking in the new expectation.
+
+A second, more subtle regression from the same refactor was caught by
+code review before merge: `plotting.py`'s `key_levels["neckline"]`
+fallback branch (fixed in Phase 4, `docs/done.md` #51, to use
+`pivots[-2]` after `pivots[1]` broke for cup & handle's variable-length
+list) assumed "second-to-last" was the universal invariant for the
+neckline pivot -- true for double top/bottom's trough and cup & handle's
+right rim (both followed by one more pivot: `p2`/`handle`), but false for
+Rounding, whose window ends *at* the right rim with nothing after it, so
+it lands at index -1, not -2. The same class of bug the -2 fix itself
+was written to replace, reintroduced by the very phase that added the
+first pattern type without a trailing pivot. Fixed properly this time,
+not with another guessed index: locate the actual neckline pivot by
+*price* instead of position (every detector sets `key_levels["neckline"]`
+from a pivot object that's also literally in `match.pivots`, so it's an
+exact float match, not a fragile recomputed comparison), searched from
+the end of the list since an earlier pivot can legitimately share the
+same exact price (a cup/rounding's rim1 and rim2, gated to be close, are
+sometimes exactly equal -- confirmed this collision for real in the
+existing shared test fixture, which is exactly why the fix searches
+backward, not forward). Covered by a new regression test, confirmed to
+fail against the pre-fix code first, same as the original -2 fix's own
+regression test.
+
+### Flags/Pennants: the second detector to need its own finer pivot pass
+
+Initially built against the scanner's shared coarse pivot pass, on the
+strength of §4.7's own "cheap given zigzag infra" framing -- assumed this
+meant "no new pivot-extraction work needed," not "works with whatever
+granularity happens to already exist." The real-AAPL smoke test came back
+with **zero** flag/pennant matches, the same kind of result VCP's own
+Phase 5 taught not to accept at face value. Traced it the same way:
+the coarse pass's *median* gap between consecutive pivots is 11 bars, so
+a 4-pivot consolidation window built from it spans ~35-85 bars in
+practice -- nowhere near "much shorter than the patterns above" (§4.7's
+own defining trait), and looser than even triangles' own typical range.
+Loosening `flag_consolidation_max_bars` to match would have erased the
+one thing that makes a flag a flag rather than just a small triangle, so
+instead this became the second detector (after VCP) to run its own,
+finer `detect_pivots` pass (`flag_pivot_atr_mult=1.5`, between the shared
+pass's 2.5 and VCP's own 1.0 -- checked directly: brings the median gap
+down to 4 bars). `base.py`'s own docstring updated again to describe two
+exceptions instead of one.
+
+Fixing the pivot granularity wasn't the whole story -- re-running against
+real AAPL still returned zero matches, now bottlenecked entirely on
+`flag_consolidation_max_range_ratio` (an initial "textbook" 0.5 ceiling on
+how large the consolidation's own amplitude could be relative to the
+pole). The small sample of real candidates that cleared every earlier
+gate had ratios between 0.64 and 1.15 -- none under 0.5. Same finding, same
+fix pattern as VCP's own ATR-contraction ratio: raised to 1.0, re-verified
+real matches on both timeframes. Two independent "checked before shipping,
+found the textbook figure doesn't survive contact with real data" findings
+in one detector -- worth noting as a pattern of its own: a first-pass
+threshold literally quoted from or closely modeled on the design doc's own
+"textbook" language (§4.5's "~1/3," §4.7's implicit "tight" consolidation)
+has now needed real-data loosening in both of the two detectors built
+against such a figure, while thresholds this project derived from other
+detectors' own established conventions (rim symmetry, handle retrace,
+etc.) haven't shown the same pattern yet.
+
+### Pivot-confirmation mechanics that made synthetic fixtures genuinely hard to build
+
+Building test fixtures for a detector with its own internal `detect_pivots`
+call (VCP, and now this one) means the fixture is a real price path whose
+*own* zigzag output has to happen to match the intended pole+consolidation
+shape -- unlike every hand-built-pivot-list detector's tests, there's no
+way to just assert the pivots directly. Two mechanics fought the first few
+attempts at this, both worth recording since they'll recur for any future
+detector needing its own pivot pass:
+
+1. A pivot's confirmation threshold uses ATR *at that pivot's own bar
+   index*, not the current scanning position or a decaying value. Right at
+   a sharp pole's peak, that ATR is itself elevated by the pole's own huge
+   bars -- so the pole's peak needs a *proportionally large* reversal to
+   confirm as a pivot at all, and a flat (zero-true-range) lead-in before
+   the pole never confirms a starting LOW pivot, since it never reverses
+   anything. Fixed by giving the pole a real prior downtrend to rise out
+   of, not a flat plateau.
+2. A consolidation pivot only confirms once a *later* bar reverses far
+   enough away from it. The bull-flag fixture's 4th consolidation pivot
+   needed a 5th price point purely to supply that confirming reversal --
+   that 5th point is therefore part of the *fixed* shared prefix every
+   lifecycle-variant test reuses, not a "tail" bar appended per test. A
+   first attempt at reusing "the same prefix, different tails" without
+   accounting for this produced a consolidation pivot that silently failed
+   to confirm at all under some tails (the tail's own first value, being
+   higher than the intended 4th pivot, just extended the still-open
+   candidate instead of confirming it) -- caught by comparing actual
+   detector output against hand-derived expectations before trusting any
+   of these fixtures, the same discipline applied throughout every prior
+   phase.
+
+### Real-data smoke test (AAPL, full history, daily + weekly)
+
+Daily, all six detectors registered: 516 total patterns (466 unchanged
+from Phase 1-5 + 50 new: 46 rounding_bottom, 1 rounding_top, 1 bull_flag,
+1 bear_flag, 1 pennant). The rounding/flag skew mirrors what's already
+been seen for other direction-asymmetric patterns here (e.g. cup & handle
+Phase 4's own 72-vs-1 skew) -- AAPL's predominantly-uptrending history
+naturally produces far more bullish continuation/basing setups than
+bearish ones, and flags/pennants' own tight structural gates (a fast,
+large pole *and* a genuinely tight follow-on consolidation) are
+inherently rare even before that skew. Spot-checked geometry directly in
+the derived DB: 0 rows with `target_price`/`stop_price` on the wrong side
+of `direction` across rounding and flags/pennants combined, 0
+out-of-range confidence values. Weekly run: 131 total patterns (up from
+107 pre-Phase-6), confirming both new pattern families fire on both
+timeframes, not just daily.
