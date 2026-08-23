@@ -61,12 +61,26 @@ fact.
   infra" framing. Landed in PR #45 (`docs/done.md` #53) -- see this
   file's own Phase 6 section below for the full narrative.
 
-Also still open, deferred deliberately (see `docs/backlog.md` for the full
-reasoning, not duplicated here): the backtest/evaluator harness (§7.2/7.3),
-a real precision/recall pass via `backtest/labeler.py`'s growing label set,
-and any threshold tuning against real chart review (every numeric knob
-added so far is an unvalidated first pass, same status every sr_lines knob
-started at).
+- [x] **Phase 7 — outcome-based backtest (§7.3).** New `backtest/
+  evaluator.py`: for every match that actually broke out (`breakout_bar is
+  not None`, i.e. any status in `{CONFIRMED, ACTIVE, HIT_TARGET,
+  INVALIDATED_FAILED_BREAKOUT}`), computes forward returns at fixed bar
+  horizons plus per-pattern-type target-hit/failed-breakout/still-open
+  rates. Deliberately scoped to §7.3 only, not §7.2's precision/recall --
+  `pattern_labels` (the labeler's own table) has zero rows, nobody has
+  actually run `backtest/labeler.py` against real charts yet, and
+  precision/recall against an empty label set can't be verified against
+  anything real. Landed in PR #46 (`docs/done.md` #54) -- see this file's
+  own Phase 7 section below for the full narrative.
+
+Still open, deferred deliberately (see `docs/backlog.md` for the full
+reasoning, not duplicated here): §7.2's precision/recall pass (blocked on
+`backtest/labeler.py`'s label set actually having rows), throwback-rate
+tracking (needs the actual target-hit bar, not just final status --
+`evaluator.py`'s own docstring flags this as a real gap, not silently
+folded into `failed_breakout_rate`), and any threshold tuning against real
+chart review (every numeric knob added so far is an unvalidated first
+pass, same status every sr_lines knob started at).
 
 To resume cold: read this section, skim "Decisions resolved..." below for
 the *why* behind the architecture, then `git log --oneline -- src/patterns`
@@ -764,3 +778,121 @@ of `direction` across rounding and flags/pennants combined, 0
 out-of-range confidence values. Weekly run: 131 total patterns (up from
 107 pre-Phase-6), confirming both new pattern families fire on both
 timeframes, not just daily.
+
+## Phase 7: outcome-based backtest (§7.3)
+
+All six pattern families from the design doc's §4 are now landed (Phases
+1-6) -- there's no further detector phase in the plan. The design doc's
+own §7 validation methodology has two halves that were both deferred
+until "enough labeled data / detectors exist to make backtesting
+worthwhile" (`docs/backlog.md`): §7.2 precision/recall against a hand-
+labeled ground-truth set, and §7.3 an outcome-based backtest (forward
+returns, target-hit rate, failure rate) measured against real subsequent
+price action. Only §7.3 turned out to be buildable now -- checked `data/
+derived/analysis.sqlite`'s `pattern_labels` table directly before
+starting: zero rows. `backtest/labeler.py` (Phase 1) is human-in-the-loop
+and nobody has actually run it against real charts since it landed, so
+there's no ground truth to compute precision/recall against, and nothing
+in this module ships a metric it can't check against something real.
+§7.3 needs no labels at all -- just real historical price data, which
+already exists -- so that's the whole scope of this phase.
+
+**The backtest/evaluator harness turned out to need no new re-run
+infrastructure.** `docs/backlog.md`'s original framing was that
+`pattern_matches` is current-state-only (`ON CONFLICT ... DO UPDATE`
+overwrites an earlier run's `status` on the same natural key), so
+"what did detection believe on day D" can't be reconstructed after day
+D+5's rerun -- implying a dedicated harness that re-runs `scanner.detect(
+as_of=X)` per historical date would be needed. That gap is real, but only
+matters for §7.2 (auditing a specific past belief against a label made at
+that date) -- not for §7.3. `lifecycle.apply_lifecycle`'s post-breakout
+walk (`_walk_post_breakout`) already resolves a match's *final* status by
+walking forward through every bar visible to it at scan time; scanning
+with the full available history (`scan_bars` with no `as_of` truncation,
+unlike `scanner.detect`'s point-in-time mode) makes that final status
+*already* the realized, real-world outcome -- HIT_TARGET/
+INVALIDATED_FAILED_BREAKOUT are genuine terminal states, not detector
+guesses. New `backtest/evaluator.py` therefore just re-scans full history
+per ticker directly (deliberately not reading `pattern_matches` itself,
+since that table may reflect a different `as_of`/config than what's being
+backtested) and reads off `match.status`/`match.breakout_bar`/
+`match.entry_price` -- no new lifecycle logic, no new persistence.
+
+**Scope boundary: `breakout_bar is not None` is the exact predicate for
+"had an outcome to measure."** `match.breakout_bar` is only ever set
+inside `lifecycle._walk_post_breakout`, which only runs once a breakout
+has actually been found -- confirmed by reading `apply_lifecycle`/
+`apply_lifecycle_bidirectional` directly rather than assumed: every path
+that reaches PENDING/INVALIDATED/EXPIRED returns *before* calling
+`_walk_post_breakout`, so those three statuses always carry
+`breakout_bar=None` and the other four (CONFIRMED/ACTIVE/HIT_TARGET/
+INVALIDATED_FAILED_BREAKOUT) always carry a real one. `compute_outcomes`
+uses exactly this set as its filter -- a pattern that never triggered has
+no trade to measure and is skipped entirely, not scored as a zero/failed
+outcome (that would conflate "never happened" with "happened and lost").
+
+**Forward-return sign convention.** `forward_return_pct` reports the
+*trade's* return, not the raw price return: a BEARISH match (short) is
+profitable when price falls, so its raw `(close - entry) / entry` is
+negated before reporting. Verified with a hand-built step fixture (flat
+at 100.0 through the breakout bar, then a flat 90.0 for every later bar)
+rather than trusted by inspection -- a bearish match on that fixture
+reports `+0.10`, a bullish one `-0.10`, both asserted directly in
+`tests/test_patterns_evaluator.py`.
+
+**Right-censoring, not zero-filling.** A horizon past the end of
+available bars (`breakout_bar + horizon_bars >= len(bars)`) returns
+`None` from `forward_return_pct`, and `summarize` reports both a mean
+over only the resolved subset *and* `n_resolved_{h}b` alongside it --
+deliberately two numbers, not one, so a thin horizon's mean (e.g. 2 of 50
+matches actually old enough to measure at 60 bars) isn't read as being on
+equal footing with a well-populated one. `still_open_rate` (CONFIRMED/
+ACTIVE) is the same right-censoring idea applied to pattern status
+directly rather than to a specific horizon.
+
+**Throwback rate, named but not built.** The design doc's §7.3 also
+names Bulkowski's throwback-rate benchmark (price revisits the breakout
+level *without* reversing through it, then continues to target -- distinct
+from `INVALIDATED_FAILED_BREAKOUT`, which is a genuine reversal). Building
+it needs the actual bar index where price later hits `target_price`, not
+just the final status `_walk_post_breakout` leaves behind -- nothing here
+computes that today. Left out rather than half-built, and the module
+docstring says so explicitly so `failed_breakout_rate` isn't later
+mistaken for already covering it.
+
+### Real-data smoke test (AAPL, full daily history)
+
+`python -m src.patterns.backtest.evaluator AAPL --timeframe daily`
+against real AAPL history produces a per-pattern-type table across all 14
+pattern types with at least one breakout on record, matching Bulkowski-
+style shape sanity-checked by eye rather than assumed correct just
+because it ran: `cup_and_handle` (n=71) 62% hit-target / 38% failed-
+breakout, `rounding_bottom` (n=26) 73% hit-target -- both broadly in
+Bulkowski's documented range for bullish base patterns; `double_top`
+(n=35) is the clear outlier at 26% hit-target / 66% failed-breakout with
+negative mean forward returns at every horizon, which reads as a real
+finding about AAPL's own predominantly-uptrending history rather than a
+bug -- a bearish reversal pattern is expected to underperform in a market
+regime that mostly doesn't reverse. One coincidence investigated rather
+than assumed benign: `inverse_cup_and_handle` and `rounding_top` (both
+n=1) report identical forward returns; traced directly against the
+scanner output rather than shrugged off -- confirmed to be two genuinely
+distinct real matches (different `id`, different `pattern_type`) that
+happen to share the same `breakout_bar` (1600) and `entry_price` because
+their formation windows both terminate at essentially the same right-rim
+pivot in AAPL's 2015-08 to 2016-01 range, not a deduplication bug.
+
+A real bug caught by code review before merge: `run_backtest`'s own
+docstring claimed "continue-on-error per ticker, same as `cli.py main()`'s
+own per-ticker try/except" -- but the per-ticker loop body had no
+`try`/`except` at all, so one bad ticker would abort the entire run,
+silently discarding every other ticker's already-computed outcomes too
+(not just skipping the bad one). Reproduced first with a mocked
+`load_and_validate` raising on the middle ticker of a three-ticker list,
+confirmed the whole call crashed and the third ticker was never even
+attempted, then wrapped the per-ticker body in a real `try`/`except
+Exception`, printing and continuing -- matching the docstring's own
+claimed behavior instead of rewriting the claim to match the bug. New
+regression test confirmed to fail against the pre-fix code first; the
+real AAPL smoke test above reproduces byte-identical output post-fix,
+confirming the fix changed nothing on the non-error path.
