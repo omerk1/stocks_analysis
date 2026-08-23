@@ -3,8 +3,8 @@
 
 Design doc §7.3's outcome-based backtest: for patterns that actually broke
 out, measure what happened next -- forward returns at fixed horizons,
-target-hit rate, and failed-breakout rate -- using real historical price
-data. Deliberately covers §7.3 only, not §7.2 (precision/recall against
+target-hit rate, failed-breakout rate, and throwback rate -- using real
+historical price data. Deliberately covers §7.3 only, not §7.2 (precision/recall against
 hand labels): `pattern_labels` (backtest/labeler.py's table) is empty --
 the labeler is human-in-the-loop and nobody has run it against real charts
 yet -- so precision/recall can't be verified against real data today, the
@@ -25,18 +25,25 @@ matters for auditing detection quality at a specific past date against
 labels (§7.2's concern) -- deferred alongside precision/recall above.
 
 Throwback rate (design doc §7.3's other Bulkowski benchmark, distinct from
-plain failed-breakout: price revisits the trigger level after breaking out
-but *without* reversing through it, then continues to target) is left out
--- it needs the actual target-hit bar, not just final status, and nothing
-here computes that yet. A real gap, not silently dropped: noted so it
-isn't mistaken for "already covered by failed_breakout_rate."
+plain failed-breakout: price revisits the breakout level after breaking
+out but *without* reversing through it, then continues to target) is
+computed by `_find_target_hit_bar`/`had_throwback` below -- a read-only
+re-walk of `bars` from `match.breakout_bar`, deliberately not touching
+`lifecycle._walk_post_breakout` itself (that function only resolves final
+status, it has no reason to remember *which* bar first hit target).
+`had_throwback` compares against the pattern's real per-bar breakout level,
+reconstructed by `_reconstruct_trigger_at` from whatever each detector
+already persists on `match.key_levels`/`match.trendlines` for plotting --
+exact for sloped triggers (H&S neckline, triangle/wedge/flag boundaries),
+not just the flat ones (double top/bottom, cup & handle, VCP) where
+`entry_price` alone would've been indistinguishable from it anyway.
 """
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Callable, Sequence
 
 import pandas as pd
 
@@ -46,7 +53,7 @@ from src.market_common import derived_db
 from src.market_common.models import Direction, Timeframe
 from src.patterns import store as pattern_store
 from src.patterns.config import PatternConfig, get_preset
-from src.patterns.models import PatternMatch, PatternStatus
+from src.patterns.models import PatternMatch, PatternStatus, PatternType
 from src.patterns.scanner import scan_bars
 
 DEFAULT_HORIZONS: tuple[int, ...] = (10, 20, 60)
@@ -74,6 +81,10 @@ class PatternOutcome:
     # extend far enough past breakout_bar yet to measure that horizon
     # (right-censored, not a zero return).
     forward_returns: dict[int, float | None]
+    # Both None unless status is HIT_TARGET -- throwback is only a
+    # meaningful question once we know a target was actually reached.
+    target_hit_bar: int | None = None
+    throwback: bool | None = None
 
 
 def forward_return_pct(bars: pd.DataFrame, match: PatternMatch, horizon_bars: int) -> float | None:
@@ -88,6 +99,120 @@ def forward_return_pct(bars: pd.DataFrame, match: PatternMatch, horizon_bars: in
     return raw_return if match.direction != Direction.BEARISH else -raw_return
 
 
+def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch) -> int | None:
+    """First bar index after `match.breakout_bar` whose high/low crosses
+    `match.target_price`, mirroring the exact hit condition
+    `lifecycle._walk_post_breakout` used to set HIT_TARGET in the first
+    place. Only meaningful when `match.status` is already HIT_TARGET;
+    returns None otherwise (or defensively, if no such bar is found --
+    which shouldn't happen for a HIT_TARGET match)."""
+    if match.status != PatternStatus.HIT_TARGET or match.breakout_bar is None or match.target_price is None:
+        return None
+    is_bearish = match.direction == Direction.BEARISH
+    target = match.target_price
+    highs = bars["high"].to_numpy()
+    lows = bars["low"].to_numpy()
+    for i in range(match.breakout_bar + 1, len(bars)):
+        hit = lows[i] <= target if is_bearish else highs[i] >= target
+        if hit:
+            return i
+    return None
+
+
+# Every detector already persists its trigger level elsewhere on the match
+# for plotting.py's benefit -- flat levels in `key_levels` (a plain float),
+# sloped ones in `trendlines` (a (slope, intercept) pair evaluated as
+# `slope * bar_index + intercept`, the same form every detector's own
+# `trigger_at` closure computes internally before lifecycle.py discards
+# it). Reusing that persisted data here means throwback detection can
+# compare against the pattern's *actual* breakout level instead of the
+# fixed `entry_price` approximation -- exact for a sloped neckline/
+# boundary that keeps moving after the breakout bar, where `entry_price`
+# and the true trigger level diverge over time.
+#
+# This table is a second place that has to agree with each detector's own
+# key_levels/trendlines naming -- if a future detector doesn't follow the
+# existing convention, reconstruction below silently falls through to the
+# entry_price approximation (see `had_throwback`) rather than erroring.
+_FLAT_TRIGGER_KEY: dict[PatternType, str] = {
+    PatternType.DOUBLE_TOP: "neckline",
+    PatternType.DOUBLE_BOTTOM: "neckline",
+    PatternType.CUP_AND_HANDLE: "neckline",
+    PatternType.INVERSE_CUP_AND_HANDLE: "neckline",
+    PatternType.ROUNDING_BOTTOM: "neckline",
+    PatternType.ROUNDING_TOP: "neckline",
+    PatternType.VCP: "pivot_price",
+}
+
+_SLOPED_FIXED_TRIGGER_KEY: dict[PatternType, str] = {
+    PatternType.HEAD_AND_SHOULDERS: "neckline",
+    PatternType.INVERSE_HEAD_AND_SHOULDERS: "neckline",
+}
+
+# Triangles/wedges (bidirectional breakout, `lifecycle.apply_lifecycle_bidirectional`)
+# and flags/pennants (fixed direction, but still an upper/lower boundary
+# pair) both store their two trendlines as "upper"/"lower" and resolve
+# `match.direction` to whichever side actually broke -- so direction alone
+# picks the right one, post-resolution, for both families.
+_SLOPED_DIRECTIONAL_TRIGGER_TYPES = frozenset({
+    PatternType.ASCENDING_TRIANGLE, PatternType.DESCENDING_TRIANGLE, PatternType.SYMMETRIC_TRIANGLE,
+    PatternType.RISING_WEDGE, PatternType.FALLING_WEDGE,
+    PatternType.BULL_FLAG, PatternType.BEAR_FLAG, PatternType.PENNANT,
+})
+
+
+def _reconstruct_trigger_at(match: PatternMatch) -> Callable[[int], float] | None:
+    """Rebuild the pattern's real `trigger_at(bar_index) -> float` from
+    whatever the detector persisted on `match.key_levels`/`match.trendlines`
+    at detection time. Returns None if `match.pattern_type` isn't in any of
+    the three lookup tables above, or if the expected key is missing from
+    the match (defensive only -- every current detector populates it)."""
+    pattern_type = match.pattern_type
+
+    flat_key = _FLAT_TRIGGER_KEY.get(pattern_type)
+    if flat_key is not None:
+        level = match.key_levels.get(flat_key)
+        if level is None:
+            return None
+        return lambda _i: level
+
+    sloped_key = _SLOPED_FIXED_TRIGGER_KEY.get(pattern_type)
+    if pattern_type in _SLOPED_DIRECTIONAL_TRIGGER_TYPES:
+        sloped_key = "upper" if match.direction == Direction.BULLISH else "lower"
+    if sloped_key is not None:
+        line = match.trendlines.get(sloped_key)
+        if line is None:
+            return None
+        slope, intercept = line
+        return lambda i: slope * i + intercept
+
+    return None
+
+
+def had_throwback(bars: pd.DataFrame, match: PatternMatch, target_hit_bar: int) -> bool:
+    """True if, between `breakout_bar` (exclusive) and `target_hit_bar`
+    (exclusive), price closed back through the pattern's breakout level --
+    Bulkowski's throwback: a revisit of the breakout level that doesn't
+    reverse the breakout (that case is already INVALIDATED_FAILED_BREAKOUT,
+    not HIT_TARGET) but does retrace before continuing on to target.
+
+    Uses `_reconstruct_trigger_at`'s real per-bar level when available
+    (exact for sloped triggers, which keep moving after the breakout bar);
+    falls back to the fixed `entry_price` when reconstruction can't find
+    the data (only possible for a pattern_type outside the three lookup
+    tables above, or a hand-built match in tests)."""
+    is_bearish = match.direction == Direction.BEARISH
+    trigger_at = _reconstruct_trigger_at(match)
+    entry = match.entry_price
+    closes = bars["close"].to_numpy()
+    for i in range(match.breakout_bar + 1, target_hit_bar):
+        level = trigger_at(i) if trigger_at is not None else entry
+        close = float(closes[i])
+        if (close >= level) if is_bearish else (close <= level):
+            return True
+    return False
+
+
 def compute_outcomes(
     matches: list[PatternMatch], bars: pd.DataFrame, horizons: Sequence[int] = DEFAULT_HORIZONS,
 ) -> list[PatternOutcome]:
@@ -98,23 +223,27 @@ def compute_outcomes(
     for match in matches:
         if match.status not in _BREAKOUT_STATUSES or match.breakout_bar is None:
             continue
+        target_hit_bar = _find_target_hit_bar(bars, match)
         outcomes.append(PatternOutcome(
             match_id=match.id, ticker=match.ticker, pattern_type=match.pattern_type.value,
             direction=match.direction.value, status=match.status.value, breakout_bar=match.breakout_bar,
             forward_returns={h: forward_return_pct(bars, match, h) for h in horizons},
+            target_hit_bar=target_hit_bar,
+            throwback=had_throwback(bars, match, target_hit_bar) if target_hit_bar is not None else None,
         ))
     return outcomes
 
 
 def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS) -> pd.DataFrame:
     """One row per pattern_type: sample size, target-hit / failed-breakout
-    / still-open rates (of matches that broke out), and mean forward
-    return per horizon (over only the matches with enough forward data to
-    measure that horizon -- reported n_resolved alongside each so a thin
-    horizon's mean isn't read as more solid than it is)."""
+    / still-open rates (of matches that broke out), throwback rate (of
+    matches that hit target, how many first retraced through the breakout
+    level), and mean forward return per horizon (over only the matches with enough
+    forward data to measure that horizon -- reported n_resolved alongside
+    each so a thin horizon's mean isn't read as more solid than it is)."""
     if not outcomes:
         return pd.DataFrame(
-            columns=["n", "hit_target_rate", "failed_breakout_rate", "still_open_rate"]
+            columns=["n", "hit_target_rate", "failed_breakout_rate", "still_open_rate", "throwback_rate"]
             + [f"mean_return_{h}b" for h in horizons] + [f"n_resolved_{h}b" for h in horizons]
         )
 
@@ -125,11 +254,20 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
 
     for pattern_type, group in sorted(by_type.items()):
         n = len(group)
+        n_hit_target = sum(o.status == PatternStatus.HIT_TARGET.value for o in group)
+        # Denominator is outcomes with a *resolved* throwback verdict, not
+        # n_hit_target -- a HIT_TARGET outcome whose target_hit_bar came
+        # back None (the "shouldn't happen" defensive branch in
+        # _find_target_hit_bar) leaves throwback None too, and must be
+        # excluded from both sides of the ratio, not silently counted as
+        # "no throwback" by staying in the denominator alone.
+        throwback_resolved = [o.throwback for o in group if o.throwback is not None]
         row = {
             "n": n,
-            "hit_target_rate": sum(o.status == PatternStatus.HIT_TARGET.value for o in group) / n,
+            "hit_target_rate": n_hit_target / n,
             "failed_breakout_rate": sum(o.status == PatternStatus.INVALIDATED_FAILED_BREAKOUT.value for o in group) / n,
             "still_open_rate": sum(o.status in (PatternStatus.CONFIRMED.value, PatternStatus.ACTIVE.value) for o in group) / n,
+            "throwback_rate": (sum(throwback_resolved) / len(throwback_resolved)) if throwback_resolved else None,
         }
         for h in horizons:
             resolved = [o.forward_returns[h] for o in group if o.forward_returns[h] is not None]
@@ -167,7 +305,8 @@ def run_backtest(
 def main():
     parser = argparse.ArgumentParser(
         description="Outcome-based backtest (design doc §7.3): forward returns, target-hit rate, "
-                     "failed-breakout rate for patterns that broke out, measured against real price data."
+                     "failed-breakout rate, and throwback rate for patterns that broke out, "
+                     "measured against real price data."
     )
     target = parser.add_mutually_exclusive_group(required=True)
     target.add_argument("tickers", nargs="*", default=[], help="Tickers to backtest")
