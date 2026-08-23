@@ -881,3 +881,18 @@ distinct real matches (different `id`, different `pattern_type`) that
 happen to share the same `breakout_bar` (1600) and `entry_price` because
 their formation windows both terminate at essentially the same right-rim
 pivot in AAPL's 2015-08 to 2016-01 range, not a deduplication bug.
+
+A real bug caught by code review before merge: `run_backtest`'s own
+docstring claimed "continue-on-error per ticker, same as `cli.py main()`'s
+own per-ticker try/except" -- but the per-ticker loop body had no
+`try`/`except` at all, so one bad ticker would abort the entire run,
+silently discarding every other ticker's already-computed outcomes too
+(not just skipping the bad one). Reproduced first with a mocked
+`load_and_validate` raising on the middle ticker of a three-ticker list,
+confirmed the whole call crashed and the third ticker was never even
+attempted, then wrapped the per-ticker body in a real `try`/`except
+Exception`, printing and continuing -- matching the docstring's own
+claimed behavior instead of rewriting the claim to match the bug. New
+regression test confirmed to fail against the pre-fix code first; the
+real AAPL smoke test above reproduces byte-identical output post-fix,
+confirming the fix changed nothing on the non-error path.

@@ -148,14 +148,19 @@ def run_backtest(
     `pattern_matches` -- that table may have been populated at a different
     `as_of`/config, and this needs the realized-outcome view, not
     whatever's currently stored). Continue-on-error per ticker, same as
-    `cli.run_for_ticker`'s caller."""
+    `cli.py main()`'s own per-ticker try/except -- one ticker's bad data
+    (e.g. `validate_bars` raising on a corrupt row) shouldn't abort a
+    `--all` run and lose every other ticker's already-computed outcomes."""
     all_outcomes: list[PatternOutcome] = []
     for ticker in tickers:
-        bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe)
-        if len(bars) < config.min_bars:
-            continue
-        matches = scan_bars(bars, ticker, timeframe, config)
-        all_outcomes.extend(compute_outcomes(matches, bars, horizons))
+        try:
+            bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe)
+            if len(bars) < config.min_bars:
+                continue
+            matches = scan_bars(bars, ticker, timeframe, config)
+            all_outcomes.extend(compute_outcomes(matches, bars, horizons))
+        except Exception as exc:
+            print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
     return summarize(all_outcomes, horizons)
 
 

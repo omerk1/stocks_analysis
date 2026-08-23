@@ -4,6 +4,7 @@ import pytest
 
 from src.data_processing import db
 from src.market_common.models import Direction, Timeframe
+from src.patterns.backtest import evaluator
 from src.patterns.backtest.evaluator import (
     PatternOutcome,
     compute_outcomes,
@@ -145,3 +146,23 @@ def test_run_backtest_end_to_end_against_real_double_top_fixture(conn):
 def test_run_backtest_skips_ticker_below_min_bars(conn):
     summary = run_backtest(conn, ["TST"], Timeframe.DAILY, _config(min_bars=10_000))
     assert summary.empty
+
+
+def test_run_backtest_continues_past_a_ticker_that_raises(conn, monkeypatch, capsys):
+    # Regression: one bad ticker used to abort the whole run (no
+    # try/except around the per-ticker loop body), silently discarding
+    # every other ticker's already-computed outcomes too -- confirmed to
+    # crash with ValueError against the pre-fix code before adding this.
+    real_load = evaluator.data_mod.load_and_validate
+
+    def flaky_load(conn_, ticker, timeframe):
+        if ticker == "BAD":
+            raise ValueError("simulated data error")
+        return real_load(conn_, ticker, timeframe)
+
+    monkeypatch.setattr(evaluator.data_mod, "load_and_validate", flaky_load)
+
+    summary = run_backtest(conn, ["BAD", "TST"], Timeframe.DAILY, _config())
+
+    assert "double_top" in summary.index  # TST's outcome survived BAD's failure
+    assert "BAD" in capsys.readouterr().out
