@@ -38,6 +38,35 @@ def test_render_pattern_chart_builds_without_error_and_includes_candles_plus_piv
     assert trace_types.count("scatter") >= len(matches)  # >= : pivot polyline + optional neckline/target lines
 
 
+def test_render_pattern_chart_includes_a_volume_bar_trace_colored_by_up_down_day():
+    # _chain sets open == close for every bar (both drawn from the same
+    # linspace array), so it can't exercise the up/down color split --
+    # build a frame with real distinct open/close values instead.
+    idx = pd.bdate_range("2020-01-01", periods=4)
+    bars = pd.DataFrame(
+        {
+            "open": [100.0, 105.0, 103.0, 108.0], "close": [105.0, 103.0, 108.0, 106.0],
+            "high": [106.0, 106.0, 109.0, 109.0], "low": [99.0, 102.0, 102.0, 105.0],
+            "volume": [1000.0, 2000.0, 1500.0, 1800.0],
+        },
+        index=idx,
+    )
+
+    fig = render_pattern_chart(bars, matches=[], ticker="TST", timeframe=Timeframe.DAILY)
+
+    volume_traces = [trace for trace in fig.data if trace.type == "bar"]
+    assert len(volume_traces) == 1
+    volume_trace = volume_traces[0]
+    assert list(volume_trace.y) == list(bars["volume"])
+    assert volume_trace.xaxis == "x2"  # row 2 (below price), not overlaid on the candlesticks
+    # bar0 (100->105) and bar2 (103->108) are up days; bar1 (105->103) and
+    # bar3 (108->106) are down days -- confirms the split actually keys
+    # off close vs. open per bar, not some flat/constant color.
+    up = "rgba(44,160,44,0.5)"
+    down = "rgba(214,39,40,0.5)"
+    assert list(volume_trace.marker.color) == [up, down, up, down]
+
+
 def test_cup_and_handle_neckline_starts_at_right_rim_not_the_second_pivot():
     # Regression: the key_levels["neckline"] fallback branch used to start
     # the drawn line at match.pivots[1] -- correct for double top/bottom's

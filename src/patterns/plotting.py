@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from src.market_common.models import Direction
 from src.patterns.models import PatternMatch, PatternStatus, Timeframe
@@ -72,13 +73,36 @@ def render_pattern_chart(
     bars: pd.DataFrame, matches: list[PatternMatch], ticker: str, timeframe: Timeframe
 ) -> go.Figure:
     """`bars` must be the same frame (same index/length) `matches` was
-    detected against -- `match.breakout_bar` is a positional index into it."""
-    fig = go.Figure()
+    detected against -- `match.breakout_bar` is a positional index into it.
+
+    Two rows sharing an x-axis: price (candlesticks + pattern overlays) on
+    top, volume bars below. Volume isn't just decoration -- every
+    detector's breakout confirmation (`config.breakout_volume_mult`,
+    `match.volume_confirmed`) depends on it, and per design doc §4.5 it's
+    "core to the pattern, not just confirmatory" for VCP specifically, so
+    a chart with no volume at all made that half of the judgment
+    impossible to eyeball (surfaced by `backtest/labeler.py`'s own first
+    real label, whose notes flagged exactly this gap)."""
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.75, 0.25],
+    )
     fig.add_trace(
         go.Candlestick(
             x=bars.index, open=bars["open"], high=bars["high"], low=bars["low"], close=bars["close"],
             name=ticker, showlegend=False,
-        )
+        ),
+        row=1, col=1,
+    )
+
+    up_r, up_g, up_b = _DIRECTION_RGB[Direction.BULLISH]
+    down_r, down_g, down_b = _DIRECTION_RGB[Direction.BEARISH]
+    volume_colors = [
+        f"rgba({up_r},{up_g},{up_b},0.5)" if c >= o else f"rgba({down_r},{down_g},{down_b},0.5)"
+        for o, c in zip(bars["open"], bars["close"])
+    ]
+    fig.add_trace(
+        go.Bar(x=bars.index, y=bars["volume"], marker=dict(color=volume_colors), name="volume", showlegend=False),
+        row=2, col=1,
     )
 
     last_bar_ts = bars.index[-1] if not bars.empty else pd.Timestamp.now()
@@ -95,7 +119,8 @@ def render_pattern_chart(
                 name=f"{match.pattern_type.value} {match.status.value}",
                 legendgroup=match.status.value,
                 hovertext=_hover_text(match), hoverinfo="text",
-            )
+            ),
+            row=1, col=1,
         )
 
         x_end = bars.index[match.breakout_bar] if match.breakout_bar is not None else last_bar_ts
@@ -115,7 +140,8 @@ def render_pattern_chart(
                         y=[slope * x_start_idx + intercept, slope * x_end_idx + intercept],
                         mode="lines", line=dict(color=color, width=1, dash="dot"),
                         showlegend=False, hoverinfo="skip",
-                    )
+                    ),
+                    row=1, col=1,
                 )
         else:
             neckline = match.key_levels.get("neckline")
@@ -149,7 +175,8 @@ def render_pattern_chart(
                         x=[x_start, x_end], y=[neckline, neckline],
                         mode="lines", line=dict(color=color, width=1, dash="dot"),
                         showlegend=False, hoverinfo="skip",
-                    )
+                    ),
+                    row=1, col=1,
                 )
 
         if match.breakout_bar is not None and match.target_price is not None:
@@ -158,14 +185,16 @@ def render_pattern_chart(
                     x=[x_end, last_bar_ts], y=[match.target_price, match.target_price],
                     mode="lines", line=dict(color=color, width=1, dash="dash"),
                     showlegend=False, hoverinfo="skip",
-                )
+                ),
+                row=1, col=1,
             )
 
     fig.update_layout(
         title=f"{ticker} chart patterns ({timeframe.value})",
-        xaxis_rangeslider_visible=False,
-        xaxis_rangebreaks=_WEEKEND_RANGEBREAKS,
         template="plotly_white",
         legend=dict(groupclick="togglegroup"),
     )
+    fig.update_xaxes(rangebreaks=_WEEKEND_RANGEBREAKS)
+    fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+    fig.update_yaxes(title_text="volume", row=2, col=1)
     return fig
