@@ -1390,3 +1390,78 @@ denominator) while `throwback_rate` *falls* -- consistent with the removed
 population being exactly the "broke out, immediately threw back" cases that
 were inflating it. `rounding_bottom` crosses to essentially flat on median;
 `rounding_top` improves sharply but, as noted above, does not cross zero.
+
+## §7.4: pivot-extraction sensitivity sweep
+
+Design doc item 4, the last item in §7 and the last item of this module's
+initial investigation arc: sweep `config.pivot_atr_mult` -- the ATR
+multiple every detector's pivots come from (`detect_pivots(..., threshold_fn
+= config.pivot_atr_mult * atr)`) -- and report stability rather than picking
+one value and moving on. Swept `[1.5, 2.0, 2.5, 3.0, 4.0]` (default 2.5)
+against a fixed 400-ticker sample, full §7.3 outcome backtest per value.
+
+**Match count is exactly as sensitive as the doc predicted, and the shape
+of that sensitivity splits pattern families in two.** Triangle/wedge/
+double-top-bottom/cup-family types thin out *monotonically* as the
+multiple widens (coarser pivots -> fewer candidate windows) -- `n(1.5) /
+n(4.0)` ranges from 2.1x (rounding) to a striking **43.8x for
+symmetric_triangle** (4,775 -> 109 matches). Four types are completely
+flat across the whole sweep -- `vcp`, `bull_flag`, `bear_flag`, `pennant`
+-- because they use their own dedicated `vcp_pivot_atr_mult`/
+`flag_pivot_atr_mult`, not the shared parameter this sweep varies; they
+were included as an implicit negative control and behaved exactly as
+expected (bit-identical `n` at every value).
+
+**Head & Shoulders and its inverse are the one family that does NOT thin
+out monotonically -- they peak near the current default and fall off on
+*both* sides:**
+
+```
+                    1.5    2.0    2.5    3.0    4.0
+head_and_shoulders   205    548    722    702    452
+inverse_h_and_s      172    388    541    498    357
+```
+
+This makes structural sense in a way the monotonic families don't: H&S
+needs a specific five-pivot alternation (shoulder-head-shoulder-two
+troughs) to survive intact. Pivots too fine (low mult) inject noise that
+breaks the exact sequence before it forms; pivots too coarse (high mult)
+leave too few pivots overall for the sequence to appear at all. The
+current default of 2.5 sits close to the empirical peak for both -- not
+by design (this knob predates any H&S-specific tuning), but it is not a
+bad accident either.
+
+**Outcome quality (hit_target_rate, median_60b) is reasonably stable
+across a roughly half-to-double range around the default for most types,
+and least stable for exactly the types whose sample also collapses most --
+which makes the two hard to fully disentangle with one 400-ticker sample.**
+Two notable exceptions worth flagging on their own:
+
+```
+                 hit_target_rate                    median_60b
+                 1.5     2.5     4.0                 1.5      2.5      4.0
+rounding_top     0.413   0.373   0.318               -0.035   -0.028   -0.086
+falling_wedge    0.449   0.414   0.298                0.000   -0.004   -0.059
+```
+
+Both degrade steadily as the multiple widens, and `n` for both is already
+thin at the high end (rounding_top: 184 -> 88; falling_wedge: 14,052 ->
+1,050 -- still a large sample, so this one reads as more than pure noise).
+Whether this is the pivot threshold changing which *real* structures get
+found, or coarser pivots systematically admitting worse-quality candidates
+at the margin, isn't something this sweep alone can separate -- flagging
+as read, not concluding.
+
+**Not claimed:** this sweep doesn't identify a "better" value than 2.5 --
+that was never its purpose (per the doc's own framing, the point is
+reporting stability, not re-tuning). No change made to `pivot_atr_mult` or
+any other config value as a result of this sweep.
+
+This closes out the initial investigation arc opened by the full-universe
+outcome backtest: dedup, rim/roundedness fixes, resolution horizon, the
+reclaim redesign, the rounding formation-completion fix, the mean/median
+distortion fix, and now this sensitivity check. `docs/backlog.md` (or
+wherever future work gets tracked) is the right place for anything raised
+here that warrants deeper follow-up -- the H&S sweet-spot shape and the
+rounding_top/falling_wedge degradation at wide multiples both seem like
+reasonable candidates.
