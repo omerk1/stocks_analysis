@@ -10,8 +10,7 @@ from src.patterns.models import PatternStatus, PatternType
 
 def _config(**overrides) -> PatternConfig:
     defaults = dict(
-        atr_period=3, volume_sma_period=5, expire_lifespan_mult=2.0, failed_breakout_reclaim_bars=3,
-        breakout_buffer_pct=0.001, triangle_typical_min_bars=1, triangle_typical_max_bars=200,
+        atr_period=3, volume_sma_period=5, expire_lifespan_mult=2.0, breakout_buffer_pct=0.001, triangle_typical_min_bars=1, triangle_typical_max_bars=200,
     )
     defaults.update(overrides)
     return PatternConfig(**defaults)
@@ -130,10 +129,10 @@ def test_insufficient_pivots_per_side_rejected():
     assert matches == []
 
 
-def test_failed_breakout_reclaim_within_window_flags_failed_breakout():
-    df = _chain(*_ASCENDING_PREFIX, (151.0, 151.0, 1), (145.0, 145.0, 4))
+def test_reclaim_without_reaching_target_flags_failed_breakout():
+    df = _chain(*_ASCENDING_PREFIX, (151.0, 151.0, 1), (145.0, 145.0, 40))
     pivots = _ascending_pivots(df)
-    config = _config()
+    config = _config(target_horizon_min_bars=5, target_horizon_max_bars=10)
 
     matches = TriangleWedgeDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
 

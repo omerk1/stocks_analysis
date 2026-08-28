@@ -10,8 +10,7 @@ from src.patterns.models import PatternStatus, PatternType
 
 def _config(**overrides) -> PatternConfig:
     defaults = dict(
-        atr_period=3, volume_sma_period=5, breakout_buffer_pct=0.001, failed_breakout_reclaim_bars=5,
-        expire_lifespan_mult=2.0,
+        atr_period=3, volume_sma_period=5, breakout_buffer_pct=0.001, expire_lifespan_mult=2.0,
         # Test-friendly overrides of the daily-preset MA/ATR windows -- a
         # 200+-bar Trend Template gate and literal ATR(10)/ATR(50) would
         # need a much larger fixture than a synthetic unit test warrants;
@@ -150,10 +149,10 @@ def test_new_low_below_base_invalidates():
     assert all(m.breakout_bar is None for m in matches)
 
 
-def test_failed_breakout_reclaim_within_window_flags_failed_breakout():
-    tail = np.concatenate([[86.0], np.full(4, 84.5)])
+def test_reclaim_without_reaching_target_flags_failed_breakout():
+    tail = np.concatenate([[86.0], np.full(40, 84.5)])
     df = _df(tail)
-    config = _config()
+    config = _config(target_horizon_min_bars=5, target_horizon_max_bars=10)
 
     matches = VCPDetector().scan(df, [], "TST", Timeframe.DAILY, config)
 

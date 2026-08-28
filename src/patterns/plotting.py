@@ -47,7 +47,17 @@ _STATUS_OPACITY = {
     PatternStatus.INVALIDATED: 0.15,
     PatternStatus.INVALIDATED_FAILED_BREAKOUT: 0.15,
     PatternStatus.EXPIRED: 0.15,
+    # Resolved (broke out, ran its full §7.3 horizon, never reached target),
+    # so it recedes with the other terminal statuses rather than staying
+    # prominent the way an unresolved ACTIVE one does.
+    PatternStatus.EXPIRED_UNRESOLVED: 0.15,
 }
+
+# This lookup is exhaustive by design (a missing status raises KeyError
+# mid-render rather than silently drawing wrong), so adding a PatternStatus
+# without adding it here breaks every chart containing one -- see
+# tests/test_patterns_plotting.py's coverage assertion.
+assert set(_STATUS_OPACITY) == set(PatternStatus), "every PatternStatus needs a plotting opacity"
 
 
 def _color(match: PatternMatch) -> str:

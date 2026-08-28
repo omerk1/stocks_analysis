@@ -44,11 +44,22 @@ from src.patterns.config import PatternConfig
 from src.patterns.models import PatternMatch, PatternStatus
 
 
+def resolution_horizon_bars(formation_bars: int, config: PatternConfig) -> int:
+    """§7.3 resolution horizon: how many bars past the breakout the target
+    stays live. `target_horizon_mult` x the pattern's own formation length,
+    clamped to [`target_horizon_min_bars`, `target_horizon_max_bars`] --
+    see config for why the multiplier deliberately mirrors
+    `expire_lifespan_mult`'s pre-breakout convention."""
+    horizon = int(config.target_horizon_mult * max(formation_bars, 0))
+    return max(config.target_horizon_min_bars, min(horizon, config.target_horizon_max_bars))
+
+
 def _walk_post_breakout(
     df: pd.DataFrame,
     match: PatternMatch,
     *,
     breakout_bar: int,
+    formation_bars: int,
     trigger_at: Callable[[int], float],
     volume: pd.Series,
     volume_sma_series: pd.Series,
@@ -57,8 +68,43 @@ def _walk_post_breakout(
     """Shared tail of both entry points below, once a breakout bar and its
     (now-fixed) `match.direction`/`match.target_price` are known: volume
     confirmation, then CONFIRMED / ACTIVE / HIT_TARGET /
-    INVALIDATED_FAILED_BREAKOUT resolution. Caller must already have set
-    `match.direction` and `match.target_price` before calling this."""
+    INVALIDATED_FAILED_BREAKOUT / EXPIRED_UNRESOLVED resolution. Caller must
+    already have set `match.direction` and `match.target_price` before
+    calling this.
+
+    The walk stops at the §7.3 resolution horizon rather than running to the
+    end of `df`. Previously it scanned every remaining bar, so HIT_TARGET
+    meant "target reached at any point in the rest of recorded history" --
+    one audited instance was scored a hit ~2 years after its breakout, which
+    makes the resulting hit-rate incomparable to the weeks-to-months
+    Bulkowski benchmarks §7.3 measures against. Past the horizon the match
+    resolves EXPIRED_UNRESOLVED, which is a *decided* non-hit; ACTIVE means
+    only "still inside the horizon, and `df` ran out first" -- a genuinely
+    right-censored case the backtest can exclude rather than silently count
+    as a failure.
+
+    **A reclaim does not end the walk.** At the moment price closes back
+    through the trigger level, a throwback (Bulkowski: revisits the level,
+    then continues to target) and a false breakout are *indistinguishable* --
+    only what happens afterward separates them. This used to terminate
+    immediately as INVALIDATED_FAILED_BREAKOUT if the reclaim landed inside a
+    fixed `failed_breakout_reclaim_bars` window, which meant the window
+    length was really a choice about which error to make: measured across
+    28,514 real breakouts, widening it from 5 to 10 bars would have
+    relabelled 14.1% of genuine target-reaching matches as failures, and 20
+    bars would have relabelled 24.7%. Any fixed window just picks a point on
+    that tradeoff instead of resolving it.
+
+    So the reclaim is recorded and the walk continues. Target-hit always
+    wins: a match that reclaims and then reaches target is a throwback, which
+    is what Bulkowski counts it as, and the pattern still worked.
+    INVALIDATED_FAILED_BREAKOUT is now only reached at the end of the horizon
+    -- reclaimed at some point *and* never reached target -- which is a
+    statement about the resolved outcome rather than a guess made mid-flight.
+    That distinction is also what separates it from EXPIRED_UNRESOLVED: both
+    are non-hits, but one gave the level back and the other simply went
+    nowhere.
+    """
     is_bearish = match.direction == Direction.BEARISH
     buffer = config.breakout_buffer_pct
     n = len(df)
@@ -73,27 +119,36 @@ def _walk_post_breakout(
         match.status = PatternStatus.CONFIRMED
         return match
 
-    reclaim_deadline = breakout_bar + config.failed_breakout_reclaim_bars
+    horizon_deadline = breakout_bar + resolution_horizon_bars(formation_bars, config)
     target = match.target_price
     highs = df["high"].to_numpy()
     lows = df["low"].to_numpy()
+    reclaimed = False
 
-    for i in range(breakout_bar + 1, n):
+    for i in range(breakout_bar + 1, min(n, horizon_deadline + 1)):
         if target is not None:
             hit = lows[i] <= target if is_bearish else highs[i] >= target
             if hit:
                 match.status = PatternStatus.HIT_TARGET
                 return match
 
-        if i <= reclaim_deadline:
+        # Only worth testing until it first happens -- one reclaim anywhere
+        # in the horizon is the whole signal, and skipping the rest avoids
+        # re-evaluating `trigger_at` on every remaining bar of a horizon
+        # that can run to a full trading year.
+        if not reclaimed:
             level = trigger_at(i)
             close = float(closes[i])
             reclaimed = (close > level * (1 + buffer)) if is_bearish else (close < level * (1 - buffer))
-            if reclaimed:
-                match.status = PatternStatus.INVALIDATED_FAILED_BREAKOUT
-                return match
 
-    match.status = PatternStatus.ACTIVE
+    if horizon_deadline >= n - 1:
+        # Ran out of bars before the horizon elapsed -- still genuinely open
+        # (right-censored), whether or not it has reclaimed so far.
+        match.status = PatternStatus.ACTIVE
+    else:
+        match.status = (
+            PatternStatus.INVALIDATED_FAILED_BREAKOUT if reclaimed else PatternStatus.EXPIRED_UNRESOLVED
+        )
     return match
 
 
@@ -185,7 +240,7 @@ def apply_lifecycle(
         return match
 
     return _walk_post_breakout(
-        df, match, breakout_bar=breakout_bar, trigger_at=trigger_at,
+        df, match, breakout_bar=breakout_bar, formation_bars=formation_bars, trigger_at=trigger_at,
         volume=volume, volume_sma_series=volume_sma_series, config=config,
     )
 
@@ -258,7 +313,7 @@ def apply_lifecycle_bidirectional(
                 match.stop_price = lower_stop
                 resolved_trigger_at = lower_trigger_at
             return _walk_post_breakout(
-                df, match, breakout_bar=i, trigger_at=resolved_trigger_at,
+                df, match, breakout_bar=i, formation_bars=formation_bars, trigger_at=resolved_trigger_at,
                 volume=volume, volume_sma_series=volume_sma_series, config=config,
             )
 

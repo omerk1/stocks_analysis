@@ -53,6 +53,18 @@ class PatternStatus(str, Enum):
     # the false-breakout rate is itself a useful output, not noise.
     INVALIDATED_FAILED_BREAKOUT = "invalidated_failed_breakout"
     EXPIRED = "expired"
+    # Broke out, then ran out the §7.3 resolution horizon
+    # (config.target_horizon_mult) without hitting target or being reclaimed
+    # through the trigger. Kept distinct from plain EXPIRED -- which is
+    # strictly pre-breakout, "never triggered at all" -- for the same reason
+    # INVALIDATED_FAILED_BREAKOUT is kept distinct from INVALIDATED: a
+    # breakout that went nowhere within the pattern's own relevant timescale
+    # is a different, separately-countable outcome from one that never
+    # happened, and collapsing them would hide it. Distinct from ACTIVE too:
+    # ACTIVE now means "still inside its horizon with data still running
+    # out," a genuinely unresolved right-censored case, rather than
+    # doubling as "resolved to nothing."
+    EXPIRED_UNRESOLVED = "expired_unresolved"
 
 
 @dataclass

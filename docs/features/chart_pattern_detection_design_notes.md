@@ -897,6 +897,111 @@ regression test confirmed to fail against the pre-fix code first; the
 real AAPL smoke test above reproduces byte-identical output post-fix,
 confirming the fix changed nothing on the non-error path.
 
+## Detection-quality fix batch: dedup, rim gate, roundedness, resolution horizon
+
+Four bugs found by running the §7.3 outcome backtest across the full
+universe for the first time and chasing the one result that looked wrong.
+Worth recording as a group because three of the four were only visible
+*because* of the fourth, and because the investigation route -- notice an
+implausible statistic, read the sign conventions, then look at rendered
+charts -- worked better than any of them would have alone.
+
+The trigger: `inverse_cup_and_handle` came back with a 0.084 target-hit
+rate and a -16.4% mean 60-bar return on the first (5-ticker) sample. Too
+lopsided to be a weak edge; a pattern with no predictive power lands near
+a coin flip with noisy-but-centred returns.
+
+**Not a flipped sign.** First hypothesis was the obvious one -- a bearish
+variant derived by mirroring the bullish one, with a comparison left
+pointing the wrong way. Checked every one (breakout test, target-hit test,
+failed-breakout reclaim, `extreme_price`, target formula, invalidation,
+handle gates) and they were all correctly mirrored. Recording this because
+the *absence* of the expected bug is what forced looking at the data
+instead of the code.
+
+**1. The rim gate was an unbounded mirror.** §4.4 says the right rim should
+recover to within ~0-5% of the left rim, and that "a right rim above the
+left rim is fine too and often bullish" -- a deliberately one-sided
+tolerance. Mirroring it faithfully for the bearish variants turned "fine
+above" into "fine arbitrarily far below." Measured: the inverse variants'
+right rim sat a median 29.8% (min 66.0%) *below* the left rim, which is not
+a cup rim at all but the far side of a bear leg. Because the measured move
+is computed in absolute dollars off the right rim, that drove targets
+through zero: 16.3% of bearish matches had a **negative target price**,
+unreachable by construction, and the median implied target was a -78.7%
+move. The lesson generalizes past this detector: a mirror that is
+geometrically faithful is not necessarily faithful in price space, which is
+bounded at zero going down and unbounded going up. The bullish side had the
+identical defect (right rim up to +234% above the left rim) and it stayed
+invisible only because an inflated bullish target is still positive and
+reachable. Fixed with a symmetric `cup_rim_divergence_max_pct = 10.0`.
+
+**2. Quadratic R2 is a poor roundedness discriminator, and raising it makes
+things worse.** §4.4 point 3 offers two operationalizations of "rounded not
+V-shaped"; only the R2 one was built, on the reasoning that one principled
+mechanism beats two. That call was wrong -- they are complementary. A
+*monotone* price path fits a parabola arm almost perfectly, so R2 actively
+rewards the shape the check exists to exclude. Across six hand-audited
+instances the single confirmed-valid cup scored the **lowest** R2 of the
+group (0.677) while four invalid ones scored higher (up to 0.879).
+Tightening the threshold would have rejected the good instance first. Fixed
+by keeping `cup_roundedness_min_r2` at 0.5 and adding three gates off the
+same fit: curvature sign (must open the way the pattern requires -- 26% of
+real matches failed this, and nothing checked it because
+`curves.fit_roundedness` is direction-agnostic by design), apex position
+inside the rim-to-rim window (a monotone leg puts the vertex 2-4 window
+lengths outside), and the doc's own never-built "no single-bar move
+accounts for a large fraction of the total cup depth" heuristic (catches an
+earnings cliff at 0.491 of total depth that R2 waved through).
+
+**3. `scanner.py` never implemented the dedup §5 specifies.** Each cup
+detector scans (rim1, rim2) pairs and emits one match per plausible left
+rim, so a single base with three left rims became three matches sharing one
+right rim, one breakout bar, and near-identical outcomes. Every `n` in
+every backtest result was inflated (measured: 2832 -> 2040, 28.0% of
+output, max group size 6) and one real trade was counted up to six times.
+The instructive part is the key: window-overlap ratio, the obvious choice,
+**fails** -- at Jaccard >= 0.7 it merges 153 of 178 true duplicates while
+wrongly merging 1145 genuinely distinct pairs, because distinct patterns on
+one ticker routinely share most of their window. The duplicates are not
+"overlapping," they are the same structure found from different starting
+pivots, so the identity key is the pattern's *terminal* pivot -- what
+actually fixes its trigger level and breakout.
+
+**4. `HIT_TARGET` had no time horizon.** `_walk_post_breakout` walked to the
+end of available history, so the status meant "target reached at any point
+in the rest of recorded history." One audited instance was credited a hit
+~2 years after its breakout, which is not comparable to the
+weeks-to-months Bulkowski benchmarks §7.3 measures against. Added
+`target_horizon_mult`, deliberately reusing `expire_lifespan_mult`'s exact
+convention and value (a pattern's own duration sets its timescale,
+pre-breakout and post-breakout alike) rather than inventing a second notion
+of relevance, clamped to [20, 252] bars. New `EXPIRED_UNRESOLVED` status
+keeps "ran its full horizon and resolved to nothing" (a decided non-hit)
+separate from `ACTIVE` ("horizon hasn't elapsed in the data we have" --
+right-censored), the same distinction `INVALIDATED_FAILED_BREAKOUT` already
+draws against plain `INVALIDATED`. The pre-fix baseline's implausible
+still-open rates (0.416 for inverse cup & handle against 0.095 for its
+bullish twin) were this bug and bug 1 compounding.
+
+**Validation of the batch.** Against the six hand-audited instances, the
+fixed detector rejects all five invalid ones and keeps the one valid one.
+Cup-family matches with a non-positive target: 22 -> 0. Median implied
+target for inverse cup & handle: -78.7% -> -40.0%.
+
+**Two doc corrections made alongside.** §8's `config/pattern_thresholds.yaml`
+was never built and should not be -- `PatternConfig` + `PRESETS` is the
+right architecture and matches every sibling module; §8 now documents the
+real one. §8's `evaluator.py` line promising precision/recall was removed
+(see §7.1/§7.2 -- no labeled set in v1).
+
+**Still open, deliberately not touched in this batch:** `falling_wedge`
+posts +21.0% at 60 bars while sitting at -0.5%/-0.0% at 10 and 20 bars
+across 72k pre-fix samples. A return that materializes only at the longest
+horizon, from nothing, looks like a measurement artifact rather than edge.
+Investigate *after* the post-fix rerun -- the resolution horizon above may
+explain or partly resolve it, and report before proposing a fix.
+
 ## Spike-low rims: pivot prices are wicks, cup geometry is closes
 
 Follow-up to the fix batch above, surfaced by eyeballing the surviving
@@ -970,6 +1075,135 @@ now build the intended price into the bars. The rim test also gained a
 control (`..._is_what_rejects_it_and_nothing_else`) that widens the rim
 bound and asserts the candidate returns, so the rejection is attributable to
 the rim gate rather than to some other gate the new fixture happens to trip.
+
+## Failed breakout vs. throwback: deciding at the horizon, not mid-flight
+
+`_walk_post_breakout` used to resolve INVALIDATED_FAILED_BREAKOUT the moment
+price closed back through the trigger level, provided that happened inside a
+fixed `failed_breakout_reclaim_bars` window (default 5). The bug isn't the
+value of that constant -- it's that no value can be right.
+
+At the instant of a reclaim, a **throwback** (Bulkowski: revisits the
+breakout level, then continues on to target -- a pattern that *worked*) and a
+**false breakout** are indistinguishable. Only what happens afterward
+separates them. A fixed window therefore isn't a threshold, it's a choice
+about which error to make. Measured across 28,514 real breakouts:
+
+```
+window  catches of all reclaims   genuine target-reaching matches mislabelled
+   5            66.7%                            2.4%
+  10            79.5%                           14.1%
+  20            89.6%                           24.7%
+  40            95.7%                           32.0%
+```
+
+Reclaims are heavily front-loaded (median 3 bars, p75 8, p90 21), so a
+*wider* window catches more real failures -- and converts one in seven
+genuine winners into a "failure" by bar 10. Widening was the obvious fix and
+it is not an improvement, just a different error.
+
+**Fix: the reclaim no longer ends the walk.** It's recorded, the walk
+continues to the resolution horizon, and target-hit always wins. A match that
+reclaims and then reaches target is a throwback and stays HIT_TARGET.
+INVALIDATED_FAILED_BREAKOUT is now only reachable at the end of the horizon
+-- reclaimed at some point *and* never reached target -- so it states a
+resolved outcome instead of guessing at one mid-flight. EXPIRED_UNRESOLVED
+keeps its meaning as the other non-hit: never gave the level back, simply
+went nowhere.
+
+`failed_breakout_reclaim_bars` was **removed**, not retuned. With the
+decision moved to the horizon there is no window left to configure, and a
+knob that looks tunable while affecting nothing is worse than no knob --
+someone would eventually sweep it in §7.4 and conclude it had no effect.
+
+**What actually happened to the rates, against what was predicted.** The
+prediction written here beforehand was that `failed_breakout_rate` would rise
+sharply, `unresolved_rate` fall, and `hit_target_rate` rise modestly. Two of
+those three were wrong, and the reason is worth keeping:
+
+- `hit_target_rate` rose for **17/17** pattern types, mean **+15.6 points**
+  (cup & handle +24, rounding bottom +26). Not "modest." The reclaim
+  distribution was the clue and it was misread: median reclaim is 3 bars,
+  p25 is 1 bar, so more than half of all reclaims were landing *inside* the
+  old 5-bar window and terminating the walk before the pattern had any
+  chance to work.
+- `failed_breakout_rate` **rose for 8 types and fell for 9** -- not a sharp
+  rise. Two opposing flows cancel to different net effects per pattern:
+  matches reclaiming *outside* the old window that never hit target move
+  UNRESOLVED -> FAILED (pushes up), while matches reclaiming *inside* it that
+  then reached target move FAILED -> HIT_TARGET (pushes down). Given the
+  front-loaded reclaim distribution the second flow is the larger one for
+  most patterns.
+- `unresolved_rate` fell everywhere, as predicted -- to near zero in several
+  cases (cup & handle 0.153 -> 0.003), since ~75% of breakouts reclaim at
+  some point and now resolve as FAILED rather than UNRESOLVED.
+- `throwback_rate` rose for **17/17**, mean +29.6 points. This was not
+  predicted at all, and it is the most important of the four -- see the
+  Bulkowski entry below.
+
+**Six tests asserted the old semantics and all six needed real fixtures, not
+just renaming.** Every one broke the level, reclaimed, and then ended a few
+bars later -- which under the old rule resolved immediately, and under the
+new one leaves the match ACTIVE (right-censored: the horizon hasn't elapsed
+in the data provided). Two were fixed by extending the tail past the horizon;
+four needed the horizon pinned short in their config instead, because the
+horizon scales with each pattern's own formation length and a cup's or VCP
+base's horizon outruns any reasonable fixture tail. All six were renamed from
+`..._reclaim_within_window_flags_...` to
+`test_reclaim_without_reaching_target_flags_failed_breakout`, since there is
+no window any more. Four new lifecycle tests cover the cases the redesign
+exists for: reclaim-then-target is a hit; reclaim-without-target is a
+failure; no-reclaim-without-target is unresolved; and reclaim with data
+running out inside the horizon stays ACTIVE.
+
+**Cost to note:** the walk no longer short-circuits on reclaim, so it visits
+every bar to the horizon. The test suite went from ~34s to ~92s and the
+full-universe backtest gets correspondingly slower. The reclaim check itself
+stops after the first hit, but the target check cannot.
+
+## ⭐ First external validation: throwback rate matches Bulkowski
+
+**This is the only number in this module that has been checked against an
+independent source and agreed with it.** Recording it separately so it stays
+easy to find.
+
+Design doc §7.3 names Bulkowski's documented **~62% throwback rate for cup
+and handle** as a benchmark worth comparing detector output against. After
+the reclaim redesign:
+
+```
+  cup_and_handle throwback_rate    pre-fix   0.395
+                                   POST-FIX  0.650
+                                   Bulkowski ~0.62
+```
+
+Within ~3 points, across 17,868 breakout outcomes, on a metric nothing in
+this codebase was tuned toward.
+
+**Why it was wrong before, and why that matters more than the agreement
+itself.** Throwback is by definition "price came back to the breakout level,
+then went on to target." The old lifecycle resolved a match to
+INVALIDATED_FAILED_BREAKOUT the moment it reclaimed inside the 5-bar window,
+which removed it from the HIT_TARGET pool entirely -- and `throwback_rate`'s
+denominator is HIT_TARGET matches. So the metric's denominator
+*systematically excluded the exact population the metric measures*. It could
+only ever observe throwbacks that happened after bar 5, and reported 0.395
+for something the literature puts at 0.62.
+
+That failure mode is worth generalising: a metric can be individually
+correct at every step and still be structurally blind, because an *upstream*
+state machine decided which rows it gets to see. The bug was not in
+`had_throwback`, which was right the whole time.
+
+Caveats, stated so this isn't over-read: it is one benchmark on one pattern
+type. Bulkowski's sample, era, and pattern-identification criteria are not
+this detector's, so exact agreement would be suspicious rather than
+reassuring -- proximity is the signal. The other §7.3 benchmark quoted
+alongside it (cup & handle's ~5% break-even failure rate) is **not** the same
+thing as `failed_breakout_rate` (0.383) and should not be read as a
+contradiction: break-even failure is about trades that fail to clear a profit
+threshold, not about breakouts that reverse. No comparable published figure
+has been checked for the other pattern types yet.
 
 ## Formation completion: Rounding's breakout level comes from the pivot its formation ends on
 
