@@ -51,6 +51,7 @@ from src.data_processing import db
 from src.market_common import data as data_mod
 from src.market_common import derived_db
 from src.market_common.models import Direction, Timeframe
+from src.patterns import lifecycle
 from src.patterns import store as pattern_store
 from src.patterns.config import PatternConfig, get_preset
 from src.patterns.models import PatternMatch, PatternStatus, PatternType
@@ -66,6 +67,13 @@ DEFAULT_HORIZONS: tuple[int, ...] = (10, 20, 60)
 _BREAKOUT_STATUSES = frozenset({
     PatternStatus.CONFIRMED, PatternStatus.ACTIVE,
     PatternStatus.HIT_TARGET, PatternStatus.INVALIDATED_FAILED_BREAKOUT,
+    # Broke out and ran the full §7.3 resolution horizon without hitting
+    # target or being reclaimed -- a decided non-hit, so it belongs in the
+    # outcome denominator. Before the horizon existed these matches walked
+    # to the end of history and landed in ACTIVE, which is why the pre-fix
+    # baseline showed implausible still_open rates (0.416 for inverse cup &
+    # handle against 0.095 for its bullish twin).
+    PatternStatus.EXPIRED_UNRESOLVED,
 })
 
 
@@ -99,7 +107,7 @@ def forward_return_pct(bars: pd.DataFrame, match: PatternMatch, horizon_bars: in
     return raw_return if match.direction != Direction.BEARISH else -raw_return
 
 
-def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch) -> int | None:
+def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch, config: PatternConfig) -> int | None:
     """First bar index after `match.breakout_bar` whose high/low crosses
     `match.target_price`, mirroring the exact hit condition
     `lifecycle._walk_post_breakout` used to set HIT_TARGET in the first
@@ -112,7 +120,13 @@ def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch) -> int | None:
     target = match.target_price
     highs = bars["high"].to_numpy()
     lows = bars["low"].to_numpy()
-    for i in range(match.breakout_bar + 1, len(bars)):
+    # Same horizon bound `lifecycle._walk_post_breakout` used to set
+    # HIT_TARGET in the first place -- searching further than the lifecycle
+    # did could only find a bar the lifecycle never considered, which would
+    # report a hit date for a match it never actually credited.
+    formation_bars = match.pivots[-1].bar_index - match.pivots[0].bar_index if match.pivots else 0
+    horizon_end = match.breakout_bar + lifecycle.resolution_horizon_bars(formation_bars, config)
+    for i in range(match.breakout_bar + 1, min(len(bars), horizon_end + 1)):
         hit = lows[i] <= target if is_bearish else highs[i] >= target
         if hit:
             return i
@@ -215,15 +229,23 @@ def had_throwback(bars: pd.DataFrame, match: PatternMatch, target_hit_bar: int) 
 
 def compute_outcomes(
     matches: list[PatternMatch], bars: pd.DataFrame, horizons: Sequence[int] = DEFAULT_HORIZONS,
+    config: PatternConfig | None = None,
 ) -> list[PatternOutcome]:
     """One `PatternOutcome` per match that actually broke out; matches
     that never triggered (PENDING/INVALIDATED/EXPIRED-pre-breakout) are
-    skipped, not represented as a zero/failed outcome."""
+    skipped, not represented as a zero/failed outcome.
+
+    `config` supplies the §7.3 resolution horizon used to bound the
+    target-hit search; it must be the same config the matches were detected
+    under, or the search window won't match the one the lifecycle used.
+    Defaults to the daily preset for callers (mostly tests) that build
+    matches by hand."""
+    config = config if config is not None else get_preset("daily")
     outcomes = []
     for match in matches:
         if match.status not in _BREAKOUT_STATUSES or match.breakout_bar is None:
             continue
-        target_hit_bar = _find_target_hit_bar(bars, match)
+        target_hit_bar = _find_target_hit_bar(bars, match, config)
         outcomes.append(PatternOutcome(
             match_id=match.id, ticker=match.ticker, pattern_type=match.pattern_type.value,
             direction=match.direction.value, status=match.status.value, breakout_bar=match.breakout_bar,
@@ -236,14 +258,17 @@ def compute_outcomes(
 
 def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS) -> pd.DataFrame:
     """One row per pattern_type: sample size, target-hit / failed-breakout
-    / still-open rates (of matches that broke out), throwback rate (of
-    matches that hit target, how many first retraced through the breakout
-    level), and mean forward return per horizon (over only the matches with enough
+    / unresolved / still-open rates (of matches that broke out), throwback
+    rate (of matches that hit target, how many first retraced through the
+    breakout level), and mean forward return per horizon (over only the matches with enough
     forward data to measure that horizon -- reported n_resolved alongside
     each so a thin horizon's mean isn't read as more solid than it is)."""
     if not outcomes:
         return pd.DataFrame(
-            columns=["n", "hit_target_rate", "failed_breakout_rate", "still_open_rate", "throwback_rate"]
+            columns=[
+                "n", "hit_target_rate", "failed_breakout_rate", "unresolved_rate",
+                "still_open_rate", "throwback_rate",
+            ]
             + [f"mean_return_{h}b" for h in horizons] + [f"n_resolved_{h}b" for h in horizons]
         )
 
@@ -266,6 +291,14 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
             "n": n,
             "hit_target_rate": n_hit_target / n,
             "failed_breakout_rate": sum(o.status == PatternStatus.INVALIDATED_FAILED_BREAKOUT.value for o in group) / n,
+            # Broke out, ran its full resolution horizon, resolved to
+            # nothing -- a decided non-hit, reported separately from
+            # still_open (which is right-censored: the horizon hasn't
+            # elapsed yet in the data we have). Keeping these apart is the
+            # point of EXPIRED_UNRESOLVED; folding them together would
+            # reproduce the pre-fix reading where "never resolved" and "not
+            # resolved yet" were the same bucket.
+            "unresolved_rate": sum(o.status == PatternStatus.EXPIRED_UNRESOLVED.value for o in group) / n,
             "still_open_rate": sum(o.status in (PatternStatus.CONFIRMED.value, PatternStatus.ACTIVE.value) for o in group) / n,
             "throwback_rate": (sum(throwback_resolved) / len(throwback_resolved)) if throwback_resolved else None,
         }
@@ -296,7 +329,7 @@ def run_backtest(
             if len(bars) < config.min_bars:
                 continue
             matches = scan_bars(bars, ticker, timeframe, config)
-            all_outcomes.extend(compute_outcomes(matches, bars, horizons))
+            all_outcomes.extend(compute_outcomes(matches, bars, horizons, config))
         except Exception as exc:
             print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
     return summarize(all_outcomes, horizons)

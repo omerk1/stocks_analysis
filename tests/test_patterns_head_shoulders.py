@@ -11,7 +11,7 @@ from src.patterns.models import PatternStatus, PatternType
 def _config(**overrides) -> PatternConfig:
     defaults = dict(
         atr_period=3, volume_sma_period=5, prior_trend_min_bars=5, prior_trend_min_pct=10.0,
-        expire_lifespan_mult=2.0, failed_breakout_reclaim_bars=3, breakout_buffer_pct=0.001,
+        expire_lifespan_mult=2.0, breakout_buffer_pct=0.001,
         head_shoulders_symmetry_hard_gate_pct=15.0, head_shoulders_min_leg_bars=5,
         head_shoulders_neckline_max_slope_pct=10.0,
         head_shoulders_typical_min_bars=1, head_shoulders_typical_max_bars=200,
@@ -183,12 +183,13 @@ def test_new_high_beyond_head_before_breakout_invalidates():
     assert matches[0].breakout_bar is None
 
 
-def test_failed_breakout_reclaim_within_window_flags_failed_breakout():
-    # Breaks the neckline for one bar, then reclaims back above it well
-    # within failed_breakout_reclaim_bars=3, before ever reaching target.
-    df = _chain(*_PREFIX, (115.0, 115.0, 1), (125.0, 128.0, 4))
+def test_reclaim_without_reaching_target_flags_failed_breakout():
+    # Breaks the neckline for one bar, then reclaims back above it and
+    # never reaches target before the resolution horizon elapses (the tail
+    # has to outrun that horizon -- see the double-top equivalent).
+    df = _chain(*_PREFIX, (115.0, 115.0, 1), (125.0, 128.0, 40))
     pivots = _hs_pivots(df)
-    config = _config()
+    config = _config(target_horizon_min_bars=5, target_horizon_max_bars=10)
 
     matches = HeadShouldersDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
 

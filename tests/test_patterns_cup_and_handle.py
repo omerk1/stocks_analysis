@@ -11,7 +11,7 @@ from src.patterns.models import PatternStatus, PatternType
 def _config(**overrides) -> PatternConfig:
     defaults = dict(
         atr_period=3, volume_sma_period=5, prior_trend_min_bars=5, breakout_buffer_pct=0.001,
-        failed_breakout_reclaim_bars=5, expire_lifespan_mult=2.0,
+        expire_lifespan_mult=2.0,
     )
     defaults.update(overrides)
     return PatternConfig(**defaults)
@@ -297,11 +297,13 @@ def test_new_low_below_cup_bottom_invalidates():
     assert matches[0].breakout_bar is None
 
 
-def test_failed_breakout_reclaim_within_window_flags_failed_breakout():
-    tail = np.concatenate([[141.0], np.full(4, 135.0)])
+def test_reclaim_without_reaching_target_flags_failed_breakout():
+    tail = np.concatenate([[141.0], np.full(40, 135.0)])
     df = _cup_df(tail)
     pivots = _cup_pivots(df)
-    config = _config()
+    # Horizon pinned short so the fixture stays compact -- it scales with
+    # formation length by default, which for a cup outruns any sane tail.
+    config = _config(target_horizon_min_bars=5, target_horizon_max_bars=10)
 
     matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
 

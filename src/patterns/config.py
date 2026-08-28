@@ -82,12 +82,32 @@ class PatternConfig:
     # within this multiple of the pattern's own formation duration
     # (breakout-level bar index minus first-pivot bar index).
     expire_lifespan_mult: float = 2.0
-    # Post-breakout: a close back through the trigger level within this
-    # many bars of the breakout counts as a failed breakout
-    # (INVALIDATED_FAILED_BREAKOUT), not a genuine confirmed move -- same
-    # default as sr_lines' fakeout_reclaim_bars. Shared by every detector's
-    # lifecycle walk (see lifecycle.py), not pattern-specific.
-    failed_breakout_reclaim_bars: int = 5
+    # (There was a `failed_breakout_reclaim_bars` knob here -- a fixed window
+    # after the breakout inside which a reclaim was treated as a failed
+    # breakout. Removed rather than retuned: a reclaim is indistinguishable
+    # from a throwback at the moment it happens, so the window length only
+    # chose which error to make, and no value resolves that. `lifecycle.
+    # _walk_post_breakout` now records the reclaim, keeps walking, and
+    # decides at the end of the resolution horizon -- see its docstring.)
+
+    # §7.3 resolution horizon: how long after a breakout the measured-move
+    # target stays live before the match resolves EXPIRED_UNRESOLVED
+    # instead of being left to walk to the end of available history. Without
+    # this, `lifecycle._walk_post_breakout` scanned every remaining bar, so
+    # HIT_TARGET meant "ever, eventually" -- one audited instance recorded a
+    # hit ~2 years after its breakout, which is not comparable to any of the
+    # Bulkowski-style benchmarks §7.3 measures against (those are horizons
+    # of weeks to months). Expressed as a multiple of the pattern's own
+    # `formation_bars`, reusing `expire_lifespan_mult`'s exact convention
+    # and value rather than introducing a second, unrelated notion of "how
+    # long is this pattern relevant for" -- a pattern's own duration sets
+    # its timescale, pre-breakout and post-breakout alike. Clamped: the
+    # floor keeps a days-long flag/pennant from getting a ~6-bar window, the
+    # cap (one trading year) keeps a multi-year rounding base from getting a
+    # decade.
+    target_horizon_mult: float = 2.0
+    target_horizon_min_bars: int = 20
+    target_horizon_max_bars: int = 252
 
     # §6 confidence scoring. Sub-metric score caps: rel_volume of
     # `volume_score_cap_mult`+ maps to a full 1.0 volume_signature score

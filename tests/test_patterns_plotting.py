@@ -1,9 +1,10 @@
 import numpy as np
 import pandas as pd
 
-from src.market_common.models import Pivot, PivotKind, Timeframe
+from src.market_common.models import Direction, Pivot, PivotKind, Timeframe
 from src.patterns.config import PatternConfig
 from src.patterns.detectors.cup_and_handle import CupAndHandleDetector
+from src.patterns.models import PatternStatus
 from src.patterns.plotting import render_pattern_chart
 from src.patterns.scanner import scan_bars
 
@@ -141,3 +142,20 @@ def test_rounding_bottom_neckline_starts_at_right_rim_not_the_second_to_last_piv
     ]
     assert len(neckline_traces) == 1
     assert neckline_traces[0].x[0] == bars.index[64]  # right rim, not pivots[-2] (bar 44)
+
+
+def test_every_pattern_status_has_a_plotting_opacity():
+    # _STATUS_OPACITY is an exhaustive lookup -- a status missing from it
+    # raises KeyError mid-render, so any chart containing that status
+    # crashes. Caught in practice when EXPIRED_UNRESOLVED was added to the
+    # model without updating plotting; this makes the next one a red test
+    # instead of a broken chart.
+    from src.patterns.plotting import _STATUS_OPACITY
+
+    assert set(_STATUS_OPACITY) == set(PatternStatus)
+
+
+def test_every_direction_has_a_plotting_colour():
+    from src.patterns.plotting import _DIRECTION_RGB
+
+    assert set(_DIRECTION_RGB) == set(Direction)

@@ -11,7 +11,7 @@ from src.patterns.models import PatternStatus, PatternType
 def _config(**overrides) -> PatternConfig:
     defaults = dict(
         atr_period=3, volume_sma_period=5, breakout_buffer_pct=0.001,
-        failed_breakout_reclaim_bars=5, expire_lifespan_mult=2.0,
+        expire_lifespan_mult=2.0,
         flag_typical_min_bars=1, flag_typical_max_bars=50,
         # A much smaller test-only multiplier than the real 1.5 default --
         # see config.py's own comment on flag_pivot_atr_mult for why the
@@ -188,8 +188,8 @@ def test_retrace_violation_after_formation_invalidates():
     assert matches[0].breakout_bar is None
 
 
-def test_failed_breakout_reclaim_within_window_flags_failed_breakout():
-    tail = np.concatenate([[130.0], np.full(4, 125.0)])
+def test_reclaim_without_reaching_target_flags_failed_breakout():
+    tail = np.concatenate([[130.0], np.full(40, 125.0)])
     df = _df(tail, _BULL_FLAG_PREFIX)
     config = _config()
 
