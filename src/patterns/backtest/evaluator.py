@@ -2,9 +2,11 @@
 [--timeframe daily|weekly] [--horizons 10,20,60]
 
 Design doc §7.3's outcome-based backtest: for patterns that actually broke
-out, measure what happened next -- forward returns at fixed horizons,
-target-hit rate, failed-breakout rate, and throwback rate -- using real
-historical price data. Deliberately covers §7.3 only, not §7.2 (precision/recall against
+out, measure what happened next -- forward returns at fixed horizons
+(reported three ways: mean, median and winsorized mean, see `summarize` for
+why one number is not enough here), target-hit rate, failed-breakout rate,
+and throwback rate -- using real historical price data. Deliberately covers
+§7.3 only, not §7.2 (precision/recall against
 hand labels): `pattern_labels` (backtest/labeler.py's table) is empty --
 the labeler is human-in-the-loop and nobody has run it against real charts
 yet -- so precision/recall can't be verified against real data today, the
@@ -58,6 +60,34 @@ from src.patterns.models import PatternMatch, PatternStatus, PatternType
 from src.patterns.scanner import scan_bars
 
 DEFAULT_HORIZONS: tuple[int, ...] = (10, 20, 60)
+
+# Fraction clipped off each tail for `summarize`'s winsorized mean. 1% is the
+# conventional default for financial returns and is deliberately gentle: the
+# aim is to stop one observation owning the statistic, not to reshape the
+# distribution. Measured on real output, dropping the top 1% alone moves
+# falling_wedge's 60-bar mean from +0.61% to -2.47%, so even this much
+# clipping changes the sign of the conclusion.
+WINSOR_LIMIT: float = 0.01
+
+
+def _return_stats(values: list[float]) -> tuple[float | None, float | None, float | None]:
+    """`(mean, median, winsorized mean)` for one horizon's resolved returns,
+    or `(None, None, None)` when nothing resolved at that horizon (a
+    right-censored horizon, not a zero return).
+
+    Winsorizing clips each tail to its `WINSOR_LIMIT` percentile rather than
+    discarding those observations, so the sample size reported alongside
+    stays the real one. With very few values the two percentiles collapse
+    toward the min/max and the clip becomes a no-op, leaving the winsorized
+    mean equal to the plain mean -- which is the honest outcome: there is no
+    tail to bound yet.
+    """
+    if not values:
+        return None, None, None
+    series = pd.Series(values, dtype=float)
+    lower, upper = series.quantile(WINSOR_LIMIT), series.quantile(1 - WINSOR_LIMIT)
+    return float(series.mean()), float(series.median()), float(series.clip(lower, upper).mean())
+
 
 # breakout_bar is only ever set inside lifecycle._walk_post_breakout, i.e.
 # once a breakout has actually happened -- PENDING/INVALIDATED/EXPIRED
@@ -260,16 +290,44 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
     """One row per pattern_type: sample size, target-hit / failed-breakout
     / unresolved / still-open rates (of matches that broke out), throwback
     rate (of matches that hit target, how many first retraced through the
-    breakout level), and mean forward return per horizon (over only the matches with enough
-    forward data to measure that horizon -- reported n_resolved alongside
-    each so a thin horizon's mean isn't read as more solid than it is)."""
+    breakout level), and **three** forward-return statistics per horizon --
+    mean, median and winsorized mean -- over the matches with enough forward
+    data to measure that horizon (`n_resolved` reported alongside, so a thin
+    horizon isn't read as more solid than it is).
+
+    Three return statistics rather than one because the plain mean is not
+    trustworthy on this data, and that isn't a subtlety -- it is the
+    difference between "this pattern makes 21%" and "this pattern loses
+    money." Equity forward returns are unbounded above and floored at -100%,
+    so a handful of low-priced names dominate any arithmetic mean:
+    `falling_wedge` reported a +21% mean 60-bar return across the universe
+    while its median was *negative*, and in a 5,553-outcome sample a single
+    sub-dollar stock returning +3,080% supplied 90% of the entire mean. The
+    same distribution shape applies to every pattern type here -- falling
+    wedge was not special, it just drew the biggest ticket.
+
+    `median_return` is the robust central tendency: what a typical instance
+    of this pattern did. `wins_return` is the mean after clipping the
+    outer `WINSOR_LIMIT` of each tail to that percentile's value -- it keeps
+    the mean's sensitivity to the *shape* of the distribution (a genuinely
+    fat right tail still lifts it) while bounding how far one observation can
+    move it. Winsorizing rather than trimming so `n_resolved` stays the true
+    sample size; no observation is discarded, only capped.
+
+    The raw `mean_return` is deliberately kept alongside them rather than
+    replaced: the gap between mean and median is itself the diagnostic, and
+    hiding it would just make the distortion harder to notice next time.
+    """
     if not outcomes:
         return pd.DataFrame(
             columns=[
                 "n", "hit_target_rate", "failed_breakout_rate", "unresolved_rate",
                 "still_open_rate", "throwback_rate",
             ]
-            + [f"mean_return_{h}b" for h in horizons] + [f"n_resolved_{h}b" for h in horizons]
+            + [f"mean_return_{h}b" for h in horizons]
+            + [f"median_return_{h}b" for h in horizons]
+            + [f"wins_return_{h}b" for h in horizons]
+            + [f"n_resolved_{h}b" for h in horizons]
         )
 
     rows = {}
@@ -304,7 +362,10 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
         }
         for h in horizons:
             resolved = [o.forward_returns[h] for o in group if o.forward_returns[h] is not None]
-            row[f"mean_return_{h}b"] = sum(resolved) / len(resolved) if resolved else None
+            mean_return, median_return, wins_return = _return_stats(resolved)
+            row[f"mean_return_{h}b"] = mean_return
+            row[f"median_return_{h}b"] = median_return
+            row[f"wins_return_{h}b"] = wins_return
             row[f"n_resolved_{h}b"] = len(resolved)
         rows[pattern_type] = row
 
@@ -371,7 +432,9 @@ def main():
         print("No breakout outcomes found (no matches broke out across the given tickers).")
     else:
         pd.set_option("display.width", 160)
-        pd.set_option("display.max_columns", 20)
+        # 4 columns per horizon (mean/median/winsorized/n) plus 6 rate
+        # columns -- the old cap of 20 truncated the default 3 horizons.
+        pd.set_option("display.max_columns", 60)
         print(summary.round(4).to_string())
 
     raw_conn.close()
