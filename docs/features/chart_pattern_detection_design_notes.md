@@ -896,3 +896,211 @@ claimed behavior instead of rewriting the claim to match the bug. New
 regression test confirmed to fail against the pre-fix code first; the
 real AAPL smoke test above reproduces byte-identical output post-fix,
 confirming the fix changed nothing on the non-error path.
+
+## Spike-low rims: pivot prices are wicks, cup geometry is closes
+
+Follow-up to the fix batch above, surfaced by eyeballing the surviving
+`inverse_cup_and_handle` matches across the full universe. Two of five
+sampled survivors had a rim anchored on a single-bar wick -- an IPO-dump low
+in one case -- and the shape gates were structurally incapable of noticing.
+
+The mismatch: `detect_pivots` runs on the `high`/`low` series, so
+`pivot.price` is an intraday extreme, but this detector checks its shape
+against the *close* path between the rims (`fit_quadratic`,
+`max_single_bar_move_frac`) and takes `extreme_price` from that same close
+path. A wick-valued rim therefore set the cup depth and the measured-move
+target while never appearing in any series the gates read. Every other
+detector uses `pivot.price` and is right to -- this one is the only place
+where rim values and shape checks come from different series.
+
+Scale, measured across real matches: the rim's high/low sat a **median 2.4%
+from its own close**, 40% of rims were more than 3% away, worst 19.5%.
+
+**The second-order finding is the more interesting one.** That wick error
+lands directly on `cup_rim_divergence_max_pct`'s own input: mean absolute
+difference between wick-space and close-space rim divergence was **2.5
+percentage points against a 10% budget** -- roughly 25% noise on the
+measurement the gate is thresholding. The rim gate added in the batch above
+was not quite measuring the thing it was tuned to measure. Worth
+generalizing: when a threshold is tuned against a measurement, check what
+noise the measurement itself carries before concluding the threshold is
+wrong.
+
+**Rejected fix: validate the rim's wick against its own close.** The obvious
+guard (reject when `|pivot.price - close| / close` exceeds some bound) does
+not discriminate. The single confirmed-valid instance has a **10.78%** wick
+gap -- larger than every weak-or-poor instance except the worst one. Any
+threshold catching the bad ones also rejects the known-good one. Same shape
+of failure as raising the roundedness R2: the metric doesn't separate the
+classes, so tuning it only trades false positives for false negatives. A
+legitimate capitulation low that forms a real rim often *has* a long wick;
+the wick isn't the defect, using it as the measured-move anchor is.
+
+**Fix taken: source rim/handle prices from the close series** (`_close_at`),
+leaving `match.pivots` wick-valued. Rim divergence, cup depth, handle gates,
+height/target/stop, `key_levels` and the breakout trigger all now live in
+close space, consistent with `extreme_price`, which was already close-based.
+No new config knob -- the existing 10% rim gate does the rejecting, now on a
+clean input. Deliberately *not* done by re-running pivot detection on
+closes: that would shift every pivot position and change which candidates
+exist at all, making the change impossible to attribute against the
+previous baseline.
+
+Rim pivots stay wick-valued on the match on purpose. A pivot marks where
+price actually turned; a key level marks where the tradeable boundary sits.
+Those are different facts and unifying them would lose one.
+
+**Plotting ripple, fixed as part of this.** `plotting.py` located a flat
+neckline's starting pivot by exact float equality against
+`key_levels["neckline"]`. Once the neckline is a close and `pivot.price` is
+a wick, that match never succeeds and it silently falls back to a positional
+`-2` index -- wrong for Rounding patterns, and the exact bug that file's own
+docstring records having already fixed once. Detectors now store
+`key_levels["neckline_bar"]` and plotting reads that; the float-match path
+survives only as a fallback for pre-existing stored rows and hand-built test
+fixtures.
+
+**Two tests had to be rebuilt, and the reason is worth recording.**
+`test_rim_symmetry_gate_rejects_weak_recovery` and
+`test_handle_below_cup_midpoint_falls_through_to_rounding` constructed their
+scenarios by overriding a *pivot's price* while leaving the bars unchanged
+-- a pivot claiming 120 whose bar closes at 140. They passed before only
+because the detector trusted `pivot.price`, i.e. they encoded the bug. Both
+now build the intended price into the bars. The rim test also gained a
+control (`..._is_what_rejects_it_and_nothing_else`) that widens the rim
+bound and asserts the candidate returns, so the rejection is attributable to
+the rim gate rather than to some other gate the new fixture happens to trip.
+
+## Formation completion: Rounding's breakout level comes from the pivot its formation ends on
+
+A third hypothesis class, and deliberately filed apart from the two before
+it. The fix batch above was **measurement** bugs -- the wrong price fed into
+otherwise-correct math (wick where a close belonged, no time horizon, no
+dedup). This one is neither that nor a price-space problem at all. Every
+number going into the rounding breakout test is the number it should be.
+The defect is *when* the test is allowed to run.
+
+**The structure.** Rounding and Cup & Handle are the same code path
+(`detectors/cup_and_handle.py`) -- same shape gates, same rim2 trigger, same
+measured move, same invalidation. The only branch between them is whether
+pivot `j+1` exists and passes `_handle_gates_pass`. Rounding is the residual
+bucket: candidates that cleared every shape gate but had no valid handle.
+
+That branch has a consequence nobody designed. For Rounding,
+`formation_end_pivot` **is** rim2 -- the pivot that supplies the trigger
+level -- so `apply_lifecycle`'s scan (`range(formation_end_bar_index + 1,
+n)`) starts hunting for a break of that level one bar after the level was
+defined. Cup & Handle's formation ends on the *handle*, strictly later than
+rim2, so its scan can never start adjacent to its own trigger pivot. The
+handle is not adding predictive signal here; it is incidentally enforcing a
+separation Rounding never had.
+
+Compounding it: after the spike-low rim fix above, the trigger level is
+rim2's **close**, while rim2 itself is a wick-defined pivot. So for a bar or
+two afterwards price can re-close through that level without the swing high
+ever being touched. That is not a breakout, it is the same swing.
+
+**Measured, full universe:**
+
+```
+                        n     gap<=5    median 60b            throwback
+                                        near      far         near   far
+  rounding_bottom     10021   50.5%    -9.42%   +0.87%        0.842  0.621
+  rounding_top         3090   55.2%   -16.39%   -2.02%        0.874  0.606
+  cup_and_handle      17868   13.1%    +2.84%   +1.80%          --     --
+  inverse_cup_&_h      4738   11.7%    +0.21%   -1.61%          --     --
+```
+
+Over half of all rounding matches "broke out" within five bars of their own
+right rim, and that slice carried the *entire* return deficit of both types.
+Throwback rate in it runs 0.84-0.87 -- near-certain retracement, the
+signature of a level that was never really cleared. Cup & Handle sits at
+~13% near-rim with its near slice slightly *better* than its far slice, in
+both directions: the opposite sign, which is independent evidence the gate
+belongs to Rounding alone rather than to the shared path.
+
+**A hypothesis this falsified along the way.** The first mechanism proposed
+was that breakouts failing to clear the pivot's wick extreme underperform,
+and split by `cleared_rim_extreme` it looked convincing. It was a proxy.
+Holding the temporal gap fixed, clearing the extreme adds almost nothing --
+in the 1-2 bar bucket `cleared=True` has n=2 and n=1, because a break that
+close to the pivot essentially never clears it. The two variables are nearly
+collinear there and the gap is the causal one. What exposed this was the
+`cup_and_handle` row: it showed no split at all, and any mechanism resting on
+the shared trigger code had to explain that. The temporal one does; the
+price-space one could not.
+
+**Fix.** `apply_lifecycle` takes an optional `min_breakout_bar_index`;
+Rounding passes `rim2.bar_index + rounding_breakout_min_gap_bars` (6) and
+Cup & Handle passes nothing. Deliberately narrow: it gates the breakout
+comparison **alone**. `pre_breakout_invalidated_at` keeps being evaluated on
+every bar of the window, because a base that breaks below its own floor
+while we are waiting is dead regardless of why we were waiting -- suppressing
+that too would let the gap silently rescue patterns that should have been
+invalidated. A break inside the window is *ignored*, not disqualifying: those
+bars are not evidence against the shape, only too close to the defining
+pivot to be evidence for a breakout.
+
+**Why 6.** Sweep at full n, gate applied to rounding only:
+
+```
+  gap   rounding_bottom          rounding_top
+        kept%   median 60b       kept%   median 60b
+    0   100.0%    -4.61%         100.0%    -9.66%
+    4    54.6%    +0.03%          51.1%    -2.40%
+    6    49.5%    +0.87%          44.8%    -2.02%
+    8    46.1%    +1.11%          40.9%    -1.35%
+   11    41.8%    +1.41%          36.9%    -1.20%
+   21    29.4%    +1.80%          25.1%    -0.86%
+```
+
+The structural gains are concentrated at gaps 2-4 (+2.37, +1.68, +0.59
+points for rounding_bottom), which is what a noise-re-crossing mechanism
+predicts: the noise resolves within a few bars and everything past it is
+curve-fitting. 6 captures 85% of rounding_bottom's total available
+improvement and 84% of rounding_top's while keeping ~half the population;
+6 -> 11 costs ~8 points of kept-n for +0.54/+0.82 return points. The tell
+that past ~8 is noise: **10 -> 11 moves the median +0.01 points for both
+types**, buying nothing for real sample size.
+
+**Not claimed:** `rounding_top` never reaches positive anywhere in the sweep
+(best -0.61% at gap 15). The gate converts it from badly broken to roughly
+break-even; it does not make it a profitable pattern. Whether a near-zero-edge
+bearish pattern is worth keeping is a separate call and is not folded in here.
+
+**Open design question, deliberately deferred rather than resolved.** A flat
+6-bar constant, chosen by sweeping one historical universe, is a strange fit
+for what the mechanism actually is -- and it's inconsistent with this same
+module's own convention elsewhere: `resolution_horizon_bars` (the
+post-breakout time limit) deliberately scales with `formation_bars` rather
+than using a flat constant, on the reasoning that a pattern's own duration
+sets its timescale. Rounding bases range 150-400 bars by config; a 400-bar
+base plausibly has a wider settling band around its rim than a 150-bar one,
+and a flat 6 can't express that. There's also a more direct per-instance
+signal already sitting unused: `rim_gap_frac`/`cleared_rim_extreme` measure
+the actual close-vs-wick divergence at each specific rim, rather than a
+population-level bar count standing in for it -- a price-based gate ("close
+must clear rim2's own wick extreme, or clear it by some buffer") would be
+self-calibrating per match instead of one number tuned once. Kept flat for
+now because it's simple and already verified; worth revisiting if this
+pattern's economics matter enough to justify the extra complexity. See
+`config.py`'s own note on `rounding_breakout_min_gap_bars` for the same
+caveat, kept next to the knob it concerns.
+
+**Before / after, full universe (all other pattern types byte-identical --
+verified column-by-column, 0 delta on every one):**
+
+```
+                    n before/after   hit_target%   median 60b     throwback%
+  rounding_bottom  10021 -> 7630     46.0 -> 55.2   -2.91 -> -0.20   70.8 -> 62.2
+  rounding_top      3090 -> 2180     29.3 -> 37.4  -14.14 -> -3.29   72.4 -> 61.5
+```
+
+`n` drops because ~24-30% of prior matches never actually broke out at all
+under the corrected window -- they were noise re-crossings of the rim,
+correctly reclassified as still-forming or invalidated rather than resolved
+trades. `hit_target_rate` rises (fewer false starts diluting the
+denominator) while `throwback_rate` *falls* -- consistent with the removed
+population being exactly the "broke out, immediately threw back" cases that
+were inflating it. `rounding_bottom` crosses to essentially flat on median;
+`rounding_top` improves sharply but, as noted above, does not cross zero.

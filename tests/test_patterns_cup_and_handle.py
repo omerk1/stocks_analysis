@@ -83,7 +83,8 @@ def test_cup_and_handle_confirmed_breakout_hits_target():
     assert m.pattern_type == PatternType.CUP_AND_HANDLE
     assert m.direction == Direction.BULLISH
     assert m.key_levels == {
-        "left_rim": 140.0, "cup_extreme": 100.0, "right_rim": 140.0, "handle": 130.0, "neckline": 140.0,
+        "left_rim": 140.0, "cup_extreme": 100.0, "right_rim": 140.0, "handle": 130.0,
+        "neckline": 140.0, "neckline_bar": 64.0,
     }
     assert m.target_price == pytest.approx(180.0)
     assert m.stop_price == pytest.approx(100.0)
@@ -148,15 +149,53 @@ def test_rounding_top_mirrors_rounding_bottom():
     assert m.status == PatternStatus.HIT_TARGET
 
 
-def test_rim_symmetry_gate_rejects_weak_recovery():
-    # Right rim recovering only to 120 -- 120 < 140*(1-0.05)=133.
-    df = _cup_df(np.linspace(132.0, 200.0, 20))
-    pivots = _cup_pivots(df)
-    pivots[2] = _pivot(64, 120.0, PivotKind.HIGH, df)
-    config = _config()
+def _tilted_cup_df(right_rim: float, tail_closes: np.ndarray, start: str = "2020-01-01") -> pd.DataFrame:
+    """A cup whose right rim lands at `right_rim` instead of back at the left
+    rim's 140 -- a parabola plus a linear tilt, so the shape stays genuinely
+    rounded (curvature, apex position and single-bar move all still pass) and
+    the only thing under test is the rim divergence itself.
 
-    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
-    assert matches == []
+    Built into the *bars* rather than by overriding a pivot's price, because
+    rim prices are read from the close now (see cup_and_handle._close_at): a
+    pivot claiming 120 while its bar closes at 140 no longer describes a weak
+    recovery, it just describes a wick.
+    """
+    uptrend = np.linspace(80.0, 140.0, 25)
+    t = np.arange(41, dtype=float)
+    tilt = (140.0 - right_rim) / 40.0
+    cup = (0.1 * (t - 20) ** 2 + 100.0 - tilt * t)[1:]
+    handle = np.linspace(right_rim - 2.0, right_rim - 10.0, 4)
+    closes = np.concatenate([uptrend, cup, handle, tail_closes])
+    idx = pd.bdate_range(start, periods=len(closes))
+    return pd.DataFrame(
+        {"open": closes, "high": closes + 0.3, "low": closes - 0.3, "close": closes, "volume": 1000.0}, index=idx,
+    )
+
+
+def test_rim_divergence_gate_rejects_weak_recovery():
+    # Right rim recovers only to 120 against a 140 left rim -- 14.3% apart,
+    # past the 10% bound.
+    df = _tilted_cup_df(120.0, np.linspace(122.0, 200.0, 20))
+    pivots = _cup_pivots(df)
+    pivots[2] = _pivot(64, float(df["close"].iloc[64]), PivotKind.HIGH, df)
+    pivots[3] = _pivot(68, float(df["close"].iloc[68]), PivotKind.LOW, df)
+
+    assert CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, _config()) == []
+
+
+def test_rim_divergence_gate_is_what_rejects_it_and_nothing_else():
+    # Same bars, rim bound widened past 14.3% -- the candidate comes back,
+    # proving the rejection above is the rim gate and not some other gate
+    # the tilted fixture happens to trip.
+    df = _tilted_cup_df(120.0, np.linspace(122.0, 200.0, 20))
+    pivots = _cup_pivots(df)
+    pivots[2] = _pivot(64, float(df["close"].iloc[64]), PivotKind.HIGH, df)
+    pivots[3] = _pivot(68, float(df["close"].iloc[68]), PivotKind.LOW, df)
+
+    matches = CupAndHandleDetector().scan(
+        df, pivots, "TST", Timeframe.DAILY, _config(cup_rim_divergence_max_pct=20.0)
+    )
+    assert len(matches) == 1
 
 
 def test_depth_hard_gate_rejects_too_shallow_for_configured_floor():
@@ -180,10 +219,16 @@ def test_depth_hard_gate_rejects_too_deep_for_configured_ceiling():
 
 
 def test_handle_below_cup_midpoint_falls_through_to_rounding():
-    # midpoint=(140+100)/2=120; a handle at 110 sits in the lower half --
-    # not a valid handle, so this now falls through to a Rounding Bottom
+    # midpoint=(140+100)/2=120; a handle closing at 110 sits in the lower
+    # half -- not a valid handle, so this falls through to a Rounding Bottom
     # match (every other gate still passes) instead of no match at all.
-    df = _cup_df(np.linspace(132.0, 200.0, 20))
+    # The 110 goes into the bars, not just the pivot: the handle price is
+    # read from the close now (cup_and_handle._close_at).
+    df = _cup_df(np.concatenate([[110.0], np.linspace(132.0, 200.0, 19)]))
+    df.iloc[68, df.columns.get_loc("close")] = 110.0
+    df.iloc[68, df.columns.get_loc("open")] = 110.0
+    df.iloc[68, df.columns.get_loc("high")] = 110.3
+    df.iloc[68, df.columns.get_loc("low")] = 109.7
     pivots = _cup_pivots(df)
     pivots[3] = _pivot(68, 110.0, PivotKind.LOW, df)
     config = _config()
@@ -288,3 +333,162 @@ def test_pending_when_not_enough_bars_yet_to_resolve():
     assert len(matches) == 1
     assert matches[0].status == PatternStatus.PENDING
     assert matches[0].breakout_bar is None
+
+
+def _scan(df, config=None):
+    from src.market_common.pivots import detect_pivots
+    from src.market_common import indicators
+    config = config or _config()
+    atr = indicators.atr(df, config.atr_period)
+    pivots = detect_pivots(df["high"], df["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr.iloc[i])
+    return CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+
+def test_rim_divergence_is_bounded_on_the_high_side_too():
+    # The bug this replaced: the old one-sided gate only rejected a right
+    # rim that fell *short* of the left rim, so for a cup an arbitrarily
+    # higher right rim passed -- and mirrored onto the inverse variants that
+    # became "arbitrarily far below," which drove measured-move targets
+    # through zero. A right rim 40% above the left rim is not a cup rim.
+    t = np.arange(41, dtype=float)
+    uptrend = np.linspace(80.0, 140.0, 25)
+    cup = (0.1 * (t - 20) ** 2 + 100.0)[1:]
+    cup = cup + np.linspace(0.0, 56.0, len(cup))          # right rim ~196 vs left 140
+    closes = np.concatenate([uptrend, cup, np.linspace(190.0, 185.0, 4), np.full(20, 185.0)])
+    idx = pd.bdate_range("2020-01-01", periods=len(closes))
+    df = pd.DataFrame({"open": closes, "high": closes + 0.3, "low": closes - 0.3,
+                       "close": closes, "volume": 1000.0}, index=idx)
+    assert [m for m in _scan(df) if m.pattern_type == PatternType.CUP_AND_HANDLE] == []
+
+
+def test_no_cup_family_match_ever_gets_a_non_positive_target():
+    # The observable symptom of the rim bug: 16.3% of bearish matches had a
+    # target price at or below zero, unreachable by construction.
+    for df in (_cup_df(np.full(20, 145.0)), _inverse_cup_df(np.full(20, 135.0))):
+        for match in _scan(df):
+            assert match.target_price > 0
+
+
+def test_v_shaped_recovery_with_a_one_bar_cliff_is_rejected():
+    # A near-vertical run-up then a single-bar collapse. Its quadratic R2
+    # passes the roundedness threshold comfortably -- the single-bar-move
+    # gate is what rejects it.
+    uptrend = np.linspace(80.0, 140.0, 25)
+    v_up = np.linspace(140.0, 200.0, 20)
+    cliff = np.array([141.0])
+    closes = np.concatenate([uptrend, v_up, cliff, np.full(20, 141.0)])
+    idx = pd.bdate_range("2020-01-01", periods=len(closes))
+    df = pd.DataFrame({"open": closes, "high": closes + 0.3, "low": closes - 0.3,
+                       "close": closes, "volume": 1000.0}, index=idx)
+    assert [m for m in _scan(df) if m.pattern_type in
+            (PatternType.INVERSE_CUP_AND_HANDLE, PatternType.ROUNDING_TOP)] == []
+
+
+def test_monotone_leg_between_rims_is_rejected_despite_high_r2():
+    # A straight decline fits a parabola arm with R2 > 0.99, so the
+    # roundedness threshold waves it through; the apex-position gate is what
+    # catches it (the vertex lands outside the rim-to-rim window).
+    config = _config()
+    t = np.arange(41, dtype=float)
+    fit_input = (0.1 * (t - 60) ** 2)                      # vertex well past the window end
+    uptrend = np.linspace(80.0, 140.0, 25)
+    closes = np.concatenate([uptrend, 140.0 - fit_input * 0.05, np.full(20, 100.0)])
+    idx = pd.bdate_range("2020-01-01", periods=len(closes))
+    df = pd.DataFrame({"open": closes, "high": closes + 0.3, "low": closes - 0.3,
+                       "close": closes, "volume": 1000.0}, index=idx)
+    for match in _scan(df, config):
+        assert match.pattern_type not in (PatternType.CUP_AND_HANDLE, PatternType.ROUNDING_BOTTOM)
+
+
+# --- Rounding's near-rim breakout gate -------------------------------------
+#
+# Rounding is the one pattern whose formation ends on the very pivot that
+# supplies its trigger level (rim2), so without a gap the breakout scan
+# starts one bar after the level was defined -- and since the level is
+# rim2's CLOSE while rim2 itself is a wick, price can re-close through it
+# within a bar or two without the swing high ever being touched. Measured
+# over 1,100 tickers, that slice was >half of all rounding matches and
+# carried the entire return deficit. Cup & Handle is structurally immune
+# (its handle pushes formation end past rim2) and must stay ungated.
+
+
+def test_rounding_ignores_a_break_too_close_to_the_right_rim():
+    # Bar 69 (5 bars past rim2@64, inside the default 6-bar gate) closes
+    # well above the 140 rim, then price falls back. The real breakout is
+    # bar 75. The near-rim bar must be ignored, NOT taken as the breakout.
+    tail = np.concatenate([
+        np.array([145.0, 138.0, 136.0, 134.0, 136.0, 138.0]),  # bars 69-74
+        np.linspace(142.8, 200.0, 14),                          # bars 75+
+    ])
+    df = _cup_df(tail)
+    pivots = _cup_pivots(df)[:3]
+    config = _config(rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.pattern_type == PatternType.ROUNDING_BOTTOM
+    # 69 would be the breakout without the gate; 75 is the first break at
+    # or beyond rim2 + 6.
+    assert m.breakout_bar == 75
+
+
+def test_cup_and_handle_still_takes_a_break_the_rounding_gate_would_suppress():
+    # Control for the test above: the SAME near-rim break at bar 69, but
+    # with a valid handle pivot so this is a Cup & Handle. The gate is
+    # rounding-only, so bar 69 must still be the breakout here. This is
+    # what proves the fix is scoped to the rounding branch rather than
+    # applied to the shared _build_match path.
+    tail = np.concatenate([
+        np.array([145.0, 138.0, 136.0, 134.0, 136.0, 138.0]),
+        np.linspace(142.8, 200.0, 14),
+    ])
+    df = _cup_df(tail)
+    pivots = _cup_pivots(df)  # all four -- includes the handle @68
+    config = _config()
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.pattern_type == PatternType.CUP_AND_HANDLE
+    assert m.breakout_bar == 69
+
+
+def test_rounding_gate_boundary_accepts_a_break_exactly_at_the_gap():
+    # Exactly rim2 + 6 is accepted (>=, not >). Bars 69-69+4 stay below the
+    # rim so bar 70 is the first candidate break, at a gap of 6.
+    tail = np.concatenate([
+        np.array([138.0]),               # bar 69, gap 5, below the rim
+        np.linspace(142.8, 200.0, 19),   # bar 70 onwards, gap 6+
+    ])
+    df = _cup_df(tail)
+    pivots = _cup_pivots(df)[:3]
+    config = _config(rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert matches[0].breakout_bar == 70
+    assert matches[0].breakout_bar - 64 == config.rounding_breakout_min_gap_bars
+
+
+def test_rounding_gate_suppresses_the_breakout_test_only_not_invalidation():
+    # A base that breaks below its own floor while we're waiting out the
+    # gap is dead regardless of why we were waiting. Bar 69 is a suppressed
+    # break; bar 70 collapses under the 100 cup floor. The suppression must
+    # not rescue it into a later breakout.
+    tail = np.concatenate([
+        np.array([145.0, 95.0]),         # 69: suppressed break. 70: floor gone.
+        np.linspace(142.8, 200.0, 18),
+    ])
+    df = _cup_df(tail)
+    pivots = _cup_pivots(df)[:3]
+    config = _config(rounding_typical_min_bars=1, rounding_typical_max_bars=200)
+
+    matches = CupAndHandleDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    m = matches[0]
+    assert m.status == PatternStatus.INVALIDATED
+    assert m.breakout_bar is None

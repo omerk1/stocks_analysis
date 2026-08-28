@@ -117,6 +117,7 @@ def apply_lifecycle(
     volume_sma_series: pd.Series,
     config: PatternConfig,
     pending_deadline_bar_index: int | None = None,
+    min_breakout_bar_index: int | None = None,
 ) -> PatternMatch:
     """Walk forward from `formation_end_bar_index` (exclusive) through the
     end of `df`, resolving `match.status` (and, once a breakout is found,
@@ -136,6 +137,20 @@ def apply_lifecycle(
     since design doc §4.3 also expires a triangle that reaches its apex
     without breaking out, whichever deadline comes first. Omitted by every
     Phase 1/2 caller, preserving their exact prior behavior.
+
+    `min_breakout_bar_index`, if given, suppresses the *breakout test*
+    before that bar -- a close beyond the trigger level in the bars
+    immediately after formation end is ignored rather than treated as a
+    breakout. Only Rounding passes it, and only because Rounding's trigger
+    level is taken from the very pivot its formation ends on, so the first
+    few bars can re-close through that level without price having gone
+    anywhere (see detectors/cup_and_handle.py for the measured effect).
+    Deliberately narrow: it gates the breakout comparison ALONE.
+    `pre_breakout_invalidated_at` keeps being evaluated on every bar in the
+    window, because a base that breaks below its own floor while we're
+    waiting is dead regardless of why we were waiting -- suppressing that
+    too would let the gap silently rescue patterns that should have been
+    invalidated. Omitted by every other caller, preserving their behavior.
     """
     is_bearish = match.direction == Direction.BEARISH
     buffer = config.breakout_buffer_pct
@@ -152,7 +167,11 @@ def apply_lifecycle(
         level = trigger_at(i)
         close = float(closes[i])
         broke = (close < level * (1 - buffer)) if is_bearish else (close > level * (1 + buffer))
-        if broke:
+        # A break inside the suppression window is *ignored*, not
+        # disqualifying: the pattern keeps waiting for a real one. These
+        # bars aren't evidence against the shape, they're just too close to
+        # the pivot that defined the level to be evidence for a breakout.
+        if broke and (min_breakout_bar_index is None or i >= min_breakout_bar_index):
             breakout_bar = i
             break
         if pre_breakout_invalidated_at(i):
