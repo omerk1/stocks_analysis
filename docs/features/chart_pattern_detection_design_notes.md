@@ -1205,6 +1205,58 @@ contradiction: break-even failure is about trades that fail to clear a profit
 threshold, not about breakouts that reverse. No comparable published figure
 has been checked for the other pattern types yet.
 
+## Mean forward return is the wrong statistic, for every pattern type
+
+`falling_wedge` posted +21.04% mean 60-bar return across the universe while
+sitting at -0.49%/-0.03% at 10 and 20 bars -- flagged as an anomaly to
+investigate. It is not an anomaly and it is not edge. It is the arithmetic
+mean behaving exactly as it must on this data.
+
+Measured over 5,553 falling-wedge outcomes across 353 random tickers:
+
+```
+  mean                 +0.61%       median               -1.22%
+  5-95% trimmed mean   -1.57%       mean minus top 10    -1.00%
+                                    mean minus top 1%    -2.47%
+```
+
+**One outcome of 5,553 supplied 90% of the mean** (a sub-dollar stock at
++3,080% over 60 bars). The top 5 outcomes -- 0.09% of the sample --
+contributed more than the entire mean. Median return is negative at all
+three horizons.
+
+The mechanism is entry price, and it is structural, not a data error: equity
+percentage returns are unbounded above and floored at -100%, so low-priced
+names produce enormously skewed distributions.
+
+```
+  entry <$1     n=188   mean +40.35%   median -1.64%     <- mean is 25x median
+  entry $1-5    n=1085  mean  +0.36%   median -4.81%
+  entry $5-20   n=1944  mean  +0.88%   median +0.26%
+  entry $20-100 n=1726  mean  -1.44%   median -0.96%
+  entry >$100   n=610   mean  -6.20%   median -4.65%
+```
+
+**This is not a falling_wedge property.** `rising_wedge` in the same sample:
+mean -1.91%, median -1.63%, max +405%. Same distribution shape, different
+draw. Every `mean_return_*` figure in every baseline recorded before this
+change is tail-dominated; falling wedge only stood out because it happened to
+catch the largest single ticket. Which pattern looks best on mean return is
+substantially a lottery.
+
+**Fix:** `summarize` now reports `median_return_{h}b` and `wins_return_{h}b`
+(mean after winsorizing each tail at `WINSOR_LIMIT`, default 1%) beside the
+raw `mean_return_{h}b`. Winsorized rather than trimmed so `n_resolved` stays
+the true sample size -- observations are capped, not discarded. The raw mean
+is deliberately *kept* rather than replaced: the gap between mean and median
+is itself the diagnostic, and hiding it would make the next such distortion
+harder to notice.
+
+A minimum-entry-price filter would also suppress this, and is deliberately
+**not** bundled here: winsorizing corrects a statistical distortion in how
+results are summarised, whereas a price floor is a decision about which
+universe the module covers. Different question, separate call.
+
 ## Formation completion: Rounding's breakout level comes from the pivot its formation ends on
 
 A third hypothesis class, and deliberately filed apart from the two before

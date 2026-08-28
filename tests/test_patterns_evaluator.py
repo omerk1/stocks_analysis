@@ -326,3 +326,56 @@ def test_run_backtest_continues_past_a_ticker_that_raises(conn, monkeypatch, cap
 
     assert "double_top" in summary.index  # TST's outcome survived BAD's failure
     assert "BAD" in capsys.readouterr().out
+
+
+def _ret_outcome(pattern_type: str, r: float) -> PatternOutcome:
+    return PatternOutcome(
+        match_id=f"m{r}", ticker="TST", pattern_type=pattern_type, direction="bullish",
+        status=PatternStatus.HIT_TARGET.value, breakout_bar=1, forward_returns={5: r},
+    )
+
+
+def test_summarize_reports_median_and_winsorized_mean_beside_the_raw_mean():
+    # The falling_wedge shape in miniature: 99 small losses and one enormous
+    # winner. The raw mean is positive purely because of that one outcome;
+    # the median and the winsorized mean both report the loss that a typical
+    # instance actually delivered.
+    outcomes = [_ret_outcome("falling_wedge", -0.02) for _ in range(99)]
+    outcomes.append(_ret_outcome("falling_wedge", 30.0))
+    row = summarize(outcomes, horizons=(5,)).loc["falling_wedge"]
+
+    assert row["mean_return_5b"] > 0
+    assert row["median_return_5b"] == pytest.approx(-0.02)
+    assert row["wins_return_5b"] < 0
+    # Winsorizing caps, it does not discard -- n_resolved stays the true
+    # sample size, unlike a trimmed mean.
+    assert row["n_resolved_5b"] == 100
+
+
+def test_summarize_winsorized_mean_equals_plain_mean_without_outliers():
+    outcomes = [_ret_outcome("vcp", r) for r in (0.01, 0.02, 0.03, 0.04, 0.05)]
+    row = summarize(outcomes, horizons=(5,)).loc["vcp"]
+
+    assert row["wins_return_5b"] == pytest.approx(row["mean_return_5b"], abs=1e-9)
+    assert row["median_return_5b"] == pytest.approx(0.03)
+
+
+def test_summarize_return_stats_all_none_for_an_unresolved_horizon():
+    outcomes = [
+        PatternOutcome(
+            match_id="m1", ticker="TST", pattern_type="vcp", direction="bullish",
+            status=PatternStatus.HIT_TARGET.value, breakout_bar=1, forward_returns={5: None},
+        )
+    ]
+    row = summarize(outcomes, horizons=(5,)).loc["vcp"]
+
+    assert row["mean_return_5b"] is None
+    assert row["median_return_5b"] is None
+    assert row["wins_return_5b"] is None
+    assert row["n_resolved_5b"] == 0
+
+
+def test_summarize_empty_frame_carries_the_new_return_columns():
+    cols = summarize([], horizons=(10,)).columns
+    for name in ("mean_return_10b", "median_return_10b", "wins_return_10b", "n_resolved_10b"):
+        assert name in cols
