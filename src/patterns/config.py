@@ -161,10 +161,28 @@ class PatternConfig:
     # doc's own explicit figure for this pattern (vs. the generic 15%) --
     # passed directly to `trendlines.prior_trend_pct`, same precedent H&S
     # already established for its own pattern-specific threshold.
-    # `cup_rim_symmetry_max_pct=5.0` -- doc's own "~0-5%" tolerance for how
-    # far short of the left rim the right rim is allowed to recover (no
-    # upper bound: doc explicitly says a right rim *above* the left rim is
-    # fine, "often bullish"). `cup_depth_hard_min/max_pct` are outer bounds
+    # `cup_rim_divergence_max_pct=10.0` -- SYMMETRIC bound on how far the
+    # right rim may sit from the left rim, in either direction. Replaces an
+    # earlier one-sided `cup_rim_symmetry_max_pct=5.0` that bounded only the
+    # "recovers short of the left rim" side, mirroring the doc's "a right
+    # rim *above* the left rim is fine, often bullish" literally. That
+    # mirror is geometrically faithful but wrong in price space, which is
+    # bounded at zero going down and unbounded going up: mirrored for the
+    # bearish variants it let the right rim sit arbitrarily far *below* the
+    # left rim (measured: median -29.8%, min -66.0%), which is not a cup at
+    # all but a rounded top followed by a bear leg. Since the measured move
+    # is computed in absolute dollars from the right rim (`height =
+    # |rim2 - extreme|`), that drove targets through zero -- 16.3% of
+    # bearish matches had a *negative* target price, unreachable by
+    # construction, and the median implied target was a -78.7% move. 10.0
+    # rather than the doc's literal 5.0 because a symmetric bound still has
+    # to accommodate the legitimate "right rim slightly above" case the doc
+    # calls out; it is the doc's figure doubled, not a new invention.
+    # Survival across five tickers: 5%->152 matches, 10%->244, 15%->338 (of
+    # 999); at 5% only 22 bearish matches survive, too thin to measure.
+    # A §7.4 sensitivity candidate -- sweep 8/10/12/15 against the rerun
+    # baseline, don't re-guess it here.
+    # `cup_depth_hard_min/max_pct` are outer bounds
     # around the doc's own soft 12-50% depth range (same "hard floor
     # beneath an unbounded search" reasoning as double_top_symmetry_hard_
     # gate_pct); `cup_depth_typical_min/max_pct` are the doc's literal
@@ -172,12 +190,39 @@ class PatternConfig:
     # fit`'s own ramp shape for "ideal middle, tolerated further out,
     # floors rather than zeroes") rather than hard-gated at 33%, matching
     # the doc's own "flag as lower-confidence rather than rejecting
-    # outright" wording for the 33-50% band. `cup_roundedness_min_r2` gates
-    # `curves.fit_roundedness` -- the doc's own primary "rounded not
-    # V-shaped" operationalization (§4.4 point 3's first approach); the
-    # doc's alternative "simpler heuristic" (multiple pivots per leg, no
-    # single-bar-dominance) is deliberately not built alongside it -- one
-    # principled mechanism, not two. `cup_max_span_pivots` bounds the
+    # outright" wording for the 33-50% band.
+    #
+    # Roundedness is gated by FOUR checks, not one. `cup_roundedness_min_r2`
+    # (§4.4 point 3's first approach) stays at 0.5 deliberately: measured
+    # against six hand-audited instances, a quadratic R2 turned out to be a
+    # near-useless discriminator for "rounded vs. V-shaped" -- the single
+    # confirmed-VALID cup scored the *lowest* R2 of the six (0.677) while
+    # four invalid ones scored higher (up to 0.879), because a monotone
+    # bear leg fits a parabola arm better than a real cup does. Raising the
+    # cutoff would reject the good instance first. The other three gates do
+    # the work R2 cannot, and are the doc's own second approach (point 3's
+    # "simpler heuristic"), which was previously left unbuilt on the
+    # reasoning that one principled mechanism beat two -- that call was
+    # wrong, and the two approaches turn out to be complementary rather
+    # than redundant:
+    #   - curvature sign: the fitted parabola must open the way the pattern
+    #     requires (a > 0 for a cup/rounding bottom, a < 0 for their
+    #     inverses). The R² alone is deliberately direction-agnostic, so
+    #     nothing checked this before; 26% of real matches fail it. No
+    #     threshold to tune -- it's a sign test.
+    #   - `cup_apex_position_range`: the parabola's vertex must fall inside
+    #     the rim-to-rim window, expressed as a 0-1 position across it. A
+    #     monotone path puts the vertex far outside (measured: 2.159 and
+    #     4.365 on two invalid instances, vs. 0.445 dead-centre on the
+    #     valid one). Bounds are deliberately loose -- there is exactly one
+    #     confirmed-valid example to calibrate against, and tuning tightly
+    #     against n=1 would be overfitting.
+    #   - `cup_max_single_bar_move_frac`: the doc's literal "no single-bar
+    #     move accounts for a large fraction of the total cup depth."
+    #     Catches one-day gaps posing as a cup wall (an earnings cliff at
+    #     0.491 of total depth) while clearing the valid instance (0.231);
+    #     population median 0.244, p75 0.340.
+    # `cup_max_span_pivots` bounds the
     # left-rim/right-rim pivot search (the doc gives no explicit pivot
     # count for "possibly several pivots" forming the rounding).
     # `cup_handle_max_retrace_pct=50.0` is the doc's own outer "up to 50%
@@ -192,12 +237,14 @@ class PatternConfig:
     # like every other pattern's duration figure. All first-pass starting
     # points except the two explicitly-named doc figures (30%, 5%).
     cup_prior_trend_min_pct: float = 30.0
-    cup_rim_symmetry_max_pct: float = 5.0
+    cup_rim_divergence_max_pct: float = 10.0
     cup_depth_hard_min_pct: float = 5.0
     cup_depth_hard_max_pct: float = 60.0
     cup_depth_typical_min_pct: float = 12.0
     cup_depth_typical_max_pct: float = 33.0
     cup_roundedness_min_r2: float = 0.5
+    cup_apex_position_range: tuple[float, float] = (0.20, 0.80)
+    cup_max_single_bar_move_frac: float = 0.35
     cup_max_span_pivots: int = 12
     cup_handle_max_retrace_pct: float = 50.0
     cup_typical_min_bars: int = 25
@@ -212,6 +259,40 @@ class PatternConfig:
     # the doc's "require" wording.
     rounding_typical_min_bars: int = 150
     rounding_typical_max_bars: int = 400
+    # How many bars must separate the right rim from a breakout before the
+    # breakout counts. Rounding is the ONE pattern whose formation ends on
+    # the same pivot that supplies its trigger level, and that level is the
+    # rim's *close* while the rim itself is a wick -- so for a bar or two
+    # afterwards price can re-close above the level without the swing high
+    # ever being touched. Measured full-universe (5,314 tickers): 50.5% of
+    # rounding bottoms and 55.2% of rounding tops "broke out" within 5 bars
+    # of their own right rim, and that slice carried the entire deficit
+    # (60-bar median -9.42% / -16.39%, against +0.87% / -2.02% for
+    # everything else, throwback 0.84-0.87 vs 0.61-0.62 -- levels that were
+    # never really cleared). Cup & Handle is structurally immune and gets
+    # no gate here: its handle pushes formation end to a LATER pivot than
+    # the rim, so its scan can never start adjacent to the trigger pivot
+    # (13% near-rim, near slice slightly *better* than far in both
+    # directions -- the opposite sign to Rounding).
+    #
+    # 6 is a flat bar count, picked from a full-universe sweep (2->0.85 of
+    # the achievable median-return gain per pattern; 10->11 moves the
+    # median +0.01 points for ~1 point of kept-n, i.e. noise past ~8). Two
+    # more principled alternatives were raised and deliberately deferred,
+    # not rejected:
+    #   (a) scale with formation_bars, the way `resolution_horizon_bars`
+    #       already does for the post-breakout time limit -- a 400-bar
+    #       rounding base plausibly needs a wider settling window than a
+    #       150-bar one, and a flat constant can't express that.
+    #   (b) gate on price instead of time: require the breakout close to
+    #       clear rim2's own wick extreme (or clear it by some buffer),
+    #       using the already-measured `rim_gap_frac`/`cleared_rim_extreme`
+    #       per-instance rather than a population-level bar count standing
+    #       in for it.
+    # Revisit if this pattern's economics matter enough to justify the
+    # extra complexity; flat 6 is the simple, verified floor in the
+    # meantime.
+    rounding_breakout_min_gap_bars: int = 6
 
     # §4.5 VCP. The one pattern needing its own bar-count-scaled knobs
     # baked directly into `PatternConfig` rather than left to `PRESETS`'
