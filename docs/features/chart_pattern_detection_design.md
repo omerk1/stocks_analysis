@@ -330,11 +330,15 @@ This also gives you a natural UI/output feature for free: rank same-type pattern
 
 ## 7. Validation Methodology (don't skip this)
 
-Because every pattern here is fuzzy, the module is only trustworthy if you can measure it:
+Because every pattern here is fuzzy, the module is only trustworthy if you can measure it.
 
-1. **Labeled test set:** hand-label a few hundred historical instances (both true positives and known "looks-like-but-isn't" negatives) across varied names/regimes. Bulkowski's *Encyclopedia of Chart Patterns* and Investor's Business Daily / MarketSmith base annotations are useful references for building this set.
-2. **Precision/recall per pattern type**, not just aggregate — H&S and triangles will have very different false-positive rates.
-3. **Outcome-based backtest, separate from detection accuracy:** for CONFIRMED patterns, measure forward returns (e.g., N days after breakout), target-hit rate, and failure/throwback rate (Bulkowski-style statistics — e.g. cup & handle's documented ~5% break-even failure rate and ~62% throwback rate are useful benchmarks to compare your detector's outcomes against). A detector can have great geometric precision and still be useless if the pattern itself has no edge — keep these two evaluations separate.
+**v1 scope: validation is outcome-based only.** There are two independent ways to measure a fuzzy detector — *detection accuracy* (does the geometry it found match what a competent human would call that pattern?) and *outcome quality* (does what it found actually go on to do anything?). The first requires a labeled instance set; the second requires only price history the repo already has. v1 does the second and skips the first entirely. §7.3 below is therefore not one validation approach among several — it is the whole of v1's validation, and it is already implemented in `backtest/evaluator.py`.
+
+Items 1 and 2 are retained as numbered placeholders rather than deleted, so the surviving items keep the numbers that `evaluator.py` (§7.3, §7.2), `models.py` (§7.5), and `labeler.py` (§7.1) already cite in their docstrings. Renumbering would silently repoint those references at the wrong sections.
+
+1. **Labeled instance set — out of scope for v1.** Building one by hand is slow and, in practice, drifts toward a handful of familiar tickers, producing a set that measures those names rather than the detector. An automated LLM-judge variant was specced and rejected for v1 as well. No labeled set exists, and nothing in v1 depends on one. `backtest/labeler.py` remains in the tree as the interactive hand-labeling tool it has always been — unused by v1's validation path, and not a prerequisite for any of it.
+2. **Precision/recall per pattern type — out of scope for v1,** following directly from 1: both metrics are defined against a labeled set, and there isn't one. Not deferred pending a decision — simply not part of v1. `evaluator.py` deliberately implements no `precision_recall()`.
+3. **Outcome-based backtest — v1's validation method.** For patterns that actually broke out, measure forward returns at fixed horizons after the breakout, target-hit rate, and failure/throwback rate, **reported per pattern type** (not aggregate — H&S and triangles behave very differently, and an aggregate mean hides that). Bulkowski-style statistics are the comparison benchmark: e.g. cup & handle's documented ~5% break-even failure rate and ~62% throwback rate. Note what this does and doesn't tell you: it measures the joint performance of the detector *and* the pattern's own edge, and cannot separate them. A detector with sloppy geometry can post decent outcome stats if the underlying pattern is strong, and a clean detector can post poor ones if the pattern has no edge. Reading these numbers as a verdict on detection quality is the specific misreading to avoid — that question needs item 1, which v1 does not answer. Report sample size alongside every rate so a pattern type with nine breakouts isn't read as confidently as one with three hundred.
 4. **Sensitivity analysis on pivot-extraction parameters** (ZigZag % / ATR multiple) — pattern counts and quality will swing a lot with this single parameter; sweep it and report stability, don't just pick one value and move on.
 5. Track and surface `INVALIDATED_FAILED_BREAKOUT` cases explicitly rather than discarding them — false-breakout rate is itself a valuable output for building stop-placement rules.
 
@@ -359,12 +363,16 @@ patterns/
   scoring.py              # confidence weighting, configurable
   backtest/
     labeler.py            # tooling to hand-label historical instances
-    evaluator.py           # precision/recall + forward-return outcome stats
-config/
-  pattern_thresholds.yaml # every numeric threshold in this doc, externalized and tunable
+    evaluator.py           # §7.3 outcome stats: forward returns, target-hit,
+                          #   failed-breakout and throwback rates, per pattern type.
+                          #   No precision/recall -- see §7.1/§7.2 (no labeled set in v1).
+  config.py               # PatternConfig dataclass + PRESETS: every numeric threshold
+                          #   in this doc, externalized and tunable (see below)
 ```
 
-Keep **every numeric threshold in this doc in one external config file**, not hardcoded — you will be tuning these against your validation set, and different asset classes (large-cap vs. small-cap, equities vs. crypto) will likely need different values (e.g., a 20% ZigZag threshold is standard for volatile crypto but far too loose for a mega-cap on daily bars).
+Keep **every numeric threshold in this doc in one place**, not hardcoded — you will be tuning these, and different asset classes (large-cap vs. small-cap, equities vs. crypto) and timeframes will need different values (e.g., a 20% ZigZag threshold is standard for volatile crypto but far too loose for a mega-cap on daily bars).
+
+This doc originally specified that place as a `config/pattern_thresholds.yaml` file. **The implementation uses a `PatternConfig` dataclass with a `PRESETS` table in `patterns/config.py` instead, and that is the correct architecture** — recorded here because the code is right and this sketch was wrong, not as a deviation to reconcile later. The dataclass wins on three counts: it matches the convention every sibling module already follows (`SRConfig`, `GapConfig`, `DivergenceConfig`), it lets the CLI and plotting drive a config object without any of them depending on file I/O, and per-timeframe/asset-class profiles become `PRESETS` entries rather than a proliferation of near-duplicate YAML files. §9.1's "don't fork logic, fork config" is served by picking a different preset, which is exactly what the daily/weekly split does today.
 
 ---
 
