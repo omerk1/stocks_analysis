@@ -165,11 +165,24 @@ def render_pattern_chart(
                 # exact price (e.g. a cup/rounding's rim1 and rim2, gated
                 # to be close and sometimes exactly equal) -- a forward
                 # search would silently prefer that earlier, wrong pivot.
-                neckline_idx = next(
-                    (idx for idx in range(len(match.pivots) - 1, -1, -1) if match.pivots[idx].price == neckline),
-                    len(pivot_x) - 2 if len(pivot_x) > 1 else 0,
-                )
-                x_start = pivot_x[neckline_idx]
+                neckline_bar = match.key_levels.get("neckline_bar")
+                if neckline_bar is not None and 0 <= int(neckline_bar) < len(bars):
+                    x_start = bars.index[int(neckline_bar)]
+                else:
+                    # Pre-`neckline_bar` matches (older rows in
+                    # `pattern_matches`, hand-built test fixtures) still fall
+                    # back to locating the pivot by price. Kept only for
+                    # those: it cannot work for cup/rounding any more, whose
+                    # neckline is now the rim bar's *close* while
+                    # `pivot.price` stays the intraday high/low, so the
+                    # equality never holds -- which is exactly why the bar
+                    # index is now stored explicitly rather than recovered
+                    # by matching floats.
+                    neckline_idx = next(
+                        (idx for idx in range(len(match.pivots) - 1, -1, -1) if match.pivots[idx].price == neckline),
+                        len(pivot_x) - 2 if len(pivot_x) > 1 else 0,
+                    )
+                    x_start = pivot_x[neckline_idx]
                 fig.add_trace(
                     go.Scatter(
                         x=[x_start, x_end], y=[neckline, neckline],

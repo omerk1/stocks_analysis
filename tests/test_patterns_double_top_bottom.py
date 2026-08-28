@@ -67,7 +67,7 @@ def test_double_top_confirmed_breakout_hits_target():
     m = matches[0]
     assert m.pattern_type == PatternType.DOUBLE_TOP
     assert m.direction == Direction.BEARISH
-    assert m.key_levels == {"p1": 130.0, "neckline": 121.0, "p2": 129.0}
+    assert m.key_levels == {"p1": 130.0, "neckline": 121.0, "neckline_bar": 14.0, "p2": 129.0}
     assert m.target_price == pytest.approx(112.5)
     assert m.stop_price == pytest.approx(130.0)
     assert m.breakout_bar == 23

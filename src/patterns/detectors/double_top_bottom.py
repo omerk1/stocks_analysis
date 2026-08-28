@@ -93,7 +93,10 @@ class DoubleTopBottomDetector(PatternDetector):
             pattern_type=pattern_type,
             direction=direction,
             pivots=[p1, t, p2],
-            key_levels={"p1": p1.price, "neckline": neckline, "p2": p2.price},
+            # `neckline_bar` is where the neckline level was taken from, so
+            # plotting can start the line at the right bar without having to
+            # recover it by matching float prices back to a pivot.
+            key_levels={"p1": p1.price, "neckline": neckline, "neckline_bar": float(t.bar_index), "p2": p2.price},
             target_price=target_price,
             stop_price=stop_price,
             formation_start=p1.timestamp,
