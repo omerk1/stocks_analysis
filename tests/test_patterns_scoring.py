@@ -1,8 +1,8 @@
 import pytest
 
-from src.market_common.models import Direction
-from src.patterns.config import PatternConfig
-from src.patterns.scoring import (
+from src.foundation.market_common.models import Direction
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.scoring import (
     apex_proximity_score,
     breakout_close_strength,
     contraction_tightness_score,

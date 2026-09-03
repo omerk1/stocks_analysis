@@ -1,9 +1,9 @@
 import pandas as pd
 
-from src.divergences.config import DivergenceConfig
-from src.divergences.lifecycle import apply_outcome
-from src.divergences.models import Direction, Divergence, IndicatorKind
-from src.market_common.models import Timeframe
+from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.lifecycle import apply_outcome
+from src.signals.divergences.models import Direction, Divergence, IndicatorKind
+from src.foundation.market_common.models import Timeframe
 
 
 def _bars(rows: list[tuple], start: str = "2020-01-01") -> pd.DataFrame:

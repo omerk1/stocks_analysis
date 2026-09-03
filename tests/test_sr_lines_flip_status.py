@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.sr_lines.flip_status import pair_break_reclaims
-from src.sr_lines.models import Event, EventType
+from src.signals.sr_lines.flip_status import pair_break_reclaims
+from src.signals.sr_lines.models import Event, EventType
 
 
 def _bars(n_days: int = 30) -> pd.DataFrame:

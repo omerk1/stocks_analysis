@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.feature_engineering import momentum_indicators
+from src.foundation.feature_engineering import momentum_indicators
 
 
 def test_rate_of_change_matches_percent_change_formula():

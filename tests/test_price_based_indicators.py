@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.feature_engineering import price_based_indicators
+from src.foundation.feature_engineering import price_based_indicators
 
 
 def test_bollinger_bands_upper_and_lower_straddle_middle():

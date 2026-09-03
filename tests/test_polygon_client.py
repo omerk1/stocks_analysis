@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.data_processing.polygon_client import PolygonClient
+from src.foundation.data_processing.polygon_client import PolygonClient
 
 
 def _make_agg(timestamp_ms, close):
@@ -33,7 +33,7 @@ def test_requires_api_key(monkeypatch):
         PolygonClient(api_key=None)
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_daily_bars_shapes_dataframe(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.get_aggs.return_value = [
@@ -50,7 +50,7 @@ def test_get_daily_bars_shapes_dataframe(mock_rest_client_cls):
     assert df.iloc[1]["close"] == 102.0
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_daily_bars_paces_through_shared_rate_limiter(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.get_aggs.return_value = []
@@ -62,7 +62,7 @@ def test_get_daily_bars_paces_through_shared_rate_limiter(mock_rest_client_cls):
     rate_limiter.wait.assert_called_once()
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_grouped_daily_bars_shapes_dataframe(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.get_grouped_daily_aggs.return_value = [
@@ -79,7 +79,7 @@ def test_get_grouped_daily_bars_shapes_dataframe(mock_rest_client_cls):
     rate_limiter.wait.assert_called_once()
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_ticker_details_shapes_dict_and_paces_through_rate_limiter(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.get_ticker_details.return_value = MagicMock(
@@ -112,7 +112,7 @@ def test_get_ticker_details_shapes_dict_and_paces_through_rate_limiter(mock_rest
     rate_limiter.wait.assert_called_once()
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_splits_shapes_dataframe_sorted_ascending_and_paces_through_rate_limiter(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     # Out of order on purpose (real API returns newest-first) -- confirms
@@ -135,7 +135,7 @@ def test_get_splits_shapes_dataframe_sorted_ascending_and_paces_through_rate_lim
     rate_limiter.wait.assert_called_once()
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_get_splits_empty_when_no_splits(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.list_splits.return_value = iter([])
@@ -148,7 +148,7 @@ def test_get_splits_empty_when_no_splits(mock_rest_client_cls):
     assert list(splits.columns) == ["execution_date", "split_from", "split_to", "ratio"]
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_list_common_stock_tickers_paginates_and_paces_per_page(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     # Two full pages of size 2, then a short final page -- generator-backed,
@@ -166,7 +166,7 @@ def test_list_common_stock_tickers_paginates_and_paces_per_page(mock_rest_client
     assert rate_limiter.wait.call_count == 3
 
 
-@patch("src.data_processing.polygon_client.RESTClient")
+@patch("src.foundation.data_processing.polygon_client.RESTClient")
 def test_list_common_stock_tickers_includes_delisted_metadata(mock_rest_client_cls):
     mock_client = mock_rest_client_cls.return_value
     mock_client.list_tickers.return_value = iter(

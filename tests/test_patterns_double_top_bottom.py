@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.market_common.models import Direction, Pivot, PivotKind, Timeframe
-from src.patterns.config import PatternConfig
-from src.patterns.detectors.double_top_bottom import DoubleTopBottomDetector
-from src.patterns.models import PatternStatus, PatternType
+from src.foundation.market_common.models import Direction, Pivot, PivotKind, Timeframe
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.detectors.double_top_bottom import DoubleTopBottomDetector
+from src.signals.patterns.models import PatternStatus, PatternType
 
 
 def _config(**overrides) -> PatternConfig:

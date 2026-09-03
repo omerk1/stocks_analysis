@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.index_membership import (
+from src.foundation.data_processing import db
+from src.foundation.data_processing.index_membership import (
     NASDAQ100,
     SP500,
     check_source_freshness,
@@ -23,7 +23,7 @@ def conn():
     connection.close()
 
 
-@patch("src.data_processing.index_membership.pd.read_csv")
+@patch("src.foundation.data_processing.index_membership.pd.read_csv")
 def test_fetch_sp500_membership_shapes_columns(mock_read_csv):
     mock_read_csv.return_value = pd.DataFrame(
         [
@@ -43,8 +43,8 @@ def _change(effective_date, additions=frozenset(), removals=frozenset()):
     return MagicMock(effective_date=effective_date, additions=additions, removals=removals)
 
 
-@patch("src.data_processing.index_membership._n100_tickers_as_of")
-@patch("src.data_processing.index_membership._n100_changes")
+@patch("src.foundation.data_processing.index_membership._n100_tickers_as_of")
+@patch("src.foundation.data_processing.index_membership._n100_changes")
 def test_fetch_nasdaq100_membership_reconstructs_intervals_from_tickers_as_of(
     mock_changes, mock_tickers_as_of
 ):
@@ -75,8 +75,8 @@ def test_fetch_nasdaq100_membership_reconstructs_intervals_from_tickers_as_of(
     assert msft["end_date"] == datetime.date(2020, 5, 31)  # day before it dropped out
 
 
-@patch("src.data_processing.index_membership.fetch_nasdaq100_membership")
-@patch("src.data_processing.index_membership.fetch_sp500_membership")
+@patch("src.foundation.data_processing.index_membership.fetch_nasdaq100_membership")
+@patch("src.foundation.data_processing.index_membership.fetch_sp500_membership")
 def test_refresh_index_membership_replaces_both_indices(mock_sp500, mock_nasdaq100, conn):
     mock_sp500.return_value = pd.DataFrame(
         [("AAPL", "1996-01-02", None)], columns=["ticker", "start_date", "end_date"]
@@ -98,7 +98,7 @@ def _fake_response(pushed_at_iso):
     return response
 
 
-@patch("src.data_processing.index_membership.requests.get")
+@patch("src.foundation.data_processing.index_membership.requests.get")
 def test_check_source_freshness_no_warning_when_recently_pushed(mock_get):
     recent = (pd.Timestamp.now("UTC") - pd.Timedelta(days=5)).isoformat()
     mock_get.return_value = _fake_response(recent)
@@ -109,7 +109,7 @@ def test_check_source_freshness_no_warning_when_recently_pushed(mock_get):
     assert warnings[NASDAQ100] is None
 
 
-@patch("src.data_processing.index_membership.requests.get")
+@patch("src.foundation.data_processing.index_membership.requests.get")
 def test_check_source_freshness_warns_when_stale(mock_get):
     stale = (pd.Timestamp.now("UTC") - pd.Timedelta(days=200)).isoformat()
     mock_get.return_value = _fake_response(stale)
@@ -120,7 +120,7 @@ def test_check_source_freshness_warns_when_stale(mock_get):
     assert "200" in warnings[SP500] or "stale" in warnings[SP500].lower()
 
 
-@patch("src.data_processing.index_membership.requests.get")
+@patch("src.foundation.data_processing.index_membership.requests.get")
 def test_check_source_freshness_warns_when_check_itself_fails(mock_get):
     mock_get.side_effect = ConnectionError("network down")
 

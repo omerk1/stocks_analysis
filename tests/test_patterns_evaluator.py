@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.market_common.models import Direction, Timeframe
-from src.patterns.backtest import evaluator
-from src.patterns.backtest.evaluator import (
+from src.foundation.data_processing import db
+from src.foundation.market_common.models import Direction, Timeframe
+from src.signals.patterns.backtest import evaluator
+from src.signals.patterns.backtest.evaluator import (
     PatternOutcome,
     compute_outcomes,
     forward_return_pct,
@@ -13,8 +13,8 @@ from src.patterns.backtest.evaluator import (
     run_backtest,
     summarize,
 )
-from src.patterns.config import PatternConfig
-from src.patterns.models import PatternMatch, PatternStatus, PatternType
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.models import PatternMatch, PatternStatus, PatternType
 
 
 def _chain(*segments: tuple[float, float, int], start: str = "2020-01-01") -> pd.DataFrame:

@@ -3,10 +3,10 @@ import math
 import pandas as pd
 import pytest
 
-from src.sr_lines.candidates import DiagonalCandidate, HorizontalCandidate
-from src.sr_lines.config import SRConfig
-from src.sr_lines.lifecycle import build_line, dedup_lines, select_lines
-from src.sr_lines.models import (
+from src.signals.sr_lines.candidates import DiagonalCandidate, HorizontalCandidate
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.lifecycle import build_line, dedup_lines, select_lines
+from src.signals.sr_lines.models import (
     Event,
     EventType,
     Line,

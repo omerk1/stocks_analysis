@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from src.patterns.curves import fit_quadratic, max_single_bar_move_frac
+from src.signals.patterns.curves import fit_quadratic, max_single_bar_move_frac
 
 
 def test_fit_quadratic_perfect_parabola_r2_is_one():

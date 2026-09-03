@@ -1,7 +1,7 @@
 import pandas as pd
 
-from src.market_common.models import PivotKind
-from src.market_common.pivots import detect_pivots
+from src.foundation.market_common.models import PivotKind
+from src.foundation.market_common.pivots import detect_pivots
 
 
 def _series(values: list[float], start: str = "2020-01-01") -> pd.Series:

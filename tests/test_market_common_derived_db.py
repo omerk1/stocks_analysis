@@ -1,6 +1,6 @@
 import pytest
 
-from src.market_common import derived_db
+from src.foundation.market_common import derived_db
 
 
 @pytest.fixture

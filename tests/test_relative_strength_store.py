@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from src.market_common import derived_db
-from src.relative_strength import store
+from src.foundation.market_common import derived_db
+from src.signals.relative_strength import store
 
 
 @pytest.fixture

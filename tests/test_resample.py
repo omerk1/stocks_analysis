@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.data_processing.resample import to_monthly, to_weekly
+from src.foundation.data_processing.resample import to_monthly, to_weekly
 
 
 def _daily(rows):

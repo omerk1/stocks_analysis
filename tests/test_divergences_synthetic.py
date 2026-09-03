@@ -1,13 +1,13 @@
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.divergences.config import DivergenceConfig
-from src.divergences.detect import detect, detect_for_indicator
-from src.divergences.models import Direction, IndicatorKind
-from src.divergences.store import create_divergences_table, upsert_divergences
-from src.market_common import derived_db
-from src.market_common.models import Timeframe
+from src.foundation.data_processing import db
+from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.detect import detect, detect_for_indicator
+from src.signals.divergences.models import Direction, IndicatorKind
+from src.signals.divergences.store import create_divergences_table, upsert_divergences
+from src.foundation.market_common import derived_db
+from src.foundation.market_common.models import Timeframe
 
 
 def _bars(closes: list[float], start: str = "2020-01-01") -> pd.DataFrame:

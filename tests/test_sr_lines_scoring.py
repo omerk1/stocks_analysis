@@ -1,9 +1,9 @@
 import pandas as pd
 import pytest
 
-from src.sr_lines.config import SRConfig
-from src.sr_lines.models import Event, EventType
-from src.sr_lines.scoring import regime_start, score_line
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.models import Event, EventType
+from src.signals.sr_lines.scoring import regime_start, score_line
 
 
 def _flat_bars(n_days: int, price: float = 100.0) -> pd.DataFrame:

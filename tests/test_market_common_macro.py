@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.market_common.macro import as_of_join
+from src.foundation.market_common.macro import as_of_join
 
 
 def _macro(rows):

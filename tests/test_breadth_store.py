@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.breadth import store
-from src.market_common import derived_db
+from src.signals.breadth import store
+from src.foundation.market_common import derived_db
 
 
 @pytest.fixture

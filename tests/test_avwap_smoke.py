@@ -4,12 +4,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.avwap import store
-from src.avwap.anchors import detect
-from src.avwap.config import AvwapConfig
-from src.avwap.models import Timeframe
-from src.data_processing import db as raw_db
-from src.market_common import derived_db
+from src.signals.avwap import store
+from src.signals.avwap.anchors import detect
+from src.signals.avwap.config import AvwapConfig
+from src.signals.avwap.models import Timeframe
+from src.foundation.data_processing import db as raw_db
+from src.foundation.market_common import derived_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
@@ -99,7 +99,7 @@ def test_smoke_real_aapl_daily_ticker_detection():
     assert isinstance(anchors, list)
     assert len(anchors) > 0
 
-    from src.avwap.models import AnchorType
+    from src.signals.avwap.models import AnchorType
 
     all_roles = {role for a in anchors for role in a.anchor_types}
     assert AnchorType.ATH in all_roles

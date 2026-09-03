@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.sr_lines.models import (
+from src.signals.sr_lines.models import (
     DataQualityReport,
     DetectionResult,
     Event,
@@ -11,7 +11,7 @@ from src.sr_lines.models import (
     LineState,
     ScoreBreakdown,
 )
-from src.sr_lines.plotting import _EVENT_MARKERS, render_review_chart
+from src.signals.sr_lines.plotting import _EVENT_MARKERS, render_review_chart
 
 
 def _bars(n_days: int, price: float = 100.0) -> pd.DataFrame:

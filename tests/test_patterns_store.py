@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from src.market_common import derived_db
-from src.market_common.models import Direction, Pivot, PivotKind, Timeframe
-from src.patterns.models import PatternMatch, PatternStatus, PatternType
-from src.patterns.store import create_pattern_matches_table, upsert_pattern_matches
+from src.foundation.market_common import derived_db
+from src.foundation.market_common.models import Direction, Pivot, PivotKind, Timeframe
+from src.signals.patterns.models import PatternMatch, PatternStatus, PatternType
+from src.signals.patterns.store import create_pattern_matches_table, upsert_pattern_matches
 
 
 @pytest.fixture

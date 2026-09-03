@@ -3,9 +3,9 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.market_cap import historical_market_cap, reconcile_market_cap
-from src.market_common.indicators import scale_consistent
+from src.foundation.data_processing import db
+from src.foundation.data_processing.market_cap import historical_market_cap, reconcile_market_cap
+from src.foundation.market_common.indicators import scale_consistent
 
 
 @pytest.fixture

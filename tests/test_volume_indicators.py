@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.feature_engineering import volume_indicators
+from src.foundation.feature_engineering import volume_indicators
 
 
 def test_on_balance_volume_matches_hand_computed_sequence():

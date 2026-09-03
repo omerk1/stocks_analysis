@@ -2,11 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.market_common.models import Direction, Timeframe
-from src.patterns.config import PatternConfig
-from src.patterns.models import PatternMatch, PatternType
-from src.patterns.scanner import dedupe_matches, detect, scan_bars
+from src.foundation.data_processing import db
+from src.foundation.market_common.models import Direction, Timeframe
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.models import PatternMatch, PatternType
+from src.signals.patterns.scanner import dedupe_matches, detect, scan_bars
 
 
 def _chain(*segments: tuple[float, float, int], start: str = "2020-01-01") -> pd.DataFrame:
@@ -87,7 +87,7 @@ def test_detect_skips_short_history(conn):
 
 
 def _dedupe_match(pattern_type, direction, first_bar, last_bar, confidence):
-    from src.market_common.models import Pivot, PivotKind
+    from src.foundation.market_common.models import Pivot, PivotKind
     pivots = [
         Pivot(kind=PivotKind.HIGH, timestamp="2020-01-01", value=10.0, confirmed_at="2020-01-01",
               threshold_at_pivot=1.0, bar_index=first_bar),
@@ -162,7 +162,7 @@ def test_dedupe_preserves_input_order():
 
 
 def _dedupe_match_bo(pattern_type, direction, pivot_bars, breakout_bar, confidence):
-    from src.market_common.models import Pivot, PivotKind
+    from src.foundation.market_common.models import Pivot, PivotKind
     pivots = [
         Pivot(kind=PivotKind.HIGH if i % 2 == 0 else PivotKind.LOW, timestamp="2020-01-01", value=10.0,
               confirmed_at="2020-01-01", threshold_at_pivot=1.0, bar_index=b)

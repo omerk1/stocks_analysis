@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.ticker_universe import refresh_ticker_universe
+from src.foundation.data_processing import db
+from src.foundation.data_processing.ticker_universe import refresh_ticker_universe
 
 
 @pytest.fixture

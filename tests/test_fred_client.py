@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.data_processing.fred_client import FredClient
+from src.foundation.data_processing.fred_client import FredClient
 
 
 def _make_response(observations):
@@ -24,7 +24,7 @@ def test_requires_api_key(monkeypatch):
         FredClient(api_key=None)
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_shapes_series(mock_get):
     mock_get.return_value = _make_response(
         [
@@ -42,7 +42,7 @@ def test_get_series_shapes_series(mock_get):
     assert series.name == "M2SL"
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_drops_missing_value_sentinel(mock_get):
     mock_get.return_value = _make_response(
         [
@@ -59,7 +59,7 @@ def test_get_series_drops_missing_value_sentinel(mock_get):
     assert list(series.values) == [100.0, 102.0]
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_passes_date_range_params(mock_get):
     mock_get.return_value = _make_response([])
 
@@ -71,7 +71,7 @@ def test_get_series_passes_date_range_params(mock_get):
     assert kwargs["params"]["observation_end"] == "2020-12-31"
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_first_release_shapes_dataframe(mock_get):
     mock_get.return_value = _make_response(
         [
@@ -88,7 +88,7 @@ def test_get_series_first_release_shapes_dataframe(mock_get):
     assert list(df["first_published_value"]) == [22768.866, 22918.739]
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_first_release_drops_missing_value_sentinel(mock_get):
     mock_get.return_value = _make_response(
         [
@@ -104,7 +104,7 @@ def test_get_series_first_release_drops_missing_value_sentinel(mock_get):
     assert df["first_published_value"].iloc[0] == 22918.739
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_first_release_returns_empty_frame_on_fred_error(mock_get):
     # e.g. the real vintage-date-cap-exceeded error DFF/DGS10/etc. hit --
     # an expected outcome for some series, not a raised exception.
@@ -119,7 +119,7 @@ def test_get_series_first_release_returns_empty_frame_on_fred_error(mock_get):
     assert list(df.columns) == ["published_at", "first_published_value"]
 
 
-@patch("src.data_processing.fred_client.requests.get")
+@patch("src.foundation.data_processing.fred_client.requests.get")
 def test_get_series_first_release_passes_output_type_and_wide_realtime_range(mock_get):
     mock_get.return_value = _make_response([])
 

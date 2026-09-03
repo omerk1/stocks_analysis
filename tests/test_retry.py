@@ -1,4 +1,4 @@
-from src.data_processing.retry import attempt_with_limited_retries
+from src.foundation.data_processing.retry import attempt_with_limited_retries
 
 
 def test_succeeds_on_first_attempt():

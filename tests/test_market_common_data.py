@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.market_common.data import load_and_validate, load_bars, validate_bars
-from src.market_common.models import Timeframe
+from src.foundation.data_processing import db
+from src.foundation.market_common.data import load_and_validate, load_bars, validate_bars
+from src.foundation.market_common.models import Timeframe
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"

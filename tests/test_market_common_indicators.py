@@ -1,14 +1,14 @@
 import pandas as pd
 
-from src.feature_engineering.price_based_indicators import (
+from src.foundation.feature_engineering.price_based_indicators import (
     exponential_moving_average,
     moving_average,
     moving_average_convergence_divergence,
     relative_strength_index,
 )
-from src.feature_engineering.trend_indicators import average_true_range
-from src.feature_engineering.volume_indicators import on_balance_volume
-from src.market_common import indicators
+from src.foundation.feature_engineering.trend_indicators import average_true_range
+from src.foundation.feature_engineering.volume_indicators import on_balance_volume
+from src.foundation.market_common import indicators
 
 
 def _bars(n: int = 40) -> pd.DataFrame:

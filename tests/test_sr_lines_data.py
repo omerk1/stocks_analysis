@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from src.sr_lines.config import SRConfig
-from src.sr_lines.data import validate_bars
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.data import validate_bars
 
 
 def _bars(rows):

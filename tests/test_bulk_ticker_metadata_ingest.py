@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.bulk_ticker_metadata_ingest import JOB_TYPE, backfill_ticker_metadata
+from src.foundation.data_processing import db
+from src.foundation.data_processing.bulk_ticker_metadata_ingest import JOB_TYPE, backfill_ticker_metadata
 
 
 @pytest.fixture

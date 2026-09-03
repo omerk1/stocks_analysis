@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.data_processing import db
+from src.foundation.data_processing import db
 
 
 @pytest.fixture

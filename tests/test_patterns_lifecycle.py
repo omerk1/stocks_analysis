@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.market_common.models import Direction, Timeframe
-from src.patterns.config import PatternConfig
-from src.patterns.lifecycle import apply_lifecycle, apply_lifecycle_bidirectional, resolution_horizon_bars
-from src.patterns.models import PatternMatch, PatternStatus, PatternType
+from src.foundation.market_common.models import Direction, Timeframe
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.lifecycle import apply_lifecycle, apply_lifecycle_bidirectional, resolution_horizon_bars
+from src.signals.patterns.models import PatternMatch, PatternStatus, PatternType
 
 
 def _config(**overrides) -> PatternConfig:

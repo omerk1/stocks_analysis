@@ -1,6 +1,6 @@
 import time
 
-from src.data_processing.rate_limiter import RateLimiter
+from src.foundation.data_processing.rate_limiter import RateLimiter
 
 
 def test_allows_max_calls_without_waiting():

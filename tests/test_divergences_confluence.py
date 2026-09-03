@@ -15,12 +15,12 @@ these tests).
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.divergences import detect as detect_mod
-from src.divergences.config import DivergenceConfig
-from src.divergences.detect import detect
-from src.divergences.models import Direction, Divergence, IndicatorKind
-from src.market_common.models import Timeframe
+from src.foundation.data_processing import db
+from src.signals.divergences import detect as detect_mod
+from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.detect import detect
+from src.signals.divergences.models import Direction, Divergence, IndicatorKind
+from src.foundation.market_common.models import Timeframe
 
 
 @pytest.fixture

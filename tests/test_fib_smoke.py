@@ -3,13 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from src.fibonacci import store as store_mod
-from src.fibonacci.config import FibConfig
-from src.fibonacci.engine import detect
-from src.fibonacci.plotting import render_fib_chart
-from src.market_common import data as data_mod
-from src.market_common import derived_db
-from src.market_common.models import Timeframe
+from src.signals.fibonacci import store as store_mod
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.engine import detect
+from src.signals.fibonacci.plotting import render_fib_chart
+from src.foundation.market_common import data as data_mod
+from src.foundation.market_common import derived_db
+from src.foundation.market_common.models import Timeframe
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"

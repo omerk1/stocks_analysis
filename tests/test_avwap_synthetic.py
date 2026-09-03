@@ -3,11 +3,11 @@ import math
 import pandas as pd
 import pytest
 
-from src.avwap.anchors import discover_anchor_dates
-from src.avwap.compute import anchored_vwap
-from src.avwap.config import AvwapConfig
-from src.avwap.models import AnchorStatus, AnchorType, is_pure_cycle
-from src.market_common.models import Timeframe
+from src.signals.avwap.anchors import discover_anchor_dates
+from src.signals.avwap.compute import anchored_vwap
+from src.signals.avwap.config import AvwapConfig
+from src.signals.avwap.models import AnchorStatus, AnchorType, is_pure_cycle
+from src.foundation.market_common.models import Timeframe
 
 
 def _bars(rows, start: str = "2020-01-01"):
