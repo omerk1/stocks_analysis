@@ -1,13 +1,13 @@
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.relative_strength.compute import (
+from src.foundation.data_processing import db
+from src.signals.relative_strength.compute import (
     compute_sector_vs_market,
     compute_stock_vs_market,
     compute_stock_vs_sector,
 )
-from src.relative_strength.config import RelativeStrengthConfig
+from src.signals.relative_strength.config import RelativeStrengthConfig
 
 _DATES = pd.bdate_range("2020-01-01", periods=10)
 

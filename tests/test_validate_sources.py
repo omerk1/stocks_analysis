@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.validate_sources import compare_stored_daily_bars
+from src.foundation.data_processing import db
+from src.foundation.data_processing.validate_sources import compare_stored_daily_bars
 
 
 @pytest.fixture

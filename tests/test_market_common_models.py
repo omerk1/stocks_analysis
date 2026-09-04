@@ -1,6 +1,6 @@
 import pytest
 
-from src.market_common.models import Direction, Pivot, PivotKind, Timeframe
+from src.foundation.market_common.models import Direction, Pivot, PivotKind, Timeframe
 
 
 def test_pivot_price_and_atr_at_pivot_are_read_only_aliases():

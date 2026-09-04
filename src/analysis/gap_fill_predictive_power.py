@@ -48,13 +48,13 @@ from pathlib import Path
 import pandas as pd
 from scipy import stats
 
-from src.data_processing import db as raw_db
-from src.gaps.lifecycle import _penetration_pct
-from src.gaps.models import Direction
-from src.market_common import data as data_mod
-from src.market_common import derived_db
-from src.market_common.models import Timeframe
-from src.utils.config_loader import load_config
+from src.foundation.data_processing import db as raw_db
+from src.signals.gaps.lifecycle import _penetration_pct
+from src.signals.gaps.models import Direction
+from src.foundation.market_common import data as data_mod
+from src.foundation.market_common import derived_db
+from src.foundation.market_common.models import Timeframe
+from src.foundation.utils.config_loader import load_config
 
 DEFAULT_HORIZONS = (5, 10, 20, 60)
 DEFAULT_FILL_THRESHOLD = 50.0

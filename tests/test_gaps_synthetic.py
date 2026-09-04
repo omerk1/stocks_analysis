@@ -3,10 +3,10 @@ import copy
 import pandas as pd
 import pytest
 
-from src.gaps.config import GapConfig
-from src.gaps.detect import detect_gaps
-from src.gaps.lifecycle import apply_lifecycle
-from src.gaps.models import Direction, GapKind, GapStatus, Timeframe
+from src.signals.gaps.config import GapConfig
+from src.signals.gaps.detect import detect_gaps
+from src.signals.gaps.lifecycle import apply_lifecycle
+from src.signals.gaps.models import Direction, GapKind, GapStatus, Timeframe
 
 
 def _flat_bars(n: int, start: str = "2020-01-01", price: float = 100.0, half_range: float = 1.0) -> pd.DataFrame:

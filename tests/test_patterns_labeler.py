@@ -1,7 +1,7 @@
 import pytest
 
-from src.market_common import derived_db
-from src.patterns.backtest.labeler import PatternLabel, create_pattern_labels_table, insert_label
+from src.foundation.market_common import derived_db
+from src.signals.patterns.backtest.labeler import PatternLabel, create_pattern_labels_table, insert_label
 
 
 @pytest.fixture

@@ -1,10 +1,10 @@
 import pandas as pd
 import pytest
 
-from src.avwap.config import AvwapConfig
-from src.avwap.lifecycle import apply_interaction_tracking
-from src.avwap.models import AnchoredVwap, AnchorStatus, AnchorType
-from src.market_common.models import Timeframe
+from src.signals.avwap.config import AvwapConfig
+from src.signals.avwap.lifecycle import apply_interaction_tracking
+from src.signals.avwap.models import AnchoredVwap, AnchorStatus, AnchorType
+from src.foundation.market_common.models import Timeframe
 
 
 def _bars(rows: list[tuple], start: str = "2020-01-01") -> pd.DataFrame:

@@ -178,7 +178,7 @@ helper.
 
 ### Real-data smoke test (AAPL, full history, daily)
 
-`python -m src.patterns.cli AAPL --timeframe daily --plot ...` ran clean
+`python -m src.signals.patterns.cli AAPL --timeframe daily --plot ...` ran clean
 end-to-end: 105 patterns detected, status distribution `active=3,
 expired=17, hit_target=19, invalidated=41, invalidated_failed_breakout=25`
 -- spread across every terminal state, nothing degenerate (e.g. everything
@@ -261,7 +261,7 @@ pieces:
 
 ### Real-data smoke test (AAPL, full history, daily)
 
-`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with both
+`python -m src.signals.patterns.cli AAPL --timeframe daily --plot ...` with both
 detectors registered: 118 patterns total (105 double top/bottom, unchanged
 from Phase 1, + 13 new: 8 head_and_shoulders, 5
 inverse_head_and_shoulders), status distribution spread across every
@@ -553,7 +553,7 @@ before trusting it.
 
 ### Real-data smoke test (AAPL, full history, daily)
 
-`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with all
+`python -m src.signals.patterns.cli AAPL --timeframe daily --plot ...` with all
 four detectors registered: 299 total patterns (226 unchanged from Phase
 1-3 + 73 new: 72 cup_and_handle, 1 inverse_cup_and_handle). The
 72-vs-1 skew makes sense given AAPL's own history -- inverse cup & handle
@@ -633,7 +633,7 @@ hard gate moved, not what counts as "clean."
 
 ### Real-data smoke test (AAPL, full history, daily + weekly)
 
-`python -m src.patterns.cli AAPL --timeframe daily --plot ...` with all
+`python -m src.signals.patterns.cli AAPL --timeframe daily --plot ...` with all
 five detectors registered: 466 total daily patterns (299 unchanged from
 Phase 1-4 + 167 new VCP), spread across every terminal status
 (`active=21, expired=22, hit_target=210, invalidated=76, invalidated_
@@ -862,7 +862,7 @@ mistaken for already covering it.
 
 ### Real-data smoke test (AAPL, full daily history)
 
-`python -m src.patterns.backtest.evaluator AAPL --timeframe daily`
+`python -m src.signals.patterns.backtest.evaluator AAPL --timeframe daily`
 against real AAPL history produces a per-pattern-type table across all 14
 pattern types with at least one breakout on record, matching Bulkowski-
 style shape sanity-checked by eye rather than assumed correct just

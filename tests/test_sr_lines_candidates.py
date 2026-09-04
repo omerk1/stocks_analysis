@@ -2,14 +2,14 @@ import math
 
 import pytest
 
-from src.sr_lines.candidates import (
+from src.signals.sr_lines.candidates import (
     DiagonalCandidate,
     _dedupe_diagonal_candidates,
     generate_diagonal_candidates,
     generate_horizontal_candidates,
 )
-from src.sr_lines.config import SRConfig
-from src.sr_lines.models import Pivot, PivotKind
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.models import Pivot, PivotKind
 
 
 def _pivot(price: float, atr_pct: float, timestamp: str) -> Pivot:

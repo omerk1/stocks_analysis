@@ -25,8 +25,8 @@ pip install -r requirements.txt
 cp .env.example .env
 # Add your Polygon.io API key (free tier: https://polygon.io/) to .env
 
-python -m src.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source polygon
-python -m src.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source yfinance
+python -m src.foundation.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source polygon
+python -m src.foundation.data_processing.fetch_data --tickers AAPL,MSFT --start 2024-01-01 --end 2024-12-31 --source yfinance
 ```
 
 Bars are stored in `data/raw/market_data.sqlite`, one table per timeframe
@@ -51,7 +51,7 @@ keeps everything reproducible from one daily pull. A period still in progress
 ### Cross-check sources
 
 ```bash
-python -m src.data_processing.validate_sources --ticker AAPL --start 2024-01-01 --end 2024-01-31
+python -m src.foundation.data_processing.validate_sources --ticker AAPL --start 2024-01-01 --end 2024-01-31
 ```
 
 Compares Polygon vs. yfinance daily closes **already stored** by `fetch_data.py`
@@ -65,8 +65,8 @@ provide — Yahoo retains roughly the trailing 730 days of hourly history.
 ```bash
 # Add your FRED API key (free: https://fred.stlouisfed.org/docs/api/api_key.html) to .env
 
-python -m src.data_processing.fetch_macro --series all             # curated list (see fred_client.CURATED_SERIES)
-python -m src.data_processing.fetch_macro --series M2SL,DGS10,SP500 # explicit series ids
+python -m src.foundation.data_processing.fetch_macro --series all             # curated list (see fred_client.CURATED_SERIES)
+python -m src.foundation.data_processing.fetch_macro --series M2SL,DGS10,SP500 # explicit series ids
 ```
 
 Pulls series (money supply, Fed balance sheet, rates, the Treasury curve,
@@ -86,23 +86,23 @@ there's a separate set of scripts, in order:
 # 1. Build the ticker universe (once; refresh occasionally). Polygon is the
 #    single source of truth for "which tickers exist" -- both active and
 #    delisted common stock, so the universe itself isn't survivorship-biased.
-python -m src.data_processing.ticker_universe
+python -m src.foundation.data_processing.ticker_universe
 
 # 2. Bulk-ingest daily bars for the whole market from Polygon: one
 #    grouped-daily API call per trading day (not per ticker), which is what
 #    keeps a full-market 2-year backfill to ~100 minutes under the 5 req/min
 #    limit instead of being infeasible.
-python -m src.data_processing.bulk_polygon_ingest --start 2024-07-22 --end 2026-07-22
+python -m src.foundation.data_processing.bulk_polygon_ingest --start 2024-07-22 --end 2026-07-22
 
 # 3. Same ticker universe, from yfinance -- batched (yf.download supports
 #    many tickers per call), since yfinance has no bulk single-call endpoint
 #    and no documented rate limit to pace against precisely.
-python -m src.data_processing.bulk_yfinance_ingest --start 2024-07-22 --end 2026-07-22
+python -m src.foundation.data_processing.bulk_yfinance_ingest --start 2024-07-22 --end 2026-07-22
 
 # 4. Derive weekly/monthly bars for every ticker now stored (pure compute,
 #    no API calls -- run per source).
-python -m src.data_processing.resample_bulk --source polygon
-python -m src.data_processing.resample_bulk --source yfinance
+python -m src.foundation.data_processing.resample_bulk --source polygon
+python -m src.foundation.data_processing.resample_bulk --source yfinance
 
 # 5. Refresh per-ticker reference metadata (market cap, SIC industry
 #    code/description, shares outstanding, employee count) from Polygon.
@@ -110,12 +110,12 @@ python -m src.data_processing.resample_bulk --source yfinance
 #    bars, so this is much slower than step 2 (~5,300 active tickers / 5
 #    req/min is on the order of hours, not minutes) and draws from the same
 #    shared rate limit -- avoid running it at the same time as step 2.
-python -m src.data_processing.bulk_ticker_metadata_ingest
+python -m src.foundation.data_processing.bulk_ticker_metadata_ingest
 
 # 6. Refresh point-in-time S&P 500 / Nasdaq-100 index membership. Free,
 #    community-maintained sources (not Polygon -- see docs/limitations.md
 #    for why), no API key or rate limit involved -- fast, full refresh.
-python -m src.data_processing.index_membership
+python -m src.foundation.data_processing.index_membership
 ```
 
 All three ingestion scripts are **resumable**: every date (Polygon bars),
@@ -139,7 +139,7 @@ to get every stored interval, including past (non-current) memberships.
 ## Support/resistance line detection
 
 ```bash
-python -m src.sr_lines.cli AAPL --preset long_term --out review_AAPL.html \
+python -m src.signals.sr_lines.cli AAPL --preset long_term --out review_AAPL.html \
     [--as-of 2025-07-01] [--top-n 10 | --strength-floor 0.2] \
     [--dedup-threshold 0.6] [--zone-width-atr 0.4] \
     [--diagonals] [--timeframe daily|weekly]
@@ -169,13 +169,25 @@ systematic weight-tuning pass on real charts are staged next.
 ```
 stocks_analysis/
 ├── src/
-│   ├── data_processing/       # Polygon/yfinance clients, SQLite storage, resampling,
-│   │                          # rate limiting, and per-ticker (fetch_data.py) + bulk-market
-│   │                          # ingestion CLIs
-│   ├── feature_engineering/   # Technical indicators (price, momentum, trend, general)
-│   ├── sr_lines/               # Support/resistance line detection engine + Plotly review chart
-│   ├── models/                # Model training and evaluation
-│   └── utils/                 # Config loading and shared utilities
+│   ├── foundation/             # Shared infra + primitives every signal module builds on
+│   │   ├── data_processing/    # Polygon/yfinance clients, SQLite storage, resampling,
+│   │   │                       # rate limiting, and per-ticker (fetch_data.py) + bulk-market
+│   │   │                       # ingestion CLIs
+│   │   ├── feature_engineering/ # Technical indicators (price, momentum, trend, general)
+│   │   ├── market_common/      # Shared pivot detection, ATR/indicators, bar loading, models
+│   │   └── utils/              # Config loading and shared utilities
+│   ├── signals/                # One self-contained detection engine per concept, each
+│   │   │                       # with its own config/compute/store/cli
+│   │   ├── avwap/               # Anchored VWAP
+│   │   ├── breadth/             # Market breadth
+│   │   ├── divergences/         # Price/indicator divergences
+│   │   ├── fibonacci/           # Fibonacci retracement/extension levels
+│   │   ├── gaps/                 # Gap detection + fill tracking
+│   │   ├── patterns/            # Chart pattern detection (H&S, triangles, VCP, cup & handle, ...)
+│   │   ├── relative_strength/   # Relative strength vs. benchmark
+│   │   └── sr_lines/            # Support/resistance line detection engine + Plotly review chart
+│   ├── analysis/                # Ad-hoc research scripts (not a detection engine)
+│   └── models/                  # Model training and evaluation (not yet built)
 ├── configs/
 │   └── config.yaml            # Runtime parameters (data paths, etc.)
 ├── data/

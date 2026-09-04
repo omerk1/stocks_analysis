@@ -2,13 +2,13 @@ import math
 
 import pandas as pd
 
-from src.sr_lines import candidates as candidates_mod
-from src.sr_lines import events as events_mod
-from src.sr_lines import lifecycle
-from src.sr_lines import pivots as pivots_mod
-from src.sr_lines import scoring as scoring_mod
-from src.sr_lines.config import SRConfig
-from src.sr_lines.models import Event, EventType, LineState, Pivot, PivotKind
+from src.signals.sr_lines import candidates as candidates_mod
+from src.signals.sr_lines import events as events_mod
+from src.signals.sr_lines import lifecycle
+from src.signals.sr_lines import pivots as pivots_mod
+from src.signals.sr_lines import scoring as scoring_mod
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.models import Event, EventType, LineState, Pivot, PivotKind
 
 
 def _make_bars(rows: list[tuple]) -> pd.DataFrame:

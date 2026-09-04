@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.feature_engineering import general_indicators
+from src.foundation.feature_engineering import general_indicators
 
 
 def test_close_open_ratio():

@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.bulk_yfinance_ingest import JOB_TYPE, _to_yfinance_symbol, backfill_yfinance_daily
+from src.foundation.data_processing import db
+from src.foundation.data_processing.bulk_yfinance_ingest import JOB_TYPE, _to_yfinance_symbol, backfill_yfinance_daily
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def test_requires_ticker_universe_populated_first():
         backfill_yfinance_daily(empty_conn, "2024-01-01", "2024-01-02")
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_stores_each_ticker_from_a_multi_ticker_batch(mock_download, conn):
     mock_download.return_value = _multi_ticker_frame(
         {"AAPL": 100.0, "MSFT": 200.0}, ["2024-01-01", "2024-01-02"]
@@ -62,7 +62,7 @@ def test_stores_each_ticker_from_a_multi_ticker_batch(mock_download, conn):
     assert msft.iloc[0]["close"] == 200.0
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_single_ticker_batch_still_uses_multiindex_shape(mock_download, conn):
     # yf.download always receives a *list*, even for one ticker -- and a
     # list-of-one still comes back MultiIndex-columned by ticker (confirmed
@@ -78,7 +78,7 @@ def test_single_ticker_batch_still_uses_multiindex_shape(mock_download, conn):
     assert result.iloc[0]["close"] == 100.0
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_ticker_with_no_data_in_batch_is_flagged_others_still_stored(mock_download, conn):
     frame = _multi_ticker_frame({"AAPL": 100.0, "MSFT": 200.0}, ["2024-01-01"])
     # Simulate MSFT having no real data (e.g. delisted before this range) --
@@ -103,7 +103,7 @@ def test_ticker_with_no_data_in_batch_is_flagged_others_still_stored(mock_downlo
     assert status == "failed"
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_entire_batch_failure_flags_all_tickers_without_infinite_retry(mock_download, conn):
     mock_download.side_effect = ConnectionError("blocked")
 
@@ -120,7 +120,7 @@ def test_entire_batch_failure_flags_all_tickers_without_infinite_retry(mock_down
     assert db.read_bars(conn, "bars_1d", source=db.YFINANCE).empty
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_resumable_skips_already_succeeded_tickers(mock_download, conn):
     db.record_job_result(conn, JOB_TYPE, "AAPL", "success")
     mock_download.return_value = _multi_ticker_frame({"MSFT": 200.0}, ["2024-01-01"])
@@ -132,7 +132,7 @@ def test_resumable_skips_already_succeeded_tickers(mock_download, conn):
     )
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_distinct_job_types_do_not_share_resumability(mock_download, conn):
     # "Success" recorded under the default job_type must not cause a
     # different job_type (e.g. a deeper historical backfill) to skip that
@@ -159,7 +159,7 @@ def test_distinct_job_types_do_not_share_resumability(mock_download, conn):
     assert statuses == {"AAPL": "success", "MSFT": "success"}
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_tickers_param_restricts_scope_instead_of_reading_reference_table(mock_download, conn):
     # conn's reference table has AAPL and MSFT; restrict this run to AAPL only.
     mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0}, ["2024-01-01"])
@@ -179,7 +179,7 @@ def test_tickers_param_does_not_require_reference_table_populated():
     empty_conn = db.get_connection(":memory:")
     db.create_tables(empty_conn)
 
-    with patch("src.data_processing.bulk_yfinance_ingest.yf.download") as mock_download:
+    with patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download") as mock_download:
         mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0}, ["2024-01-01"])
         backfill_yfinance_daily(
             empty_conn, "2024-01-01", "2024-01-01", batch_size=50,
@@ -198,7 +198,7 @@ def test_to_yfinance_symbol_translates_dots_to_hyphens():
     assert _to_yfinance_symbol("AAPL") == "AAPL"  # no dot, unaffected
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_dotted_ticker_is_translated_for_the_api_call_but_stored_under_original(mock_download, conn):
     db.upsert_tickers(
         conn,
@@ -229,7 +229,7 @@ def test_dotted_ticker_is_translated_for_the_api_call_but_stored_under_original(
     assert status == "success"
 
 
-@patch("src.data_processing.bulk_yfinance_ingest.yf.download")
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
 def test_end_date_is_shifted_to_be_inclusive(mock_download, conn):
     # yfinance's own `end` is exclusive; this module shifts it by a day so
     # callers get the same inclusive-end semantics as Polygon.

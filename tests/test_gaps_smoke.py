@@ -4,12 +4,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.data_processing import db as raw_db
-from src.gaps import store
-from src.gaps.config import GapConfig
-from src.gaps.detect import detect
-from src.gaps.models import GapKind, GapStatus, Timeframe
-from src.market_common import derived_db
+from src.foundation.data_processing import db as raw_db
+from src.signals.gaps import store
+from src.signals.gaps.config import GapConfig
+from src.signals.gaps.detect import detect
+from src.signals.gaps.models import GapKind, GapStatus, Timeframe
+from src.foundation.market_common import derived_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"

@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.data_processing.yfinance_client import YFinanceClient
+from src.foundation.data_processing.yfinance_client import YFinanceClient
 
 
 def _raw_history(index, n_rows=2):
@@ -20,7 +20,7 @@ def _raw_history(index, n_rows=2):
     )
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_daily_bars_drops_time_and_tz(mock_ticker_cls):
     index = pd.to_datetime(["2024-01-01 00:00:00-05:00", "2024-01-02 00:00:00-05:00"])
     mock_ticker_cls.return_value.history.return_value = _raw_history(index)
@@ -32,7 +32,7 @@ def test_get_daily_bars_drops_time_and_tz(mock_ticker_cls):
     assert (df.index == df.index.normalize()).all()
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_hourly_bars_keeps_time_drops_tz(mock_ticker_cls):
     index = pd.to_datetime(["2024-01-02 09:30:00-05:00", "2024-01-02 10:30:00-05:00"])
     mock_ticker_cls.return_value.history.return_value = _raw_history(index)
@@ -44,7 +44,7 @@ def test_get_hourly_bars_keeps_time_drops_tz(mock_ticker_cls):
     assert df.index[0].hour == 14
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_empty_response_returns_empty_frame_with_expected_columns(mock_ticker_cls):
     mock_ticker_cls.return_value.history.return_value = pd.DataFrame()
 
@@ -54,7 +54,7 @@ def test_empty_response_returns_empty_frame_with_expected_columns(mock_ticker_cl
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_end_date_is_shifted_to_be_inclusive(mock_ticker_cls):
     # yfinance's own `end` is exclusive (confirmed directly against the real
     # API); this client shifts it by a day so callers get the same
@@ -67,7 +67,7 @@ def test_end_date_is_shifted_to_be_inclusive(mock_ticker_cls):
     assert kwargs["end"] == "2024-01-04"
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_shares_outstanding_drops_time_and_tz(mock_ticker_cls):
     index = pd.to_datetime(["2020-08-03 00:00:00-04:00", "2020-08-04 00:00:00-04:00"])
     mock_ticker_cls.return_value.get_shares_full.return_value = pd.Series(
@@ -82,7 +82,7 @@ def test_get_shares_outstanding_drops_time_and_tz(mock_ticker_cls):
     assert result.index.name == "date"
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_shares_outstanding_handles_a_tz_naive_index(mock_ticker_cls):
     # Regression: confirmed live against several real delisted/acquired
     # tickers (e.g. X, XEC, XLNX, YHOO) -- yfinance returns a tz-naive index
@@ -103,7 +103,7 @@ def test_get_shares_outstanding_handles_a_tz_naive_index(mock_ticker_cls):
     assert (result.index == result.index.normalize()).all()
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_shares_outstanding_deduplicates_same_day_entries_keeping_last(mock_ticker_cls):
     # Regression: real AAPL data around its 2020-08-31 4-for-1 split has
     # genuine same-calendar-day duplicate rows (2 of 6 in a real check),
@@ -123,7 +123,7 @@ def test_get_shares_outstanding_deduplicates_same_day_entries_keeping_last(mock_
     assert result.iloc[0] == 4_275_630_080  # the later of the two 2020-08-04 rows
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_shares_outstanding_handles_none_response(mock_ticker_cls):
     # get_shares_full returns None (not an empty Series/DataFrame) for a
     # ticker with no share-count history available.
@@ -135,7 +135,7 @@ def test_get_shares_outstanding_handles_none_response(mock_ticker_cls):
     assert result.name == "shares_outstanding"
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_sector_info_extracts_sector_and_industry(mock_ticker_cls):
     mock_ticker_cls.return_value.get_info.return_value = {
         "sector": "Technology", "industry": "Consumer Electronics", "longName": "Apple Inc.",
@@ -146,7 +146,7 @@ def test_get_sector_info_extracts_sector_and_industry(mock_ticker_cls):
     assert result == {"ticker": "AAPL", "sector": "Technology", "industry": "Consumer Electronics"}
 
 
-@patch("src.data_processing.yfinance_client.yf.Ticker")
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_sector_info_handles_missing_fields(mock_ticker_cls):
     mock_ticker_cls.return_value.get_info.return_value = {}
 

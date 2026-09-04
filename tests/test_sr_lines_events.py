@@ -1,9 +1,9 @@
 import pandas as pd
 
-from src.sr_lines import events as events_mod
-from src.sr_lines.candidates import HorizontalCandidate
-from src.sr_lines.config import SRConfig
-from src.sr_lines.models import Event, EventType, Pivot, PivotKind
+from src.signals.sr_lines import events as events_mod
+from src.signals.sr_lines.candidates import HorizontalCandidate
+from src.signals.sr_lines.config import SRConfig
+from src.signals.sr_lines.models import Event, EventType, Pivot, PivotKind
 
 
 def _bars(rows: list[tuple]) -> pd.DataFrame:

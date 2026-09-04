@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.bulk_polygon_ingest import JOB_TYPE, backfill_grouped_daily
+from src.foundation.data_processing import db
+from src.foundation.data_processing.bulk_polygon_ingest import JOB_TYPE, backfill_grouped_daily
 
 
 @pytest.fixture

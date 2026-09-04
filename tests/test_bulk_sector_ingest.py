@@ -2,8 +2,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.data_processing import db
-from src.data_processing.bulk_sector_ingest import JOB_TYPE, backfill_sectors
+from src.foundation.data_processing import db
+from src.foundation.data_processing.bulk_sector_ingest import JOB_TYPE, backfill_sectors
 
 
 @pytest.fixture

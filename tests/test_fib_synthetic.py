@@ -3,15 +3,15 @@ import math
 import pandas as pd
 import pytest
 
-from src.fibonacci.config import FibConfig
-from src.fibonacci.engine import detect
-from src.fibonacci.levels import compute_levels
-from src.fibonacci.lifecycle import evaluate_lifecycle
-from src.fibonacci.models import FibSetStatus, FibSwing, SwingDirection
-from src.fibonacci.swings import detect_swings
-from src.fibonacci import store as store_mod
-from src.market_common import derived_db
-from src.data_processing import db as raw_db
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.engine import detect
+from src.signals.fibonacci.levels import compute_levels
+from src.signals.fibonacci.lifecycle import evaluate_lifecycle
+from src.signals.fibonacci.models import FibSetStatus, FibSwing, SwingDirection
+from src.signals.fibonacci.swings import detect_swings
+from src.signals.fibonacci import store as store_mod
+from src.foundation.market_common import derived_db
+from src.foundation.data_processing import db as raw_db
 
 
 def _make_swing(
@@ -270,7 +270,7 @@ def test_more_than_max_sets_qualifying_swings_keeps_only_top_k_by_weight(monkeyp
         _make_swing(100, 170, SwingDirection.UP, magnitude_atr=1.0, duration_bars=1,
                     end_date="2020-01-02T00:00:00"),  # lowest weight
     ]
-    monkeypatch.setattr("src.fibonacci.engine.detect_swings", lambda close, atr, config: swings)
+    monkeypatch.setattr("src.signals.fibonacci.engine.detect_swings", lambda close, atr, config: swings)
 
     conn = raw_db.get_connection(":memory:")
     raw_db.create_tables(conn)

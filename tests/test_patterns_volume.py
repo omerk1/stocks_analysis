@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.patterns.volume import is_breakout_volume_confirmed, rel_volume, volume_sma
+from src.signals.patterns.volume import is_breakout_volume_confirmed, rel_volume, volume_sma
 
 
 def test_rel_volume_normal_case():

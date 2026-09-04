@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.data_processing.resample_bulk import resample_all_tickers
+from src.foundation.data_processing import db
+from src.foundation.data_processing.resample_bulk import resample_all_tickers
 
 
 @pytest.fixture

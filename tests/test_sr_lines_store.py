@@ -2,9 +2,9 @@ import sqlite3
 
 import pytest
 
-from src.market_common import derived_db
-from src.sr_lines import store
-from src.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown, TouchCounts
+from src.foundation.market_common import derived_db
+from src.signals.sr_lines import store
+from src.signals.sr_lines.models import Event, EventType, Line, LineKind, LineRole, LineState, ScoreBreakdown, TouchCounts
 
 
 @pytest.fixture

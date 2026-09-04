@@ -1,8 +1,8 @@
 import pandas as pd
 
-from src.fibonacci.config import FibConfig
-from src.fibonacci.lifecycle import evaluate_level_touches
-from src.fibonacci.models import FibLevel, FibLevelKind, FibSwing, SwingDirection
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.lifecycle import evaluate_level_touches
+from src.signals.fibonacci.models import FibLevel, FibLevelKind, FibSwing, SwingDirection
 
 
 def _bars(rows: list[tuple]) -> pd.DataFrame:

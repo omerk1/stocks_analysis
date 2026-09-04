@@ -1,9 +1,9 @@
 import pandas as pd
 import pytest
 
-from src.breadth.compute import advance_decline_line, compute_breadth
-from src.breadth.config import BreadthConfig
-from src.data_processing import db
+from src.signals.breadth.compute import advance_decline_line, compute_breadth
+from src.signals.breadth.config import BreadthConfig
+from src.foundation.data_processing import db
 
 _DATES = pd.bdate_range("2020-01-01", periods=10)
 

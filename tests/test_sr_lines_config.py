@@ -1,4 +1,4 @@
-from src.sr_lines.config import get_preset
+from src.signals.sr_lines.config import get_preset
 
 
 def test_weekly_preset_sets_bar_interval_and_rescales_bar_count_knobs():

@@ -27,10 +27,10 @@ from src.analysis.gap_fill_predictive_power import (
     _corr_row,
     _return_pct,
 )
-from src.data_processing import db as raw_db
-from src.gaps import store as gaps_store
-from src.gaps.models import Direction, Gap, GapKind, Timeframe
-from src.market_common import derived_db
+from src.foundation.data_processing import db as raw_db
+from src.signals.gaps import store as gaps_store
+from src.signals.gaps.models import Direction, Gap, GapKind, Timeframe
+from src.foundation.market_common import derived_db
 
 
 def _bars(rows: list[tuple[float, float, float, float, float]], start: str = "2020-01-01") -> pd.DataFrame:

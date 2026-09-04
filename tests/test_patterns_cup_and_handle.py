@@ -2,10 +2,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.market_common.models import Direction, Pivot, PivotKind, Timeframe
-from src.patterns.config import PatternConfig
-from src.patterns.detectors.cup_and_handle import CupAndHandleDetector
-from src.patterns.models import PatternStatus, PatternType
+from src.foundation.market_common.models import Direction, Pivot, PivotKind, Timeframe
+from src.signals.patterns.config import PatternConfig
+from src.signals.patterns.detectors.cup_and_handle import CupAndHandleDetector
+from src.signals.patterns.models import PatternStatus, PatternType
 
 
 def _config(**overrides) -> PatternConfig:
@@ -338,8 +338,8 @@ def test_pending_when_not_enough_bars_yet_to_resolve():
 
 
 def _scan(df, config=None):
-    from src.market_common.pivots import detect_pivots
-    from src.market_common import indicators
+    from src.foundation.market_common.pivots import detect_pivots
+    from src.foundation.market_common import indicators
     config = config or _config()
     atr = indicators.atr(df, config.atr_period)
     pivots = detect_pivots(df["high"], df["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr.iloc[i])

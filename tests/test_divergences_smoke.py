@@ -8,15 +8,15 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.data_processing import db
-from src.divergences.config import DivergenceConfig
-from src.divergences.detect import compute_indicator_series, detect
-from src.divergences.models import Direction
-from src.divergences.plotting import render_divergence_chart
-from src.divergences.store import create_divergences_table, upsert_divergences
-from src.market_common import data as data_mod
-from src.market_common import derived_db
-from src.market_common.models import Timeframe
+from src.foundation.data_processing import db
+from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.detect import compute_indicator_series, detect
+from src.signals.divergences.models import Direction
+from src.signals.divergences.plotting import render_divergence_chart
+from src.signals.divergences.store import create_divergences_table, upsert_divergences
+from src.foundation.market_common import data as data_mod
+from src.foundation.market_common import derived_db
+from src.foundation.market_common.models import Timeframe
 
 DB_PATH = "data/raw/market_data.sqlite"
 

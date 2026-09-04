@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.market_common.models import Pivot, PivotKind
-from src.patterns.trendlines import (
+from src.foundation.market_common.models import Pivot, PivotKind
+from src.signals.patterns.trendlines import (
     convergence_apex_bar, count_touches, fit_line, has_prior_trend, level_tolerance, prior_trend_pct,
     r_squared, touches_level,
 )
