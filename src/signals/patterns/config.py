@@ -73,6 +73,17 @@ class PatternConfig:
     volume_sma_period: int = 50
     breakout_volume_mult: float = 1.4
 
+    # Pivot breakout validation design doc's "Code Modification Rules":
+    # optional hard gate turning breakout_volume_mult -- already computed
+    # into every match's volume_signature score and match.volume_confirmed
+    # -- into a requirement for a close-break to count as a breakout at
+    # all, rather than a purely informational/scoring signal. Off by
+    # default, reusing this same threshold rather than a second, separate
+    # knob. See docs/features/pivot_breakout_validation_design.md §4/§5 for
+    # why the doc's other ask here (`break_confirmation_type`, "wick" vs.
+    # "close") was discarded entirely instead of added alongside this.
+    require_volume_surge: bool = False
+
     # §3.4 breakout/confirmation: a close must clear the trigger level by
     # at least this fraction to count as a real breakout (not a marginal
     # close), echoing O'Neil's cup & handle buffer convention.
@@ -132,6 +143,29 @@ class PatternConfig:
     double_top_symmetry_hard_gate_pct: float = 8.0
     double_top_typical_min_bars: int = 10
     double_top_typical_max_bars: int = 120
+
+    # Triple Top/Bottom -- the same 5-pivot generalization of double
+    # top/bottom's window (3 comparable extremes instead of 2), sharing
+    # its detector (detectors/double_top_bottom.py). Symmetry gate reuses
+    # double_top_symmetry_hard_gate_pct's own value as a first-pass
+    # starting point (max-min spread across all 3 extremes rather than a
+    # single pairwise diff); typical duration range widened over double
+    # top's own 10/120 to account for a structurally longer, 5-pivot
+    # formation -- same reasoning double_top_typical_min/max_bars ->
+    # head_shoulders_typical_min/max_bars already establishes for a
+    # 5-pivot H&S vs. a 3-pivot double top.
+    triple_top_symmetry_hard_gate_pct: float = 8.0
+    triple_top_typical_min_bars: int = 15
+    triple_top_typical_max_bars: int = 150
+
+    # 1-2-3 Reversal (detectors/reversal_123.py). No symmetry knob -- its
+    # hard structural gate is "Point 3 is a genuine higher low/lower high
+    # vs. Point 1," not a price-symmetry tolerance (see the detector's own
+    # docstring). Typical duration range starts near double top's own
+    # (a 3-pivot formation, same as double top/bottom) -- first-pass,
+    # unvalidated like every other duration figure in this file.
+    reversal_123_typical_min_bars: int = 10
+    reversal_123_typical_max_bars: int = 120
 
     # §4.1 Head & Shoulders / Inverse. Same "hard outer bound, soft score
     # within it" reasoning as double_top_symmetry_hard_gate_pct -- the

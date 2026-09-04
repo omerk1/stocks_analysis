@@ -177,3 +177,35 @@ def test_pending_when_not_enough_bars_yet_to_resolve():
     assert len(matches) == 1
     assert matches[0].status == PatternStatus.PENDING
     assert matches[0].breakout_bar is None
+
+
+def test_require_volume_surge_blocks_close_break_without_volume():
+    # Same close-crosses-neckline geometry as
+    # test_double_top_confirmed_breakout_hits_target, but flat volume
+    # throughout (no bar ever reaches breakout_volume_mult) -- with the
+    # gate on, a close-only break isn't accepted as a real breakout at all.
+    df = _chain(*_PREFIX, (127.0, 100.0, 10))
+    pivots = _double_top_pivots(df)
+    config = _config(require_volume_surge=True)
+
+    matches = DoubleTopBottomDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    assert matches[0].status == PatternStatus.PENDING
+    assert matches[0].breakout_bar is None
+
+
+def test_require_volume_surge_allows_volume_confirmed_break():
+    # Identical fixture to test_double_top_confirmed_breakout_hits_target
+    # (which already gives the breakout bar a volume expansion) -- the
+    # gate should let an already volume-confirmed break through unchanged.
+    df = _chain(*_PREFIX, (127.0, 100.0, 10))
+    df.loc[df.index[23], "volume"] = 1600.0
+    pivots = _double_top_pivots(df)
+    config = _config(require_volume_surge=True)
+
+    matches = DoubleTopBottomDetector().scan(df, pivots, "TST", Timeframe.DAILY, config)
+
+    assert len(matches) == 1
+    assert matches[0].breakout_bar == 23
+    assert matches[0].status == PatternStatus.HIT_TARGET

@@ -24,6 +24,13 @@ __all__ = ["Direction", "Timeframe", "PatternType", "PatternStatus", "PatternMat
 class PatternType(str, Enum):
     DOUBLE_TOP = "double_top"
     DOUBLE_BOTTOM = "double_bottom"
+    TRIPLE_TOP = "triple_top"
+    TRIPLE_BOTTOM = "triple_bottom"
+    # Direction (BULLISH/BEARISH) carries the P1-P2-P3 shape's bias on the
+    # match itself rather than splitting into two enum members -- see
+    # docs/features/pivot_breakout_validation_design.md §3/§5 decision 4
+    # (matches the triangle family's convention, not double top/bottom's).
+    REVERSAL_123 = "reversal_123"
     HEAD_AND_SHOULDERS = "head_and_shoulders"
     INVERSE_HEAD_AND_SHOULDERS = "inverse_head_and_shoulders"
     ASCENDING_TRIANGLE = "ascending_triangle"
