@@ -26,13 +26,14 @@ from src.signals.patterns.detectors.cup_and_handle import CupAndHandleDetector
 from src.signals.patterns.detectors.double_top_bottom import DoubleTopBottomDetector
 from src.signals.patterns.detectors.flags_pennants import FlagPennantDetector
 from src.signals.patterns.detectors.head_shoulders import HeadShouldersDetector
+from src.signals.patterns.detectors.reversal_123 import Reversal123Detector
 from src.signals.patterns.detectors.triangles import TriangleWedgeDetector
 from src.signals.patterns.detectors.vcp import VCPDetector
 from src.signals.patterns.models import PatternMatch
 
 DEFAULT_DETECTORS: list[PatternDetector] = [
     DoubleTopBottomDetector(), HeadShouldersDetector(), TriangleWedgeDetector(), CupAndHandleDetector(), VCPDetector(),
-    FlagPennantDetector(),
+    FlagPennantDetector(), Reversal123Detector(),
 ]
 
 

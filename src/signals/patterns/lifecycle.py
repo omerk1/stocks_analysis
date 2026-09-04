@@ -222,6 +222,14 @@ def apply_lifecycle(
         level = trigger_at(i)
         close = float(closes[i])
         broke = (close < level * (1 - buffer)) if is_bearish else (close > level * (1 + buffer))
+        if broke and config.require_volume_surge:
+            # A close-only break that isn't volume-confirmed isn't treated
+            # as a real breakout at all when this gate is on -- the walk
+            # keeps waiting on later bars, same as it would for a close
+            # that never cleared the level in the first place.
+            broke = volume_mod.is_breakout_volume_confirmed(
+                float(volume.iloc[i]), float(volume_sma_series.iloc[i]), config.breakout_volume_mult
+            )
         # A break inside the suppression window is *ignored*, not
         # disqualifying: the pattern keeps waiting for a real one. These
         # bars aren't evidence against the shape, they're just too close to
@@ -300,6 +308,12 @@ def apply_lifecycle_bidirectional(
         lower_level = lower_trigger_at(i)
         broke_up = close > upper_level * (1 + buffer)
         broke_down = close < lower_level * (1 - buffer)
+        if (broke_up or broke_down) and config.require_volume_surge:
+            volume_ok = volume_mod.is_breakout_volume_confirmed(
+                float(volume.iloc[i]), float(volume_sma_series.iloc[i]), config.breakout_volume_mult
+            )
+            broke_up = broke_up and volume_ok
+            broke_down = broke_down and volume_ok
 
         if broke_up or broke_down:
             if broke_up:
