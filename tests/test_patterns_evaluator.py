@@ -147,6 +147,29 @@ def test_had_throwback_flat_pattern_uses_key_levels_neckline_not_entry_price():
     assert had_throwback(bars, match, target_hit_bar=12) is False
 
 
+def test_had_throwback_triple_top_uses_key_levels_neckline_not_entry_price():
+    # Same shape as the double_top case above -- TRIPLE_TOP/TRIPLE_BOTTOM
+    # weren't in _FLAT_TRIGGER_KEY before this fix, so had_throwback would
+    # have silently fallen back to entry_price (a materially wrong stand-in,
+    # since entry_price is the breakout bar's close, already past the
+    # neckline by construction).
+    bars = pd.DataFrame({"close": [95.0] * 11 + [97.0]})
+    match = _match(
+        pattern_type=PatternType.TRIPLE_TOP, direction=Direction.BEARISH,
+        breakout_bar=10, entry_price=95.0, key_levels={"neckline": 100.0},
+    )
+    assert had_throwback(bars, match, target_hit_bar=12) is False
+
+
+def test_had_throwback_reversal_123_uses_key_levels_point2_not_entry_price():
+    bars = pd.DataFrame({"close": [95.0] * 11 + [97.0]})
+    match = _match(
+        pattern_type=PatternType.REVERSAL_123, direction=Direction.BEARISH,
+        breakout_bar=10, entry_price=95.0, key_levels={"point2": 100.0},
+    )
+    assert had_throwback(bars, match, target_hit_bar=12) is False
+
+
 def test_had_throwback_sloped_fixed_pattern_uses_trendline_not_entry_price():
     # neckline_at(i) = i + 90 -- at breakout (bar 10) it's 100, matching
     # entry_price, but by bar11 it's already risen to 101. bar11's close
