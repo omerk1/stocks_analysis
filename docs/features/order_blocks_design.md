@@ -1,6 +1,6 @@
 # Order Blocks — Design Doc
 
-**Status:** Not started. This is a scoping doc, not an implementation plan yet — captures a design discussion so it can be picked up later without needing the conversation that produced it.
+**Status:** Closed, not shipping. §3's prototype/backtest gate was run against the full ticker universe and failed decisively — see §6. This doc is kept as a record of the investigation, not a pending implementation plan.
 
 **Origin:** Came up while reviewing real chart examples for `feature/pivot-breakout-validation`'s BOS/CHoCH work (see `docs/features/pivot_breakout_validation_design.md`). An SMC/ICT reference article's example chart labeled a short entry as an "order block retest," which isn't a concept this codebase has — this doc scopes whether/how to add it.
 
@@ -47,3 +47,18 @@ The key insight: this is cheap to build, because the expensive part already exis
 - No code written yet.
 - No decision on whether this ships at all — §3's prototype/backtest check is a gate, not a formality.
 - Bullish order blocks, mitigation/"breaker block" variants, and fair-value-gap (a related but distinct SMC concept) are not addressed here — scope creep to avoid pulling in without a specific need.
+
+## 6. §3 gate result: order blocks lose to pivot clustering, don't ship
+
+Built and ran (then discarded, once the result was recorded here) the minimal version of §4's candidate generator: scan for a bar whose body exceeds a `body_atr_mult` multiple of ATR (an "impulsive" bar), take the nearest opposite-colored candle within a bounded lookback as the zone. Ran it through the *exact* same `sr_lines.events.classify_events` pipeline real pivot-clustered candidates use, so the comparison isolated candidate origin, not evaluation method. Deliberately never wired into `candidates.py`/`engine.py` -- this was a gate check, not a committed feature, and the gate failed.
+
+Measured first-retest hold rate and forward returns (mean/median/winsorized mean at 10/20/60 bars, conditional on the retest holding) for order-block zones vs. `generate_horizontal_candidates`'s existing pivot-clustered zones, `medium_term` preset, **every ticker in `bars_1d`** (5,314 tickers, 0 failures):
+
+| | n candidates | hold rate | median return 10b | median return 20b | median return 60b |
+|---|---|---|---|---|---|
+| order_block | 65,870 | 81.8% | 0.11% | 0.17% | 0.19% |
+| pivot_cluster | 84,039 | 85.7% | 1.44% | 1.21% | 0.67% |
+
+Pivot clustering wins on every axis measured: more candidates found, a higher hold rate, and 4-13x higher median forward returns at every horizon (mean and winsorized mean tell the same story). This is exactly the failure condition §3 named going in: order-block zones are not merely a subset of what pivot clustering already finds, they're a *worse* signal by the same evidence standard. Reinterpreting "last opposing candle before an impulsive move" as a timeframe-agnostic swing heuristic (§3's "for" argument) doesn't rescue it -- on this data, at daily granularity, it underperforms the thing it would have to justify a separate code path against.
+
+**Decision: don't build §4.** The prototype/backtest code itself was not kept (a closed investigation isn't a reason to carry a dead module) -- this section is the record. Rebuilding it would be quick if a future variant (different `body_atr_mult`/lookback calibration, a different timeframe, order-block origin as a *tiebreaker* within existing pivot clusters rather than a standalone source) is ever worth a re-check, but the default assumption going forward is that this line of investigation is closed, not paused.
