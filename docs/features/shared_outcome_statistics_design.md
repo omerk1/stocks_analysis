@@ -1,6 +1,6 @@
 # Shared Outcome-Statistics Toolkit — Design Doc
 
-**Status:** Not started. Scoping doc, not an implementation plan — captures a design discussion so it can be picked up later without needing the conversation that produced it.
+**Status:** §2-3 steps 1-3 implemented (`market_common/stats.py`, `evaluator.py` migrated, `PatternOutcome.confidence` added). §3 steps 4-5 (the `market_structure/backtest.py` module and per-module aggregation for gaps/divergences/fibonacci/avwap/sr_lines) not started — tracked in `docs/features/pivot_breakout_validation_backtest_design.md` and §3 step 5 below respectively.
 
 **Related:** `docs/features/pivot_breakout_validation_backtest_design.md` (scoped to the three new `feature/pivot-breakout-validation` detectors specifically). That doc's §3 says the new `market_structure/backtest.py` should "reuse `evaluator._return_stats` and its exact three-statistic convention" via cross-import from `patterns`. This doc formalizes that instead of leaving it as an informal cross-module import — extract the statistic, not just borrow it.
 
@@ -27,10 +27,9 @@ class DistributionStats:
     mean: float | None
     median: float | None
     winsorized_mean: float | None
-    p10: float | None
-    p25: float | None
-    p75: float | None
-    p90: float | None
+    std: float | None
+    risk_adjusted_return: float | None  # mean / std
+    percentiles: dict[float, float | None]  # keyed by the requested quantiles
 
 def distribution_stats(
     values: list[float],
@@ -40,17 +39,20 @@ def distribution_stats(
     ...
 ```
 
-- Mean/median/winsorized-mean: lifted directly from `_return_stats`, same `WINSOR_LIMIT=0.01` default, same "empty input -> all None, not zero" behavior (a right-censored/no-data case is not a zero return, `_return_stats`'s existing docstring already makes this point and it carries over unchanged).
+(As built, `percentiles` is a `dict[float, float | None]` rather than four fixed fields — same information, but doesn't hardcode the quantile set into the dataclass shape.)
+
+- Mean/median/winsorized-mean: lifted directly from `_return_stats`, same `WINSOR_LIMIT=0.01` default (now `DEFAULT_WINSOR_LIMIT`), same "empty input -> all None, not zero" behavior (a right-censored/no-data case is not a zero return, `_return_stats`'s existing docstring already makes this point and it carries over unchanged).
 - **p10/p25/p75/p90, added per this doc's request:** median alone (p50) says nothing about spread. p25/p75 gives an IQR-style "typical range," p10/p90 gives tail behavior without the instability of raw min/max on a small sample. Same reasoning that motivated winsorizing over trimming in the first place — report the shape, don't hide it. Percentile choice is configurable (the four defaults are a starting point, not sacred) but shouldn't grow unbounded; four is enough to see distribution shape without turning every summary table into an unreadable wall of columns.
+- **`std` and `risk_adjusted_return`, added during implementation (not in the original request):** raised when scoping the work — should this toolkit report something Sharpe-like? A literal annualized Sharpe ratio doesn't fit: that assumes a compounding equity curve of periodic returns and a risk-free rate, and what's actually being summarized here is a cross-sectional pile of independent per-event outcomes (many overlapping-in-time matches, each measured at a fixed horizon), not a portfolio return series. What *does* fit is the underlying idea of "edge relative to its own noise" — `mean / std`, an un-annualized reward-to-variability ratio. Named `risk_adjusted_return`, not `sharpe`, specifically to avoid implying the annualization/risk-free-rate semantics it doesn't have. `None` whenever `std` is `None` or `0` (fewer than 2 values, or a constant-valued sample).
 - Deliberately generic over what the values mean (returns, ATR-normalized moves, days-to-fill, whatever) — takes `list[float]`, no return-specific assumptions baked in.
 
 ## 3. Migration plan
 
-1. **Build `market_common/stats.py`** with `distribution_stats`.
-2. **Refactor `patterns/backtest/evaluator.py`** to call it instead of its private `_return_stats`. Behavior-preserving for mean/median/winsorized (same numbers, same edge cases); additive for percentiles — `summarize()` gains `p10_return_{h}b`/`p25_return_{h}b`/`p75_return_{h}b`/`p90_return_{h}b` columns per horizon alongside the existing ones, nothing removed. `tests/test_patterns_evaluator.py` needs to keep passing unchanged for the existing columns; new tests cover the added percentile columns.
-3. **Add `confidence: float | None` to `PatternOutcome`**, populated from `match.confidence` (already computed by every detector via `scoring.py`, just never carried through to the outcome record). This is the schema change from §0 above — lets `summarize()` eventually bucket by confidence quartile and actually check whether the score means anything, which nothing in this repo can currently do.
-4. **Build `market_structure/backtest.py`** (scoped in the other design doc) against `market_common.stats.distribution_stats` directly — not via a cross-import into `patterns`. Its own outcome dataclass should also carry `confidence: float | None` from day one (`None` until BOS/CHoCH gets a scoring pass — tracked separately, see §4 below — so this doesn't need a second migration once that lands).
-5. **Lower priority, explicitly not detailed here:** `gaps`/`divergences`/`fibonacci`/`avwap`/`sr_lines` each getting their own lightweight aggregation step using the same shared helper. Each has a different per-event outcome shape (fill %, ATR-normalized favorable move, reaction window, flip persistence), so scoping each one is its own small design question — flagged as the natural next targets once §1-4 land, not planned in detail here.
+1. **Build `market_common/stats.py`** with `distribution_stats`. — Done.
+2. **Refactor `patterns/backtest/evaluator.py`** to call it instead of its private `_return_stats`. Behavior-preserving for mean/median/winsorized (same numbers, same edge cases); additive for percentiles and the new `std`/`risk_adjusted_return` — `summarize()` gains `std_return_{h}b`, `risk_adj_return_{h}b`, and `p10_return_{h}b`/`p25_return_{h}b`/`p75_return_{h}b`/`p90_return_{h}b` columns per horizon alongside the existing ones, nothing removed. — Done; `tests/test_patterns_evaluator.py` extended to cover the new columns, existing assertions unchanged.
+3. **Add `confidence: float | None` to `PatternOutcome`**, populated from `match.confidence` (already computed by every detector via `scoring.py`, just never carried through to the outcome record). This is the schema change from §0 above — lets `summarize()` eventually bucket by confidence quartile and actually check whether the score means anything, which nothing in this repo can currently do. — Done.
+4. **Build `market_structure/backtest.py`** (scoped in the other design doc) against `market_common.stats.distribution_stats` directly — not via a cross-import into `patterns`. Its own outcome dataclass should also carry `confidence: float | None` from day one (`None` until BOS/CHoCH gets a scoring pass — tracked separately, see §4 below — so this doesn't need a second migration once that lands). — Not started.
+5. **Lower priority, explicitly not detailed here:** `gaps`/`divergences`/`fibonacci`/`avwap`/`sr_lines` each getting their own lightweight aggregation step using the same shared helper. Each has a different per-event outcome shape (fill %, ATR-normalized favorable move, reaction window, flip persistence), so scoping each one is its own small design question — flagged as the natural next targets once §1-4 land, not planned in detail here. — Not started.
 
 ## 4. Relationship to BOS/CHoCH confidence scoring
 

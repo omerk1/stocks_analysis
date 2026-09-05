@@ -350,6 +350,11 @@ def test_summarize_reports_median_and_winsorized_mean_beside_the_raw_mean():
     # Winsorizing caps, it does not discard -- n_resolved stays the true
     # sample size, unlike a trimmed mean.
     assert row["n_resolved_5b"] == 100
+    assert row["std_return_5b"] > 0
+    assert row["risk_adj_return_5b"] == pytest.approx(row["mean_return_5b"] / row["std_return_5b"])
+    # The single 30.0 outlier is far enough out in the tail that even p90
+    # doesn't reach it -- 99 of the 100 values sit at -0.02.
+    assert row["p10_return_5b"] == row["p25_return_5b"] == row["p75_return_5b"] == row["p90_return_5b"] == pytest.approx(-0.02)
 
 
 def test_summarize_winsorized_mean_equals_plain_mean_without_outliers():
@@ -358,6 +363,7 @@ def test_summarize_winsorized_mean_equals_plain_mean_without_outliers():
 
     assert row["wins_return_5b"] == pytest.approx(row["mean_return_5b"], abs=1e-9)
     assert row["median_return_5b"] == pytest.approx(0.03)
+    assert row["p10_return_5b"] < row["p25_return_5b"] < row["median_return_5b"] < row["p75_return_5b"] < row["p90_return_5b"]
 
 
 def test_summarize_return_stats_all_none_for_an_unresolved_horizon():
@@ -372,10 +378,26 @@ def test_summarize_return_stats_all_none_for_an_unresolved_horizon():
     assert row["mean_return_5b"] is None
     assert row["median_return_5b"] is None
     assert row["wins_return_5b"] is None
+    assert row["std_return_5b"] is None
+    assert row["risk_adj_return_5b"] is None
+    assert row["p10_return_5b"] is None
     assert row["n_resolved_5b"] == 0
 
 
 def test_summarize_empty_frame_carries_the_new_return_columns():
     cols = summarize([], horizons=(10,)).columns
-    for name in ("mean_return_10b", "median_return_10b", "wins_return_10b", "n_resolved_10b"):
+    for name in (
+        "mean_return_10b", "median_return_10b", "wins_return_10b", "std_return_10b",
+        "risk_adj_return_10b", "p10_return_10b", "p25_return_10b", "p75_return_10b",
+        "p90_return_10b", "n_resolved_10b",
+    ):
         assert name in cols
+
+
+def test_pattern_outcome_carries_confidence_from_the_match():
+    match = _match(status=PatternStatus.HIT_TARGET, breakout_bar=5)
+    match.confidence = 0.72
+    bars = _chain((100.0, 90.0, 15), start="2020-01-01")
+    outcomes = compute_outcomes([match], bars)
+
+    assert outcomes[0].confidence == pytest.approx(0.72)
