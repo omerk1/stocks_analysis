@@ -22,7 +22,7 @@ class Config(BaseModel):
 def load_config(config_path: Optional[str | Path] = None) -> Config:
     if config_path is None:
         # PROJECT_ROOT/configs/config.yaml
-        config_path = Path(__file__).resolve().parents[2] / "configs" / "config.yaml"
+        config_path = Path(__file__).resolve().parents[3] / "configs" / "config.yaml"
     else:
         config_path = Path(config_path)
 
