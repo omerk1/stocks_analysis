@@ -41,7 +41,7 @@ class DistributionStats:
     # None or zero (a single-observation or constant-valued sample has no
     # meaningful noise to divide by).
     risk_adjusted_return: float | None
-    percentiles: dict[float, float]
+    percentiles: dict[float, float | None]
 
 
 def distribution_stats(
@@ -51,8 +51,9 @@ def distribution_stats(
 ) -> DistributionStats:
     """Summarize one horizon/bucket's resolved outcome values.
 
-    Empty input reports every statistic as None (and an empty `percentiles`
-    dict), not zero -- a right-censored/no-data case is not a zero outcome.
+    Empty input reports every statistic as None, and `percentiles` as a
+    dict with every requested key mapped to None (not an empty dict) --
+    not zero, a right-censored/no-data case is not a zero outcome.
 
     Winsorizing clips each tail to its `winsor_limit` percentile rather than
     discarding those observations, so `n` stays the real sample size. With
