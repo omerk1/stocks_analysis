@@ -75,9 +75,10 @@ def test_compute_outcomes_choch_whipsawed_true_when_opposite_choch_follows_withi
     by_id = {o.event_id: o for o in outcomes}
 
     assert by_id["e1"].whipsawed is True
-    # The later CHoCH has nothing opposite-direction after it in this
-    # two-event list, so it did not whipsaw.
-    assert by_id["e2"].whipsawed is False
+    # e2's own whipsaw_bars window (break_idx 15 + 20 = 35) reaches past
+    # the last available bar (index 29) -- right-censored, not a genuine
+    # "did not whipsaw" (see test_compute_outcomes_choch_whipsawed_none_when_window_extends_past_available_bars).
+    assert by_id["e2"].whipsawed is None
 
 
 def test_compute_outcomes_choch_whipsawed_false_outside_the_window():
@@ -92,6 +93,20 @@ def test_compute_outcomes_choch_whipsawed_false_outside_the_window():
     outcomes = compute_outcomes([first, reversal], bars, horizons=(3,), whipsaw_bars=5)
 
     assert next(o for o in outcomes if o.event_id == "e1").whipsawed is False
+
+
+def test_compute_outcomes_choch_whipsawed_none_when_window_extends_past_available_bars():
+    # A CHoCH 10 bars from the end of history with whipsaw_bars=60: only 10
+    # of the 60 bars needed to rule out a reversal actually exist. No
+    # opposite CHoCH occurred in the data available -- but that's "not
+    # observable yet", not "the regime survived a 60-bar window it was
+    # never actually tested against".
+    bars = _bars([100.0] * 20)
+    event = _event(event=StructureEvent.CHOCH, direction=Direction.BULLISH, broken_at=bars.index[10].isoformat())
+
+    outcomes = compute_outcomes([event], bars, horizons=(3,), whipsaw_bars=60)
+
+    assert outcomes[0].whipsawed is None
 
 
 def _outcome(event: str, direction: str, r: float, whipsawed: bool | None = None) -> StructureOutcome:

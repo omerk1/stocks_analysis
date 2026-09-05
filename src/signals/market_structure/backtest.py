@@ -64,7 +64,10 @@ class StructureOutcome:
     forward_returns: dict[int, float | None]
     # None for a BOS (the question doesn't apply -- a BOS doesn't flip the
     # regime, there's nothing to "survive"). For a CHoCH: True if an
-    # opposite-direction CHoCH fires within `whipsaw_bars`, else False.
+    # opposite-direction CHoCH fires within `whipsaw_bars`; False if the
+    # full window elapsed without one; None if `bars` doesn't extend
+    # `whipsaw_bars` past the break yet (right-censored, same discipline
+    # as `forward_returns` -- not yet knowable is not the same as "no").
     whipsawed: bool | None
     # BOS/CHoCH has no confidence score yet (see
     # docs/features/shared_outcome_statistics_design.md §4) -- carried as
@@ -93,16 +96,27 @@ def forward_return_pct(bars: pd.DataFrame, event: TrendState, horizon_bars: int)
 
 def _had_whipsaw(
     indexed_events: list[tuple[int, TrendState]], break_idx: int, event: TrendState, whipsaw_bars: int,
-) -> bool:
+    n_bars: int,
+) -> bool | None:
     """True if an opposite-direction CHoCH for the same ticker fires
     strictly after `event` and within `whipsaw_bars` of it -- the regime
-    this CHoCH just established didn't survive that window."""
+    this CHoCH just established didn't survive that window.
+
+    A found reversal is reported as soon as it's found, censoring or not.
+    But absence of one is only a genuine False once `whipsaw_bars` has
+    actually elapsed within `bars` -- a CHoCH near the end of available
+    history hasn't had its full window observed yet, and reporting False
+    there would silently read as "regime survived" when the honest answer
+    is "don't know yet" (the same right-censoring `forward_return_pct`
+    already applies to forward returns)."""
     opposite = Direction.BEARISH if event.direction == Direction.BULLISH else Direction.BULLISH
     for other_idx, other in indexed_events:
         if other is event or other.event != StructureEvent.CHOCH:
             continue
         if break_idx < other_idx <= break_idx + whipsaw_bars and other.direction == opposite:
             return True
+    if break_idx + whipsaw_bars >= n_bars:
+        return None
     return False
 
 
@@ -117,7 +131,7 @@ def compute_outcomes(
     outcomes = []
     for break_idx, event in indexed:
         whipsawed = (
-            _had_whipsaw(indexed, break_idx, event, whipsaw_bars)
+            _had_whipsaw(indexed, break_idx, event, whipsaw_bars, len(bars))
             if event.event == StructureEvent.CHOCH else None
         )
         outcomes.append(StructureOutcome(
