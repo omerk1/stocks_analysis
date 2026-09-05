@@ -1,6 +1,6 @@
 # Pivot Breakout Validation — Backtest / Validation Design Doc
 
-**Status:** Not started. Scoping doc, not an implementation plan — captures a design discussion so it can be picked up later without needing the conversation that produced it.
+**Status:** §2's trigger-key fix and §3's `market_structure/backtest.py` are implemented and sanity-checked against real data (AAPL/MSFT/NVDA, both timeframes). §4's full-universe `--all` runs (both modules, both timeframes) have not been done — that's a multi-hour job across ~6,554 tickers, deliberately left as a separate, explicit step rather than run silently as part of landing the code (see §4 below for the runtime estimate).
 
 **Depends on:** `feature/pivot-breakout-validation` (BOS/CHoCH, Triple Top/Bottom, 1-2-3 Reversal — see `docs/features/pivot_breakout_validation_design.md`) merged to `main` first. This doc references files that only exist on that branch.
 
@@ -44,9 +44,9 @@ Both go through the exact same pipeline as every other pattern (`scan_bars` → 
 
 ## 4. Suggested order
 
-1. Land the 3-line `_FLAT_TRIGGER_KEY` fix in `evaluator.py` (§2).
-2. Run `evaluator.py --all` for daily and weekly, both before this branch's changes (as a sanity check the fix didn't perturb existing pattern types) and after (to get real triple-top/bottom/reversal-123 numbers).
-3. Build the new `market_structure/backtest.py` module (§3) — the only real new code in this doc.
-4. Run it, `--all`, both timeframes, and look at the CHoCH/BOS split and the whipsaw rate before drawing any conclusion about whether BOS/CHoCH is worth trusting on daily/weekly bars.
+1. Land the 3-line `_FLAT_TRIGGER_KEY` fix in `evaluator.py` (§2). — Done.
+2. Run `evaluator.py --all` for daily and weekly, both before this branch's changes (as a sanity check the fix didn't perturb existing pattern types) and after (to get real triple-top/bottom/reversal-123 numbers). — Sanity-checked on AAPL/MSFT/NVDA only (both `triple_top`/`triple_bottom`/`reversal_123` now report a real `throwback_rate` instead of silently falling back to `entry_price`). The full `--all` run has not been done: at the observed ~2s/ticker this is ~3.5 hours per timeframe across the ~6,554-ticker universe in `bars_1d`, explicitly not run as a side effect of landing this code.
+3. Build the new `market_structure/backtest.py` module (§3) — the only real new code in this doc. — Done, with tests (`tests/test_market_structure_backtest.py`).
+4. Run it, `--all`, both timeframes, and look at the CHoCH/BOS split and the whipsaw rate before drawing any conclusion about whether BOS/CHoCH is worth trusting on daily/weekly bars. — Sanity-checked on AAPL/MSFT/NVDA only (~0.5s/ticker, both timeframes ran cleanly; `bos_*`'s `whipsaw_rate` correctly reports `NaN`, not 0, since BOS never carries a whipsaw verdict). On that 3-ticker sample, `choch_bearish` whipsawed far more often than `choch_bullish` (daily: 69% vs. 48%; weekly: 95% vs. 33%) — suggestive, but N=3 tickers is not the universe-wide read this step calls for. The full `--all` run has not been done, same runtime-cost reasoning as step 2.
 
-Nothing here is started. No code has been written for this doc.
+Steps 1 and 3 (the actual code) are done. Steps 2 and 4 (the full-universe runs that turn this into a real conclusion about whether these signals are worth trusting) are a deliberate, separate follow-up — run `python -m src.signals.patterns.backtest.evaluator --all --timeframe daily` (and `--timeframe weekly`) and `python -m src.signals.market_structure.backtest --all --timeframe daily` (and `--timeframe weekly`) when ready to spend the several hours of compute this takes.

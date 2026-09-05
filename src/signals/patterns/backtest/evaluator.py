@@ -165,6 +165,9 @@ _FLAT_TRIGGER_KEY: dict[PatternType, str] = {
     PatternType.ROUNDING_BOTTOM: "neckline",
     PatternType.ROUNDING_TOP: "neckline",
     PatternType.VCP: "pivot_price",
+    PatternType.TRIPLE_TOP: "neckline",
+    PatternType.TRIPLE_BOTTOM: "neckline",
+    PatternType.REVERSAL_123: "point2",
 }
 
 _SLOPED_FIXED_TRIGGER_KEY: dict[PatternType, str] = {
