@@ -176,11 +176,11 @@ Additional cuts to carry as covariates throughout: market cap decile, realised-v
 
 ### 3.3 Sample period
 
-- **Development window:** 2000-01-01 → 2016-12-31. Contains dot-com bust, 2003–07 bull, GFC, 2011 and 2015 corrections.
-- **Holdout (locked, untouched):** 2017-01-01 → present. Contains 2018Q4, COVID crash and V-recovery, 2022 bear, 2023–25 regime.
+- **Development window:** 2010-01-01 → 2021-12-31. Contains the 2011 correction, the 2015–16 slide, 2018Q4, the COVID crash and V-recovery, and the 2020–21 pandemic-liquidity bull.
+- **Holdout (locked, untouched):** 2022-01-01 → present. Contains the 2022 bear market and the 2023–25+ regime.
 - Optional **deep history** (1962+, index-level only) for regime-count sanity checks.
 
-> **Not currently supported by the loaded data — see §12 item 6.** Flagged in the Phase 0 hygiene audit, not yet resolved.
+**Revised from the original 2000-2016/2017+ split** (decided 2026-09-07): the Phase 0 hygiene audit found active-ticker history in the loaded data mostly starting in 2010 or later, so 2000-2016 wasn't a usable development window (§12 item 6 has the coverage numbers). This split is what the loaded data actually supports. It does not touch the delisted-history gap — that's still handled entirely by §7.3's Tier-3 cap on weak-state/death-cross/negative-extension claims, independent of where the window boundaries sit.
 
 **The holdout gets opened once.** Not once per module — once, at the end, for the final claim set. Write this in the repo README and make it socially expensive to violate. Every peek costs you a real degree of freedom.
 
@@ -900,14 +900,12 @@ That **MA information is entirely subsumed by momentum + volatility factors** �
 2. **Earnings dates.** Do you have point-in-time earnings calendars? Without them, §7.4 is unaddressable.
 3. **Existing indicator reuse.** Which of ATR, ADX, RS-rank already exist in your codebase and are trustworthy? Reuse beats reimplementation, but only after the golden-fixture tests pass.
 4. **Scope of v1.** Fifteen modules is a lot. If effort is constrained, my recommended minimal core is **M1, M2, M4, M5, M6.2, M11** plus the §7.5 placebo — that set answers the most questions per unit of work and produces at least one publishable-quality negative result.
-5. **Holdout discipline.** Are you willing to genuinely not look at 2017+ until the end? If not, shrink the development window and carve a different holdout — a holdout you peek at is just a slower training set.
-6. **Development window coverage.** Found in the Phase 0 hygiene audit (2026-09-07), rerunnable via `src/signals/moving_averages/data.py`'s `delisted_coverage_by_year` and `tests/test_moving_averages_hygiene.py::test_smoke_delisted_tickers_have_price_history`. Two facts, not yet resolved:
-   - **Delisted-ticker price history exists only for 2024–2026** (via Polygon, consistent with its ~2-year free-tier entitlement — see `docs/limitations.md`). Zero delisted-ticker coverage for anything earlier.
-   - **Active-ticker history commonly starts in 2010 or later.** Only 11 of 5,304 active tickers in the DB have price history spanning the full 2000–2016 window; 2,202 tickers' histories start in exactly 2010, with further clusters starting 2018–2026.
+5. **Holdout discipline.** Are you willing to genuinely not look at the holdout period until the end? If not, shrink the development window and carve a different holdout — a holdout you peek at is just a slower training set. **Resolved 2026-09-07** — see item 6 and §3.3: the window was shrunk precisely for this reason, and the holdout (2022-01-01 →) stays locked under the same discipline as originally specified, just at a different boundary date.
+6. **Development window coverage. Resolved 2026-09-07 — see §3.3.** Found in the Phase 0 hygiene audit (2026-09-07), rerunnable via `src/signals/moving_averages/data.py`'s `delisted_coverage_by_year` and `tests/test_moving_averages_hygiene.py::test_smoke_delisted_tickers_have_price_history`:
+   - **Delisted-ticker price history exists only for 2024–2026** (via Polygon, consistent with its ~2-year free-tier entitlement — see `docs/limitations.md`). Zero delisted-ticker coverage for anything earlier. This is **not** fixed by the window change below — it's handled separately by §7.3's Tier-3 cap, which stays in effect regardless of where the window boundaries sit.
+   - **Active-ticker history commonly starts in 2010 or later.** Only 11 of 5,304 active tickers in the DB had price history spanning the original 2000–2016 window; 2,202 tickers' histories start in exactly 2010, with further clusters starting 2018–2026.
 
-   Net: **the §3.3 development window (2000-01-01 → 2016-12-31) is not currently supported by the loaded data**, for either delisted or active names. Not decided here — this is an open call for before Phase 3 (once real-data work starts), not before Phase 1 (synthetic validation, unaffected by this).
-
-   The delisted-coverage half of this has a direct downstream consequence already written into the methodology, not left implicit: **see §7.3's Tier-3 cap on M1 weak-state / M3 death-cross / M4 negative-extension claims**, which stays in effect regardless of window-narrowing decisions until the delisted-history gap itself is closed or bounded.
+   **Decision:** development window moved to 2010-01-01 → 2021-12-31, holdout to 2022-01-01 → present (§3.3) — what the loaded active-ticker data actually supports.
 
 ---
 

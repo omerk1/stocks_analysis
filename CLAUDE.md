@@ -25,7 +25,7 @@ Always state which track you are working in. Never let a Track A number appear a
 
 These are silent failure modes. Violating them produces plausible, confident, wrong results.
 
-1. **Holdout is locked.** Never read, load, plot, or aggregate data after `2016-12-31` unless the task explicitly says "open holdout". If a task seems to need it, stop and ask.
+1. **Holdout is locked.** Never read, load, plot, or aggregate data after `2021-12-31` unless the task explicitly says "open holdout". If a task seems to need it, stop and ask. (Revised 2026-09-07 from the original `2016-12-31` — see DESIGN.md §3.3/§12 item 6: the development window shrank to 2010-2021 because that's what the loaded active-ticker data actually supports.)
 2. **One-bar lag.** Signal computed on the close of day *t* executes at day *t+1*. Never same-bar. The lag is applied centrally in `src/signals/moving_averages/features/panel.py` — do not bypass it.
 3. **No full-sample statistics.** Every z-score, percentile, rank, mean, and standard deviation is rolling/trailing. If you write `.mean()` over a whole column, you have introduced look-ahead.
 4. **Never drop delisted tickers.** They carry terminal returns. Dropping them biases every weak-trend bucket upward.
