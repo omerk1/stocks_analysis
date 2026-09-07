@@ -481,6 +481,15 @@ The failure mode that produced published-then-retracted results. Structural defe
 
 Delisted names need a terminal return, not a NaN. Bankruptcies get −100% (or the actual final value); acquisitions get the deal price. Dropping them biases every "weak MA state" bucket upward, which is precisely the bucket where the interesting downside information lives.
 
+**Current data-limitation ceiling (found in the Phase 0 hygiene audit, 2026-09-07 — see §12 item 6).** Delisted-ticker price history in the data loaded for this study exists only for 2024–2026 (Polygon's ~2-year free-tier entitlement); there is **zero delisted coverage before that**. This is a ceiling on what the current data can support, **not a market-behavior finding**, and must be carried as one until it's fixed.
+
+Until either **(a)** delisted-history pre-2024 is acquired, or **(b)** the bias is explicitly bounded — e.g. by comparing this study's findings against a published reference that did use full delisted-history data (CXO Advisory's golden/death-cross study, the IJECM distance-to-MA paper) and reporting the direction and rough size of the gap between our number and theirs:
+
+- Any Track B claim from **M1's weak/below-MA-state buckets**, **M3's death cross specifically**, or **M4's negative-extension bucket** is **capped at Tier 3 ("suggestive, not actionable"), regardless of what the statistics show**. A result that looks Tier 1/2 in one of these specific buckets does not get promoted past Tier 3 while this ceiling stands.
+- **Bullish/continuation modules are not subject to this cap.** Survivors dominate the "above MA," "golden cross," and positive-extension populations whether or not delisted names are included, so the missing data doesn't bias those buckets the same way.
+
+The cap applies narrowly, to the specific weak/bearish buckets named above — not to M1/M3/M4 wholesale — and is lifted the moment condition (a) or (b) is actually met, not left standing indefinitely out of caution once it has been.
+
 ### 7.4 Earnings
 
 Earnings gaps are the largest single-day moves for most stocks and are unrelated to MA geometry. If an "MA support bounce" study happens to oversample pre-earnings windows, you're measuring earnings drift.
@@ -897,6 +906,8 @@ That **MA information is entirely subsumed by momentum + volatility factors** �
    - **Active-ticker history commonly starts in 2010 or later.** Only 11 of 5,304 active tickers in the DB have price history spanning the full 2000–2016 window; 2,202 tickers' histories start in exactly 2010, with further clusters starting 2018–2026.
 
    Net: **the §3.3 development window (2000-01-01 → 2016-12-31) is not currently supported by the loaded data**, for either delisted or active names. Not decided here — this is an open call for before Phase 3 (once real-data work starts), not before Phase 1 (synthetic validation, unaffected by this).
+
+   The delisted-coverage half of this has a direct downstream consequence already written into the methodology, not left implicit: **see §7.3's Tier-3 cap on M1 weak-state / M3 death-cross / M4 negative-extension claims**, which stays in effect regardless of window-narrowing decisions until the delisted-history gap itself is closed or bounded.
 
 ---
 
