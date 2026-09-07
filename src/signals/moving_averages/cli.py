@@ -3,8 +3,7 @@
 Commands:
   hygiene-report   Phase 0 data-hygiene audit (DESIGN.md §3.4) against the real DB.
   validate-synth   Phase 1 synthetic pipeline-validation gate (DESIGN.md §10.2).
-
-`build-panel` (Phase 2's feature panel) isn't implemented yet.
+  build-panel      Phase 2 starting-subset feature panel build + cache (DESIGN.md §4).
 
 Both commands mirror a pytest suite (`tests/test_moving_averages_hygiene.py`,
 `tests/test_moving_averages_synthetic_validation.py`) for the checks that
@@ -29,6 +28,7 @@ from src.signals.moving_averages.data import (
     flag_large_moves,
     spot_check_sample,
 )
+from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
 from src.signals.moving_averages.synthetic import gate_verdict, run_validation
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
@@ -40,6 +40,11 @@ OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 # so the report exercises the flags against known-interesting cases, not
 # just quiet ones.
 DEFAULT_TICKERS = ["AAPL", "MSFT", "T", "AMC", "GEVO"]
+
+# A slightly broader default for build-panel -- the hygiene sample plus a
+# few more liquid megacaps, enough to demonstrate the panel's multi-ticker/
+# multi-date partitioned caching without being slow to build on demand.
+DEFAULT_PANEL_TICKERS = DEFAULT_TICKERS + ["GOOGL", "AMZN", "NVDA", "META", "JPM"]
 
 
 def hygiene_report(tickers: list[str]) -> None:
@@ -103,6 +108,36 @@ def validate_synth() -> bool:
     return all_pass
 
 
+def build_panel_command(tickers: list[str], start: str | None) -> None:
+    config = load_config()
+    db_path = db.default_db_path(config.data_paths.raw)
+    conn = db.get_connection(db_path)
+
+    panel = build_panel(conn, tickers, start=start)
+    conn.close()
+
+    if panel.empty:
+        print(f"No data for any of {tickers}.")
+        return
+
+    output_dir = Path(config.data_paths.features) / "moving_averages" / "ma_panel"
+    write_panel(panel, output_dir)
+
+    print(f"Built panel: {len(panel)} rows, {panel['ticker'].nunique()} tickers, "
+          f"{panel['date'].nunique()} distinct dates, "
+          f"{panel['date'].min().date()} to {panel['date'].max().date()}")
+    print(f"{len(panel.columns)} columns: {list(panel.columns)}")
+    print(f"Cached to {output_dir}")
+
+    read_back = read_panel(output_dir)
+    print(f"Read back: {len(read_back)} rows (matches: {len(read_back) == len(panel)})")
+
+    print("\nLast 3 rows for the first ticker:")
+    first_ticker = panel["ticker"].iloc[0]
+    cols = ["date", "close", "sma_20", "above_sma_20", "dist_pct_sma_20", "slope_log_21_sma_20", "stacked_sma"]
+    print(panel[panel["ticker"] == first_ticker][cols].tail(3).to_string(index=False))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Moving-averages study utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -115,6 +150,13 @@ def main():
 
     subparsers.add_parser("validate-synth", help="Phase 1 synthetic pipeline-validation gate")
 
+    panel_parser = subparsers.add_parser("build-panel", help="Phase 2 feature panel build + cache")
+    panel_parser.add_argument(
+        "--tickers", nargs="*", default=DEFAULT_PANEL_TICKERS,
+        help=f"Tickers to build the panel for (default: {DEFAULT_PANEL_TICKERS})",
+    )
+    panel_parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
+
     args = parser.parse_args()
 
     if args.command == "hygiene-report":
@@ -122,6 +164,8 @@ def main():
     elif args.command == "validate-synth":
         passed = validate_synth()
         raise SystemExit(0 if passed else 1)
+    elif args.command == "build-panel":
+        build_panel_command(args.tickers, args.start)
 
 
 if __name__ == "__main__":
