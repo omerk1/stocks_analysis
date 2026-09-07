@@ -33,6 +33,9 @@ from src.signals.moving_averages.synthetic import gate_verdict, run_validation
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 
+# CLAUDE.md invariant #1's enforced holdout boundary.
+HOLDOUT_BOUNDARY = "2021-12-31"
+
 # A deliberately mixed sample: a couple of clean blue chips, and names this
 # repo's own docs already flagged as having real data-quality wrinkles
 # (docs/limitations.md, docs/done.md) -- T's 2023-01-24 intraday spike,
@@ -108,12 +111,15 @@ def validate_synth() -> bool:
     return all_pass
 
 
-def build_panel_command(tickers: list[str], start: str | None) -> None:
+def build_panel_command(tickers: list[str], start: str | None, end: str | None) -> None:
     config = load_config()
     db_path = db.default_db_path(config.data_paths.raw)
     conn = db.get_connection(db_path)
 
-    panel = build_panel(conn, tickers, start=start)
+    if end is None:
+        print("WARNING: --end not given and --open-holdout not passed -- "
+              f"loading unrestricted history, past the {HOLDOUT_BOUNDARY} holdout boundary.")
+    panel = build_panel(conn, tickers, start=start, end=end)
     conn.close()
 
     if panel.empty:
@@ -156,6 +162,14 @@ def main():
         help=f"Tickers to build the panel for (default: {DEFAULT_PANEL_TICKERS})",
     )
     panel_parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
+    panel_parser.add_argument(
+        "--end", default=HOLDOUT_BOUNDARY,
+        help=f"YYYY-MM-DD, holdout-safe by default (CLAUDE.md invariant #1: {HOLDOUT_BOUNDARY})",
+    )
+    panel_parser.add_argument(
+        "--open-holdout", action="store_true",
+        help="Explicitly bypass the holdout boundary and load unrestricted history (ignores --end)",
+    )
 
     args = parser.parse_args()
 
@@ -165,7 +179,8 @@ def main():
         passed = validate_synth()
         raise SystemExit(0 if passed else 1)
     elif args.command == "build-panel":
-        build_panel_command(args.tickers, args.start)
+        end = None if args.open_holdout else args.end
+        build_panel_command(args.tickers, args.start, end)
 
 
 if __name__ == "__main__":

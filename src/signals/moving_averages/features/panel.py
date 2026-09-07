@@ -100,6 +100,7 @@ def build_panel(
     conn: sqlite3.Connection,
     tickers: list[str],
     start: str | pd.Timestamp | None = None,
+    end: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Builds the Phase 2 starting-subset MA feature panel for `tickers` --
     one row per (ticker, date), OHLCV plus every feature column (see this
@@ -114,12 +115,20 @@ def build_panel(
     day's own high/low just like the MA features are, so it's subject to
     the same same-bar-availability timing.
 
+    `end` is the holdout boundary (CLAUDE.md invariant #1): passed through
+    to `load_bars` as `as_of`, so data past it is never even loaded, not
+    just excluded from a later plot/aggregate. Callers building anything
+    for the development window MUST pass `end` explicitly (the CLI's
+    `build-panel` command defaults it to the current holdout boundary for
+    exactly this reason) -- leaving it `None` pulls all available history,
+    including the holdout.
+
     `sector` is joined in from `ticker_sector` as best-effort context --
     current-state-only (see module docstring), not point-in-time.
     """
     frames = []
     for ticker in tickers:
-        bars = load_bars(conn, ticker, Timeframe.DAILY, start=start)
+        bars = load_bars(conn, ticker, Timeframe.DAILY, as_of=end, start=start)
         if bars.empty:
             continue
         clean, _ = validate_bars(bars, ticker)

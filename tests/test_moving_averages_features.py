@@ -169,6 +169,21 @@ def test_build_panel_returns_empty_frame_for_unknown_ticker(conn):
     assert panel.empty
 
 
+def test_build_panel_end_enforces_the_holdout_boundary(conn):
+    """CLAUDE.md invariant #1: data past the holdout boundary must never
+    even be loaded. `end` is passed straight through to `load_bars`'s
+    `as_of`, so this pins that no row past `end` ever reaches the
+    returned panel -- not just that a later step happens to exclude it.
+    """
+    _seed_ticker(conn, "AAA", [100.0 + i * 0.1 for i in range(60)], "2020-01-01")
+
+    cutoff = pd.Timestamp("2020-02-01")
+    panel = build_panel(conn, ["AAA"], end=cutoff)
+
+    assert not panel.empty
+    assert panel["date"].max() <= cutoff
+
+
 # ---- parquet cache round-trip (DESIGN §4.4) ----
 
 def test_write_and_read_panel_round_trips(conn, tmp_path):
