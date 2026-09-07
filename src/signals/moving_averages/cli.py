@@ -1,12 +1,17 @@
-"""python -m src.signals.moving_averages.cli [--tickers TICKER ...]
+"""python -m src.signals.moving_averages.cli <command>
 
-Phase 0 data-hygiene audit (DESIGN.md §3.4) against the real ingested DB --
-not a pytest test. Delisted coverage and the golden-fixture MA check have a
-single unambiguous right answer and live as real assertions in
-`tests/test_moving_averages_hygiene.py`; flat-run/large-move flags and the
-spot-check sample are for human review (a real large move can be genuine --
-an earnings gap or crash -- not a bug), so this command is their rerunnable,
-human-facing report rather than a pass/fail.
+Commands:
+  hygiene-report   Phase 0 data-hygiene audit (DESIGN.md §3.4) against the real DB.
+  validate-synth   Phase 1 synthetic pipeline-validation gate (DESIGN.md §10.2).
+
+`build-panel` (Phase 2's feature panel) isn't implemented yet.
+
+Both commands mirror a pytest suite (`tests/test_moving_averages_hygiene.py`,
+`tests/test_moving_averages_synthetic_validation.py`) for the checks that
+have a single unambiguous right answer; they exist here too because
+`hygiene-report`'s flat-run/large-move flags and spot-check sample are for
+human review (a real large move can be genuine -- an earnings gap or crash
+-- not a bug), which a pass/fail pytest assertion can't express.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from src.signals.moving_averages.data import (
     flag_large_moves,
     spot_check_sample,
 )
+from src.signals.moving_averages.synthetic import gate_verdict, run_validation
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 
@@ -36,14 +42,7 @@ OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 DEFAULT_TICKERS = ["AAPL", "MSFT", "T", "AMC", "GEVO"]
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Phase 0 hygiene report for the moving-averages study")
-    parser.add_argument(
-        "--tickers", nargs="*", default=DEFAULT_TICKERS,
-        help=f"Tickers to run the per-ticker flat-run/large-move scan against (default: {DEFAULT_TICKERS})",
-    )
-    args = parser.parse_args()
-
+def hygiene_report(tickers: list[str]) -> None:
     config = load_config()
     db_path = db.default_db_path(config.data_paths.raw)
     conn = db.get_connection(db_path)
@@ -59,7 +58,7 @@ def main():
         print(coverage.to_string(index=False))
 
     print("\n=== Per-ticker flat-run / large-move scan ===")
-    for ticker in args.tickers:
+    for ticker in tickers:
         bars = load_bars(conn, ticker, Timeframe.DAILY)
         if bars.empty:
             print(f"{ticker}: no data")
@@ -81,6 +80,48 @@ def main():
     print(f"\nWritten to {out_path} -- manually verify each row against a chart provider (DESIGN.md §3.4).")
 
     conn.close()
+
+
+def validate_synth() -> bool:
+    results = run_validation()
+    verdict = gate_verdict(results)
+
+    print("=== Phase 1 synthetic pipeline validation (DESIGN.md §10.2) ===")
+    print(f"Planted magnitude:   {results['planted_magnitude']:+.4f}")
+    print(f"Recovered (planted): {results['recovered_planted']:+.4f}  "
+          f"[{'PASS' if verdict['planted_recovered'] else 'FAIL'}]")
+    print(f"Recovered (null):    {results['recovered_null']:+.4f}  "
+          f"[{'PASS' if verdict['null_reports_nothing'] else 'FAIL'}]")
+    print(f"Recovered (shifted): {results['recovered_shifted']:+.4f}  "
+          f"[{'PASS' if verdict['shift_degrades'] else 'FAIL'}]  "
+          "(look-ahead shift test -- should be well below the planted recovery)")
+
+    all_pass = all(verdict.values())
+    print(f"\nGATE: {'PASS' if all_pass else 'FAIL'}")
+    if not all_pass:
+        print("Per CLAUDE.md: 'If this is failing or absent, no result from this repo means anything. Fix it first.'")
+    return all_pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Moving-averages study utilities")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    hygiene_parser = subparsers.add_parser("hygiene-report", help="Phase 0 data-hygiene audit")
+    hygiene_parser.add_argument(
+        "--tickers", nargs="*", default=DEFAULT_TICKERS,
+        help=f"Tickers to run the per-ticker flat-run/large-move scan against (default: {DEFAULT_TICKERS})",
+    )
+
+    subparsers.add_parser("validate-synth", help="Phase 1 synthetic pipeline-validation gate")
+
+    args = parser.parse_args()
+
+    if args.command == "hygiene-report":
+        hygiene_report(args.tickers)
+    elif args.command == "validate-synth":
+        passed = validate_synth()
+        raise SystemExit(0 if passed else 1)
 
 
 if __name__ == "__main__":
