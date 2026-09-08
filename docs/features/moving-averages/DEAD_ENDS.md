@@ -33,7 +33,7 @@ the 21-day horizon), 90% CI.
 | `dist_z_sma_200`  | -0.0027 | [-0.0055, +0.0002] | 208,973 | 2,549 |
 
 **Effective N:** 2,549–2,747 distinct dates per facet, alongside the raw row count
-(CLAUDE.md invariant #6 / DESIGN §6.3 require both, not just one) — the CI is built from
+(the effective-N invariant in CLAUDE.md / DESIGN §6.3 require both, not just one) — the CI is built from
 the effective N, since 21-day return overlap means the raw row count vastly overstates
 usable information.
 

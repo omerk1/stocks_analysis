@@ -46,7 +46,7 @@ def decile_table(panel: pd.DataFrame, feature_col: str) -> pd.DataFrame:
     """One row per decile of `feature_col` (an already-lagged distance
     column, e.g. `dist_pct_sma_50`): C0/C1/C2 deltas on `fwd_ret_21`, plus
     effective N (row count + distinct dates + distinct tickers,
-    CLAUDE.md invariant #6). A decile below DESIGN §6.9's minimum sample
+    CLAUDE.md's effective-N invariant). A decile below DESIGN §6.9's minimum sample
     threshold is flagged via `below_threshold`, not dropped -- the caller
     decides how to render a flagged row (e.g. greyed out), it isn't
     silently excluded here.

@@ -33,7 +33,7 @@ from src.signals.moving_averages.synthetic import gate_verdict, run_validation
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 
-# CLAUDE.md invariant #1's enforced holdout boundary.
+# The holdout boundary enforced by CLAUDE.md's holdout-lock invariant.
 HOLDOUT_BOUNDARY = "2021-12-31"
 
 # A deliberately mixed sample: a couple of clean blue chips, and names this
@@ -61,7 +61,7 @@ def hygiene_report(tickers: list[str]) -> None:
         print("ZERO delisted tickers have any price history in this DB.")
         print("Per DESIGN.md §3.4: 'if you have zero delistings, your data vendor is lying to you.'")
         print("Here the vendor isn't lying -- delisted names were simply never ingested.")
-        print("See CLAUDE.md invariant #4 and docs/limitations.md.")
+        print("See CLAUDE.md's no-dropping-delisted-tickers invariant and docs/limitations.md.")
     else:
         print(coverage.to_string(index=False))
 
@@ -164,7 +164,7 @@ def main():
     panel_parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
     panel_parser.add_argument(
         "--end", default=HOLDOUT_BOUNDARY,
-        help=f"YYYY-MM-DD, holdout-safe by default (CLAUDE.md invariant #1: {HOLDOUT_BOUNDARY})",
+        help=f"YYYY-MM-DD, holdout-safe by default (CLAUDE.md's holdout-lock invariant: {HOLDOUT_BOUNDARY})",
     )
     panel_parser.add_argument(
         "--open-holdout", action="store_true",

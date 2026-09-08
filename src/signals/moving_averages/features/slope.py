@@ -1,9 +1,9 @@
 """Slope features (DESIGN.md §4.3, Appendix A).
 
 Phase 2's starting subset: `slope_log_k` only -- "the only scale-invariant
-version" per DESIGN §4.3, and the only slope form CLAUDE.md invariant #7
-permits ("Log scale for slopes. `slope_log_k` only. Percentage and
-price-unit slopes are not comparable across tickers."). `slope_pct_k`,
+version" per DESIGN §4.3, and the only slope form CLAUDE.md's log-scale-
+for-slopes invariant permits ("Log scale for slopes. `slope_log_k` only.
+Percentage and price-unit slopes are not comparable across tickers."). `slope_pct_k`,
 `slope_atr_k`, curvature, and the drop-off decomposition are M6's later
 scope, not this phase's.
 """

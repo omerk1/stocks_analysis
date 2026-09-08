@@ -178,7 +178,7 @@ def test_smoke_delisted_tickers_have_price_history():
     roughly matches expectation (if you have zero delistings, your data
     vendor is lying to you).' A real, unambiguous pass/fail against
     whatever is actually loaded -- not skipped just because the honest
-    answer may currently be "zero" (see CLAUDE.md invariant #4).
+    answer may currently be "zero" (see CLAUDE.md's no-dropping-delisted-tickers invariant).
     """
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
@@ -189,7 +189,7 @@ def test_smoke_delisted_tickers_have_price_history():
 
     assert not coverage.empty, (
         "Zero delisted tickers have any bars_1d row in this DB. Per DESIGN.md §3.4 "
-        "and CLAUDE.md invariant #4, every downstream 'weak MA state' result is "
+        "and CLAUDE.md's no-dropping-delisted-tickers invariant, every downstream 'weak MA state' result is "
         "survivorship-biased until this is fixed. Delisted-name price history has "
         "never been ingested here (see docs/limitations.md); this needs a paid data "
         "tier or vendor swap before Track A/B results can be trusted."

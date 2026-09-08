@@ -4,8 +4,8 @@ Three layers, matching the Phase 0/Phase 1 pattern:
 - Exact-formula tests for each feature against DESIGN's own definitions
   (dist_pct/dist_atr §4.3, slope_log_k Appendix A) -- hand-computable,
   deterministic inputs, no synthetic-generator noise.
-- A rolling-vs-full-sample test for `dist_z`, pinning CLAUDE.md invariant
-  #3 ("no full-sample statistics") for this specific feature.
+- A rolling-vs-full-sample test for `dist_z`, pinning CLAUDE.md's
+  no-full-sample-statistics invariant for this specific feature.
 - An end-to-end `build_panel` test against a real (in-memory) DB, checking
   the central lag (§7.2) is actually applied and doesn't bleed across
   ticker boundaries -- the same failure mode Phase 1's
@@ -65,7 +65,7 @@ def test_slope_log_k_formula():
 
 
 def test_dist_z_is_rolling_not_full_sample():
-    """CLAUDE.md invariant #3, pinned for this specific feature: dist_z at
+    """CLAUDE.md's no-full-sample-statistics invariant, pinned for this specific feature: dist_z at
     a given row must not change depending on what data exists *after* it.
     """
     values = pd.Series([0.01 * i for i in range(1, 21)])  # 20 points
@@ -216,7 +216,7 @@ def test_build_panel_returns_empty_frame_for_unknown_ticker(conn):
 
 
 def test_build_panel_end_enforces_the_holdout_boundary(conn):
-    """CLAUDE.md invariant #1: data past the holdout boundary must never
+    """CLAUDE.md's holdout-lock invariant: data past the holdout boundary must never
     even be loaded. `end` is passed straight through to `load_bars`'s
     `as_of`, so this pins that no row past `end` ever reaches the
     returned panel -- not just that a later step happens to exclude it.

@@ -1,6 +1,6 @@
 """Feature panel: build, lag, and cache (DESIGN.md §4.4, §7.2).
 
-`apply_lag` is the central lag application CLAUDE.md invariant #2 requires
+`apply_lag` is the central lag application CLAUDE.md's one-bar-lag invariant requires
 -- every feature that will be used to condition on a forward outcome must
 pass through it before being paired with a label, rather than an analysis
 module hand-rolling its own `.shift()`.
@@ -118,12 +118,12 @@ def build_panel(
     passed through `apply_lag` before being returned, so a row at date d
     already reflects only information known as of close(d-1) -- ready to
     pair directly with a forward return computed starting date d, with no
-    per-analysis lag bookkeeping needed (DESIGN §7.2 / CLAUDE.md
-    invariant #2). `atr_14` is included in that lag: it's derived from the
+    per-analysis lag bookkeeping needed (DESIGN §7.2 / CLAUDE.md's
+    one-bar-lag invariant). `atr_14` is included in that lag: it's derived from the
     day's own high/low just like the MA features are, so it's subject to
     the same same-bar-availability timing.
 
-    `end` is the holdout boundary (CLAUDE.md invariant #1): passed through
+    `end` is the holdout boundary (CLAUDE.md's holdout-lock invariant): passed through
     to `load_bars` as `as_of`, so data past it is never even loaded, not
     just excluded from a later plot/aggregate. Callers building anything
     for the development window MUST pass `end` explicitly (the CLI's

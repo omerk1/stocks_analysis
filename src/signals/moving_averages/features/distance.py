@@ -12,7 +12,7 @@ import pandas as pd
 
 # Trailing window for the self-normalised z-score (DESIGN §4.3: "per-ticker
 # self-normalisation" over 252d) -- rolling, never full-sample, per
-# CLAUDE.md invariant #3.
+# CLAUDE.md's no-full-sample-statistics invariant.
 DIST_Z_WINDOW = 252
 
 

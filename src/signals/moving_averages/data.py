@@ -65,7 +65,7 @@ def delisted_coverage_by_year(conn: sqlite3.Connection) -> pd.DataFrame:
     non-trivial and roughly matches expectation (if you have zero
     delistings, your data vendor is lying to you)." Empty result means
     zero delisted-ticker price history has ever been ingested -- a
-    survivorship-biased universe, per CLAUDE.md invariant #4.
+    survivorship-biased universe, per CLAUDE.md's no-dropping-delisted-tickers invariant.
     """
     query = """
         SELECT substr(b.timestamp, 1, 4) AS year, COUNT(DISTINCT b.ticker) AS delisted_tickers_with_bars

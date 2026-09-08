@@ -12,7 +12,7 @@ silently-revised one).
 
 **Promoted from:** Track A M0.1 descriptive atlas (`EXPLORATION_LOG.md`, 2026-09-07/08)
 — four of five candidate observations pointed at distance-from-MA normalisation/shape
-questions. The fifth (Candidate C-1, the liquidity-decile gradient) is tracked
+questions. The fifth (the liquidity-decile-gradient candidate) is tracked
 separately in `EXPLORATION_LOG.md` and is **not** part of this entry.
 
 **Hypothesis:** Forward 21-day return is a non-monotonic (or otherwise structured)
@@ -85,7 +85,7 @@ magnitude; the three lookbacks (20/50/200) are compared for consistency of patte
 across the grid, not treated as independent single points.
 
 **Effective N:** reported as distinct event dates alongside raw row count, per bucket
-(CLAUDE.md invariant #6) — required in the output table, not optional.
+(CLAUDE.md's effective-N invariant) — required in the output table, not optional.
 
 ---
 
@@ -109,7 +109,7 @@ CIs (DESIGN §6.2/§6.3, dates resampled in blocks of 42) show the shape-only re
 uncertainty is accounted for — **only the 3 SMA20 facets have a 90% CI excluding zero**;
 SMA50 and SMA200 (6 facets, including the SMA200 U-shapes that looked clean on point
 estimates) do not. Of the 3 surviving SMA20 facets, none robustly survives a realistic
-cost annotation (invariant #8): ~25 decile-entries/ticker/year per leg (~50 round
+cost annotation (CLAUDE.md's cost-annotation invariant): ~25 decile-entries/ticker/year per leg (~50 round
 trips/year combined, almost exactly DESIGN §6.10's own illustrative example) produces an
 annualised cost hurdle that the CI's lower bound doesn't clear under either cost
 convention tested, and doesn't clear the point estimate either under DESIGN's own
