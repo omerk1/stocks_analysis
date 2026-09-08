@@ -86,3 +86,38 @@ across the grid, not treated as independent single points.
 
 **Effective N:** reported as distinct event dates alongside raw row count, per bucket
 (CLAUDE.md invariant #6) — required in the output table, not optional.
+
+---
+
+### Deviations from pre-registration (logged, not silently applied)
+
+**2026-09-08 — C2 tercile substitution.** As specified above ("C2 note"): DESIGN §6.1
+calls for decile × decile × sector matching; this slice uses tercile × tercile × sector
+(3 × 3 × 11 = 99 cells/date instead of 1,100) because the current 408-ticker (S&P 500)
+universe can't populate decile-level cells reliably. This is a scoped, universe-size-
+driven deviation, not a change to the hypothesis or kill criterion. **Revisit at decile
+granularity once the universe extends past S&P 500** (e.g. the full U2 tier, DESIGN
+§3.2) — a broader universe should make decile × decile × sector matching viable, and the
+coarser tercile match here may be leaving real confounding unabsorbed (see the
+2026-09-08 result addendum below).
+
+### Result (2026-09-08 addendum — inference, cost, and tier assignment)
+
+Full detail in `notebooks/moving_averages_m04_distance.ipynb`. Summary: block-bootstrap
+CIs (DESIGN §6.2/§6.3, dates resampled in blocks of 42) show the shape-only read ("8 of
+9 facets survive the kill criterion") does not hold once actual overlap-adjusted
+uncertainty is accounted for — **only the 3 SMA20 facets have a 90% CI excluding zero**;
+SMA50 and SMA200 (6 facets, including the SMA200 U-shapes that looked clean on point
+estimates) do not. Of the 3 surviving SMA20 facets, none robustly survives a realistic
+cost annotation (invariant #8): ~25 decile-entries/ticker/year per leg (~50 round
+trips/year combined, almost exactly DESIGN §6.10's own illustrative example) produces an
+annualised cost hurdle that the CI's lower bound doesn't clear under either cost
+convention tested, and doesn't clear the point estimate either under DESIGN's own
+stated 10bps-round-trip convention.
+
+**Tier assignment (DESIGN §9.2):** capped at Tier 3 for every facet regardless of
+outcome — no FDR correction, no holdout test, and only one universe tier exist for this
+slice, all three required for Tier 1/2. `dist_pct_sma_20`, `dist_atr_sma_20`,
+`dist_z_sma_20` → **Tier 3** (directionally consistent, plausible mechanism, not
+actionable — fails cost). The other 6 facets → **Tier 4** (CI includes zero; logged in
+`DEAD_ENDS.md`).
