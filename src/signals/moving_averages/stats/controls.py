@@ -1,13 +1,14 @@
-"""C0/C1 matched-control deltas (DESIGN.md §6.1).
+"""C0/C1/C2 matched-control deltas (DESIGN.md §6.1).
 
-C2 (date + momentum + vol + sector matched) needs the full feature set
-Phase 2 builds (rs_rank, vol decile, sector) and is added then. C0/C1 need
-only a boolean group column, a value column, and (for C1) a date column --
-enough to validate the pipeline mechanics in Phase 1, and already the
-correct shape for every later module to build on.
+C2 (date + momentum + vol + sector matched) is added here for M4 -- the
+first module that needs it (see PREREGISTRATION.md) -- as generic,
+reusable infrastructure, not M4-specific code: `cross_sectional_bucket`
+works on any value column, and `c2_delta` takes an arbitrary list of
+already-bucketed match columns rather than hardcoding momentum/vol/sector.
 
-Both functions drop rows with a missing group or value first -- an event
-can't be scored against a control using data it doesn't have.
+All three `*_delta` functions drop rows with a missing group/value/match
+column first -- an event can't be scored against a control using data it
+doesn't have.
 """
 
 from __future__ import annotations
@@ -45,3 +46,56 @@ def c1_delta(panel: pd.DataFrame, group_col: str, value_col: str, date_col: str 
     control_mean_by_date = valid[~is_event].groupby(date_col)[value_col].mean()
     delta_by_date = (event_mean_by_date - control_mean_by_date).dropna()
     return delta_by_date.mean()
+
+
+def cross_sectional_bucket(
+    panel: pd.DataFrame, value_col: str, date_col: str = "date", n_buckets: int = 10
+) -> pd.Series:
+    """Per-date cross-sectional bucket rank (0 = lowest ... n_buckets-1 =
+    highest) of `value_col`, via `pd.qcut` within each date -- reusable for
+    any decile/tercile/etc. cut (momentum, vol, dollar volume, eventually
+    market cap), not specific to any one caller.
+
+    NaN where `value_col` is NaN, or where a date has too few distinct
+    values to actually form `n_buckets` groups (`qcut`'s
+    `duplicates="drop"` can silently return fewer buckets than requested
+    on a thin date -- passed through as-is here, not padded or treated as
+    an error).
+    """
+    return panel.groupby(date_col)[value_col].transform(
+        lambda x: pd.qcut(x, n_buckets, labels=False, duplicates="drop")
+    )
+
+
+def c2_delta(
+    panel: pd.DataFrame,
+    group_col: str,
+    value_col: str,
+    match_cols: list[str],
+    date_col: str = "date",
+) -> float:
+    """C2: same-date, same-`match_cols`-stratum matched control (DESIGN
+    §6.1: "date + momentum + vol + sector matched") -- the tier that
+    separates real MA information from momentum re-encoding. `match_cols`
+    must already be categorical/bucketed columns (e.g. from
+    `cross_sectional_bucket`), computed on the same point-in-time basis as
+    everything else in the panel -- this function only matches and
+    differences, it doesn't compute or lag the match columns itself.
+
+    Same non-dilution logic as `c1_delta`, extended to (date, *match_cols)
+    strata: the control is the non-event rows within each stratum, never
+    the whole stratum including the event rows. A stratum with only event
+    rows or only control rows contributes nothing (no counterpart to
+    compare against) -- dropped, not treated as a zero delta. Each
+    populated stratum is weighted equally in the final average, same
+    convention as `c1_delta` weighting each date equally.
+    """
+    required = [date_col, group_col, value_col, *match_cols]
+    valid = panel[required].dropna(subset=[group_col, value_col, *match_cols])
+    is_event = valid[group_col].astype(bool)
+
+    strata_cols = [date_col, *match_cols]
+    event_mean = valid[is_event].groupby(strata_cols, observed=True)[value_col].mean()
+    control_mean = valid[~is_event].groupby(strata_cols, observed=True)[value_col].mean()
+    delta_by_stratum = (event_mean - control_mean).dropna()
+    return delta_by_stratum.mean()

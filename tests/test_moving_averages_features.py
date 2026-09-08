@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
-from src.signals.moving_averages.features import distance, ma, slope
+from src.signals.moving_averages.features import context, distance, ma, slope
 from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
 
 
@@ -75,6 +75,31 @@ def test_dist_z_is_rolling_not_full_sample():
     truncated = distance.dist_z(values.iloc[:10], window=window)
 
     assert full.iloc[9] == pytest.approx(truncated.iloc[9])
+
+
+def test_mom_12_1_formula():
+    # 260 flat days of 100 except a known ramp, so close[t-21]/close[t-252]-1
+    # is hand-computable at a specific point.
+    n = 260
+    close = pd.Series([100.0] * n)
+    close.iloc[7] = 80.0    # this will land at t-252 for row index 259
+    close.iloc[238] = 120.0  # this will land at t-21 for row index 259
+
+    result = context.mom_12_1(close)
+
+    assert result.iloc[259] == pytest.approx(120.0 / 80.0 - 1)
+    assert pd.isna(result.iloc[251])  # not enough history yet (needs t-252)
+
+
+def test_realized_vol_63_formula():
+    rng = np.random.default_rng(0)
+    close = pd.Series(100.0 * np.exp(np.cumsum(rng.normal(0, 0.01, 100))))
+
+    result = context.realized_vol_63(close)
+
+    expected_last = close.pct_change().iloc[-63:].std()
+    assert result.iloc[-1] == pytest.approx(expected_last)
+    assert pd.isna(result.iloc[60])  # fewer than 63 returns available yet
 
 
 def test_compute_ma_dispatches_to_the_existing_sma_ema_wrappers():
@@ -161,6 +186,27 @@ def test_build_panel_casts_numeric_features_to_float32_and_keeps_booleans_bool(c
     # the lag introduces into each ticker's first row (see panel.py).
     assert panel["stacked_sma"].dtype == "boolean"
     assert panel["above_sma_20"].dtype == "boolean"
+
+
+def test_build_panel_includes_lagged_context_features(conn):
+    n = 300  # comfortably past mom_12_1's 252-day warmup
+    rng = np.random.default_rng(0)
+    closes = list(100.0 + np.cumsum(rng.normal(0, 1.0, n)))
+    _seed_ticker(conn, "AAA", closes, "2020-01-01")
+
+    panel = build_panel(conn, ["AAA"])
+
+    assert {"mom_12_1", "realized_vol_63"}.issubset(panel.columns)
+    assert panel["mom_12_1"].dtype == np.float32
+
+    close_series = pd.Series(closes, index=pd.bdate_range("2020-01-01", periods=n))
+    raw_mom = context.mom_12_1(close_series)
+    panel_mom = panel.set_index("date")["mom_12_1"]
+    # Same lag convention as every other feature: row at date d holds the
+    # raw value as of date d-1, not d's own value.
+    for i in range(255, n):
+        row_date, prior_date = close_series.index[i], close_series.index[i - 1]
+        assert panel_mom.loc[row_date] == pytest.approx(raw_mom.loc[prior_date])
 
 
 def test_build_panel_returns_empty_frame_for_unknown_ticker(conn):

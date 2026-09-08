@@ -8,8 +8,10 @@ module hand-rolling its own `.shift()`.
 `build_panel` is Phase 2's starting-subset feature layer: SMA/EMA at
 lookbacks {20, 50, 200} (features/ma.py), dist_pct/dist_atr/dist_z and the
 `above` state (features/distance.py), slope_log_k at k in {5, 21, 63}
-(features/slope.py), and basic SMA/EMA full-stack booleans. `write_panel`/
-`read_panel` cache it as partitioned parquet per §4.4's schema.
+(features/slope.py), basic SMA/EMA full-stack booleans, and (added for M4's
+C2 matched control, DESIGN §6.1) `mom_12_1`/`realized_vol_63`
+(features/context.py). `write_panel`/`read_panel` cache it as partitioned
+parquet per §4.4's schema.
 
 Not yet built (later scope, not this phase's): WMA/HMA/KAMA/VWMA, the full
 lookback grid, ribbon/regime features, and point-in-time `mktcap_decile`/
@@ -32,7 +34,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common import indicators
 from src.foundation.market_common.data import load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
-from src.signals.moving_averages.features import distance, ma, slope
+from src.signals.moving_averages.features import context, distance, ma, slope
 
 ATR_PERIOD = 14
 _NON_FEATURE_COLUMNS = ("ticker", "date", "open", "high", "low", "close", "volume")
@@ -92,6 +94,12 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     # that's later scope.
     frame["stacked_sma"] = (frame["sma_20"] > frame["sma_50"]) & (frame["sma_50"] > frame["sma_200"])
     frame["stacked_ema"] = (frame["ema_20"] > frame["ema_50"]) & (frame["ema_50"] > frame["ema_200"])
+
+    # Context (DESIGN §4.3): the momentum/vol controls C2 matching needs
+    # (§6.1). Added alongside M4, the first module that needs C2 -- see
+    # PREREGISTRATION.md.
+    frame["mom_12_1"] = context.mom_12_1(frame["close"])
+    frame["realized_vol_63"] = context.realized_vol_63(frame["close"])
 
     return frame.reset_index().rename(columns={"timestamp": "date"})
 
