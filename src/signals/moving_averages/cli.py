@@ -26,6 +26,7 @@ from src.signals.moving_averages.data import (
     delisted_coverage_by_year,
     flag_forward_filled_halts,
     flag_large_moves,
+    sp500_full_coverage_tickers,
     spot_check_sample,
 )
 from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
@@ -48,6 +49,14 @@ DEFAULT_TICKERS = ["AAPL", "MSFT", "T", "AMC", "GEVO"]
 # few more liquid megacaps, enough to demonstrate the panel's multi-ticker/
 # multi-date partitioned caching without being slow to build on demand.
 DEFAULT_PANEL_TICKERS = DEFAULT_TICKERS + ["GOOGL", "AMZN", "NVDA", "META", "JPM"]
+
+# The exact universe-selection parameters M4's first pass (PREREGISTRATION.md,
+# 2026-09-08) ran against: S&P 500 membership as of the holdout boundary,
+# restricted to tickers with bars_1d coverage spanning essentially the whole
+# 2010-2021 dev window. `--universe sp500` reproduces that 408-ticker set.
+SP500_UNIVERSE_AS_OF = HOLDOUT_BOUNDARY
+SP500_UNIVERSE_COVERAGE_START = "2010-06-01"
+SP500_UNIVERSE_COVERAGE_END = "2021-12-01"
 
 
 def hygiene_report(tickers: list[str]) -> None:
@@ -111,10 +120,20 @@ def validate_synth() -> bool:
     return all_pass
 
 
-def build_panel_command(tickers: list[str], start: str | None, end: str | None) -> None:
+def build_panel_command(tickers: list[str] | None, universe: str, start: str | None, end: str | None) -> None:
     config = load_config()
     db_path = db.default_db_path(config.data_paths.raw)
     conn = db.get_connection(db_path)
+
+    if universe == "sp500":
+        tickers = sp500_full_coverage_tickers(
+            conn, SP500_UNIVERSE_AS_OF, SP500_UNIVERSE_COVERAGE_START, SP500_UNIVERSE_COVERAGE_END
+        )
+        print(f"--universe sp500: resolved {len(tickers)} tickers "
+              f"(S&P 500 as of {SP500_UNIVERSE_AS_OF}, coverage {SP500_UNIVERSE_COVERAGE_START} to "
+              f"{SP500_UNIVERSE_COVERAGE_END})")
+    elif tickers is None:
+        tickers = DEFAULT_PANEL_TICKERS
 
     if end is None:
         print("WARNING: --end not given and --open-holdout not passed -- "
@@ -158,8 +177,14 @@ def main():
 
     panel_parser = subparsers.add_parser("build-panel", help="Phase 2 feature panel build + cache")
     panel_parser.add_argument(
-        "--tickers", nargs="*", default=DEFAULT_PANEL_TICKERS,
-        help=f"Tickers to build the panel for (default: {DEFAULT_PANEL_TICKERS})",
+        "--tickers", nargs="*", default=None,
+        help=f"Tickers to build the panel for (default: {DEFAULT_PANEL_TICKERS}, ignored if --universe is given)",
+    )
+    panel_parser.add_argument(
+        "--universe", choices=["sp500"], default=None,
+        help="Use a named universe instead of --tickers. 'sp500' reproduces the exact "
+             "408-ticker set M4's first pass ran against (S&P 500 as of the holdout "
+             "boundary, filtered to full dev-window bars_1d coverage).",
     )
     panel_parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
     panel_parser.add_argument(
@@ -180,7 +205,7 @@ def main():
         raise SystemExit(0 if passed else 1)
     elif args.command == "build-panel":
         end = None if args.open_holdout else args.end
-        build_panel_command(args.tickers, args.start, end)
+        build_panel_command(args.tickers, args.universe, args.start, end)
 
 
 if __name__ == "__main__":

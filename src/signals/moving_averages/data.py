@@ -58,6 +58,40 @@ def flag_large_moves(bars: pd.DataFrame, threshold: float = LARGE_MOVE_THRESHOLD
     return flagged[ret.abs() > threshold]
 
 
+def sp500_full_coverage_tickers(
+    conn: sqlite3.Connection,
+    as_of: str,
+    coverage_start: str,
+    coverage_end: str,
+    source: str = "yfinance",
+) -> list[str]:
+    """S&P 500 constituents as of `as_of` (point-in-time membership, via
+    `index_membership`), restricted to tickers with `bars_1d` coverage
+    spanning at least [`coverage_start`, `coverage_end`]. This is the exact
+    universe-selection query the moving-averages study's real `build-panel`
+    runs use (see `cli.py`'s `--universe sp500` option) -- written here,
+    not left in a one-off script, so the 408-ticker universe M4's first
+    pass (PREREGISTRATION.md, 2026-09-08) ran against is reproducible from
+    committed code.
+
+    Not a general-purpose universe builder -- DESIGN.md §3.2's U1/U2/U3
+    tiers aren't buildable yet (Phase 0 found point-in-time market-cap data
+    too thin); this is specifically "S&P 500 membership plus a coverage
+    floor," a pragmatic stand-in until a real tiered universe exists.
+    """
+    query = """
+        SELECT im.ticker
+        FROM index_membership im
+        JOIN bars_1d b ON b.ticker = im.ticker AND b.source = ?
+        WHERE im.index_name = 'sp500' AND im.start_date <= ?
+          AND (im.end_date IS NULL OR im.end_date >= ?)
+        GROUP BY im.ticker
+        HAVING MIN(b.timestamp) <= ? AND MAX(b.timestamp) >= ?
+    """
+    rows = conn.execute(query, (source, as_of, as_of, coverage_start, coverage_end)).fetchall()
+    return sorted(row[0] for row in rows)
+
+
 def delisted_coverage_by_year(conn: sqlite3.Connection) -> pd.DataFrame:
     """Per calendar year: how many *delisted* (`tickers.active = 0`)
     tickers have at least one `bars_1d` row that year, across any source.

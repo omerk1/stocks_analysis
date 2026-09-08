@@ -27,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from src.foundation.data_processing import db
 from src.foundation.feature_engineering.price_based_indicators import (
     exponential_moving_average,
     moving_average,
@@ -38,6 +39,7 @@ from src.signals.moving_averages.data import (
     delisted_coverage_by_year,
     flag_forward_filled_halts,
     flag_large_moves,
+    sp500_full_coverage_tickers,
     spot_check_sample,
 )
 
@@ -169,6 +171,78 @@ def test_ema_matches_independent_reference_to_1e9():
     expected = pd.Series(_reference_ema(values, window=3), index=close.index)
 
     pd.testing.assert_series_equal(result, expected, check_exact=False, atol=1e-9)
+
+
+# ---- sp500_full_coverage_tickers ----
+
+@pytest.fixture
+def conn():
+    connection = db.get_connection(":memory:")
+    db.create_tables(connection)
+    yield connection
+    connection.close()
+
+
+def _seed_membership(conn: sqlite3.Connection, index_name: str, ticker: str, start_date: str, end_date: str | None) -> None:
+    conn.execute(
+        "INSERT INTO index_membership (index_name, ticker, start_date, end_date) VALUES (?, ?, ?, ?)",
+        (index_name, ticker, start_date, end_date),
+    )
+    conn.commit()
+
+
+def _seed_bars_range(conn: sqlite3.Connection, ticker: str, start: str, end: str) -> None:
+    idx = pd.bdate_range(start, end)
+    close = pd.Series(100.0, index=idx)
+    bars = pd.DataFrame(
+        {"open": close, "high": close, "low": close, "close": close, "volume": 1_000_000.0, "is_partial": 0},
+        index=idx,
+    )
+    db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE, bars)
+
+
+def test_sp500_full_coverage_tickers_requires_point_in_time_membership(conn):
+    # FULL: sp500 member throughout, full bars coverage -- included.
+    _seed_membership(conn, "sp500", "FULL", "2005-01-01", None)
+    _seed_bars_range(conn, "FULL", "2010-01-04", "2021-12-01")
+
+    # LEFTEARLY: left the index before the as_of date -- excluded even
+    # though it has full bars coverage.
+    _seed_membership(conn, "sp500", "LEFTEARLY", "2005-01-01", "2015-01-01")
+    _seed_bars_range(conn, "LEFTEARLY", "2010-01-04", "2021-12-01")
+
+    tickers = sp500_full_coverage_tickers(
+        conn, as_of="2021-12-31", coverage_start="2010-06-01", coverage_end="2021-12-01"
+    )
+
+    assert tickers == ["FULL"]
+
+
+def test_sp500_full_coverage_tickers_requires_the_coverage_window(conn):
+    # THIN: sp500 member and point-in-time-valid, but bars only cover a
+    # short recent window -- excluded by the coverage floor.
+    _seed_membership(conn, "sp500", "THIN", "2005-01-01", None)
+    _seed_bars_range(conn, "THIN", "2020-01-02", "2021-12-01")
+
+    _seed_membership(conn, "sp500", "FULL", "2005-01-01", None)
+    _seed_bars_range(conn, "FULL", "2010-01-04", "2021-12-01")
+
+    tickers = sp500_full_coverage_tickers(
+        conn, as_of="2021-12-31", coverage_start="2010-06-01", coverage_end="2021-12-01"
+    )
+
+    assert tickers == ["FULL"]
+
+
+def test_sp500_full_coverage_tickers_ignores_other_indices(conn):
+    _seed_membership(conn, "nasdaq100", "OTHERIDX", "2005-01-01", None)
+    _seed_bars_range(conn, "OTHERIDX", "2010-01-04", "2021-12-01")
+
+    tickers = sp500_full_coverage_tickers(
+        conn, as_of="2021-12-31", coverage_start="2010-06-01", coverage_end="2021-12-01"
+    )
+
+    assert tickers == []
 
 
 # ---- real-data audits (smoke) ----
