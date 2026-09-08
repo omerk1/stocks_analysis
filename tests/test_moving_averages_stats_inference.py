@@ -9,11 +9,7 @@ import pandas as pd
 import pytest
 
 from src.signals.moving_averages.stats.controls import c2_delta
-from src.signals.moving_averages.stats.inference import (
-    block_bootstrap_delta,
-    block_bootstrap_spread,
-    stratum_deltas,
-)
+from src.signals.moving_averages.stats.inference import block_bootstrap_delta, block_bootstrap_spread
 
 
 def _panel(n_dates=100, n_tickers=20, effect=0.01, seed=0):
@@ -34,15 +30,6 @@ def _panel(n_dates=100, n_tickers=20, effect=0.01, seed=0):
                 "value": value, "sector": "X", "bucket": 0,
             })
     return pd.DataFrame(rows)
-
-
-def test_stratum_deltas_point_estimate_matches_c2_delta():
-    panel = _panel()
-
-    deltas = stratum_deltas(panel, "is_event", "value", ["sector", "bucket"], date_col="date")
-    direct = c2_delta(panel, "is_event", "value", match_cols=["sector", "bucket"], date_col="date")
-
-    assert deltas["delta"].mean() == pytest.approx(direct)
 
 
 def test_block_bootstrap_delta_ci_covers_the_planted_effect():
@@ -120,3 +107,19 @@ def test_block_bootstrap_delta_handles_empty_input():
 
     assert result["n_dates"] == 0
     assert pd.isna(result["point_estimate"])
+
+
+def test_block_bootstrap_delta_rejects_a_degenerate_block_length():
+    """block_length must be small relative to n_dates -- with too few
+    blocks, a single circular block wraps around and covers nearly the
+    whole date range almost every draw regardless of the random start,
+    collapsing boot_std and understating uncertainty rather than
+    measuring it. Must raise, not silently return an overconfident CI.
+    """
+    panel = _panel(n_dates=40)  # well above DESIGN §6.9's MIN_DATES=30
+
+    with pytest.raises(ValueError, match="too large relative to n_dates"):
+        block_bootstrap_delta(
+            panel, "is_event", "value", match_cols=["sector", "bucket"],
+            date_col="date", block_length=42,  # the module's own default
+        )

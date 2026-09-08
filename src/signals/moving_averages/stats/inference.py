@@ -8,7 +8,7 @@ pretending every row is an independent draw.
 
 Performance note: a bootstrap draw does NOT re-run `c2_delta` on a
 duplicated/resampled copy of the full panel (too slow at 500+ draws over a
-1M+ row panel). Instead, `stratum_deltas` computes each (date, *match_cols)
+1M+ row panel). Instead, `stats.controls.stratum_deltas` computes each
 stratum's (event_mean - control_mean) exactly once -- the same quantity
 `c2_delta` averages across strata -- and the bootstrap loop reweights that
 small, precomputed table by how many times each date was drawn. Repeating
@@ -23,29 +23,26 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.signals.moving_averages.stats.controls import stratum_deltas
 
-def stratum_deltas(
-    panel: pd.DataFrame,
-    group_col: str,
-    value_col: str,
-    match_cols: list[str],
-    date_col: str = "date",
-) -> pd.DataFrame:
-    """Per (date, *match_cols) stratum: event_mean - control_mean --
-    exactly the per-stratum quantity `stats.controls.c2_delta` averages
-    across strata (`c2_delta`'s point estimate == `stratum_deltas(...)
-    ["delta"].mean()`). Strata missing an event or control side are
-    dropped, same convention as `c2_delta`.
-    """
-    required = [date_col, group_col, value_col, *match_cols]
-    valid = panel[required].dropna(subset=[group_col, value_col, *match_cols])
-    is_event = valid[group_col].astype(bool)
+# A block-bootstrap draw needs several independent-ish blocks to actually
+# vary from draw to draw; with too few, a single circular block can wrap
+# around and cover nearly the whole date range almost every time,
+# collapsing boot_std and producing a falsely narrow CI. Requiring at
+# least this many blocks' worth of dates catches that before it silently
+# produces a misleadingly tight interval.
+MIN_BLOCKS = 3
 
-    strata_cols = [date_col, *match_cols]
-    event_mean = valid[is_event].groupby(strata_cols, observed=True)[value_col].mean()
-    control_mean = valid[~is_event].groupby(strata_cols, observed=True)[value_col].mean()
-    delta = (event_mean - control_mean).dropna().rename("delta")
-    return delta.reset_index()
+
+def _validate_block_length(n_dates: int, block_length: int) -> None:
+    if n_dates < MIN_BLOCKS * block_length:
+        raise ValueError(
+            f"block_length={block_length} is too large relative to n_dates={n_dates} "
+            f"(need at least {MIN_BLOCKS}x{block_length}={MIN_BLOCKS * block_length} dates) -- "
+            "with too few blocks, most draws cover nearly the full date range regardless of "
+            "the random start, understating uncertainty rather than measuring it. Reduce "
+            "block_length or gather more dates."
+        )
 
 
 def _block_weights(dates: np.ndarray, block_length: int, rng: np.random.Generator) -> np.ndarray:
@@ -62,6 +59,31 @@ def _block_weights(dates: np.ndarray, block_length: int, rng: np.random.Generato
         idx = (start + np.arange(block_length)) % n_dates
         weight[idx] += 1
     return weight
+
+
+def _weighted_mean(values: np.ndarray, weights: np.ndarray) -> float:
+    total = weights.sum()
+    return (weights * values).sum() / total if total > 0 else float("nan")
+
+
+def _summarize_draws(draws: np.ndarray, point_estimate: float, n_dates: int, ci: float) -> dict:
+    """Shared CI/summary construction for both bootstrap functions below --
+    the only difference between them is how one draw's statistic is
+    computed, not how the resulting draws are summarized.
+    """
+    draws = draws[~np.isnan(draws)]
+    if len(draws) == 0:
+        return {"point_estimate": point_estimate, "ci_low": float("nan"), "ci_high": float("nan"),
+                "boot_std": float("nan"), "n_dates": n_dates, "n_boot": 0}
+    tail = (1 - ci) / 2
+    return {
+        "point_estimate": point_estimate,
+        "ci_low": float(np.quantile(draws, tail)),
+        "ci_high": float(np.quantile(draws, 1 - tail)),
+        "boot_std": float(draws.std()),
+        "n_dates": n_dates,
+        "n_boot": len(draws),
+    }
 
 
 def block_bootstrap_delta(
@@ -85,36 +107,24 @@ def block_bootstrap_delta(
     carry -- distinct dates contributing at least one valid stratum, not
     the raw row count).
     """
-    deltas = stratum_deltas(panel, group_col, value_col, match_cols, date_col)
+    deltas = stratum_deltas(panel, group_col, value_col, [date_col, *match_cols])
     if deltas.empty:
-        return {"point_estimate": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"),
-                "boot_std": float("nan"), "n_dates": 0, "n_boot": 0}
+        return _summarize_draws(np.array([]), float("nan"), 0, ci)
 
     dates = np.array(sorted(deltas[date_col].unique()))
+    _validate_block_length(len(dates), block_length)
     date_index = {d: i for i, d in enumerate(dates)}
     strata_date_idx = deltas[date_col].map(date_index).to_numpy()
     delta_values = deltas["delta"].to_numpy()
-
     point_estimate = delta_values.mean()
 
     rng = np.random.default_rng(seed)
-    boot_means = np.empty(n_boot)
+    boot_draws = np.empty(n_boot)
     for b in range(n_boot):
         weight = _block_weights(dates, block_length, rng)
-        row_weight = weight[strata_date_idx]
-        total = row_weight.sum()
-        boot_means[b] = (row_weight * delta_values).sum() / total if total > 0 else np.nan
+        boot_draws[b] = _weighted_mean(delta_values, weight[strata_date_idx])
 
-    boot_means = boot_means[~np.isnan(boot_means)]
-    tail = (1 - ci) / 2
-    return {
-        "point_estimate": point_estimate,
-        "ci_low": float(np.quantile(boot_means, tail)),
-        "ci_high": float(np.quantile(boot_means, 1 - tail)),
-        "boot_std": float(boot_means.std()),
-        "n_dates": len(dates),
-        "n_boot": len(boot_means),
-    }
+    return _summarize_draws(boot_draws, point_estimate, len(dates), ci)
 
 
 def block_bootstrap_spread(
@@ -138,50 +148,31 @@ def block_bootstrap_spread(
     separately-bootstrapped CIs and differencing the endpoints would be
     wrong; the spread must be computed within each draw.
     """
-    # group_col must be boolean; build it per decile explicitly.
-    panel_low = panel.assign(**{"__is_event": panel[decile_col] == decile_low})
-    panel_high = panel.assign(**{"__is_event": panel[decile_col] == decile_high})
-
-    low = stratum_deltas(panel_low, "__is_event", value_col, match_cols, date_col)
-    high = stratum_deltas(panel_high, "__is_event", value_col, match_cols, date_col)
+    strata_cols = [date_col, *match_cols]
+    panel_low = panel.assign(__is_event=panel[decile_col] == decile_low)
+    panel_high = panel.assign(__is_event=panel[decile_col] == decile_high)
+    low = stratum_deltas(panel_low, "__is_event", value_col, strata_cols)
+    high = stratum_deltas(panel_high, "__is_event", value_col, strata_cols)
 
     all_dates = np.array(sorted(set(low[date_col]).union(high[date_col])))
     if len(all_dates) == 0:
-        return {"point_estimate": float("nan"), "ci_low": float("nan"), "ci_high": float("nan"),
-                "boot_std": float("nan"), "n_dates": 0, "n_boot": 0}
+        return _summarize_draws(np.array([]), float("nan"), 0, ci)
+    _validate_block_length(len(all_dates), block_length)
     date_index = {d: i for i, d in enumerate(all_dates)}
 
-    low_idx = low[date_col].map(date_index).to_numpy()
-    low_vals = low["delta"].to_numpy()
-    high_idx = high[date_col].map(date_index).to_numpy()
-    high_vals = high["delta"].to_numpy()
+    low_idx, low_vals = low[date_col].map(date_index).to_numpy(), low["delta"].to_numpy()
+    high_idx, high_vals = high[date_col].map(date_index).to_numpy(), high["delta"].to_numpy()
 
     point_low = low_vals.mean() if len(low_vals) else float("nan")
     point_high = high_vals.mean() if len(high_vals) else float("nan")
     point_estimate = point_high - point_low
 
     rng = np.random.default_rng(seed)
-    boot_spreads = np.empty(n_boot)
+    boot_draws = np.empty(n_boot)
     for b in range(n_boot):
         weight = _block_weights(all_dates, block_length, rng)
+        low_mean = _weighted_mean(low_vals, weight[low_idx])
+        high_mean = _weighted_mean(high_vals, weight[high_idx])
+        boot_draws[b] = high_mean - low_mean
 
-        low_w = weight[low_idx]
-        low_total = low_w.sum()
-        low_mean = (low_w * low_vals).sum() / low_total if low_total > 0 else np.nan
-
-        high_w = weight[high_idx]
-        high_total = high_w.sum()
-        high_mean = (high_w * high_vals).sum() / high_total if high_total > 0 else np.nan
-
-        boot_spreads[b] = high_mean - low_mean
-
-    boot_spreads = boot_spreads[~np.isnan(boot_spreads)]
-    tail = (1 - ci) / 2
-    return {
-        "point_estimate": point_estimate,
-        "ci_low": float(np.quantile(boot_spreads, tail)),
-        "ci_high": float(np.quantile(boot_spreads, 1 - tail)),
-        "boot_std": float(boot_spreads.std()),
-        "n_dates": len(all_dates),
-        "n_boot": len(boot_spreads),
-    }
+    return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.signals.moving_averages.stats.controls import c2_delta, cross_sectional_bucket
+from src.signals.moving_averages.stats.controls import c2_delta, cross_sectional_bucket, stratum_deltas
 
 
 def test_cross_sectional_bucket_ranks_within_each_date_independently():
@@ -94,3 +94,22 @@ def test_c2_delta_uses_multiple_match_columns_jointly():
 
     # (12-2 + 55-5) / 2 = 30.0
     assert delta == pytest.approx(30.0)
+
+
+def test_stratum_deltas_mean_matches_c2_delta_directly():
+    # stratum_deltas is the shared primitive c1_delta/c2_delta are built
+    # on (see controls.py's module docstring) -- pin that they can't drift
+    # apart.
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1", "d1", "d2", "d2", "d2", "d2"],
+            "sector": ["A", "A", "B", "B", "A", "A", "B", "B"],
+            "is_event": [True, False, True, False, True, False, True, False],
+            "value": [15.0, 5.0, 1015.0, 1005.0, 25.0, 15.0, 1025.0, 1015.0],
+        }
+    )
+
+    deltas = stratum_deltas(panel, "is_event", "value", ["date", "sector"])
+    direct = c2_delta(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+
+    assert deltas["delta"].mean() == pytest.approx(direct)

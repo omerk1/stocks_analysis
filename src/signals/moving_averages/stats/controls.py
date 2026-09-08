@@ -6,9 +6,16 @@ reusable infrastructure, not M4-specific code: `cross_sectional_bucket`
 works on any value column, and `c2_delta` takes an arbitrary list of
 already-bucketed match columns rather than hardcoding momentum/vol/sector.
 
-All three `*_delta` functions drop rows with a missing group/value/match
-column first -- an event can't be scored against a control using data it
-doesn't have.
+`stratum_deltas` is the shared primitive behind `c1_delta` (one date-only
+stratum), `c2_delta` (date + match_cols strata), and the block-bootstrap
+inference layer (`stats/inference.py`), which needs the per-stratum table
+itself, not just its mean -- keeping one implementation rather than three
+avoids the point estimates silently drifting apart if the matching logic
+ever changes.
+
+All functions here drop rows with a missing group/value/stratum column
+first -- an event can't be scored against a control using data it doesn't
+have.
 """
 
 from __future__ import annotations
@@ -26,26 +33,42 @@ def c0_delta(panel: pd.DataFrame, group_col: str, value_col: str) -> float:
     return group_mean - overall_mean
 
 
+def stratum_deltas(
+    panel: pd.DataFrame, group_col: str, value_col: str, strata_cols: list[str]
+) -> pd.DataFrame:
+    """Per-stratum (event_mean - control_mean), for arbitrary `strata_cols`
+    -- e.g. `[date_col]` for C1, `[date_col, *match_cols]` for C2. The
+    control is the non-event rows *within* each stratum, never the whole
+    stratum including the event rows -- comparing against the whole
+    stratum would dilute the true delta by roughly the event group's own
+    population share (a diluted-by-half result on an otherwise-correct
+    50/50 split is what first caught this, in `c1_delta`'s original,
+    since-fixed implementation). A stratum with only event rows or only
+    control rows contributes nothing (no counterpart to compare against)
+    -- dropped, not treated as a zero delta.
+
+    Returns a frame with `strata_cols` plus a `delta` column; `X_delta(...)
+    == stratum_deltas(...)["delta"].mean()` for the corresponding strata.
+    """
+    required = [*strata_cols, group_col, value_col]
+    valid = panel[required].dropna(subset=[group_col, value_col, *strata_cols])
+    is_event = valid[group_col].astype(bool)
+
+    event_mean = valid[is_event].groupby(strata_cols, observed=True)[value_col].mean()
+    control_mean = valid[~is_event].groupby(strata_cols, observed=True)[value_col].mean()
+    delta = (event_mean - control_mean).dropna().rename("delta")
+    return delta.reset_index()
+
+
 def c1_delta(panel: pd.DataFrame, group_col: str, value_col: str, date_col: str = "date") -> float:
     """Date-matched control (C1): for each date, the event group's mean
     minus that same date's *non-event* names' mean (DESIGN.md §6.1: "sample
     non-event names from the same universe on the same date"), then
     averaged across dates (each date weighted equally) -- removes the
     shared market-return confound a plain C0 delta does not. This is the
-    default control tier.
-
-    The control deliberately excludes the event rows themselves, not just
-    matches on date -- comparing against the *whole* date-universe mean
-    (event rows included) would dilute the true delta by roughly the
-    event group's population share on that date (a diluted-by-half result
-    on an otherwise-correct 50/50 split is what first caught this).
+    default control tier. See `stratum_deltas` for the matching logic.
     """
-    valid = panel[[date_col, group_col, value_col]].dropna(subset=[group_col, value_col])
-    is_event = valid[group_col].astype(bool)
-    event_mean_by_date = valid[is_event].groupby(date_col)[value_col].mean()
-    control_mean_by_date = valid[~is_event].groupby(date_col)[value_col].mean()
-    delta_by_date = (event_mean_by_date - control_mean_by_date).dropna()
-    return delta_by_date.mean()
+    return stratum_deltas(panel, group_col, value_col, [date_col])["delta"].mean()
 
 
 def cross_sectional_bucket(
@@ -82,20 +105,9 @@ def c2_delta(
     everything else in the panel -- this function only matches and
     differences, it doesn't compute or lag the match columns itself.
 
-    Same non-dilution logic as `c1_delta`, extended to (date, *match_cols)
-    strata: the control is the non-event rows within each stratum, never
-    the whole stratum including the event rows. A stratum with only event
-    rows or only control rows contributes nothing (no counterpart to
-    compare against) -- dropped, not treated as a zero delta. Each
-    populated stratum is weighted equally in the final average, same
-    convention as `c1_delta` weighting each date equally.
+    Same non-dilution logic as `c1_delta` (see `stratum_deltas`), extended
+    to (date, *match_cols) strata. Each populated stratum is weighted
+    equally in the final average, same convention as `c1_delta` weighting
+    each date equally.
     """
-    required = [date_col, group_col, value_col, *match_cols]
-    valid = panel[required].dropna(subset=[group_col, value_col, *match_cols])
-    is_event = valid[group_col].astype(bool)
-
-    strata_cols = [date_col, *match_cols]
-    event_mean = valid[is_event].groupby(strata_cols, observed=True)[value_col].mean()
-    control_mean = valid[~is_event].groupby(strata_cols, observed=True)[value_col].mean()
-    delta_by_stratum = (event_mean - control_mean).dropna()
-    return delta_by_stratum.mean()
+    return stratum_deltas(panel, group_col, value_col, [date_col, *match_cols])["delta"].mean()

@@ -103,7 +103,7 @@ coarser tercile match here may be leaving real confounding unabsorbed (see the
 
 ### Result (2026-09-08 addendum — inference, cost, and tier assignment)
 
-Full detail in `notebooks/moving_averages_m04_distance.ipynb`. Summary: block-bootstrap
+Full detail in `notebooks/moving_averages_distance_from_ma.ipynb`. Summary: block-bootstrap
 CIs (DESIGN §6.2/§6.3, dates resampled in blocks of 42) show the shape-only read ("8 of
 9 facets survive the kill criterion") does not hold once actual overlap-adjusted
 uncertainty is accounted for — **only the 3 SMA20 facets have a 90% CI excluding zero**;

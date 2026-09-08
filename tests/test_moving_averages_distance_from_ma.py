@@ -1,4 +1,4 @@
-"""Mechanics test for M4's decile_table (PREREGISTRATION.md, 2026-09-08) --
+"""Mechanics test for the distance-from-MA decile_table (PREREGISTRATION.md, 2026-09-08) --
 same spirit as Phase 1's synthetic gate: confirm the machinery recovers a
 known, planted, monotonic decile->return relationship before trusting it
 on real data. Not a replacement for Phase 1's gate (which validates
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.signals.moving_averages.modules import m04_distance as m04
+from src.signals.moving_averages.modules import distance_from_ma as dist_ma
 
 
 def test_decile_table_recovers_a_planted_monotonic_effect():
@@ -30,7 +30,7 @@ def test_decile_table_recovers_a_planted_monotonic_effect():
     panel["vol_tercile"] = 0
     panel["sector"] = "X"
 
-    table = m04.decile_table(panel, "feat")
+    table = dist_ma.decile_table(panel, "feat")
 
     assert len(table) == n_tickers
     assert table["c1"].is_monotonic_increasing
@@ -57,7 +57,7 @@ def test_prepare_adds_forward_return_and_c2_match_columns():
     ]
     panel = pd.DataFrame(rows)
 
-    prepared = m04.prepare(panel)
+    prepared = dist_ma.prepare(panel)
 
     assert "fwd_ret_21" in prepared.columns
     assert {"mom_tercile", "vol_tercile"}.issubset(prepared.columns)
@@ -71,4 +71,4 @@ def test_decile_table_rejects_nothing_silently_when_c2_match_cols_missing():
         {"date": ["d1"], "ticker": ["T0"], "feat": [1.0], "fwd_ret_21": [0.01]}
     )
     with pytest.raises(KeyError):
-        m04.decile_table(panel, "feat")
+        dist_ma.decile_table(panel, "feat")
