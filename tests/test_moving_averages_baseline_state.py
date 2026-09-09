@@ -70,6 +70,20 @@ def test_cell_row_c0_unrestricted_and_c0_use_different_row_sets():
     assert row["row_loss_n_unrestricted"] > row["row_loss_n_eligible"]
 
 
+def test_cell_row_reports_pooled_as_the_c0_dilution_factor_times_c0():
+    # PREREGISTRATION.md's "waterfall re-rendered" addendum: pooled is the
+    # actual C0 leg of the shrinkage waterfall; c0 is diluted by the event
+    # group's own population share p, so c0 == (1-p) * pooled exactly on
+    # the same (restricted) row set both are computed from.
+    panel = _synthetic_prepared_panel()
+    working = panel.rename(columns={"above_sma_50": "_is_event"})
+
+    row = bs._cell_row(working, "_is_event", {"label": "test"})
+    p = row["n_events"] / row["row_loss_n_eligible"]
+
+    assert row["c0"] == pytest.approx((1 - p) * row["pooled"])
+
+
 def test_evaluate_kill_criterion_uses_the_max_absolute_ci_edge():
     primary = pd.DataFrame(
         {
