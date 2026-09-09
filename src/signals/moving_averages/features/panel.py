@@ -8,10 +8,14 @@ module hand-rolling its own `.shift()`.
 `build_panel` is Phase 2's starting-subset feature layer: SMA/EMA at
 lookbacks {20, 50, 200} (features/ma.py), dist_pct/dist_atr/dist_z and the
 `above` state (features/distance.py), slope_log_k at k in {5, 21, 63}
-(features/slope.py), basic SMA/EMA full-stack booleans, and (added for M4's
+(features/slope.py), basic SMA/EMA full-stack booleans, (added for M4's
 C2 matched control, DESIGN §6.1) `mom_12_1`/`realized_vol_63`
-(features/context.py). `write_panel`/`read_panel` cache it as partitioned
-parquet per §4.4's schema.
+(features/context.py), (added for M1, DESIGN §8 -- PREREGISTRATION.md)
+`run_length_bucket` per SMA lookback (features/state.py), SMA only this
+slice, and (added for M1's short-term-reversal confound check,
+PREREGISTRATION.md 2026-09-09) `mom_1_0` (features/context.py).
+`write_panel`/`read_panel` cache it as partitioned parquet per §4.4's
+schema.
 
 Not yet built (later scope, not this phase's): WMA/HMA/KAMA/VWMA, the full
 lookback grid, ribbon/regime features, and point-in-time `mktcap_decile`/
@@ -34,7 +38,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common import indicators
 from src.foundation.market_common.data import load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
-from src.signals.moving_averages.features import context, distance, ma, slope
+from src.signals.moving_averages.features import context, distance, ma, slope, state
 
 ATR_PERIOD = 14
 _NON_FEATURE_COLUMNS = ("ticker", "date", "open", "high", "low", "close", "volume")
@@ -88,18 +92,42 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
             for k in slope.SLOPE_K:
                 frame[f"slope_log_{k}_{ma_col}"] = slope.slope_log_k(ma_series, k)
 
+    # Run-length (state age, M1's sub-question, DESIGN §8) -- SMA only this
+    # slice: PREREGISTRATION.md's M1 entry defers EMA state-agreement to a
+    # separate Track A look rather than assuming redundancy (or
+    # independence) and doubling this module's N_tests on it.
+    for lookback in ma.LOOKBACKS:
+        ma_col = ma.ma_column_name("sma", lookback)
+        above_col = frame[f"above_{ma_col}"]
+        run_id = state.state_run_id(above_col)
+        days = state.days_in_run(above_col)
+        frame[f"run_length_bucket_{ma_col}"] = state.run_length_bucket(days, run_id)
+
     # Basic stack/state (DESIGN §4.3 "Pairwise"/"Ribbon", starting-subset
     # version): fully bullish alignment across the three lookbacks within
     # each family. Not the full stack_perm categorical (24 states) --
     # that's later scope.
-    frame["stacked_sma"] = (frame["sma_20"] > frame["sma_50"]) & (frame["sma_50"] > frame["sma_200"])
-    frame["stacked_ema"] = (frame["ema_20"] > frame["ema_50"]) & (frame["ema_50"] > frame["ema_200"])
+    # `distance.above` reused here (not `>` directly) for its NA handling --
+    # a bare `sma_50 > sma_200` would silently read sma_200's warmup as
+    # "not stacked" (False) instead of undefined, the same defect fixed in
+    # `above` itself. Nullable "boolean" `&` propagates NA correctly
+    # (Kleene logic), so a pairwise comparison already known False (e.g.
+    # 20-vs-50 with both defined) short-circuits the AND even if the other
+    # pairwise comparison is NA -- only genuinely undetermined cases end up
+    # NA, not merely everything touching an undefined MA.
+    frame["stacked_sma"] = distance.above(frame["sma_20"], frame["sma_50"]) & distance.above(
+        frame["sma_50"], frame["sma_200"]
+    )
+    frame["stacked_ema"] = distance.above(frame["ema_20"], frame["ema_50"]) & distance.above(
+        frame["ema_50"], frame["ema_200"]
+    )
 
     # Context (DESIGN §4.3): the momentum/vol controls C2 matching needs
     # (§6.1). Added alongside M4, the first module that needs C2 -- see
     # PREREGISTRATION.md.
     frame["mom_12_1"] = context.mom_12_1(frame["close"])
     frame["realized_vol_63"] = context.realized_vol_63(frame["close"])
+    frame["mom_1_0"] = context.mom_1_0(frame["close"])
 
     return frame.reset_index().rename(columns={"timestamp": "date"})
 
@@ -149,14 +177,22 @@ def build_panel(
 
     panel = pd.concat(frames, ignore_index=True).sort_values(["ticker", "date"]).reset_index(drop=True)
 
-    # Identify which feature columns are boolean *before* lagging --
+    # Identify which feature columns are boolean/string *before* lagging --
     # `.shift()` introduces a NaN into the first row of each ticker group,
     # which upcasts a plain `bool` column to `object` (True/False/nan);
     # checking dtype after the lag would silently misclassify every
-    # boolean feature as numeric and cast it to float32 below.
+    # boolean feature as numeric and cast it to float32 below. Every
+    # boolean feature here (`above_*`, `stacked_sma`/`stacked_ema`) is
+    # already nullable "boolean" dtype pre-lag, not plain `bool` --
+    # `distance.above` returns "boolean" directly (its own NA-vs-warmup
+    # fix) -- but plain `bool` is still checked too in case a future
+    # feature returns it. Same reasoning for `run_length_bucket`'s
+    # nullable "string" columns -- cast to float32 would fail outright
+    # rather than silently misclassify.
     feature_cols = [c for c in panel.columns if c not in _NON_FEATURE_COLUMNS]
-    bool_cols = [c for c in feature_cols if panel[c].dtype == bool]
-    float_cols = [c for c in feature_cols if c not in bool_cols]
+    bool_cols = [c for c in feature_cols if panel[c].dtype == bool or panel[c].dtype == "boolean"]
+    string_cols = [c for c in feature_cols if panel[c].dtype == "string"]
+    float_cols = [c for c in feature_cols if c not in bool_cols and c not in string_cols]
 
     panel = apply_lag(panel, columns=feature_cols)
 
@@ -173,6 +209,7 @@ def build_panel(
     # Nullable boolean dtype, not plain bool -- plain `bool` can't hold the
     # NaN the lag introduces into each ticker's first row.
     panel[bool_cols] = panel[bool_cols].astype("boolean")
+    panel[string_cols] = panel[string_cols].astype("string")
 
     return panel
 
