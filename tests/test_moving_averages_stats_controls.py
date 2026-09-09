@@ -9,7 +9,14 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from src.signals.moving_averages.stats.controls import c2_delta, cross_sectional_bucket, stratum_deltas
+from src.signals.moving_averages.stats.controls import (
+    c0_delta,
+    c1_delta,
+    c2_delta,
+    c2_eligible_mask,
+    cross_sectional_bucket,
+    stratum_deltas,
+)
 
 
 def test_cross_sectional_bucket_ranks_within_each_date_independently():
@@ -113,3 +120,76 @@ def test_stratum_deltas_mean_matches_c2_delta_directly():
     direct = c2_delta(panel, "is_event", "value", match_cols=["sector"], date_col="date")
 
     assert deltas["delta"].mean() == pytest.approx(direct)
+
+
+# ---- c2_eligible_mask (M1's waterfall row-set fix, PREREGISTRATION.md) ----
+
+def test_c2_eligible_mask_drops_rows_missing_a_match_col():
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1"],
+            "sector": ["A", "A", None],  # third row missing its match col
+            "is_event": [True, False, True],
+            "value": [15.0, 5.0, 999.0],
+        }
+    )
+
+    mask = c2_eligible_mask(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+
+    assert mask.tolist() == [True, True, False]
+
+
+def test_c2_eligible_mask_drops_singleton_strata():
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1"],
+            "sector": ["A", "A", "B"],  # sector B has no control row
+            "is_event": [True, False, True],
+            "value": [20.0, 10.0, 999.0],
+        }
+    )
+
+    mask = c2_eligible_mask(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+
+    assert mask.tolist() == [True, True, False]
+
+
+def test_c2_eligible_mask_matches_the_row_population_c2_delta_actually_uses():
+    # A blend: some rows missing a match col, some in singleton strata,
+    # some fully populated -- the mask must select exactly the rows whose
+    # (date, sector) stratum contributes to stratum_deltas's own C2 table.
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1", "d1", "d2", "d2"],
+            "sector": ["A", "A", "B", "B", "A", None],
+            "is_event": [True, False, True, False, True, True],
+            "value": [15.0, 5.0, 1015.0, 1005.0, 25.0, 999.0],
+        }
+    )
+
+    mask = c2_eligible_mask(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+    deltas = stratum_deltas(panel, "is_event", "value", ["date", "sector"])
+
+    contributing_strata = set(map(tuple, deltas[["date", "sector"]].itertuples(index=False)))
+    expected = panel.apply(lambda r: (r["date"], r["sector"]) in contributing_strata, axis=1)
+
+    assert mask.tolist() == expected.tolist()
+
+
+def test_c2_eligible_mask_restricts_c0_and_c1_to_the_same_row_set_as_c2():
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1", "d1", "d2", "d2"],
+            "sector": ["A", "A", "B", "B", "A", None],  # d2/None row is ineligible
+            "is_event": [True, False, True, False, True, True],
+            "value": [15.0, 5.0, 1015.0, 1005.0, 999.0, 999.0],
+        }
+    )
+    mask = c2_eligible_mask(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+    restricted = panel[mask]
+
+    # Same row count feeding all three deltas -- the point of the fix.
+    assert len(restricted) == 4
+    c0_delta(restricted, "is_event", "value")
+    c1_delta(restricted, "is_event", "value")
+    c2_delta(restricted, "is_event", "value", match_cols=["sector"])

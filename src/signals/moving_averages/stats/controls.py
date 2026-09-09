@@ -90,6 +90,48 @@ def cross_sectional_bucket(
     )
 
 
+def c2_eligible_mask(
+    panel: pd.DataFrame,
+    group_col: str,
+    value_col: str,
+    match_cols: list[str],
+    date_col: str = "date",
+) -> pd.Series:
+    """Boolean mask, aligned to `panel`'s index, of rows eligible for a C2
+    matched stratum -- i.e. the exact row population `c2_delta` actually
+    uses. Computing C0/C1/C2 on this same restricted set (rather than
+    letting C0/C1 additionally run on their own wider natural row sets via
+    their own independent `dropna`) is required before reading a
+    C0->C1->C2 waterfall as a shrinkage story (PREREGISTRATION.md's M1
+    entry, "Waterfall row set"): otherwise the shrinkage is confounded
+    with a change in sample composition, not just a change in control
+    strictness.
+
+    A row is eligible iff `group_col`/`value_col`/`date_col`/`match_cols`
+    are all non-null, AND the row's (date, *match_cols) stratum contains
+    at least one event row and at least one control row -- the same
+    non-dilution requirement `stratum_deltas` applies internally (a
+    stratum with only one side has no counterpart to compare against, so
+    C2 silently drops it; a row in such a stratum must not be counted as
+    "eligible" by C0/C1 either, or the row sets diverge again).
+    """
+    strata_cols = [date_col, *match_cols]
+    required = [*strata_cols, group_col, value_col]
+    valid = panel[required].notna().all(axis=1)
+
+    working = panel.loc[valid, strata_cols].copy()
+    working["_is_event"] = panel.loc[valid, group_col].astype(bool)
+
+    grouped = working.groupby(strata_cols, observed=True)["_is_event"]
+    event_count = grouped.transform("sum")
+    total_count = grouped.transform("size")
+    stratum_ok = (event_count > 0) & ((total_count - event_count) > 0)
+
+    eligible = pd.Series(False, index=panel.index)
+    eligible.loc[valid] = stratum_ok.to_numpy()
+    return eligible
+
+
 def c2_delta(
     panel: pd.DataFrame,
     group_col: str,
