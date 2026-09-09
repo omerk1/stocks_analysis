@@ -105,8 +105,20 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     # version): fully bullish alignment across the three lookbacks within
     # each family. Not the full stack_perm categorical (24 states) --
     # that's later scope.
-    frame["stacked_sma"] = (frame["sma_20"] > frame["sma_50"]) & (frame["sma_50"] > frame["sma_200"])
-    frame["stacked_ema"] = (frame["ema_20"] > frame["ema_50"]) & (frame["ema_50"] > frame["ema_200"])
+    # `distance.above` reused here (not `>` directly) for its NA handling --
+    # a bare `sma_50 > sma_200` would silently read sma_200's warmup as
+    # "not stacked" (False) instead of undefined, the same defect fixed in
+    # `above` itself. Nullable "boolean" `&` propagates NA correctly
+    # (Kleene logic), so a pairwise comparison already known False (e.g.
+    # 20-vs-50 with both defined) short-circuits the AND even if the other
+    # pairwise comparison is NA -- only genuinely undetermined cases end up
+    # NA, not merely everything touching an undefined MA.
+    frame["stacked_sma"] = distance.above(frame["sma_20"], frame["sma_50"]) & distance.above(
+        frame["sma_50"], frame["sma_200"]
+    )
+    frame["stacked_ema"] = distance.above(frame["ema_20"], frame["ema_50"]) & distance.above(
+        frame["ema_50"], frame["ema_200"]
+    )
 
     # Context (DESIGN §4.3): the momentum/vol controls C2 matching needs
     # (§6.1). Added alongside M4, the first module that needs C2 -- see
@@ -166,11 +178,16 @@ def build_panel(
     # `.shift()` introduces a NaN into the first row of each ticker group,
     # which upcasts a plain `bool` column to `object` (True/False/nan);
     # checking dtype after the lag would silently misclassify every
-    # boolean feature as numeric and cast it to float32 below. Same
-    # reasoning for `run_length_bucket`'s nullable "string" columns --
-    # cast to float32 would fail outright rather than silently misclassify.
+    # boolean feature as numeric and cast it to float32 below. Every
+    # boolean feature here (`above_*`, `stacked_sma`/`stacked_ema`) is
+    # already nullable "boolean" dtype pre-lag, not plain `bool` --
+    # `distance.above` returns "boolean" directly (its own NA-vs-warmup
+    # fix) -- but plain `bool` is still checked too in case a future
+    # feature returns it. Same reasoning for `run_length_bucket`'s
+    # nullable "string" columns -- cast to float32 would fail outright
+    # rather than silently misclassify.
     feature_cols = [c for c in panel.columns if c not in _NON_FEATURE_COLUMNS]
-    bool_cols = [c for c in feature_cols if panel[c].dtype == bool]
+    bool_cols = [c for c in feature_cols if panel[c].dtype == bool or panel[c].dtype == "boolean"]
     string_cols = [c for c in feature_cols if panel[c].dtype == "string"]
     float_cols = [c for c in feature_cols if c not in bool_cols and c not in string_cols]
 

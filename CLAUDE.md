@@ -33,6 +33,7 @@ These are silent failure modes. Violating them produces plausible, confident, wr
 6. **Report effective N.** Distinct event *dates* alongside raw row count, in every table. Events cluster; 40,000 rows on 55 dates is 55 observations.
 7. **Log scale for slopes.** `slope_log_k` only. Percentage and price-unit slopes are not comparable across tickers.
 8. **Costs annotated.** Any claim implying trading carries `signals_per_year × cost` next to the gross number.
+9. **Derived features preserve their inputs' missingness.** Comparison operators (`>`, `<`, `==`) return `False` on NaN where arithmetic propagates it — a boolean feature built from a comparison (not arithmetic) needs an explicit `.where(input.notna())`/`.mask(input.isna())` and a test asserting NA across the input's undefined region, not just correct values elsewhere. (Found 2026-09-09: `above_sma_200` read its own 200-day MA warmup as "below" instead of undefined, on ~6.6% of the panel — see `tests/test_moving_averages_features.py::test_above_is_na_during_ma_warmup_not_false` for the enforced case.)
 
 ## Before running any analysis
 

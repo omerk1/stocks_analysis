@@ -51,7 +51,39 @@ def test_above_formula():
 
     result = distance.above(close, ma_series)
 
+    assert result.dtype == "boolean"
     assert result.tolist() == [True, False, False]
+
+
+def test_above_is_na_during_ma_warmup_not_false():
+    """Regression test for the NaN-comparison bug: `close > ma` on a plain
+    (non-nullable) comparison silently reads a NaN `ma` (its own warmup
+    window) as "not greater than" -- i.e. `False` -- instead of undefined.
+    Planted warmup region (first two rows) must come back `pd.NA`, not
+    `False`, and real values after warmup must be unaffected.
+    """
+    close = pd.Series([100.0, 90.0, 110.0, 95.0, 105.0])
+    ma_series = pd.Series([None, None, 100.0, 100.0, 100.0])
+
+    result = distance.above(close, ma_series)
+
+    assert result.dtype == "boolean"
+    assert result.iloc[:2].isna().all()
+    assert result.iloc[2:].tolist() == [True, False, True]
+
+
+def test_above_is_na_when_the_first_argument_is_na_too():
+    # `above` is reused for MA-vs-MA comparisons (stacked_sma/stacked_ema),
+    # where either side -- not just the second argument -- can be NA.
+    a = pd.Series([None, 100.0, 100.0])
+    b = pd.Series([100.0, 100.0, None])
+
+    result = distance.above(a, b)
+
+    assert result.dtype == "boolean"
+    assert pd.isna(result.iloc[0])
+    assert result.iloc[1] == False
+    assert pd.isna(result.iloc[2])
 
 
 def test_slope_log_k_formula():
@@ -116,6 +148,24 @@ def test_compute_ma_rejects_an_unknown_family():
 
     with pytest.raises(ValueError, match="Unknown MA family"):
         ma.compute_ma(close, "wma", 10)
+
+
+# ---- M4-unaffected check (M1's `above` NaN-comparison bug fix prompted a
+# sweep of the other distance features; dist_pct/dist_atr/dist_z are
+# arithmetic, not comparisons, so NaN propagates through them on its own --
+# pinned here as a permanent regression test, not just a one-off check.
+# See PREREGISTRATION.md's M4 entry for the panel-wide verification.) ----
+
+def test_dist_pct_and_dist_atr_are_na_wherever_the_ma_is_na():
+    close = pd.Series([100.0, 90.0, 110.0])
+    atr = pd.Series([5.0, 5.0, 5.0])
+    ma_series = pd.Series([None, 100.0, None])  # warmup + an arbitrary later gap
+
+    dist_pct_result = distance.dist_pct(close, ma_series)
+    dist_atr_result = distance.dist_atr(close, ma_series, atr)
+
+    assert dist_pct_result.isna().tolist() == ma_series.isna().tolist()
+    assert dist_atr_result.isna().tolist() == ma_series.isna().tolist()
 
 
 # ---- run-length state (M1's run-length sub-question, DESIGN §8) ----
@@ -206,6 +256,41 @@ def test_run_length_bucket_drops_the_censored_first_run_even_inside_a_valid_rang
     assert bucket[censored].isna().all()
 
 
+def test_run_length_treats_ma_warmup_as_excluded_not_a_censored_state_run():
+    """Integration test bridging the `above` NaN-comparison fix with
+    `state.py`'s censoring logic. Before the fix, an MA's warmup window
+    silently read as `False` ("below"), so `state_run_id` saw it as a real
+    (if fictitious) first run -- which happened to still get dropped by
+    the "first run is censored" rule, but only by coincidence, and along
+    the way it corrupted `state_table`'s own plain above/below counts
+    (which don't go through the run-length path at all). After the fix,
+    the warmup rows are genuinely NA and excluded from *any* run -- the
+    first *real* run (right after warmup ends) becomes run 0 and is
+    still, correctly, censored (its own true start is still unknown).
+    """
+    close = pd.Series([100.0] * 5 + [110.0, 90.0, 90.0, 90.0, 90.0, 90.0, 90.0])
+    ma_series = pd.Series([None] * 5 + [100.0] * 7)  # 5-row warmup, then defined
+
+    above = distance.above(close, ma_series)
+    run_id = state.state_run_id(above)
+    days = state.days_in_run(above)
+    bucket = state.run_length_bucket(days, run_id)
+
+    # Warmup rows: no state, no run, no bucket -- excluded, not run 0.
+    assert run_id.iloc[:5].isna().all()
+    assert bucket.iloc[:5].isna().all()
+
+    # The first *real* run starts right after warmup (row 5, above=True
+    # for one day) -- still run 0, still censored (unknown true start).
+    assert run_id.iloc[5] == 0
+    assert pd.isna(bucket.iloc[5])
+
+    # The second real run (below=True, rows 6-11) is *not* censored --
+    # its start is directly observed.
+    assert (run_id.iloc[6:] == 1).all()
+    assert bucket.iloc[6:].tolist() == ["1-5"] * 5 + ["6-21"]
+
+
 # ---- build_panel: end-to-end lag correctness and ticker-boundary safety ----
 
 @pytest.fixture
@@ -248,6 +333,26 @@ def test_build_panel_lags_features_relative_to_the_raw_computation(conn):
         row_date = close_series.index[i]
         prior_date = close_series.index[i - 1]
         assert aaa.loc[row_date] == raw_above.loc[prior_date]
+
+
+def test_build_panel_stacked_sma_is_na_during_sma_200_warmup_not_false(conn):
+    """Regression test for the same NaN-comparison defect in `stacked_sma`/
+    `stacked_ema`: with only 40 bars, `sma_200` never has enough history to
+    be defined at all in this window, so `stacked_sma` (which needs
+    `sma_50 > sma_200`) must be NA throughout -- not `False`, which would
+    silently claim "not stacked" is a known fact rather than undefined.
+    """
+    n = 40
+    rng = np.random.default_rng(0)
+    closes = list(100.0 + np.cumsum(rng.normal(0, 1.0, n)))
+    _seed_ticker(conn, "AAA", closes, "2020-01-01")
+
+    panel = build_panel(conn, ["AAA"])
+
+    assert panel["stacked_sma"].dtype == "boolean"
+    assert panel["stacked_sma"].isna().all()
+    assert panel["stacked_ema"].dtype == "boolean"
+    assert panel["stacked_ema"].isna().all()
 
 
 def test_build_panel_does_not_bleed_lag_across_ticker_boundaries(conn):
