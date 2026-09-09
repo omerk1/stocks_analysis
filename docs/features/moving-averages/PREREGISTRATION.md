@@ -121,3 +121,154 @@ slice, all three required for Tier 1/2. `dist_pct_sma_20`, `dist_atr_sma_20`,
 `dist_z_sma_20` → **Tier 3** (directionally consistent, plausible mechanism, not
 actionable — fails cost). The other 6 facets → **Tier 4** (CI includes zero; logged in
 `DEAD_ENDS.md`).
+
+## M1 — Baseline state conditioning (2026-09-09)
+
+**Module / track:** M1, Track B (DESIGN.md §8, M1, lines 556-561).
+
+**Promoted from:** not a Track A candidate — M1 is DESIGN §12's own recommended
+minimal-core first module and the backlog's designated next module (`docs/backlog.md`,
+2026-09-08 entry). It is run now, after M4, only because Phase 3's Track A exploration
+happened to point at distance-from-MA first; M1 was not deprioritized on the merits.
+
+**Hypothesis:** Forward excess returns differ conditional on price being above vs.
+below a single SMA (state), and further conditional on the age of that state
+(run-length bucket: 1–5, 6–21, 22–63, 64+ trading days, both directions) — DESIGN's
+"does a fresh reclaim beat a stale one" sub-question.
+
+**This slice's scope** (a first pass, not the full DESIGN §8 M1 method):
+- Families/lookbacks: **SMA only**, {20, 50, 200} — the Phase 2 starting subset. EMA is
+  explicitly **out of scope this slice**: the only existing exploratory evidence
+  touching "EMA" (`EXPLORATION_LOG.md`, 2026-09-07, `corr(dist_pct_ema_50,
+  slope_log_5_ema_50) = 0.947`) measures the M6.0 slope/distance algebraic identity
+  *within* EMA — it says nothing about SMA-state vs. EMA-state agreement, which remains
+  unmeasured. Rather than assume redundancy (or assume independence) and double
+  `N_tests` on it, EMA state agreement is deferred to a cheap Track A look
+  (`corr(above_sma_k, above_ema_k)`), not folded into this pre-registered grid.
+- Event definition: `above_{ma_col}` (already built, already lagged, `features/panel.py`)
+  for the plain state; a new run-length feature (`features/state.py`, built as part of
+  this entry) for the age sub-question — see "Run-length censoring" below.
+- Horizon: 21 trading days only (`fwd_ret_21`), same precedent as M4's first slice.
+- Universe: the same 408 S&P 500 constituents (as of 2021-12-31,
+  `data.sp500_full_coverage_tickers`), dev window 2010-01-01 → 2021-12-31 — U1 tier
+  (DESIGN §3.2).
+- Controls: **C0, C1, and C2** (date + momentum-tercile + vol-tercile + sector matched),
+  reusing `features/context.py`/`stats/controls.py::c2_delta` and inheriting the
+  tercile-not-decile deviation already logged in this file's M4 entry (2026-09-08 "C2
+  tercile substitution") — referenced, not re-derived.
+
+**Waterfall row set (methodology fix vs. M4):** C0, C1, and C2 are computed on the
+**same row set** for each cell — the subset that survives C2's stratum-eligibility
+criterion (non-null `mom_tercile`/`vol_tercile`/`sector`, and belonging to a
+(date, mom_tercile, vol_tercile, sector) stratum with both event and control rows
+present). C0 and C1 do **not** additionally run on their own wider natural row sets —
+doing so would confound the C0→C1→C2 shrinkage with a change in sample composition,
+not just a change in control strictness, defeating the point of the waterfall. Rows
+lost vs. C0's unrestricted population are reported as a diagnostic in every table
+(count and %, split into missing-C2-inputs vs. singleton-stratum), alongside effective
+N.
+
+**Run-length censoring:** the first observed state run per (ticker, MA column) — the
+run already in progress when the state series begins, right after the MA's warmup
+window — is left-censored: its true start (and therefore its true age) is unknown.
+Its rows get **no run-length bucket** (dropped from the run-length analysis entirely,
+never labeled `1-5` regardless of how short the observed remainder looks). Every
+subsequent run has a directly-observed start (a state flip is directly visible in the
+lagged `above` series) and is bucketed normally. A synthetic test with planted runs of
+known length (including a planted first/censored run) confirms both the censoring drop
+and the bucket recovery before this feature is used in any analysis (see commit
+alongside this entry).
+
+**Grid size (N_tests contribution):** 3 lookbacks × (2 state cells + 2 directions × 4
+run-length buckets) = 3 × 10 = **30 cells**, 1 horizon, 1 universe. **The cells are
+nested, not independent:** within each (lookback, direction), the 4 run-length buckets
+partition that direction's state cell exactly (every row in the "above" state cell
+falls into exactly one of the 4 above-direction run-length buckets). A later FDR pass
+over the full pre-registered grid must account for this nesting rather than treating
+30 as 30 exchangeable independent tests.
+
+**Primary vs. secondary cells:** the **6 plain state cells** (above/below × 3
+lookbacks) are primary — DESIGN's original M1 hypothesis and this module's core
+question. The kill criterion (below) is evaluated **only** over these 6. The 24
+run-length cells are secondary — DESIGN frames run-length as a "key sub-question," not
+the headline test — reported alongside for the age question but do not individually
+trigger the kill. Survival at any cell, primary or secondary, is **provisional pending
+FDR**; only the primary-cell kill/no-kill call is this slice's actual verdict.
+
+**Kill criterion:** DESIGN's own wording ("if C2-adjusted effect < 0.1% at 21d across
+all lookbacks, the entire 'state' family is a momentum re-encoding") predates the
+inference layer and is ambiguous on magnitude-vs-signed and on which point of an
+interval to test. Resolved here, committed before running:
+- **Magnitude, not signed.** A large real effect of either sign is not a kill, however
+  the wording literally reads — a −0.5% below-MA effect must not satisfy "< 0.1%" just
+  because −0.5 < 0.1.
+- **Evaluated on the CI, not the point estimate**, using the most-favorable-to-survival
+  reading of the 90% block-bootstrap interval (`stats/inference.py::block_bootstrap_delta`,
+  block length 42): for a primary cell with point estimate and interval
+  `[ci_low, ci_high]`,
+
+  `kill_cell := max(|ci_low|, |ci_high|) < 0.10%`
+
+  i.e. even the most extreme point the interval reaches, in either direction, fails to
+  clear the 0.1% economic-significance floor. This is well-defined whether or not the
+  interval spans zero (both endpoints are checked either way).
+- **Module-level kill** fires iff `kill_cell` holds for **all 6** primary cells. If
+  triggered: report as a headline finding that the state family is a momentum
+  re-encoding, reallocate effort to M4/M5 per DESIGN's own instruction.
+
+**Control tier and why:** C1 is the default read (DESIGN §6.1). **C2 is the tier that
+answers the research question** — the same momentum-re-encoding concern DESIGN raises
+for M1's own kill criterion applies to the raw state effect, so the C2-adjusted number
+is the one the kill criterion is evaluated against. C0 is reported only for the
+shrinkage waterfall (this module's primary *output*, per DESIGN §8), never as a
+headline number on its own.
+
+**C2 note:** tercile (not decile) momentum/vol matching, inherited unchanged from this
+file's M4 entry (2026-09-08 "C2 tercile substitution") — same universe-size constraint
+applies here, not re-derived.
+
+**Momentum control used:** `mom_12_1`. **Vol control used:** `realized_vol_63`. Both
+unchanged from M4.
+
+**Minimum sample threshold (DESIGN §6.9):** no cell reported below 200 events across
+≥30 distinct dates and ≥30 distinct tickers, applied to the **row-restricted**
+(C2-eligible-intersection) population, not the unrestricted panel — consistent with the
+waterfall row-set fix above. Below-threshold cells are shown flagged, not as an
+interpretable number.
+
+**Cost convention (DESIGN §6.10), pre-registered before any results:**
+- **(a) Tiered slippage:** S&P 500 constituents are U1 (DESIGN §3.2) → 5bps slippage
+  per leg → **10bps/round-trip** (2 legs). Spread/commission are not separately
+  estimated in this repo (same limitation as M4); this convention is slippage-only and
+  therefore a lower bound on the true hurdle.
+- **(b) DESIGN's worked illustrative example** (§6.10: "50 round trips/year at 10bps
+  each carries a 5%/yr hurdle" — verified: 50 × 10bps = 500bps = 5.00%/yr, confirming
+  "10bps each" is a per-round-trip figure, not per-leg — a per-leg reading would give
+  10%/yr, contradicting the stated hurdle): **10bps/round-trip**, applied flat
+  regardless of tier.
+- For this study's U1 universe (a) and (b) land on the same number, which is a
+  coincidence of U1 specifically (at U2 they would diverge: 30bps vs. 10bps) — both are
+  computed as separate columns in every cost-annotated table, not collapsed into one,
+  so a future universe-tier extension doesn't silently inherit an assumption that only
+  holds here.
+- **Turnover mechanism (must be measured, not assumed):** unlike M4 (decile-membership
+  crossing), a rebalance under M1's rule is triggered by (i) every state flip
+  (above↔below) and, for the run-length-conditioned rule, additionally by (ii) every
+  bucket-boundary crossing within an unbroken run (day 5→6, 21→22, 63→64). The
+  run-length rule therefore has strictly higher turnover than the plain state rule —
+  it inherits every state flip's turnover plus the internal boundary crossings.
+  `signals_per_year` for each is measured directly off the built panel (bucket-label
+  change count per ticker-year) once available, not assumed in advance; the plain-state
+  and run-length-conditioned rules get separate hurdle numbers in the output table.
+
+**Plateau check (DESIGN §6.7):** the three lookbacks (20/50/200) are compared for
+consistency of sign/rough magnitude across the grid; run-length buckets are checked for
+a smooth (not cliff) progression 1–5 → 6–21 → 22–63 → 64+ within each direction.
+
+**Effective N:** reported as distinct event dates alongside raw row count, per cell
+(CLAUDE.md's effective-N invariant) — required in the output table, not optional.
+
+**Expected, not a new problem:** per DESIGN §7.3's survivorship cap, weak/below-MA
+state cells are Tier-3-capped regardless of outcome (delisted-ticker price history
+exists only 2024–2026 in this repo) — the same cap M4 already operates under, not
+something this module needs to re-solve.
