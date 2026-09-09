@@ -100,7 +100,7 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
         ma_col = ma.ma_column_name("sma", lookback)
         above_col = frame[f"above_{ma_col}"]
         run_id = state.state_run_id(above_col)
-        days = state.days_in_run(above_col)
+        days = state.days_in_run(above_col, run_id=run_id)
         frame[f"run_length_bucket_{ma_col}"] = state.run_length_bucket(days, run_id)
 
     # Basic stack/state (DESIGN §4.3 "Pairwise"/"Ribbon", starting-subset

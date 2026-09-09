@@ -31,8 +31,31 @@ def state_run_id(state: pd.Series) -> pd.Series:
     """Integer id of the contiguous run of equal values in `state`: 0 for
     the first (left-censored) run, 1, 2, ... for each subsequent run. NaN
     where `state` itself is NaN (e.g. an MA's warmup region).
+
+    Raises `ValueError` if `state` has an *internal* NaN gap -- a NaN
+    after the first valid observation, followed by another valid
+    observation. Censoring here only covers a single leading gap (the
+    real shape `above_sma_k` has: undefined during an MA's warmup, then
+    always defined); a mid-series gap has undefined censoring semantics
+    (does the run before the gap continue into the run after it, or is
+    the post-gap run itself censored too?) and silently guessing wrong is
+    exactly the failure mode CLAUDE.md's invariant #9 exists to catch.
+    Currently unreachable via `features/panel.py`'s own pipeline
+    (`validate_bars` drops bad rows rather than NaN-filling them, so
+    `close` -- and everything derived from it -- never gets an internal
+    gap), but this guards against a future data source or validation
+    change silently producing wrong buckets instead of a loud error.
     """
     valid = state.notna()
+    if valid.any():
+        first_valid_pos = valid.to_numpy().argmax()
+        if not valid.iloc[first_valid_pos:].all():
+            raise ValueError(
+                "state_run_id: internal NaN gap in `state` after its first valid "
+                "observation -- only a single leading gap is supported (e.g. an "
+                "MA's warmup window); run-length censoring for a mid-series gap "
+                "is undefined. See this function's docstring."
+            )
     changed = valid & (state != state.shift(1))
     if valid.any():
         # The first valid observation looks like a "change" from NaN, but
@@ -44,11 +67,17 @@ def state_run_id(state: pd.Series) -> pd.Series:
     return run_id.where(valid)
 
 
-def days_in_run(state: pd.Series) -> pd.Series:
+def days_in_run(state: pd.Series, run_id: pd.Series | None = None) -> pd.Series:
     """1-indexed count of consecutive days in the current run -- the raw
     quantity `run_length_bucket` buckets. NaN where `state` is NaN.
+
+    `run_id` may be passed in if the caller already computed it (e.g.
+    `features/panel.py`, which needs `state_run_id`'s own output too) to
+    avoid running the `.shift()`/`.cumsum()` pass over `state` a second
+    time; defaults to computing it here for single-argument use.
     """
-    run_id = state_run_id(state)
+    if run_id is None:
+        run_id = state_run_id(state)
     valid = run_id.notna()
     valid_run_id = run_id[valid]
     counts = valid_run_id.groupby(valid_run_id).cumcount() + 1
