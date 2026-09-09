@@ -405,3 +405,134 @@ check on the 3D finding, not promoted to headline, and is not itself a new pre-
 registered entry (no separate kill criterion, no `N_tests` contribution of its own —
 it's a diagnostic pass over the same 3 primary cells, not a new test of a new
 hypothesis).
+
+### Cost-test definitional gap (found 2026-09-09, corrected here for M2/M3 to inherit)
+
+The CI-based cost check ("does the CI's near-zero bound clear the hurdle") was first
+implemented as: pick whichever endpoint (`ci_low`, `ci_high`) has the smaller absolute
+value, and compare its magnitude to the hurdle. **This is wrong whenever the interval
+spans zero.** If `ci_low < 0 < ci_high`, the true most-conservative achievable magnitude
+within the interval is exactly **0** (zero is a valid point inside a zero-spanning
+interval) — not whichever endpoint happens to be numerically closer to zero, which can
+even land on the *opposite sign* from the point estimate (seen directly on lb200's 4D
+CI: point estimate −1.257%/yr, "near-zero" endpoint computed as **+1.007%/yr** — a
+positive number standing in for a negative effect). Comparing that endpoint's magnitude
+to a hurdle and calling it "clears" is not a conservative test; it's a coin flip on
+which side of zero the wider tail happened to land.
+
+**Corrected rule:** a cell whose CI spans (or touches) zero **automatically fails** the
+CI-based cost test, full stop — no magnitude comparison is meaningful once "no effect"
+is itself inside the interval. Only a CI that excludes zero entirely proceeds to the
+magnitude comparison (both endpoints share the point estimate's sign in that case, so
+"the endpoint closer to zero" is well-defined and conservative).
+
+**Rescoring under the corrected rule:**
+
+| lookback | convention | CI spans zero? | old CI-bound verdict | corrected CI-bound verdict |
+|---|---|---|---|---|
+| 20 | 3D | No | fail | fail (unchanged) |
+| 20 | 4D | No | fail | fail (unchanged) |
+| 50 | 3D | No | fail | fail (unchanged) |
+| 50 | 4D | **Yes** | fail | fail (unchanged — already failed the magnitude test too, now fails for the structurally correct reason) |
+| 200 | 3D | **Yes** | fail | fail (unchanged — same as above) |
+| 200 | 4D | **Yes** | **pass** | **fail — rescored** |
+
+Only one verdict actually flips: **lb200's 4D CI-bound cost test, previously reported as
+passing, is rescored as a fail.** The point-estimate cost test (a separate, non-CI
+comparison) is unaffected by this fix and is unchanged for every cell. This is recorded
+here as a definitional gap in the shared cost-testing methodology, not an M1-specific
+issue — **M2/M3 must implement the CI-based cost test with the spans-zero check from the
+start**, not rediscover this.
+
+**Annualization is approximate, labeled as such.** The ×12 (=252/21) scaling used to
+annualize the 21-day `fwd_ret_21` edge into a comparable-to-`signals_per_year` annual
+rate is a **linear approximation**, not a derived quantity. 21-day forward returns
+overlap 20/21 (DESIGN §6.2) and don't compound or scale linearly this way in reality;
+the approximation is roughest exactly at the CI bounds, where the block-bootstrap
+uncertainty itself doesn't have a clean annualization rule. Treat every "annualized"
+number in this entry's cost section as an order-of-magnitude comparison against the
+turnover hurdle, not a precise annual rate.
+
+### C1 > C0 investigation, resolved (2026-09-09)
+
+Tested directly rather than reasoned about, per the "verify, don't assert" standard
+this bug-hunt session has been holding to throughout. Two candidate mechanisms were
+proposed: (1) C0's baseline dilutes the event group into the comparison population,
+shrinking `|c0|`; (2) C1 weights dates equally while C0 implicitly weights rows equally,
+so if breadth correlates with date-level conditions the two differ on that basis alone.
+
+**Mechanism 1, verified exact:** `stats/controls.py::pooled_delta` computes the event-
+vs-control contrast with event rows excluded from the baseline (like C1) but *without*
+date stratification (unlike C1) — isolating dilution from date-weighting. The algebraic
+identity `c0 = (1 - p) * pooled_delta` (p = event population share) holds to 4 decimal
+places at every lookback (ratio to prediction = 1.0000, all three). Dilution is real and
+exactly as predicted.
+
+**But dilution does not explain the observed C1 > C0 gap — it predicts a much larger one
+than what's observed, and something else cancels most of it:**
+
+| lookback | p | c0 | c1 | pooled (dilution-corrected, no date-stratification) | \|pooled\|/\|c1\| |
+|---|---|---|---|---|---|
+| 20 | 0.564 | −0.002507 | −0.002734 | −0.005748 | **2.10×** |
+| 50 | 0.587 | −0.002311 | −0.003246 | −0.005589 | **1.72×** |
+| 200 | 0.598 | −0.001693 | −0.001805 | −0.004207 | **2.33×** |
+
+The back-of-envelope prediction that motivated this check (`c0 ≈ (1-p)·c1`, i.e.
+`c0 ≈ 0.44·c1` at lb20) implicitly assumed `c1 ≈ pooled` — that date-stratification
+doesn't change much, so C1 could stand in for "C0 with dilution removed." **That
+assumption is false: `pooled` is 1.7–2.3× *larger* in magnitude than `c1` at every
+lookback.** Removing dilution alone (C0 → pooled) would roughly double the effect;
+date-stratification (pooled → C1) then roughly halves it back down. The small, modest
+C1 > C0 gap actually observed is the *net* of two large, opposing, and now separately
+verified mechanisms — not evidence that dilution is the primary driver. **Mechanism 2
+(date-vs-row weighting) is the dominant force**: it's large enough to more than reverse
+what dilution-removal alone would predict. This resolves which mechanism dominates: it
+does not (yet) explain *why* date-composition produces specifically this magnitude of
+shrinkage — that remains unexplored, but the question "is C1>C0 just dilution" is
+answered: no.
+
+### Tier assignment (DESIGN §9.2)
+
+**Two caps apply independent of any cell's own numbers:**
+- **DESIGN §7.3's survivorship cap** — same as M4: delisted-ticker price history exists
+  only 2024–2026 in this repo, so weak/below-MA-state cells are Tier-3-capped regardless
+  of outcome.
+- **Selection limitation from row loss.** The C2-eligible restriction drops 38–52% of
+  the unrestricted population at 3D and 75–77% at 4D, and the dropped rows are not a
+  random slice: 65–85% of dropped rows (rising with lookback) are singleton "all-above"
+  strata, not a balanced mix of all-above/all-below (see the 2026-09-09 characterization
+  above). This is a selection concern in the same spirit as §7.3's cap — the retained
+  sample isn't the population the hypothesis is nominally about — and is treated as an
+  independent cap here, not folded into §7.3's.
+- Neither FDR correction, a holdout check, nor a second universe tier exist for this
+  slice — all three required for Tier 1/2, same gap M4 had.
+
+**Per-lookback** (3 independent numbers, per the above/below mirror-identity finding —
+above and below are not evaluated as separate evidence):
+
+- **lb20 → Tier 3.** 3D CI excludes zero cleanly (`[−0.003495, −0.000791]`). Fails cost
+  robustly: neither the point estimate nor the CI-bound test clears the hurdle, at 3D or
+  4D.
+- **lb50 → Tier 3, weaker than lb20.** 3D CI excludes zero, barely
+  (`[−0.003406, −0.000306]`). Point estimate clears the 3D cost hurdle; the CI-bound
+  test does not (and, under the corrected rule above, the 4D CI spans zero — an
+  automatic fail there too).
+- **lb200 → Tier 4.** 3D CI already touches zero (`ci_high = +0.000048`); 4D CI clearly
+  spans zero. Under the corrected cost-test rule, the CI-bound test is an unambiguous
+  fail (was previously miscategorized as passing — see the definitional-gap correction
+  above). Also the lookback with the worst row loss (51.9% → 74.9%) and heaviest
+  all-above skew (84.5%) of the three — the weakest statistically and the most
+  selection-exposed, consistently with each other.
+
+**Standing caveat on the lb20/lb50 Tier-3 pair:** unlike M4's SMA20 facets at the same
+nominal tier, these carry an open selection-mechanism question (the all-above-skewed row
+loss) that has not been ruled out as a contributor to the observed sign, independent of
+whatever real conditioning effect (if any) exists. Treat this tier as less settled than
+a typical Tier-3 call until that's addressed (e.g. once a broader universe makes decile-
+level C2 matching viable — see the inherited "C2 note" above).
+
+**Run-length secondary layer (the "does age matter" sub-question):** no credible
+finding. Every lookback/direction's 1–5→6–21→22–63→64+ sequence zigzags in sign with no
+smooth progression (DESIGN §6.7's plateau rule). The one cell whose CI excludes zero
+(lb50 above / 6-21) has opposite-signed, non-significant neighbors on both sides — a
+lone-pixel failure of the plateau rule, not a finding. Logged to `DEAD_ENDS.md`.
