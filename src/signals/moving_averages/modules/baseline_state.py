@@ -31,12 +31,11 @@ from src.signals.moving_averages.labels.forward_returns import forward_return
 from src.signals.moving_averages.stats.controls import (
     c0_delta,
     c1_delta,
-    c2_delta,
     c2_eligible_mask,
     cross_sectional_bucket,
     pooled_delta,
 )
-from src.signals.moving_averages.stats.inference import block_bootstrap_delta
+from src.signals.moving_averages.stats.inference import InsufficientBlocksError, block_bootstrap_delta
 
 # DESIGN §6.9, applied to the row-restricted (C2-eligible) population per
 # PREREGISTRATION.md's M1 entry, "Minimum sample threshold".
@@ -99,12 +98,16 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
 
     try:
         boot = block_bootstrap_delta(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols))
-    except ValueError:
+    except InsufficientBlocksError:
         # Too few distinct dates for the block bootstrap's minimum-blocks
         # requirement (stats/inference.py) -- happens on thin secondary
         # cells (e.g. a rare run-length bucket), not the 6 primary cells.
-        # Flagged via below_threshold below, not silently zero-filled.
+        # Flagged via below_threshold below, not silently zero-filled. A
+        # specific exception type here (not bare ValueError) so an
+        # unrelated bug elsewhere in block_bootstrap_delta's call chain
+        # doesn't get silently misreported as "too few dates" too.
         boot = {"ci_low": float("nan"), "ci_high": float("nan"), "boot_std": float("nan"),
+                "point_estimate": float("nan"),
                 "n_dates": restricted["date"].nunique() if len(restricted) else 0}
 
     # Split within `unrestricted` (not `working`) -- `working` also
@@ -115,6 +118,7 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
     has_c2_inputs = unrestricted[list(match_cols)].notna().all(axis=1)
     n_unrestricted = len(unrestricted)
     n_eligible = len(restricted)
+    pooled = pooled_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan")
 
     return {
         **label,
@@ -126,14 +130,23 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
             or pd.isna(boot["ci_low"])
         ),
         "c0_unrestricted": c0_delta(unrestricted, group_col, "fwd_ret_21") if n_unrestricted else float("nan"),
+        "pooled": pooled,
         # `c0` is DESIGN §6.1's literal definition, kept for reference --
         # its baseline is diluted by the event group's own rows and is NOT
-        # scale-comparable to c1/c2. `pooled` is the actual C0 leg of the
-        # shrinkage waterfall (see module docstring).
-        "c0": c0_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
-        "pooled": pooled_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
+        # scale-comparable to c1/c2. `pooled` above is the actual C0 leg of
+        # the shrinkage waterfall (see module docstring). `c0` is *derived*
+        # from `pooled` via the exact identity `c0 = (1-p) * pooled` (p =
+        # event population share) rather than computed independently --
+        # verified as exact in tests/test_moving_averages_stats_controls.py;
+        # deriving it here means the two numbers can't silently drift apart.
+        "c0": (1 - n_events / n_eligible) * pooled if n_eligible else float("nan"),
         "c1": c1_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
-        "c2": c2_delta(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols)) if n_eligible else float("nan"),
+        # `c2` reuses the bootstrap's own point estimate rather than a
+        # second, independent `c2_delta` call -- `block_bootstrap_delta`'s
+        # own docstring notes its `point_estimate` is identical to calling
+        # `c2_delta` directly (same `stratum_deltas` averaged the same way);
+        # calling both ran the same stratification twice per cell.
+        "c2": boot["point_estimate"],
         "c2_ci_low": boot["ci_low"],
         "c2_ci_high": boot["ci_high"],
         "c2_boot_std": boot["boot_std"],

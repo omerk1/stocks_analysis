@@ -34,9 +34,21 @@ from src.signals.moving_averages.stats.controls import stratum_deltas
 MIN_BLOCKS = 3
 
 
+class InsufficientBlocksError(ValueError):
+    """Raised by `_validate_block_length` specifically -- a `ValueError`
+    subclass (not a bare `ValueError`) so a caller that wants to treat "too
+    few dates for a reliable bootstrap" as an expected, flaggable condition
+    (e.g. `modules/baseline_state.py::_cell_row`, thin secondary cells) can
+    catch this exact type instead of a bare `except ValueError`, which
+    would also silently swallow an unrelated bug elsewhere in this call
+    chain (`stratum_deltas`'s own dropna/groupby, `np.quantile`, etc.) and
+    misreport it as the same "too few dates" condition.
+    """
+
+
 def _validate_block_length(n_dates: int, block_length: int) -> None:
     if n_dates < MIN_BLOCKS * block_length:
-        raise ValueError(
+        raise InsufficientBlocksError(
             f"block_length={block_length} is too large relative to n_dates={n_dates} "
             f"(need at least {MIN_BLOCKS}x{block_length}={MIN_BLOCKS * block_length} dates) -- "
             "with too few blocks, most draws cover nearly the full date range regardless of "

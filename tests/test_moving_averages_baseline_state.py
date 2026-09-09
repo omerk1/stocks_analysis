@@ -84,6 +84,57 @@ def test_cell_row_reports_pooled_as_the_c0_dilution_factor_times_c0():
     assert row["c0"] == pytest.approx((1 - p) * row["pooled"])
 
 
+def test_cell_row_c2_matches_the_bootstraps_own_point_estimate():
+    # c2 is no longer a second, independent c2_delta call -- it reuses
+    # block_bootstrap_delta's own point_estimate (the same quantity, per
+    # that function's own docstring), removing a duplicated stratum_deltas
+    # pass. Confirms the two haven't silently diverged.
+    from src.signals.moving_averages.stats.controls import c2_delta
+    from src.signals.moving_averages.stats.inference import block_bootstrap_delta
+
+    panel = _synthetic_prepared_panel()
+    working = panel.rename(columns={"above_sma_50": "_is_event"})
+
+    row = bs._cell_row(working, "_is_event", {"label": "test"})
+
+    mask_working = working.dropna(subset=["_is_event", "fwd_ret_21"])
+    independent_c2 = c2_delta(mask_working, "_is_event", "fwd_ret_21", match_cols=list(bs.C2_MATCH_COLS))
+    boot = block_bootstrap_delta(mask_working, "_is_event", "fwd_ret_21", match_cols=list(bs.C2_MATCH_COLS))
+
+    assert row["c2"] == pytest.approx(boot["point_estimate"])
+    assert row["c2"] == pytest.approx(independent_c2)
+
+
+def test_cell_row_flags_below_threshold_on_too_few_dates_for_the_bootstrap():
+    # A too-thin panel raises InsufficientBlocksError inside
+    # block_bootstrap_delta -- _cell_row must catch exactly that (not a
+    # bare ValueError) and flag the cell rather than propagate.
+    panel = _synthetic_prepared_panel(n_dates=20, n_tickers=10)
+    working = panel.rename(columns={"above_sma_50": "_is_event"})
+
+    row = bs._cell_row(working, "_is_event", {"label": "thin"})
+
+    assert row["below_threshold"] is True
+    assert pd.isna(row["c2_ci_low"])
+    assert pd.isna(row["c2"])
+
+
+def test_cell_row_does_not_swallow_an_unrelated_error_from_the_bootstrap(monkeypatch):
+    # A ValueError that is NOT InsufficientBlocksError (some other bug in
+    # the bootstrap's call chain) must propagate, not get silently
+    # reclassified as "too few dates."
+    panel = _synthetic_prepared_panel()
+    working = panel.rename(columns={"above_sma_50": "_is_event"})
+
+    def _boom(*args, **kwargs):
+        raise ValueError("an unrelated bug, not a date-count problem")
+
+    monkeypatch.setattr(bs, "block_bootstrap_delta", _boom)
+
+    with pytest.raises(ValueError, match="an unrelated bug"):
+        bs._cell_row(working, "_is_event", {"label": "test"})
+
+
 def test_evaluate_kill_criterion_uses_the_max_absolute_ci_edge():
     primary = pd.DataFrame(
         {
