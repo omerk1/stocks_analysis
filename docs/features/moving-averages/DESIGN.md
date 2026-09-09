@@ -372,6 +372,21 @@ For every conditional statistic, compute the same statistic on a control set. Th
 - **C1 — Date-matched:** for each event on date *d*, sample non-event names from the same universe on the *same date*. **Removes the market-return confound entirely.** This should be your default.
 - **C2 — Date + momentum + vol + sector matched:** same date, same `rs_rank` decile, same vol decile, same sector. **This is the one that separates real MA information from momentum re-encoding.**
 
+**C0 as defined above is not scale-comparable to C1/C2, and every module's shrinkage
+waterfall needs to account for this** (found during M1, 2026-09-09 — see
+`PREREGISTRATION.md`'s M1 entry, "Waterfall re-rendered with pooled_delta as C0"). C0
+compares the event group's mean against the mean of the *whole* population, event rows
+included — that baseline is diluted by the event group's own population share `p`
+(exactly: `C0 = (1-p) × [event mean − pure-control mean]`), a genuinely different scale
+than C1/C2's event-vs-pure-control contrast. Reading a naive "C0 → C1 → C2" waterfall
+against this literal C0 can show an apparent *growth* from C0 to C1 that is purely an
+estimator-scale artifact, not a market phenomenon — this is exactly what happened in
+M1's first pass and cost real analysis time to diagnose. **Use the event-excluded,
+non-date-stratified contrast (`stats/controls.py::pooled_delta` in this repo) as the
+actual first rung of the shrinkage waterfall.** Report the literal C0 above alongside
+only for reference, explicitly labeled diluted — never as the waterfall's starting
+point.
+
 **Headline result format is always a delta:** `E[fwd_exret | event] − E[fwd_exret | C2]`, with a bootstrapped CI on the difference.
 
 My strong prior: many effects that look enormous vs C0 shrink by 70–90% against C2. **That shrinkage is the most valuable output of this entire study.** Publish the shrinkage table prominently — it's the thing nobody else publishes.
