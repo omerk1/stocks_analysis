@@ -339,3 +339,51 @@ a smooth (not cliff) progression 1–5 → 6–21 → 22–63 → 64+ within eac
 state cells are Tier-3-capped regardless of outcome (delisted-ticker price history
 exists only 2024–2026 in this repo) — the same cap M4 already operates under, not
 something this module needs to re-solve.
+
+**2026-09-09 correction — the 6 primary cells are 3 independent numbers, not 6.** Found
+before interpreting the waterfall: for a fixed lookback, the "above" and "below" cells
+share the same underlying row population (`state_table` builds both from the same
+`working` frame, only flipping which side is labeled event vs. control) and the same
+(date, mom_tercile, vol_tercile, sector) strata. Under C1/C2, `stratum_deltas` computes
+`event_mean − control_mean` per stratum; swapping which side is "event" negates every
+stratum's delta, and averaging is linear — so **`c1(below) = −c1(above)` and
+`c2(below) = −c2(above)` exactly, by construction**, not as an empirical finding. C0
+does *not* share this exact symmetry — it's a count-weighted mirror
+(`w_above·c0(above) + w_below·c0(below) = 0`, not `c0(above) = −c0(below)`) — since C0
+compares the event group to the *whole* population, not a directly-matched control.
+
+**Verified numerically, not just asserted** (`c1`/`c2` computed independently for both
+directions, not derived from each other in code):
+
+| lookback | c1(above)+c1(below) | c2(above)+c2(below) | c2 CI-edge: above vs. below |
+|---|---|---|---|
+| 20 | 0.0 (exact) | 0.0 (exact) | 0.0034950471940253373 vs. 0.003495047194025337 (equal to float64 precision — the 1-ULP difference is summation-order rounding noise, confirmed via `np.isclose`) |
+| 50 | 0.0 (exact) | 0.0 (exact) | 0.0034059770773405573 vs. 0.0034059770773405573 (bit-identical) |
+| 200 | 0.0 (exact) | 0.0 (exact) | 0.004233592736636761 vs. 0.004233592736636761 (bit-identical) |
+
+The block-bootstrap CI is *also* an exact mirror here (not just the point estimate):
+same seed (`block_bootstrap_delta`'s default), same underlying dates for both
+directions, per-stratum deltas exactly negated → every bootstrap draw is the negation of
+its counterpart → `ci_low(below) = −ci_high(above)`, `ci_high(below) = −ci_low(above)`,
+`boot_std(below) = boot_std(above)`. Consequence: `kill_cell`'s test statistic
+(`max(|ci_low|, |ci_high|)`) is **identical between above and below at a given
+lookback** — confirmed in the table above, not merely implied by the point-estimate
+symmetry.
+
+**Kill-criterion implication:** the committed rule ("module-level kill fires iff all 6
+primary cells satisfy `kill_cell`") is truth-functionally identical to "all 3
+(one per lookback) satisfy it," since each pair agrees by construction. No change to
+`evaluate_kill_criterion`'s code or verdict — this is a statement about what the
+existing rule actually tests, not a rule change.
+
+**N_tests implication for a later FDR pass:** this slice's grid-size accounting (above,
+"3 lookbacks × 10 cells = 30 cells") counted the primary layer as 2 cells/lookback (6
+total). That overcounts the *independent* test count for FDR purposes — the primary
+layer contributes **3** independent numbers, not 6, since testing "above" and testing
+"below" at the same lookback is not two looks at the data, it's one number reported
+twice with a sign flip. A later BH-FDR pass over the full pre-registered grid must
+correct against 3, not 6, for this layer, or it over-penalizes M1 for tests that carry
+no additional information. (The 24 run-length cells do **not** have this same reduction
+— a run-length bucket's control is "same direction, a different bucket," not the
+opposite direction, so no equivalent forced-mirror pairing exists there. Not audited for
+other redundancy in this pass; flagged only where found.)
