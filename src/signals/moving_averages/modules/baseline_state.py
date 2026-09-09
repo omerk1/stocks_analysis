@@ -178,7 +178,7 @@ def evaluate_kill_criterion(primary: pd.DataFrame) -> dict:
     }
 
 
-def run_length_table(panel: pd.DataFrame) -> pd.DataFrame:
+def run_length_table(panel: pd.DataFrame, match_cols: tuple[str, ...] = C2_MATCH_COLS) -> pd.DataFrame:
     """The 24 secondary cells: run-length bucket within each direction at
     each SMA lookback. One row per (lookback, direction, bucket). `panel`
     must already carry `fwd_ret_21` and the C2 match columns (see
@@ -187,7 +187,8 @@ def run_length_table(panel: pd.DataFrame) -> pd.DataFrame:
     control population for a bucket cell is the *same direction's* other,
     non-censored run-length buckets (censored first-run rows are dropped
     from this analysis entirely, per PREREGISTRATION.md's "Run-length
-    censoring" -- they are neither event nor control here).
+    censoring" -- they are neither event nor control here). `match_cols`
+    defaults to the module's pre-registered C2 spec, same as `state_table`.
     """
     rows = []
     for lookback in LOOKBACKS:
@@ -205,6 +206,7 @@ def run_length_table(panel: pd.DataFrame) -> pd.DataFrame:
                     _cell_row(
                         working, "_is_event",
                         {"lookback": lookback, "direction": direction, "run_length_bucket": run_bucket},
+                        match_cols=match_cols,
                     )
                 )
     return pd.DataFrame(rows)

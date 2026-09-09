@@ -387,3 +387,21 @@ no additional information. (The 24 run-length cells do **not** have this same re
 — a run-length bucket's control is "same direction, a different bucket," not the
 opposite direction, so no equivalent forced-mirror pairing exists there. Not audited for
 other redundancy in this pass; flagged only where found.)
+
+### Deviations from pre-registration (logged, not silently applied)
+
+**2026-09-09 — post-hoc short-term-reversal control (`C2_MATCH_COLS_WITH_REVERSAL`).**
+Added *after* the 3D primary numbers (`C2_MATCH_COLS` = mom-tercile + vol-tercile +
+sector) had already been seen, at explicit request, in response to a real gap: `fwd_ret_21`
+is a one-month horizon and `mom_12_1` deliberately skips the most recent month, so
+nothing in the pre-registered C2 spec controls for one-month reversal, and being above a
+short MA is mechanically correlated with having just risen over roughly that same
+window. This is a **post-hoc diagnostic, not a pre-registered test** — per DESIGN §6.6,
+a control added after seeing results doesn't get to retroactively become the primary
+comparison, however well-motivated. **The 3D result (`C2_MATCH_COLS`) remains this
+slice's pre-registered primary and the one the kill criterion is evaluated against.**
+The 4D result (`C2_MATCH_COLS_WITH_REVERSAL`) is reported alongside as a robustness
+check on the 3D finding, not promoted to headline, and is not itself a new pre-
+registered entry (no separate kill criterion, no `N_tests` contribution of its own —
+it's a diagnostic pass over the same 3 primary cells, not a new test of a new
+hypothesis).
