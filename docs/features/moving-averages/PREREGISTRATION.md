@@ -528,6 +528,24 @@ distinct from (and no longer confusable with) lb20/lb50's now-fully-explained ca
 investigated further in this pass; consistent with, and reinforcing, lb200's Tier 4
 assignment below.
 
+**Cross-module note, logged as an open question, explicitly not investigated.** SMA200
+has now been the anomalous lookback in two separate modules: M4's `dist_z_sma_200` facet
+was rejected as noisy, with its own diagnostic finding the 252-day self-normalisation
+window measurably unstable at that lookback (cross-sectional rank correlation with
+`dist_pct` drops to ~0.69 vs. ~0.88–0.93 at shorter lookbacks — `DEAD_ENDS.md`'s M4
+entry); and now M1's lb200 primary cell is the one that fails to show clean monotone
+shrinkage. Worth naming plainly: the 252-day window several of this study's controls
+lean on (`mom_12_1`'s own lookback, `dist_z`'s normalisation window) is only ~1.26× the
+200-day SMA lookback itself — not a lot of slack. lb200 also independently carries this
+module's worst row loss (51.9% → 74.9%) and heaviest all-above singleton-stratum skew
+(84.5%) of the three lookbacks tested. Whether the `|c2| > |c1|` shape at lb200 is (a)
+the selection effect, (b) the same 252-day-window-relative-to-200-day-lookback
+instability that hit M4's `dist_z_sma_200`, (c) both, or (d) unrelated to either — is
+**not investigated in this pass**. **Trigger for revisiting: a third independent SMA200
+oddity surfacing in a later module** (also logged in `docs/backlog.md` for whoever
+starts M2) — at that point these stop being two coincidental single-module quirks and
+warrant a dedicated SMA200 audit across the study.
+
 **Reported going forward:** `modules/baseline_state.py::_cell_row` now returns `pooled`
 alongside `c0`/`c1`/`c2` — `c0` stays for reference (DESIGN §6.1's literal definition)
 but is explicitly labeled diluted, not part of the waterfall reading.
