@@ -261,6 +261,50 @@ interpretable number.
   change count per ticker-year) once available, not assumed in advance; the plain-state
   and run-length-conditioned rules get separate hurdle numbers in the output table.
 
+**2026-09-09 addendum — cost-convention derivation, made explicit.** Added after a
+review question on whether (a) and (b) above genuinely coincide at 10bps/round-trip for
+U1, or whether that was asserted rather than shown. This predates any M1 result (no
+waterfall has run yet), so it's a clarifying addition, not a correction of a wrong
+number — the bullets above are unchanged.
+
+DESIGN §6.10, quoted in full: `signals_per_year × (spread/2 + commission + slippage)`.
+"Use tiered slippage by ADV decile: 5 bps for U1, 15 bps for U2, 40 bps for the illiquid
+tail." "A 5-EMA crossover rule generating ~50 round trips/year at 10 bps each carries a
+5%/yr hurdle."
+
+Whether "10 bps each" in the worked example is per-leg or per-round-trip is not a
+reading choice — it's forced by DESIGN's own stated hurdle:
+
+| Interpretation of "10bps each" | Arithmetic | Result | Matches stated 5%/yr? |
+|---|---|---|---|
+| per round trip | 50 rt/yr × 10bps | 500bps = 5.00%/yr | yes, exact |
+| per leg (2 legs/rt) | 50 rt/yr × 2 × 10bps | 1000bps = 10.00%/yr | no — off by exactly 2× |
+
+Only the per-round-trip reading reproduces DESIGN's own number, so §6.10's "10bps each"
+is **10bps per round trip**, not per leg. (Corroborated by this file's own M4 addendum,
+which already names its applied convention "DESIGN's own stated **10bps-round-trip**
+convention" verbatim — this file resolved the same question the same way once before.)
+
+Convention (a) built up independently, for comparison: "5 bps for U1" is the slippage
+component alone, incurred once per execution (entry, and again on exit) — a round trip
+is 2 executions, so 5bps + 5bps = **10bps/round-trip**. This is a separate derivation
+from (b)'s (which is DESIGN's own pre-aggregated round-trip figure, not built from two
+executions at all) that happens to land on the same number for U1.
+
+**U2 divergence, shown explicitly (why this isn't assumed to generalise):**
+
+| Tier | (a) Tiered slippage/leg | (a) Round-trip (×2) | (b) DESIGN illustrative (flat) | Coincide? |
+|---|---|---|---|---|
+| U1 | 5bps | 10bps | 10bps | yes |
+| U2 | 15bps | 30bps | 10bps | **no — diverge by 3×** |
+| Illiquid tail | 40bps | 80bps | 10bps | **no — diverge by 8×** |
+
+(a) scales with the ADV-decile tier by construction; (b) is a flat illustrative constant
+from a single worked example and does not scale with tier at all. They coincide only at
+U1, which is this slice's actual universe — the alignment noted in the bullet above is
+real for this slice's numbers, but must be re-derived, not assumed, the moment a U2/U3
+universe tier is in scope.
+
 **Plateau check (DESIGN §6.7):** the three lookbacks (20/50/200) are compared for
 consistency of sign/rough magnitude across the grid; run-length buckets are checked for
 a smooth (not cliff) progression 1–5 → 6–21 → 22–63 → 64+ within each direction.
