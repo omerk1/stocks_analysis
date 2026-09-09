@@ -151,7 +151,11 @@ def c2_eligible_mask(
     stratum_ok = (event_count > 0) & ((total_count - event_count) > 0)
 
     eligible = pd.Series(False, index=panel.index)
-    eligible.loc[valid] = stratum_ok.to_numpy()
+    # Assign the Series directly (not `.to_numpy()`) -- `stratum_ok`'s
+    # index is `working`'s, i.e. `panel.index[valid]`, so this is an
+    # index-aligned assignment, not a positional one relying on `valid`'s
+    # True positions matching `stratum_ok`'s row order by coincidence.
+    eligible.loc[valid] = stratum_ok
     return eligible
 
 

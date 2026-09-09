@@ -125,6 +125,27 @@ def test_stratum_deltas_mean_matches_c2_delta_directly():
 
 # ---- c2_eligible_mask (M1's waterfall row-set fix, PREREGISTRATION.md) ----
 
+def test_c2_eligible_mask_all_four_cases_on_one_hand_built_panel():
+    # One date, four (date, sector) strata covering every case at once:
+    # sector A is event-only, B is control-only, C is mixed, and the
+    # untagged row has a null match col.
+    panel = pd.DataFrame(
+        {
+            "date": ["d1", "d1", "d1", "d1", "d1", "d1", "d1"],
+            "sector": ["A", "A", "B", "B", "C", "C", None],
+            "is_event": [True, True, False, False, True, False, True],
+            "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        }
+    )
+
+    mask = c2_eligible_mask(panel, "is_event", "value", match_cols=["sector"], date_col="date")
+
+    assert not mask.iloc[0] and not mask.iloc[1]  # sector A: event-only -> excluded
+    assert not mask.iloc[2] and not mask.iloc[3]  # sector B: control-only -> excluded
+    assert mask.iloc[4] and mask.iloc[5]  # sector C: mixed -> retained
+    assert not mask.iloc[6]  # null sector -> excluded regardless of anything else
+
+
 def test_c2_eligible_mask_drops_rows_missing_a_match_col():
     panel = pd.DataFrame(
         {
