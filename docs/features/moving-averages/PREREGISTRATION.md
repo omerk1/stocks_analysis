@@ -453,6 +453,44 @@ uncertainty itself doesn't have a clean annualization rule. Treat every "annuali
 number in this entry's cost section as an order-of-magnitude comparison against the
 turnover hurdle, not a precise annual rate.
 
+### Cost hurdle, computed (2026-09-09, `stats/costs.py`)
+
+The Tier-assignment cost verdicts below were first reported in conversation only, backed
+by an ad hoc, uncommitted script — a real gap against CLAUDE.md's invariant #8 ("Any
+claim implying trading carries `signals_per_year × cost` next to the gross number"),
+caught during PR review. `signals_per_year`/`cost_hurdle`/`annualize`/`ci_clears_cost`/
+`point_clears_cost` in `stats/costs.py` now compute this as reusable, tested code, reused
+from `features/state.py::state_run_id` (no reimplemented comparison logic) — re-running
+it reproduces the exact figures below, cross-checked line by line against the original
+ad hoc numbers.
+
+`signals_per_year` (plain-state rule, state-flip count per ticker-year, pooled across
+all 408 tickers) and the resulting hurdle at the pre-registered 10bps/round-trip
+convention (see the cost-convention addendum above):
+
+| lookback | signals/yr | cost hurdle (annual) |
+|---|---|---|
+| 20 | 30.377 | 3.038% |
+| 50 | 17.990 | 1.799% |
+| 200 | 7.785 | 0.779% |
+
+Against the annualized `above`-direction effect (`below` is the exact negation — see the
+mirror-identity finding):
+
+| lookback | convention | annualized gross | annualized CI | point clears? | CI clears? |
+|---|---|---|---|---|---|
+| 20 | 3D | −2.576% | [−4.194%, −0.950%] | No | No |
+| 20 | 4D | −1.449% | [−2.481%, −0.319%] | No | No |
+| 50 | 3D | −2.196% | [−4.087%, −0.367%] | **Yes** | No |
+| 50 | 4D | −1.353% | [−2.920%, +0.163%] | No | No |
+| 200 | 3D | −2.578% | [−5.080%, +0.057%] | **Yes** | No |
+| 200 | 4D | −1.257% | [−3.476%, +1.007%] | **Yes** | No |
+
+Every `ci_clears?` verdict is `No` — the CI-based cost test never clears at any
+lookback, under either control set. The point-estimate test clears at lb50/lb200 under
+3D only, not under 4D (where the reversal control shrinks the gross edge further). This
+is the exact basis for the Tier-assignment cost language below.
+
 ### C1 > C0 investigation, resolved (2026-09-09)
 
 Tested directly rather than reasoned about, per the "verify, don't assert" standard
@@ -491,6 +529,65 @@ does not (yet) explain *why* date-composition produces specifically this magnitu
 shrinkage — that remains unexplored, but the question "is C1>C0 just dilution" is
 answered: no.
 
+### Waterfall re-rendered with pooled_delta as C0 (2026-09-09, same-day follow-up)
+
+The investigation above established that `c0_delta` is not scale-comparable to `c1`/`c2`
+— its baseline includes the event rows themselves, diluted by their own population share
+`p`. **`pooled_delta` is the actual C0 leg of a shrinkage waterfall**: same event-
+excluded-from-baseline logic as C1, without C1's own date-stratification, so it's on the
+same scale as C1/C2 and isolates only the "does adding controls shrink the effect"
+question DESIGN §8 asks. Prediction: `pooled → c1 → c2` should now be monotone
+decreasing in magnitude at all three lookbacks — the clean shrinkage waterfall this
+module's whole point is to produce.
+
+**Verified — holds at 2 of 3 lookbacks, not all 3:**
+
+| lookback | c0 (diluted, DESIGN's literal definition) | pooled (actual C0 leg) | c1 | c2 | monotone decreasing? |
+|---|---|---|---|---|---|
+| 20 | −0.002507 | **−0.005748** | −0.002734 | −0.002146 | **Yes** |
+| 50 | −0.002311 | **−0.005589** | −0.003246 | −0.001830 | **Yes** |
+| 200 | −0.001693 | **−0.004207** | −0.001805 | −0.002149 | **No** — \|c2\| > \|c1\| |
+
+**lb20 and lb50: fully resolved, not a market phenomenon.** With `pooled` correctly
+substituted for `c0`, the waterfall shrinks cleanly and monotonically at both lookbacks
+— exactly DESIGN §8's predicted shape. **The earlier "C1 > C0 hump" was entirely an
+artifact of comparing two estimators on different scales** (`c0`'s diluted baseline vs.
+`c1`'s pure one), not a market phenomenon requiring a mechanistic explanation. There is
+nothing further to explain here — mechanism 2 (date-vs-row weighting) is still real and
+still verified to dominate mechanism 1 (per the investigation above), but the *practical*
+upshot is simpler: read the waterfall as `pooled → c1 → c2`, not `c0 → c1 → c2`, and the
+"hump" was never there.
+
+**lb200: the anomaly survives and is now confirmed genuine, not an artifact.** `pooled`
+is scale-comparable to `c1`/`c2` by construction, and `|c2| > |c1|` still holds at lb200
+even so. This rules out "it's just the C0-comparability issue" as an explanation for
+lb200's non-monotone shape — whatever is happening there is a real residual finding,
+distinct from (and no longer confusable with) lb20/lb50's now-fully-explained case. Not
+investigated further in this pass; consistent with, and reinforcing, lb200's Tier 4
+assignment below.
+
+**Cross-module note, logged as an open question, explicitly not investigated.** SMA200
+has now been the anomalous lookback in two separate modules: M4's `dist_z_sma_200` facet
+was rejected as noisy, with its own diagnostic finding the 252-day self-normalisation
+window measurably unstable at that lookback (cross-sectional rank correlation with
+`dist_pct` drops to ~0.69 vs. ~0.88–0.93 at shorter lookbacks — `DEAD_ENDS.md`'s M4
+entry); and now M1's lb200 primary cell is the one that fails to show clean monotone
+shrinkage. Worth naming plainly: the 252-day window several of this study's controls
+lean on (`mom_12_1`'s own lookback, `dist_z`'s normalisation window) is only ~1.26× the
+200-day SMA lookback itself — not a lot of slack. lb200 also independently carries this
+module's worst row loss (51.9% → 74.9%) and heaviest all-above singleton-stratum skew
+(84.5%) of the three lookbacks tested. Whether the `|c2| > |c1|` shape at lb200 is (a)
+the selection effect, (b) the same 252-day-window-relative-to-200-day-lookback
+instability that hit M4's `dist_z_sma_200`, (c) both, or (d) unrelated to either — is
+**not investigated in this pass**. **Trigger for revisiting: a third independent SMA200
+oddity surfacing in a later module** (also logged in `docs/backlog.md` for whoever
+starts M2) — at that point these stop being two coincidental single-module quirks and
+warrant a dedicated SMA200 audit across the study.
+
+**Reported going forward:** `modules/baseline_state.py::_cell_row` now returns `pooled`
+alongside `c0`/`c1`/`c2` — `c0` stays for reference (DESIGN §6.1's literal definition)
+but is explicitly labeled diluted, not part of the waterfall reading.
+
 ### Tier assignment (DESIGN §9.2)
 
 **Two caps apply independent of any cell's own numbers:**
@@ -511,17 +608,23 @@ answered: no.
 above and below are not evaluated as separate evidence):
 
 - **lb20 → Tier 3.** 3D CI excludes zero cleanly (`[−0.003495, −0.000791]`). Fails cost
-  robustly: neither the point estimate nor the CI-bound test clears the hurdle, at 3D or
-  4D.
+  robustly: annualized gross −2.576% (3D) / −1.449% (4D) against a 3.038%/yr hurdle
+  (30.377 flips/yr) — neither the point estimate nor the CI-bound test clears it, at 3D
+  or 4D (see "Cost hurdle, computed" above for the full table).
 - **lb50 → Tier 3, weaker than lb20.** 3D CI excludes zero, barely
-  (`[−0.003406, −0.000306]`). Point estimate clears the 3D cost hurdle; the CI-bound
-  test does not (and, under the corrected rule above, the 4D CI spans zero — an
-  automatic fail there too).
+  (`[−0.003406, −0.000306]`). Point estimate clears the 3D cost hurdle (−2.196% vs.
+  1.799%/yr, 17.990 flips/yr); the CI-bound test does not (3D annualized CI
+  `[−4.087%, −0.367%]`, near-zero edge −0.367% < 1.799%) — and under 4D the point
+  estimate no longer clears either (−1.353%), with the CI now spanning zero (an
+  automatic fail there too, under the corrected rule above).
 - **lb200 → Tier 4.** 3D CI already touches zero (`ci_high = +0.000048`); 4D CI clearly
   spans zero. Under the corrected cost-test rule, the CI-bound test is an unambiguous
-  fail (was previously miscategorized as passing — see the definitional-gap correction
-  above). Also the lookback with the worst row loss (51.9% → 74.9%) and heaviest
-  all-above skew (84.5%) of the three — the weakest statistically and the most
+  fail at both 3D and 4D (was previously miscategorized as passing under 4D — see the
+  definitional-gap correction above); the point estimate technically clears its own
+  hurdle (−2.578%/−1.257% vs. a 0.779%/yr hurdle, only 7.785 flips/yr — the lowest
+  turnover of the three, which is doing most of the work here) but the CI test is what
+  the tier hinges on. Also the lookback with the worst row loss (51.9% → 74.9%) and
+  heaviest all-above skew (84.5%) of the three — the weakest statistically and the most
   selection-exposed, consistently with each other.
 
 **Standing caveat on the lb20/lb50 Tier-3 pair:** unlike M4's SMA20 facets at the same
@@ -530,6 +633,12 @@ loss) that has not been ruled out as a contributor to the observed sign, indepen
 whatever real conditioning effect (if any) exists. Treat this tier as less settled than
 a typical Tier-3 call until that's addressed (e.g. once a broader universe makes decile-
 level C2 matching viable — see the inherited "C2 note" above).
+
+**(2026-09-09 update: this caveat originally also carried the "C1 > C0 hump is
+unexplained" uncertainty. That's now resolved — see "Waterfall re-rendered with
+pooled_delta as C0" above — the hump was purely an estimator-scale artifact, not a
+market phenomenon, at both lb20 and lb50. The selection-mechanism concern above is the
+only one that remains for this pair.)**
 
 **Run-length secondary layer (the "does age matter" sub-question):** no credible
 finding. Every lookback/direction's 1–5→6–21→22–63→64+ sequence zigzags in sign with no

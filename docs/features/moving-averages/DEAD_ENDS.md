@@ -65,10 +65,15 @@ CI's most-favorable-to-survival edge) did not fire — `max(|ci_low|, |ci_high|)
 `PREREGISTRATION.md`'s 2026-09-09 cost-test-definitional-gap correction — a CI spanning
 zero automatically fails, since zero is itself a valid point inside it), lb200 fails the
 CI-bound cost check unambiguously; it was previously miscategorized as passing under a
-flawed near-zero-endpoint comparison. It is also the lookback with the worst row loss
-(51.9% at 3D, 74.9% at 4D) and heaviest all-above singleton-stratum skew (84.5% of
-dropped rows) of the three lookbacks tested — the weakest statistically and the most
-selection-exposed, consistently.
+flawed near-zero-endpoint comparison. Annualized (`stats/costs.py`, linear ×12
+approximation, labeled as such): the 3D CI is `[−5.080%, +0.057%]`/yr and the 4D CI is
+`[−3.476%, +1.007%]`/yr, against a hurdle of only 0.779%/yr (7.785 state-flips/ticker-
+year — the lowest turnover of the three lookbacks, `stats/costs.py::signals_per_year`).
+The point estimate alone (−2.578%/−1.257% annualized) does clear that low hurdle at both
+3D and 4D, but the CI test — the one this cell is actually killed on — does not. It is
+also the lookback with the worst row loss (51.9% at 3D, 74.9% at 4D) and heaviest
+all-above singleton-stratum skew (84.5% of dropped rows) of the three lookbacks tested —
+the weakest statistically and the most selection-exposed, consistently.
 
 **Effective N:** 2,747 distinct dates (3D, `above`/`below` combined via the mirror
 identity — see below), 405 tickers, C2-restricted population.

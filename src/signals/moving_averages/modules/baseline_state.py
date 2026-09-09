@@ -13,6 +13,13 @@ C0/C1/C2 are computed on the *same* C2-eligible row set, not each control's
 own wider natural set (PREREGISTRATION.md's M1 entry, "Waterfall row set")
 -- `c0_unrestricted` is reported alongside as the sanity-check comparison
 number, not as part of the waterfall itself.
+
+`pooled` (`stats/controls.py::pooled_delta`) is the actual C0 leg of the
+shrinkage waterfall (PREREGISTRATION.md, 2026-09-09 "waterfall re-rendered"
+addendum) -- `c0` (`c0_delta`) is reported alongside only as DESIGN §6.1's
+literal definition, labeled diluted; it is not scale-comparable to C1/C2
+(its baseline includes the event rows themselves) and must not be read as
+the first rung of the shrinkage story.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from src.signals.moving_averages.stats.controls import (
     c2_delta,
     c2_eligible_mask,
     cross_sectional_bucket,
+    pooled_delta,
 )
 from src.signals.moving_averages.stats.inference import block_bootstrap_delta
 
@@ -118,7 +126,12 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
             or pd.isna(boot["ci_low"])
         ),
         "c0_unrestricted": c0_delta(unrestricted, group_col, "fwd_ret_21") if n_unrestricted else float("nan"),
+        # `c0` is DESIGN §6.1's literal definition, kept for reference --
+        # its baseline is diluted by the event group's own rows and is NOT
+        # scale-comparable to c1/c2. `pooled` is the actual C0 leg of the
+        # shrinkage waterfall (see module docstring).
         "c0": c0_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
+        "pooled": pooled_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
         "c1": c1_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
         "c2": c2_delta(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols)) if n_eligible else float("nan"),
         "c2_ci_low": boot["ci_low"],
