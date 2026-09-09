@@ -24,7 +24,7 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
-from src.signals.moving_averages.features import context, distance, ma, slope
+from src.signals.moving_averages.features import context, distance, ma, slope, state
 from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
 
 
@@ -116,6 +116,94 @@ def test_compute_ma_rejects_an_unknown_family():
 
     with pytest.raises(ValueError, match="Unknown MA family"):
         ma.compute_ma(close, "wma", 10)
+
+
+# ---- run-length state (M1's run-length sub-question, DESIGN §8) ----
+
+def _planted_run_state() -> tuple[pd.Series, list[int]]:
+    """A boolean state series with known, hand-planted run lengths -- the
+    first run (length 10) is left-censored (its rows must never be
+    labeled, even though 10 would fall inside the '6-21' bucket if it
+    weren't censored -- that's the specific case worth planting, not just
+    a boundary length). Returns (state, run_lengths).
+    """
+    run_lengths = [10, 3, 15, 40, 70]  # run 0 (censored), 1, 2, 3, 4
+    values = [True, False, True, False, True]
+    blocks = [pd.Series([v] * n) for v, n in zip(values, run_lengths)]
+    return pd.concat(blocks, ignore_index=True), run_lengths
+
+
+def _expected_bucket(days: int) -> str:
+    if days <= 5:
+        return "1-5"
+    if days <= 21:
+        return "6-21"
+    if days <= 63:
+        return "22-63"
+    return "64+"
+
+
+def test_state_run_id_recovers_planted_run_boundaries():
+    planted, run_lengths = _planted_run_state()
+
+    run_id = state.state_run_id(planted)
+
+    start = 0
+    for expected_id, length in enumerate(run_lengths):
+        segment = run_id.iloc[start:start + length]
+        assert (segment == expected_id).all()
+        start += length
+
+
+def test_state_run_id_handles_leading_nan_without_corrupting_run_ids():
+    # Mirrors real panel data: `above_{ma_col}` is NaN during an MA's
+    # warmup window before the first valid observation.
+    planted = pd.Series([None, None, True, True, True, False, False], dtype="boolean")
+
+    run_id = state.state_run_id(planted)
+
+    assert run_id.iloc[:2].isna().all()
+    assert (run_id.iloc[2:5] == 0).all()
+    assert (run_id.iloc[5:7] == 1).all()
+
+
+def test_days_in_run_recovers_planted_lengths():
+    planted, run_lengths = _planted_run_state()
+
+    days = state.days_in_run(planted)
+
+    start = 0
+    for length in run_lengths:
+        segment = days.iloc[start:start + length]
+        assert segment.tolist() == list(range(1, length + 1))
+        start += length
+
+
+def test_run_length_bucket_matches_planted_lengths_for_observed_runs():
+    planted, _ = _planted_run_state()
+    run_id = state.state_run_id(planted)
+    days = state.days_in_run(planted)
+
+    bucket = state.run_length_bucket(days, run_id)
+
+    observed = run_id >= 1
+    for actual_days, actual_bucket in zip(days[observed], bucket[observed]):
+        assert actual_bucket == _expected_bucket(int(actual_days))
+
+
+def test_run_length_bucket_drops_the_censored_first_run_even_inside_a_valid_range():
+    planted, run_lengths = _planted_run_state()
+    run_id = state.state_run_id(planted)
+    days = state.days_in_run(planted)
+
+    bucket = state.run_length_bucket(days, run_id)
+
+    censored = run_id == 0
+    assert censored.sum() == run_lengths[0]
+    # The planted censored run reaches day 10, which is inside '6-21' --
+    # confirms the drop isn't just an artifact of a short observed run.
+    assert (days[censored] > 5).any()
+    assert bucket[censored].isna().all()
 
 
 # ---- build_panel: end-to-end lag correctness and ticker-boundary safety ----
