@@ -137,26 +137,28 @@ def c2_eligible_mask(
     stratum with only one side has no counterpart to compare against, so
     C2 silently drops it; a row in such a stratum must not be counted as
     "eligible" by C0/C1 either, or the row sets diverge again).
+
+    The stratum-survives check is **not** re-derived here -- it reuses
+    `stratum_deltas`'s own output (a stratum has a `delta` there iff it
+    has both sides) rather than a second, independent groupby, so the
+    non-dilution rule lives in exactly one place (this module's own
+    docstring already warns about the risk of it drifting apart if kept
+    in two).
     """
     strata_cols = [date_col, *match_cols]
     required = [*strata_cols, group_col, value_col]
     valid = panel[required].notna().all(axis=1)
 
-    working = panel.loc[valid, strata_cols].copy()
-    working["_is_event"] = panel.loc[valid, group_col].astype(bool)
+    surviving_strata = stratum_deltas(panel, group_col, value_col, strata_cols)[strata_cols].drop_duplicates()
+    surviving_strata["_stratum_ok"] = True
 
-    grouped = working.groupby(strata_cols, observed=True)["_is_event"]
-    event_count = grouped.transform("sum")
-    total_count = grouped.transform("size")
-    stratum_ok = (event_count > 0) & ((total_count - event_count) > 0)
+    # A left merge preserves `panel`'s row order (no fan-out: `surviving_strata`
+    # is deduplicated per stratum key), so the resulting array aligns
+    # positionally with `panel.index` even though `merge` itself resets it.
+    merged = panel[strata_cols].merge(surviving_strata, on=strata_cols, how="left")
+    stratum_ok = merged["_stratum_ok"].fillna(False).to_numpy()
 
-    eligible = pd.Series(False, index=panel.index)
-    # Assign the Series directly (not `.to_numpy()`) -- `stratum_ok`'s
-    # index is `working`'s, i.e. `panel.index[valid]`, so this is an
-    # index-aligned assignment, not a positional one relying on `valid`'s
-    # True positions matching `stratum_ok`'s row order by coincidence.
-    eligible.loc[valid] = stratum_ok
-    return eligible
+    return pd.Series(valid.to_numpy() & stratum_ok, index=panel.index)
 
 
 def c2_delta(
