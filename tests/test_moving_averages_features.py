@@ -227,6 +227,36 @@ def test_state_run_id_handles_leading_nan_without_corrupting_run_ids():
     assert (run_id.iloc[5:7] == 1).all()
 
 
+def test_state_run_id_rejects_an_internal_nan_gap():
+    # Only a single leading gap (MA warmup) is supported -- a gap after the
+    # first valid observation has undefined censoring semantics and must
+    # fail loudly, not silently merge/corrupt run ids.
+    planted = pd.Series([True, True, None, False, False], dtype="boolean")
+
+    with pytest.raises(ValueError, match="internal NaN gap"):
+        state.state_run_id(planted)
+
+
+def test_state_run_id_allows_only_a_leading_gap():
+    # Sanity check that the internal-gap guard doesn't false-positive on
+    # the one shape it must allow.
+    planted = pd.Series([None, None, True, True, False], dtype="boolean")
+
+    result = state.state_run_id(planted)  # must not raise
+
+    assert result.iloc[:2].isna().all()
+
+
+def test_days_in_run_with_a_precomputed_run_id_matches_computing_it_internally():
+    planted, _ = _planted_run_state()
+
+    precomputed = state.state_run_id(planted)
+    with_precomputed = state.days_in_run(planted, run_id=precomputed)
+    without = state.days_in_run(planted)
+
+    pd.testing.assert_series_equal(with_precomputed, without)
+
+
 def test_days_in_run_recovers_planted_lengths():
     planted, run_lengths = _planted_run_state()
 
