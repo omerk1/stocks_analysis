@@ -130,7 +130,7 @@ outcome — no FDR correction, no holdout test, and only one universe tier exist
 slice, all three required for Tier 1/2. `dist_pct_sma_20`, `dist_atr_sma_20`,
 `dist_z_sma_20` → **Tier 3** (directionally consistent, plausible mechanism, not
 actionable — fails cost). The other 6 facets → **Tier 4** (CI includes zero; logged in
-`DEAD_ENDS.md`).
+`EXPERIMENTS.csv`).
 
 **2026-09-09 addendum — M4 checked against the `above()` NaN-comparison bug found while
 building M1, verified unaffected.** While building M1's primary state table, a bug was
@@ -154,6 +154,56 @@ is `NaN` via ordinary float arithmetic, with no comparison operator involved any
 the formula, which is exactly why they were never exposed to this defect. **M4's
 published Tier assignments above are unaffected; no re-run needed.** Regression test:
 `tests/test_moving_averages_features.py::test_dist_pct_and_dist_atr_are_na_wherever_the_ma_is_na`.
+
+**2026-09-09 addendum — M4's turnover figure reconciled against `costs.py`, found
+during M11 pre-registration. Verdict unchanged.** M4's own cost table (this notebook,
+`entries_per_ticker_year`) counts only *entries* into a target decile — a transition
+from not-in-decile to in-decile, per leg. `stats/costs.py::signals_per_year` (built
+later, for M1) counts every transition of a boolean state column, entries **and**
+exits, and that "flip" count is the quantity M1's already-verified hurdles are built
+from (§ above). These are two different quantities, not two measurements of the same
+one: for `dist_pct_sma_20`, M4's ad hoc method gives ~25.32 entries/ticker-yr per leg
+(~50.64/yr combined, both legs) where `signals_per_year` on the same feature's
+top/bottom-decile membership gives 12.536 / 12.111 flips/ticker-yr (24.646/yr combined)
+— roughly half, consistent with "flips" counting both directions of a transition that
+"entries" counts only one direction of.
+
+Rechecked against M4's actual gross CI (`dist_pct_sma_20`: CI-low = 1.6395%/yr, point =
+5.5671%/yr, from this notebook's `cost_df`) at the **lower**, `costs.py`-based combined
+hurdle (2.465%/yr, vs. M4's own ~5.06%/yr conservative-convention hurdle): CI-low minus
+hurdle = 1.6395% − 2.465% = **−0.83%, still negative**. Same check for `dist_atr_sma_20`
+(CI-low 1.1247%/yr vs. its own `costs.py` hurdle) and `dist_z_sma_20` (CI-low 1.4188%/yr
+vs. its own hurdle): both still negative. **All three SMA20 facets stay Tier 3, still
+fail cost, under either turnover convention** — the 2× gap in the turnover figure
+doesn't reach far enough to flip anything; the CI-low was already well below both
+hurdle estimates.
+
+**Repo standard going forward: `stats/costs.py::signals_per_year` (entry+exit flip
+count), not entries-only.** It's the tested, reusable implementation, it's what M1's
+published hurdles are actually built on, and "entries-only" undercounts a strategy that
+must also pay to exit a position — a round trip is an entry *and* an exit, and pricing
+only the entry leg understates real turnover. M4's own ~50.64/yr figure is not wrong on
+its own terms (it measures something real — decile-entry frequency), but it is not the
+same thing `signals_per_year` measures, and a future module reusing M4's number
+alongside a `costs.py`-based one without this note would be comparing two different
+quantities as if they were one.
+
+**2026-09-09 addendum — M4's grid is not independence-checked, found during M11
+pre-registration. Declared `N_tests` of 90 is inflated by an unknown factor.** M11's
+own independence check (per-date cross-sectional Spearman correlation between
+`dist_pct`/`dist_atr`/`dist_z` at SMA20) found median correlations of 0.94–0.98 —
+these three normalisations are not independent tests. That check was never run
+against M4's own grid at the time M4 shipped, and hasn't been run for SMA50 or SMA200
+at all. So M4's declared 90-cell (or 9-facet) `N_tests` contribution almost certainly
+overstates the true independent-test count the same way M1's 30 did — by how much is
+unknown until the correlation check is repeated for SMA50/SMA200 too. **No tier
+changes as a result of this note** — nothing in M4's grid cleared cost under either
+turnover convention (see the addendum above), and deduplicating a set of tests that
+already all failed can only make the eventual correction *more* conservative, never
+less; a smaller, cleaner denominator doesn't rescue a result that didn't clear the
+economic bar in the first place. Tracked as an open item, not resolved here — see
+`docs/STATUS.md`'s "Whole-grid FDR pass" section for the trigger condition and the
+per-module dedup this needs before it runs.
 
 ## M1 — Baseline state conditioning (2026-09-09)
 
@@ -580,8 +630,8 @@ assignment below.
 has now been the anomalous lookback in two separate modules: M4's `dist_z_sma_200` facet
 was rejected as noisy, with its own diagnostic finding the 252-day self-normalisation
 window measurably unstable at that lookback (cross-sectional rank correlation with
-`dist_pct` drops to ~0.69 vs. ~0.88–0.93 at shorter lookbacks — `DEAD_ENDS.md`'s M4
-entry); and now M1's lb200 primary cell is the one that fails to show clean monotone
+`dist_pct` drops to ~0.69 vs. ~0.88–0.93 at shorter lookbacks — `EXPERIMENTS.csv`'s
+`dist_z_sma_200_h21` row); and now M1's lb200 primary cell is the one that fails to show clean monotone
 shrinkage. Worth naming plainly: the 252-day window several of this study's controls
 lean on (`mom_12_1`'s own lookback, `dist_z`'s normalisation window) is only ~1.26× the
 200-day SMA lookback itself — not a lot of slack. lb200 also independently carries this
@@ -654,4 +704,5 @@ only one that remains for this pair.)**
 finding. Every lookback/direction's 1–5→6–21→22–63→64+ sequence zigzags in sign with no
 smooth progression (DESIGN §6.7's plateau rule). The one cell whose CI excludes zero
 (lb50 above / 6-21) has opposite-signed, non-significant neighbors on both sides — a
-lone-pixel failure of the plateau rule, not a finding. Logged to `DEAD_ENDS.md`.
+lone-pixel failure of the plateau rule, not a finding. Logged to `EXPERIMENTS.csv`
+(`run_length_all_lookbacks` row).
