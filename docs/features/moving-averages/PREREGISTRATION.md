@@ -122,6 +122,29 @@ slice, all three required for Tier 1/2. `dist_pct_sma_20`, `dist_atr_sma_20`,
 actionable — fails cost). The other 6 facets → **Tier 4** (CI includes zero; logged in
 `DEAD_ENDS.md`).
 
+**2026-09-09 addendum — M4 checked against the `above()` NaN-comparison bug found while
+building M1, verified unaffected.** While building M1's primary state table, a bug was
+found in `features/distance.py::above`: a plain `close > ma` comparison reads a `NaN`
+`ma` (its own warmup window) as `False` ("below") instead of undefined, since pandas
+comparison operators don't propagate missing values the way arithmetic does. `above` is
+not one of M4's own features, but M4's `dist_pct`/`dist_atr`/`dist_z` are also
+MA-derived, so this got checked rather than assumed. Verified panel-wide, on the same
+408-ticker/2010-2021 panel M4's own result was computed against (formula for
+`dist_pct`/`dist_atr`/`dist_z` unchanged by the `above` fix — this is the same
+computation M4 originally ran):
+
+| Column | Rows where `isna()` disagrees with its MA's `isna()` | Explanation |
+|---|---|---|
+| `dist_pct_sma_{20,50,200}` | 0 (of 1,231,698) | exact match, every lookback |
+| `dist_atr_sma_{20,50,200}` | 0 (of 1,231,698) | exact match, every lookback |
+| `dist_z_sma_{20,50,200}` | 102,408 (= 251/ticker) | **not a bug** — `dist_z`'s own 252-day rolling normalisation window (`DIST_Z_WINDOW`, `features/distance.py`) adds its own warmup on top of the MA's, via arithmetic (`rolling().mean()`/`.std()`), which propagates `NaN` correctly on its own; 251 ≈ 252-day window's own extra warmup, unrelated to the comparison defect |
+
+`dist_pct`/`dist_atr` are division, not comparison — `(close - ma) / ma` on a `NaN` `ma`
+is `NaN` via ordinary float arithmetic, with no comparison operator involved anywhere in
+the formula, which is exactly why they were never exposed to this defect. **M4's
+published Tier assignments above are unaffected; no re-run needed.** Regression test:
+`tests/test_moving_averages_features.py::test_dist_pct_and_dist_atr_are_na_wherever_the_ma_is_na`.
+
 ## M1 — Baseline state conditioning (2026-09-09)
 
 **Module / track:** M1, Track B (DESIGN.md §8, M1, lines 556-561).
