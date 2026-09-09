@@ -606,7 +606,7 @@ Unstructured by design. Run continuously alongside everything else, not as a pha
 **Output:** a set of 2-D heatmaps: distance bucket × horizon, faceted by regime and universe. This is likely the visual centrepiece of the report.
 **Kill:** if no monotonic or reliably U-shaped relationship survives vol-neutralisation in any facet, report as a strong negative.
 
-**Status (2026-09-08 addendum) — first slice run, see `PREREGISTRATION.md` and `DEAD_ENDS.md`.** A first pre-registered pass ran the `dist_pct`/`dist_atr`/`dist_z` × SMA{20,50,200} × 21-day-horizon grid only — not the full method above. Kill criterion not triggered, but only the 3 SMA20 facets survive block-bootstrap inference, and none survives a realistic cost annotation; final tier capped at Tier 3 (no FDR/holdout/second universe tier exist yet). Explicitly deferred from that slice, not abandoned: vol-neutralisation as its own pass, ER conditioning, universe-tier conditioning, the two specific literature-claim targets above, and **the full 8-horizon term structure**. Of these, **the horizon term structure is the specific, motivated follow-up** if this module is picked up again — SMA20's surviving-but-cost-failing result at 21 days leaves open whether a different horizon (e.g. a horizon short enough that the ~50-round-trip/year turnover cost hurdle doesn't apply, or long enough that the edge compounds past it) tells a different story. This is distinct from broadly widening the grid (ER/universe tiers/vol-neutralisation), which was considered and explicitly deferred as a broad next step in favour of picking a different module (see `docs/backlog.md`).
+**Status (2026-09-08 addendum) — first slice run, see `PREREGISTRATION.md` and `EXPERIMENTS.csv`.** A first pre-registered pass ran the `dist_pct`/`dist_atr`/`dist_z` × SMA{20,50,200} × 21-day-horizon grid only — not the full method above. Kill criterion not triggered, but only the 3 SMA20 facets survive block-bootstrap inference, and none survives a realistic cost annotation; final tier capped at Tier 3 (no FDR/holdout/second universe tier exist yet). Explicitly deferred from that slice, not abandoned: vol-neutralisation as its own pass, ER conditioning, universe-tier conditioning, the two specific literature-claim targets above, and **the full 8-horizon term structure**. Of these, **the horizon term structure is the specific, motivated follow-up** if this module is picked up again — SMA20's surviving-but-cost-failing result at 21 days leaves open whether a different horizon (e.g. a horizon short enough that the ~50-round-trip/year turnover cost hurdle doesn't apply, or long enough that the edge compounds past it) tells a different story. This is distinct from broadly widening the grid (ER/universe tiers/vol-neutralisation), which was considered and explicitly deferred as a broad next step in favour of picking a different module (see `docs/backlog.md`).
 
 ### M5 — Touch / test / bounce behaviour
 **Hypothesis:** MAs act as dynamic support/resistance beyond generic trend.
@@ -770,9 +770,20 @@ Take the surviving Tier-1/Tier-2 claims and answer: do they combine additively, 
 2. Methodology and controls (condensed §5–7)
 3. **The shrinkage table** — every headline effect at C0, C1, C2. This is the paper's contribution.
 4. Module results M1–M15
-5. **Dead-ends register** (§9.3)
-6. Cost sensitivity appendix
-7. Reproducibility appendix: seeds, data versions, full pre-registered grid, N_tests
+5. **Suggestive findings (Tier 3)** — real, directionally consistent effects that don't
+   clear the bar for Tier 1/2 (missing FDR/holdout infrastructure, or fail cost
+   specifically), given their own visible section rather than left buried inside item 4's
+   per-module detail. **2026-09-09 addition:** this item didn't originally exist. Most of
+   what the study has actually produced through M1/M4 is exactly this shape (a real,
+   CI-excluding-zero effect that fails cost or lacks the infrastructure to reach Tier
+   1/2) — without its own section, that evidence was structurally invisible next to the
+   executive summary (Tier 1/2 only) and the dead-ends register (Tier 4 only), which is
+   precisely the "everything looks killed" impression a Tier-3-heavy result set gives a
+   reader if Tier 3 has no dedicated home. Not a demand for a specific claim count, just
+   a place for the real ones to be seen as real.
+6. **Dead-ends register** (§9.3)
+7. Cost sensitivity appendix
+8. Reproducibility appendix: seeds, data versions, full pre-registered grid, N_tests
 
 ### 9.2 Confidence tiers
 
@@ -780,14 +791,22 @@ Take the surviving Tier-1/Tier-2 claims and answer: do they combine additively, 
 |---|---|
 | **Tier 1 — Robust** | Survives C2 matching, BH-FDR at q=0.05, holds across all universe tiers, plateau-stable in parameters, present in holdout, survives costs |
 | **Tier 2 — Probable** | Survives C2 and FDR, but fails one of: universe generality, holdout, or cost |
-| **Tier 3 — Suggestive** | Directionally consistent, plausible mechanism, but effective N too small or effect within noise. Explicitly not actionable |
-| **Tier 4 — Rejected** | Tested, no effect beyond control. Goes in the dead-ends register with the evidence |
+| **Tier 3 — Suggestive** | CI excludes zero and the mechanism is plausible, but the claim can't reach Tier 1/2 either because required infrastructure doesn't exist yet (FDR/holdout/a second universe tier) or because it fails cost specifically. **Not** the same as "effect within noise" — a Tier-3 result is a real, statistically distinguishable effect, just not (yet, or ever) actionable. (Tightened 2026-09-09: the original wording — "effective N too small or effect within noise" — didn't match how this tier actually got used in M1/M4, where every Tier-3 result had a CI excluding zero.) |
+| **Tier 4 — Rejected** | Tested, no effect beyond control (CI includes zero). Goes in the dead-ends register with the evidence |
 
 **Expect the distribution to be roughly 3 / 6 / 10 / 25.** If you end up with twenty Tier-1 claims, you have a bug in your controls, not a discovery.
 
 ### 9.3 Dead-ends register format
 
 For each: hypothesis, why it was plausible, exactly what was run, the number that killed it, effective N, and **the conditions under which it would be worth revisiting**. This section is as valuable as the positive results and takes discipline to write well. It is also the part of the report you will personally re-read most often.
+
+**Only Tier 4 belongs here** — a Tier-3 result (real effect, not actionable) is not a
+dead end and does not belong in this section; see item 5 above. **2026-09-09:** during
+the study this section's content is tracked in `docs/features/moving-averages/
+EXPERIMENTS.csv` (one row per tested cell, every tier, not a file reserved for Tier 4
+only) rather than a dedicated interim file — assemble this report section by filtering
+that ledger to `outcome == no_effect` when the final report is written, rather than
+looking for a standalone dead-ends file that no longer exists during the study itself.
 
 ---
 
@@ -802,7 +821,8 @@ not a standalone project, and follows that repo's own per-module convention
 still stands as the logical map of pipeline stages (data → features → events →
 labels → stats → modules); **see `CLAUDE.md`'s Layout section for the real paths**
 (`src/signals/moving_averages/...`, with `DESIGN.md`/`PREREGISTRATION.md`/
-`EXPLORATION_LOG.md`/`DEAD_ENDS.md` under `docs/features/moving-averages/`).
+`EXPLORATION_LOG.md`/`EXPERIMENTS.csv`/`STATUS.md` under `docs/features/moving-averages/`
+and `docs/`).
 Existing infrastructure is reused rather than rebuilt where it already covers a
 stage below — notably `market_common.data` (bar loading/validation),
 `market_common.indicators` (ATR/RSI/MACD/OBV), `src/signals/relative_strength/`
@@ -842,7 +862,7 @@ ma_study/          # logical map only -- see note above for real paths
     test_indicators.py   # golden fixtures
     test_lookahead.py    # §7.2 shift test
   PREREGISTRATION.md     # the committed hypothesis grid
-  DEAD_ENDS.md
+  EXPERIMENTS.csv         # every tested cell, one row each, whatever it found
 ```
 
 ### 10.2 Phasing
