@@ -50,7 +50,7 @@ If you cannot state a kill criterion, the task is not ready to run.
 - Argue against your own result. What confound would produce this number if the effect were not real?
 - Check the plateau rule (DESIGN §6.7): do neighbouring parameters agree? A lone bright pixel is noise — say so.
 - Track A → append to `docs/features/moving-averages/EXPLORATION_LOG.md`, one line, whether or not it went anywhere.
-- Negative results → `docs/features/moving-averages/DEAD_ENDS.md` with the number that killed it and the effective N.
+- Track B (every tested cell, Tier 1–4, whatever it found) → append a row to `docs/features/moving-averages/EXPERIMENTS.csv` — point estimate, CI, effective N, cost hurdle/verdict, tier, and a one-line outcome. Not a file for negative results only: log the result, not the verdict.
 
 **A null result is a successful outcome.** Do not search for a framing that makes a dead hypothesis look alive.
 
@@ -63,7 +63,11 @@ docs/features/moving-averages/
   DESIGN.md               reference — the full research design
   PREREGISTRATION.md      frozen hypothesis grid (Track B). Do not edit after P3.
   EXPLORATION_LOG.md      every Track A look, one line each
-  DEAD_ENDS.md            killed hypotheses + evidence
+  EXPERIMENTS.csv         every Track B cell run, one row each — point estimate, CI,
+                           effective N, cost, tier, outcome. Whatever it found, not
+                           just what killed it. `docs/STATUS.md` is the cross-module
+                           scoreboard built on top of this; PREREGISTRATION.md is the
+                           frozen-before-running text per module.
 ```
 
 Code follows this repo's existing per-module convention, not DESIGN.md §10.1's

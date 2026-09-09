@@ -9,6 +9,8 @@ data/derived/*
 *.db
 *.csv
 *.parquet
+# Exception: hand-maintained study ledger, not a regenerable data dump
+!docs/features/moving-averages/EXPERIMENTS.csv
 
 # sr_lines CLI review charts (generated output, not source)
 review_*.html
