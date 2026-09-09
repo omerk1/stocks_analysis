@@ -134,6 +134,16 @@ def test_realized_vol_63_formula():
     assert pd.isna(result.iloc[60])  # fewer than 63 returns available yet
 
 
+def test_mom_1_0_formula():
+    close = pd.Series([100.0] * 22)
+    close.iloc[21] = 110.0  # close[t] / close[t-21] - 1
+
+    result = context.mom_1_0(close)
+
+    assert result.iloc[21] == pytest.approx(0.10)
+    assert pd.isna(result.iloc[20])  # not enough history yet (needs t-21)
+
+
 def test_compute_ma_dispatches_to_the_existing_sma_ema_wrappers():
     from src.foundation.market_common.indicators import ema, sma
 

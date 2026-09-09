@@ -10,10 +10,12 @@ lookbacks {20, 50, 200} (features/ma.py), dist_pct/dist_atr/dist_z and the
 `above` state (features/distance.py), slope_log_k at k in {5, 21, 63}
 (features/slope.py), basic SMA/EMA full-stack booleans, (added for M4's
 C2 matched control, DESIGN §6.1) `mom_12_1`/`realized_vol_63`
-(features/context.py), and (added for M1, DESIGN §8 -- PREREGISTRATION.md)
+(features/context.py), (added for M1, DESIGN §8 -- PREREGISTRATION.md)
 `run_length_bucket` per SMA lookback (features/state.py), SMA only this
-slice. `write_panel`/`read_panel` cache it as partitioned parquet per
-§4.4's schema.
+slice, and (added for M1's short-term-reversal confound check,
+PREREGISTRATION.md 2026-09-09) `mom_1_0` (features/context.py).
+`write_panel`/`read_panel` cache it as partitioned parquet per §4.4's
+schema.
 
 Not yet built (later scope, not this phase's): WMA/HMA/KAMA/VWMA, the full
 lookback grid, ribbon/regime features, and point-in-time `mktcap_decile`/
@@ -125,6 +127,7 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     # PREREGISTRATION.md.
     frame["mom_12_1"] = context.mom_12_1(frame["close"])
     frame["realized_vol_63"] = context.realized_vol_63(frame["close"])
+    frame["mom_1_0"] = context.mom_1_0(frame["close"])
 
     return frame.reset_index().rename(columns={"timestamp": "date"})
 

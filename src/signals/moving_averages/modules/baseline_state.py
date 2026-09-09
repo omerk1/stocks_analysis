@@ -43,6 +43,12 @@ RUN_LENGTH_LABELS = ("1-5", "6-21", "22-63", "64+")
 
 C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 
+# Robustness-check-only match set (PREREGISTRATION.md, 2026-09-09 short-term-
+# reversal confound check): adds a prior-21-day-return tercile. Not the
+# module's pre-registered default -- `state_table`'s own C2 spec stays
+# C2_MATCH_COLS unless a caller explicitly opts into this one.
+C2_MATCH_COLS_WITH_REVERSAL = (*C2_MATCH_COLS, "rev_tercile")
+
 # PREREGISTRATION.md's M1 kill criterion: even the most-favorable-to-
 # survival CI edge must clear this magnitude for a primary cell to survive.
 KILL_THRESHOLD = 0.001  # 0.10%
@@ -51,17 +57,20 @@ KILL_THRESHOLD = 0.001  # 0.10%
 def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     """Adds `fwd_ret_21` and the C2 match buckets (momentum/vol terciles --
     same tercile-not-decile convention as M4, referenced not re-derived --
-    see PREREGISTRATION.md) to `panel`. Returns a new frame; `panel` itself
-    is not mutated.
+    see PREREGISTRATION.md) to `panel`. Also adds `rev_tercile` (prior-
+    21-day-return tercile), used only by the short-term-reversal
+    robustness check (`C2_MATCH_COLS_WITH_REVERSAL`), not by the module's
+    default C2 spec. Returns a new frame; `panel` itself is not mutated.
     """
     working = panel.copy()
     working["fwd_ret_21"] = forward_return(working, horizon=HORIZON)
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
+    working["rev_tercile"] = cross_sectional_bucket(working, "mom_1_0", n_buckets=3)
     return working
 
 
-def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
+def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tuple[str, ...] = C2_MATCH_COLS) -> dict:
     """One cell's full report. `working` is this cell's own natural row
     population -- already restricted to the state/direction/bucket that
     defines the cell, but *not yet* restricted to C2-eligible rows. That
@@ -72,7 +81,7 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
     check comparison DESIGN's own shrinkage-waterfall framing needs.
     """
     unrestricted = working.dropna(subset=[group_col, "fwd_ret_21"])
-    mask = c2_eligible_mask(working, group_col, "fwd_ret_21", match_cols=list(C2_MATCH_COLS))
+    mask = c2_eligible_mask(working, group_col, "fwd_ret_21", match_cols=list(match_cols))
     restricted = working[mask]
 
     event_rows = restricted[restricted[group_col].astype(bool)]
@@ -81,7 +90,7 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
     n_tickers = event_rows["ticker"].nunique()
 
     try:
-        boot = block_bootstrap_delta(restricted, group_col, "fwd_ret_21", match_cols=list(C2_MATCH_COLS))
+        boot = block_bootstrap_delta(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols))
     except ValueError:
         # Too few distinct dates for the block bootstrap's minimum-blocks
         # requirement (stats/inference.py) -- happens on thin secondary
@@ -95,7 +104,7 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
     # ticker's trailing 21 days, no forward return yet), which are already
     # outside the "unrestricted" baseline and must not be double-counted
     # into "missing C2 inputs" against a different denominator.
-    has_c2_inputs = unrestricted[list(C2_MATCH_COLS)].notna().all(axis=1)
+    has_c2_inputs = unrestricted[list(match_cols)].notna().all(axis=1)
     n_unrestricted = len(unrestricted)
     n_eligible = len(restricted)
 
@@ -111,7 +120,7 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
         "c0_unrestricted": c0_delta(unrestricted, group_col, "fwd_ret_21") if n_unrestricted else float("nan"),
         "c0": c0_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
         "c1": c1_delta(restricted, group_col, "fwd_ret_21") if n_eligible else float("nan"),
-        "c2": c2_delta(restricted, group_col, "fwd_ret_21", match_cols=list(C2_MATCH_COLS)) if n_eligible else float("nan"),
+        "c2": c2_delta(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols)) if n_eligible else float("nan"),
         "c2_ci_low": boot["ci_low"],
         "c2_ci_high": boot["ci_high"],
         "c2_boot_std": boot["boot_std"],
@@ -126,10 +135,13 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict) -> dict:
     }
 
 
-def state_table(panel: pd.DataFrame) -> pd.DataFrame:
+def state_table(panel: pd.DataFrame, match_cols: tuple[str, ...] = C2_MATCH_COLS) -> pd.DataFrame:
     """The 6 primary cells: above/below SMA state at {20, 50, 200}. One row
     per (lookback, direction). `panel` must already carry `fwd_ret_21` and
-    the C2 match columns (see `prepare`).
+    the C2 match columns (see `prepare`). `match_cols` defaults to the
+    module's pre-registered C2 spec; pass `C2_MATCH_COLS_WITH_REVERSAL` for
+    the short-term-reversal robustness check (PREREGISTRATION.md,
+    2026-09-09) -- same cell definitions, different C2 matching.
     """
     rows = []
     for lookback in LOOKBACKS:
@@ -139,7 +151,11 @@ def state_table(panel: pd.DataFrame) -> pd.DataFrame:
             working = panel.dropna(subset=[above_col]).copy()
             is_event = working[above_col].astype(bool)
             working["_is_event"] = is_event if direction == "above" else ~is_event
-            rows.append(_cell_row(working, "_is_event", {"lookback": lookback, "direction": direction}))
+            rows.append(
+                _cell_row(
+                    working, "_is_event", {"lookback": lookback, "direction": direction}, match_cols=match_cols
+                )
+            )
     return pd.DataFrame(rows)
 
 
