@@ -706,3 +706,196 @@ smooth progression (DESIGN §6.7's plateau rule). The one cell whose CI excludes
 (lb50 above / 6-21) has opposite-signed, non-significant neighbors on both sides — a
 lone-pixel failure of the plateau rule, not a finding. Logged to `EXPERIMENTS.csv`
 (`run_length_all_lookbacks` row).
+## M11 — Cross-sectional formulation (2026-09-09)
+
+**Module / track:** M11, Track B (DESIGN.md §8, M11).
+
+**Promoted from:** not a Track A candidate — selected as the next minimal-core module
+(DESIGN §12's list, `docs/backlog.md`) over M2/M5/M6.2 specifically because its natural
+control design (per-date cross-sectional matching, structural) sidesteps the row-loss
+mechanism that M1 hit hard (38–77% row loss under C2's stratify-and-drop design,
+skewed toward one stratum type, still an open item in `docs/backlog.md`). M2 would
+compound that same mechanism on a higher-cardinality state (`stack_perm`); M6.2 stacks
+further dimensions on top of it and assumes M5 already exists; M5 needs new
+event/control infrastructure and is more exposed to the §6.9 sample floor. M11 needs
+none of that — reusing `stats/controls.py::cross_sectional_bucket` (already built and
+used by M4) rather than `stats/controls.py::c2_eligible_mask`.
+
+**2026-09-09 finding that reshaped this entry's hypothesis, found while resolving the
+mismatch below.** `modules/distance_from_ma.py::decile_table` buckets via
+`cross_sectional_bucket`, which is `pd.qcut` computed **per date**
+(`stats/controls.py`, lines 111-113) — M4's "absolute-threshold" distance deciles were
+already cross-sectional, not absolute. DESIGN's literal M11 hypothesis ("relative rank
+beats absolute threshold") therefore has no true absolute baseline on record to compare
+against; M4's Tier-3, cost-failing `dist_pct_sma_20` result already substantially *is*
+the cross-sectional-rank answer, reported as decile-bucket-mean-delta rather than
+Spearman IC. Building a genuine "absolute" baseline (e.g. a fixed, non-date-relative
+distance threshold) is out of scope for this entry — it would be new methodology
+requiring its own design pass, not a same-day resolution.
+
+**Hypothesis (revised from DESIGN's literal comparative framing, for the reason
+above):** Cross-sectional rank of an MA-state distance feature carries forward-return
+information beyond zero, after cost. The DESIGN-motivated "beats absolute" question
+survives only as a secondary, non-kill-triggering readout: the primary cell's
+long-short spread is reported alongside M4's already-published `dist_pct_sma_20`
+decile-bucket result (same feature, lookback, and horizon) as a narrower comparison —
+does continuous-rank construction with sector/vol-neutralization do any better than
+M4's decile-bucket, C2-tercile-matched construction, which already failed cost. This is
+not the general relative-vs-absolute claim DESIGN assumed was testable; it's what's
+actually decidable given M4 already ran the cross-sectional version.
+
+**What M11 still buys over M4, said plainly, now that the comparative framing is
+gone:**
+1. **Continuous rank-IC vs. discrete deciles.** M4 collapses the cross-section to 10
+   buckets and reports only the top-minus-bottom spread; M11's Spearman IC uses every
+   ticker's rank position, not just the two extreme deciles, and gives an IC-decay curve
+   across horizons that a 21d-only decile spread can't.
+2. **Sector/vol neutralization vs. C2-tercile matching.** M4's C2 drops rows outside a
+   populated (date, momentum-tercile, vol-tercile, sector) stratum. M11's neutralization
+   demeans within sector/vol-tercile instead of filtering — same conceptual control,
+   structurally different mechanism, and one that doesn't inherit M1's row-loss problem.
+3. **Full C1-eligible-sample retention.** M4/M1's C2 layer is the one that loses
+   38–77% of rows (M1) to stratum-eligibility. M11's primary (C1) layer runs on every
+   row with a defined feature and forward return — no stratify-and-drop step at all.
+4. **Horizon term structure.** M4 tested 21d only and explicitly deferred the full
+   term structure (2026-09-08 addendum). M11's grid includes 5d and 63d on the primary
+   lookback, folding that deferred follow-up in rather than leaving it open again.
+
+None of these four is "relative beats absolute" — that framing is gone. They're methods
+and coverage M4 didn't have, tested on the same feature M4 already found Tier-3 and
+cost-failing. If M11 doesn't survive its own kill criterion either, the honest read is
+"two different construction methods on the same underlying signal both say no," which is
+a stronger negative than either alone.
+
+**Independence check (done now, before grid finalization — same discipline M1 applied
+to above/below):** per-date cross-sectional Spearman correlation between the three
+SMA20 distance normalisations, measured off the rebuilt panel (1,231,698 rows, 408
+tickers, 2010-01-04 → 2021-12-31):
+
+| pair | median per-date Spearman | 5th–95th pct | n dates |
+|---|---|---|---|
+| `dist_pct_sma_20` vs `dist_atr_sma_20` | 0.977 | [0.908, 0.990] | 3,001 |
+| `dist_pct_sma_20` vs `dist_z_sma_20` | 0.938 | [0.850, 0.964] | 2,750 |
+| `dist_atr_sma_20` vs `dist_z_sma_20` | 0.952 | [0.908, 0.973] | 2,750 |
+
+Not exact algebraic mirrors (unlike M1's above/below), but correlated enough that the
+three normalisations are not independent tests. `dist_pct` is the pre-committed primary
+normalisation; `dist_atr`/`dist_z` at the same lookback are reported as non-independent
+companion readouts on the primary cell, excluded from `N_tests`.
+
+**This slice's scope:**
+- Features: `dist_pct` at SMA{20, 50, 200} — reusing `features/distance.py` output
+  already in the panel, no new feature build. `dist_atr`/`dist_z` at SMA20 reported as
+  companions only (see independence check above).
+- Event definition: per-date cross-sectional decile of the already-lagged distance
+  feature, via `stats/controls.py::cross_sectional_bucket` (reused from M4, not
+  reimplemented) plus continuous Spearman rank-IC (feature rank vs. forward-return rank,
+  per date).
+- Horizons: 21 trading days (primary, matches M4 for comparability) plus 5 and 63 days
+  on the primary lookback only — the term-structure follow-up DESIGN's own 2026-09-08
+  M4 addendum flagged as the motivated next step, folded in here rather than deferred
+  again.
+- Universe: the same 408 S&P 500 constituents, dev window 2010-01-01 → 2021-12-31 (U1
+  tier), verified against the freshly rebuilt panel (see this session's rebuild-diff:
+  empty diff against the pre-rebuild cache on row count, NA counts, and every feature
+  column).
+- Controls: **C1 by construction** (per-date cross-sectional ranking is already
+  date-matched — zero additional row loss) as the primary read; **sector-neutral and
+  vol-decile-neutral rank** (demeaning within `sector`/`realized_vol_63` tercile per
+  date, reusing the momentum/vol tercile machinery from M1/M4's C2) as the C2-equivalent
+  robustness layer, applied to every cell as a control-tier variant, not a separate
+  test — same logic as C0/C1/C2 being one hypothesis at three strictness levels.
+  Neither layer drops rows the way M1/M4's stratify-and-drop C2 does (DESIGN §6.1's
+  scale-comparability note doesn't apply here — there is no dilution-prone pooled C0 in
+  this design, since the primary statistic is already a per-date contrast).
+
+**Grid size (N_tests contribution): 5** — 1 primary cell (`dist_pct_sma_20`, 21d) + 4
+secondary cells (`dist_pct_sma_50` 21d, `dist_pct_sma_200` 21d, `dist_pct_sma_20` at 5d
+and 63d). `dist_atr_sma_20`/`dist_z_sma_20` at 21d are companion readouts, not counted,
+per the independence check above.
+
+**Multiple-comparison correction, stated concretely:**
+- **The primary-cell kill/no-kill verdict is a single pre-registered test and needs no
+  correction to be decisive** — same treatment M1 gave its own primary cells (6 state
+  cells, kill evaluated only over those, run-length cells provisional). One test, one
+  answer, standing on its own.
+- **The 4 secondary cells are provisional pending FDR**, exactly the status M1 gave its
+  run-length cells: reported for the lookback/horizon picture, not treated as confirmed
+  findings on their own.
+- No FDR correction is *run* at this slice — DESIGN §6.6's denominator accumulates
+  across the whole pre-registered grid, not per module (same note M4 and M1 both
+  logged) — but the procedure to apply, when that whole-study accounting happens, is
+  fixed now: **Benjamini–Hochberg at q=0.10** over the accumulated `N_tests` count,
+  consistent with DESIGN §6.6's stated primary screen. Each module's own declared
+  contribution stands as written in its own entry (M4: 90 bucket-level cells; M1: 30
+  cells, 6 of which are primary/non-mirrored; M11: 5) — summing these into one running
+  total is exactly the kind of arithmetic that should happen once, deliberately, at the
+  whole-grid accounting pass, not be asserted piecemeal across entries where a
+  transcription slip could silently corrupt the eventual correction.
+
+**Primary vs. secondary cells:** `dist_pct_sma_20` at 21d is primary — closest
+continuity with M4's strongest surviving (Tier-3) facet, chosen for that reason, **not**
+for the friendliest cost profile (SMA200's hurdle is lower — see below — but SMA200
+carries the standing cross-module anomaly flag from M1/M4, logged above in this file's
+M1 entry; a cost-driven "survival" there would need extra scrutiny, not extra credit).
+The kill criterion is evaluated only on the primary cell. Secondary cells inform the
+lookback/horizon picture but do not individually trigger kill, same treatment M1 gave
+its run-length cells.
+
+**Cost — measured off the panel, not assumed, before any IC is computed.** Used
+`stats/costs.py::signals_per_year`/`cost_hurdle` (built for M1, reused here) on
+decile-membership flips per leg, daily rebalance (matching M4's own daily
+`cross_sectional_bucket` cadence), off the freshly rebuilt panel:
+
+| feature | top-decile flips/ticker-yr | bottom-decile flips/ticker-yr | combined | hurdle @ 10bps/rt |
+|---|---|---|---|---|
+| `dist_pct_sma_20` (primary) | 12.536 | 12.111 | 24.646 | **2.465%/yr** |
+| `dist_z_sma_20` (companion) | 13.288 | 12.885 | 26.173 | 2.617%/yr |
+| `dist_pct_sma_50` | 8.092 | 7.752 | 15.845 | 1.584%/yr |
+| `dist_pct_sma_200` | 4.093 | 3.828 | 7.921 | 0.792%/yr |
+
+**Flagged discrepancy, not resolved here:** M4's own prose cites "~25 decile-entries/
+ticker/year per leg (~50 round trips/year combined)" for this same feature, computed ad
+hoc before `costs.py` existed (that module was built for M1, after M4 shipped). The
+measured combined figure here (24.646) is roughly half M4's stated ~50. Used here
+because it's reproducible off the verified-identical current panel via the repo's
+standard tool, not because it's more favorable — it lowers the bar M4's own number
+implied, which cuts against convenience. Worth a follow-up re-check of M4's figure
+against `costs.py` directly; not blocking this entry.
+
+**Kill criterion, pre-committed before any IC is computed:** the primary cell
+(`dist_pct_sma_20`, 21d) survives only if **both**:
+1. The date-clustered, block-bootstrapped 90% CI (block length 42, same convention as
+   M1/M4) on mean Spearman rank-IC excludes zero **and** clears a 0.02 floor (a
+   conventional weak-but-tradeable IC threshold) at its near-zero-favorable edge.
+2. The long-short decile spread's 90% CI excludes zero **and** clears the 2.465%/yr
+   hurdle at its near-zero-favorable edge, under the corrected `ci_clears_cost` rule
+   (spanning zero is an automatic fail — the same rule found and fixed during M1).
+
+Failing either test — kill: report cross-sectional rank as **not worth the added
+machinery over M4's existing absolute-threshold-shaped result**, log to
+`EXPERIMENTS.csv`, and treat M1/M4's existing results as the standing formulation.
+
+**Secondary, non-kill-triggering comparison:** report the primary cell's long-short
+spread alongside M4's published `dist_pct_sma_20` decile-bucket result (same feature,
+lookback, horizon) — does continuous-rank + neutralization construction do any better
+than M4's decile-bucket + C2-tercile construction, which already failed cost. Descriptive
+only; does not affect the kill/tier call above.
+
+**Minimum sample threshold (DESIGN §6.9):** no bucket/cell reported below 200 events
+across ≥30 distinct dates and ≥30 distinct tickers, same as M1/M4.
+
+**Plateau check (DESIGN §6.7):** the three lookbacks (20/50/200) compared for
+consistency of sign/pattern, not treated as independent single points; the three
+horizons (5/21/63) on the primary lookback checked for a smooth, not cliff-edged, IC
+decay.
+
+**Effective N:** reported as distinct event dates alongside raw row count, per cell,
+same invariant as every prior module.
+
+**Panel provenance for this entry:** rebuilt from current `main` (commit `75e42ce`,
+`build-panel --universe sp500`) this session and diffed against the pre-rebuild cache —
+empty diff on row count, column set, NA counts per column, and value equality on every
+column including `above_*`, `run_length_bucket_*`, `stacked_sma`, `stacked_ema`. The
+`state_run_id` internal-NaN-gap guard added in `75e42ce` is confirmed inert on this
+panel by the rebuild, not by code-reading alone.

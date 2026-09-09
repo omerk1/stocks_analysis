@@ -188,3 +188,40 @@ def block_bootstrap_spread(
         boot_draws[b] = high_mean - low_mean
 
     return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
+
+
+def block_bootstrap_series(
+    values_by_date: pd.Series,
+    block_length: int = 42,
+    n_boot: int = 500,
+    ci: float = 0.90,
+    seed: int = 0,
+) -> dict:
+    """Block-bootstrap CI on the mean of a statistic already computed once
+    per date (e.g. M11's daily cross-sectional Spearman rank-IC) -- for
+    values that don't come from a per-(date, stratum) delta table, so
+    `stratum_deltas`'s per-stratum reweighting (`block_bootstrap_delta`/
+    `block_bootstrap_spread`) doesn't apply. Same moving-block resampling
+    over dates as those two (§6.2/§6.3), applied directly to
+    `values_by_date` instead.
+
+    `values_by_date` must be indexed by date, one value per date; NaN
+    dates (e.g. a date with too few names to compute the statistic) are
+    dropped before resampling.
+    """
+    values_by_date = values_by_date.dropna()
+    if values_by_date.empty:
+        return _summarize_draws(np.array([]), float("nan"), 0, ci)
+
+    dates = np.array(sorted(values_by_date.index))
+    _validate_block_length(len(dates), block_length)
+    vals = values_by_date.reindex(dates).to_numpy()
+    point_estimate = vals.mean()
+
+    rng = np.random.default_rng(seed)
+    boot_draws = np.empty(n_boot)
+    for b in range(n_boot):
+        weight = _block_weights(dates, block_length, rng)
+        boot_draws[b] = _weighted_mean(vals, weight)
+
+    return _summarize_draws(boot_draws, point_estimate, len(dates), ci)

@@ -9,7 +9,11 @@ import pandas as pd
 import pytest
 
 from src.signals.moving_averages.stats.controls import c2_delta
-from src.signals.moving_averages.stats.inference import block_bootstrap_delta, block_bootstrap_spread
+from src.signals.moving_averages.stats.inference import (
+    block_bootstrap_delta,
+    block_bootstrap_series,
+    block_bootstrap_spread,
+)
 
 
 def _panel(n_dates=100, n_tickers=20, effect=0.01, seed=0):
@@ -107,6 +111,66 @@ def test_block_bootstrap_delta_handles_empty_input():
 
     assert result["n_dates"] == 0
     assert pd.isna(result["point_estimate"])
+
+
+def test_block_bootstrap_series_ci_covers_a_planted_constant():
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2020-01-01", periods=150)
+    values = pd.Series(rng.normal(0.02, 0.05, size=len(dates)), index=dates)
+
+    result = block_bootstrap_series(values, block_length=10, n_boot=200, seed=0)
+
+    assert result["point_estimate"] == pytest.approx(0.02, abs=0.01)
+    assert result["ci_low"] < 0.02 < result["ci_high"]
+    assert result["n_dates"] == 150
+    assert result["n_boot"] == 200
+
+
+def test_block_bootstrap_series_ci_excludes_zero_for_a_real_effect():
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2020-01-01", periods=200)
+    values = pd.Series(rng.normal(0.10, 0.05, size=len(dates)), index=dates)
+
+    result = block_bootstrap_series(values, block_length=10, n_boot=200, seed=0)
+
+    assert result["ci_low"] > 0
+
+
+def test_block_bootstrap_series_ci_straddles_zero_for_no_effect():
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2020-01-01", periods=200)
+    values = pd.Series(rng.normal(0.0, 0.05, size=len(dates)), index=dates)
+
+    result = block_bootstrap_series(values, block_length=10, n_boot=200, seed=0)
+
+    assert result["ci_low"] < 0 < result["ci_high"]
+
+
+def test_block_bootstrap_series_drops_nan_dates_before_resampling():
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2020-01-01", periods=150)
+    values = pd.Series(rng.normal(0.02, 0.05, size=len(dates)), index=dates)
+    values.iloc[::5] = np.nan  # thin out every 5th date, as a real
+    # per-date IC series would have on a date with too few names
+
+    result = block_bootstrap_series(values, block_length=10, n_boot=100, seed=0)
+
+    assert result["n_dates"] == values.notna().sum()
+
+
+def test_block_bootstrap_series_handles_empty_input():
+    result = block_bootstrap_series(pd.Series(dtype=float), block_length=10)
+
+    assert result["n_dates"] == 0
+    assert pd.isna(result["point_estimate"])
+
+
+def test_block_bootstrap_series_rejects_a_degenerate_block_length():
+    dates = pd.bdate_range("2020-01-01", periods=40)
+    values = pd.Series(np.zeros(len(dates)), index=dates)
+
+    with pytest.raises(ValueError, match="too large relative to n_dates"):
+        block_bootstrap_series(values, block_length=42)
 
 
 def test_block_bootstrap_delta_rejects_a_degenerate_block_length():
