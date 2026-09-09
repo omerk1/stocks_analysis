@@ -453,6 +453,44 @@ uncertainty itself doesn't have a clean annualization rule. Treat every "annuali
 number in this entry's cost section as an order-of-magnitude comparison against the
 turnover hurdle, not a precise annual rate.
 
+### Cost hurdle, computed (2026-09-09, `stats/costs.py`)
+
+The Tier-assignment cost verdicts below were first reported in conversation only, backed
+by an ad hoc, uncommitted script — a real gap against CLAUDE.md's invariant #8 ("Any
+claim implying trading carries `signals_per_year × cost` next to the gross number"),
+caught during PR review. `signals_per_year`/`cost_hurdle`/`annualize`/`ci_clears_cost`/
+`point_clears_cost` in `stats/costs.py` now compute this as reusable, tested code, reused
+from `features/state.py::state_run_id` (no reimplemented comparison logic) — re-running
+it reproduces the exact figures below, cross-checked line by line against the original
+ad hoc numbers.
+
+`signals_per_year` (plain-state rule, state-flip count per ticker-year, pooled across
+all 408 tickers) and the resulting hurdle at the pre-registered 10bps/round-trip
+convention (see the cost-convention addendum above):
+
+| lookback | signals/yr | cost hurdle (annual) |
+|---|---|---|
+| 20 | 30.377 | 3.038% |
+| 50 | 17.990 | 1.799% |
+| 200 | 7.785 | 0.779% |
+
+Against the annualized `above`-direction effect (`below` is the exact negation — see the
+mirror-identity finding):
+
+| lookback | convention | annualized gross | annualized CI | point clears? | CI clears? |
+|---|---|---|---|---|---|
+| 20 | 3D | −2.576% | [−4.194%, −0.950%] | No | No |
+| 20 | 4D | −1.449% | [−2.481%, −0.319%] | No | No |
+| 50 | 3D | −2.196% | [−4.087%, −0.367%] | **Yes** | No |
+| 50 | 4D | −1.353% | [−2.920%, +0.163%] | No | No |
+| 200 | 3D | −2.578% | [−5.080%, +0.057%] | **Yes** | No |
+| 200 | 4D | −1.257% | [−3.476%, +1.007%] | **Yes** | No |
+
+Every `ci_clears?` verdict is `No` — the CI-based cost test never clears at any
+lookback, under either control set. The point-estimate test clears at lb50/lb200 under
+3D only, not under 4D (where the reversal control shrinks the gross edge further). This
+is the exact basis for the Tier-assignment cost language below.
+
 ### C1 > C0 investigation, resolved (2026-09-09)
 
 Tested directly rather than reasoned about, per the "verify, don't assert" standard
@@ -570,17 +608,23 @@ but is explicitly labeled diluted, not part of the waterfall reading.
 above and below are not evaluated as separate evidence):
 
 - **lb20 → Tier 3.** 3D CI excludes zero cleanly (`[−0.003495, −0.000791]`). Fails cost
-  robustly: neither the point estimate nor the CI-bound test clears the hurdle, at 3D or
-  4D.
+  robustly: annualized gross −2.576% (3D) / −1.449% (4D) against a 3.038%/yr hurdle
+  (30.377 flips/yr) — neither the point estimate nor the CI-bound test clears it, at 3D
+  or 4D (see "Cost hurdle, computed" above for the full table).
 - **lb50 → Tier 3, weaker than lb20.** 3D CI excludes zero, barely
-  (`[−0.003406, −0.000306]`). Point estimate clears the 3D cost hurdle; the CI-bound
-  test does not (and, under the corrected rule above, the 4D CI spans zero — an
-  automatic fail there too).
+  (`[−0.003406, −0.000306]`). Point estimate clears the 3D cost hurdle (−2.196% vs.
+  1.799%/yr, 17.990 flips/yr); the CI-bound test does not (3D annualized CI
+  `[−4.087%, −0.367%]`, near-zero edge −0.367% < 1.799%) — and under 4D the point
+  estimate no longer clears either (−1.353%), with the CI now spanning zero (an
+  automatic fail there too, under the corrected rule above).
 - **lb200 → Tier 4.** 3D CI already touches zero (`ci_high = +0.000048`); 4D CI clearly
   spans zero. Under the corrected cost-test rule, the CI-bound test is an unambiguous
-  fail (was previously miscategorized as passing — see the definitional-gap correction
-  above). Also the lookback with the worst row loss (51.9% → 74.9%) and heaviest
-  all-above skew (84.5%) of the three — the weakest statistically and the most
+  fail at both 3D and 4D (was previously miscategorized as passing under 4D — see the
+  definitional-gap correction above); the point estimate technically clears its own
+  hurdle (−2.578%/−1.257% vs. a 0.779%/yr hurdle, only 7.785 flips/yr — the lowest
+  turnover of the three, which is doing most of the work here) but the CI test is what
+  the tier hinges on. Also the lookback with the worst row loss (51.9% → 74.9%) and
+  heaviest all-above skew (84.5%) of the three — the weakest statistically and the most
   selection-exposed, consistently with each other.
 
 **Standing caveat on the lb20/lb50 Tier-3 pair:** unlike M4's SMA20 facets at the same
