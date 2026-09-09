@@ -60,6 +60,16 @@ momentum — a stock far above its 50-day is largely restating "this stock went 
 recently" (DESIGN §7.1). C0 is reported only for the shrinkage waterfall, never as the
 headline.
 
+**2026-09-09 note — C0 here is the diluted definition, not re-audited with
+`pooled_delta`.** M1's entry found `c0_delta` isn't scale-comparable to C1/C2 (its
+baseline includes the event rows themselves) and that `stats/controls.py::pooled_delta`
+is the correct C0 leg of a shrinkage waterfall (DESIGN §6.1, updated the same day). This
+module's own tier conclusions were never shape-dependent on C0 specifically — the kill
+criterion and tier assignment above are driven by C2's CI and cost, with C0 already
+treated as non-headline per the line above — so no result here needs revisiting. Flagged
+for completeness only: any C0 numbers shown in this module's own notebook are the
+diluted definition, not re-rendered against `pooled_delta`.
+
 **C2 note (tercile, not decile):** DESIGN §6.1 specifies "same rs_rank decile, same vol
 decile, same sector." At today's universe size (408 tickers/date), decile × decile ×
 11-sector matching yields up to 1,100 cells/date against ~400 tickers/date — too sparse
