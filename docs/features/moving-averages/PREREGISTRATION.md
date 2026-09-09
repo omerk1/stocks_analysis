@@ -750,10 +750,11 @@ gone:**
    buckets and reports only the top-minus-bottom spread; M11's Spearman IC uses every
    ticker's rank position, not just the two extreme deciles, and gives an IC-decay curve
    across horizons that a 21d-only decile spread can't.
-2. **Sector/vol neutralization vs. C2-tercile matching.** M4's C2 drops rows outside a
-   populated (date, momentum-tercile, vol-tercile, sector) stratum. M11's neutralization
-   demeans within sector/vol-tercile instead of filtering — same conceptual control,
-   structurally different mechanism, and one that doesn't inherit M1's row-loss problem.
+2. **Sector/vol/momentum neutralization vs. C2-tercile matching.** M4's C2 drops rows
+   outside a populated (date, momentum-tercile, vol-tercile, sector) stratum. M11's
+   neutralization matches within the same three terciles/sector instead of filtering —
+   same conceptual control (momentum included, not just sector/vol), structurally
+   different mechanism, and one that doesn't inherit M1's row-loss problem.
 3. **Full C1-eligible-sample retention.** M4/M1's C2 layer is the one that loses
    38–77% of rows (M1) to stratum-eligibility. M11's primary (C1) layer runs on every
    row with a defined feature and forward return — no stratify-and-drop step at all.
@@ -800,14 +801,22 @@ companion readouts on the primary cell, excluded from `N_tests`.
   empty diff against the pre-rebuild cache on row count, NA counts, and every feature
   column).
 - Controls: **C1 by construction** (per-date cross-sectional ranking is already
-  date-matched — zero additional row loss) as the primary read; **sector-neutral and
-  vol-decile-neutral rank** (demeaning within `sector`/`realized_vol_63` tercile per
-  date, reusing the momentum/vol tercile machinery from M1/M4's C2) as the C2-equivalent
-  robustness layer, applied to every cell as a control-tier variant, not a separate
-  test — same logic as C0/C1/C2 being one hypothesis at three strictness levels.
-  Neither layer drops rows the way M1/M4's stratify-and-drop C2 does (DESIGN §6.1's
-  scale-comparability note doesn't apply here — there is no dilution-prone pooled C0 in
-  this design, since the primary statistic is already a per-date contrast).
+  date-matched — zero additional row loss) as the primary read; **sector-, vol-, and
+  momentum-neutral rank** (matched within `sector`/`realized_vol_63` tercile/`mom_12_1`
+  tercile per date, reusing the same tercile machinery from M1/M4's C2 — all three, not
+  just sector/vol) as the C2-equivalent robustness layer, applied to every cell as a
+  control-tier variant, not a separate test — same logic as C0/C1/C2 being one
+  hypothesis at three strictness levels. **Momentum matching is load-bearing, not
+  optional:** DESIGN §6.1 calls this exact matching "the one that separates real MA
+  information from momentum re-encoding," the confound this whole study is organised
+  around (§7.1) — a neutralization layer without it isn't the robustness check this
+  entry claims. (Found missing during code review, 2026-09-09, and fixed before any
+  interpretation of these numbers — `modules/cross_sectional.py`'s first implementation
+  only matched sector/vol; `EXPERIMENTS.csv`'s M11 rows reflect the corrected,
+  momentum-inclusive run.) Neither control layer drops rows the way M1/M4's
+  stratify-and-drop C2 does (DESIGN §6.1's scale-comparability note doesn't apply here —
+  there is no dilution-prone pooled C0 in this design, since the primary statistic is
+  already a per-date contrast).
 
 **Grid size (N_tests contribution): 5** — 1 primary cell (`dist_pct_sma_20`, 21d) + 4
 secondary cells (`dist_pct_sma_50` 21d, `dist_pct_sma_200` 21d, `dist_pct_sma_20` at 5d

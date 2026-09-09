@@ -758,7 +758,7 @@ methodology, not something M11 can assume is sitting on the shelf. **Do not re-d
 this from scratch in a later session:** M11's hypothesis, as actually pre-registered
 (`PREREGISTRATION.md`), is narrower than the line above states — whether cross-sectional
 rank carries information at all, plus a secondary, non-kill-triggering comparison of
-*construction methods* (continuous rank-IC + sector/vol neutralization vs. M4's
+*construction methods* (continuous rank-IC + sector/vol/momentum neutralization vs. M4's
 decile-bucket + C2-tercile matching) on the same feature M4 already tested. See
 `PREREGISTRATION.md`'s M11 entry, "What M11 still buys over M4."
 
