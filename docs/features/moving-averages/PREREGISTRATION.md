@@ -491,6 +491,47 @@ does not (yet) explain *why* date-composition produces specifically this magnitu
 shrinkage — that remains unexplored, but the question "is C1>C0 just dilution" is
 answered: no.
 
+### Waterfall re-rendered with pooled_delta as C0 (2026-09-09, same-day follow-up)
+
+The investigation above established that `c0_delta` is not scale-comparable to `c1`/`c2`
+— its baseline includes the event rows themselves, diluted by their own population share
+`p`. **`pooled_delta` is the actual C0 leg of a shrinkage waterfall**: same event-
+excluded-from-baseline logic as C1, without C1's own date-stratification, so it's on the
+same scale as C1/C2 and isolates only the "does adding controls shrink the effect"
+question DESIGN §8 asks. Prediction: `pooled → c1 → c2` should now be monotone
+decreasing in magnitude at all three lookbacks — the clean shrinkage waterfall this
+module's whole point is to produce.
+
+**Verified — holds at 2 of 3 lookbacks, not all 3:**
+
+| lookback | c0 (diluted, DESIGN's literal definition) | pooled (actual C0 leg) | c1 | c2 | monotone decreasing? |
+|---|---|---|---|---|---|
+| 20 | −0.002507 | **−0.005748** | −0.002734 | −0.002146 | **Yes** |
+| 50 | −0.002311 | **−0.005589** | −0.003246 | −0.001830 | **Yes** |
+| 200 | −0.001693 | **−0.004207** | −0.001805 | −0.002149 | **No** — \|c2\| > \|c1\| |
+
+**lb20 and lb50: fully resolved, not a market phenomenon.** With `pooled` correctly
+substituted for `c0`, the waterfall shrinks cleanly and monotonically at both lookbacks
+— exactly DESIGN §8's predicted shape. **The earlier "C1 > C0 hump" was entirely an
+artifact of comparing two estimators on different scales** (`c0`'s diluted baseline vs.
+`c1`'s pure one), not a market phenomenon requiring a mechanistic explanation. There is
+nothing further to explain here — mechanism 2 (date-vs-row weighting) is still real and
+still verified to dominate mechanism 1 (per the investigation above), but the *practical*
+upshot is simpler: read the waterfall as `pooled → c1 → c2`, not `c0 → c1 → c2`, and the
+"hump" was never there.
+
+**lb200: the anomaly survives and is now confirmed genuine, not an artifact.** `pooled`
+is scale-comparable to `c1`/`c2` by construction, and `|c2| > |c1|` still holds at lb200
+even so. This rules out "it's just the C0-comparability issue" as an explanation for
+lb200's non-monotone shape — whatever is happening there is a real residual finding,
+distinct from (and no longer confusable with) lb20/lb50's now-fully-explained case. Not
+investigated further in this pass; consistent with, and reinforcing, lb200's Tier 4
+assignment below.
+
+**Reported going forward:** `modules/baseline_state.py::_cell_row` now returns `pooled`
+alongside `c0`/`c1`/`c2` — `c0` stays for reference (DESIGN §6.1's literal definition)
+but is explicitly labeled diluted, not part of the waterfall reading.
+
 ### Tier assignment (DESIGN §9.2)
 
 **Two caps apply independent of any cell's own numbers:**
@@ -530,6 +571,12 @@ loss) that has not been ruled out as a contributor to the observed sign, indepen
 whatever real conditioning effect (if any) exists. Treat this tier as less settled than
 a typical Tier-3 call until that's addressed (e.g. once a broader universe makes decile-
 level C2 matching viable — see the inherited "C2 note" above).
+
+**(2026-09-09 update: this caveat originally also carried the "C1 > C0 hump is
+unexplained" uncertainty. That's now resolved — see "Waterfall re-rendered with
+pooled_delta as C0" above — the hump was purely an estimator-scale artifact, not a
+market phenomenon, at both lb20 and lb50. The selection-mechanism concern above is the
+only one that remains for this pair.)**
 
 **Run-length secondary layer (the "does age matter" sub-question):** no credible
 finding. Every lookback/direction's 1–5→6–21→22–63→64+ sequence zigzags in sign with no
