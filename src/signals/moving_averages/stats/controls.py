@@ -25,12 +25,35 @@ import pandas as pd
 
 def c0_delta(panel: pd.DataFrame, group_col: str, value_col: str) -> float:
     """Unconditional control (C0): the event group's mean minus the whole
-    panel's mean. Cheapest, weakest control -- see DESIGN.md §6.1.
+    panel's mean. Cheapest, weakest control -- see DESIGN.md §6.1. Note
+    the baseline here includes the event rows themselves (diluted by the
+    event group's own population share `p`) -- see `pooled_delta` for the
+    event-excluded variant this dilutes, algebraically, by exactly
+    `c0_delta = (1 - p) * pooled_delta` (verified in
+    `tests/test_moving_averages_stats_controls.py`,
+    PREREGISTRATION.md's M1 entry, "C1 > C0 investigation").
     """
     valid = panel[[group_col, value_col]].dropna()
     overall_mean = valid[value_col].mean()
     group_mean = valid.loc[valid[group_col].astype(bool), value_col].mean()
     return group_mean - overall_mean
+
+
+def pooled_delta(panel: pd.DataFrame, group_col: str, value_col: str) -> float:
+    """Event mean minus control mean, pooled across the whole panel with
+    *no* date stratification -- i.e. `c1_delta`'s event/control exclusion
+    (the baseline is non-event rows only, not the whole population) without
+    `c1_delta`'s per-date-equal-weighting. Isolates the "C0's baseline is
+    diluted by the event group's own rows" mechanism from the "C1 weights
+    dates equally, C0 implicitly weights rows equally" mechanism -- added
+    to test PREREGISTRATION.md's M1 "C1 > C0" investigation directly rather
+    than only algebraically.
+    """
+    valid = panel[[group_col, value_col]].dropna()
+    is_event = valid[group_col].astype(bool)
+    event_mean = valid.loc[is_event, value_col].mean()
+    control_mean = valid.loc[~is_event, value_col].mean()
+    return event_mean - control_mean
 
 
 def stratum_deltas(

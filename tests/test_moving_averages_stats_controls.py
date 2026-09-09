@@ -13,6 +13,7 @@ from src.signals.moving_averages.stats.controls import (
     c0_delta,
     c1_delta,
     c2_delta,
+    pooled_delta,
     c2_eligible_mask,
     cross_sectional_bucket,
     stratum_deltas,
@@ -193,3 +194,34 @@ def test_c2_eligible_mask_restricts_c0_and_c1_to_the_same_row_set_as_c2():
     c0_delta(restricted, "is_event", "value")
     c1_delta(restricted, "is_event", "value")
     c2_delta(restricted, "is_event", "value", match_cols=["sector"])
+
+
+# ---- pooled_delta (M1's "C1 > C0" investigation, PREREGISTRATION.md) ----
+
+def test_pooled_delta_excludes_event_rows_from_its_baseline():
+    # event=[10,20] (mean 15), control=[0,2,4] (mean 2) -- pooled_delta
+    # must use only the control rows as its baseline, not all 5 rows.
+    panel = pd.DataFrame(
+        {"is_event": [True, True, False, False, False], "value": [10.0, 20.0, 0.0, 2.0, 4.0]}
+    )
+
+    assert pooled_delta(panel, "is_event", "value") == pytest.approx(15.0 - 2.0)
+
+
+def test_c0_delta_equals_dilution_factor_times_pooled_delta():
+    # Algebraic identity: c0_delta = (1 - p) * pooled_delta, where p is the
+    # event group's population share -- verified numerically (not just
+    # asserted) since this is exactly the relationship the M1 "C1 > C0"
+    # investigation depends on.
+    panel = pd.DataFrame(
+        {
+            "is_event": [True, True, True, False, False, False, False],
+            "value": [10.0, 12.0, 14.0, 0.0, 2.0, 4.0, 6.0],
+        }
+    )
+    p = panel["is_event"].mean()  # 3/7
+
+    c0 = c0_delta(panel, "is_event", "value")
+    pooled = pooled_delta(panel, "is_event", "value")
+
+    assert c0 == pytest.approx((1 - p) * pooled)
