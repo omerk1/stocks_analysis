@@ -38,6 +38,20 @@ def dist_z(dist_pct_series: pd.Series, window: int = DIST_Z_WINDOW) -> pd.Series
     return (dist_pct_series - rolling_mean) / rolling_std
 
 
-def above(close: pd.Series, ma: pd.Series) -> pd.Series:
-    """1[close > ma]."""
-    return close > ma
+def above(a: pd.Series, b: pd.Series) -> pd.Series:
+    """1[a > b], `pd.NA` wherever either operand is NA (e.g. `b`'s own MA
+    warmup window) -- a plain `a > b` comparison silently reads a NaN
+    operand as "not greater than" (`False`) instead of undefined, since
+    pandas comparison operators (unlike arithmetic) don't propagate
+    missing values on their own. Returns pandas nullable "boolean" dtype,
+    not plain `bool`/`object` -- assigning NA into a plain `bool` array
+    upcasts to `object` (the same failure mode `features/panel.py`'s own
+    lag-then-cast ordering exists to avoid for every other boolean
+    feature).
+
+    Named `a`/`b`, not `close`/`ma`: also reused as a generic "is-above"
+    comparison for MA-vs-MA (see `stacked_sma`/`stacked_ema`,
+    `features/panel.py`), not just close-vs-MA.
+    """
+    result = (a > b).astype("boolean")
+    return result.mask(a.isna() | b.isna())

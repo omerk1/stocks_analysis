@@ -29,3 +29,14 @@ def realized_vol_63(close: pd.Series) -> pd.Series:
     vol control for C2 matching (DESIGN §6.1: "same vol decile").
     """
     return close.pct_change().rolling(63).std()
+
+
+def mom_1_0(close: pd.Series) -> pd.Series:
+    """1-month return, no skip: close[t]/close[t-21] - 1 -- the short-term
+    reversal control added for M1's confound check (PREREGISTRATION.md,
+    2026-09-09 addendum). `mom_12_1` deliberately *skips* this exact
+    window; nothing else in the existing C2 match set (momentum/vol/
+    sector) controls for it, and being above a short MA is mechanically
+    correlated with having just risen over roughly this same window.
+    """
+    return close.pct_change(21)
