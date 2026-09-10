@@ -750,11 +750,26 @@ gone:**
    buckets and reports only the top-minus-bottom spread; M11's Spearman IC uses every
    ticker's rank position, not just the two extreme deciles, and gives an IC-decay curve
    across horizons that a 21d-only decile spread can't.
-2. **Sector/vol/momentum neutralization vs. C2-tercile matching.** M4's C2 drops rows
-   outside a populated (date, momentum-tercile, vol-tercile, sector) stratum. M11's
-   neutralization matches within the same three terciles/sector instead of filtering —
-   same conceptual control (momentum included, not just sector/vol), structurally
-   different mechanism, and one that doesn't inherit M1's row-loss problem.
+2. **Sector/vol/momentum neutralization — corrected 2026-09-10, was wrong.** This item
+   originally claimed the neutralized layer was "structurally different" from M4's C2.
+   **It isn't, for the cells both modules tested at 21d.** Traced at the code level,
+   not inferred from matching numbers: after the 2026-09-09 code-review fix restored
+   `mom_tercile` to `NEUTRALIZATION_MATCH_COLS`, M11's neutralization match-column set
+   became identical to M4's `C2_MATCH_COLS` (`{sector, vol_tercile, mom_tercile}` both
+   sides). Both call `stats/inference.py::block_bootstrap_spread` with the same decile
+   construction (same feature, same 10-bucket cross-sectional `qcut`, same row
+   population), same match columns, same value column (`fwd_ret_21`), same panel, same
+   `block_length=42`/`n_boot=500`/`ci=0.90`/`seed=0`. `block_bootstrap_spread` is
+   deterministic given identical arguments, so **for `dist_pct`/`dist_atr`/`dist_z`
+   `_sma_20` and `dist_pct_sma_50`, M11's neutralized spread recomputes M4's own C2
+   spread exactly** (verified to six decimals against `EXPERIMENTS.csv`'s M4 rows).
+   **The fix was correct — this identity is its consequence, not a defect in the fix
+   or a sign it should be reverted.** It means this specific sub-statistic is not
+   independent evidence for those four cells; see `STATUS.md`'s non-independence note.
+   What M11 does contribute independently, on this axis: the rank-IC statistic itself
+   (not computed by M4 at all), the zero-row-loss C1 layer (item 3 below), and the
+   `h5`/`h63` horizons (item 4 below) — M4 never tested a non-21d horizon, so the
+   neutralized-spread identity above does not extend to those cells.
 3. **Full C1-eligible-sample retention.** M4/M1's C2 layer is the one that loses
    38–77% of rows (M1) to stratum-eligibility. M11's primary (C1) layer runs on every
    row with a defined feature and forward return — no stratify-and-drop step at all.
@@ -908,3 +923,116 @@ empty diff on row count, column set, NA counts per column, and value equality on
 column including `above_*`, `run_length_bucket_*`, `stacked_sma`, `stacked_ema`. The
 `state_run_id` internal-NaN-gap guard added in `75e42ce` is confirmed inert on this
 panel by the rebuild, not by code-reading alone.
+
+### Result and feasibility addendum (2026-09-10)
+
+**The kill criterion bound as written, and the verdict stands.** Applied literally: the
+primary cell's IC CI is `[-0.032670, -0.001304]` — excludes zero, but the near-zero edge
+(`-0.001304`) is far short of the 0.02 floor. Test 1 fails on the floor sub-condition
+alone; per "failing either test — kill," the primary cell is killed as a construction,
+independent of the cost sub-test (which also fails: the spread's near-zero edge, `-0.51%`
+annualized, misses the 2.463%/yr hurdle). **Cross-sectional rank, as built here
+(continuous rank-IC + sector/vol/momentum-neutralized spread), is not worth the added
+machinery over M4's existing decile-bucket result** — the literal, pre-committed
+consequence of this module's kill criterion.
+
+**The floor was unreachable at this sample size — a finding about the pre-registration,
+not a reason it was relaxed.** Computed directly (not estimated) from the actual
+block-bootstrap output (block_length=42, 500 draws, seed 0, ~71 effective non-overlapping
+blocks at `n_dates=2980`): holding the primary cell's realized near-side CI half-width
+fixed (0.017662), the near-zero edge would have needed a point-estimate IC of **-0.0377**
+to clear 0.02. The largest `|IC|` this entire 7-cell M11 grid produced, companions
+included, is **0.020977** (`dist_z_sma_20_h21`) — the required value is **1.8×** the
+largest effect this grid ever found. Retroactively applying the same 0.02 near-edge bar
+to M1's and M4's existing Tier-3 cells (a diagnostic only, not a re-tiering — see
+`STATUS.md`): **zero of the five clear it either** (their near-edges run 0.0003–0.0014).
+The 0.02 floor, as a bare number, was not calibrated against what any module in this
+study — including M11's own grid — has actually produced. This does not change the
+verdict: the criterion binds as written, and the primary cell still kills as a
+construction. It does mean the failure is a property of the threshold chosen at
+pre-registration time, not evidence that no effect exists — see DESIGN §9.2's
+2026-09-10 addendum for how kill and tier are now recorded as separate axes as a
+result (`decisive_test_status` alongside tier, not folded into it). Under that rule,
+the primary cell's tier is decided by DESIGN §9.2's general rubric like any other cell,
+independent of this kill outcome — see `STATUS.md`/`EXPERIMENTS.csv` for the assigned
+tier.
+
+**Forward rule for future floors:** a magnitude floor (an IC threshold, an economic-
+significance floor, any bare-number bar) must be checked against the realized CI
+half-width its own sample size will produce — or at minimum against the largest
+comparable effect size already on record in this study — **before** it's written into a
+pre-registration, not discovered to be reachable or not only after the bootstrap runs.
+A round number chosen for being conventional (0.02 as "a conventional weak-but-tradeable
+IC threshold," this entry's own words) is not the same thing as a number calibrated to
+what this study's sample size can actually resolve.
+
+### Correction: wrong annualization factor on the 5d/63d secondary cells (2026-09-10)
+
+**The error.** `dist_pct_sma_20_h5`'s gross edge was annualized with the same ×12
+(252/21) factor used for every 21d cell in this module, instead of the horizon-correct
+×50.4 (252/5). Found while drafting the Tier 1/2/3 register, by re-deriving the number
+rather than re-auditing on suspicion — not caught earlier because every other M11 cell
+shares the 21d horizon and the bug only manifests where that assumption is wrong.
+
+**Corrected numbers.** Near-zero CI edge: **−3.45%/yr** (was reported as −0.82%/yr).
+Hurdle: **2.466%/yr, unchanged** — verified, not assumed, that the turnover/hurdle
+computation is horizon-independent: `decile_turnover_hurdle` measures how often
+`dist_pct_sma_20`'s own decile membership changes day to day, a property of the
+feature's daily rebalancing, not of which `fwd_ret_h` column is being tested against
+it (the decile assignment never reads `horizon` at all — only the return column does).
+Only the numerator needed the fix. **This moves the cell from failing its CI-based
+cost test to passing it** — CI excludes zero and the near edge now clears the hurdle,
+where the uncorrected number showed a miss.
+
+`dist_pct_sma_20_h63` was also affected in an ephemeral, never-recorded comparison
+made in conversation — its actual stored record (`EXPERIMENTS.csv`: Tier 4,
+`no_effect`) was always driven by both CI's spanning zero, never by a cost comparison.
+Nothing to correct there. M1 and M4 never tested a non-21d horizon at all (both
+hardcode `HORIZON = 21` in code and in their own pre-registration text) — the bug
+cannot have manifested in either, and does not appear anywhere in already-merged work.
+
+**Tier is unchanged — say this explicitly so it isn't read as grounds to promote the
+cell.** Tier 3 here is capped by missing FDR/holdout infrastructure (DESIGN §9.2), not
+by cost — the same ceiling every other Tier-3 cell in this study sits under, M1 and M4
+included. Clearing the cost test moves `dist_pct_sma_20_h5` from "real effect, fails
+cost" to "real effect, clears cost" within Tier 3; it does not, by itself, clear the
+FDR/holdout bar Tier 2 requires. `EXPERIMENTS.csv`'s `tier` column stays `3`; only
+`outcome` moves, from `weak_not_cost_viable` to `weak_cost_viable`.
+
+**Necessary context, not a weakening of the correction: this is the shape a
+short-term-reversal generator would produce.** `dist_pct_sma_20` is mechanically close
+to "how far the stock has recently risen" — the same momentum-collinearity concern
+already live for M11's primary cell (see the momentum-confound discussion in this
+session's own Q&A, never resolved by adding `mom_1_0` to the neutralization layer).
+That concern is **more** live at a 5-day forward horizon, not less: a short-term
+reversal effect is strongest and most detectable at the shortest forward window and
+decays as the window lengthens, which is exactly the term-structure shape observed
+here — the one secondary cell whose cost test passes is the shortest-horizon one,
+while the 21d and 63d cells (where a pure reversal effect would have more time to
+dissipate) do not clear cost (21d) or don't even clear CI-excludes-zero (63d). A
+genuine MA-distance effect has no particular reason to concentrate at the shortest
+horizon; a reversal effect does. This doesn't change the correction above — the number
+is fixed regardless of what's generating it — but it means the corrected result should
+not be read as stronger evidence for cross-sectional MA-state information than it is;
+if anything, its position in the term structure argues for reversal over MA-distance
+as the more likely generator, unresolved and unexplored here per this module's own
+scope.
+
+### Post-hoc tier change: `dist_pct_sma_50_h21`, Tier 3 → Tier 4 (2026-09-10)
+
+Found while drafting the Tier 1/2/3 register, checking every M11 cell's IC-CI,
+C1-spread-CI, and neutralized-spread-CI for mutual agreement (previously only IC vs.
+C1-spread had been checked). `dist_pct_sma_50_h21`'s C1-layer CI excludes zero
+(`[-0.010182, -0.000127]`) but its neutralized-layer CI spans zero
+(`[-0.006533, +0.000326]`) — the two control tiers of the same spread statistic
+disagree on whether the effect is distinguishable from zero at all.
+
+This is not the divergence DESIGN §9.2's original open-gap note anticipated (that note
+is about *different statistics* — IC vs. spread — disagreeing at the *same* control
+tier; this is the *same* statistic disagreeing across *different* control tiers).
+Resolved as its own case, DESIGN §9.2, 2026-09-10: the stronger control tier is
+authoritative when the two disagree, the same precedent DESIGN §6.1 already sets for
+preferring C2 over C1 generally. Applying that rule here: `dist_pct_sma_50_h21` tiers
+on its neutralized-layer reading (CI spans zero) rather than its C1 reading (CI
+excludes zero) — **Tier 3 → Tier 4, outcome `weak_not_cost_viable` →
+`no_effect`.** `EXPERIMENTS.csv` and `STATUS.md` updated to match.

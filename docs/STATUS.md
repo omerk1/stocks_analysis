@@ -15,7 +15,64 @@ Next up: M2, M5, M6.2 — see `docs/backlog.md` for the remaining minimal-core m
 |---|---|---|---|---|---|---|
 | **M4** — Distance from MA | 1st, 2026-09-08 (`0aa13c8`, PR #61) | **Tier 3**: `dist_pct`/`dist_atr`/`dist_z` × SMA20 only — CI excludes zero, directionally consistent, fails cost. **Tier 4**: all 6 SMA50/SMA200 facets — CI includes zero. | Declared grid: 90 bucket-level cells (3 normalisations × 3 lookbacks × 10 deciles); kill criterion evaluated at 9 facet-level (normalisation × lookback) tests. **Not deduplicated at the time it ran** — the SMA20 independence check (median per-date Spearman 0.94–0.98 between `dist_pct`/`dist_atr`/`dist_z`, found 2026-09-09 during M11 prep) was never run against M4's own grid. The same non-independence this found for SMA20 likely also holds at SMA50/SMA200, unchecked. No FDR run (deferred to whole-grid pass — see below). | Originally ad hoc (`entries_per_ticker_year`, entries-only): ~25.32/ticker-yr per leg, ~50.64/yr combined → conservative hurdle ~5.06%/yr, optimistic ~2.53%/yr. CI-low net-negative under both → **fails cost**. Reconciled 2026-09-09 against `costs.py::signals_per_year` (entry+exit convention, the repo standard going forward): 24.646/yr combined → 2.465%/yr hurdle. CI-low (1.6395%) still misses it. **Verdict unchanged under either convention.** | Promoted from Track A M0.1 (descriptive atlas) — 4 of 5 candidate observations pointed at distance-from-MA normalisation/shape questions. Ran before M1 only because Track A exploration surfaced it first, not because it outranked M1 on the minimal-core list. | `notebooks/moving_averages_distance_from_ma.ipynb` (full computation); `PREREGISTRATION.md` M4 entry + two 2026-09-09 addenda (NaN-fix check, turnover reconciliation); `EXPERIMENTS.csv` (all 9 facets, one row each). |
 | **M1** — Baseline state conditioning | 2nd, 2026-09-09 (`87efc3d` PR #62, fixed `6cdee5b` PR #63, `75e42ce` PR #64) | **Tier 3**: lb20, lb50 (above/below state) — CI excludes zero, fails cost. **Tier 4**: lb200 — CI touches/spans zero at both the 3D and 4D control sets. **Run-length secondary layer: no finding** — fails the plateau rule (§6.7), zigzags sign at every lookback/direction. | Declared grid: 30 cells (3 lookbacks × [2 state + 2 directions × 4 run-length buckets]). **Primary cells (6: above/below × 3 lookbacks) are exact algebraic mirrors under C1/C2 by construction — 3 independent numbers, not 6**, found and verified bit-exact during this module's own run. The 24 run-length cells are nested inside their parent state cell (not independent additional tests). No FDR run (deferred — see below). | `stats/costs.py::signals_per_year` (entry+exit convention, the same tool later used to reconcile M4) — this is the module `costs.py` was built for. 30.377 / 17.990 / 7.785 flips/ticker-yr → 3.038% / 1.799% / 0.779%/yr hurdles at lb20/50/200. lb20: CI and point both miss. lb50: point clears at 3D, CI-bound does not (worse at 4D). lb200: CI touches/spans zero at both control sets — **fails regardless of its own (lowest) hurdle being technically clearable on point estimate alone.** | DESIGN §12's own recommended minimal-core *first* module and `docs/backlog.md`'s designated next module. Run second only because Track A happened to point at distance-from-MA first — explicitly not deprioritized on the merits (own entry's "Promoted from" note). | No notebook — `tests/test_moving_averages_baseline_state.py` + `src/signals/moving_averages/modules/baseline_state.py`; `PREREGISTRATION.md` M1 entry (all numbers reported directly in prose, cross-verified against `costs.py` — see the reconciliation note in this file's own text and in M4's addendum above); `EXPERIMENTS.csv` (3 primary lookbacks + 1 run-length summary row). |
-| **M11** — Cross-sectional formulation | 3rd, 2026-09-09 (PR #67) | **Pending interpretation.** Raw numbers computed (7 cells: primary `dist_pct_sma_20`@21d, 4 secondary, 2 companions) but the pre-registered decisive test (IC floor 0.02 AND cost-adjusted spread CI, both CI-based) hasn't been applied yet — reported as data, not yet tiered, per instruction to report before interpreting. | Declared grid: 5 (1 primary + 4 secondary); `dist_atr`/`dist_z` companions excluded up front (found correlated with `dist_pct` at 0.94–0.98 during this module's own pre-registration). Already deduplicated at declaration — no further reduction expected at the whole-grid pass. | Primary cell combined hurdle: 24.635/yr flips → 2.463%/yr (10bps/rt, `costs.py`). Verdict not yet applied. | Chosen over M2/M5/M6.2 specifically because its control design (per-date cross-sectional stat, no stratify-and-drop) sidesteps the row-loss mechanism that hit M1's C2 layer, rather than inheriting it. | `PREREGISTRATION.md` M11 entry; `modules/cross_sectional.py`; `EXPERIMENTS.csv` (7 rows, `outcome=pending_interpretation`). |
+| **M11** — Cross-sectional formulation | 3rd, 2026-09-09 (code + raw numbers, PR #67); tiered 2026-09-10 (no new PR — see the PR-boundary note below); cost-verdict correction + `dist_pct_sma_50`@21d moved to Tier 4, both 2026-09-10 (see below) | **Tier 3** (4 of 7 cells): primary `dist_pct_sma_20`@21d, `dist_pct_sma_20`@5d, and the `dist_atr`/`dist_z` companions — CI excludes zero, real weak effect. **3 of these 4 fail cost; `dist_pct_sma_20`@5d clears it** (corrected 2026-09-10 — see below). **Tier 4** (3 of 7): `dist_pct_sma_200`@21d, `dist_pct_sma_20`@63d (CI spans zero on both IC and spread), and `dist_pct_sma_50`@21d (moved 2026-09-10 — see below). **Primary cell additionally failed its own pre-registered decisive test** (`decisive_test_status=failed`, IC-floor sub-test) — killed as a *construction* ("not worth the added machinery over M4"), tiered as *evidence* per DESIGN §9.2's 2026-09-10 addendum (kill and tier are now separate axes, recorded separately, never collapsed into one label). **Tier is unchanged for the cost-viable cell too** — Tier 3 is capped by missing FDR/holdout infrastructure, not by cost; clearing cost doesn't promote it. **Four of these seven cells' neutralized-spread number is not independent of M4** — see the non-independence note below. | Declared grid: 5 (1 primary + 4 secondary); `dist_atr`/`dist_z` companions excluded up front (0.94–0.98 correlated with `dist_pct` at SMA20, found during this module's own pre-registration) — already deduplicated at declaration. | Primary cell combined hurdle: 24.635/yr flips → 2.463%/yr (10bps/rt, `costs.py`). Spread (C1), 21d→annualized: point −0.50% (×12=−6.05%, **clears**), far edge −10.88% (clears), **near-zero edge −0.51% (misses)**. Sector/vol/momentum-neutralized spread: point −5.57% (clears), near-zero edge −1.64% (misses, closer to clearing than C1's). **Verdict: fails on the CI-based test in both control layers**, same structural shape as M1's cost failures, at a proportionally larger gross magnitude. | Chosen over M2/M5/M6.2 specifically because its control design (per-date cross-sectional stat, no stratify-and-drop) sidesteps the row-loss mechanism that hit M1's C2 layer, rather than inheriting it. | `PREREGISTRATION.md` M11 entry + 2026-09-10 "Result and feasibility addendum" + 2026-09-10 correction addenda; `EXPERIMENTS.csv` (7 rows, tiered, `counted_in_n_tests`/`decisive_test_status` columns, `cost_verdict` filled in for all 7). |
+
+**Non-independence note (2026-09-10):** M11's neutralized-spread statistic is not new
+evidence for the four cells M4 already tested at 21d (`dist_pct`/`dist_atr`/`dist_z`
+`_sma_20`, `dist_pct_sma_50`) — traced at the code level (not inferred from matching
+numbers): both call `stats/inference.py::block_bootstrap_spread` with identical
+arguments (same decile construction, same match columns post-fix, same panel, same
+block/boot/seed parameters), so it deterministically recomputes M4's own C2 spread for
+those cells. A reader counting these as corroborating, independent results would
+double-count. What M11 does contribute independently: the rank-IC statistic itself,
+the zero-row-loss C1 layer, and the `h5`/`h63` horizons M4 never tested. See
+`PREREGISTRATION.md`'s M11 entry, "What M11 still buys over M4" (corrected 2026-09-10),
+for the full record.
+
+**`dist_pct_sma_50`@21d tier change (2026-09-10):** moved Tier 3 → Tier 4. Its C1-layer
+CI excludes zero but its neutralized-layer CI spans zero
+(`[-0.006533, +0.000326]`) — original tiering used the C1 reading without checking the
+neutralized layer against it. Per DESIGN §9.2's 2026-09-10 resolution (the stronger
+control tier is authoritative when the two disagree, matching this study's own
+C1-vs-C2 precedent), this cell tiers on the neutralized layer.
+
+**Cost-verdict correction (2026-09-10):** `dist_pct_sma_20`@5d's gross edge was
+originally annualized with the 21d cells' ×12 factor instead of the horizon-correct
+×50.4 — corrected near-zero edge is −3.45%/yr (was reported −0.82%/yr), which clears
+its 2.466%/yr hurdle (hurdle itself confirmed horizon-independent, unaffected). Full
+record, including why the shortest-horizon cell being the one that clears cost is the
+shape a short-term-reversal generator (via the uncontrolled `mom_1_0` confound) would
+produce rather than evidence favoring an MA-distance effect specifically: see
+`PREREGISTRATION.md`'s dated correction addendum.
+
+**PR-boundary note (2026-09-10):** PR #67 merged M11's code and raw numbers on
+2026-09-09 with every cell tagged `pending_interpretation` — tiering happened the
+following day, in conversation, with no code or file-structure changes and therefore no
+new PR. In retrospect the PR boundary landed at "code + numbers," not "code + numbers +
+an honest tier assignment" — M1 and M4 both had their tiering land inside the same PR
+that produced their numbers. Worth naming as a process point for the next module, not a
+defect in M11's result: don't assume a merged module PR means a tiered module.
+
+## Cross-module SMA200 watch — trigger fired, not investigated
+
+`docs/backlog.md`'s own standing item: *"If a later module turns up a third independent
+SMA200-specific oddity, that's the trigger to stop treating these as coincidence and
+audit SMA200 across the study."* Two were on record already — M4's `dist_z_sma_200`
+(252-day normalisation-window instability) and M1's lb200 (74.9% row loss, 84.5%
+all-above skew, the CI touching zero). **M11's `dist_pct_sma_200_h21` (Tier 4 in M11 —
+see the Modules run table above, and `EXPERIMENTS.csv`) is the third:** CI spans zero
+at both IC (`[-0.02528, 0.01663]`) and spread (`[-0.00939, 0.00465]`),
+the only lookback of the three that fails this way, under a construction with **zero
+row loss** — which rules out M1's leading candidate mechanism (the C2 selection/skew
+effect) as the explanation for this instance specifically, since M11's C1 layer has no
+stratify-and-drop step to skew anything. That narrows backlog.md's open candidate list
+(selection effect vs. the 252-day-window-vs-200-day-lookback ratio vs. both vs.
+unrelated) without resolving it.
+
+**Trigger fired. Not investigated inside M11, per instruction — logged here as the
+record that it fired, still owner-less.** Whoever picks up M2 or later should treat an
+SMA200-specific audit as live, not speculative, before trusting any future SMA200
+result at face value.
 
 ## Whole-grid FDR pass — open, owner-less
 
@@ -63,6 +120,20 @@ needs one before its 9 (or 90) enters any correction denominator. **The whole-gr
 whenever it runs, needs to deduplicate each module's own contribution first** (per that
 module's own stated independence findings), not take each module's raw declared grid
 size at face value and sum them.
+
+**A second, distinct source of inflation in the naive 125, found 2026-09-10: cells
+aren't only non-independent *within* a module, some aren't independent *across*
+modules either.** M11's neutralized spread for `dist_pct_sma_20`/`dist_atr_sma_20`/
+`dist_z_sma_20`/`dist_pct_sma_50` (all at 21d) is a deterministic recomputation of
+M4's own C2 spread for those same (feature, lookback) pairs — traced at the code
+level, `block_bootstrap_spread` called with identical arguments in both modules (see
+the M11 row's non-independence note above). That's a different failure mode from the
+within-module mirror/nesting/correlation issues already tracked in the table above —
+those are about one module's own grid double-counting itself; this is about two
+modules' grids partially double-counting *each other*. The whole-grid pass needs to
+catch both, and the cross-module case is easy to miss precisely because it looks like
+independent corroboration (two modules, two different pre-registrations) rather than
+the same number twice.
 
 ## Study-level termination — when this is finished
 

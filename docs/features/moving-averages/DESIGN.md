@@ -811,6 +811,70 @@ Take the surviving Tier-1/Tier-2 claims and answer: do they combine additively, 
 
 **Expect the distribution to be roughly 3 / 6 / 10 / 25.** If you end up with twenty Tier-1 claims, you have a bug in your controls, not a discovery.
 
+**2026-09-10 addendum — kill criteria and tiers are two separate axes.** Found while
+tiering M11: neither this table nor any module's own pre-registration had ever stated
+what tier a cell gets if it fails a pre-registered kill criterion while its CI still
+excludes zero. Checked before writing this rule, not assumed — no kill criterion
+anywhere in this study (DESIGN.md, PREREGISTRATION.md) has ever been equated with Tier
+4 or the dead-ends register. M4's and M1's kill criteria were both **module-level only**
+("if [condition] across all facets/cells") and neither ever fired; every actual tier
+came straight from this table's CI-excludes-zero/mechanism/cost test, with no separate
+kill step. **M11 is the first module in this study with a *per-cell* kill criterion
+that fires while that cell's CI excludes zero** — the situation had never come up
+because no prior module had a test capable of producing it, not because it was settled
+and forgotten.
+
+**Resolved rule:** this table is the sole tier authority. A pre-registered kill
+criterion is a verdict on the *construction being tested* (is this specific method —
+this normalisation, this control, this statistic — worth building further), not on the
+*tier of the evidence in hand*. A cell that fails its kill criterion is tiered exactly
+like any other cell, by this table, and separately carries a structured
+`decisive_test_status` tag (`never_tested` / `passed` / `failed`) recording the kill
+outcome. The two are reported side by side, never collapsed into one label — "killed as
+a formulation, Tier 3 (or whatever the table gives) as evidence" is a normal, complete
+description, not a contradiction needing resolution.
+
+**Why not fold a kill-criterion failure into a lower tier directly:** checked against
+the alternative before adopting this one — M1's and M4's existing Tier-3 cells (lb20,
+lb50, and the three SMA20 facets) were retroactively checked against M11's own 0.02
+near-zero-edge floor (§9.2 applies the same evidentiary bar regardless of module) and
+**none of the five clear it** — their near-zero CI edges run 0.0003–0.0014, an order of
+magnitude short of 0.02. A rule that demotes a cell for failing a bar that every
+existing Tier-3 cell in the study would also fail, had they ever been asked, isn't
+measuring the evidence — it's measuring which module happened to pre-register the
+stricter test. Tier stays governed by this table alone for exactly that reason.
+
+**Forward rule:** any future module that defines a *per-cell* kill criterion (as
+opposed to M1/M4's module-level kind) must state, at declaration time, what
+`decisive_test_status` value a failure produces and confirm explicitly that it does
+**not** by itself imply a tier — this table still decides that. Silence on this point,
+discovered after results exist, is exactly the gap that produced this addendum.
+
+**Open gap, partially resolved 2026-09-10 — two different divergence questions, not
+one.** This table originally didn't say what happens when a cell's own multiple
+CI-based statistics disagree. That turned out to cover two structurally different
+cases, found while drafting the Tier 1/2/3 register:
+
+1. **Cross-statistic-type divergence** (IC-CI vs. spread-CI — different statistics,
+   same control tier) — **still open, still untested.** All 7 of M11's cells had IC
+   and C1-spread agree exactly on every cell; no divergent case has appeared here yet.
+2. **Cross-control-tier divergence** (the same spread statistic's CI, under a weaker
+   vs. a stronger control — e.g. M11's C1 layer vs. its sector/vol/momentum-
+   neutralized layer) — **resolved.** `dist_pct_sma_50_h21`'s C1-layer CI excludes
+   zero while its neutralized-layer CI spans zero. **Rule: the stronger control tier
+   is authoritative for tiering when they disagree**, matching this study's own
+   established precedent (§6.1: "C2 is the tier that actually answers the research
+   question," preferred over C1 whenever the two diverge, for the same reason a
+   date-only match doesn't separate real information from a momentum/liquidity
+   confound the stronger match does control for). Applied: `dist_pct_sma_50_h21`
+   moves from Tier 3 to Tier 4 — see `EXPERIMENTS.csv` and
+   `PREREGISTRATION.md`'s M11 entry for the dated record of this specific change.
+
+Case 1 remains open until a genuinely divergent cell appears; guessing at its
+resolution now, with no concrete case to resolve it against, is exactly what this
+note originally declined to do and that reasoning still holds for that case
+specifically.
+
 ### 9.3 Dead-ends register format
 
 For each: hypothesis, why it was plausible, exactly what was run, the number that killed it, effective N, and **the conditions under which it would be worth revisiting**. This section is as valuable as the positive results and takes discipline to write well. It is also the part of the report you will personally re-read most often.
