@@ -465,6 +465,134 @@ Every claim that implies trading gets a cost annotation:
 
 **A 5-EMA crossover rule generating ~50 round trips/year at 10 bps each carries a 5%/yr hurdle.** State the hurdle next to the gross edge, always. Most short-lookback findings will die here, and they should die visibly.
 
+### 6.11 Distribution shape and the resolution limit (2026-09-10 addendum)
+
+**Why this exists, stated plainly:** every statistic this study produced through M1,
+M4, and M11 is a first moment — a mean delta or a mean rank correlation. Those are
+structurally blind to payoff asymmetry: a rule that loses small often and wins large
+rarely can carry a mean of zero and a CI hugging zero while describing something real
+and tradeable in its tails. This section arrived after three modules of weak,
+cost-failing mean results, not before — recorded as post-hoc, same treatment as the
+cost-bar reframing (§9.2's 2026-09-10 addendum).
+
+#### 6.11.1 What gets reported
+
+Three additions to every module's standard result object, alongside the existing
+mean/CI/cost numbers:
+
+- **Hit rate** — `P(fwd_ret > 0 | event)` vs. the matched control already in use
+  (C0/C1/C2). Reuses `c1_delta`/`c2_delta`/`block_bootstrap_delta` unchanged, called on
+  a boolean-cast column instead of the raw return — no new machinery. Diagnostic value:
+  a near-zero mean with a hit rate far from 50% (or a real mean with hit rate near 50%,
+  driven by a few large events) are opposite phenomena that look identical on the mean
+  alone.
+- **Win/loss magnitude ratio** — `mean(fwd_ret | fwd_ret > 0, event) /
+  |mean(fwd_ret | fwd_ret < 0, event)|`. One groupby-by-sign on data every module
+  already computes. The most direct answer to "loses small often, wins large rarely" —
+  more directly interpretable than skew, which a few outliers can distort in ways that
+  don't always track the plain-language question.
+- **Skew** — `.skew()` on the event group's forward-return distribution. A compact,
+  comparable single-number summary alongside the two above, not a replacement for them.
+
+**Reported as descriptive context, not new pass/fail tests** — no CI, no kill
+criterion, no `N_tests` contribution of their own. Turning three new statistics into
+three new hypothesis tests per cell would multiply the FDR burden this study already
+struggles to account for (`STATUS.md`'s open whole-grid pass). They ride alongside the
+mean the way `n_dates`/`n_tickers` already do.
+
+**Considered and not included:** dispersion within deciles (std/IQR) doesn't target
+asymmetry specifically — a symmetric-but-noisy rule and a real skewed one can have
+identical dispersion — and vol-normalization is already handled elsewhere (ATR-
+normalized features); redundant with existing machinery, not a new mandatory field.
+Worst-period drawdown needs genuinely new machinery, not just a new column — it's a
+time-series/path concept (a simulated equity curve, peak-to-trough), and every existing
+module computes cross-sectional per-event statistics, not a path. Proposed as a future
+Track A / build item (a natural fit for M15 Synthesis, which already combines
+surviving signals), not part of this section's mandatory list.
+
+#### 6.11.2 Track A's mandate: asymmetry and conditional structure
+
+Track A's existing charter (§1.5 — wide, cheap, no significance bar, nothing is a
+claim) is unchanged. This names a standing lane within it that existed implicitly but
+was never stated: does a feature's distribution shape (skew, tail concentration, hit
+rate) vary systematically with something else — size, liquidity, sector, regime? Same
+Track A rules apply without modification: no `N_tests` contribution, nothing stated as
+a finding, logged to `EXPLORATION_LOG.md` regardless of outcome.
+
+**First concrete target: Candidate C-1**, from `EXPLORATION_LOG.md` (2026-09-07) —
+`dist_z_sma_50` (already per-ticker, rolling-252d self-normalised) shows a monotonic
+gradient by dollar-volume decile: mean −0.03 → −0.07, **skew −0.55 → −0.24**, smallest
+→ largest decile. Untouched through M4, M1, and M11 — flagged at M0.1, explicitly set
+aside from M4's scope, never picked up since.
+
+**Completion condition, stated explicitly so this isn't deferred a fourth time on the
+same caveat it's carried since 2026-09-07:**
+- **The Track A look runs now**, against dollar-volume decile, using the §6.11.1
+  toolkit (hit rate, win/loss ratio, skew) — no new data, no new infrastructure. Every
+  result is reported explicitly labeled "dollar-volume decile, not yet disentangled
+  from market cap" — the liquidity-proxy caveat is carried as a stated limitation of
+  this look, not a blocker on running it.
+- **Promotion to Track B is blocked on `mktcap_decile` existing**, because DESIGN's own
+  gate between tracks (§1.5) requires "a plausible mechanism, not just a good number" —
+  and whether this is a size effect or a liquidity/turnover effect is exactly the
+  mechanism question a dollar-volume proxy can't answer. This is a real gate, not a
+  deferral: **verified in this session, not assumed** — `src/foundation/data_processing/
+  market_cap.py::historical_market_cap` already exists, and the shares-outstanding data
+  it needs already covers the S&P 500 + Nasdaq-100 tier this study's panel uses
+  (`docs/backlog.md`'s Done #47 backfill, ~1,400 tickers, comfortably including the
+  408-ticker `sp500` universe M4/M1/M11 all ran against). **Building `mktcap_decile` is
+  not blocked on missing data** — it's a scoped integration task: pull
+  `shares_outstanding` per ticker (reusing the local `splits` cache Done #47 built,
+  not live Polygon calls), join onto the panel by ticker-date with the same
+  point-in-time discipline every other feature here already follows, compute
+  `market_cap = shares_outstanding × close`, and decile-bucket cross-sectionally per
+  date via the existing `cross_sectional_bucket` (same pattern as `vol_tercile`/
+  `mom_tercile`). A bounded, one-session build, not an open-ended one.
+
+#### 6.11.3 The resolution limit
+
+M11's block-bootstrap (block_length=42, `n_dates≈2980`) resolves to **~71 independent
+blocks** — verified directly from the actual bootstrap output (§6.2's own convention),
+not assumed. A mean-based block-bootstrap is a poor instrument for a tail-concentrated
+effect specifically: a large per-event return doesn't stabilize the estimate, it
+widens it, and if the underlying events cluster into only a few of the ~71 blocks, the
+CI is measuring which block got drawn, not genuine sampling uncertainty. `n=5` tail
+events is not evidence, however large the payoff.
+
+**Proposed rule:** a candidate becomes Track-B-confirmation-eligible only if its
+defining events span at least 30 distinct dates (§6.9's existing floor, unchanged)
+**and** populate at least 20 of the panel's ~71 independent 42-day blocks. Below that,
+the candidate is **Track-A-only under the current panel** — not permanently: this gate
+is measured against 408 tickers, 2010–2021, and inherent rarity (the phenomenon is
+genuinely uncommon) and insufficient universe (this panel is too narrow to see enough
+instances of a phenomenon that isn't actually rare) are different failures this
+wording must not conflate. Revisable on an explicit universe-tier or window change
+(e.g. U2, or the eventual holdout extension) — **not** revisable by re-running more of
+the same panel, which cannot change block coverage for a fixed-frequency phenomenon.
+
+**Why 30 dates and 20 blocks:** the 30-date piece reuses an existing, already-
+calibrated convention — nothing new there. The 20-block piece is new and targets what
+date-count alone misses: 30 distinct dates can still concentrate in a handful of
+blocks (this study already has a documented instance of that shape — the
+`run_length_lb20_below_64plus_check` cell, several tickers each contributing one
+continuous crisis episode, "not independent observations," already correctly flagged
+by the existing `below_threshold` check before this section existed). ~28% block
+coverage (20 of 71) means the bootstrap's resampling variance reflects genuine
+between-episode variation rather than whether the one or two blocks containing the
+whole phenomenon happen to get drawn.
+
+**Provisional, not settled — explicit revision condition, not just a caveat.** 20 (of
+71) is a heuristic anchored to this study's own measured resolution, comfortably past
+commonly-cited small-sample/CLT thresholds (~20–30) and comfortably short of the full
+block count — it is **not** a derived constant, and treating it as one after enough
+repetition is exactly the failure mode this note exists to prevent. **Revision
+condition:** the first candidate that actually reaches this gate must report its
+realized block coverage *alongside* whether its bootstrap CI was stable across
+independent draws (e.g. re-running the bootstrap at a different seed, or a
+block-count-vs-CI-width sensitivity check) — 20 gets checked against that concrete
+observation, not adjusted by further guessing. Until then, this number is a working
+gate, not a validated one.
+
 ---
 
 ## 7. Confounds and traps
