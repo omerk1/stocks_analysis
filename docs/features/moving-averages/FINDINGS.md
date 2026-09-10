@@ -1,12 +1,12 @@
 # Findings register — Tier 1, 2, and 3 results
 
-**Dependency note:** this register assumes PR #68 (M11 tier assignment, corrections,
-the `dist_pct_sma_50_h21` tier change) and PR #69 (DESIGN §6.11's shape-field schema
-and forward-only rule) have both merged. Every cross-reference to `EXPERIMENTS.csv`'s
-`decisive_test_status`/`counted_in_n_tests` columns and to DESIGN §6.11 depends on
-that content existing on `main`. If either is still open when this is reviewed, treat
-those references as forward pointers, not yet resolvable — same pattern as
-`STATUS.md`'s PR-boundary note.
+**Dependency note (updated 2026-09-10):** PR #68 (M11 tier assignment, corrections,
+the `dist_pct_sma_50_h21` tier change) is merged — this branch is rebased onto that
+content, and every cross-reference to `EXPERIMENTS.csv`'s
+`decisive_test_status`/`counted_in_n_tests` columns resolves. **PR #69** (DESIGN
+§6.11's shape-field schema and forward-only rule) is still open — the shape-field
+schema note below and any reference to §6.11 remain forward pointers until it merges,
+same pattern as `STATUS.md`'s PR-boundary note.
 
 Sibling to `DEAD_ENDS.md`: same per-entry discipline (hypothesis, why it was plausible,
 the number, effective N, what would change the verdict), for results that survived
