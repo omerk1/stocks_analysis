@@ -500,6 +500,25 @@ three new hypothesis tests per cell would multiply the FDR burden this study alr
 struggles to account for (`STATUS.md`'s open whole-grid pass). They ride alongside the
 mean the way `n_dates`/`n_tickers` already do.
 
+**Forward-only — this section applies to modules run from here on, and M1/M4/M11 are
+not backfilled. Stated with the reasoning, not just the rule, so a future session
+doesn't backfill helpfully:** computing a new statistic on the specific modules whose
+weak mean results motivated inventing that statistic, after those modules are already
+tiered, is structurally the same move this document already forbids elsewhere for
+exactly this reason — PREREGISTRATION.md's M1 entry rejected promoting a
+post-hoc-motivated control to primary "however well-motivated," precisely because a
+control (or, here, a statistic) chosen *after* seeing the result it's meant to explain
+cannot be distinguished from a control chosen *to produce* a preferred result, no matter
+how genuine the motivation actually was. The mechanism is identical here: hit rate,
+win/loss ratio, and skew exist because M1/M4/M11's means were weak, computed on exactly
+the data that made them weak, after tiering had already told us which cells look
+"almost interesting." Any asymmetry that turned up would be unfalsifiable as evidence —
+indistinguishable from having gone looking for one. This is not a judgment about
+whether these three modules *do* have interesting shape (they may) — it's that this
+charter cannot be the thing that finds out, on this data, after the fact. A future
+module, pre-registered with shape statistics as part of its design before results
+exist, is not in this position and is exactly what §6.11.1 is for.
+
 **Considered and not included:** dispersion within deciles (std/IQR) doesn't target
 asymmetry specifically — a symmetric-but-noisy rule and a real skewed one can have
 identical dispersion — and vol-normalization is already handled elsewhere (ATR-
