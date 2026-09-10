@@ -750,11 +750,26 @@ gone:**
    buckets and reports only the top-minus-bottom spread; M11's Spearman IC uses every
    ticker's rank position, not just the two extreme deciles, and gives an IC-decay curve
    across horizons that a 21d-only decile spread can't.
-2. **Sector/vol/momentum neutralization vs. C2-tercile matching.** M4's C2 drops rows
-   outside a populated (date, momentum-tercile, vol-tercile, sector) stratum. M11's
-   neutralization matches within the same three terciles/sector instead of filtering —
-   same conceptual control (momentum included, not just sector/vol), structurally
-   different mechanism, and one that doesn't inherit M1's row-loss problem.
+2. **Sector/vol/momentum neutralization — corrected 2026-09-10, was wrong.** This item
+   originally claimed the neutralized layer was "structurally different" from M4's C2.
+   **It isn't, for the cells both modules tested at 21d.** Traced at the code level,
+   not inferred from matching numbers: after the 2026-09-09 code-review fix restored
+   `mom_tercile` to `NEUTRALIZATION_MATCH_COLS`, M11's neutralization match-column set
+   became identical to M4's `C2_MATCH_COLS` (`{sector, vol_tercile, mom_tercile}` both
+   sides). Both call `stats/inference.py::block_bootstrap_spread` with the same decile
+   construction (same feature, same 10-bucket cross-sectional `qcut`, same row
+   population), same match columns, same value column (`fwd_ret_21`), same panel, same
+   `block_length=42`/`n_boot=500`/`ci=0.90`/`seed=0`. `block_bootstrap_spread` is
+   deterministic given identical arguments, so **for `dist_pct`/`dist_atr`/`dist_z`
+   `_sma_20` and `dist_pct_sma_50`, M11's neutralized spread recomputes M4's own C2
+   spread exactly** (verified to six decimals against `EXPERIMENTS.csv`'s M4 rows).
+   **The fix was correct — this identity is its consequence, not a defect in the fix
+   or a sign it should be reverted.** It means this specific sub-statistic is not
+   independent evidence for those four cells; see `STATUS.md`'s non-independence note.
+   What M11 does contribute independently, on this axis: the rank-IC statistic itself
+   (not computed by M4 at all), the zero-row-loss C1 layer (item 3 below), and the
+   `h5`/`h63` horizons (item 4 below) — M4 never tested a non-21d horizon, so the
+   neutralized-spread identity above does not extend to those cells.
 3. **Full C1-eligible-sample retention.** M4/M1's C2 layer is the one that loses
    38–77% of rows (M1) to stratum-eligibility. M11's primary (C1) layer runs on every
    row with a defined feature and forward return — no stratify-and-drop step at all.
@@ -1002,3 +1017,22 @@ not be read as stronger evidence for cross-sectional MA-state information than i
 if anything, its position in the term structure argues for reversal over MA-distance
 as the more likely generator, unresolved and unexplored here per this module's own
 scope.
+
+### Post-hoc tier change: `dist_pct_sma_50_h21`, Tier 3 → Tier 4 (2026-09-10)
+
+Found while drafting the Tier 1/2/3 register, checking every M11 cell's IC-CI,
+C1-spread-CI, and neutralized-spread-CI for mutual agreement (previously only IC vs.
+C1-spread had been checked). `dist_pct_sma_50_h21`'s C1-layer CI excludes zero
+(`[-0.010182, -0.000127]`) but its neutralized-layer CI spans zero
+(`[-0.006533, +0.000326]`) — the two control tiers of the same spread statistic
+disagree on whether the effect is distinguishable from zero at all.
+
+This is not the divergence DESIGN §9.2's original open-gap note anticipated (that note
+is about *different statistics* — IC vs. spread — disagreeing at the *same* control
+tier; this is the *same* statistic disagreeing across *different* control tiers).
+Resolved as its own case, DESIGN §9.2, 2026-09-10: the stronger control tier is
+authoritative when the two disagree, the same precedent DESIGN §6.1 already sets for
+preferring C2 over C1 generally. Applying that rule here: `dist_pct_sma_50_h21` tiers
+on its neutralized-layer reading (CI spans zero) rather than its C1 reading (CI
+excludes zero) — **Tier 3 → Tier 4, outcome `weak_not_cost_viable` →
+`no_effect`.** `EXPERIMENTS.csv` and `STATUS.md` updated to match.

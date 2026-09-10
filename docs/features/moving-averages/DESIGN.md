@@ -850,12 +850,30 @@ opposed to M1/M4's module-level kind) must state, at declaration time, what
 **not** by itself imply a tier — this table still decides that. Silence on this point,
 discovered after results exist, is exactly the gap that produced this addendum.
 
-**Open gap, not resolved:** this table doesn't say what happens when a cell's own
-multiple CI-based statistics disagree — one excludes zero, another spans it. All 7 of
-M11's cells had their IC-CI and spread-CI agree exactly (both excluded zero, or both
-spanned it, on every cell), so this was never actually tested and isn't being resolved
-by guessing now. Leave it open until a divergent cell first appears, then resolve it
-against that concrete case.
+**Open gap, partially resolved 2026-09-10 — two different divergence questions, not
+one.** This table originally didn't say what happens when a cell's own multiple
+CI-based statistics disagree. That turned out to cover two structurally different
+cases, found while drafting the Tier 1/2/3 register:
+
+1. **Cross-statistic-type divergence** (IC-CI vs. spread-CI — different statistics,
+   same control tier) — **still open, still untested.** All 7 of M11's cells had IC
+   and C1-spread agree exactly on every cell; no divergent case has appeared here yet.
+2. **Cross-control-tier divergence** (the same spread statistic's CI, under a weaker
+   vs. a stronger control — e.g. M11's C1 layer vs. its sector/vol/momentum-
+   neutralized layer) — **resolved.** `dist_pct_sma_50_h21`'s C1-layer CI excludes
+   zero while its neutralized-layer CI spans zero. **Rule: the stronger control tier
+   is authoritative for tiering when they disagree**, matching this study's own
+   established precedent (§6.1: "C2 is the tier that actually answers the research
+   question," preferred over C1 whenever the two diverge, for the same reason a
+   date-only match doesn't separate real information from a momentum/liquidity
+   confound the stronger match does control for). Applied: `dist_pct_sma_50_h21`
+   moves from Tier 3 to Tier 4 — see `EXPERIMENTS.csv` and
+   `PREREGISTRATION.md`'s M11 entry for the dated record of this specific change.
+
+Case 1 remains open until a genuinely divergent cell appears; guessing at its
+resolution now, with no concrete case to resolve it against, is exactly what this
+note originally declined to do and that reasoning still holds for that case
+specifically.
 
 ### 9.3 Dead-ends register format
 
