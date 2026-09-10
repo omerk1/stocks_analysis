@@ -908,3 +908,45 @@ empty diff on row count, column set, NA counts per column, and value equality on
 column including `above_*`, `run_length_bucket_*`, `stacked_sma`, `stacked_ema`. The
 `state_run_id` internal-NaN-gap guard added in `75e42ce` is confirmed inert on this
 panel by the rebuild, not by code-reading alone.
+
+### Result and feasibility addendum (2026-09-10)
+
+**The kill criterion bound as written, and the verdict stands.** Applied literally: the
+primary cell's IC CI is `[-0.032670, -0.001304]` — excludes zero, but the near-zero edge
+(`-0.001304`) is far short of the 0.02 floor. Test 1 fails on the floor sub-condition
+alone; per "failing either test — kill," the primary cell is killed as a construction,
+independent of the cost sub-test (which also fails: the spread's near-zero edge, `-0.51%`
+annualized, misses the 2.463%/yr hurdle). **Cross-sectional rank, as built here
+(continuous rank-IC + sector/vol/momentum-neutralized spread), is not worth the added
+machinery over M4's existing decile-bucket result** — the literal, pre-committed
+consequence of this module's kill criterion.
+
+**The floor was unreachable at this sample size — a finding about the pre-registration,
+not a reason it was relaxed.** Computed directly (not estimated) from the actual
+block-bootstrap output (block_length=42, 500 draws, seed 0, ~71 effective non-overlapping
+blocks at `n_dates=2980`): holding the primary cell's realized near-side CI half-width
+fixed (0.017662), the near-zero edge would have needed a point-estimate IC of **-0.0377**
+to clear 0.02. The largest `|IC|` this entire 7-cell M11 grid produced, companions
+included, is **0.020977** (`dist_z_sma_20_h21`) — the required value is **1.8×** the
+largest effect this grid ever found. Retroactively applying the same 0.02 near-edge bar
+to M1's and M4's existing Tier-3 cells (a diagnostic only, not a re-tiering — see
+`STATUS.md`): **zero of the five clear it either** (their near-edges run 0.0003–0.0014).
+The 0.02 floor, as a bare number, was not calibrated against what any module in this
+study — including M11's own grid — has actually produced. This does not change the
+verdict: the criterion binds as written, and the primary cell still kills as a
+construction. It does mean the failure is a property of the threshold chosen at
+pre-registration time, not evidence that no effect exists — see DESIGN §9.2's
+2026-09-10 addendum for how kill and tier are now recorded as separate axes as a
+result (`decisive_test_status` alongside tier, not folded into it). Under that rule,
+the primary cell's tier is decided by DESIGN §9.2's general rubric like any other cell,
+independent of this kill outcome — see `STATUS.md`/`EXPERIMENTS.csv` for the assigned
+tier.
+
+**Forward rule for future floors:** a magnitude floor (an IC threshold, an economic-
+significance floor, any bare-number bar) must be checked against the realized CI
+half-width its own sample size will produce — or at minimum against the largest
+comparable effect size already on record in this study — **before** it's written into a
+pre-registration, not discovered to be reachable or not only after the bootstrap runs.
+A round number chosen for being conventional (0.02 as "a conventional weak-but-tradeable
+IC threshold," this entry's own words) is not the same thing as a number calibrated to
+what this study's sample size can actually resolve.
