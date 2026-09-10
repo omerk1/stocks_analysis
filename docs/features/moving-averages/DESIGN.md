@@ -747,6 +747,21 @@ Stochastics (`%K` = position within the trailing high-low range) is neither a li
 **Method:** Convert MA features to cross-sectional ranks; build long-short decile portfolios; measure IC (Spearman) and IC decay across horizons; compare against absolute-threshold formulations.
 **Note:** this dramatically increases effective N (§6.5) and is the natural bridge to a portfolio-level strategy. If time is short, prioritise this module.
 
+**2026-09-09 correction — "compare against absolute-threshold formulations" assumes a
+baseline this repo doesn't have, and never ran M4 as one.** `modules/distance_from_ma.py
+::decile_table` (M4) buckets every distance feature via `stats/controls.py::
+cross_sectional_bucket`, which is `pd.qcut` computed **per date** — M4's "absolute
+threshold" deciles were already cross-sectional, not absolute, from the moment they were
+built. There is no true absolute-threshold result anywhere in this study to compare M11
+against, and building one (a fixed, non-date-relative distance threshold) is new
+methodology, not something M11 can assume is sitting on the shelf. **Do not re-derive
+this from scratch in a later session:** M11's hypothesis, as actually pre-registered
+(`PREREGISTRATION.md`), is narrower than the line above states — whether cross-sectional
+rank carries information at all, plus a secondary, non-kill-triggering comparison of
+*construction methods* (continuous rank-IC + sector/vol/momentum neutralization vs. M4's
+decile-bucket + C2-tercile matching) on the same feature M4 already tested. See
+`PREREGISTRATION.md`'s M11 entry, "What M11 still buys over M4."
+
 ### M12 — Volume and liquidity interaction
 **Hypothesis:** MA reclaims on above-average volume are more durable.
 **Method:** Interact key events with relative volume deciles, dollar-volume percentile, and VWMA-vs-SMA divergence (which measures whether volume is concentrated on up or down days).
