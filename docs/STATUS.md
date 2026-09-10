@@ -7,7 +7,7 @@ current, for "what do we actually know and what's still open." Full detail alway
 in `PREREGISTRATION.md` (per-module narrative) and `EXPERIMENTS.csv` (per-cell numbers,
 every tested facet, whatever it found); this file points there rather than re-deriving.
 
-Next up: see `docs/backlog.md` for the remaining minimal-core modules.
+Next up: M2, M5, M6.2 — see `docs/backlog.md` for the remaining minimal-core modules.
 
 ## Modules run
 
@@ -15,6 +15,7 @@ Next up: see `docs/backlog.md` for the remaining minimal-core modules.
 |---|---|---|---|---|---|---|
 | **M4** — Distance from MA | 1st, 2026-09-08 (`0aa13c8`, PR #61) | **Tier 3**: `dist_pct`/`dist_atr`/`dist_z` × SMA20 only — CI excludes zero, directionally consistent, fails cost. **Tier 4**: all 6 SMA50/SMA200 facets — CI includes zero. | Declared grid: 90 bucket-level cells (3 normalisations × 3 lookbacks × 10 deciles); kill criterion evaluated at 9 facet-level (normalisation × lookback) tests. **Not deduplicated at the time it ran** — the SMA20 independence check (median per-date Spearman 0.94–0.98 between `dist_pct`/`dist_atr`/`dist_z`, found 2026-09-09 during M11 prep) was never run against M4's own grid. The same non-independence this found for SMA20 likely also holds at SMA50/SMA200, unchecked. No FDR run (deferred to whole-grid pass — see below). | Originally ad hoc (`entries_per_ticker_year`, entries-only): ~25.32/ticker-yr per leg, ~50.64/yr combined → conservative hurdle ~5.06%/yr, optimistic ~2.53%/yr. CI-low net-negative under both → **fails cost**. Reconciled 2026-09-09 against `costs.py::signals_per_year` (entry+exit convention, the repo standard going forward): 24.646/yr combined → 2.465%/yr hurdle. CI-low (1.6395%) still misses it. **Verdict unchanged under either convention.** | Promoted from Track A M0.1 (descriptive atlas) — 4 of 5 candidate observations pointed at distance-from-MA normalisation/shape questions. Ran before M1 only because Track A exploration surfaced it first, not because it outranked M1 on the minimal-core list. | `notebooks/moving_averages_distance_from_ma.ipynb` (full computation); `PREREGISTRATION.md` M4 entry + two 2026-09-09 addenda (NaN-fix check, turnover reconciliation); `EXPERIMENTS.csv` (all 9 facets, one row each). |
 | **M1** — Baseline state conditioning | 2nd, 2026-09-09 (`87efc3d` PR #62, fixed `6cdee5b` PR #63, `75e42ce` PR #64) | **Tier 3**: lb20, lb50 (above/below state) — CI excludes zero, fails cost. **Tier 4**: lb200 — CI touches/spans zero at both the 3D and 4D control sets. **Run-length secondary layer: no finding** — fails the plateau rule (§6.7), zigzags sign at every lookback/direction. | Declared grid: 30 cells (3 lookbacks × [2 state + 2 directions × 4 run-length buckets]). **Primary cells (6: above/below × 3 lookbacks) are exact algebraic mirrors under C1/C2 by construction — 3 independent numbers, not 6**, found and verified bit-exact during this module's own run. The 24 run-length cells are nested inside their parent state cell (not independent additional tests). No FDR run (deferred — see below). | `stats/costs.py::signals_per_year` (entry+exit convention, the same tool later used to reconcile M4) — this is the module `costs.py` was built for. 30.377 / 17.990 / 7.785 flips/ticker-yr → 3.038% / 1.799% / 0.779%/yr hurdles at lb20/50/200. lb20: CI and point both miss. lb50: point clears at 3D, CI-bound does not (worse at 4D). lb200: CI touches/spans zero at both control sets — **fails regardless of its own (lowest) hurdle being technically clearable on point estimate alone.** | DESIGN §12's own recommended minimal-core *first* module and `docs/backlog.md`'s designated next module. Run second only because Track A happened to point at distance-from-MA first — explicitly not deprioritized on the merits (own entry's "Promoted from" note). | No notebook — `tests/test_moving_averages_baseline_state.py` + `src/signals/moving_averages/modules/baseline_state.py`; `PREREGISTRATION.md` M1 entry (all numbers reported directly in prose, cross-verified against `costs.py` — see the reconciliation note in this file's own text and in M4's addendum above); `EXPERIMENTS.csv` (3 primary lookbacks + 1 run-length summary row). |
+| **M11** — Cross-sectional formulation | 3rd, 2026-09-09 (PR #67) | **Pending interpretation.** Raw numbers computed (7 cells: primary `dist_pct_sma_20`@21d, 4 secondary, 2 companions) but the pre-registered decisive test (IC floor 0.02 AND cost-adjusted spread CI, both CI-based) hasn't been applied yet — reported as data, not yet tiered, per instruction to report before interpreting. | Declared grid: 5 (1 primary + 4 secondary); `dist_atr`/`dist_z` companions excluded up front (found correlated with `dist_pct` at 0.94–0.98 during this module's own pre-registration). Already deduplicated at declaration — no further reduction expected at the whole-grid pass. | Primary cell combined hurdle: 24.635/yr flips → 2.463%/yr (10bps/rt, `costs.py`). Verdict not yet applied. | Chosen over M2/M5/M6.2 specifically because its control design (per-date cross-sectional stat, no stratify-and-drop) sidesteps the row-loss mechanism that hit M1's C2 layer, rather than inheriting it. | `PREREGISTRATION.md` M11 entry; `modules/cross_sectional.py`; `EXPERIMENTS.csv` (7 rows, `outcome=pending_interpretation`). |
 
 ## Whole-grid FDR pass — open, owner-less
 
@@ -27,8 +28,8 @@ identical note, and nobody has been assigned to actually run it once the grid is
 1. **Before any module is promoted above Tier 3.** Tier 2 requires "survives C2 and
    FDR" (DESIGN §9.2) — that's not assignable without the correction having actually
    run, so a Tier-2-or-above call on any facet is a hard trigger, not just a milestone.
-2. **Minimal-core completion** — once M2, M5, M6.2, and M11 have all been attempted
-   (joining M1 and M4), whichever of the two conditions above is hit first.
+2. **Minimal-core completion** — once M2, M5, and M6.2 have also been attempted
+   (joining M1, M4, and now M11), whichever of the two conditions above is hit first.
 
 As part of that pass, both open dedup items below get resolved properly, not deferred
 again:
@@ -47,11 +48,12 @@ again:
 |---|---|---|
 | M4 | 90 (bucket-level) / 9 (facet-level, the level kill was actually evaluated at) | SMA20's 3 normalisations are 0.94–0.98 correlated (found 2026-09-09) — **not corrected in M4's own entry.** SMA50/SMA200 unchecked. |
 | M1 | 30 | Primary 6 cells are exact mirrors → 3 independent. 24 run-length cells are nested inside their parent state cell, not additional independent tests. |
+| M11 | 5 | Already deduplicated at declaration — `dist_atr`/`dist_z` companions (0.94–0.98 correlated with `dist_pct_sma_20`) excluded from the count up front, not left for the whole-grid pass to catch. |
 
-More modules (M11 and beyond) will add rows here as they're pre-registered.
+More modules (M2, M5, M6.2) will add rows here as they're pre-registered.
 
 **This changes the 30 — and probably the 90 too.** Naively summing the raw declared
-counts (90 + 30 = 120, before any later module adds its own) overstates the actual
+counts (90 + 30 + 5 = 125, before any later module adds its own) overstates the actual
 number of independent hypothesis tests by a wide margin once every module's
 mirrors/companions/nesting are accounted for. M1's
 own entry already states its primary layer is 3 independent numbers, not 6, but the
