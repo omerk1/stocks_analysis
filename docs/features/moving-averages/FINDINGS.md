@@ -8,6 +8,11 @@ content, and every cross-reference to `EXPERIMENTS.csv`'s
 schema note below and any reference to §6.11 remain forward pointers until it merges,
 same pattern as `STATUS.md`'s PR-boundary note.
 
+**Track B only** (DESIGN §1.5/§6.6) — every entry below is a pre-registered,
+confirmatory result with a tier assignment; nothing here is a Track A exploratory
+number. Stated explicitly per CLAUDE.md's "always state which track you are working
+in."
+
 Sibling to `DEAD_ENDS.md`: same per-entry discipline (hypothesis, why it was plausible,
 the number, effective N, what would change the verdict), for results that survived
 instead of ones that didn't. One entry per Tier 1/2/3 cell.
@@ -58,9 +63,12 @@ convention stated per entry.**
 **Hypothesis:** Forward 21-day return is a structured function of displacement from
 SMA20, normalised as raw percentage distance.
 
-**Why it was plausible:** DESIGN §2.3(3)'s literature conflict (does extension predict
-continuation or reversion), plus the 2026-09-07 M0.1 finding that ATR-normalisation
-visibly changes the distance distribution's shape, not just its scale.
+**Why it was plausible:** DESIGN §2.3's literature conflict on extension (does it
+predict continuation or reversion — §2.3 item 1, horizon), plus §2.3(3) specifically
+(ATR-normalisation implicitly conditions on volatility, so both normalisations need
+testing, not one) and the 2026-09-07 M0.1 finding that confirms it empirically —
+ATR-normalisation visibly changes the distance distribution's shape, not just its
+scale.
 
 **What was run:** Decile bucket of `dist_pct_sma_20` (cross-sectional, per date),
 C2-adjusted (`mom_tercile`/`vol_tercile`/`sector`) decile9-minus-decile0 spread,
@@ -104,8 +112,9 @@ clears. **Near edge: −1.12%, fails.** `decisive_test_status`: `never_tested`.
 **Tier:** 3, same infrastructure cap.
 
 **What would change the verdict:** moves with `dist_pct_sma_20` above — 0.94–0.98
-correlated (DESIGN §9.2's non-independence finding), not an independent piece of
-evidence.
+correlated, found 2026-09-09 during M11's own pre-registration (`PREREGISTRATION.md`'s
+M11 entry, "Independence check"; also tracked in `STATUS.md`'s whole-grid FDR section),
+not an independent piece of evidence.
 
 ### `dist_z_sma_20`, 21d
 
@@ -198,8 +207,11 @@ sample size — 1.8× the largest IC this grid produced). C1 spread = −0.00504
 −0.001366] — not independent of M4: this is M4's `dist_pct_sma_20` C2 spread above,
 recomputed exactly (same function, same arguments).**
 
-**Effective N:** 1,214,970 raw rows, 2,980 distinct dates, 408 tickers. Zero row loss
-beyond feature/return warmup (C1 layer).
+**Effective N:** 1,214,970 raw rows, 2,980 distinct dates, 408 tickers — for the IC
+and C1-spread numbers above. Zero row loss beyond feature/return warmup (C1 layer).
+**The neutralized spread's N is different and smaller**, since that number is M4's
+`dist_pct_sma_20` C2 spread (above), not a fresh computation: 244,356 raw rows, 2,747
+distinct dates — see that entry.
 
 **Cost:** hurdle 2.463%/yr (24.635 combined flips/ticker-yr). Spread point, annualized
 (×12): −6.05%, clears. Far edge: −10.89%, clears. **Near edge: −0.51%, fails.**
@@ -224,9 +236,13 @@ term-structure follow-up M4's own entry flagged as motivated.
 `fwd_ret_21`. No M4 counterpart exists at this horizon — M4 tested 21d only.
 
 **The number(s):** IC = −0.013796, 90% CI [−0.022463, −0.004092]. C1 spread =
-−0.002123, 90% CI [−0.003492, −0.000685].
+−0.002123, 90% CI [−0.003492, −0.000685]. Neutralized spread = −0.002144, 90% CI
+[−0.003158, −0.001213] — **independent of M4** (no counterpart exists at this
+horizon), unlike the three 21d entries above.
 
-**Effective N:** 1,221,498 raw rows, 2,996 distinct dates, 408 tickers.
+**Effective N:** 1,221,498 raw rows, 2,996 distinct dates, 408 tickers — applies to
+all three numbers above; unlike the 21d cells, nothing here is borrowed from a
+smaller M4 subset.
 
 **Cost:** hurdle 2.466%/yr — verified horizon-independent (turnover is driven by the
 feature's own daily decile-membership flips). Spread point, correctly annualized
@@ -260,7 +276,10 @@ declaration (0.94–0.98 correlated with `dist_pct_sma_20`).
 [−0.006649, −0.000937] — not independent of M4: this is M4's `dist_atr_sma_20` C2
 spread above, recomputed exactly.**
 
-**Effective N:** 1,214,970 raw rows, 2,980 distinct dates, 408 tickers.
+**Effective N:** 1,214,970 raw rows, 2,980 distinct dates, 408 tickers — for the IC
+and C1-spread numbers above. **The neutralized spread's N is different and smaller**
+(it's M4's `dist_atr_sma_20` C2 spread, not a fresh computation): 244,356 raw rows,
+2,747 distinct dates — see that entry.
 
 **Cost:** hurdle 2.619%/yr. Point, annualized: −5.88%, clears. Far edge: −10.15%,
 clears. **Near edge: −0.82%, fails.**
@@ -280,7 +299,10 @@ in this entire register. C1 spread = −0.005518, 90% CI [−0.009040, −0.0021
 **Neutralized spread = −0.003736, 90% CI [−0.006543, −0.001182] — not independent of
 M4: this is M4's `dist_z_sma_20` C2 spread above, recomputed exactly.**
 
-**Effective N:** 1,112,562 raw rows, 2,729 distinct dates, 408 tickers.
+**Effective N:** 1,112,562 raw rows, 2,729 distinct dates, 408 tickers — for the IC
+and C1-spread numbers above. **The neutralized spread's N is different and smaller**
+(it's M4's `dist_z_sma_20` C2 spread, not a fresh computation): 223,752 raw rows,
+2,729 distinct dates — see that entry.
 
 **Cost:** hurdle 2.617%/yr. Point, annualized: −6.62%, clears. Far edge: −10.85%,
 clears. **Near edge: −2.58%, fails — the closest miss in this register among
