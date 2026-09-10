@@ -950,3 +950,55 @@ pre-registration, not discovered to be reachable or not only after the bootstrap
 A round number chosen for being conventional (0.02 as "a conventional weak-but-tradeable
 IC threshold," this entry's own words) is not the same thing as a number calibrated to
 what this study's sample size can actually resolve.
+
+### Correction: wrong annualization factor on the 5d/63d secondary cells (2026-09-10)
+
+**The error.** `dist_pct_sma_20_h5`'s gross edge was annualized with the same ×12
+(252/21) factor used for every 21d cell in this module, instead of the horizon-correct
+×50.4 (252/5). Found while drafting the Tier 1/2/3 register, by re-deriving the number
+rather than re-auditing on suspicion — not caught earlier because every other M11 cell
+shares the 21d horizon and the bug only manifests where that assumption is wrong.
+
+**Corrected numbers.** Near-zero CI edge: **−3.45%/yr** (was reported as −0.82%/yr).
+Hurdle: **2.466%/yr, unchanged** — verified, not assumed, that the turnover/hurdle
+computation is horizon-independent: `decile_turnover_hurdle` measures how often
+`dist_pct_sma_20`'s own decile membership changes day to day, a property of the
+feature's daily rebalancing, not of which `fwd_ret_h` column is being tested against
+it (the decile assignment never reads `horizon` at all — only the return column does).
+Only the numerator needed the fix. **This moves the cell from failing its CI-based
+cost test to passing it** — CI excludes zero and the near edge now clears the hurdle,
+where the uncorrected number showed a miss.
+
+`dist_pct_sma_20_h63` was also affected in an ephemeral, never-recorded comparison
+made in conversation — its actual stored record (`EXPERIMENTS.csv`: Tier 4,
+`no_effect`) was always driven by both CI's spanning zero, never by a cost comparison.
+Nothing to correct there. M1 and M4 never tested a non-21d horizon at all (both
+hardcode `HORIZON = 21` in code and in their own pre-registration text) — the bug
+cannot have manifested in either, and does not appear anywhere in already-merged work.
+
+**Tier is unchanged — say this explicitly so it isn't read as grounds to promote the
+cell.** Tier 3 here is capped by missing FDR/holdout infrastructure (DESIGN §9.2), not
+by cost — the same ceiling every other Tier-3 cell in this study sits under, M1 and M4
+included. Clearing the cost test moves `dist_pct_sma_20_h5` from "real effect, fails
+cost" to "real effect, clears cost" within Tier 3; it does not, by itself, clear the
+FDR/holdout bar Tier 2 requires. `EXPERIMENTS.csv`'s `tier` column stays `3`; only
+`outcome` moves, from `weak_not_cost_viable` to `weak_cost_viable`.
+
+**Necessary context, not a weakening of the correction: this is the shape a
+short-term-reversal generator would produce.** `dist_pct_sma_20` is mechanically close
+to "how far the stock has recently risen" — the same momentum-collinearity concern
+already live for M11's primary cell (see the momentum-confound discussion in this
+session's own Q&A, never resolved by adding `mom_1_0` to the neutralization layer).
+That concern is **more** live at a 5-day forward horizon, not less: a short-term
+reversal effect is strongest and most detectable at the shortest forward window and
+decays as the window lengthens, which is exactly the term-structure shape observed
+here — the one secondary cell whose cost test passes is the shortest-horizon one,
+while the 21d and 63d cells (where a pure reversal effect would have more time to
+dissipate) do not clear cost (21d) or don't even clear CI-excludes-zero (63d). A
+genuine MA-distance effect has no particular reason to concentrate at the shortest
+horizon; a reversal effect does. This doesn't change the correction above — the number
+is fixed regardless of what's generating it — but it means the corrected result should
+not be read as stronger evidence for cross-sectional MA-state information than it is;
+if anything, its position in the term structure argues for reversal over MA-distance
+as the more likely generator, unresolved and unexplored here per this module's own
+scope.
