@@ -481,8 +481,14 @@ Three additions to every module's standard result object, alongside the existing
 mean/CI/cost numbers:
 
 - **Hit rate** — `P(fwd_ret > 0 | event)` vs. the matched control already in use
-  (C0/C1/C2). Reuses `c1_delta`/`c2_delta`/`block_bootstrap_delta` unchanged, called on
-  a boolean-cast column instead of the raw return — no new machinery. Diagnostic value:
+  (C0/C1/C2). **Not the same "hit rate" §5.3 already defines** (hit rate *at R
+  multiples* — 1R/2R/3R against a barrier, MAE/MFE-based) — this one is a plain sign
+  test on the raw forward return, no barrier involved. Same English name, two
+  different quantities; disambiguate by context (a barrier/R-multiple mention means
+  §5.3's, a bare "hit rate" in a §6.11.1-style result object means this one) since
+  neither definition cross-references the other. Reuses `c1_delta`/`c2_delta`/
+  `block_bootstrap_delta` unchanged, called on a boolean-cast column instead of the
+  raw return — no new machinery. Diagnostic value:
   a near-zero mean with a hit rate far from 50% (or a real mean with hit rate near 50%,
   driven by a few large events) are opposite phenomena that look identical on the mean
   alone.
@@ -551,16 +557,21 @@ same caveat it's carried since 2026-09-07:**
   result is reported explicitly labeled "dollar-volume decile, not yet disentangled
   from market cap" — the liquidity-proxy caveat is carried as a stated limitation of
   this look, not a blocker on running it.
-- **Promotion to Track B is blocked on `mktcap_decile` existing**, because DESIGN's own
-  gate between tracks (§1.5) requires "a plausible mechanism, not just a good number" —
-  and whether this is a size effect or a liquidity/turnover effect is exactly the
-  mechanism question a dollar-volume proxy can't answer. This is a real gate, not a
-  deferral: **verified in this session, not assumed** — `src/foundation/data_processing/
-  market_cap.py::historical_market_cap` already exists, and the shares-outstanding data
-  it needs already covers the S&P 500 + Nasdaq-100 tier this study's panel uses
-  (`docs/backlog.md`'s Done #47 backfill, ~1,400 tickers, comfortably including the
-  408-ticker `sp500` universe M4/M1/M11 all ran against). **Building `mktcap_decile` is
-  not blocked on missing data** — it's a scoped integration task: pull
+- **Promotion to Track B is blocked on `mktcap_decile` existing, and still requires
+  §1.5's own gate in full once it does.** §1.5's gate between tracks has two parts:
+  "(a) a plausible mechanism, not just a good number, and (b) survives a quick
+  re-slice on a different universe tier or subperiod within the development window."
+  `mktcap_decile` addresses (a) — whether this is a size effect or a
+  liquidity/turnover effect is exactly the mechanism question a dollar-volume proxy
+  can't answer — but does not by itself satisfy (b); the re-slice check is still
+  required before promotion, same as for any other candidate. This is a real gate,
+  not a deferral: **verified in this session, not assumed** —
+  `src/foundation/data_processing/market_cap.py::historical_market_cap` already
+  exists, and the shares-outstanding data it needs already covers the S&P 500 +
+  Nasdaq-100 tier this study's panel uses (`docs/backlog.md`'s Done #47 backfill,
+  ~1,400 tickers, comfortably including the 408-ticker `sp500` universe M4/M1/M11 all
+  ran against). **Building `mktcap_decile` is not blocked on missing data** — it's a
+  scoped integration task: pull
   `shares_outstanding` per ticker (reusing the local `splits` cache Done #47 built,
   not live Polygon calls), join onto the panel by ticker-date with the same
   point-in-time discipline every other feature here already follows, compute
@@ -578,9 +589,13 @@ widens it, and if the underlying events cluster into only a few of the ~71 block
 CI is measuring which block got drawn, not genuine sampling uncertainty. `n=5` tail
 events is not evidence, however large the payoff.
 
-**Proposed rule:** a candidate becomes Track-B-confirmation-eligible only if its
-defining events span at least 30 distinct dates (§6.9's existing floor, unchanged)
-**and** populate at least 20 of the panel's ~71 independent 42-day blocks. Below that,
+**Proposed rule:** a candidate becomes Track-B-confirmation-eligible only if it still
+clears §6.9's full existing floor **and** populates at least 20 of the panel's ~71
+independent 42-day blocks. §6.9's floor is a joint condition, unchanged and restated
+in full here rather than partially, since this new clause only ever adds to it: **200
+events across at least 30 distinct dates and 30 distinct tickers.** The block-coverage
+clause is the new, fourth condition — none of §6.9's original three are relaxed or
+replaced. Below that,
 the candidate is **Track-A-only under the current panel** — not permanently: this gate
 is measured against 408 tickers, 2010–2021, and inherent rarity (the phenomenon is
 genuinely uncommon) and insufficient universe (this panel is too narrow to see enough
@@ -592,11 +607,15 @@ the same panel, which cannot change block coverage for a fixed-frequency phenome
 **Why 30 dates and 20 blocks:** the 30-date piece reuses an existing, already-
 calibrated convention — nothing new there. The 20-block piece is new and targets what
 date-count alone misses: 30 distinct dates can still concentrate in a handful of
-blocks (this study already has a documented instance of that shape — the
+blocks. This study already has a documented instance of that *shape* — the
 `run_length_lb20_below_64plus_check` cell, several tickers each contributing one
-continuous crisis episode, "not independent observations," already correctly flagged
-by the existing `below_threshold` check before this section existed). ~28% block
-coverage (20 of 71) means the bootstrap's resampling variance reflects genuine
+continuous crisis episode, "not independent observations." **Precision on what
+already caught it and what didn't:** that cell's `below_threshold` flag fired on a
+*different* condition (16 distinct tickers, below §6.9's 30-ticker floor) — the
+date/block-clustering shape itself was only ever caught by the manual investigation
+logged in `EXPERIMENTS.csv`, not by any automated check. No existing check catches
+block-clustering specifically; the 20-block clause is the first one that does. ~28%
+block coverage (20 of 71) means the bootstrap's resampling variance reflects genuine
 between-episode variation rather than whether the one or two blocks containing the
 whole phenomenon happen to get drawn.
 
