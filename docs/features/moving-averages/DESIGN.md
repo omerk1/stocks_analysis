@@ -1066,8 +1066,8 @@ not a standalone project, and follows that repo's own per-module convention
 still stands as the logical map of pipeline stages (data → features → events →
 labels → stats → modules); **see `CLAUDE.md`'s Layout section for the real paths**
 (`src/signals/moving_averages/...`, with `DESIGN.md`/`PREREGISTRATION.md`/
-`EXPLORATION_LOG.md`/`EXPERIMENTS.csv`/`STATUS.md` under `docs/features/moving-averages/`
-and `docs/`).
+`EXPLORATION_LOG.md`/`EXPERIMENTS.csv`/`STATUS.md` all under
+`docs/features/moving-averages/`).
 Existing infrastructure is reused rather than rebuilt where it already covers a
 stage below — notably `market_common.data` (bar loading/validation),
 `market_common.indicators` (ATR/RSI/MACD/OBV), `src/signals/relative_strength/`

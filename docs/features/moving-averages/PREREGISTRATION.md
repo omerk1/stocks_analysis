@@ -202,7 +202,7 @@ turnover convention (see the addendum above), and deduplicating a set of tests t
 already all failed can only make the eventual correction *more* conservative, never
 less; a smaller, cleaner denominator doesn't rescue a result that didn't clear the
 economic bar in the first place. Tracked as an open item, not resolved here — see
-`docs/STATUS.md`'s "Whole-grid FDR pass" section for the trigger condition and the
+`STATUS.md`'s "Whole-grid FDR pass" section for the trigger condition and the
 per-module dedup this needs before it runs.
 
 ## M1 — Baseline state conditioning (2026-09-09)
