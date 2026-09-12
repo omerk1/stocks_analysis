@@ -1036,3 +1036,230 @@ preferring C2 over C1 generally. Applying that rule here: `dist_pct_sma_50_h21` 
 on its neutralized-layer reading (CI spans zero) rather than its C1 reading (CI
 excludes zero) — **Tier 3 → Tier 4, outcome `weak_not_cost_viable` →
 `no_effect`.** `EXPERIMENTS.csv` and `STATUS.md` updated to match.
+
+---
+
+## §7.5 — Level effects vs. trend effects (the placebo test) (2026-09-12)
+
+**Module / track:** Not a numbered M-module — DESIGN §7.5, Track B. Pre-registered here
+with its own hypothesis/kill-criterion/control-tier statement, same discipline as every
+numbered module, per this file's own convention.
+
+**Promoted from:** not a Track A candidate — DESIGN's own words: "the most elegant test
+in this whole document... cheap to run and the answer is interesting either way."
+Directly motivated by two things already on record: M11's `dist_pct_sma_20` surviving
+to a cost-viable Tier-3-pending-FDR reading at the 5-day horizon (2026-09-10 cost
+correction, this file's M11 entry), and the cross-module SMA200 watch (`STATUS.md`,
+trigger fired 3× — M4's `dist_z_sma_200`, M1's lb200, M11's `dist_pct_sma_200_h21` —
+not yet investigated). This test is the direct way to ask whether any of that is a
+genuine watched-level effect or purely a trend-length proxy, before spending more
+modules' worth of grid on SMA200/SMA50/EMA-family features that might all be measuring
+the same non-thing.
+
+**Hypothesis (skeptical, per DESIGN):** the apparent distance/state effects already
+found at SMA200, SMA50, and (folklore) the 21-EMA are indistinguishable from the
+identical analysis run on statistically near-identical, unwatched neighbor lookbacks —
+i.e., "200" is a stand-in for "~10-month trend," not a reflexive level. Genuinely
+falsifiable in either direction; DESIGN frames both outcomes as informative, not just
+the null.
+
+**Scope (three independent focal/neighborhood groups, one horizon, one universe —
+a first slice, matching M4/M1's own precedent of not running the full DESIGN method in
+one pass):**
+
+- **Group A (SMA200):** focal SMA200 vs. neighbors SMA{187, 193, 207, 213}.
+- **Group B (SMA50):** focal SMA50 vs. neighbors SMA{47, 53}.
+- **Group C (21-EMA):** focal EMA21 vs. neighbors EMA{19, 23} — note the panel's
+  cached EMA lookback is currently 20 (`features/ma.py::LOOKBACKS = (20, 50, 200)`),
+  not 21; the folklore lookback DESIGN names is 21, so this group needs its own focal
+  MA built, not just its neighbors.
+- **New build required:** none of these 8 neighbor lookbacks (187/193/207/213/47/53/
+  19/23) or the EMA21 focal are in the cached panel's default `LOOKBACKS`. They're
+  computed via `features/ma.py::compute_ma` (already accepts arbitrary lookback, not
+  restricted to the cached tuple) and must be routed through `features/panel.py`'s
+  existing one-bar-lag application rather than a hand-rolled shift (invariant #2) —
+  this is new plumbing (a small script/module, not a new lag implementation) and gets
+  a look-ahead shift test before use, same as the cached panel's own hygiene tests.
+- **Primary statistic:** `dist_pct` decile spread (top-decile-minus-bottom-decile,
+  `stats/inference.py::block_bootstrap_spread` — reused unchanged from M4/M11 so the
+  comparison is apples-to-apples) on `fwd_ret_21`.
+- **Universe/window:** unchanged — the 408 S&P 500 constituents (as of 2021-12-31),
+  U1, dev window 2010-01-01 → 2021-12-31.
+- **Horizon:** 21 trading days only, same precedent as M4/M1/M11's first slices.
+
+**Grid size (N_tests contribution):** the unit of inference is the **group**, not the
+lookback — **3 group-level comparisons** (A, B, C), each internally built from its
+focal MA and 2–4 neighbors. The 11 individual lookback cells (3 focal + 8 neighbor) are
+not 11 independent tests; only the 3 group-level `diff_g` statistics below count toward
+`N_tests`.
+
+**Kill criterion, per group, stated before running (both directions are a real
+result, not just the null — logged either way):**
+- For each neighbor `n` in a group, compute `diff_g,n = spread(focal) − spread(n)`
+  using the same block-bootstrap machinery (identical block length/seed convention as
+  M1/M4/M11) so `diff_g,n` gets its own CI, not a naive difference of two point
+  estimates.
+- **Level effect confirmed for group `g`** iff the focal lookback's own CI excludes
+  zero **and** `diff_g,n`'s CI excludes zero for **every** neighbor `n` in the group —
+  the focal MA is a distinguishable outlier from its whole matched neighborhood, not
+  merely individually significant.
+- **Level effect killed (folklore confirmed) for group `g`** iff `diff_g,n`'s CI
+  includes zero for **any** neighbor `n` — the focal MA is statistically
+  indistinguishable from at least one untraded neighbor, so "it's just a trend proxy"
+  cannot be ruled out for that group.
+- No module-level kill across all three groups is declared — each group is scored
+  independently (e.g. SMA200 could confirm while SMA50 kills; both are reported, per
+  DESIGN's own "the answer is interesting either way").
+
+**Control tier and why:** C1 is the default read (DESIGN §6.1). **C2 (date +
+momentum-tercile + vol-tercile + sector matched, `mom_12_1`/`realized_vol_63`, unchanged
+from M1/M4/M11) is the tier `diff_g,n` is evaluated on** — a raw momentum confound is
+exactly what this test exists to rule out (a higher-momentum stock sits further from
+*any* ~200-day-ish MA; without matching on momentum, "focal beats its neighbors" could
+just mean "the stocks currently far from SMA200 happen to be higher-momentum than the
+stocks far from SMA193," not a level effect at all).
+
+**Cost annotation:** not applicable to the confirm/kill call itself — this test asks a
+mechanism question, not a tradeable-edge question. If any group is confirmed, a cost
+annotation is still required before that finding is stated as a claim (invariant #8),
+using `stats/costs.py`'s existing turnover/hurdle machinery, same 10bps/round-trip U1
+convention as every other module.
+
+**Plateau check (DESIGN §6.7):** this test *is*, in effect, the study's most direct
+application of the plateau rule — "the neighborhood performs identically" is the
+plateau signature DESIGN already asks every lookback claim to survive. Report it as
+such rather than as a separate check.
+
+**Effective N:** reported as distinct event dates alongside raw row count, per
+lookback cell, standard invariant.
+
+**Minimum sample threshold:** DESIGN §6.9's numbers (200 events, ≥30 distinct dates,
+≥30 distinct tickers) applied per lookback cell, unchanged from M4/M1/M11 — below-
+threshold cells flagged, not dropped.
+
+---
+
+## M2 — Stack states and Minervini ablation (2026-09-12)
+
+**Module / track:** M2, Track B (DESIGN.md §8, M2, lines 744–751).
+
+**Promoted from:** not a Track A candidate — DESIGN's own words: "this is the highest
+expected-value module in the doc," kill criterion "none — the ablation is informative
+regardless of outcome." `STATUS.md`/`docs/backlog.md`'s designated next-up module,
+alongside M5 and M6.2.
+
+**Hypothesis:**
+(a) Multi-MA stack alignment (`stack_perm` over SMA{20, 50, 150, 200}) carries forward-
+return information beyond what a single MA's above/below state already showed in M1.
+(b) Decomposing Minervini's 8-criterion Trend Template by ablation shows criteria 6–8
+(≥25–30% above the 52-week low, within 25% of the 52-week high, RS rank ≥ 70 — pure
+momentum proxies) carry most of the attributable signal; the MA-stack-specific criteria
+(1, 2, 4, 5, and criterion 3, which DESIGN's own M6.0 identity shows decodes exactly to
+"sustained 200-day momentum," not trend quality) contribute modestly if at all.
+
+**New feature-build required (checked before writing this — none of this exists yet):**
+`features/ma.py::LOOKBACKS = (20, 50, 200)` has no 150. `features/context.py`'s own
+docstring explicitly flags `dist_from_52w_high/low` and the full `rs_rank` as not yet
+built. Concretely, this slice needs:
+1. **SMA150** — via `features/ma.py::compute_ma` (already accepts arbitrary lookback),
+   routed through `features/panel.py`'s existing lag, not hand-rolled (invariant #2).
+2. **`dist_from_52w_high`, `dist_from_52w_low`** — rolling 252-trading-day max/min of
+   `close`, new. NaN for a ticker's first 252 days, not zero/false (invariant #9) —
+   needs its own test asserting NA across that warmup region, same shape as the
+   `above_sma_200` fix CLAUDE.md's invariant #9 already documents.
+3. **`rs_rank`** — reuse, not rebuild, per this repo's own reuse pointer
+   (`src/signals/relative_strength`, `store.read_relative_strength`, `comparison=
+   'stock_vs_market'`, `rs_rating` column already an IBD-style 0–99ish rating per
+   ticker/date). Join onto the panel by (ticker, date). **Before trusting it inside a
+   one-bar-lag pipeline, confirm its own point-in-time discipline directly** (it was
+   built for a different study, for a different purpose) rather than assume it's
+   already lag-safe.
+4. **"200-day rising for ≥1 month"** — per DESIGN §6.0's identity
+   (`SMAₙ(t) − SMAₙ(t−1) = (Cₜ − Cₜ₋ₙ)/n`), this is exactly `close_t > close_{t-200}`
+   sustained for 21 consecutive trading days. Implement via that identity (or the sign
+   of `slope_log_21(SMA200)`), not as a fresh "is the MA increasing" computation — it's
+   the same number M6.0 already named, not a new question.
+
+**The 8 Trend Template criteria** (standard Minervini formulation; DESIGN itself only
+restates 3 and 6–8 verbatim, criteria 1/2/4/5 are the standard MA-stack conditions per
+DESIGN line 31's "50/150/200-day SMA stack"):
+1. Price > SMA150 and price > SMA200
+2. SMA150 > SMA200
+3. SMA200 rising for ≥1 month (§6.0 identity, above)
+4. SMA50 > SMA150 and SMA50 > SMA200
+5. Price > SMA50
+6. Price ≥ 30% above the 52-week low (the more common formulation — stated precisely
+   here so it isn't left ambiguous at analysis time)
+7. Price within 25% of the 52-week high
+8. RS rank ≥ 70
+
+**Method:**
+(a) **`stack_perm`** — a new categorical feature over the 4-way ordering of
+{SMA20, SMA50, SMA150, SMA200} vs. price, built from the existing lagged `above_sma_k`
+boolean columns already in the panel (reused inputs, new combination logic — this is
+not `features/state.py`, which is run-length-only). C0/C1/C2 deltas on `fwd_ret_21` per
+non-empty permutation category vs. baseline, same approach as M1.
+(b) **Full 2⁸ = 256-subset ablation** of the 8 boolean criteria (each built lagged,
+invariant #9-compliant) on `fwd_ret_21`, C1/C2 controls. Computationally cheap once the
+8 columns exist — vectorized boolean combination, no per-ticker loop, float32, per
+CLAUDE.md's style rules. Decomposed via a linear/Shapley-style attribution per
+criterion, as DESIGN specifies, **not** read as 256 individual hypothesis tests.
+
+**Horizon:** 21 trading days only. **Universe/window:** unchanged, U1, 408 S&P 500
+constituents, dev window 2010-01-01 → 2021-12-31.
+
+**Grid size (N_tests contribution):** part (b)'s 256 subsets are attribution inputs,
+not 256 independent tests — DESIGN's own "kill: none, informative regardless" framing
+treats the ablation as a decomposition, not a battery of hypotheses. The quantities
+that matter for `N_tests` are the **8 per-criterion attribution coefficients**
+(or Shapley values), logged as this module's actual grid contribution for part (b).
+Part (a)'s `stack_perm` primary comparison (see kill criterion below) contributes a
+small number of pre-registered primary cells — "fully-bullish stack" and
+"fully-bearish stack" vs. baseline, 2 cells — with the remaining non-empty permutation
+categories reported as secondary/descriptive, same primary-vs-secondary split M1 used
+for its run-length layer.
+
+**Kill criterion:**
+- **Part (b) (the ablation itself): none, by DESIGN's own explicit statement.** The
+  attribution is informative regardless of which criteria carry the weight — this is
+  not a construction that gets declared dead.
+- **Part (a) (`stack_perm` as an independent signal) does need one**, since "the stack
+  carries information beyond a single MA" is a real, falsifiable claim. Same CI-based
+  rule M1 established (2026-09-09 correction: spans-zero auto-fails, no magnitude
+  comparison is meaningful once "no effect" is inside the interval; otherwise
+  `max(|ci_low|, |ci_high|) < 0.10%` fails the economic-significance floor): applied to
+  the 2 primary cells (fully-bullish, fully-bearish stack) against a control matched on
+  M1's own single-best-lookback state, not just C2's generic momentum/vol/sector match
+  — the specific question is whether the *full stack* adds anything over what M1
+  already found for individual lookbacks. If both primary cells fail, **"the stack adds
+  nothing over single-MA state"** is the module-level verdict for part (a) only; part
+  (b)'s attribution result stands regardless.
+
+**Control tier and why:** C1 default, **C2 is the tier the part-(a) kill criterion is
+evaluated on** (DESIGN §6.1 precedent, unchanged `mom_12_1`/`realized_vol_63`/`sector`
+match columns from M1/M4/M11). Part (b)'s ablation reports C1/C2 deltas per subset for
+completeness but, per DESIGN, isn't gated on either.
+
+**Cost convention:** unchanged 10bps/round-trip, U1 (`stats/costs.py`). Turnover
+mechanism for part (a) is stack-category-change count, measured off the built panel,
+not assumed — same precedent as M1's state-flip turnover.
+
+**Minimum sample threshold:** DESIGN §6.9's numbers (200 events, ≥30 dates, ≥30
+tickers), applied per stack-permutation category and per ablation subset. Many of the
+256 subsets will be near-empty by construction (e.g. RS rank ≥ 70 co-occurring with
+price below SMA200 is rare) — flagged, not dropped, same as M4/M1/M11.
+
+**Plateau check (DESIGN §6.7):** not a lookback-neighborhood test here — applied
+instead as directional consistency: the "above SMA20 & above SMA50 & above SMA200"
+stack category should agree in sign with M1's own per-lookback above-cells, not
+contradict them. A contradiction would be a red flag for the new `stack_perm`
+construction, not a finding.
+
+**Effective N:** standard invariant, reported per stack category and per ablation
+subset above the minimum-sample threshold.
+
+**SMA200 watch, noted not folded in:** criterion 3 leans on SMA200 directly, and the
+cross-module SMA200 watch (`STATUS.md`) has fired 3× without being investigated. This
+module is a natural place to also run that audit as a side-check, but it is **not**
+part of this pre-registered grid or its `N_tests` — if done, it's logged separately as
+a Track A look in `EXPLORATION_LOG.md`, not folded into M2's own numbers.
