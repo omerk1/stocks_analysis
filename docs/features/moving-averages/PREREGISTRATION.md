@@ -1263,3 +1263,41 @@ cross-module SMA200 watch (`STATUS.md`) has fired 3× without being investigated
 module is a natural place to also run that audit as a side-check, but it is **not**
 part of this pre-registered grid or its `N_tests` — if done, it's logged separately as
 a Track A look in `EXPLORATION_LOG.md`, not folded into M2's own numbers.
+
+### Wording correction (2026-09-13, found while implementing — not a scope change)
+
+This entry's kill-criterion paragraph (above) describes part (a)'s rule as "the same
+CI-based rule M1 established (2026-09-09 correction: spans-zero auto-fails... otherwise
+`max(|ci_low|, |ci_high|) < 0.10%` fails)" — that conflates two different M1 rules.
+M1's 2026-09-09 "spans-zero auto-fails" correction (this file's M1 entry, "Cost-test
+definitional gap") was applied only to `stats/costs.py::ci_clears_cost`, the **cost**
+test — not to M1's actual `evaluate_kill_criterion`
+(`modules/baseline_state.py`), which was, from the start, exactly
+`max(|ci_low|, |ci_high|) < 0.10%` with no separate spans-zero branch (verified against
+the real code, not re-derived from memory): that formula already handles a
+zero-spanning interval correctly on its own terms, since both endpoints are compared
+regardless of sign — it just isn't the same mechanism as the cost-test fix. M2's
+implementation (`modules/stack_minervini.py::evaluate_part_a_kill_criterion`) uses the
+literal, unambiguous formula this same paragraph also states in the same sentence
+(`max(|ci_low|, |ci_high|) < 0.10%`) — i.e. M1's actual rule. The parenthetical
+attributing the spans-zero fix to the kill criterion is the error, corrected here; no
+analysis behavior changed as a result (the formula run was always the correct one).
+
+### Part (b) control-tier caveat (2026-09-13, found while implementing — logged, not silently applied)
+
+This entry says part (b)'s ablation "reports C1/C2 deltas per subset for completeness."
+As implemented, `ablation_subset_table` reports a C1 (date-matched) delta per subset,
+not C2 — and `linear_attribution` (the 8-coefficient OLS readout this entry's `N_tests`
+declaration is actually keyed to) has **no control at all**, not even date-stratified
+C1 weighting: it's a single pooled OLS of `fwd_ret_21` on the 8 raw boolean criteria
+across every eligible row, unweighted by date. This is consistent with DESIGN's own
+framing of part (b) as descriptive attribution with "no CI, no kill criterion" — but
+"no CI" was not meant to imply "no control at all," and the distinction matters for
+reading the coefficients: an uncontrolled pooled regression can't distinguish a
+criterion's own marginal contribution from "this criterion happened to be true more
+often in dates/regimes that had higher returns for unrelated reasons" (exactly the
+kind of confound C1's per-date matching exists to remove). Read the 8 coefficients'
+signs and relative magnitudes as a first-pass attribution, not as a controlled
+estimate — a date-stratified (or at minimum C1-weighted) version of the same
+regression is the natural follow-up if this module's ablation result is ever promoted
+past Track A description.

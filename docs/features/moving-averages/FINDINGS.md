@@ -312,3 +312,93 @@ companion entries, not the study's strongest near-result** (companion, excluded 
 
 **What would change the verdict:** moves with `dist_pct_sma_20` above, not
 independently.
+
+---
+
+## M2 — Stack states and Minervini ablation (2026-09-13)
+
+### `stack_fully_bearish`, 21d
+
+**Hypothesis:** The full 4-MA stack in perfect bearish order (price < SMA20 < SMA50 <
+SMA150 < SMA200) carries forward-21-day-return information beyond what M1's single
+`above_sma_50` state already showed — the specific incremental question this module's
+part (a) pre-registered (`PREREGISTRATION.md`, 2026-09-12), not merely whether the
+stack cell is nonzero in isolation.
+
+**Why it was plausible:** DESIGN §8 M2 frames this as the highest-expected-value
+module in the doc with no kill criterion on the ablation itself; the incremental
+question (stack vs. single MA) was pre-registered specifically because M1 already
+found `above_sma_50` real-but-cost-failing (Tier 3), leaving open whether *more*
+alignment info adds anything beyond that one lookback.
+
+**What was run:** `stack_fully_bearish`'s own C2 (`mom_tercile`/`vol_tercile`/`sector`)
+block-bootstrap delta on `fwd_ret_21`, then `block_bootstrap_group_diff` against M1's
+`above_sma_50` C2 delta on the row population where both cells are C2-eligible
+(intersection of eligibility masks, block length 42, 500 draws, 90% CI) — the kill
+rule is M1's own `evaluate_kill_criterion` formula, `max(|ci_low|, |ci_high|) < 0.10%`,
+applied to this diff (see `PREREGISTRATION.md`'s 2026-09-13 wording correction: this is
+M1's actual rule, not the separate cost-test spans-zero fix an earlier pre-reg
+paragraph conflated it with).
+
+**The number(s):** standalone C2 delta +0.4737%, 90% CI [+0.1612%, +0.7761%] (CI
+excludes zero). Incremental diff vs. `above_sma_50`: +1.0551%, 90% CI [+0.4189%,
++1.7400%] — **does not clear the kill floor** (`max(0.4189%, 1.7400%) ≥ 0.10%`), i.e.
+**not killed: the full stack adds real information beyond the single MA alone**, on
+the bearish side. (`stack_fully_bullish`'s mirror-image test *is* killed — diff CI
+[−0.0661%, +0.0865%], both endpoints under the 0.10% floor — logged in
+`EXPERIMENTS.csv`, no `FINDINGS.md` entry since it's Tier 4.) Independently
+reproduced end-to-end against the real DB by the coordinating session (full
+408-ticker panel rebuild, not read from the agent's report) — matches to the reported
+precision.
+
+**Effective N:** 40,102 raw rows, 2,696 distinct dates, 399 tickers (standalone cell);
+133,034 shared rows, 2,672 distinct dates (incremental diff's row population).
+
+**Cost:** `stack_fully_bearish`'s own turnover: 2.863 signals/yr → hurdle 0.286%/yr
+(`stats/costs.py`, 10bps/rt, same convention as M1/M4/M11). Point, annualized (×12):
++5.68%, clears. Near edge (+1.934%): clears. Far edge (+9.31%): clears. Clears at
+every reading, by a wide margin. `decisive_test_status`: `never_tested` (part (a) has
+no per-cell decisive sub-test beyond the kill rule itself, which this cell did not
+trigger).
+
+**Tier:** 3 — capped twice over, neither reason optional: (1) missing FDR/holdout
+infrastructure, the same cap every Tier-3 cell in this study carries; (2) DESIGN
+§7.3's survivorship cap on weak/bearish-state buckets specifically (delisted-ticker
+price history exists only 2024–2026 in this repo's loaded data) — `stack_fully_bearish`
+is exactly this shape, so it cannot reach Tier 1/2 regardless of how clean these
+numbers are.
+
+**Argue against this result (not resolved here, flagged as the live alternative):**
+the sign pattern — bearish/near-lows predicting *higher* control-adjusted forward
+returns, bullish/near-highs predicting *lower* ones (see part (b) below) — is exactly
+the signature uncontrolled short-term reversal would produce, not a distinct
+Minervini-thesis effect. `mom_12_1` (this module's only momentum control leg, reused
+unchanged from M1/M4/M11) deliberately skips the most recent month, so nothing in this
+cell's pre-registered C2 spec controls for a stock's very recent drawdown — the same
+gap M1 diagnosed and added a `rev_tercile`/`mom_1_0` robustness layer for
+(`PREREGISTRATION.md`'s M1 entry, "post-hoc short-term-reversal control"). That
+robustness check was not run for this cell (out of this module's pre-registered
+scope, not silently skipped) — until it is, "the stack adds real bearish-side
+information beyond a single MA" and "this is uncontrolled 1-month reversal, larger for
+a deeper breakdown" are both live explanations.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
+4-column C2 match set adding `rev_tercile` (M1's own precedent) to separate a genuine
+stack effect from short-term reversal; either would also help resolve the open
+survivorship-cap question rather than just deferring to it.
+
+**Part (b) — Trend Template ablation (descriptive, no tier, no `FINDINGS.md`-worthy
+claim per DESIGN's own "kill: none" framing — noted here for completeness, full
+numbers in `EXPERIMENTS.csv`):** DESIGN's stated prior ("criteria 6–8 dominate,
+MA-stack criteria contribute modestly") did not hold. The single largest linear
+attribution coefficient is criterion 7 (within 25% of the 52-week high), and it is
+*negative* (−2.31%); the MA-stack criteria (4, 5) are comparable in magnitude to the
+momentum criteria, not modest. Corroborates the same-direction primary-cell result:
+the all-8-criteria-true subset's C1 delta is −0.171%, the all-8-false subset's is
++0.160% — satisfying the full Trend Template reads *worse*, not better, in this
+control-adjusted view. Two caveats logged in `PREREGISTRATION.md`'s 2026-09-13
+addendum, not repeated in full here: `linear_attribution` has **no control at all**
+(not even C1 date-matching) — read coefficients as first-pass, not controlled;
+criteria 6/7 are both derived from the same 52-week range and are likely severely
+collinear (opposite-signed, both large) — individual coefficients aren't clean
+independent attributions.
