@@ -190,6 +190,67 @@ def block_bootstrap_spread(
     return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
 
 
+def block_bootstrap_group_diff(
+    panel: pd.DataFrame,
+    group_col_a: str,
+    group_col_b: str,
+    value_col: str,
+    match_cols: list[str],
+    date_col: str = "date",
+    block_length: int = 42,
+    n_boot: int = 500,
+    ci: float = 0.90,
+    seed: int = 0,
+) -> dict:
+    """Block-bootstrap CI on (delta_a - delta_b): the difference between
+    two *different* boolean groupings' C2-style matched-control deltas,
+    computed on the same panel/match_cols/date structure -- e.g. M2's "does
+    the full stack add anything over a single-MA state" test
+    (`stack_fully_bullish`'s C2 delta minus `above_sma_50`'s C2 delta,
+    PREREGISTRATION.md 2026-09-12).
+
+    Generalizes `block_bootstrap_spread` (which differences two *deciles
+    of the same column*) to two independent group columns. Same
+    correlated-draws requirement: `group_col_a` and `group_col_b` are
+    computed over the same underlying dates, so they must be resampled
+    together within each draw, not independently CI'd and differenced
+    (see `block_bootstrap_spread`'s own docstring) -- the implementation
+    below mirrors it exactly, just keyed by two group columns instead of
+    one column's two decile labels.
+
+    Caller is responsible for restricting `panel` to whatever row
+    population makes `group_col_a` and `group_col_b` comparable (e.g. the
+    intersection of their own eligibility masks) -- this function only
+    differences and resamples, it doesn't decide eligibility.
+    """
+    strata_cols = [date_col, *match_cols]
+    a = stratum_deltas(panel, group_col_a, value_col, strata_cols)
+    b = stratum_deltas(panel, group_col_b, value_col, strata_cols)
+
+    all_dates = np.array(sorted(set(a[date_col]).union(b[date_col])))
+    if len(all_dates) == 0:
+        return _summarize_draws(np.array([]), float("nan"), 0, ci)
+    _validate_block_length(len(all_dates), block_length)
+    date_index = {d: i for i, d in enumerate(all_dates)}
+
+    a_idx, a_vals = a[date_col].map(date_index).to_numpy(), a["delta"].to_numpy()
+    b_idx, b_vals = b[date_col].map(date_index).to_numpy(), b["delta"].to_numpy()
+
+    point_a = a_vals.mean() if len(a_vals) else float("nan")
+    point_b = b_vals.mean() if len(b_vals) else float("nan")
+    point_estimate = point_a - point_b
+
+    rng = np.random.default_rng(seed)
+    boot_draws = np.empty(n_boot)
+    for i in range(n_boot):
+        weight = _block_weights(all_dates, block_length, rng)
+        a_mean = _weighted_mean(a_vals, weight[a_idx])
+        b_mean = _weighted_mean(b_vals, weight[b_idx])
+        boot_draws[i] = a_mean - b_mean
+
+    return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
+
+
 def block_bootstrap_series(
     values_by_date: pd.Series,
     block_length: int = 42,
