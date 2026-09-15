@@ -27,6 +27,32 @@ sweep, per this module's own pre-registered scope).
 
 **§7.5 plateau note:** this test *is* a plateau check by construction, and it's the cleanest one this study has produced — within every group, the focal lookback's point estimate and CI sit inside its neighbors' own range, no lone bright pixel anywhere. Two of three groups (SMA200, SMA50) show no detectable dist_pct effect at all in that neighborhood; the third (EMA21/19/23) shows a real, detectable, but level-agnostic effect — the textbook "it's a trend-length proxy, not a watched level" shape DESIGN itself predicted as the likelier outcome.
 
+**Shape-stats addendum (2026-09-15) — DESIGN §6.11.1 / CLAUDE.md invariant #10.**
+Computed for §7.5 and M2 (both ran after the invariant existed on 2026-09-10 and
+should have reported this at the time — a gap fixed now, not a backfill of M1/M4/M11,
+which predate the invariant and are deliberately left alone). New: `stats/shape.py`
+(`hit_rate_deltas`, `distribution_shape`), wired into both modules' shared per-cell
+result functions. Full numbers: `EXPERIMENTS.csv` notes (all 5 affected rows) and
+`FINDINGS.md`'s new shape addendum (`stack_fully_bearish`).
+
+**The one result worth surfacing here: `stack_fully_bullish` (Tier 4, CI-spans-zero
+mean) has a *positive* hit-rate delta vs. control (+1.21pp at C2) and *negative* skew
+(−0.35).** That's the exact diagnostic shape DESIGN §6.11.1 was written to catch — a
+flat-to-negative mean CI can hide "wins slightly more often than control, but a
+minority of losses are disproportionately larger than the wins," which a mean/CI
+table alone can't distinguish from genuinely nothing happening. This doesn't change
+`stack_fully_bullish`'s Tier 4 verdict (shape fields carry no kill authority, per the
+invariant's own rule) — it explains the shape of the null, which is new information
+for anyone using this as a candidate feature rather than a standalone claim.
+
+By contrast, `stack_fully_bearish` (the Tier-3 survivor) has hit rate 63.85% (vs.
+58.57% for bullish), win/loss ratio 1.32 (vs. 1.04), and positive skew +0.99 (vs.
+−0.35) — favorable on every shape axis, not just the mean, and internally consistent
+with its own positive mean delta. §7.5's three groups show a similar, more modest
+version of the same asymmetry (bottom-decile skew running noticeably higher than
+top-decile skew in all three placebo groups) — descriptive only, doesn't reopen any
+of §7.5's Tier 4 verdicts.
+
 **Non-independence note (2026-09-10):** M11's neutralized-spread statistic is not new
 evidence for the four cells M4 already tested at 21d (`dist_pct`/`dist_atr`/`dist_z`
 `_sma_20`, `dist_pct_sma_50`) — traced at the code level (not inferred from matching

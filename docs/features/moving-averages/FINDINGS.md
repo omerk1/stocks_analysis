@@ -402,3 +402,39 @@ addendum, not repeated in full here: `linear_attribution` has **no control at al
 criteria 6/7 are both derived from the same 52-week range and are likely severely
 collinear (opposite-signed, both large) — individual coefficients aren't clean
 independent attributions.
+
+### Shape fields addendum (2026-09-15) — `stack_fully_bearish`
+
+DESIGN §6.11.1's three shape fields (hit rate vs. control, win/loss magnitude ratio,
+skew — CLAUDE.md invariant #10), computed now because this cell ran after the
+invariant existed (2026-09-10) and should have reported them at the time; this is a
+same-scope completion, not a backfill of the M1/M4/M11 entries above, which predate
+the invariant and are deliberately left alone (DESIGN §6.11.1's own reasoning against
+adding a new statistic to an already-tiered result after the fact). Descriptive only,
+per the invariant: no CI, no kill criterion, no `N_tests` contribution.
+
+**`stack_fully_bearish`:** raw hit rate 63.85% (`P(fwd_ret_21 > 0 | event)`), hit-rate
+delta vs. C1 control +0.63pp, vs. C2 control +0.32pp (same direction as the mean
+delta, internally consistent). Win/loss magnitude ratio **1.32** (wins average ~32%
+larger than losses). Skew **+0.99** — a real right tail, a few large wins pulling the
+distribution, not "loses small often, wins large rarely" in reverse. n_wins=25,606,
+n_losses=14,466.
+
+**`stack_fully_bullish` (Tier 4, logged for contrast — this is exactly the shape §6.11.1
+was built to catch):** raw hit rate 58.57%, hit-rate delta vs. C2 control **+1.21pp
+(positive)** despite the mean C2 delta being essentially flat and CI-spanning-zero
+(`-0.064%, [-0.202%,+0.067%]`). Win/loss ratio 1.04 (barely favorable), **skew −0.35**
+(a real left tail). Read together: the bullish stack wins slightly more often than its
+control, but a meaningful minority of its losses are disproportionately large relative
+to its wins — the "high hit rate, flat-to-negative mean, negative skew" signature
+DESIGN §6.11.1 names explicitly as invisible to a plain mean/CI. This doesn't change
+`stack_fully_bullish`'s Tier 4 verdict (the mean is still the pre-registered kill
+criterion's basis, per invariant #10's own rule that shape fields don't carry kill
+authority) — it explains *why* the mean looks the way it does, which the CI alone
+didn't.
+
+**Reproducibility:** computed end-to-end against the real DB (full 408-ticker panel
+rebuild) by the coordinating session, via `stats/shape.py` (new: `hit_rate_deltas`,
+`distribution_shape`), wired into `modules/stack_minervini.py::_cell_row`. Full numbers
+(including `n_wins`/`n_losses`/`mean_win`/`mean_loss`) in `EXPERIMENTS.csv`'s notes
+field for both primary cells.

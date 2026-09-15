@@ -25,6 +25,7 @@ from src.signals.moving_averages.modules.cross_sectional import decile_turnover_
 from src.signals.moving_averages.stats.controls import cross_sectional_bucket
 from src.signals.moving_averages.stats.costs import annualize, cost_hurdle
 from src.signals.moving_averages.stats.inference import block_bootstrap_spread, block_bootstrap_spread_diff
+from src.signals.moving_averages.stats.shape import distribution_shape, hit_rate_deltas
 
 # DESIGN §6.9
 MIN_EVENTS = 200
@@ -62,6 +63,18 @@ def lookback_cell(
     per-group headline cell and the `group_diff` computation below.
     `panel` must already carry `fwd_ret_21` and the C2 match columns (see
     `prepare`).
+
+    Also reports DESIGN §6.11.1's shape fields (CLAUDE.md invariant #10).
+    This module's "cell" is a decile spread, not a single boolean state
+    (unlike M1/M2) -- DESIGN §6.11.1 doesn't directly address a
+    spread-shaped cell, so the extension used here is stated explicitly:
+    hit rate (and its C1/C2 delta) compares the top decile (the spread's
+    "high" leg) against the bottom decile (its "low" leg) restricted to
+    just those two deciles' own rows -- the same two groups the spread
+    statistic itself differences, not "top decile vs. everyone else."
+    Win/loss ratio and skew are reported separately for each leg's own
+    raw-return distribution (no control needed for those two, per
+    `stats/shape.py::distribution_shape`).
     """
     feature_col = dist_pct_column(family, lookback)
     defined = panel.dropna(subset=[feature_col, "fwd_ret_21"]).copy()
@@ -82,6 +95,19 @@ def lookback_cell(
         block_length=block_length, n_boot=n_boot, ci=ci, seed=seed,
     )
 
+    top = working[working["decile"] == N_DECILES - 1]
+    bottom = working[working["decile"] == 0]
+    if len(top) and len(bottom):
+        extremes = working[working["decile"].isin([0, N_DECILES - 1])].copy()
+        extremes["_is_top"] = extremes["decile"] == (N_DECILES - 1)
+        hit_rates = hit_rate_deltas(extremes, "_is_top", "fwd_ret_21", match_cols=list(C2_MATCH_COLS))
+        top_shape = distribution_shape(top["fwd_ret_21"])
+        bottom_shape = distribution_shape(bottom["fwd_ret_21"])
+    else:
+        hit_rates = {"hit_rate": float("nan"), "hit_rate_delta_c1": float("nan"), "hit_rate_delta_c2": float("nan")}
+        top_shape = bottom_shape = {"win_loss_ratio": float("nan"), "skew": float("nan"), "n_wins": 0, "n_losses": 0,
+                                     "mean_win": float("nan"), "mean_loss": float("nan")}
+
     return {
         "feature_col": feature_col,
         "n_events": n_events,
@@ -90,6 +116,11 @@ def lookback_cell(
         "below_threshold": n_events < MIN_EVENTS or n_dates < MIN_DATES or n_tickers < MIN_TICKERS,
         "spread_c1": spread_c1,
         "spread_c2": spread_c2,
+        "top_decile_hit_rate": hit_rates["hit_rate"],
+        "top_vs_bottom_hit_rate_delta_c1": hit_rates["hit_rate_delta_c1"],
+        "top_vs_bottom_hit_rate_delta_c2": hit_rates.get("hit_rate_delta_c2", float("nan")),
+        "top_decile_shape": top_shape,
+        "bottom_decile_shape": bottom_shape,
         "_defined": defined,
         "_working": working,
     }

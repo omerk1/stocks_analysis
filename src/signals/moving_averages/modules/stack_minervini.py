@@ -69,6 +69,7 @@ from src.signals.moving_averages.stats.inference import (
     block_bootstrap_delta,
     block_bootstrap_group_diff,
 )
+from src.signals.moving_averages.stats.shape import distribution_shape, hit_rate_deltas
 from src.signals.relative_strength.compute import compute_stock_vs_market
 from src.signals.relative_strength.config import RelativeStrengthConfig
 
@@ -239,6 +240,11 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
     (`modules/baseline_state.py`; no row-loss waterfall diagnostic, this
     module doesn't re-litigate that question), same C2-eligible-restriction
     and block-bootstrap shape.
+
+    Also reports DESIGN §6.11.1's three shape fields (hit rate vs. the
+    same C1/C2 control already computed above, win/loss magnitude ratio,
+    skew -- `stats/shape.py`, CLAUDE.md invariant #10). Descriptive only:
+    no CI, no kill criterion, no `N_tests` contribution of their own.
     """
     mask = c2_eligible_mask(working, group_col, "fwd_ret_21", match_cols=list(match_cols))
     restricted = working[mask]
@@ -256,6 +262,14 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
             "point_estimate": float("nan"), "n_dates": restricted["date"].nunique() if len(restricted) else 0,
         }
 
+    if len(restricted):
+        hit_rates = hit_rate_deltas(restricted, group_col, "fwd_ret_21", match_cols=list(match_cols))
+        shape = distribution_shape(event_rows["fwd_ret_21"])
+    else:
+        hit_rates = {"hit_rate": float("nan"), "hit_rate_delta_c1": float("nan"), "hit_rate_delta_c2": float("nan")}
+        shape = {"win_loss_ratio": float("nan"), "skew": float("nan"), "n_wins": 0, "n_losses": 0,
+                 "mean_win": float("nan"), "mean_loss": float("nan")}
+
     return {
         **label,
         "n_events": n_events,
@@ -270,6 +284,13 @@ def _cell_row(working: pd.DataFrame, group_col: str, label: dict, match_cols: tu
         "c2_ci_low": boot["ci_low"],
         "c2_ci_high": boot["ci_high"],
         "c2_n_dates_boot": boot["n_dates"],
+        "hit_rate": hit_rates["hit_rate"],
+        "hit_rate_delta_c1": hit_rates["hit_rate_delta_c1"],
+        "hit_rate_delta_c2": hit_rates.get("hit_rate_delta_c2", float("nan")),
+        "win_loss_ratio": shape["win_loss_ratio"],
+        "skew": shape["skew"],
+        "n_wins": shape["n_wins"],
+        "n_losses": shape["n_losses"],
     }
 
 
