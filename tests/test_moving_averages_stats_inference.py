@@ -14,6 +14,7 @@ from src.signals.moving_averages.stats.inference import (
     block_bootstrap_group_diff,
     block_bootstrap_series,
     block_bootstrap_spread,
+    block_bootstrap_spread_diff,
 )
 
 
@@ -189,6 +190,74 @@ def test_block_bootstrap_group_diff_ci_straddles_zero_for_two_similarly_sized_nu
     )
 
     assert result["ci_low"] < 0 < result["ci_high"]
+
+
+# ---- block_bootstrap_spread_diff (PREREGISTRATION.md §7.5 placebo test) ----
+
+def test_block_bootstrap_spread_diff_is_zero_when_deciles_are_identical():
+    # Same decile assignment on both sides -> the two spreads are computed
+    # from the exact same per-stratum deltas, so the difference must be
+    # exactly zero on every single bootstrap draw, not just on average.
+    n_dates, n_tickers = 80, 10
+    rng = np.random.default_rng(1)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            rows.append({
+                "date": date, "ticker": f"T{i}", "focal_decile": i, "neighbor_decile": i,
+                "value": i * 0.01 + rng.normal(0, 0.001), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+
+    result = block_bootstrap_spread_diff(
+        panel, focal_decile_col="focal_decile", neighbor_decile_col="neighbor_decile",
+        decile_low=0, decile_high=9, value_col="value", match_cols=["sector", "bucket"],
+        block_length=10, n_boot=100, seed=0,
+    )
+
+    assert result["point_estimate"] == pytest.approx(0.0, abs=1e-9)
+    assert result["ci_low"] == pytest.approx(0.0, abs=1e-9)
+    assert result["ci_high"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_block_bootstrap_spread_diff_matches_manual_spread_difference():
+    n_dates, n_tickers = 100, 10
+    rng = np.random.default_rng(2)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            # Neighbor decile is a shuffled (decorrelated) relabeling of
+            # the same 0..9 values, so it carries no gradient in `value`.
+            rows.append({
+                "date": date, "ticker": f"T{i}",
+                "focal_decile": i, "neighbor_decile": (i * 3 + 1) % 10,
+                "value": i * 0.02 + rng.normal(0, 0.001), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+
+    result = block_bootstrap_spread_diff(
+        panel, focal_decile_col="focal_decile", neighbor_decile_col="neighbor_decile",
+        decile_low=0, decile_high=9, value_col="value", match_cols=["sector", "bucket"],
+        block_length=10, n_boot=100, seed=0,
+    )
+
+    manual_focal_low = c2_delta(panel.assign(is_event=panel["focal_decile"] == 0), "is_event", "value",
+                                 match_cols=["sector", "bucket"], date_col="date")
+    manual_focal_high = c2_delta(panel.assign(is_event=panel["focal_decile"] == 9), "is_event", "value",
+                                  match_cols=["sector", "bucket"], date_col="date")
+    manual_neighbor_low = c2_delta(panel.assign(is_event=panel["neighbor_decile"] == 0), "is_event", "value",
+                                    match_cols=["sector", "bucket"], date_col="date")
+    manual_neighbor_high = c2_delta(panel.assign(is_event=panel["neighbor_decile"] == 9), "is_event", "value",
+                                     match_cols=["sector", "bucket"], date_col="date")
+    manual_diff = (manual_focal_high - manual_focal_low) - (manual_neighbor_high - manual_neighbor_low)
+
+    assert result["point_estimate"] == pytest.approx(manual_diff, abs=1e-6)
+    # A real focal gradient vs. a decorrelated neighbor: the difference
+    # should be clearly positive, CI excluding zero.
+    assert result["ci_low"] > 0
+
 
 
 def test_block_bootstrap_delta_handles_empty_input():

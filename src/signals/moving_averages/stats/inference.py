@@ -251,6 +251,80 @@ def block_bootstrap_group_diff(
     return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
 
 
+def block_bootstrap_spread_diff(
+    panel: pd.DataFrame,
+    focal_decile_col: str,
+    neighbor_decile_col: str,
+    decile_low: int,
+    decile_high: int,
+    value_col: str,
+    match_cols: list[str],
+    date_col: str = "date",
+    block_length: int = 42,
+    n_boot: int = 500,
+    ci: float = 0.90,
+    seed: int = 0,
+) -> dict:
+    """Block-bootstrap CI on the *difference* between two decile spreads
+    computed on the same underlying dates/universe (PREREGISTRATION.md's
+    §7.5 placebo test: a focal MA's `dist_pct` decile spread minus a
+    placebo-neighbor MA's own decile spread). Same principle as
+    `block_bootstrap_spread`'s own high-minus-low computation: the two
+    spreads share the same dates and are correlated, so the difference is
+    computed *within* each draw, using that draw's single set of date
+    weights for both sides -- differencing two separately-bootstrapped
+    CIs afterwards would be wrong.
+    """
+    strata_cols = [date_col, *match_cols]
+
+    def _low_high(decile_col: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+        low_panel = panel.assign(__is_event=panel[decile_col] == decile_low)
+        high_panel = panel.assign(__is_event=panel[decile_col] == decile_high)
+        return (
+            stratum_deltas(low_panel, "__is_event", value_col, strata_cols),
+            stratum_deltas(high_panel, "__is_event", value_col, strata_cols),
+        )
+
+    focal_low, focal_high = _low_high(focal_decile_col)
+    neighbor_low, neighbor_high = _low_high(neighbor_decile_col)
+
+    all_dates = np.array(sorted(
+        set(focal_low[date_col]) | set(focal_high[date_col])
+        | set(neighbor_low[date_col]) | set(neighbor_high[date_col])
+    ))
+    if len(all_dates) == 0:
+        return _summarize_draws(np.array([]), float("nan"), 0, ci)
+    _validate_block_length(len(all_dates), block_length)
+    date_index = {d: i for i, d in enumerate(all_dates)}
+
+    def _idx_vals(table: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+        return table[date_col].map(date_index).to_numpy(), table["delta"].to_numpy()
+
+    fl_idx, fl_vals = _idx_vals(focal_low)
+    fh_idx, fh_vals = _idx_vals(focal_high)
+    nl_idx, nl_vals = _idx_vals(neighbor_low)
+    nh_idx, nh_vals = _idx_vals(neighbor_high)
+
+    def _spread(low_vals, low_idx, high_vals, high_idx, weight) -> float:
+        return _weighted_mean(high_vals, weight[high_idx]) - _weighted_mean(low_vals, weight[low_idx])
+
+    point_focal = (fh_vals.mean() if len(fh_vals) else float("nan")) - \
+        (fl_vals.mean() if len(fl_vals) else float("nan"))
+    point_neighbor = (nh_vals.mean() if len(nh_vals) else float("nan")) - \
+        (nl_vals.mean() if len(nl_vals) else float("nan"))
+    point_estimate = point_focal - point_neighbor
+
+    rng = np.random.default_rng(seed)
+    boot_draws = np.empty(n_boot)
+    for b in range(n_boot):
+        weight = _block_weights(all_dates, block_length, rng)
+        spread_focal = _spread(fl_vals, fl_idx, fh_vals, fh_idx, weight)
+        spread_neighbor = _spread(nl_vals, nl_idx, nh_vals, nh_idx, weight)
+        boot_draws[b] = spread_focal - spread_neighbor
+
+    return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
+
+
 def block_bootstrap_series(
     values_by_date: pd.Series,
     block_length: int = 42,
