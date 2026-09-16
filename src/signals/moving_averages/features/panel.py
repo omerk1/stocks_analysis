@@ -6,16 +6,27 @@ pass through it before being paired with a label, rather than an analysis
 module hand-rolling its own `.shift()`.
 
 `build_panel` is Phase 2's starting-subset feature layer: SMA/EMA at
-lookbacks {20, 50, 200} (features/ma.py), dist_pct/dist_atr/dist_z and the
+lookbacks {20, 50, 150, 200} (features/ma.py -- 150 added for M2,
+PREREGISTRATION.md 2026-09-12), dist_pct/dist_atr/dist_z and the
 `above` state (features/distance.py), slope_log_k at k in {5, 21, 63}
 (features/slope.py), basic SMA/EMA full-stack booleans, (added for M4's
 C2 matched control, DESIGN §6.1) `mom_12_1`/`realized_vol_63`
 (features/context.py), (added for M1, DESIGN §8 -- PREREGISTRATION.md)
 `run_length_bucket` per SMA lookback (features/state.py), SMA only this
-slice, and (added for M1's short-term-reversal confound check,
-PREREGISTRATION.md 2026-09-09) `mom_1_0` (features/context.py).
-`write_panel`/`read_panel` cache it as partitioned parquet per §4.4's
-schema.
+slice, (added for M1's short-term-reversal confound check,
+PREREGISTRATION.md 2026-09-09) `mom_1_0`, and (added for M2,
+PREREGISTRATION.md 2026-09-12) `dist_from_52w_high`/`dist_from_52w_low`
+(features/context.py). `write_panel`/`read_panel` cache it as
+partitioned parquet per §4.4's schema.
+
+`rs_rating` (Trend Template criterion 8, IBD-style RS rank) is
+deliberately *not* joined in here -- it's cross-sectional, index-
+membership-scoped (`relative_strength.compute.compute_stock_vs_market`),
+unlike every feature above (per-ticker time series, no DB access beyond
+this ticker's own bars). M2's own `prepare()` (`modules/stack_minervini.py`)
+joins it onto a panel already built by this module and re-applies this
+same `apply_lag` to just that one new column, rather than this module
+taking on an index-membership dependency for every caller.
 
 Not yet built (later scope, not this phase's): WMA/HMA/KAMA/VWMA, the full
 lookback grid, ribbon/regime features, and point-in-time `mktcap_decile`/
@@ -128,6 +139,10 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     frame["mom_12_1"] = context.mom_12_1(frame["close"])
     frame["realized_vol_63"] = context.realized_vol_63(frame["close"])
     frame["mom_1_0"] = context.mom_1_0(frame["close"])
+    # Added for M2 (PREREGISTRATION.md, 2026-09-12): Trend Template
+    # criteria 6/7 (52-week low/high proximity).
+    frame["dist_from_52w_high"] = context.dist_from_52w_high(frame["close"])
+    frame["dist_from_52w_low"] = context.dist_from_52w_low(frame["close"])
 
     return frame.reset_index().rename(columns={"timestamp": "date"})
 

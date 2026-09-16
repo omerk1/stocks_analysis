@@ -11,6 +11,7 @@ import pytest
 from src.signals.moving_averages.stats.controls import c2_delta
 from src.signals.moving_averages.stats.inference import (
     block_bootstrap_delta,
+    block_bootstrap_group_diff,
     block_bootstrap_series,
     block_bootstrap_spread,
     block_bootstrap_spread_diff,
@@ -105,6 +106,92 @@ def test_block_bootstrap_spread_point_estimate_matches_manual_decile_diff():
     assert result["ci_low"] > 0  # a real, large planted decile gradient
 
 
+def test_block_bootstrap_group_diff_point_estimate_matches_manual_delta_diff():
+    # Two independent, overlapping group columns (not two deciles of the
+    # same column) -- group_a planted with a larger effect than group_b.
+    n_dates, n_tickers = 100, 20
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            group_a = i < 10
+            group_b = i < 6  # a strict subset -- realistic overlap, not disjoint
+            effect = 0.03 if group_a else (0.01 if group_b else 0.0)
+            rows.append({
+                "date": date, "ticker": f"T{i}", "group_a": group_a, "group_b": group_b,
+                "value": effect + rng.normal(0, 0.01), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+
+    result = block_bootstrap_group_diff(
+        panel, "group_a", "group_b", "value", match_cols=["sector", "bucket"],
+        date_col="date", block_length=10, n_boot=200, seed=0,
+    )
+
+    manual_a = c2_delta(panel, "group_a", "value", match_cols=["sector", "bucket"], date_col="date")
+    manual_b = c2_delta(panel, "group_b", "value", match_cols=["sector", "bucket"], date_col="date")
+
+    assert result["point_estimate"] == pytest.approx(manual_a - manual_b, abs=1e-6)
+    assert result["ci_low"] > 0  # group_a's real edge over group_b should survive the CI
+    assert result["n_dates"] == n_dates
+
+
+def test_block_bootstrap_group_diff_is_exactly_zero_when_the_two_groups_are_identical():
+    # The degenerate "no genuine incremental difference" case: group_b is
+    # the *same* partition as group_a, so every stratum's delta_a equals
+    # its delta_b exactly, and the diff is exactly 0 on every bootstrap
+    # draw too (zero variance) -- not just a CI that happens to straddle
+    # zero, the whole distribution collapses onto it.
+    n_dates, n_tickers = 150, 20
+    rng = np.random.default_rng(1)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            group_a = i < 10
+            effect = 0.02 if group_a else 0.0
+            rows.append({
+                "date": date, "ticker": f"T{i}", "group_a": group_a, "group_b": group_a,
+                "value": effect + rng.normal(0, 0.01), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+
+    result = block_bootstrap_group_diff(
+        panel, "group_a", "group_b", "value", match_cols=["sector", "bucket"],
+        date_col="date", block_length=10, n_boot=200, seed=0,
+    )
+
+    assert result["point_estimate"] == pytest.approx(0.0, abs=1e-9)
+    assert result["ci_low"] == pytest.approx(0.0, abs=1e-9)
+    assert result["ci_high"] == pytest.approx(0.0, abs=1e-9)
+    assert result["ci_low"] <= 0 <= result["ci_high"]
+
+
+def test_block_bootstrap_group_diff_ci_straddles_zero_for_two_similarly_sized_null_effects():
+    # A genuinely different pair of partitions, neither carrying any real
+    # effect -- the diff's CI should straddle zero because there's nothing
+    # there, not because the two groups are definitionally identical.
+    n_dates, n_tickers = 150, 20
+    rng = np.random.default_rng(2)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            rows.append({
+                "date": date, "ticker": f"T{i}", "group_a": i < 10, "group_b": i % 2 == 0,
+                "value": rng.normal(0, 0.01), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+
+    result = block_bootstrap_group_diff(
+        panel, "group_a", "group_b", "value", match_cols=["sector", "bucket"],
+        date_col="date", block_length=10, n_boot=200, seed=0,
+    )
+
+    assert result["ci_low"] < 0 < result["ci_high"]
+
+
 # ---- block_bootstrap_spread_diff (PREREGISTRATION.md §7.5 placebo test) ----
 
 def test_block_bootstrap_spread_diff_is_zero_when_deciles_are_identical():
@@ -170,6 +257,7 @@ def test_block_bootstrap_spread_diff_matches_manual_spread_difference():
     # A real focal gradient vs. a decorrelated neighbor: the difference
     # should be clearly positive, CI excluding zero.
     assert result["ci_low"] > 0
+
 
 
 def test_block_bootstrap_delta_handles_empty_input():

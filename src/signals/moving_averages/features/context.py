@@ -2,15 +2,23 @@
 and volatility controls the C2 matched control (§6.1) needs, added now
 because M4 is the first module that needs C2 (see PREREGISTRATION.md).
 
-Not the full §4.3 Context list: `dist_from_52w_high/low`, `days_to_next_earnings`,
-`gap_pct`, `dollar_volume_pctile`, and the full IBD-style `rs_rank` (the
-`relative_strength` module's rating, not this module's simpler `mom_12_1`)
-are all later scope, not built here.
+`dist_from_52w_high`/`dist_from_52w_low` added for M2 (PREREGISTRATION.md,
+2026-09-12 -- Minervini Trend Template criteria 6/7 need them directly).
+Still not built here: `days_to_next_earnings`, `gap_pct`,
+`dollar_volume_pctile`, and the full IBD-style `rs_rank` (the
+`relative_strength` module's rating, not this module's simpler `mom_12_1`
+-- M2 reuses that module's `compute_stock_vs_market` directly rather than
+duplicating it here, see `modules/stack_minervini.py`) are later scope.
 """
 
 from __future__ import annotations
 
 import pandas as pd
+
+# 252 trading days ~= 1 year -- same rolling-window convention as
+# `distance.py::DIST_Z_WINDOW`, per-ticker, never full-sample (CLAUDE.md
+# invariant #3).
+FIFTY_TWO_WEEK_WINDOW = 252
 
 
 def mom_12_1(close: pd.Series) -> pd.Series:
@@ -40,3 +48,26 @@ def mom_1_0(close: pd.Series) -> pd.Series:
     correlated with having just risen over roughly this same window.
     """
     return close.pct_change(21)
+
+
+def dist_from_52w_high(close: pd.Series, window: int = FIFTY_TWO_WEEK_WINDOW) -> pd.Series:
+    """close / rolling_252d_max(close) - 1 -- always <= 0 (or NaN). NaN for
+    a ticker's first `window` days (`.rolling(window)`'s own min_periods
+    default is the full window), same warmup shape as `dist_z`'s 252-day
+    self-normalisation -- not zero/false, per CLAUDE.md invariant #9.
+    Trend-Template criterion 7 ("within 25% of the 52-week high") is
+    `dist_from_52w_high >= -0.25`, built in `modules/stack_minervini.py`
+    with its own explicit NaN mask -- a bare comparison on this column
+    would silently read the warmup region as "not within 25%" (False)
+    instead of undefined.
+    """
+    return close / close.rolling(window).max() - 1
+
+
+def dist_from_52w_low(close: pd.Series, window: int = FIFTY_TWO_WEEK_WINDOW) -> pd.Series:
+    """close / rolling_252d_min(close) - 1 -- always >= 0 (or NaN). Same
+    warmup-NaN shape as `dist_from_52w_high`. Trend-Template criterion 6
+    ("at least 30% above the 52-week low") is `dist_from_52w_low >= 0.30`,
+    built in `modules/stack_minervini.py` with its own explicit NaN mask.
+    """
+    return close / close.rolling(window).min() - 1
