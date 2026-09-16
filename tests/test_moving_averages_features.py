@@ -144,6 +144,41 @@ def test_mom_1_0_formula():
     assert pd.isna(result.iloc[20])  # not enough history yet (needs t-21)
 
 
+def test_dist_from_52w_high_formula_and_na_during_warmup():
+    # Rising then flat close, so the rolling 252-day max is unambiguous.
+    close = pd.Series(np.concatenate([np.arange(100.0, 360.0), np.full(40, 250.0)]))
+    result = context.dist_from_52w_high(close)
+
+    assert result.iloc[:251].isna().all()  # rolling(252) warmup -- invariant #9, not zero/false
+    window = close.iloc[-252:]
+    expected = close.iloc[-1] / window.max() - 1
+    assert result.iloc[-1] == pytest.approx(expected)
+    assert (result.dropna() <= 1e-9).all()  # always <= 0 by construction
+
+
+def test_dist_from_52w_low_formula_and_na_during_warmup():
+    close = pd.Series(np.concatenate([np.arange(360.0, 100.0, -1.0), np.full(40, 150.0)]))
+    result = context.dist_from_52w_low(close)
+
+    assert result.iloc[:251].isna().all()
+    window = close.iloc[-252:]
+    expected = close.iloc[-1] / window.min() - 1
+    assert result.iloc[-1] == pytest.approx(expected)
+    assert (result.dropna() >= -1e-9).all()  # always >= 0 by construction
+
+
+def test_dist_from_52w_high_low_are_na_together_not_just_close_to_warmup_boundary():
+    # Exactly at the boundary: index 251 is the first row with a full
+    # 252-day window (indices 0..251) -- must be the first non-NA row, not
+    # off by one in either direction.
+    close = pd.Series(np.arange(1.0, 400.0))
+    high = context.dist_from_52w_high(close)
+    low = context.dist_from_52w_low(close)
+
+    assert high.iloc[250:252].isna().tolist() == [True, False]
+    assert low.iloc[250:252].isna().tolist() == [True, False]
+
+
 def test_compute_ma_dispatches_to_the_existing_sma_ema_wrappers():
     from src.foundation.market_common.indicators import ema, sma
 
@@ -429,17 +464,38 @@ def test_build_panel_includes_lagged_context_features(conn):
 
     panel = build_panel(conn, ["AAA"])
 
-    assert {"mom_12_1", "realized_vol_63"}.issubset(panel.columns)
+    assert {"mom_12_1", "realized_vol_63", "dist_from_52w_high", "dist_from_52w_low"}.issubset(panel.columns)
     assert panel["mom_12_1"].dtype == np.float32
+    assert panel["dist_from_52w_high"].dtype == np.float32
+    assert panel["dist_from_52w_low"].dtype == np.float32
 
     close_series = pd.Series(closes, index=pd.bdate_range("2020-01-01", periods=n))
     raw_mom = context.mom_12_1(close_series)
     panel_mom = panel.set_index("date")["mom_12_1"]
+    raw_high = context.dist_from_52w_high(close_series)
+    panel_high = panel.set_index("date")["dist_from_52w_high"]
     # Same lag convention as every other feature: row at date d holds the
     # raw value as of date d-1, not d's own value.
     for i in range(255, n):
         row_date, prior_date = close_series.index[i], close_series.index[i - 1]
         assert panel_mom.loc[row_date] == pytest.approx(raw_mom.loc[prior_date])
+        assert panel_high.loc[row_date] == pytest.approx(raw_high.loc[prior_date], rel=1e-4)
+
+
+def test_build_panel_includes_sma_150_and_its_derived_features(conn):
+    # SMA150 added for M2 (PREREGISTRATION.md, 2026-09-12) -- `ma.LOOKBACKS`
+    # now includes 150, so every existing per-lookback feature family
+    # (dist_pct/atr/z, above, slope, run_length_bucket) should have a
+    # _150 column too, same shape as the pre-existing {20,50,200}.
+    n = 220
+    rng = np.random.default_rng(1)
+    closes = list(100.0 + np.cumsum(rng.normal(0, 1.0, n)))
+    _seed_ticker(conn, "AAA", closes, "2020-01-01")
+
+    panel = build_panel(conn, ["AAA"])
+
+    assert {"sma_150", "above_sma_150", "dist_pct_sma_150", "run_length_bucket_sma_150"}.issubset(panel.columns)
+    assert panel["above_sma_150"].dtype == "boolean"
 
 
 def test_build_panel_returns_empty_frame_for_unknown_ticker(conn):
