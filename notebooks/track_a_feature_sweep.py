@@ -37,22 +37,32 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
 from src.foundation.data_processing import db
 from src.foundation.utils.config_loader import load_config
+from src.signals.moving_averages.cli import (
+    SP500_UNIVERSE_AS_OF as AS_OF,
+    SP500_UNIVERSE_COVERAGE_END as COVERAGE_END,
+    SP500_UNIVERSE_COVERAGE_START as COVERAGE_START,
+)
 from src.signals.moving_averages.data import sp500_full_coverage_tickers
 from src.signals.moving_averages.features import ma
 from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
 from src.signals.moving_averages.labels.forward_returns import forward_return
-from src.signals.moving_averages.modules.cross_sectional import daily_rank_ic
+from src.signals.moving_averages.modules.cross_sectional import MIN_TICKERS, daily_rank_ic
 from src.signals.moving_averages.stats.controls import c1_delta, cross_sectional_bucket
 from src.signals.moving_averages.stats.shape import distribution_shape, hit_rate_deltas
 
-AS_OF = "2021-12-31"
-COVERAGE_START = "2010-06-01"
-COVERAGE_END = "2021-12-01"
+# Not imported from cli.py: no canonical DEV_START constant exists there
+# (cli.py's own `start` defaults to None / unrestricted history) -- every
+# other module's script in this study hardcodes this same dev-window start
+# per DESIGN Sec3.3, this one does too rather than inventing a new shared
+# constant unilaterally.
 DEV_START = "2010-01-01"
 HORIZONS = (5, 10, 21, 42, 63, 126)
 SLOPE_K = (5, 21, 63)
@@ -78,7 +88,7 @@ def build_feature_list() -> list[str]:
 
 def is_boolean_feature(series: pd.Series) -> bool:
     vals = series.dropna().unique()
-    return len(vals) > 0 and set(np.unique(vals.astype(float))) <= {0.0, 1.0}
+    return len(vals) > 0 and set(vals.astype(float)) <= {0.0, 1.0}
 
 
 def per_date_median_corr(panel: pd.DataFrame, col_a: str, col_b: str, date_col: str = "date") -> float:
@@ -87,7 +97,7 @@ def per_date_median_corr(panel: pd.DataFrame, col_a: str, col_b: str, date_col: 
         return float("nan")
 
     def _corr(g: pd.DataFrame) -> float:
-        if len(g) < 30:
+        if len(g) < MIN_TICKERS:
             return float("nan")
         return g[col_a].corr(g[col_b], method="spearman")
 
@@ -140,19 +150,94 @@ def enrich_cell(panel: pd.DataFrame, feature: str, horizon: int) -> dict:
     }
 
 
+def make_plots(result: pd.DataFrame) -> None:
+    """DESIGN Sec1.5 / CLAUDE.md's Style section: "Plot before you test" /
+    "Plots before tests. Look at the distribution before you summarise it."
+    This sweep is 348 numeric cells reduced to a sorted table -- a raw
+    outlier or data artifact (e.g. a cache-universe mismatch, a warmup-
+    region leak) would never be visually caught before being logged into
+    EXPLORATION_LOG.md without looking at the actual distributions first.
+    Saved as PNGs under OUTPUT_DIR (gitignored, regenerated on rerun, same
+    convention as the CSVs) -- this function is the reproducible source.
+    """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.hist(result["mean_ic"].dropna(), bins=40)
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("mean daily rank-IC")
+    ax.set_ylabel("count of (feature, horizon) cells")
+    ax.set_title("Distribution of mean IC across all 348 cells")
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "track_a_ic_histogram.png", dpi=120)
+    plt.close(fig)
+
+    top25 = result.head(25).iloc[::-1]
+    fig, ax = plt.subplots(figsize=(9, 8))
+    labels = [f"{r.feature}@{r.horizon}d" for r in top25.itertuples()]
+    ax.barh(labels, top25["mean_ic"])
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("mean daily rank-IC")
+    ax.set_title("Top 25 cells by |mean IC|")
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "track_a_top25_bar.png", dpi=120)
+    plt.close(fig)
+
+    # Visual check of the write-up's specific horizon-shape claim:
+    # dist_from_52w_high/low strengthen at long horizons while SMA-distance
+    # features peak mid-horizon and fade. Plot both directly rather than
+    # asserting it from the sorted table alone.
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for feat in ["dist_from_52w_low", "dist_from_52w_high", "dist_pct_sma_50", "dist_pct_sma_20"]:
+        sub = result[result["feature"] == feat].sort_values("horizon")
+        if sub.empty:
+            continue
+        ax.plot(sub["horizon"], sub["mean_ic"], marker="o", label=feat)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("horizon (trading days)")
+    ax.set_ylabel("mean daily rank-IC")
+    ax.set_title("IC vs. horizon: 52-week range features vs. SMA-distance features")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "track_a_ic_by_horizon.png", dpi=120)
+    plt.close(fig)
+
+    print(f"plots written to {OUTPUT_DIR}: track_a_ic_histogram.png, "
+          f"track_a_top25_bar.png, track_a_ic_by_horizon.png", flush=True)
+
+
 def main() -> None:
     t0 = time.time()
     config = load_config()
     cache_dir = Path(config.data_paths.features) / "moving_averages" / "ma_panel"
 
+    # Compute the expected U1 ticker set up front, regardless of whether we
+    # end up reading from cache or building -- `cli.py build-panel` writes
+    # to this exact same cache path and defaults to a 10-ticker smoke-test
+    # universe when run without `--universe sp500`, so a cache-existence
+    # check alone can't tell a stale/wrong-universe cache from a real one.
+    db_path = db.default_db_path(config.data_paths.raw)
+    conn = db.get_connection(db_path)
+    tickers = sp500_full_coverage_tickers(conn, AS_OF, COVERAGE_START, COVERAGE_END)
+    print(f"n tickers: {len(tickers)}", flush=True)
+
     if (cache_dir / "year=2010").exists():
         panel = read_panel(cache_dir, start=DEV_START, end=AS_OF)
-        print(f"panel read from cache {cache_dir} {panel.shape} t={time.time()-t0:.0f}s", flush=True)
+        expected = set(tickers)
+        cached = set(panel["ticker"].unique())
+        if cached != expected:
+            raise RuntimeError(
+                f"Cached panel at {cache_dir} does not match the expected {len(expected)}-ticker "
+                f"S&P 500 U1 universe: {len(cached)} tickers in cache, "
+                f"{len(expected - cached)} expected tickers missing, "
+                f"{len(cached - expected)} unexpected tickers present. Someone likely ran "
+                "`cli.py build-panel` with different --tickers/--universe against this same cache "
+                "path -- delete the stale cache or investigate before trusting this sweep's numbers."
+            )
+        conn.close()
+        print(f"panel read from cache {cache_dir} {panel.shape} t={time.time()-t0:.0f}s "
+              f"(universe verified: {len(cached)} tickers match)", flush=True)
     else:
-        db_path = db.default_db_path(config.data_paths.raw)
-        conn = db.get_connection(db_path)
-        tickers = sp500_full_coverage_tickers(conn, AS_OF, COVERAGE_START, COVERAGE_END)
-        print(f"n tickers: {len(tickers)}", flush=True)
         panel = build_panel(conn, tickers, start=DEV_START, end=AS_OF)
         conn.close()
         print(f"panel built {panel.shape} t={time.time()-t0:.0f}s", flush=True)
@@ -207,17 +292,21 @@ def main() -> None:
     for col in numeric_cols:
         result[col] = np.nan
     result["enrich_kind"] = pd.array([None] * len(result), dtype="object")
+    result["enrichment_error"] = pd.array([None] * len(result), dtype="object")
     top_idx = result.head(TOP_N_ENRICH).index
+    n_enrich_failed = 0
     for idx in top_idx:
         feat, h = result.loc[idx, "feature"], int(result.loc[idx, "horizon"])
         try:
             enriched = enrich_cell(panel, feat, h)
         except Exception as exc:  # noqa: BLE001 -- log and continue, don't lose the sweep over one bad cell
             print(f"  enrichment FAILED for {feat}@{h}: {exc}", flush=True)
+            result.loc[idx, "enrichment_error"] = str(exc)
+            n_enrich_failed += 1
             continue
         for k, v in enriched.items():
             result.loc[idx, k] = v
-    print(f"enrichment done t={time.time()-t0:.0f}s", flush=True)
+    print(f"enrichment done ({n_enrich_failed} failures of {len(top_idx)} attempted) t={time.time()-t0:.0f}s", flush=True)
 
     out_path = OUTPUT_DIR / "track_a_feature_sweep.csv"
     result.to_csv(out_path, index=False)
@@ -242,8 +331,10 @@ def main() -> None:
     redundancy.to_csv(redundancy_path, index=False)
     print(f"wrote {redundancy_path} ({len(redundancy)} rows) t={time.time()-t0:.0f}s", flush=True)
 
+    make_plots(result)
+
     print("\n=== TOP 25 CELLS BY |mean IC| ===")
-    print(result.head(25)[["feature", "horizon", "mean_ic", "n_dates", "c1_read", "hit_rate_delta_c1",
+    print(result.head(25)[["feature", "horizon", "mean_ic", "n_dates", "n_rows", "c1_read", "hit_rate_delta_c1",
                             "win_loss_ratio", "skew"]].to_string())
 
     print("\n=== REDUNDANCY: dist_pct/atr/z pairs, median per-date Spearman ===")
