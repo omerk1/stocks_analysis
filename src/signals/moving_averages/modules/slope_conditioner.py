@@ -90,6 +90,9 @@ def _delta_cell(
                 "point_estimate": float("nan"), "n_dates": subset["date"].nunique() if len(subset) else 0}
 
     edge = max(abs(boot["ci_low"]), abs(boot["ci_high"])) if not pd.isna(boot["ci_low"]) else float("nan")
+    ci_excludes_zero = (
+        None if pd.isna(boot["ci_low"]) else not (boot["ci_low"] <= 0 <= boot["ci_high"])
+    )
 
     return {
         **label,
@@ -106,7 +109,14 @@ def _delta_cell(
         "c2_n_dates_boot": boot["n_dates"],
         "kill_threshold": kill_threshold,
         "edge": edge,
+        # `killed` is exactly PREREGISTRATION.md's pre-registered rule
+        # (max(|ci_low|,|ci_high|) < floor) -- it does NOT mean "no real
+        # effect" when False. A cell can have `killed=False` and still
+        # have a CI spanning zero (an inconclusive/underpowered read, not
+        # a confirmed effect) -- `ci_excludes_zero` is the separate field
+        # that actually answers "is there a distinguishable effect here."
         "killed": (edge < kill_threshold) if not pd.isna(edge) else None,
+        "ci_excludes_zero": ci_excludes_zero,
     }
 
 

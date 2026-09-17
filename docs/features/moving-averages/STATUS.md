@@ -7,9 +7,11 @@ current, for "what do we actually know and what's still open." Full detail alway
 in `PREREGISTRATION.md` (per-module narrative) and `EXPERIMENTS.csv` (per-cell numbers,
 every tested facet, whatever it found); this file points there rather than re-deriving.
 
-Next up: M6.2 (last of the minimal-core list), then the whole-grid FDR pass. M5 is
-done (see below) — see `docs/backlog.md` for the remaining minimal-core modules, and
-the saturation-watch note below before starting M6.2 on autopilot.
+**Minimal-core list complete as of 2026-09-17** (M1, M2, M4, M5, M6.2, M11, plus §7.5 —
+every item on DESIGN §12's list has now been run at least once). Next up: the
+whole-grid FDR pass — its own trigger condition ("minimal-core completion") has fired,
+see that section below. Not yet done: the reversal-robustness follow-up on M6.2's two
+confirmed cells, and the final report.
 
 ## Modules run
 
@@ -21,6 +23,7 @@ the saturation-watch note below before starting M6.2 on autopilot.
 | **§7.5** — Level effects vs. trend effects (placebo test) | 4th, 2026-09-12 (`873c112`, PR #73, merged) | **Tier 4, all 3 groups — folklore confirmed, no group survives.** SMA200 vs {187,193,207,213}: killed at the trivial step, focal's own C2 CI spans zero (no detectable effect at SMA200 or any of its 4 neighbors). SMA50 vs {47,53}: **same trivial mechanism** — focal C2 CI spans zero (`[-0.006533,+0.000326]`); an earlier in-conversation summary of this cell mischaracterized it as "real effect killed by neighbor-indistinguishability," corrected against the raw output before logging. EMA21 vs {19,23}: the one group with a real, individually CI-excluding-zero focal effect (`-0.004585 [-0.007898,-0.001413]`) — killed at the intended step, indistinguishable from both untraded neighbors (both `diff_g,n` CIs span zero, and both neighbors show essentially the same effect EMA21 does). | 3 group-level tests declared and run as 3 (not the 11 individual lookback cells) — no dedup issue, declared correctly from the start. | Not applicable — no group reached "confirmed," so the pre-registered cost step (CLAUDE.md invariant #8) never fires for any of the three. | Cheapest, highest-signal item left on the minimal-core list (DESIGN §7.5: "the most elegant test... cheap to run either way"); motivated directly by M11's SMA20 cost-viable reading and the SMA200 watch below. | `PREREGISTRATION.md` §7.5 entry; `EXPERIMENTS.csv` (3 rows: `placebo_sma200_h21`, `placebo_sma50_h21`, `placebo_ema21_h21`). |
 | **M2** — Stack states and Minervini ablation | 5th, 2026-09-13 (`44f5589`, branch `analysis/m2-stack-minervini`, PR pending) | **Part (a): module not killed — one of two primary cells survives.** `stack_fully_bullish`: **Tier 4**, no standalone effect (C2 CI spans zero) and the incremental-vs-M1 test is killed (diff CI `[-0.066%,+0.086%]`, both endpoints under the 0.10% floor — the full stack adds nothing over `above_sma_50` on the bullish side). `stack_fully_bearish`: **Tier 3**, real standalone effect (C2 `+0.474%` CI `[+0.161%,+0.776%]`) **and** the incremental test is *not* killed (diff CI `[+0.419%,+1.740%]`, both endpoints far past 0.10% — the stack adds real info beyond `above_sma_50` on the bearish side), clears cost cleanly at every reading (0.286%/yr hurdle vs. point +5.68%/yr, near edge +1.93%/yr) — but capped at Tier 3 twice over: missing FDR/holdout infra (every Tier-3 cell in this study) **and** DESIGN §7.3's survivorship cap (it's a weak/bearish-state bucket, delisted-data ceiling). Confound checked 2026-09-17 (reversal-robustness addendum): adding `rev_tercile`/`mom_1_0` to the C2 match set attenuates the standalone delta by ~32% (`+0.4675%`→`+0.3188%`) but the CI still excludes zero and clears cost at every reading — reversal explains part, not all, of the gross number; tier unchanged (still capped by FDR/holdout infra + §7.3 survivorship, not by this confound). **Part (b) (ablation, no kill criterion by design): DESIGN's own prior does not hold** — criteria 6–8 don't dominate positively; criterion 7 (near 52w high) is the single largest coefficient and is *negative*; MA-stack criteria 4/5 are comparable-or-larger. Corroborated by the primary-cell sign (all-8-true subset worse than all-8-false). Caveat: `linear_attribution` has no control at all, not even C1 date-matching — first-pass sign/magnitude only. | Part (a): 2 primary cells declared, run as 2. Part (b): 8 per-criterion attribution coefficients declared as the `N_tests` contribution (not the 256 subsets — DESIGN's own attribution framing). | `stack_fully_bullish`: fails both point and CI. `stack_fully_bearish`: clears at every reading (see above). | DESIGN's own words: "the highest expected-value module in the doc," kill: none on the ablation. Chosen alongside §7.5 to make parallel progress toward the minimal-core list. | `PREREGISTRATION.md` M2 entry + 2026-09-13 wording-correction and control-tier-caveat addenda; `FINDINGS.md` (`stack_fully_bearish` full entry); `EXPERIMENTS.csv` (10 rows: 2 primary cells + 8 ablation coefficients). Independently reproduced end-to-end against the real DB (full 408-ticker panel rebuild) by the coordinating session before logging — primary-cell numbers match the agent's report to the reported precision. |
 | **M5** — Touch/test/bounce behaviour | 6th, 2026-09-17 | **Tier 4, all 6 primary cells killed — support/resistance from MAs is folklore, cleanly.** 3 groups (SMA200, SMA50, EMA21) × 2 directions (`from_above`/`from_below`) vs. §7.5's own synthetic-neighbor MAs: every cell's `max(\|ci_low\|,\|ci_high\|)` is far under the pre-registered 2pp kill floor (largest: 0.61pp at `sma200/from_below`, most sit at 0.14–0.27pp) — not a borderline call, and every one of the 6 CIs spans zero on the corrected, canonical run. Well-powered (smallest cell: 7,257 events, 2,102 dates, 402 tickers), not a "too thin to tell" null. Caveats named in full in `PREREGISTRATION.md`: close-only touch definition (no intraday wick — DESIGN's own deferred sub-question); the synthetic-neighbor design rules out "watched exact level" vs. "unwatched near-identical level," not "any MA region" vs. "no support/resistance at all" (same scope limit §7.5 already carries). **Execution note, caught before logging, not a result-affecting bug**: a first run of the real-data script omitted `start="2010-01-01"`, pulling full ticker history back to 1970 for some names — the holdout boundary was never crossed, but the dev-window scope was wrong; caught, fixed, and rerun before anything was logged. | 6 primary cells (3 groups × 2 directions) declared and run as 6 — same "group is the unit of inference" convention as §7.5, whose synthetic-neighbor machinery this module reuses directly rather than re-deriving. No FDR run yet (deferred — see below). | Not applicable — mechanism question (does the level itself matter), not a tradeable-edge question, same convention as §7.5. | Last of the minimal-core list's touch/support-resistance question (DESIGN §5) — decision to continue past M2's saturation-watch note (below) rather than stop, made 2026-09-17. New machinery: `features/touch.py` (ex-ante event extraction — away/touch/direction/outcome), reusing `features/state.py`'s run-length primitives and §7.5's own synthetic-neighbor groups; `modules/touch_bounce.py` reuses the existing C1/C2 block-bootstrap infrastructure unchanged (a hold/no-hold flag is just another `value_col`). | `PREREGISTRATION.md` M5 entry + 2026-09-17 "Result" section; `EXPERIMENTS.csv` (6 rows); no `FINDINGS.md` entry (Tier 4). |
+| **M6.2** — Slope as conditioner | 7th (last of minimal core), 2026-09-17 | **2 of 12 cells confirmed (CI excludes zero) — the study's clearest new signal since M2's `stack_fully_bearish`.** `extension_x_slope`/SMA50/top-decile: **Tier 3**, C2 `−0.592%` CI `[−1.047%,−0.175%]`, clears cost cleanly (0.806%/yr hurdle vs. point −7.11%/yr, near edge −2.10%/yr). `touch_x_slope`/SMA50/`from_above`: **Tier 3**, C2 `−5.75pp` CI `[−10.22pp,−1.94pp]`, cost n/a (mechanism read, M5's own convention). **Both say the same thing from two independent constructions (a decile restriction, an event-based restriction): an actively rising 50-day, conditional on already being extended/testing, predicts *worse* near-term outcomes than the same setup on a falling 50-day** — counter to the "uptrend makes a pullback safer" folklore. Live, unresolved caveat on both: no short-term-reversal control (M1/M2's own gap, only partially closed for `stack_fully_bearish`, not run here at all) — the "falling" side of both cells is a comparatively rare subgroup (7.1% of the SMA50 top-decile population) plausibly reached via a sharp recent bounce `mom_12_1` can't see. **1 cell unresolved** (`extension_x_slope`/SMA200/top): `InsufficientBlocksError` — only 0.5% of that cell's population has `slope_sign=False`, vs. 7.1% at SMA50 — a data-scarcity finding, mechanistically explained (a 200-day SMA moves far slower than price) not a new SMA200 anomaly. **9 of 12 cells inconclusive** (CI spans zero, edge wide enough to still contain a meaningful effect — not "killed," just not detected). | 12 primary cells (3 sub-questions × 2 lookbacks × 2 facets) declared and run as 12 — no dedup collapse expected (rising-within-above and rising-within-below are different row populations, not complements), flagged for the FDR pass to actually verify. | Only sub-question 2 (extension × slope) implies a tradeable claim; triggered for the one confirmed cell there (see above) — clears at every reading. Sub-questions 1/3 not applicable / not triggered. | DESIGN's own words: "the most likely Tier-1 producer in the whole slope module" — last item on the minimal-core list (DESIGN §12). Golden-cross × slope (DESIGN's 4th named sub-question) deferred — needs new crossover-event-detection machinery, a real build not a faceting exercise. | `PREREGISTRATION.md` M6.2 entry + 2026-09-17 "Result" section; `FINDINGS.md` (2 new entries, "Finding 1"/"Finding 2"); `EXPERIMENTS.csv` (12 rows). |
 
 **M2 plateau note:** `stack_fully_bullish`'s and `stack_fully_bearish`'s C2 signs both
 agree with all four individual `above_sma_{20,50,150,200}` cells' own signs — passes
@@ -125,19 +128,22 @@ placebo neighborhood," which is mildly against a SMA200-specific mechanism and m
 for "SMA200's oddities are a small-effect/low-power story, not a level-specific one."
 Not resolved; still owner-less.
 
-## Whole-grid FDR pass — open, owner-less
+## Whole-grid FDR pass — TRIGGERED 2026-09-17, not yet run
 
-Not run. DESIGN §6.6's correction denominator (`N_tests`) accumulates across the whole
-pre-registered grid, not per module — every module to date has deferred it with an
-identical note, and nobody has been assigned to actually run it once the grid is
-"enough."
+**Trigger condition #2 (minimal-core completion) has fired**: M2, M5, and M6.2 have
+now all been attempted, joining M1, M4, M11, and §7.5 — every item on DESIGN §12's
+minimal-core list has run at least once. This is no longer a deferred, owner-less
+item — it is the next required piece of work before this study can claim any result
+above Tier 3, per DESIGN §6.6's correction denominator (`N_tests`) accumulating
+across the whole pre-registered grid, not per module.
 
-**Trigger condition (2026-09-09):** the pass runs at whichever comes first —
+**Trigger condition (2026-09-09, for reference):** the pass runs at whichever comes
+first —
 1. **Before any module is promoted above Tier 3.** Tier 2 requires "survives C2 and
    FDR" (DESIGN §9.2) — that's not assignable without the correction having actually
    run, so a Tier-2-or-above call on any facet is a hard trigger, not just a milestone.
 2. **Minimal-core completion** — once M2, M5, and M6.2 have also been attempted
-   (joining M1, M4, and now M11), whichever of the two conditions above is hit first.
+   (joining M1, M4, and now M11). **This is the condition that fired.**
 
 As part of that pass, both open dedup items below get resolved properly, not deferred
 again:
@@ -160,8 +166,10 @@ again:
 | §7.5 | 3 (group-level) | Already deduplicated at declaration — the unit is the group (focal + its whole neighborhood), not the 11 individual lookback cells. |
 | M2 | 2 (part a primary) + 8 (part b attribution coefficients) | Part (a)'s 2 cells are declared independent (bullish/bearish are not mirrors of each other, unlike M1). Part (b)'s 256 subsets are explicitly not counted (DESIGN's own attribution framing) — only the 8 linear coefficients are. |
 | M5 | 6 (group × direction) | Declared independent at the group level, same convention as §7.5 (whose neighbor groups this module reuses directly) — a group × direction pair is one test, not one per lookback. |
+| M6.2 | 12 (3 sub-questions × 2 lookbacks × 2 facets) | Declared independent at declaration (rising-within-above and rising-within-below are different row populations, not algebraic mirrors the way M1's above/below pair turned out to be) — **not yet verified**, same caveat as M4's own unresolved correlation check; the FDR pass should confirm this before trusting the 12, not just cite the declaration. |
 
-More modules (M6.2) will add rows here as they're pre-registered.
+Every minimal-core module has now contributed a row — this table is complete pending
+the FDR pass itself actually running against it.
 
 **This changes the 30 — and probably the 90 too.** Naively summing the raw declared
 counts (90 + 30 + 5 = 125, before any later module adds its own) overstates the actual
@@ -262,3 +270,21 @@ named highest-value part of the slope module, "the most likely Tier-1 producer i
 whole slope module" per DESIGN §6, and is next regardless), but it does mean the
 whole-grid FDR pass's eventual denominator is looking more, not less, top-heavy on one
 module's one cell — worth keeping in view once M6.2 lands and the FDR pass actually runs.
+
+**M6.2 update (2026-09-17): the "one lone survivor" shape is over — DESIGN's own prior
+for this module paid off.** Minimal core is now complete (7 items run: M1, M2, M4, M5,
+M6.2, M11, §7.5), and the running count is no longer "6 modules Tier ≤3, one survivor."
+M6.2 alone confirmed 2 more Tier-3 cells (`extension_x_slope`/SMA50/top,
+`touch_x_slope`/SMA50/`from_above` — see the Modules run table above), both pointing
+the same direction from independent constructions. **Total across the whole study:
+3 Tier-3 survivors** (`stack_fully_bearish`, and these two), everything else Tier 4 or
+below-threshold. This is squarely inside DESIGN §1.5's own expected range (100+ Track A
+candidates → ~20 promoted → ~10 pre-registered → **3–6 survive to Tier 1/2** — these 3
+are Tier 3, one rung short, entirely because the FDR/holdout infrastructure that would
+let any of them clear that bar has never been run, not because the effects themselves
+are weak). **The early-stop clause no longer applies on any reading** — it was written
+for "4–5 modules in a row, no survivor," and this is now the opposite shape: multiple
+independent, real, CI-excluding-zero effects, capped only by infrastructure. **The
+whole-grid FDR pass is the load-bearing next step for the whole study, not an optional
+housekeeping item** — it is the only thing standing between "3 Tier-3 cells" and an
+actual Tier 1/2 verdict on any of them.

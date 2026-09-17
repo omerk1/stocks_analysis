@@ -461,3 +461,121 @@ rebuild) by the coordinating session, via `stats/shape.py` (new: `hit_rate_delta
 `distribution_shape`), wired into `modules/stack_minervini.py::_cell_row`. Full numbers
 (including `n_wins`/`n_losses`/`mean_win`/`mean_loss`) in `EXPERIMENTS.csv`'s notes
 field for both primary cells.
+
+---
+
+## M6.2 — Slope as conditioner (2026-09-17)
+
+### `extension_x_slope`, SMA50 top decile, 21d ("Finding 1")
+
+**Hypothesis:** DESIGN §6.2's own named sub-question — "is +5 ATR above a flat 50-day
+a different object from +5 ATR above a steeply rising one" — restated as a testable
+claim: among stocks already in the top decile of `dist_atr_sma_50` (M4's own
+"extended" territory), forward-21-day return differs depending on whether the 50-day
+is rising or falling.
+
+**Why it was plausible:** DESIGN's own prior for this whole module — "conditioning
+demands far less of the data than prediction does," M6.2 named as "the most likely
+Tier-1 producer in the whole slope module." M4 had already established that extension
+itself (top vs. bottom decile) predicts lower forward returns; this asks whether
+*slope*, not just distance, further sharpens that read.
+
+**What was run:** Restrict the main cached panel to `dist_atr_sma_50`'s top decile
+(per-date `cross_sectional_bucket`), then `stats.inference.block_bootstrap_delta` with
+`group_col=slope_sign_sma_50` (sign of the already-cached, already-lagged
+`slope_log_21_sma_50`), `value_col=fwd_ret_21`, C2 match columns unchanged
+(`mom_tercile`/`vol_tercile`/`sector`), block length 42, 500 draws, 90% CI — the same
+primitive every other module's C1/C2 delta uses, applied to a pre-restricted
+population rather than the whole panel.
+
+**The number(s):** C2 delta (rising minus falling, within the top decile) **−0.592%**
+per 21d, 90% CI **[−1.047%, −0.175%]** — excludes zero. Read: among equally-extended
+stocks, an actively rising 50-day predicts a *lower* forward return than a
+flattening/falling one — the opposite of "a rising trend makes overextension safer."
+
+**Effective N:** 104,129 rows, 2,747 distinct dates, 402 tickers (the "rising" side is
+94,516 of these; the "falling" side is only 7.1% of the top-decile population — a real
+but comparatively rare subgroup, noted as a live caveat below).
+
+**Cost:** combined "top-decile-and-rising" flag's own turnover: 8.061 flips/ticker-yr
+→ hurdle 0.806%/yr (`stats/costs.py`, 10bps/rt, same convention as every prior
+module). Point, annualized (×12): −7.11%/yr, clears. Near edge (−2.10%/yr): clears.
+Far edge (−12.56%/yr): clears. Clears at every reading.
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
+in this study carries; clearing cost doesn't lift it.
+
+**Argue against this result (not resolved here, flagged as live alternatives):** no
+short-term-reversal control (`mom_12_1` skips the most recent month; a stock reaching
+top-decile-extension-above-a-falling-50-day plausibly got there via a sharp, very
+recent bounce this cell's C2 spec can't see) — the same gap M1/M2 named and only
+partially closed elsewhere in this study, not run here at all. M6.3's own explicit
+warning about post-earnings-gap/low-float contamination of the top slope decile
+applies to this cell's "falling despite being far above" side specifically. The
+"falling" side's rarity (7.1% of the top-decile population) means this is a real
+effect on a specific, non-majority subgroup, not (yet shown to be) a general one.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
+`rev_tercile`/`mom_1_0`-augmented C2 match set (M1's own precedent) to rule out
+short-term reversal as the actual driver.
+
+**Plateau check:** sign agrees with M4's own SMA50 decile-spread sign (extension
+already predicts lower returns; this cell's "rising side underperforms the falling
+side within the same extended decile" intensifies that pattern rather than
+contradicting it).
+
+### `touch_x_slope`, SMA50 from_above, 21d ("Finding 2")
+
+**Hypothesis:** DESIGN §6.2's own named sub-question — "MA touch with rising vs
+falling MA — support in an uptrend vs resistance in a downtrend" — restated: among
+first-touch-of-the-50-day events approaching from above (M5's own event definition,
+applied here to the real MA only, no synthetic-neighbor comparison), `P(hold)` differs
+depending on whether the 50-day is rising or falling at the touch day.
+
+**Why it was plausible:** Same DESIGN prior as Finding 1 above — a conditioning
+question, not a standalone-signal one. Directly motivated by M5's own touch/bounce
+event machinery (`features/touch.py`), reused here unchanged rather than rebuilt.
+
+**What was run:** `features/touch.py::touch_events` on the main cached panel's
+`dist_atr_sma_50` (the real MA, not a synthetic neighbor), restricted to `direction=
+from_above`, then `block_bootstrap_delta` with `group_col=slope_sign_sma_50` (slope
+sign at the touch day), `value_col=hold_flag`, same C2 match columns, block length 10
+(M5's own convention for sparse, non-overlapping touch events).
+
+**The number(s):** C2 delta (rising minus falling) **−5.75pp**, 90% CI **[−10.22pp,
+−1.94pp]** — excludes zero, far past M5's own 2pp floor. Read: a support test on a
+50-day that's still rising holds *less* often than the same test on a falling
+50-day — counter to the folklore that an established uptrend makes a pullback safer
+to buy.
+
+**Effective N:** 14,138 events, 2,410 distinct dates, 402 tickers.
+
+**Cost:** not applicable, per this module's own pre-registered convention — a
+hold-rate comparison is a mechanism read (does the level's own trend direction
+matter), not a tradeable-edge question on its own, same reasoning M5 used.
+
+**Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study.
+
+**Argue against this result:** no parent-module sign to check this against directly
+(M5 found no real-vs-synthetic distinction at any lookback — a different axis
+entirely); its own internal-consistency read is the same sign at SMA200/`from_above`
+(−8.05pp) though that cell's CI spans zero and is much noisier (`n_events=6,107`) — a
+directionally-consistent, not lone-pixel, read, but not independent confirmation
+either. The outcome window (5 trading days, M5's own convention) is short — this
+cell's CI spans a 5x range between its near and far edges, so the *magnitude* is much
+less certain than its sign. No short-term-reversal control here either, same caveat as
+Finding 1.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check; a longer
+outcome-horizon robustness check (5 days is M5's own first-pass choice, not
+DESIGN-derived).
+
+**Both findings, read together:** two independently constructed cells (a decile
+restriction vs. an event-based restriction), same lookback, same sign — an actively
+rising 50-day, conditional on already being in an extended or testing configuration,
+predicts *worse* near-term outcomes than an otherwise-identical setup on a
+flattening/falling 50-day. Worth naming as a soft corroboration across constructions,
+not a formal plateau check (these aren't neighboring lookbacks, they're different
+questions arriving at the same directional read). Full numbers, the unresolved SMA200
+extension cell, and the 9 inconclusive cells: `PREREGISTRATION.md`'s M6.2 "Result"
+section; `EXPERIMENTS.csv` (12 rows).

@@ -1716,3 +1716,117 @@ slice rather than rushed. `slope_pctile` terciles (vs. this slice's binary
 `slope_sign`) are also deferred — DESIGN mentions both, but every one of its own named
 sub-questions is phrased in rising-vs-falling (sign) terms, so the sign-only version is
 this slice's literal reading of what was asked, not an arbitrary simplification.
+
+### Result (2026-09-17)
+
+Ran against the real U1 panel (405 S&P 500 constituents, 2010-01-04 → 2021-12-31 — the
+main cached panel, correct window from the start, no repeat of M5's execution slip).
+
+**2 of 12 cells confirmed (CI excludes zero, clears their own floor); 1 cell
+unresolved (thin-stratum, not killed and not confirmed, a genuine data-scarcity
+finding in its own right); the remaining 9 are CI-spans-zero and inconclusive — not
+"killed" under the pre-registered rule, since their CI edge is wide enough to still
+contain an economically meaningful effect, just not a detected one.**
+
+| sub_question | lookback | facet | n_events | n_dates | c2 | ci_low | ci_high | edge | read |
+|---|---|---|---|---|---|---|---|---|---|
+| state_x_slope | 50 | above | 560,242 | 2,747 | +0.066% | −0.158% | +0.286% | 0.286% | inconclusive |
+| state_x_slope | 50 | below | 165,802 | 2,728 | −0.015% | −0.207% | +0.154% | 0.207% | inconclusive |
+| state_x_slope | 200 | above | 720,928 | 2,747 | −0.102% | −0.311% | +0.102% | 0.311% | inconclusive |
+| state_x_slope | 200 | below | 110,430 | 2,747 | −0.034% | −0.260% | +0.214% | 0.260% | inconclusive |
+| extension_x_slope | 50 | top | 104,129 | 2,747 | **−0.592%** | **−1.047%** | **−0.175%** | 1.047% | **confirmed** |
+| extension_x_slope | 50 | bottom | 30,330 | 2,551 | −0.107% | −0.506% | +0.270% | 0.506% | inconclusive |
+| extension_x_slope | 200 | top | 111,154 | 2,747 | n/a | n/a | n/a | n/a | **unresolved** |
+| extension_x_slope | 200 | bottom | 26,646 | 2,362 | +0.113% | −0.352% | +0.570% | 0.570% | inconclusive |
+| touch_x_slope | 50 | from_above | 14,138 | 2,410 | **−5.75pp** | **−10.22pp** | **−1.94pp** | 10.22pp | **confirmed** |
+| touch_x_slope | 50 | from_below | 6,480 | 1,845 | +1.18pp | −2.17pp | +4.23pp | 4.23pp | inconclusive |
+| touch_x_slope | 200 | from_above | 6,107 | 1,887 | −8.05pp | −17.31pp | +2.36pp | 17.31pp | inconclusive |
+| touch_x_slope | 200 | from_below | 3,769 | 1,525 | −4.67pp | −13.82pp | +4.13pp | 13.82pp | inconclusive |
+
+**Finding 1 — `extension_x_slope`, SMA50, top decile:** among stocks already ≥ the top
+decile of `dist_atr_sma_50` (already deep in M4's "extended" territory), those where the
+50-day is **rising** show a **lower** forward 21-day return than those where it's
+**falling**, C2 (mom/vol/sector-matched) `−0.592%` per 21d, CI `[−1.047%, −0.175%]`,
+excludes zero. **Cost (invariant #8, triggered since this cell is confirmed):**
+combined "top-decile-and-rising" flag turnover 8.061 flips/ticker-yr → hurdle
+0.806%/yr (10bps/rt, `stats/costs.py`). Annualized (×12): point −7.11%/yr, near-zero
+edge −2.10%/yr, far edge −12.56%/yr — **clears at every reading.**
+
+**Finding 2 — `touch_x_slope`, SMA50, from_above:** among first-touch-of-the-50-day
+events approaching from above (M5's own event definition, real MA only), touches where
+the 50-day is **rising** at the touch show a **lower** `P(hold)` than touches where it's
+**falling** — C2 `−5.75pp`, CI `[−10.22pp, −1.94pp]`, excludes zero, far past the 2pp
+floor. **Cost: not applicable**, per this entry's own pre-registered convention
+(mechanism read, same as M5 itself).
+
+**Both findings point the same direction, at the same lookback, from two independently
+constructed cells (a decile restriction vs. an event-based restriction) — worth naming
+as a soft corroboration, not a formal plateau check:** an actively rising 50-day,
+conditional on already being in an extended/testing configuration, is associated with
+*worse* near-term outcomes than an otherwise-identical setup on a flattening/falling
+50-day. This runs counter to the common folklore reading ("buy the dip in an uptrend is
+safer than in a downtrend") — DESIGN itself flagged this general shape as plausible
+("is +5 ATR above a flat 50-day a different object... almost certainly yes").
+
+**Plateau check (as pre-registered):** Finding 1's sign agrees with M4's own SMA50
+decile-spread sign (`dist_atr_sma_50`'s top-minus-bottom C2 spread is negative,
+`EXPERIMENTS.csv`'s `dist_pct_sma_20_h21`-family rows — extension predicts lower
+forward returns; this cell's "rising side underperforms the falling side within the
+same extended decile" is a same-direction intensification of that pattern, not a
+contradiction). Finding 2 has no parent-module sign to check against (M5 found no
+real-vs-synthetic effect at all, a different axis) — its own internal consistency check
+(same sign at SMA200/`from_above`, `−8.05pp`, though CI-spans-zero and much noisier at
+`n_events=6,107`) is a directionally-consistent, not lone-pixel, read.
+
+**Argue against both findings (not resolved here, flagged as live alternatives):**
+- **No short-term-reversal control** (same gap M1/M2 already named and only partially
+  closed for `stack_fully_bearish` — not run here at all): a stock that reaches
+  top-decile-extension-above-a-falling-50-day plausibly got there via a sharp,
+  recent bounce/squeeze — its very recent (< 1 month) return pattern, not captured by
+  `mom_12_1` (skips the most recent month), could itself explain the gap on both sides
+  of this comparison.
+  M6.3's own explicit warning ("the top slope decile is heavily contaminated by
+  post-earnings-gap and low-float names") is exactly the composition-effect risk that
+  applies here too, on the "falling despite being far above" side specifically.
+- **Both confirmed cells' "falling" side is a comparatively rare population**
+  (`slope_sign=False` is 7.1% of the SMA50 top-decile row population; M5's from_above
+  touch events split more evenly) — a real effect on a rare subpopulation is still a
+  real result, but its generality (does it hold outside these specific
+  extended/touching conditions) is untested.
+- **Sub-question 3's 5-day outcome window is short and noisy** — Finding 2's own CI is
+  wide relative to its point estimate (a 5x range between near and far edges), a wider
+  outcome window is a natural robustness follow-up, not built here.
+
+**Finding 3 (unresolved, a data-scarcity finding, not a confound) — `extension_x_slope`,
+SMA200, top decile:** `InsufficientBlocksError` — traced directly (not inferred): within
+the top decile of `dist_atr_sma_200`, only 544 of 111,698 C2-eligible rows (0.5%) have
+`slope_sign_sma_200 = False` (falling) — vs. 7.1% at the equivalent SMA50 cell. Once
+stratified by (date, `mom_tercile`, `vol_tercile`, `sector`), only 112 distinct dates
+have *both* sides of a stratum populated, short of the block-bootstrap's 126-date
+minimum (`MIN_BLOCKS × block_length = 3 × 42`). **Mechanistically explicable, not
+mysterious**: a 200-day SMA moves far more slowly than price, so "already many ATRs
+above the 200-day, but the 200-day itself hasn't yet turned down" is a rare, transient
+combination by construction — unlike the 50-day, which turns over often enough for a
+"still falling but price already far above it" state to occur more than an order of
+magnitude more often. **Cross-reference to `STATUS.md`'s SMA200 watch**: this is a
+different mechanism than the three prior SMA200 oddities logged there (M4's `dist_z`
+window instability, M1's lb200 row-loss/skew, M11's `dist_pct_sma_200_h21` CI-spanning
+result) — those were about instability or no-detectable-effect; this is about a
+genuinely thin subpopulation at the intersection of two SMA200-derived conditions,
+which is a *structural* consequence of 200 being a long, slow-moving window, not a
+newly-suspicious anomaly. Logged as context for whoever eventually does the SMA200
+audit, not folded into that watch item's trigger count as a 4th instance — the
+mechanism here is understood, not open.
+
+**Tier: 3** for both confirmed cells (Finding 1, Finding 2) — capped by the same
+missing FDR/holdout infrastructure every Tier-3 cell in this study carries, clearing
+cost (Finding 1) or not needing to (Finding 2) doesn't lift the cap. **Tier: not
+tiered** for the unresolved SMA200 cell (below-threshold, same convention as M1's own
+thin secondary cells). **Tier: 4** for the remaining 9 inconclusive cells — read as "no
+detected effect at this control tier and sample," not "confirmed folklore," per this
+study's own Tier-3/4 distinction (CLAUDE.md: a Tier-4 CI-spans-zero result is still a
+real report, not silence).
+
+**Logged:** `EXPERIMENTS.csv` (12 rows); `FINDINGS.md` (2 new entries, Finding 1 and
+Finding 2); `STATUS.md` (module table, minimal-core-list completion, whole-grid FDR
+pass trigger now fired).
