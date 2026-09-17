@@ -1301,3 +1301,59 @@ signs and relative magnitudes as a first-pass attribution, not as a controlled
 estimate — a date-stratified (or at minimum C1-weighted) version of the same
 regression is the natural follow-up if this module's ablation result is ever promoted
 past Track A description.
+
+### Reversal-robustness addendum (pre-registered 2026-09-17, before running)
+
+**Module / track:** M2, Track B. Promoted from `STATUS.md`'s own saturation-watch note
+(2026-09-13): `stack_fully_bearish` is the one Tier-3 result in the study so far that
+clears cost cleanly at every reading, but its C2 spec (`C2_MATCH_COLS` — momentum
+tercile, vol tercile, sector) has no reversal control, and `STATUS.md` names the live
+alternative explanation directly: "the sign pattern is exactly what uncontrolled
+1-month reversal would produce." This addendum runs the check `STATUS.md` recommended
+rather than leaving it open, using infrastructure that already exists
+(`modules/baseline_state.py`'s own `C2_MATCH_COLS_WITH_REVERSAL` precedent, run against
+M1's lb200 cell during that module's own diagnostic pass) — no new statistical
+machinery, no new feature (`rev_tercile` is `mom_1_0`'s own tercile bucket, and
+`mom_1_0` already exists in the panel, `features/context.py::mom_1_0`).
+
+**Hypothesis:** `stack_fully_bearish`'s C2 delta on `fwd_ret_21` survives once the C2
+match set additionally controls for the prior 21-day return tercile (`rev_tercile`) —
+i.e. the effect is not merely a re-encoding of uncontrolled short-term reversal.
+`stack_fully_bullish` is re-run alongside it for completeness (cheap, same code path)
+but is not the subject of this addendum — it is already Tier 4 and this check cannot
+promote it regardless of outcome.
+
+**Method:** `modules/stack_minervini.py::primary_stack_table`, called with
+`match_cols=C2_MATCH_COLS_WITH_REVERSAL` (`("mom_tercile", "vol_tercile", "sector",
+"rev_tercile")`) instead of the module's default 3-column `C2_MATCH_COLS`. Same
+C2-eligible restriction, same block-bootstrap CI machinery, same panel (U1, 408 S&P 500
+constituents as of 2021-12-31, dev window 2010-01-01 → 2021-12-31) — only the match-column
+list changes. `rev_tercile` computed exactly as `baseline_state.py`'s own robustness
+column: `cross_sectional_bucket(working, "mom_1_0", n_buckets=3)`.
+
+**Kill criterion:** identical rule to M2's own primary kill criterion
+(`evaluate_part_a_kill_criterion`'s underlying test, same as M1's
+`evaluate_kill_criterion`): `max(|ci_low|, |ci_high|) < 0.10%` on the 4-column C2 delta
+→ killed under the reversal control (read as "reversal explains the effect, or it was
+never distinguishable from noise once reversal is matched out"). A CI that still
+excludes zero and clears the 0.10% floor is read as "survives reversal-matching" — not
+by itself a tier promotion (Tier 3 stays capped by the missing FDR/holdout infra
+regardless), but it resolves the specific confound question `STATUS.md` left open.
+
+**Control tier and why:** C2, 4-column (`mom_tercile`, `vol_tercile`, `sector`,
+`rev_tercile`) — the same tier M1 used for its own lb200 reversal diagnostic
+(`PREREGISTRATION.md`'s M1 entry), applied here to M2's `stack_fully_bearish` cell for
+the first time.
+
+**Cost convention:** unchanged, not re-evaluated here — this addendum is about whether
+the gross C2 delta survives a confound check, not a second cost pass. If the cell
+survives, M2's already-logged cost numbers (`EXPERIMENTS.csv`) stand unchanged.
+
+**Grid size (`N_tests` contribution):** 2 cells (bullish, bearish), same primary-cell
+count as M2's own part (a) — this is a re-evaluation of an already-declared cell under
+an alternative control, not a new hypothesis, so it does not add to the whole-grid
+`N_tests` denominator beyond what M2 already declared (per this study's own convention
+for a same-cell alternative-control diagnostic — M1's lb200 reversal check was treated
+the same way, logged but not double-counted).
+
+**Universe/window/horizon:** unchanged from M2's own entry above.
