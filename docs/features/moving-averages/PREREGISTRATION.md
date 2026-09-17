@@ -1391,3 +1391,133 @@ C2 — no new information, does not change its Tier 4 status.
 `stack_fully_bearish_h21_reversal_robustness` / `stack_fully_bullish_h21_reversal_robustness`);
 `FINDINGS.md`'s `stack_fully_bearish` entry updated with this result in place of its
 prior "live unresolved confound" framing.
+
+---
+
+## M5 — Touch / test / bounce behaviour (2026-09-17)
+
+**Module / track:** M5, Track B (DESIGN.md §5). Last of the minimal-core list before
+M6.2 (decision recorded in `STATUS.md`'s 2026-09-17 saturation-watch resolution:
+continue to full completion rather than an early stop).
+
+**Promoted from:** DESIGN §12's own minimal-core list, not a Track A candidate — same
+status as M1/M2/M11, a pre-committed module rather than something surfaced by
+exploration.
+
+**Hypothesis (skeptical, per DESIGN's own framing):** MAs act as dynamic
+support/resistance beyond what a generic, unwatched level at a similar location would
+show — i.e., price is more likely to hold (bounce) at a real, widely-watched MA than
+at a statistically near-identical synthetic level nearby. DESIGN's own explicit
+warning shapes this entry's whole design: **you cannot select on "it bounced"** —
+bounce/slice-through/chop are all outcomes of the *same* ex-ante event (first return to
+the level after being meaningfully away from it), scored together, never selected
+into after the fact.
+
+**Event definition (ex ante, stated in full since none of this exists in the panel
+yet):**
+- **"Away"**: `|dist_atr| >= 1` (1 ATR, DESIGN's own literal threshold) for the given
+  (family, lookback).
+- **"Touch"**: `|dist_atr| <= 0.25` — tight enough to mean "at the level," loose enough
+  not to require an exact zero-crossing on noisy daily closes. New parameter, not in
+  DESIGN — chosen as a quarter of the "away" threshold, flagged as a first-pass number
+  a later sensitivity pass could revisit (same spirit as M4's deferred term-structure
+  follow-up).
+- **Event day**: the *first* day, within `MAX_DAYS_TO_TOUCH = 10` trading days after an
+  "away" run ends (i.e., after `|dist_atr|` first drops back under 1), where "touch" is
+  true. At most one event per away-run (first touch only — this is what makes the
+  event ex ante rather than selected-on-outcome). An away-run with no touch within 10
+  days contributes no event. 10 trading days (~2 calendar weeks) is a first-pass window
+  size, not derived from DESIGN; a shorter/longer window is a natural follow-up if this
+  slice's result is promoted.
+- **Direction**: `from_above` (price was >= +1 ATR above the MA before the touch — a
+  potential *support* test) vs. `from_below` (price was <= -1 ATR below — a potential
+  *resistance* test), scored **separately**, per DESIGN's own M6.2 framing that these
+  are different animals, not pooled into one folklore claim.
+- **Outcome, `OUTCOME_HORIZON = 5` trading days after the touch day**: compare
+  `dist_atr` at touch+5 against a `RESOLVE_THRESHOLD = 0.5` ATR band, direction-aware —
+  for `from_above`: **hold** if `dist_atr[touch+5] >= +0.5` (bounced back up, support
+  held), **slice-through** if `<= -0.5` (broke down, support failed), **chop**
+  otherwise; mirrored for `from_below`. All three outcomes reported (DESIGN's own "measure
+  the full distribution," not just the hold rate) — `hold_flag` (1/0) is the one fed
+  into the kill-criterion statistic below.
+- **NaN handling**: every boolean built from a `dist_atr` comparison (`away`, `touch`,
+  the direction/outcome flags) is explicitly masked wherever `dist_atr` itself is NaN
+  (CLAUDE.md invariant #9) — an MA's warmup window must read as undefined, not as
+  "not away"/"no touch."
+- **Basis**: daily close only, not intraday high/low — consistent with every other
+  distance/state feature in this study (all close-derived); an intraday-wick touch
+  definition is out of scope for this slice, noted as a possible refinement, not built.
+
+**Synthetic-level control:** DESIGN's own suggested shortcut — "the placebo MAs from
+§7.5" — reused directly rather than building a new "randomly offset line" mechanism.
+Same 3 groups, same focal/neighbor lookbacks as §7.5:
+- **Group A (SMA200):** focal 200 vs. neighbors {187, 193, 207, 213}.
+- **Group B (SMA50):** focal 50 vs. neighbors {47, 53}.
+- **Group C (21-EMA):** focal 21 vs. neighbors {19, 23}.
+
+`features/placebo_ma.py` currently only builds `dist_pct` for these lookbacks — this
+module extends it to also build `dist_atr` (needs `atr_14`, already computed in that
+module's per-ticker build step for consistency with the main panel's own ATR(14)
+convention) for every focal + neighbor lookback, new code but not new *machinery*: same
+`ma.compute_ma`/`apply_lag` reuse pattern §7.5 already established.
+
+**Method:** For each group, build one pooled event table across the focal lookback and
+all its neighbors (one row per qualifying touch event, tagged with `is_focal`,
+`direction`, `hold_flag`, `outcome`). Test statistic: `stats.controls.c1_delta`/
+`stats.inference.block_bootstrap_delta`, called with `group_col="is_focal"`,
+`value_col="hold_flag"` — i.e. **P(hold | focal touch) − P(hold | synthetic-neighbor
+touch)**, date-matched (C1) and date+`mom_tercile`+`vol_tercile`+`sector`-matched (C2,
+unchanged match columns from M1/M4/M11/M2). This reuses the study's existing
+control/bootstrap infrastructure unchanged — a hold/no-hold flag is just another
+`value_col`, nothing new needed in `stats/controls.py` or `stats/inference.py`.
+
+**Grid size (`N_tests` contribution):** **6 primary cells** — 3 groups × 2 directions.
+Same "group, not individual lookback, is the unit of inference" convention §7.5
+established (a group's synthetic comparison pools 2–4 neighbors into one statistic, not
+one test per neighbor).
+
+**Kill criterion, per cell, stated before running (DESIGN's own literal wording,
+translated into this study's CI-based convention — same shape as every other module's
+`max(|ci_low|, |ci_high|) < floor` rule, floor changed from a return magnitude to
+DESIGN's own named percentage-point gap):**
+`max(|ci_low|, |ci_high|) < 0.02` (2 percentage points) on the C2 block-bootstrap
+`hold_flag` delta → **killed** — "P(hold) at the real MA is within 2pp of synthetic
+levels, support/resistance from MAs is folklore" for that group/direction, DESIGN's own
+words. A CI excluding zero *and* clearing the 2pp floor is read as a real, distinguishable
+support/resistance effect at that focal lookback. **Module-level kill** fires iff all 6
+cells are killed; DESIGN frames this as "a major, satisfying negative result" in its own
+right, not a failure to find something.
+
+**Control tier and why:** C1 default, **C2 is the tier the kill criterion is evaluated
+on** — same rationale as every prior module: a raw hold rate could differ between focal
+and synthetic touches for reasons unrelated to the level itself (e.g. which tickers/
+regimes happen to generate more away-then-touch cycles at one lookback vs. a
+neighboring one), and C2's momentum/vol/sector matching is this study's standing answer
+to that class of confound.
+
+**Cost annotation:** not applicable to the kill/confirm call itself — like §7.5, this
+is a mechanism question (does the level itself matter) not a tradeable-edge question.
+If any cell is confirmed, a cost annotation (turnover of the touch-event flow itself)
+would be required before it's stated as an actionable claim (invariant #8) — deferred
+until/unless that happens, not computed here.
+
+**Plateau check (DESIGN §6.7):** built into the design itself, same as §7.5 — the
+synthetic-neighbor comparison *is* the plateau check (does the focal lookback stand out
+from its own near neighborhood), not a separate post-hoc pass.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant —
+expected to be far smaller than M1/M4/M11/M2's row counts (this is an event-count, not a
+row-per-day-per-ticker, design), so DESIGN §6.9's minimum-sample floor (200 events, ≥30
+dates, ≥30 tickers) is a live constraint here, not a formality — flagged per cell if
+missed, not silently dropped.
+
+**Universe/window/horizon:** unchanged, U1 (408 S&P 500 constituents as of
+2021-12-31), dev window 2010-01-01 → 2021-12-31. The event horizon itself
+(`OUTCOME_HORIZON = 5` trading days from the touch day) is intentionally short and
+independent of this study's usual `fwd_ret_21` convention — this module measures a
+level-hold probability shortly after the touch, not a 21-day forward return.
+
+**Explicitly deferred (DESIGN §5's own sub-questions, out of this first slice, same
+"first slice not full spec" precedent as M4/M1/M11/§7.5):** touch count (1st vs. 3rd vs.
+5th test of the same level), volume on the touch, wick-vs-close-below distinction. None
+of these are built or tested in this pass.
