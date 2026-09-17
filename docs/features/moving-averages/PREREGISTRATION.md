@@ -1521,3 +1521,63 @@ level-hold probability shortly after the touch, not a 21-day forward return.
 "first slice not full spec" precedent as M4/M1/M11/§7.5):** touch count (1st vs. 3rd vs.
 5th test of the same level), volume on the touch, wick-vs-close-below distinction. None
 of these are built or tested in this pass.
+
+### Result (2026-09-17)
+
+Ran against the real U1 panel (405 S&P 500 constituents with full dev-window coverage,
+2010-01-04 → 2021-12-31 — corrected from a first run that accidentally omitted `start=
+"2010-01-01"` and pulled full available history back to 1970 for some tickers; the
+holdout boundary itself was never crossed, only the dev-window's *start* was wrong, and
+this was caught and fixed before logging anything).
+
+**Module killed. All 6 primary cells killed — support/resistance from MAs is folklore,
+DESIGN's own words, and a clean one:** every cell's C2 block-bootstrap edge on
+`P(hold)_focal − P(hold)_synthetic` is far under the 2pp floor, not a borderline call —
+the largest edge in the whole grid is 0.61pp (`sma200/from_below`), roughly a third of
+the kill threshold, and most cells sit at 0.14–0.27pp:
+
+| group | direction | n_events | n_dates | c2 (pp) | ci_low (pp) | ci_high (pp) | edge (pp) |
+|---|---|---|---|---|---|---|---|
+| sma200 | from_above | 7,585 | 2,113 | −0.212 | −0.612 | +0.159 | 0.61 |
+| sma200 | from_below | 7,257 | 2,102 | +0.149 | −0.227 | +0.527 | 0.53 |
+| sma50 | from_above | 17,703 | 2,544 | −0.009 | −0.246 | +0.227 | 0.25 |
+| sma50 | from_below | 15,887 | 2,470 | +0.055 | −0.149 | +0.272 | 0.27 |
+| ema21 | from_above | 30,692 | 2,640 | +0.077 | −0.079 | +0.241 | 0.24 |
+| ema21 | from_below | 25,645 | 2,602 | −0.079 | −0.225 | +0.069 | 0.23 |
+
+All 6 cells clear DESIGN §6.9's minimum-sample floor comfortably (smallest: 7,257
+events, 2,102 dates, 402 tickers) — this is a well-powered null, not a "too thin to
+tell" one. **Every one of the 6 CIs spans zero** on the correct, holdout-respecting
+window above — the cleanest possible reading (a caveat worth naming precisely, not
+glossing over: an earlier run, before the `start="2010-01-01"` fix, mis-scoped to full
+available ticker history had `ema21/from_above`'s CI excluding zero at a tiny magnitude,
+`+0.037pp` to `+0.204pp` — still nowhere near the 2pp floor either way, but that number
+is superseded and not part of the logged result; the corrected, canonical run's
+`ema21/from_above` CI is `[-0.079pp, +0.241pp]`, spanning zero like every other cell).
+
+**Plateau/robustness, beyond what the synthetic-neighbor design already builds in:**
+all 3 lookback families (200/50/21) and both directions (support/resistance) land in
+the same tiny-edge regime — this isn't one lookback narrowly failing while a
+neighboring one passes; every cell in the grid tells the same story.
+
+**Argue against this result:**
+- **Close-only touch definition.** DESIGN's own deferred sub-question
+  (wick-vs-close-below) is exactly the gap here: a trader reacting to an intraday
+  wick-touch, not a closing-price touch, could produce a real effect this slice's
+  close-based definition can't see. Not built or tested in this pass.
+- **This test bounds a narrower claim than "MAs matter at all."** The synthetic
+  neighbors (e.g. SMA187/193/207/213 vs. SMA200) sit at nearly the same *price level*
+  as the focal MA — so this result rules out "traders specifically watch and react to
+  the 200-day, distinct from any nearby long-run trend line," but says nothing about
+  whether *some* long-horizon MA-ish price region acts as mild support/resistance
+  everywhere, watched or not (a softer, less commonly stated version of the folklore
+  claim, and not one this design can distinguish from "no support/resistance at all").
+  Same scope limitation §7.5's own design already carries — named there, and true here
+  for the same structural reason.
+- **First-pass parameters** (1/0.25/0.5 ATR thresholds, 10/5-day windows) aren't
+  DESIGN-derived and a different choice could in principle change the read at some
+  setting — but given every cell in the grid lands an order of magnitude under the
+  kill floor, this isn't a borderline result a parameter tweak would plausibly flip.
+
+**Tier: 4 (killed).** No `FINDINGS.md` entry per this study's own convention (Tier 4 =
+`EXPERIMENTS.csv` only, no `FINDINGS.md` claim). Logged: `EXPERIMENTS.csv` (6 rows).
