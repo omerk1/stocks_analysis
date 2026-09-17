@@ -456,6 +456,23 @@ criterion's basis, per invariant #10's own rule that shape fields don't carry ki
 authority) — it explains *why* the mean looks the way it does, which the CI alone
 didn't.
 
+### Whole-grid FDR pass addendum (2026-09-17) — `stack_fully_bearish`
+
+**Does not survive.** The incremental-vs-M1 statistic this entry is built on
+(point +1.0551%, CI [+0.4189%, +1.7400%]) has a two-sided Wald p-value (backed out of
+the CI, `stats/multiple_testing.py::p_value_from_ci`) of **0.0086** — individually
+significant at any conventional threshold, and in fact the single smallest p-value in
+this study's entire deduplicated 31-test grid. It still fails Benjamini–Hochberg
+correction at q = 0.10: its rank-1 BH threshold is 1/31 × 0.10 = 0.0032, and 0.0086
+does not clear it. **Status change: from "capped at Tier 3 by missing FDR
+infrastructure" to "tested against FDR, and it failed."** This is not a silent
+re-tiering (`EXPERIMENTS.csv`'s original row is untouched; the FDR pass's own summary
+row and full ranked table live in `STATUS.md`'s "Whole-grid FDR pass" section) — the
+point estimate, CI, and cost annotation above are exactly as reported, and remain the
+most defensible standalone reading of this cell. What changes is the whole-grid-aware
+conclusion: **this is not distinguishable, at 0.10 FDR, from what you'd expect to see
+by chance among 31 independent tests.**
+
 **Reproducibility:** computed end-to-end against the real DB (full 408-ticker panel
 rebuild) by the coordinating session, via `stats/shape.py` (new: `hit_rate_deltas`,
 `distribution_shape`), wired into `modules/stack_minervini.py::_cell_row`. Full numbers
@@ -579,3 +596,26 @@ not a formal plateau check (these aren't neighboring lookbacks, they're differen
 questions arriving at the same directional read). Full numbers, the unresolved SMA200
 extension cell, and the 9 inconclusive cells: `PREREGISTRATION.md`'s M6.2 "Result"
 section; `EXPERIMENTS.csv` (12 rows).
+
+### Whole-grid FDR pass addendum (2026-09-17) — both findings
+
+**Neither survives.** Finding 1 (`extension_x_slope`/SMA50/top, CI [−1.047%, −0.175%])
+has a Wald p-value of **0.0254** (BH rank 7 of 31, threshold 0.0226 — does not clear
+it). Finding 2 (`touch_x_slope`/SMA50/`from_above`, CI [−10.22pp, −1.94pp]) has a Wald
+p-value of **0.0223** (BH rank 6 of 31, threshold 0.0194 — also does not clear it).
+Both are individually significant at the conventional 10% level — both are among the
+7 smallest p-values in the study's entire deduplicated grid — and both fail
+Benjamini–Hochberg correction at q = 0.10 once the actual number of tests this study
+ran (31, not 1 or 2) is accounted for. Full ranked table and methodology:
+`STATUS.md`'s "Whole-grid FDR pass" section.
+
+**Status change, same as `stack_fully_bearish`'s own addendum above:** from "capped at
+Tier 3 by missing FDR infrastructure" to "tested against FDR, and it failed." Not a
+silent re-tiering — `EXPERIMENTS.csv`'s original rows are untouched, the point
+estimates/CIs/cost annotation above stand as reported. **The "both findings point the
+same direction" corroboration named above is worth re-reading in this light**: two
+individually-significant, same-signed results is a weaker form of evidence than it
+first appears once you know they're 2 of 31 tests run, not 2 of 2 — DESIGN's own
+Sullivan/Timmermann/White motivation for §6.6 (applying a Reality Check to a whole
+rule universe substantially weakens results that look strong in isolation) is exactly
+what happened here.

@@ -8,10 +8,15 @@ in `PREREGISTRATION.md` (per-module narrative) and `EXPERIMENTS.csv` (per-cell n
 every tested facet, whatever it found); this file points there rather than re-deriving.
 
 **Minimal-core list complete as of 2026-09-17** (M1, M2, M4, M5, M6.2, M11, plus §7.5 —
-every item on DESIGN §12's list has now been run at least once). Next up: the
-whole-grid FDR pass — its own trigger condition ("minimal-core completion") has fired,
-see that section below. Not yet done: the reversal-robustness follow-up on M6.2's two
-confirmed cells, and the final report.
+every item on DESIGN §12's list has now been run at least once). **Whole-grid FDR pass
+also run, same day: 0 of 31 deduplicated tests survive at q=0.10 or q=0.05** (see
+"Whole-grid FDR pass" below — this is the study's headline result). **Termination
+condition reached** (see "Study-level termination" below). Next up: the final report
+(DESIGN §9.1's structure) — no further analysis is required to close this study. Not
+yet done, optional/follow-up only, not gating termination: a `rev_tercile`/`mom_1_0`
+reversal-robustness check on M6.2's two cells (moot for their tier now that FDR has
+already failed them, but would still resolve the open confound question named in their
+own `FINDINGS.md` entries).
 
 ## Modules run
 
@@ -128,14 +133,87 @@ placebo neighborhood," which is mildly against a SMA200-specific mechanism and m
 for "SMA200's oddities are a small-effect/low-power story, not a level-specific one."
 Not resolved; still owner-less.
 
-## Whole-grid FDR pass — TRIGGERED 2026-09-17, not yet run
+## Whole-grid FDR pass — RUN 2026-09-17. Result: nothing survives.
 
-**Trigger condition #2 (minimal-core completion) has fired**: M2, M5, and M6.2 have
-now all been attempted, joining M1, M4, M11, and §7.5 — every item on DESIGN §12's
-minimal-core list has run at least once. This is no longer a deferred, owner-less
-item — it is the next required piece of work before this study can claim any result
-above Tier 3, per DESIGN §6.6's correction denominator (`N_tests`) accumulating
-across the whole pre-registered grid, not per module.
+**Verdict, up front: at q = 0.10 (DESIGN §6.6's own stated primary screen) and at
+q = 0.05, zero of 31 deduplicated tests survive Benjamini–Hochberg correction.**
+None of this study's three Tier-3 cells (`stack_fully_bearish`, M6.2's
+`extension_x_slope`/SMA50/top, M6.2's `touch_x_slope`/SMA50/`from_above`) reach
+Tier 2 — all three are individually significant at the conventional 10% level but do
+not survive once corrected for the 31 independent tests this study actually ran. This
+is the single most consequential result of the whole study and the reason it's
+documented in full here rather than folded into a one-line note.
+
+**Method (`stats/multiple_testing.py`, new — DESIGN §6.6's own named procedure):**
+1. **`p_value_from_ci`**: a two-sided Wald p-value backed out of each cell's
+   already-computed 90% block-bootstrap CI (`SE = (ci_high − ci_low) / (2 × 1.645)`,
+   `z = point_estimate / SE`). **Labeled approximation, not a re-derivation from raw
+   bootstrap draws** — this study's bootstrap functions (`stats/inference.py`)
+   summarize each draw set to `point_estimate`/`ci_low`/`ci_high` and were never
+   archived as raw per-cell draws across modules, so re-deriving an exact empirical
+   p-value would mean rebuilding every module's pipeline from scratch. Given the
+   smallest p-value in the whole grid (0.0086) sits at roughly 2.7× its own rank's BH
+   threshold (0.0032), this approximation is not close enough to the decision boundary
+   for a more exact method to plausibly flip the "nothing survives" verdict.
+2. **`benjamini_hochberg`**: standard BH step-up procedure.
+
+**Deduplication (the actual work of this pass — every open item the sections below
+used to defer is resolved here, not just cited):**
+
+| Module | Raw declared | Deduplicated | What was collapsed |
+|---|---|---|---|
+| M4 | 9 facet-level | **5**: `dist_pct_sma_20` (representing all 3 SMA20 normalisations, 0.94–0.98 correlated per the 2026-09-16 Track A sweep — this is what finally answers this table's own long-standing "SMA50/SMA200 unchecked" note, using that sweep's own numbers: `dist_pct`/`dist_atr` are 0.96–0.98 correlated at *every* lookback, so they always merge; `dist_z` decorrelates from 0.94 at SMA20 to 0.89 at SMA50 to 0.69 at SMA200, "genuinely more separate" past SMA20 — so SMA50 and SMA200 each keep 2: their own `dist_pct` and `dist_z`), `dist_pct_sma_50`, `dist_z_sma_50`, `dist_pct_sma_200`, `dist_z_sma_200`. | `dist_atr` at every lookback (redundant with `dist_pct`, 0.94–0.98 corr); `dist_z_sma_20` (redundant with `dist_pct_sma_20` specifically, 0.94 corr). |
+| M1 | 30 (6 primary + 24 run-length) | **3**: `above_sma_20`, `above_sma_50`, `above_sma_200`. | Above/below are exact algebraic mirrors (already collapsed at declaration into these 3 rows). 24 run-length cells excluded — no clean CI to correct (killed by the plateau rule, not by CI), not a hypothesis BH can evaluate. |
+| M11 | 5 declared | **3**: `dist_pct_sma_200_h21`, `dist_pct_sma_20_h5`, `dist_pct_sma_20_h63`. | **New this pass**: `dist_pct_sma_20_h21` and `dist_pct_sma_50_h21` are cross-module duplicates of M4's own cells of the same name (already flagged in this file's 2026-09-10 note as a deterministic recomputation via identical `block_bootstrap_spread` calls) — excluded here from M11's own count to avoid double-counting, not just noted. `dist_atr`/`dist_z` SMA20 companions were already excluded at declaration. |
+| §7.5 | 3 group-level | **1**: `placebo_ema21_h21`. | **New finding of this pass**: `placebo_sma200_h21` and `placebo_sma50_h21` are **bit-exact duplicates** of M4's `dist_pct_sma_200_h21`/`dist_pct_sma_50_h21` (identical CI to 6 decimal places, confirmed by inspection of `EXPERIMENTS.csv`) — §7.5's own "focal cell" for the SMA200/SMA50 groups is, by construction, the same `dist_pct` decile spread M4 already computed at those lookbacks. Only the EMA21 group is a genuinely new lookback M4 never tested. |
+| M2 | 2 (part a) + 8 (part b, declared) | **2**: `stack_fully_bullish_h21`, `stack_fully_bearish_h21` (both the pre-registered **incremental-vs-M1** statistic, the actual hypothesis M2 declared and evaluated its kill criterion on — not the standalone C2 delta). | Part (b)'s 8 ablation coefficients have **no CI at all** (DESIGN's own "no CI, no kill criterion" framing) — excluded from the correction entirely, not counted as 8 tests with an assumed p-value. This is stricter than this table's own prior wording ("declared N_tests contribution" implied they counted); they don't, because BH literally has no p-value to give them. |
+| M5 | 6 (group × direction) | **6**, unchanged. | Already independent — 3 disjoint feature families × 2 disjoint direction subsets, no mirrors or cross-module overlap found. |
+| M6.2 | 12 (3 sub-questions × 2 lookbacks × 2 facets) | **11**, unchanged except dropping the 1 unresolved cell. | The 12th (`extension_x_slope`/SMA200/top) has no CI (`InsufficientBlocksError`) — excluded, not treated as p=1. The other 11 checked against M1/M4/M5's own comparisons and each other: no duplication found (different row-restriction logic in every case — within-state, within-decile, and within-touch-event are three different populations, not the same statistic recomputed). |
+
+**N_tests = 5 + 3 + 3 + 1 + 2 + 6 + 11 = 31** — down from a naive raw sum that would
+have run past 125 (this table's own prior estimate) once M2/M5/M6.2's raw declared
+grids were added in. **This is the most generous-to-survivors count achievable from
+this study's own stated independence findings** — every deduplication decision above
+removes a test, which only *raises* each remaining test's BH threshold (easier to
+survive). The fact that literally nothing survives even under this most favorable
+count means a less-deduplicated (or the raw ~125-test) reading would not survive
+either — the zero-survivor verdict is robust in the direction that matters.
+
+**Full ranked table (31 tests, p-value ascending):**
+
+| rank | module | cell | p (Wald, from CI) | BH threshold (rank/31×0.10) | reject q=0.10 |
+|---|---|---|---|---|---|
+| 1 | M2 | `stack_fully_bearish_h21` | 0.0086 | 0.0032 | no |
+| 2 | M1 | `above_sma_20` | 0.0090 | 0.0065 | no |
+| 3 | M11 | `dist_pct_sma_20_h5` | 0.0135 | 0.0097 | no |
+| 4 | M4 | `dist_pct_sma_20_h21` | 0.0170 | 0.0129 | no |
+| 5 | §7.5 | `placebo_ema21_h21` | 0.0200 | 0.0161 | no |
+| 6 | M6.2 | `touch_x_slope`/SMA50/`from_above` | 0.0223 | 0.0194 | no |
+| 7 | M6.2 | `extension_x_slope`/SMA50/top | 0.0254 | 0.0226 | no |
+| 8 | M1 | `above_sma_50` | 0.0521 | 0.0258 | no |
+| 9 | M1 | `above_sma_200` | 0.0987 | 0.0290 | no |
+| 10–31 | — | (all remaining cells) | 0.11–0.95 | — | no |
+
+Every one of the 9 cells that individually clears the conventional, *uncorrected*
+p < 0.10 bar fails its own rank's BH threshold — the largest individual gap (rank 1,
+`stack_fully_bearish`) is still 2.7× its threshold. No rank passes, so BH's step-up
+rule never fires for anyone: **0 of 31 rejected at q = 0.10, 0 of 31 at q = 0.05.**
+
+**What this means for the study's three Tier-3 cells, precisely:** their status
+changes from "capped at Tier 3 by *missing* FDR infrastructure" to "**tested against
+FDR, and it failed** — no longer a missing-infrastructure cap, a substantive one."
+Per DESIGN §9.2's own Tier rubric (Tier 2 = "survives C2 and FDR"), none of these
+three can reach Tier 2 on this evidence; per this study's own convention that a
+CI-excluding-zero result is a real, reportable effect regardless of tier, they remain
+individually real, well-controlled point estimates — but the honest, whole-grid-aware
+read is that none of them is distinguishable from what you'd expect among 31 tests by
+chance. **Not silently re-tiered in `EXPERIMENTS.csv` or `FINDINGS.md`** (this study's
+own no-silent-edits convention, `PREREGISTRATION.md`'s own precedent for tier
+changes) — a dated addendum was added to each of the three affected `FINDINGS.md`
+entries instead, and a summary row logged in `EXPERIMENTS.csv`
+(`whole_grid_fdr_pass_2026_09_17`).
+
+**Historical record (trigger condition, now resolved):**
 
 **Trigger condition (2026-09-09, for reference):** the pass runs at whichever comes
 first —
@@ -197,6 +275,14 @@ catch both, and the cross-module case is easy to miss precisely because it looks
 independent corroboration (two modules, two different pre-registrations) rather than
 the same number twice.
 
+**Superseded 2026-09-17**: everything above this line in this section was written
+while the pass was still deferred — reasoning about *why* deduplication would matter,
+before actually doing it. The completed pass (top of this section) carries out exactly
+the two dedup items this historical record flags (M1's mirror collapse, M4's
+SMA50/SMA200 correlation check — resolved using the 2026-09-16 Track A sweep's own
+numbers) plus a third the record didn't yet know to look for (§7.5 vs. M4's bit-exact
+duplicate). Kept here for the reasoning trail, not as an open item anymore.
+
 ## Study-level termination — when this is finished
 
 Per DESIGN §1.4/§1.5, "done" is a report with **~15–30 falsifiable claims** (each
@@ -216,6 +302,20 @@ bug in your controls, not a discovery").
   SMA200-anomaly watch item is the kind of thing that would count as "new mechanism
   story" and extend the study, not close it), that's a legitimate early stop, documented
   as such.
+
+**First condition reached, 2026-09-17.** The minimal-core list is run and tiered
+(7/7 items), and the whole-grid FDR pass has executed against the deduplicated 31-test
+count (see above) — the exact literal condition this bullet names. **The study is at
+its termination point.** What remains is not more analysis but the write-up: a report
+with DESIGN §9.1's structure, the ~15–30 falsifiable claims this study's `EXPERIMENTS.csv`
+already constitutes (54 logged cells across 7 modules, tiered), the dead-ends register
+(superseded into `EXPERIMENTS.csv` itself per this study's own convention), the reusable
+feature panel (`data/features/moving_averages/`), and a cost-sensitivity appendix (every
+Tier-3 cell already carries its own cost annotation at both CI edges). The result lands
+on the **negative side** of DESIGN §1.5's expected 3–6-Tier-1/2-survivors band — **0
+Tier 1/2, 3 Tier 3 (all three now FDR-tested and failed, not merely infrastructure-capped)**
+— read in full below, not as a shortfall but as the study's actual, honestly-reported
+answer.
 
 **The negative case is a valid finish, not a failure to reach one.** Two modules in (M4,
 M1), the running result is already mostly negative-leaning: 5 of 9 M4 facets and 1 of 3
