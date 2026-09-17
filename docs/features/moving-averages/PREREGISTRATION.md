@@ -1581,3 +1581,138 @@ neighboring one passes; every cell in the grid tells the same story.
 
 **Tier: 4 (killed).** No `FINDINGS.md` entry per this study's own convention (Tier 4 =
 `EXPERIMENTS.csv` only, no `FINDINGS.md` claim). Logged: `EXPERIMENTS.csv` (6 rows).
+
+---
+
+## M6.2 — Slope as conditioner (2026-09-17)
+
+**Module / track:** M6.2, Track B (DESIGN.md §6.2). Last module on the minimal-core
+list (DESIGN §12: M1, M2, M4, M5, M6.2, M11, plus §7.5 — every other item now run).
+
+**Promoted from:** DESIGN §12's own minimal-core list, not a Track A candidate — same
+status as M1/M2/M5/M11. DESIGN's own words: "**Prior: this is the most likely Tier-1
+producer in the whole slope module** ... conditioning demands far less of the data than
+prediction does" — the highest expectation any single sub-question in this study has
+carried going in, M2's own "highest expected-value module" framing aside.
+
+**M6.0 prerequisite, already established, not re-derived here:** DESIGN §6.0's two
+identities (1-day SMA slope = scaled momentum; EMA slope = distance-from-MA, times a
+constant) were confirmed empirically against the real panel in the 2026-09-16 Track A
+sweep (`EXPLORATION_LOG.md`) — `slope_log_5` vs. `dist_pct` correlation 0.986 for EMA200
+(near-exact, as the identity predicts), 0.71 for SMA20 (same direction, much weaker, as
+the "momentum with smoothed endpoints" framing predicts), both decorrelating
+substantially by `slope_log_63`. Consequence applied here: **this slice only uses SMA
+slope** (`slope_log_21_sma_{50,200}`, the exact columns DESIGN's own M6.2 text names:
+"terciles of the 50 and 200") — an EMA-based version of any of these same interactions
+would need to be read as "conditioning on distance-from-EMA, relabeled," per the
+identity, not a second independent slope-conditioning result. Not built or tested here.
+
+**Hypothesis (per DESIGN's own named sub-questions, 3 of its 4 taken up this slice —
+see "Explicitly deferred" below):**
+1. **State × slope**: "above a rising 200 vs above a falling 200 ... this is the
+   cleanest test" of the folklore claim that trend direction, not just trend
+   presence, changes what an above/below state means.
+2. **Extension × slope**: "is +5 ATR above a flat 50-day a different object from +5 ATR
+   above a steeply rising one" — M4's distance-decile effect, conditioned on slope.
+3. **Touch × slope**: "MA touch with rising vs falling MA — support in an uptrend vs
+   resistance in a downtrend" — M5's touch/bounce event, conditioned on slope.
+
+**New machinery: none.** Every sub-question here reuses existing features and existing
+stats primitives, restricted to a row-subset first — this is the "faceting is cheap"
+property DESIGN's own prior banks on:
+- `slope_sign` (new column, one line: `sign(slope_log_21_sma_k) > 0`) is the only new
+  feature, built directly from the already-cached, already-lagged `slope_log_21_sma_k`
+  columns (SMA20/50/200 all already in the main panel — no placebo/neighbor plumbing
+  needed for this module, unlike §7.5/M5).
+- Sub-questions 1 and 2 are answered by **restricting the panel to the relevant
+  row-subset first** (state=above/below for #1, decile=top/bottom for #2), then running
+  `stats.inference.block_bootstrap_delta` with `group_col=slope_sign`,
+  `value_col=fwd_ret_21` — the *exact same primitive* every other module's C1/C2 delta
+  uses, just on a pre-restricted population. No new statistical machinery.
+- Sub-question 3 reuses `features/touch.py::touch_events` (M5's own event extraction)
+  directly on the **main cached panel's** `dist_atr_sma_{50,200}` columns (not the
+  placebo panel — no synthetic-neighbor comparison needed here, since this question is
+  about the real MA's own slope, not real-vs-synthetic), joins `slope_sign` at the
+  touch day, and runs `block_bootstrap_delta` with `group_col=slope_sign`,
+  `value_col=hold_flag` — the same reuse pattern M5 itself used for `is_focal`.
+
+**Method, per sub-question:**
+1. **State × slope** (4 cells: lookback ∈ {50, 200} × state ∈ {above, below}): restrict
+   panel to `above_sma_k == state`, then C1/C2 delta of `fwd_ret_21` between
+   `slope_sign_sma_k` = rising vs. falling within that restricted population.
+2. **Extension × slope** (4 cells: lookback ∈ {50, 200} × extension ∈ {top decile,
+   bottom decile} of `dist_atr_sma_k`): restrict panel to that decile, then C1/C2 delta
+   of `fwd_ret_21` between rising vs. falling within it.
+3. **Touch × slope** (4 cells: lookback ∈ {50, 200} × direction ∈ {`from_above`,
+   `from_below`}): M5-style touch-event table on the real MA only (no synthetic
+   neighbors), C1/C2 delta of `hold_flag` between rising-at-touch vs. falling-at-touch.
+
+**Grid size (`N_tests` contribution):** **12 primary cells** (3 sub-questions × 2
+lookbacks × 2 facets each). Each cell is its own independent row/state/decile
+restriction — no algebraic mirrors of the kind M1's above/below pairs turned out to be
+(rising-within-above and rising-within-below are different row populations, not
+complements of each other the way above/below themselves are), so no dedup collapse is
+expected here the way it was needed for M1 — flagged as a specific thing for the
+whole-grid FDR pass to actually check, not assumed.
+
+**Kill criterion, per cell, same convention as every prior module (a floor keyed to
+the value type, not a new threshold invented for this module):**
+- Sub-questions 1–2 (`value_col=fwd_ret_21`, a return): `max(|ci_low|, |ci_high|) <
+  0.10%` (M1/M2's own floor) → killed (slope doesn't change the read within that
+  state/decile).
+- Sub-question 3 (`value_col=hold_flag`, a probability): `max(|ci_low|, |ci_high|) <
+  2pp` (M5's own floor) → killed (slope doesn't change the hold rate).
+- No module-level kill declared across all 12 — each sub-question (and each cell within
+  it) is scored independently, same "the answer is interesting either way" framing
+  §7.5/M5 already established for a conditioning/mechanism question.
+
+**Control tier and why:** C1 default, **C2 (date + `mom_tercile` + `vol_tercile` +
+`sector`, unchanged match columns) is the tier every kill criterion above is evaluated
+on** — same rationale as every prior module: slope and momentum are related but not
+identical (§6.0's own identity only makes them the *same variable* for a 1-day EMA
+slope, not for a 21-day SMA slope, which is what this slice actually uses), so momentum
+still needs matching out separately.
+
+**Cost annotation:** sub-questions 1–2 imply a tradeable claim (a return delta) — if any
+cell is confirmed, CLAUDE.md invariant #8 requires a cost annotation before it's stated
+as a claim, using the combined state-and-slope-sign flag's own turnover
+(`stats/costs.py::signals_per_year`, same convention as every prior module), not
+computed unless triggered. Sub-question 3 is not applicable to cost directly, same
+reasoning as M5 (a hold-rate difference is a mechanism read, not a tradeable edge on its
+own).
+
+**Plateau check (DESIGN §6.7):** applied as directional consistency with each
+sub-question's own parent module, same convention M2 used: sub-question 1's
+above-and-rising cell should agree in sign with M1's own `above_sma_k` cell (a
+conditioning effect that flips the parent module's own sign would be a red flag for the
+slope-sign construction, not a finding); sub-question 2 similarly against M4's own
+decile-spread sign; sub-question 3 against... there is no parent-module sign to check
+against directly (M5 found no real vs. synthetic effect at all, not a directional one)
+— for sub-question 3, the plateau check instead is internal: both lookbacks (50, 200)
+and both directions should tell a broadly consistent story, not one lookback
+confirming while its only sibling kills, absent a specific mechanism reason.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant.
+Sub-questions 1–2 restrict an already-large row population (should clear DESIGN §6.9's
+floor easily, same order of magnitude as M1/M4's own cells); sub-question 3 restricts
+M5's already-thinner touch-event population further by slope sign — flagged, not
+assumed, if any cell falls short.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents with full
+dev-window coverage — the corrected count M5's run established), dev window
+2010-01-01 → 2021-12-31, `fwd_ret_21` for sub-questions 1–2 (unchanged horizon
+convention), M5's own touch/outcome-horizon definition for sub-question 3.
+
+**Explicitly deferred (DESIGN §6.2's 4th named sub-question, out of this first slice,
+same "first slice not full spec" precedent as every prior module):** **golden cross ×
+slope** ("a 50/200 cross where the 200 is still declining is a bounce-off-the-lows
+event; where the 200 is rising it's a continuation event"). This needs new
+crossover-event-detection machinery (a state-flip/transition detector for
+`above_sma_50_vs_200`) that doesn't exist yet in this codebase, unlike sub-questions
+1–3, which reuse existing features/primitives entirely — a real, motivated follow-up
+(DESIGN explicitly ties it to explaining "why the crossover literature reports such
+muddy averages," §2.2) but a new build, not a faceting exercise, so scoped out of this
+slice rather than rushed. `slope_pctile` terciles (vs. this slice's binary
+`slope_sign`) are also deferred — DESIGN mentions both, but every one of its own named
+sub-questions is phrased in rising-vs-falling (sign) terms, so the sign-only version is
+this slice's literal reading of what was asked, not an arbitrary simplification.
