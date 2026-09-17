@@ -1357,3 +1357,37 @@ for a same-cell alternative-control diagnostic — M1's lb200 reversal check was
 the same way, logged but not double-counted).
 
 **Universe/window/horizon:** unchanged from M2's own entry above.
+
+### Result (reversal-robustness addendum, 2026-09-17)
+
+**`stack_fully_bearish` survives.** Default 3-column C2: `c2=+0.4675%`, CI
+`[+0.1488%, +0.7762%]` (2026-09-13 row). With `rev_tercile` added to the match set:
+`c2=+0.3188%`, CI `[+0.0444%, +0.5976%]` — n_events 39,759 → 31,297, n_dates 2,696 →
+2,642 (standalone C2-eligible population, recomputed fresh here; not the same row set
+as the 2026-09-13 row's *incremental-vs-M1* n_events=40,102). The point estimate
+attenuates by roughly a third once short-term reversal is matched out, but the CI still
+excludes zero and clears the 0.10% kill floor by a wide margin (edge 0.598%) —
+**not killed**. Annualized at the same ×12 convention as the original row: point
+≈+3.83%/yr, near edge ≈+0.53%/yr, far edge ≈+7.17%/yr, all still above the unchanged
+0.2863%/yr cost hurdle — the cell still clears cost under the reversal-controlled
+number, not just the original one.
+
+**Reading:** uncontrolled 1-month reversal is a real, partial contributor to the gross
+number (a third of the magnitude), but not the whole story — a residual bearish-stack
+effect survives its removal. This resolves the specific confound `STATUS.md` flagged as
+live ("the sign pattern is exactly what uncontrolled 1-month reversal would produce")
+without resolving the module's actual tier cap: `stack_fully_bearish` stays **Tier 3**,
+capped by the same two things as before (missing whole-grid FDR/holdout infrastructure;
+DESIGN §7.3's survivorship cap on a weak/bearish-state bucket) — a reversal-robust
+result does not by itself clear either cap. What it does change: the "is this even a
+real stack effect, or entirely a reversal re-encoding" question from open to resolved
+(no) — the remaining honest caveat is infrastructure, not confound.
+
+**`stack_fully_bullish`** was re-run alongside (same script, no added cost) purely for
+completeness: CI still spans zero under the reversal control, same as under the default
+C2 — no new information, does not change its Tier 4 status.
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, both dated 2026-09-17,
+`stack_fully_bearish_h21_reversal_robustness` / `stack_fully_bullish_h21_reversal_robustness`);
+`FINDINGS.md`'s `stack_fully_bearish` entry updated with this result in place of its
+prior "live unresolved confound" framing.

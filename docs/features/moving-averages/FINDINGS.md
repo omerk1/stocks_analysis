@@ -368,24 +368,47 @@ price history exists only 2024–2026 in this repo's loaded data) — `stack_ful
 is exactly this shape, so it cannot reach Tier 1/2 regardless of how clean these
 numbers are.
 
-**Argue against this result (not resolved here, flagged as the live alternative):**
-the sign pattern — bearish/near-lows predicting *higher* control-adjusted forward
-returns, bullish/near-highs predicting *lower* ones (see part (b) below) — is exactly
-the signature uncontrolled short-term reversal would produce, not a distinct
+**Argue against this result — checked 2026-09-17, partially survives (see addendum
+below):** the sign pattern — bearish/near-lows predicting *higher* control-adjusted
+forward returns, bullish/near-highs predicting *lower* ones (see part (b) below) — is
+exactly the signature uncontrolled short-term reversal would produce, not a distinct
 Minervini-thesis effect. `mom_12_1` (this module's only momentum control leg, reused
 unchanged from M1/M4/M11) deliberately skips the most recent month, so nothing in this
 cell's pre-registered C2 spec controls for a stock's very recent drawdown — the same
 gap M1 diagnosed and added a `rev_tercile`/`mom_1_0` robustness layer for
-(`PREREGISTRATION.md`'s M1 entry, "post-hoc short-term-reversal control"). That
-robustness check was not run for this cell (out of this module's pre-registered
-scope, not silently skipped) — until it is, "the stack adds real bearish-side
-information beyond a single MA" and "this is uncontrolled 1-month reversal, larger for
-a deeper breakdown" are both live explanations.
+(`PREREGISTRATION.md`'s M1 entry, "post-hoc short-term-reversal control"). The
+2026-09-17 addendum below runs that same check for this cell: the effect attenuates
+but survives, so this is a *partial*, not a full, alternative explanation.
 
-**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
-4-column C2 match set adding `rev_tercile` (M1's own precedent) to separate a genuine
-stack effect from short-term reversal; either would also help resolve the open
-survivorship-cap question rather than just deferring to it.
+**What would change the verdict:** the whole-grid FDR pass; a holdout check — both
+still open, both still required before this cell could reach Tier 1/2 regardless of
+the reversal-robustness result below.
+
+### Reversal-robustness addendum (2026-09-17)
+
+Ran the check the paragraph above flagged as missing: `rev_tercile` (prior-21-day-
+return tercile, `mom_1_0`'s own bucket, same construction M1 used for its own lb200
+diagnostic) added to the C2 match set, `("mom_tercile", "vol_tercile", "sector",
+"rev_tercile")` instead of the pre-registered 3-column spec.
+
+**Result: survives, attenuated.** C2 delta +0.4675% → +0.3188% (CI [+0.1488%,
++0.7762%] → [+0.0444%, +0.5976%]), n_events 39,759 → 31,297, n_dates 2,696 → 2,642
+(standalone C2-eligible population; not the same row set as this entry's incremental-
+diff n_events=40,102 above). The point estimate loses about a third of its magnitude
+once short-term reversal is matched out — reversal is a real, partial contributor —
+but the CI still excludes zero and clears the 0.10% kill floor by a wide margin (edge
+0.598%), and the annualized gross edge (≈+3.83%/yr point, ≈+0.53%/yr near edge,
+≈+7.17%/yr far edge) still clears the unchanged 0.2863%/yr cost hurdle at every
+reading.
+
+**Reading:** "the stack adds real bearish-side information beyond a single MA" and
+"this is entirely uncontrolled 1-month reversal" are no longer both live — the second
+is ruled out as a *complete* explanation, though it does explain part of the gross
+magnitude. Tier is unchanged at 3 (the FDR/holdout and §7.3 survivorship caps above are
+untouched by this result) — this addendum closes the confound question, not the
+infrastructure gap. Full numbers: `EXPERIMENTS.csv`,
+`stack_fully_bearish_h21_reversal_robustness` row; pre-registration:
+`PREREGISTRATION.md`'s M2 entry, "Reversal-robustness addendum."
 
 **Part (b) — Trend Template ablation (descriptive, no tier, no `FINDINGS.md`-worthy
 claim per DESIGN's own "kill: none" framing — noted here for completeness, full
