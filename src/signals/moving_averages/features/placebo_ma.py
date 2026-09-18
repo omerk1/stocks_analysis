@@ -1,12 +1,19 @@
-"""Ad hoc MA + `dist_pct` build for the §7.5 placebo test
-(PREREGISTRATION.md, 2026-09-12): SMA{187,193,207,213} vs SMA200,
-SMA{47,53} vs SMA50, EMA{19,23} vs EMA21 -- none of these lookbacks are in
-the cached panel's default grid (`features/ma.py::LOOKBACKS = (20, 50,
-200)`), so this is new, slice-specific plumbing, not a re-read of the
+"""Ad hoc MA + `dist_pct`/`dist_atr` build for the §7.5 placebo test and M5
+(PREREGISTRATION.md, 2026-09-12 / 2026-09-17): SMA{187,193,207,213} vs
+SMA200, SMA{47,53} vs SMA50, EMA{19,23} vs EMA21 -- none of these lookbacks
+are in the cached panel's default grid (`features/ma.py::LOOKBACKS = (20,
+50, 200)`), so this is new, slice-specific plumbing, not a re-read of the
 cache. It still reuses `features/ma.py::compute_ma` (already accepts an
-arbitrary lookback) and `features/panel.py::apply_lag` (never a
-hand-rolled shift -- CLAUDE.md invariant #2), so the new lookbacks are on
-the same lag footing as every other feature in this study.
+arbitrary lookback), `market_common.indicators.atr` (same ATR(14)
+convention as `features/panel.py`'s own `atr_14`), and
+`features/panel.py::apply_lag` (never a hand-rolled shift -- CLAUDE.md
+invariant #2), so the new lookbacks are on the same lag footing as every
+other feature in this study.
+
+`dist_atr` was added for M5 (PREREGISTRATION.md, 2026-09-17): the
+touch/test/bounce event definition needs an ATR-normalised distance at
+every focal + neighbor lookback, not just `dist_pct` (which §7.5's own
+spread statistic used).
 """
 
 from __future__ import annotations
@@ -16,10 +23,11 @@ import sqlite3
 import pandas as pd
 
 from src.foundation.data_processing import db
+from src.foundation.market_common import indicators
 from src.foundation.market_common.data import load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
 from src.signals.moving_averages.features import context, distance, ma
-from src.signals.moving_averages.features.panel import apply_lag
+from src.signals.moving_averages.features.panel import ATR_PERIOD, apply_lag
 
 # PREREGISTRATION.md §7.5: focal lookback + its statistically
 # near-identical, unwatched neighbors, per group.
@@ -34,6 +42,10 @@ _NON_FEATURE_COLUMNS = ("ticker", "date", "open", "high", "low", "close", "volum
 
 def dist_pct_column(family: str, lookback: int) -> str:
     return f"dist_pct_{ma.ma_column_name(family, lookback)}"
+
+
+def dist_atr_column(family: str, lookback: int) -> str:
+    return f"dist_atr_{ma.ma_column_name(family, lookback)}"
 
 
 def _lookbacks_by_family() -> dict[str, tuple[int, ...]]:
@@ -54,11 +66,15 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """
     frame = clean.copy()
     frame["ticker"] = ticker
+    frame["atr_14"] = indicators.atr(frame, ATR_PERIOD)
 
     for family, lookbacks in _lookbacks_by_family().items():
         for lookback in lookbacks:
             ma_series = ma.compute_ma(frame["close"], family, lookback)
             frame[dist_pct_column(family, lookback)] = distance.dist_pct(frame["close"], ma_series)
+            frame[dist_atr_column(family, lookback)] = distance.dist_atr(
+                frame["close"], ma_series, frame["atr_14"]
+            )
 
     # Same C2 match inputs M1/M4/M11 already use -- reused unchanged, not
     # recomputed with different parameters.

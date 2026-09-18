@@ -1301,3 +1301,532 @@ signs and relative magnitudes as a first-pass attribution, not as a controlled
 estimate — a date-stratified (or at minimum C1-weighted) version of the same
 regression is the natural follow-up if this module's ablation result is ever promoted
 past Track A description.
+
+### Reversal-robustness addendum (pre-registered 2026-09-17, before running)
+
+**Module / track:** M2, Track B. Promoted from `STATUS.md`'s own saturation-watch note
+(2026-09-13): `stack_fully_bearish` is the one Tier-3 result in the study so far that
+clears cost cleanly at every reading, but its C2 spec (`C2_MATCH_COLS` — momentum
+tercile, vol tercile, sector) has no reversal control, and `STATUS.md` names the live
+alternative explanation directly: "the sign pattern is exactly what uncontrolled
+1-month reversal would produce." This addendum runs the check `STATUS.md` recommended
+rather than leaving it open, using infrastructure that already exists
+(`modules/baseline_state.py`'s own `C2_MATCH_COLS_WITH_REVERSAL` precedent, run against
+M1's lb200 cell during that module's own diagnostic pass) — no new statistical
+machinery, no new feature (`rev_tercile` is `mom_1_0`'s own tercile bucket, and
+`mom_1_0` already exists in the panel, `features/context.py::mom_1_0`).
+
+**Hypothesis:** `stack_fully_bearish`'s C2 delta on `fwd_ret_21` survives once the C2
+match set additionally controls for the prior 21-day return tercile (`rev_tercile`) —
+i.e. the effect is not merely a re-encoding of uncontrolled short-term reversal.
+`stack_fully_bullish` is re-run alongside it for completeness (cheap, same code path)
+but is not the subject of this addendum — it is already Tier 4 and this check cannot
+promote it regardless of outcome.
+
+**Method:** `modules/stack_minervini.py::primary_stack_table`, called with
+`match_cols=C2_MATCH_COLS_WITH_REVERSAL` (`("mom_tercile", "vol_tercile", "sector",
+"rev_tercile")`) instead of the module's default 3-column `C2_MATCH_COLS`. Same
+C2-eligible restriction, same block-bootstrap CI machinery, same panel (U1, 408 S&P 500
+constituents as of 2021-12-31, dev window 2010-01-01 → 2021-12-31) — only the match-column
+list changes. `rev_tercile` computed exactly as `baseline_state.py`'s own robustness
+column: `cross_sectional_bucket(working, "mom_1_0", n_buckets=3)`.
+
+**Kill criterion:** identical rule to M2's own primary kill criterion
+(`evaluate_part_a_kill_criterion`'s underlying test, same as M1's
+`evaluate_kill_criterion`): `max(|ci_low|, |ci_high|) < 0.10%` on the 4-column C2 delta
+→ killed under the reversal control (read as "reversal explains the effect, or it was
+never distinguishable from noise once reversal is matched out"). A CI that still
+excludes zero and clears the 0.10% floor is read as "survives reversal-matching" — not
+by itself a tier promotion (Tier 3 stays capped by the missing FDR/holdout infra
+regardless), but it resolves the specific confound question `STATUS.md` left open.
+
+**Control tier and why:** C2, 4-column (`mom_tercile`, `vol_tercile`, `sector`,
+`rev_tercile`) — the same tier M1 used for its own lb200 reversal diagnostic
+(`PREREGISTRATION.md`'s M1 entry), applied here to M2's `stack_fully_bearish` cell for
+the first time.
+
+**Cost convention:** unchanged, not re-evaluated here — this addendum is about whether
+the gross C2 delta survives a confound check, not a second cost pass. If the cell
+survives, M2's already-logged cost numbers (`EXPERIMENTS.csv`) stand unchanged.
+
+**Grid size (`N_tests` contribution):** 2 cells (bullish, bearish), same primary-cell
+count as M2's own part (a) — this is a re-evaluation of an already-declared cell under
+an alternative control, not a new hypothesis, so it does not add to the whole-grid
+`N_tests` denominator beyond what M2 already declared (per this study's own convention
+for a same-cell alternative-control diagnostic — M1's lb200 reversal check was treated
+the same way, logged but not double-counted).
+
+**Universe/window/horizon:** unchanged from M2's own entry above.
+
+### Result (reversal-robustness addendum, 2026-09-17)
+
+**`stack_fully_bearish` survives.** Default 3-column C2: `c2=+0.4675%`, CI
+`[+0.1488%, +0.7762%]` (2026-09-13 row). With `rev_tercile` added to the match set:
+`c2=+0.3188%`, CI `[+0.0444%, +0.5976%]` — n_events 39,759 → 31,297, n_dates 2,696 →
+2,642 (standalone C2-eligible population, recomputed fresh here; not the same row set
+as the 2026-09-13 row's *incremental-vs-M1* n_events=40,102). The point estimate
+attenuates by roughly a third once short-term reversal is matched out, but the CI still
+excludes zero and clears the 0.10% kill floor by a wide margin (edge 0.598%) —
+**not killed**. Annualized at the same ×12 convention as the original row: point
+≈+3.83%/yr, near edge ≈+0.53%/yr, far edge ≈+7.17%/yr, all still above the unchanged
+0.2863%/yr cost hurdle — the cell still clears cost under the reversal-controlled
+number, not just the original one.
+
+**Reading:** uncontrolled 1-month reversal is a real, partial contributor to the gross
+number (a third of the magnitude), but not the whole story — a residual bearish-stack
+effect survives its removal. This resolves the specific confound `STATUS.md` flagged as
+live ("the sign pattern is exactly what uncontrolled 1-month reversal would produce")
+without resolving the module's actual tier cap: `stack_fully_bearish` stays **Tier 3**,
+capped by the same two things as before (missing whole-grid FDR/holdout infrastructure;
+DESIGN §7.3's survivorship cap on a weak/bearish-state bucket) — a reversal-robust
+result does not by itself clear either cap. What it does change: the "is this even a
+real stack effect, or entirely a reversal re-encoding" question from open to resolved
+(no) — the remaining honest caveat is infrastructure, not confound.
+
+**`stack_fully_bullish`** was re-run alongside (same script, no added cost) purely for
+completeness: CI still spans zero under the reversal control, same as under the default
+C2 — no new information, does not change its Tier 4 status.
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, both dated 2026-09-17,
+`stack_fully_bearish_h21_reversal_robustness` / `stack_fully_bullish_h21_reversal_robustness`);
+`FINDINGS.md`'s `stack_fully_bearish` entry updated with this result in place of its
+prior "live unresolved confound" framing.
+
+---
+
+## M5 — Touch / test / bounce behaviour (2026-09-17)
+
+**Module / track:** M5, Track B (DESIGN.md §5). Last of the minimal-core list before
+M6.2 (decision recorded in `STATUS.md`'s 2026-09-17 saturation-watch resolution:
+continue to full completion rather than an early stop).
+
+**Promoted from:** DESIGN §12's own minimal-core list, not a Track A candidate — same
+status as M1/M2/M11, a pre-committed module rather than something surfaced by
+exploration.
+
+**Hypothesis (skeptical, per DESIGN's own framing):** MAs act as dynamic
+support/resistance beyond what a generic, unwatched level at a similar location would
+show — i.e., price is more likely to hold (bounce) at a real, widely-watched MA than
+at a statistically near-identical synthetic level nearby. DESIGN's own explicit
+warning shapes this entry's whole design: **you cannot select on "it bounced"** —
+bounce/slice-through/chop are all outcomes of the *same* ex-ante event (first return to
+the level after being meaningfully away from it), scored together, never selected
+into after the fact.
+
+**Event definition (ex ante, stated in full since none of this exists in the panel
+yet):**
+- **"Away"**: `|dist_atr| >= 1` (1 ATR, DESIGN's own literal threshold) for the given
+  (family, lookback).
+- **"Touch"**: `|dist_atr| <= 0.25` — tight enough to mean "at the level," loose enough
+  not to require an exact zero-crossing on noisy daily closes. New parameter, not in
+  DESIGN — chosen as a quarter of the "away" threshold, flagged as a first-pass number
+  a later sensitivity pass could revisit (same spirit as M4's deferred term-structure
+  follow-up).
+- **Event day**: the *first* day, within `MAX_DAYS_TO_TOUCH = 10` trading days after an
+  "away" run ends (i.e., after `|dist_atr|` first drops back under 1), where "touch" is
+  true. At most one event per away-run (first touch only — this is what makes the
+  event ex ante rather than selected-on-outcome). An away-run with no touch within 10
+  days contributes no event. 10 trading days (~2 calendar weeks) is a first-pass window
+  size, not derived from DESIGN; a shorter/longer window is a natural follow-up if this
+  slice's result is promoted.
+- **Direction**: `from_above` (price was >= +1 ATR above the MA before the touch — a
+  potential *support* test) vs. `from_below` (price was <= -1 ATR below — a potential
+  *resistance* test), scored **separately**, per DESIGN's own M6.2 framing that these
+  are different animals, not pooled into one folklore claim.
+- **Outcome, `OUTCOME_HORIZON = 5` trading days after the touch day**: compare
+  `dist_atr` at touch+5 against a `RESOLVE_THRESHOLD = 0.5` ATR band, direction-aware —
+  for `from_above`: **hold** if `dist_atr[touch+5] >= +0.5` (bounced back up, support
+  held), **slice-through** if `<= -0.5` (broke down, support failed), **chop**
+  otherwise; mirrored for `from_below`. All three outcomes reported (DESIGN's own "measure
+  the full distribution," not just the hold rate) — `hold_flag` (1/0) is the one fed
+  into the kill-criterion statistic below.
+- **NaN handling**: every boolean built from a `dist_atr` comparison (`away`, `touch`,
+  the direction/outcome flags) is explicitly masked wherever `dist_atr` itself is NaN
+  (CLAUDE.md invariant #9) — an MA's warmup window must read as undefined, not as
+  "not away"/"no touch."
+- **Basis**: daily close only, not intraday high/low — consistent with every other
+  distance/state feature in this study (all close-derived); an intraday-wick touch
+  definition is out of scope for this slice, noted as a possible refinement, not built.
+
+**Synthetic-level control:** DESIGN's own suggested shortcut — "the placebo MAs from
+§7.5" — reused directly rather than building a new "randomly offset line" mechanism.
+Same 3 groups, same focal/neighbor lookbacks as §7.5:
+- **Group A (SMA200):** focal 200 vs. neighbors {187, 193, 207, 213}.
+- **Group B (SMA50):** focal 50 vs. neighbors {47, 53}.
+- **Group C (21-EMA):** focal 21 vs. neighbors {19, 23}.
+
+`features/placebo_ma.py` currently only builds `dist_pct` for these lookbacks — this
+module extends it to also build `dist_atr` (needs `atr_14`, already computed in that
+module's per-ticker build step for consistency with the main panel's own ATR(14)
+convention) for every focal + neighbor lookback, new code but not new *machinery*: same
+`ma.compute_ma`/`apply_lag` reuse pattern §7.5 already established.
+
+**Method:** For each group, build one pooled event table across the focal lookback and
+all its neighbors (one row per qualifying touch event, tagged with `is_focal`,
+`direction`, `hold_flag`, `outcome`). Test statistic: `stats.controls.c1_delta`/
+`stats.inference.block_bootstrap_delta`, called with `group_col="is_focal"`,
+`value_col="hold_flag"` — i.e. **P(hold | focal touch) − P(hold | synthetic-neighbor
+touch)**, date-matched (C1) and date+`mom_tercile`+`vol_tercile`+`sector`-matched (C2,
+unchanged match columns from M1/M4/M11/M2). This reuses the study's existing
+control/bootstrap infrastructure unchanged — a hold/no-hold flag is just another
+`value_col`, nothing new needed in `stats/controls.py` or `stats/inference.py`.
+
+**Grid size (`N_tests` contribution):** **6 primary cells** — 3 groups × 2 directions.
+Same "group, not individual lookback, is the unit of inference" convention §7.5
+established (a group's synthetic comparison pools 2–4 neighbors into one statistic, not
+one test per neighbor).
+
+**Kill criterion, per cell, stated before running (DESIGN's own literal wording,
+translated into this study's CI-based convention — same shape as every other module's
+`max(|ci_low|, |ci_high|) < floor` rule, floor changed from a return magnitude to
+DESIGN's own named percentage-point gap):**
+`max(|ci_low|, |ci_high|) < 0.02` (2 percentage points) on the C2 block-bootstrap
+`hold_flag` delta → **killed** — "P(hold) at the real MA is within 2pp of synthetic
+levels, support/resistance from MAs is folklore" for that group/direction, DESIGN's own
+words. A CI excluding zero *and* clearing the 2pp floor is read as a real, distinguishable
+support/resistance effect at that focal lookback. **Module-level kill** fires iff all 6
+cells are killed; DESIGN frames this as "a major, satisfying negative result" in its own
+right, not a failure to find something.
+
+**Control tier and why:** C1 default, **C2 is the tier the kill criterion is evaluated
+on** — same rationale as every prior module: a raw hold rate could differ between focal
+and synthetic touches for reasons unrelated to the level itself (e.g. which tickers/
+regimes happen to generate more away-then-touch cycles at one lookback vs. a
+neighboring one), and C2's momentum/vol/sector matching is this study's standing answer
+to that class of confound.
+
+**Cost annotation:** not applicable to the kill/confirm call itself — like §7.5, this
+is a mechanism question (does the level itself matter) not a tradeable-edge question.
+If any cell is confirmed, a cost annotation (turnover of the touch-event flow itself)
+would be required before it's stated as an actionable claim (invariant #8) — deferred
+until/unless that happens, not computed here.
+
+**Plateau check (DESIGN §6.7):** built into the design itself, same as §7.5 — the
+synthetic-neighbor comparison *is* the plateau check (does the focal lookback stand out
+from its own near neighborhood), not a separate post-hoc pass.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant —
+expected to be far smaller than M1/M4/M11/M2's row counts (this is an event-count, not a
+row-per-day-per-ticker, design), so DESIGN §6.9's minimum-sample floor (200 events, ≥30
+dates, ≥30 tickers) is a live constraint here, not a formality — flagged per cell if
+missed, not silently dropped.
+
+**Universe/window/horizon:** unchanged, U1 (408 S&P 500 constituents as of
+2021-12-31), dev window 2010-01-01 → 2021-12-31. The event horizon itself
+(`OUTCOME_HORIZON = 5` trading days from the touch day) is intentionally short and
+independent of this study's usual `fwd_ret_21` convention — this module measures a
+level-hold probability shortly after the touch, not a 21-day forward return.
+
+**Explicitly deferred (DESIGN §5's own sub-questions, out of this first slice, same
+"first slice not full spec" precedent as M4/M1/M11/§7.5):** touch count (1st vs. 3rd vs.
+5th test of the same level), volume on the touch, wick-vs-close-below distinction. None
+of these are built or tested in this pass.
+
+### Result (2026-09-17)
+
+Ran against the real U1 panel (405 S&P 500 constituents with full dev-window coverage,
+2010-01-04 → 2021-12-31 — corrected from a first run that accidentally omitted `start=
+"2010-01-01"` and pulled full available history back to 1970 for some tickers; the
+holdout boundary itself was never crossed, only the dev-window's *start* was wrong, and
+this was caught and fixed before logging anything).
+
+**Module killed. All 6 primary cells killed — support/resistance from MAs is folklore,
+DESIGN's own words, and a clean one:** every cell's C2 block-bootstrap edge on
+`P(hold)_focal − P(hold)_synthetic` is far under the 2pp floor, not a borderline call —
+the largest edge in the whole grid is 0.61pp (`sma200/from_below`), roughly a third of
+the kill threshold, and most cells sit at 0.14–0.27pp:
+
+| group | direction | n_events | n_dates | c2 (pp) | ci_low (pp) | ci_high (pp) | edge (pp) |
+|---|---|---|---|---|---|---|---|
+| sma200 | from_above | 7,585 | 2,113 | −0.212 | −0.612 | +0.159 | 0.61 |
+| sma200 | from_below | 7,257 | 2,102 | +0.149 | −0.227 | +0.527 | 0.53 |
+| sma50 | from_above | 17,703 | 2,544 | −0.009 | −0.246 | +0.227 | 0.25 |
+| sma50 | from_below | 15,887 | 2,470 | +0.055 | −0.149 | +0.272 | 0.27 |
+| ema21 | from_above | 30,692 | 2,640 | +0.077 | −0.079 | +0.241 | 0.24 |
+| ema21 | from_below | 25,645 | 2,602 | −0.079 | −0.225 | +0.069 | 0.23 |
+
+All 6 cells clear DESIGN §6.9's minimum-sample floor comfortably (smallest: 7,257
+events, 2,102 dates, 402 tickers) — this is a well-powered null, not a "too thin to
+tell" one. **Every one of the 6 CIs spans zero** on the correct, holdout-respecting
+window above — the cleanest possible reading (a caveat worth naming precisely, not
+glossing over: an earlier run, before the `start="2010-01-01"` fix, mis-scoped to full
+available ticker history had `ema21/from_above`'s CI excluding zero at a tiny magnitude,
+`+0.037pp` to `+0.204pp` — still nowhere near the 2pp floor either way, but that number
+is superseded and not part of the logged result; the corrected, canonical run's
+`ema21/from_above` CI is `[-0.079pp, +0.241pp]`, spanning zero like every other cell).
+
+**Plateau/robustness, beyond what the synthetic-neighbor design already builds in:**
+all 3 lookback families (200/50/21) and both directions (support/resistance) land in
+the same tiny-edge regime — this isn't one lookback narrowly failing while a
+neighboring one passes; every cell in the grid tells the same story.
+
+**Argue against this result:**
+- **Close-only touch definition.** DESIGN's own deferred sub-question
+  (wick-vs-close-below) is exactly the gap here: a trader reacting to an intraday
+  wick-touch, not a closing-price touch, could produce a real effect this slice's
+  close-based definition can't see. Not built or tested in this pass.
+- **This test bounds a narrower claim than "MAs matter at all."** The synthetic
+  neighbors (e.g. SMA187/193/207/213 vs. SMA200) sit at nearly the same *price level*
+  as the focal MA — so this result rules out "traders specifically watch and react to
+  the 200-day, distinct from any nearby long-run trend line," but says nothing about
+  whether *some* long-horizon MA-ish price region acts as mild support/resistance
+  everywhere, watched or not (a softer, less commonly stated version of the folklore
+  claim, and not one this design can distinguish from "no support/resistance at all").
+  Same scope limitation §7.5's own design already carries — named there, and true here
+  for the same structural reason.
+- **First-pass parameters** (1/0.25/0.5 ATR thresholds, 10/5-day windows) aren't
+  DESIGN-derived and a different choice could in principle change the read at some
+  setting — but given every cell in the grid lands an order of magnitude under the
+  kill floor, this isn't a borderline result a parameter tweak would plausibly flip.
+
+**Tier: 4 (killed).** No `FINDINGS.md` entry per this study's own convention (Tier 4 =
+`EXPERIMENTS.csv` only, no `FINDINGS.md` claim). Logged: `EXPERIMENTS.csv` (6 rows).
+
+---
+
+## M6.2 — Slope as conditioner (2026-09-17)
+
+**Module / track:** M6.2, Track B (DESIGN.md §6.2). Last module on the minimal-core
+list (DESIGN §12: M1, M2, M4, M5, M6.2, M11, plus §7.5 — every other item now run).
+
+**Promoted from:** DESIGN §12's own minimal-core list, not a Track A candidate — same
+status as M1/M2/M5/M11. DESIGN's own words: "**Prior: this is the most likely Tier-1
+producer in the whole slope module** ... conditioning demands far less of the data than
+prediction does" — the highest expectation any single sub-question in this study has
+carried going in, M2's own "highest expected-value module" framing aside.
+
+**M6.0 prerequisite, already established, not re-derived here:** DESIGN §6.0's two
+identities (1-day SMA slope = scaled momentum; EMA slope = distance-from-MA, times a
+constant) were confirmed empirically against the real panel in the 2026-09-16 Track A
+sweep (`EXPLORATION_LOG.md`) — `slope_log_5` vs. `dist_pct` correlation 0.986 for EMA200
+(near-exact, as the identity predicts), 0.71 for SMA20 (same direction, much weaker, as
+the "momentum with smoothed endpoints" framing predicts), both decorrelating
+substantially by `slope_log_63`. Consequence applied here: **this slice only uses SMA
+slope** (`slope_log_21_sma_{50,200}`, the exact columns DESIGN's own M6.2 text names:
+"terciles of the 50 and 200") — an EMA-based version of any of these same interactions
+would need to be read as "conditioning on distance-from-EMA, relabeled," per the
+identity, not a second independent slope-conditioning result. Not built or tested here.
+
+**Hypothesis (per DESIGN's own named sub-questions, 3 of its 4 taken up this slice —
+see "Explicitly deferred" below):**
+1. **State × slope**: "above a rising 200 vs above a falling 200 ... this is the
+   cleanest test" of the folklore claim that trend direction, not just trend
+   presence, changes what an above/below state means.
+2. **Extension × slope**: "is +5 ATR above a flat 50-day a different object from +5 ATR
+   above a steeply rising one" — M4's distance-decile effect, conditioned on slope.
+3. **Touch × slope**: "MA touch with rising vs falling MA — support in an uptrend vs
+   resistance in a downtrend" — M5's touch/bounce event, conditioned on slope.
+
+**New machinery: none.** Every sub-question here reuses existing features and existing
+stats primitives, restricted to a row-subset first — this is the "faceting is cheap"
+property DESIGN's own prior banks on:
+- `slope_sign` (new column, one line: `sign(slope_log_21_sma_k) > 0`) is the only new
+  feature, built directly from the already-cached, already-lagged `slope_log_21_sma_k`
+  columns (SMA20/50/200 all already in the main panel — no placebo/neighbor plumbing
+  needed for this module, unlike §7.5/M5).
+- Sub-questions 1 and 2 are answered by **restricting the panel to the relevant
+  row-subset first** (state=above/below for #1, decile=top/bottom for #2), then running
+  `stats.inference.block_bootstrap_delta` with `group_col=slope_sign`,
+  `value_col=fwd_ret_21` — the *exact same primitive* every other module's C1/C2 delta
+  uses, just on a pre-restricted population. No new statistical machinery.
+- Sub-question 3 reuses `features/touch.py::touch_events` (M5's own event extraction)
+  directly on the **main cached panel's** `dist_atr_sma_{50,200}` columns (not the
+  placebo panel — no synthetic-neighbor comparison needed here, since this question is
+  about the real MA's own slope, not real-vs-synthetic), joins `slope_sign` at the
+  touch day, and runs `block_bootstrap_delta` with `group_col=slope_sign`,
+  `value_col=hold_flag` — the same reuse pattern M5 itself used for `is_focal`.
+
+**Method, per sub-question:**
+1. **State × slope** (4 cells: lookback ∈ {50, 200} × state ∈ {above, below}): restrict
+   panel to `above_sma_k == state`, then C1/C2 delta of `fwd_ret_21` between
+   `slope_sign_sma_k` = rising vs. falling within that restricted population.
+2. **Extension × slope** (4 cells: lookback ∈ {50, 200} × extension ∈ {top decile,
+   bottom decile} of `dist_atr_sma_k`): restrict panel to that decile, then C1/C2 delta
+   of `fwd_ret_21` between rising vs. falling within it.
+3. **Touch × slope** (4 cells: lookback ∈ {50, 200} × direction ∈ {`from_above`,
+   `from_below`}): M5-style touch-event table on the real MA only (no synthetic
+   neighbors), C1/C2 delta of `hold_flag` between rising-at-touch vs. falling-at-touch.
+
+**Grid size (`N_tests` contribution):** **12 primary cells** (3 sub-questions × 2
+lookbacks × 2 facets each). Each cell is its own independent row/state/decile
+restriction — no algebraic mirrors of the kind M1's above/below pairs turned out to be
+(rising-within-above and rising-within-below are different row populations, not
+complements of each other the way above/below themselves are), so no dedup collapse is
+expected here the way it was needed for M1 — flagged as a specific thing for the
+whole-grid FDR pass to actually check, not assumed.
+
+**Kill criterion, per cell, same convention as every prior module (a floor keyed to
+the value type, not a new threshold invented for this module):**
+- Sub-questions 1–2 (`value_col=fwd_ret_21`, a return): `max(|ci_low|, |ci_high|) <
+  0.10%` (M1/M2's own floor) → killed (slope doesn't change the read within that
+  state/decile).
+- Sub-question 3 (`value_col=hold_flag`, a probability): `max(|ci_low|, |ci_high|) <
+  2pp` (M5's own floor) → killed (slope doesn't change the hold rate).
+- No module-level kill declared across all 12 — each sub-question (and each cell within
+  it) is scored independently, same "the answer is interesting either way" framing
+  §7.5/M5 already established for a conditioning/mechanism question.
+
+**Control tier and why:** C1 default, **C2 (date + `mom_tercile` + `vol_tercile` +
+`sector`, unchanged match columns) is the tier every kill criterion above is evaluated
+on** — same rationale as every prior module: slope and momentum are related but not
+identical (§6.0's own identity only makes them the *same variable* for a 1-day EMA
+slope, not for a 21-day SMA slope, which is what this slice actually uses), so momentum
+still needs matching out separately.
+
+**Cost annotation:** sub-questions 1–2 imply a tradeable claim (a return delta) — if any
+cell is confirmed, CLAUDE.md invariant #8 requires a cost annotation before it's stated
+as a claim, using the combined state-and-slope-sign flag's own turnover
+(`stats/costs.py::signals_per_year`, same convention as every prior module), not
+computed unless triggered. Sub-question 3 is not applicable to cost directly, same
+reasoning as M5 (a hold-rate difference is a mechanism read, not a tradeable edge on its
+own).
+
+**Plateau check (DESIGN §6.7):** applied as directional consistency with each
+sub-question's own parent module, same convention M2 used: sub-question 1's
+above-and-rising cell should agree in sign with M1's own `above_sma_k` cell (a
+conditioning effect that flips the parent module's own sign would be a red flag for the
+slope-sign construction, not a finding); sub-question 2 similarly against M4's own
+decile-spread sign; sub-question 3 against... there is no parent-module sign to check
+against directly (M5 found no real vs. synthetic effect at all, not a directional one)
+— for sub-question 3, the plateau check instead is internal: both lookbacks (50, 200)
+and both directions should tell a broadly consistent story, not one lookback
+confirming while its only sibling kills, absent a specific mechanism reason.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant.
+Sub-questions 1–2 restrict an already-large row population (should clear DESIGN §6.9's
+floor easily, same order of magnitude as M1/M4's own cells); sub-question 3 restricts
+M5's already-thinner touch-event population further by slope sign — flagged, not
+assumed, if any cell falls short.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents with full
+dev-window coverage — the corrected count M5's run established), dev window
+2010-01-01 → 2021-12-31, `fwd_ret_21` for sub-questions 1–2 (unchanged horizon
+convention), M5's own touch/outcome-horizon definition for sub-question 3.
+
+**Explicitly deferred (DESIGN §6.2's 4th named sub-question, out of this first slice,
+same "first slice not full spec" precedent as every prior module):** **golden cross ×
+slope** ("a 50/200 cross where the 200 is still declining is a bounce-off-the-lows
+event; where the 200 is rising it's a continuation event"). This needs new
+crossover-event-detection machinery (a state-flip/transition detector for
+`above_sma_50_vs_200`) that doesn't exist yet in this codebase, unlike sub-questions
+1–3, which reuse existing features/primitives entirely — a real, motivated follow-up
+(DESIGN explicitly ties it to explaining "why the crossover literature reports such
+muddy averages," §2.2) but a new build, not a faceting exercise, so scoped out of this
+slice rather than rushed. `slope_pctile` terciles (vs. this slice's binary
+`slope_sign`) are also deferred — DESIGN mentions both, but every one of its own named
+sub-questions is phrased in rising-vs-falling (sign) terms, so the sign-only version is
+this slice's literal reading of what was asked, not an arbitrary simplification.
+
+### Result (2026-09-17)
+
+Ran against the real U1 panel (405 S&P 500 constituents, 2010-01-04 → 2021-12-31 — the
+main cached panel, correct window from the start, no repeat of M5's execution slip).
+
+**2 of 12 cells confirmed (CI excludes zero, clears their own floor); 1 cell
+unresolved (thin-stratum, not killed and not confirmed, a genuine data-scarcity
+finding in its own right); the remaining 9 are CI-spans-zero and inconclusive — not
+"killed" under the pre-registered rule, since their CI edge is wide enough to still
+contain an economically meaningful effect, just not a detected one.**
+
+| sub_question | lookback | facet | n_events | n_dates | c2 | ci_low | ci_high | edge | read |
+|---|---|---|---|---|---|---|---|---|---|
+| state_x_slope | 50 | above | 560,242 | 2,747 | +0.066% | −0.158% | +0.286% | 0.286% | inconclusive |
+| state_x_slope | 50 | below | 165,802 | 2,728 | −0.015% | −0.207% | +0.154% | 0.207% | inconclusive |
+| state_x_slope | 200 | above | 720,928 | 2,747 | −0.102% | −0.311% | +0.102% | 0.311% | inconclusive |
+| state_x_slope | 200 | below | 110,430 | 2,747 | −0.034% | −0.260% | +0.214% | 0.260% | inconclusive |
+| extension_x_slope | 50 | top | 104,129 | 2,747 | **−0.592%** | **−1.047%** | **−0.175%** | 1.047% | **confirmed** |
+| extension_x_slope | 50 | bottom | 30,330 | 2,551 | −0.107% | −0.506% | +0.270% | 0.506% | inconclusive |
+| extension_x_slope | 200 | top | 111,154 | 2,747 | n/a | n/a | n/a | n/a | **unresolved** |
+| extension_x_slope | 200 | bottom | 26,646 | 2,362 | +0.113% | −0.352% | +0.570% | 0.570% | inconclusive |
+| touch_x_slope | 50 | from_above | 14,138 | 2,410 | **−5.75pp** | **−10.22pp** | **−1.94pp** | 10.22pp | **confirmed** |
+| touch_x_slope | 50 | from_below | 6,480 | 1,845 | +1.18pp | −2.17pp | +4.23pp | 4.23pp | inconclusive |
+| touch_x_slope | 200 | from_above | 6,107 | 1,887 | −8.05pp | −17.31pp | +2.36pp | 17.31pp | inconclusive |
+| touch_x_slope | 200 | from_below | 3,769 | 1,525 | −4.67pp | −13.82pp | +4.13pp | 13.82pp | inconclusive |
+
+**Finding 1 — `extension_x_slope`, SMA50, top decile:** among stocks already ≥ the top
+decile of `dist_atr_sma_50` (already deep in M4's "extended" territory), those where the
+50-day is **rising** show a **lower** forward 21-day return than those where it's
+**falling**, C2 (mom/vol/sector-matched) `−0.592%` per 21d, CI `[−1.047%, −0.175%]`,
+excludes zero. **Cost (invariant #8, triggered since this cell is confirmed):**
+combined "top-decile-and-rising" flag turnover 8.061 flips/ticker-yr → hurdle
+0.806%/yr (10bps/rt, `stats/costs.py`). Annualized (×12): point −7.11%/yr, near-zero
+edge −2.10%/yr, far edge −12.56%/yr — **clears at every reading.**
+
+**Finding 2 — `touch_x_slope`, SMA50, from_above:** among first-touch-of-the-50-day
+events approaching from above (M5's own event definition, real MA only), touches where
+the 50-day is **rising** at the touch show a **lower** `P(hold)` than touches where it's
+**falling** — C2 `−5.75pp`, CI `[−10.22pp, −1.94pp]`, excludes zero, far past the 2pp
+floor. **Cost: not applicable**, per this entry's own pre-registered convention
+(mechanism read, same as M5 itself).
+
+**Both findings point the same direction, at the same lookback, from two independently
+constructed cells (a decile restriction vs. an event-based restriction) — worth naming
+as a soft corroboration, not a formal plateau check:** an actively rising 50-day,
+conditional on already being in an extended/testing configuration, is associated with
+*worse* near-term outcomes than an otherwise-identical setup on a flattening/falling
+50-day. This runs counter to the common folklore reading ("buy the dip in an uptrend is
+safer than in a downtrend") — DESIGN itself flagged this general shape as plausible
+("is +5 ATR above a flat 50-day a different object... almost certainly yes").
+
+**Plateau check (as pre-registered):** Finding 1's sign agrees with M4's own SMA50
+decile-spread sign (`dist_atr_sma_50`'s top-minus-bottom C2 spread is negative,
+`EXPERIMENTS.csv`'s `dist_pct_sma_20_h21`-family rows — extension predicts lower
+forward returns; this cell's "rising side underperforms the falling side within the
+same extended decile" is a same-direction intensification of that pattern, not a
+contradiction). Finding 2 has no parent-module sign to check against (M5 found no
+real-vs-synthetic effect at all, a different axis) — its own internal consistency check
+(same sign at SMA200/`from_above`, `−8.05pp`, though CI-spans-zero and much noisier at
+`n_events=6,107`) is a directionally-consistent, not lone-pixel, read.
+
+**Argue against both findings (not resolved here, flagged as live alternatives):**
+- **No short-term-reversal control** (same gap M1/M2 already named and only partially
+  closed for `stack_fully_bearish` — not run here at all): a stock that reaches
+  top-decile-extension-above-a-falling-50-day plausibly got there via a sharp,
+  recent bounce/squeeze — its very recent (< 1 month) return pattern, not captured by
+  `mom_12_1` (skips the most recent month), could itself explain the gap on both sides
+  of this comparison.
+  M6.3's own explicit warning ("the top slope decile is heavily contaminated by
+  post-earnings-gap and low-float names") is exactly the composition-effect risk that
+  applies here too, on the "falling despite being far above" side specifically.
+- **Both confirmed cells' "falling" side is a comparatively rare population**
+  (`slope_sign=False` is 7.1% of the SMA50 top-decile row population; M5's from_above
+  touch events split more evenly) — a real effect on a rare subpopulation is still a
+  real result, but its generality (does it hold outside these specific
+  extended/touching conditions) is untested.
+- **Sub-question 3's 5-day outcome window is short and noisy** — Finding 2's own CI is
+  wide relative to its point estimate (a 5x range between near and far edges), a wider
+  outcome window is a natural robustness follow-up, not built here.
+
+**Finding 3 (unresolved, a data-scarcity finding, not a confound) — `extension_x_slope`,
+SMA200, top decile:** `InsufficientBlocksError` — traced directly (not inferred): within
+the top decile of `dist_atr_sma_200`, only 544 of 111,698 C2-eligible rows (0.5%) have
+`slope_sign_sma_200 = False` (falling) — vs. 7.1% at the equivalent SMA50 cell. Once
+stratified by (date, `mom_tercile`, `vol_tercile`, `sector`), only 112 distinct dates
+have *both* sides of a stratum populated, short of the block-bootstrap's 126-date
+minimum (`MIN_BLOCKS × block_length = 3 × 42`). **Mechanistically explicable, not
+mysterious**: a 200-day SMA moves far more slowly than price, so "already many ATRs
+above the 200-day, but the 200-day itself hasn't yet turned down" is a rare, transient
+combination by construction — unlike the 50-day, which turns over often enough for a
+"still falling but price already far above it" state to occur more than an order of
+magnitude more often. **Cross-reference to `STATUS.md`'s SMA200 watch**: this is a
+different mechanism than the three prior SMA200 oddities logged there (M4's `dist_z`
+window instability, M1's lb200 row-loss/skew, M11's `dist_pct_sma_200_h21` CI-spanning
+result) — those were about instability or no-detectable-effect; this is about a
+genuinely thin subpopulation at the intersection of two SMA200-derived conditions,
+which is a *structural* consequence of 200 being a long, slow-moving window, not a
+newly-suspicious anomaly. Logged as context for whoever eventually does the SMA200
+audit, not folded into that watch item's trigger count as a 4th instance — the
+mechanism here is understood, not open.
+
+**Tier: 3** for both confirmed cells (Finding 1, Finding 2) — capped by the same
+missing FDR/holdout infrastructure every Tier-3 cell in this study carries, clearing
+cost (Finding 1) or not needing to (Finding 2) doesn't lift the cap. **Tier: not
+tiered** for the unresolved SMA200 cell (below-threshold, same convention as M1's own
+thin secondary cells). **Tier: 4** for the remaining 9 inconclusive cells — read as "no
+detected effect at this control tier and sample," not "confirmed folklore," per this
+study's own Tier-3/4 distinction (CLAUDE.md: a Tier-4 CI-spans-zero result is still a
+real report, not silence).
+
+**Logged:** `EXPERIMENTS.csv` (12 rows); `FINDINGS.md` (2 new entries, Finding 1 and
+Finding 2); `STATUS.md` (module table, minimal-core-list completion, whole-grid FDR
+pass trigger now fired).

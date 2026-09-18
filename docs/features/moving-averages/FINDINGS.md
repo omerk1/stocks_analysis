@@ -368,24 +368,47 @@ price history exists only 2024–2026 in this repo's loaded data) — `stack_ful
 is exactly this shape, so it cannot reach Tier 1/2 regardless of how clean these
 numbers are.
 
-**Argue against this result (not resolved here, flagged as the live alternative):**
-the sign pattern — bearish/near-lows predicting *higher* control-adjusted forward
-returns, bullish/near-highs predicting *lower* ones (see part (b) below) — is exactly
-the signature uncontrolled short-term reversal would produce, not a distinct
+**Argue against this result — checked 2026-09-17, partially survives (see addendum
+below):** the sign pattern — bearish/near-lows predicting *higher* control-adjusted
+forward returns, bullish/near-highs predicting *lower* ones (see part (b) below) — is
+exactly the signature uncontrolled short-term reversal would produce, not a distinct
 Minervini-thesis effect. `mom_12_1` (this module's only momentum control leg, reused
 unchanged from M1/M4/M11) deliberately skips the most recent month, so nothing in this
 cell's pre-registered C2 spec controls for a stock's very recent drawdown — the same
 gap M1 diagnosed and added a `rev_tercile`/`mom_1_0` robustness layer for
-(`PREREGISTRATION.md`'s M1 entry, "post-hoc short-term-reversal control"). That
-robustness check was not run for this cell (out of this module's pre-registered
-scope, not silently skipped) — until it is, "the stack adds real bearish-side
-information beyond a single MA" and "this is uncontrolled 1-month reversal, larger for
-a deeper breakdown" are both live explanations.
+(`PREREGISTRATION.md`'s M1 entry, "post-hoc short-term-reversal control"). The
+2026-09-17 addendum below runs that same check for this cell: the effect attenuates
+but survives, so this is a *partial*, not a full, alternative explanation.
 
-**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
-4-column C2 match set adding `rev_tercile` (M1's own precedent) to separate a genuine
-stack effect from short-term reversal; either would also help resolve the open
-survivorship-cap question rather than just deferring to it.
+**What would change the verdict:** the whole-grid FDR pass; a holdout check — both
+still open, both still required before this cell could reach Tier 1/2 regardless of
+the reversal-robustness result below.
+
+### Reversal-robustness addendum (2026-09-17)
+
+Ran the check the paragraph above flagged as missing: `rev_tercile` (prior-21-day-
+return tercile, `mom_1_0`'s own bucket, same construction M1 used for its own lb200
+diagnostic) added to the C2 match set, `("mom_tercile", "vol_tercile", "sector",
+"rev_tercile")` instead of the pre-registered 3-column spec.
+
+**Result: survives, attenuated.** C2 delta +0.4675% → +0.3188% (CI [+0.1488%,
++0.7762%] → [+0.0444%, +0.5976%]), n_events 39,759 → 31,297, n_dates 2,696 → 2,642
+(standalone C2-eligible population; not the same row set as this entry's incremental-
+diff n_events=40,102 above). The point estimate loses about a third of its magnitude
+once short-term reversal is matched out — reversal is a real, partial contributor —
+but the CI still excludes zero and clears the 0.10% kill floor by a wide margin (edge
+0.598%), and the annualized gross edge (≈+3.83%/yr point, ≈+0.53%/yr near edge,
+≈+7.17%/yr far edge) still clears the unchanged 0.2863%/yr cost hurdle at every
+reading.
+
+**Reading:** "the stack adds real bearish-side information beyond a single MA" and
+"this is entirely uncontrolled 1-month reversal" are no longer both live — the second
+is ruled out as a *complete* explanation, though it does explain part of the gross
+magnitude. Tier is unchanged at 3 (the FDR/holdout and §7.3 survivorship caps above are
+untouched by this result) — this addendum closes the confound question, not the
+infrastructure gap. Full numbers: `EXPERIMENTS.csv`,
+`stack_fully_bearish_h21_reversal_robustness` row; pre-registration:
+`PREREGISTRATION.md`'s M2 entry, "Reversal-robustness addendum."
 
 **Part (b) — Trend Template ablation (descriptive, no tier, no `FINDINGS.md`-worthy
 claim per DESIGN's own "kill: none" framing — noted here for completeness, full
@@ -433,8 +456,166 @@ criterion's basis, per invariant #10's own rule that shape fields don't carry ki
 authority) — it explains *why* the mean looks the way it does, which the CI alone
 didn't.
 
+### Whole-grid FDR pass addendum (2026-09-17) — `stack_fully_bearish`
+
+**Does not survive.** The incremental-vs-M1 statistic this entry is built on
+(point +1.0551%, CI [+0.4189%, +1.7400%]) has a two-sided Wald p-value (backed out of
+the CI, `stats/multiple_testing.py::p_value_from_ci`) of **0.0086** — individually
+significant at any conventional threshold, and in fact the single smallest p-value in
+this study's entire deduplicated 31-test grid. It still fails Benjamini–Hochberg
+correction at q = 0.10: its rank-1 BH threshold is 1/31 × 0.10 = 0.0032, and 0.0086
+does not clear it. **Status change: from "capped at Tier 3 by missing FDR
+infrastructure" to "tested against FDR, and it failed."** This is not a silent
+re-tiering (`EXPERIMENTS.csv`'s original row is untouched; the FDR pass's own summary
+row and full ranked table live in `STATUS.md`'s "Whole-grid FDR pass" section) — the
+point estimate, CI, and cost annotation above are exactly as reported, and remain the
+most defensible standalone reading of this cell. What changes is the whole-grid-aware
+conclusion: **this is not distinguishable, at 0.10 FDR, from what you'd expect to see
+by chance among 31 independent tests.**
+
 **Reproducibility:** computed end-to-end against the real DB (full 408-ticker panel
 rebuild) by the coordinating session, via `stats/shape.py` (new: `hit_rate_deltas`,
 `distribution_shape`), wired into `modules/stack_minervini.py::_cell_row`. Full numbers
 (including `n_wins`/`n_losses`/`mean_win`/`mean_loss`) in `EXPERIMENTS.csv`'s notes
 field for both primary cells.
+
+---
+
+## M6.2 — Slope as conditioner (2026-09-17)
+
+### `extension_x_slope`, SMA50 top decile, 21d ("Finding 1")
+
+**Hypothesis:** DESIGN §6.2's own named sub-question — "is +5 ATR above a flat 50-day
+a different object from +5 ATR above a steeply rising one" — restated as a testable
+claim: among stocks already in the top decile of `dist_atr_sma_50` (M4's own
+"extended" territory), forward-21-day return differs depending on whether the 50-day
+is rising or falling.
+
+**Why it was plausible:** DESIGN's own prior for this whole module — "conditioning
+demands far less of the data than prediction does," M6.2 named as "the most likely
+Tier-1 producer in the whole slope module." M4 had already established that extension
+itself (top vs. bottom decile) predicts lower forward returns; this asks whether
+*slope*, not just distance, further sharpens that read.
+
+**What was run:** Restrict the main cached panel to `dist_atr_sma_50`'s top decile
+(per-date `cross_sectional_bucket`), then `stats.inference.block_bootstrap_delta` with
+`group_col=slope_sign_sma_50` (sign of the already-cached, already-lagged
+`slope_log_21_sma_50`), `value_col=fwd_ret_21`, C2 match columns unchanged
+(`mom_tercile`/`vol_tercile`/`sector`), block length 42, 500 draws, 90% CI — the same
+primitive every other module's C1/C2 delta uses, applied to a pre-restricted
+population rather than the whole panel.
+
+**The number(s):** C2 delta (rising minus falling, within the top decile) **−0.592%**
+per 21d, 90% CI **[−1.047%, −0.175%]** — excludes zero. Read: among equally-extended
+stocks, an actively rising 50-day predicts a *lower* forward return than a
+flattening/falling one — the opposite of "a rising trend makes overextension safer."
+
+**Effective N:** 104,129 rows, 2,747 distinct dates, 402 tickers (the "rising" side is
+94,516 of these; the "falling" side is only 7.1% of the top-decile population — a real
+but comparatively rare subgroup, noted as a live caveat below).
+
+**Cost:** combined "top-decile-and-rising" flag's own turnover: 8.061 flips/ticker-yr
+→ hurdle 0.806%/yr (`stats/costs.py`, 10bps/rt, same convention as every prior
+module). Point, annualized (×12): −7.11%/yr, clears. Near edge (−2.10%/yr): clears.
+Far edge (−12.56%/yr): clears. Clears at every reading.
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
+in this study carries; clearing cost doesn't lift it.
+
+**Argue against this result (not resolved here, flagged as live alternatives):** no
+short-term-reversal control (`mom_12_1` skips the most recent month; a stock reaching
+top-decile-extension-above-a-falling-50-day plausibly got there via a sharp, very
+recent bounce this cell's C2 spec can't see) — the same gap M1/M2 named and only
+partially closed elsewhere in this study, not run here at all. M6.3's own explicit
+warning about post-earnings-gap/low-float contamination of the top slope decile
+applies to this cell's "falling despite being far above" side specifically. The
+"falling" side's rarity (7.1% of the top-decile population) means this is a real
+effect on a specific, non-majority subgroup, not (yet shown to be) a general one.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
+`rev_tercile`/`mom_1_0`-augmented C2 match set (M1's own precedent) to rule out
+short-term reversal as the actual driver.
+
+**Plateau check:** sign agrees with M4's own SMA50 decile-spread sign (extension
+already predicts lower returns; this cell's "rising side underperforms the falling
+side within the same extended decile" intensifies that pattern rather than
+contradicting it).
+
+### `touch_x_slope`, SMA50 from_above, 21d ("Finding 2")
+
+**Hypothesis:** DESIGN §6.2's own named sub-question — "MA touch with rising vs
+falling MA — support in an uptrend vs resistance in a downtrend" — restated: among
+first-touch-of-the-50-day events approaching from above (M5's own event definition,
+applied here to the real MA only, no synthetic-neighbor comparison), `P(hold)` differs
+depending on whether the 50-day is rising or falling at the touch day.
+
+**Why it was plausible:** Same DESIGN prior as Finding 1 above — a conditioning
+question, not a standalone-signal one. Directly motivated by M5's own touch/bounce
+event machinery (`features/touch.py`), reused here unchanged rather than rebuilt.
+
+**What was run:** `features/touch.py::touch_events` on the main cached panel's
+`dist_atr_sma_50` (the real MA, not a synthetic neighbor), restricted to `direction=
+from_above`, then `block_bootstrap_delta` with `group_col=slope_sign_sma_50` (slope
+sign at the touch day), `value_col=hold_flag`, same C2 match columns, block length 10
+(M5's own convention for sparse, non-overlapping touch events).
+
+**The number(s):** C2 delta (rising minus falling) **−5.75pp**, 90% CI **[−10.22pp,
+−1.94pp]** — excludes zero, far past M5's own 2pp floor. Read: a support test on a
+50-day that's still rising holds *less* often than the same test on a falling
+50-day — counter to the folklore that an established uptrend makes a pullback safer
+to buy.
+
+**Effective N:** 14,138 events, 2,410 distinct dates, 402 tickers.
+
+**Cost:** not applicable, per this module's own pre-registered convention — a
+hold-rate comparison is a mechanism read (does the level's own trend direction
+matter), not a tradeable-edge question on its own, same reasoning M5 used.
+
+**Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study.
+
+**Argue against this result:** no parent-module sign to check this against directly
+(M5 found no real-vs-synthetic distinction at any lookback — a different axis
+entirely); its own internal-consistency read is the same sign at SMA200/`from_above`
+(−8.05pp) though that cell's CI spans zero and is much noisier (`n_events=6,107`) — a
+directionally-consistent, not lone-pixel, read, but not independent confirmation
+either. The outcome window (5 trading days, M5's own convention) is short — this
+cell's CI spans a 5x range between its near and far edges, so the *magnitude* is much
+less certain than its sign. No short-term-reversal control here either, same caveat as
+Finding 1.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check; a longer
+outcome-horizon robustness check (5 days is M5's own first-pass choice, not
+DESIGN-derived).
+
+**Both findings, read together:** two independently constructed cells (a decile
+restriction vs. an event-based restriction), same lookback, same sign — an actively
+rising 50-day, conditional on already being in an extended or testing configuration,
+predicts *worse* near-term outcomes than an otherwise-identical setup on a
+flattening/falling 50-day. Worth naming as a soft corroboration across constructions,
+not a formal plateau check (these aren't neighboring lookbacks, they're different
+questions arriving at the same directional read). Full numbers, the unresolved SMA200
+extension cell, and the 9 inconclusive cells: `PREREGISTRATION.md`'s M6.2 "Result"
+section; `EXPERIMENTS.csv` (12 rows).
+
+### Whole-grid FDR pass addendum (2026-09-17) — both findings
+
+**Neither survives.** Finding 1 (`extension_x_slope`/SMA50/top, CI [−1.047%, −0.175%])
+has a Wald p-value of **0.0254** (BH rank 7 of 31, threshold 0.0226 — does not clear
+it). Finding 2 (`touch_x_slope`/SMA50/`from_above`, CI [−10.22pp, −1.94pp]) has a Wald
+p-value of **0.0223** (BH rank 6 of 31, threshold 0.0194 — also does not clear it).
+Both are individually significant at the conventional 10% level — both are among the
+7 smallest p-values in the study's entire deduplicated grid — and both fail
+Benjamini–Hochberg correction at q = 0.10 once the actual number of tests this study
+ran (31, not 1 or 2) is accounted for. Full ranked table and methodology:
+`STATUS.md`'s "Whole-grid FDR pass" section.
+
+**Status change, same as `stack_fully_bearish`'s own addendum above:** from "capped at
+Tier 3 by missing FDR infrastructure" to "tested against FDR, and it failed." Not a
+silent re-tiering — `EXPERIMENTS.csv`'s original rows are untouched, the point
+estimates/CIs/cost annotation above stand as reported. **The "both findings point the
+same direction" corroboration named above is worth re-reading in this light**: two
+individually-significant, same-signed results is a weaker form of evidence than it
+first appears once you know they're 2 of 31 tests run, not 2 of 2 — DESIGN's own
+Sullivan/Timmermann/White motivation for §6.6 (applying a Reality Check to a whole
+rule universe substantially weakens results that look strong in isolation) is exactly
+what happened here.

@@ -81,6 +81,15 @@ MIN_TICKERS = 30
 HORIZON = 21
 C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 
+# Robustness-check-only match set (PREREGISTRATION.md, 2026-09-17 reversal-
+# robustness addendum), same construction as `modules/baseline_state.py`'s
+# `C2_MATCH_COLS_WITH_REVERSAL`: adds a prior-21-day-return tercile so a
+# stack cell's C2 delta can be re-evaluated with short-term reversal
+# explicitly matched out. Not the module's pre-registered default --
+# `primary_stack_table`'s own C2 spec stays `C2_MATCH_COLS` unless a caller
+# explicitly opts into this one.
+C2_MATCH_COLS_WITH_REVERSAL = (*C2_MATCH_COLS, "rev_tercile")
+
 # M1's kill-criterion floor (PREREGISTRATION.md's M1 entry, `KILL_THRESHOLD`
 # in `modules/baseline_state.py`) -- reused unchanged, see module docstring.
 KILL_THRESHOLD = 0.001  # 0.10%
@@ -120,11 +129,17 @@ def prepare(panel: pd.DataFrame, conn: sqlite3.Connection, index_name: str = "sp
     CLI writes to -- this calls the compute function directly rather than
     reading a pre-populated `relative_strength` table, so no separate CLI
     run is required first.
+
+    Also adds `rev_tercile` (prior-21-day-return tercile, same construction
+    as `modules/baseline_state.py`'s own robustness-check column), used
+    only by the short-term-reversal check (`C2_MATCH_COLS_WITH_REVERSAL`),
+    not by this module's default C2 spec.
     """
     working = panel.copy()
     working["fwd_ret_21"] = forward_return(working, horizon=HORIZON)
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
+    working["rev_tercile"] = cross_sectional_bucket(working, "mom_1_0", n_buckets=3)
 
     start = working["date"].min()
     end = working["date"].max()
