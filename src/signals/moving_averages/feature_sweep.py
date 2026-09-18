@@ -31,11 +31,8 @@ holdout past that date is never touched here).
 
 from __future__ import annotations
 
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, ".")
 
 import matplotlib
 matplotlib.use("Agg")
@@ -69,7 +66,7 @@ SLOPE_K = (5, 21, 63)
 N_DECILES = 10
 TOP_N_ENRICH = 25
 
-OUTPUT_DIR = Path(__file__).resolve().parents[1] / "output" / "moving_averages"
+OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 
 
 def build_feature_list() -> list[str]:
