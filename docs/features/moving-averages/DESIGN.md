@@ -885,6 +885,43 @@ Stochastics (`%K` = position within the trailing high-low range) is neither a li
 
 **Framing for the report:** M17 is not "we also tested some oscillators." It is a structured test of **three distinct mathematical operations on a return window** — linear averaging (MAs), gain/loss asymmetry (RSI), and rank-within-range (stochastics) — asking which of them carries information the others don't. That is a much stronger claim than any individual indicator result, and it generalises beyond the specific indicators tested.
 
+### M18 — 52-week high/low range as a standalone predictor (added 2026-09-20, post-termination)
+
+**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule ("level-based
+reference points ... in scope if it looks interesting") after the whole-grid FDR pass and
+final report (STATUS.md/REPORT.md) had already closed the minimal-core study. `dist_from_52w_high`/
+`dist_from_52w_low` (§4.3 "Context") were built for M2's Minervini-ablation criteria 6/7, never
+tested as standalone predictors in their own right. Two independent Track A readings, both
+after the study's formal termination, flagged them as the strongest unexplored candidate in
+the whole feature set: M2's ablation (criterion 7, near-52w-high, the single largest
+attribution coefficient, negative) and the 2026-09-16 348-cell feature×horizon IC sweep
+(`dist_from_52w_low`@126d mean IC +0.0385, `dist_from_52w_high`@126d mean IC −0.0269 — both
+~2x the next-best cell and *strengthening*, not weakening, at longer horizons, unlike every
+SMA-distance feature this study built).
+
+**Hypothesis:** position within the trailing 252-day high/low range carries forward-return
+information at 63/126-day horizons, beyond what date + momentum-decile + vol-decile + sector
+matching (C2) already explains — i.e. this is not just `mom_12_1` re-encoded, the same
+question this whole study asks of every MA-distance feature, applied here to a feature that
+happens to already be highly correlated with 12-month momentum by construction.
+
+**Why 63/126d and not this study's usual 21d:** the IC sweep's own horizon-shape finding —
+these two features get *stronger* with horizon while every SMA-distance feature peaks around
+21-42d and fades. Testing only at 21d would be testing the wrong part of the curve.
+
+**Promotion-gate check (Track A, before pre-registration):** a subperiod re-slice
+(2010-2015 vs. 2016-2021, `high_low_52w_gate_check.py`) found 3 of 4 (feature, horizon) cells
+same-signed across both subperiods and the full window; the fourth
+(`dist_from_52w_high`@63d) is near-zero in the early subperiod (+0.004) rather than
+opposite-signed, consistent with "this feature needs more horizon to show up," not a
+contradiction. Full numbers: EXPLORATION_LOG.md, 2026-09-20.
+
+**Method:** per-date rank-IC (block-bootstrap CI) plus C1/C2 top-minus-bottom decile spread
+(block-bootstrap CI), reusing `modules/cross_sectional.py`'s existing machinery unchanged —
+same construction as M11, generalized from an MA-distance column to a single-column feature
+with no (family, lookback) grid. See PREREGISTRATION.md for the full grid/kill-criterion
+statement.
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).
