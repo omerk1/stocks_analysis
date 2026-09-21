@@ -2127,3 +2127,122 @@ updated in the same session, not left stale against this new result.
 FDR pass section, termination section); `REPORT.md` (executive summary, shrinkage
 table, FDR table, module results, suggestive findings, dead-ends register, cost
 appendix — all updated to reflect M18).
+
+---
+
+## M6.1 — Does slope add anything over momentum? (2026-09-21)
+
+**Module / track:** M6.1, Track B (DESIGN.md §6.0/§6.1). Not part of the original
+minimal-core list (DESIGN §12 names M1, M2, M4, M5, M6.2, M11, plus §7.5) — added
+post-termination via DESIGN §1.5's porous-scope rule, the same precedent M18 already
+established: this study reached its termination condition on 2026-09-17 and was
+reconfirmed on 2026-09-20 (`STATUS.md`), and a new module beyond that list is a
+deliberate, disciplined extension, not a reopening — same pre-registration/kill-
+criterion/FDR discipline as every module before it.
+
+**Promoted from:** DESIGN's own module list, not a Track A candidate — same status as
+M1/M2/M5/M6.2/M11. Run this session as one of four modules ("Batch 1" of a
+parallel-scoping pass) chosen specifically because they need zero new shared
+infrastructure and touch no file another parallel module also touches (the coordinating
+session's own scoping, this conversation).
+
+**M6.0 prerequisite (DESIGN §6.0), already established, not re-derived here:** the 1-day
+SMA slope is exact scaled momentum, and for a k-day window the identity generalizes to a
+difference of block means: `SMAn(t) - SMAn(t-k) = (k/n) * [mean(recent k days) -
+mean(the k days ending n days back)]`. DESIGN's own words: "a k-day SMA slope is
+momentum with smoothed endpoints — the same signal as raw n-day momentum but with the
+start and end points averaged over k days instead of sampled at a single close. That
+smoothing is the only thing slope can possibly add over raw momentum... Test it
+directly (M6.1) rather than assuming it."
+
+**Hypothesis (skeptical, DESIGN's own wording):** SMA slope is momentum with cosmetic
+smoothing, and the smoothing buys close to nothing.
+
+**New machinery: two small local features, computed in this module's own `prepare()`,
+never written to the shared panel cache (`features/panel.py`) or to `features/slope.py`**
+— so this module and any sibling M6.x module running in parallel this session never
+touch the same file:
+- `raw_return_k(close, k)` = `log(C_t / C_{t-k})` — plain k-day momentum, no skip, no
+  smoothing. Distinct from `mom_12_1` (which skips the most recent month).
+- `block_mean_diff_log(close, k=21, n)` = DESIGN's own k-day identity above, expressed
+  in log space (`log(recent k-day mean) - log(prior k-day mean, ending n days back)`)
+  rather than the raw linear difference, for the same cross-ticker comparability reason
+  `slope_log_k` itself is logged (CLAUDE.md invariant #7 — "Log scale for slopes...
+  Percentage and price-unit slopes are not comparable across tickers"). This is a
+  documented modeling choice (the identity is exact in raw/linear space; taking logs on
+  top is this module's own choice for consistency with the rest of the study's slope
+  convention), not a silent deviation from DESIGN's literal formula.
+- Both are computed from the panel's own unlagged `close`, then passed through the same
+  central `features/panel.py::apply_lag` every cached feature already went through
+  (CLAUDE.md invariant #2) — `slope_log_21_sma_k` and `mom_12_1` are already lagged
+  cached-panel columns, untouched.
+
+**Method:** Two parts, matching DESIGN's own method paragraph's two asks:
+1. **Horse race (descriptive, primary lookback SMA200 only, per DESIGN's own method
+   text):** per-date Spearman rank-IC (`modules/cross_sectional.py::daily_rank_ic`,
+   reused unchanged) of each of {`slope_log_21_sma_200`, `raw_return_200`, `mom_12_1`,
+   `block_mean_diff_log_200`} against `fwd_ret_{21,63,126}`, block-bootstrapped
+   (`stats/inference.py::block_bootstrap_series`, reused unchanged, block length
+   `max(42, 2×horizon)`) — IC and IC-decay across horizons, DESIGN's own named
+   comparison. Plus a turnover comparison (`stats/costs.py::signals_per_year`, reused
+   unchanged, on each feature's own top-decile membership flag) for
+   `slope_log_21_sma_200` vs `mom_12_1` specifically — DESIGN's own "lower turnover
+   alone could justify preferring it" consideration.
+2. **Decisive test (the kill-criterion test, run "across all lookbacks" per DESIGN's own
+   kill-criterion wording):** per-date cross-sectional partial correlation — residualize
+   `slope_log_21_sma_k` against `mom_12_1` via one-date-at-a-time OLS (no pooled
+   full-sample regression, CLAUDE.md invariant #3), then Spearman rank-IC of the
+   residual against `fwd_ret_21` — "incremental IC," DESIGN's own named quantity, run at
+   all four cached SMA lookbacks (`k ∈ {20, 50, 150, 200}`), block-bootstrapped the same
+   way as the horse race's own IC series.
+
+**Kill criterion (DESIGN's own, made precise):** killed iff **every** lookback's
+incremental-IC edge (`max(|ci_low|, |ci_high|)` on the decisive test's block-bootstrap
+CI) is below **0.005** → declare SMA slope redundant with momentum, use whichever is
+cheaper, stop building slope-specific machinery. Not killed if even one lookback's edge
+clears 0.005 (a real, distinguishable incremental effect at that lookback).
+
+**Control tier and why:** the decisive test's own construction (partial correlation
+against `mom_12_1`) *is* the control — momentum is directly regressed out per date
+before testing what's left, a tighter control than this study's usual C2 tercile-match
+for exactly this question (does slope survive momentum, not does slope survive
+momentum+vol+sector). The descriptive horse race doesn't use C1/C2 at all — it's a raw
+IC comparison across candidate features, not a group-delta claim, so this study's usual
+C0/C1/C2 framing doesn't apply the same way; documented here rather than silently
+omitted.
+
+**Cost annotation:** this module is diagnostic/redundancy in nature (DESIGN's own
+framing — "test it directly... use whichever is cheaper," not itself proposing a new
+trade), not a standalone tradeable claim — no cost hurdle is computed. The turnover
+comparison above is reported as a raw descriptive number (signals/ticker-year), not
+converted to a cost hurdle, per this reasoning. If a future module wanted to trade on
+whichever of slope/momentum this test favors, that claim would need its own cost
+annotation at that point (CLAUDE.md invariant #8), not retroactively here.
+
+**Grid size (`N_tests` contribution):** **4 cells** (the decisive incremental-IC test at
+each of 4 lookbacks) — the horse race's 12 IC cells (4 features × 3 horizons) are
+descriptive only, not hypothesis tests with their own kill criterion, so they don't
+enter `N_tests`, same convention this study uses for every purely-descriptive readout
+(e.g. M6.2's plateau checks, this study's own shape-stats addenda).
+
+**Distribution shape (CLAUDE.md invariant #10):** this module's own "standard result
+object" is a per-date IC/partial-correlation series, not a group-vs-group delta on a
+boolean event flag — `stats/shape.py`'s `hit_rate_deltas`/`distribution_shape` are both
+defined relative to a boolean `group_col` (an event flag) and don't have a natural
+mapping onto a rank-correlation statistic. Documented here as a deliberate scope
+decision, not a silent omission of the invariant: this module reports no hit-rate/
+win-loss/skew numbers, because there is no boolean event group in its own construction
+to compute them against.
+
+**Plateau check (DESIGN §6.7):** the 4-lookback decisive-test grid is itself a
+plateau/robustness check across lookbacks — a result driven by one lookback's own edge
+case rather than a broadly consistent read across {20,50,150,200} is flagged as such in
+the Result section below, not silently generalized from a single lookback.
+
+**Effective N:** distinct dates and tickers per cell, standard invariant — reported per
+lookback in the Result section.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31 — the same cached panel M6.2/M18 already used, reused directly,
+not rebuilt). `fwd_ret_21` for the decisive test (this study's primary horizon
+throughout); `fwd_ret_{21,63,126}` for the descriptive horse race.
