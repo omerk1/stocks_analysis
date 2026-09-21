@@ -522,19 +522,23 @@ Far edge (−12.56%/yr): clears. Clears at every reading.
 **Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
 in this study carries; clearing cost doesn't lift it.
 
-**Argue against this result (not resolved here, flagged as live alternatives):** no
-short-term-reversal control (`mom_12_1` skips the most recent month; a stock reaching
-top-decile-extension-above-a-falling-50-day plausibly got there via a sharp, very
-recent bounce this cell's C2 spec can't see) — the same gap M1/M2 named and only
-partially closed elsewhere in this study, not run here at all. M6.3's own explicit
-warning about post-earnings-gap/low-float contamination of the top slope decile
-applies to this cell's "falling despite being far above" side specifically. The
-"falling" side's rarity (7.1% of the top-decile population) means this is a real
-effect on a specific, non-majority subgroup, not (yet shown to be) a general one.
+**Reversal-robustness (C2 + `rev_tercile`, addendum 2026-09-21):** −0.5503%, CI
+[−0.9777%, −0.1033%] — still excludes zero, attenuates only ~6.7% off this addendum's
+own freshly-recomputed default-C2 baseline (−0.5898%; see `PREREGISTRATION.md`'s
+addendum for a small, separately-noted reproducibility drift against the original
+2026-09-17 row that doesn't affect this read). Short-term reversal is not the driver of
+this cell's effect.
 
-**What would change the verdict:** the whole-grid FDR pass; a holdout check; a
-`rev_tercile`/`mom_1_0`-augmented C2 match set (M1's own precedent) to rule out
-short-term reversal as the actual driver.
+**Argue against this result (reversal now checked and ruled out; other caveats live):**
+M6.3's own explicit warning about post-earnings-gap/low-float contamination of the top
+slope decile still applies to this cell's "falling despite being far above" side
+specifically — reversal-matching doesn't rule out a *slower* momentum-composition
+effect `mom_12_1` itself might not fully capture. The "falling" side's rarity (7.1% of
+the top-decile population) means this is a real effect on a specific, non-majority
+subgroup, not (yet shown to be) a general one.
+
+**What would change the verdict:** the whole-grid FDR pass (run, see below); a holdout
+check.
 
 **Plateau check:** sign agrees with M4's own SMA50 decile-spread sign (extension
 already predicts lower returns; this cell's "rising side underperforms the falling
@@ -573,6 +577,20 @@ matter), not a tradeable-edge question on its own, same reasoning M5 used.
 
 **Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study.
 
+**Reversal-robustness (C2 + `rev_tercile`, addendum 2026-09-21) — this cell does *not*
+survive.** −3.3259pp, CI [−8.1800pp, +1.2450pp] — off this addendum's own
+freshly-recomputed default-C2 baseline (−5.4968pp, CI [−10.0474pp, −1.8643pp]; see
+`PREREGISTRATION.md`'s addendum for a small, separately-noted reproducibility drift
+against the original 2026-09-17 row). The point estimate attenuates ~40% and **the CI
+now spans zero** — not "killed" under the pre-registered 2pp-floor rule (the edge,
+8.18pp, still clears it), but inconclusive rather than confirmed under this control:
+effective bootstrap dates also drop from 307 to 196 as the date × mom × vol × sector ×
+`rev_tercile` stratification gets sparser. **Read: unlike Finding 1, this cell's gross
+number is substantially, not just partially, explained by uncontrolled 1-month
+reversal** — the "falling side is a rare, plausibly-just-bounced subpopulation"
+alternative this entry itself named as a live caveat turns out to account for most of
+the effect, not a small part of it.
+
 **Argue against this result:** no parent-module sign to check this against directly
 (M5 found no real-vs-synthetic distinction at any lookback — a different axis
 entirely); its own internal-consistency read is the same sign at SMA200/`from_above`
@@ -580,22 +598,27 @@ entirely); its own internal-consistency read is the same sign at SMA200/`from_ab
 directionally-consistent, not lone-pixel, read, but not independent confirmation
 either. The outcome window (5 trading days, M5's own convention) is short — this
 cell's CI spans a 5x range between its near and far edges, so the *magnitude* is much
-less certain than its sign. No short-term-reversal control here either, same caveat as
-Finding 1.
+less certain than its sign. **Reversal is now checked, and is the dominant, not a
+minor, alternative explanation** (see above) — the strongest of this entry's caveats.
 
-**What would change the verdict:** the whole-grid FDR pass; a holdout check; a longer
-outcome-horizon robustness check (5 days is M5's own first-pass choice, not
-DESIGN-derived).
+**What would change the verdict:** the whole-grid FDR pass (run, see below — already
+failed independently); a holdout check; a longer outcome-horizon robustness check
+(5 days is M5's own first-pass choice, not DESIGN-derived) — though given this cell no
+longer clears its own confound check, none of these would promote it; at most they'd
+further characterize a result already better read as reversal, not slope-conditioning.
 
-**Both findings, read together:** two independently constructed cells (a decile
-restriction vs. an event-based restriction), same lookback, same sign — an actively
-rising 50-day, conditional on already being in an extended or testing configuration,
-predicts *worse* near-term outcomes than an otherwise-identical setup on a
-flattening/falling 50-day. Worth naming as a soft corroboration across constructions,
-not a formal plateau check (these aren't neighboring lookbacks, they're different
-questions arriving at the same directional read). Full numbers, the unresolved SMA200
-extension cell, and the 9 inconclusive cells: `PREREGISTRATION.md`'s M6.2 "Result"
-section; `EXPERIMENTS.csv` (12 rows).
+**Both findings, read together (revised 2026-09-21):** originally read as "two
+independently constructed cells (a decile restriction vs. an event-based restriction),
+same lookback, same sign" — a soft corroboration. The 2026-09-21 reversal-robustness
+addendum weakens this: **Finding 1 survives reversal-matching essentially intact;
+Finding 2 does not** — its CI spans zero once reversal is controlled for. The two
+cells no longer corroborate each other as strongly as the original write-up suggested;
+Finding 1 is the one with a reversal-independent mechanism behind it, Finding 2 is
+better read as substantially a reversal artifact that happened to share Finding 1's
+sign and lookback. Full numbers, the unresolved SMA200 extension cell, and the 9
+inconclusive cells: `PREREGISTRATION.md`'s M6.2 "Result" section and 2026-09-21
+reversal-robustness addendum; `EXPERIMENTS.csv` (14 rows: 12 primary + 2
+reversal-robustness).
 
 ### Whole-grid FDR pass addendum (2026-09-17) — both findings
 

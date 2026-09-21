@@ -1831,6 +1831,133 @@ real report, not silence).
 Finding 2); `STATUS.md` (module table, minimal-core-list completion, whole-grid FDR
 pass trigger now fired).
 
+### Reversal-robustness addendum (pre-registered 2026-09-21, before running)
+
+**Module / track:** M6.2, Track B. Promoted from `STATUS.md`'s own "Not yet done,
+optional/follow-up only, not gating termination" note: Finding 1 (`extension_x_slope`/
+SMA50/top) and Finding 2 (`touch_x_slope`/SMA50/`from_above`) both carry the same named
+live caveat in this entry's own "Argue against both findings" section above — "no
+short-term-reversal control ... not run here at all" — the one gap this study's own
+established check (M1's lb200 diagnostic, M2's `stack_fully_bearish` addendum, M18's
+own two `dist_from_52w_low` cells) has now closed for every other Tier-3 cell in the
+study except these two. Both cells already failed the whole-grid FDR pass
+(`STATUS.md`), so this cannot change their tier — the value here is resolving the
+specific, named confound question sitting open in their `FINDINGS.md` entries, not a
+tier promotion, matching M2's own addendum framing exactly.
+
+**Hypothesis:** both cells' C2 deltas survive once the C2 match set additionally
+controls for the prior 21-day return tercile (`rev_tercile`) — i.e. the "falling side is
+a rare, plausibly-just-bounced subpopulation" alternative explanation named in M6.2's own
+"Argue against both findings" section is not the whole story.
+
+**Method:** `modules/slope_conditioner.py::_delta_cell`, called with
+`match_cols=C2_MATCH_COLS_WITH_REVERSAL` (`("mom_tercile", "vol_tercile", "sector",
+"rev_tercile")`, new constant added to the module this addendum) instead of the module's
+default 3-column `C2_MATCH_COLS`, for exactly the two already-confirmed cells only
+(`extension_x_slope`/SMA50/top decile; `touch_x_slope`/SMA50/`from_above`) — the 10
+inconclusive/unresolved cells are not re-run, same "only the survivors get the
+confound check" scope M18's own reversal addendum used. Same panel (U1, 405 S&P 500
+constituents, dev window 2010-01-01 → 2021-12-31), same restriction logic, same
+block-bootstrap CI machinery (`block_length=42` for the return cell, `block_length=10`
+for the touch cell, unchanged from the primary run) — only the match-column list
+changes. `rev_tercile` computed exactly as `stack_minervini.py`'s/`baseline_state.py`'s
+own robustness column: `cross_sectional_bucket(working, "mom_1_0", n_buckets=3)`.
+
+**Kill criterion:** identical rule to each cell's own pre-registered kill criterion
+above (same shape as M2's own reversal addendum): `max(|ci_low|, |ci_high|) < 0.10%` for
+`extension_x_slope` (a return), `< 2pp` for `touch_x_slope` (a hold-rate) on the
+4-column C2 delta → killed under the reversal control (read as "reversal explains the
+effect, or it was never distinguishable from noise once reversal is matched out"). A CI
+that still excludes zero and clears its own floor is read as "survives
+reversal-matching" — not by itself a tier change (both cells are already FDR-failed,
+Tier 3 either way), but it resolves the specific confound question named above.
+
+**Control tier and why:** C2, 4-column (`mom_tercile`, `vol_tercile`, `sector`,
+`rev_tercile`) — the same tier M1/M2/M18 have each already used for this exact
+diagnostic, applied here to M6.2's two surviving cells for the first time.
+
+**Cost convention:** unchanged, not re-evaluated here — this addendum is about whether
+the gross C2 delta survives a confound check, not a second cost pass. If
+`extension_x_slope` survives, its already-logged cost numbers (`EXPERIMENTS.csv`) stand
+unchanged; `touch_x_slope` was never cost-annotated (mechanism read, M5's own
+convention) and stays that way.
+
+**Grid size (`N_tests` contribution):** 2 cells, same primary-cell count as the two
+Findings already declared — this is a re-evaluation of already-declared cells under an
+alternative control, not a new hypothesis, so it does not add to the whole-grid
+`N_tests` denominator beyond what M6.2 already declared (same convention as M1's lb200
+and M2's `stack_fully_bearish` reversal diagnostics — logged, not double-counted; the
+whole-grid FDR pass itself is not re-run for this addendum, since neither underlying
+cell can change tier).
+
+**Universe/window/horizon:** unchanged from M6.2's own entry above.
+
+### Result (reversal-robustness addendum, 2026-09-21)
+
+**Reproducibility note, checked before trusting anything below:** re-running the
+unmodified `extension_slope_table`/`touch_slope_table` (default 3-column C2, no
+addendum logic involved) against the same cached panel reproduces slightly different
+numbers than the ones logged on 2026-09-17: `extension_x_slope`/SMA50/top now reads
+`c2=-0.5898%`, CI `[-1.0425%, -0.1714%]` (logged: `-0.5924%`, CI `[-1.0469%,
+-0.1750%]`); `touch_x_slope`/SMA50/`from_above` now reads `c2=-5.4968pp`, CI
+`[-10.0474pp, -1.8643pp]` (logged: `-5.7523pp`, CI `[-10.2207pp, -1.9416pp]`). Same
+`n_events`/`n_dates` both cells (104,129/2,747 and 14,138/2,410 respectively — identical
+row populations), same code (`git log` confirms no changes to `touch.py`,
+`slope_conditioner.py`, `panel.py`, or `inference.py` since the commit that produced the
+original numbers) — the drift is small (≤4.6% relative on the point estimate, both cells
+same sign, same CI-excludes-zero read under the default C2) and doesn't change either
+cell's Tier-3/FDR-failed status, but is logged here rather than silently treated as an
+exact match; root cause not chased further (not gating this addendum, and the margin is
+nowhere near flipping a kill/confirm call). The **reversal comparison below uses this
+addendum's own freshly-computed default-C2 numbers as its baseline**, not the
+2026-09-17 logged ones, so the "attenuation" percentages compare like-for-like.
+
+**Finding 1 (`extension_x_slope`/SMA50/top) survives, mildly attenuated.** Default C2
+(this addendum's own rerun): `c2=-0.5898%`, CI `[-1.0425%, -0.1714%]`. With
+`rev_tercile` added: `c2=-0.5503%`, CI `[-0.9777%, -0.1033%]` (n_events 104,129 →
+104,129, n_dates 2,747 → 2,747 — unchanged; the top-decile restriction already
+determines row membership, `rev_tercile` only adds another match dimension within it).
+Point estimate attenuates ~6.7%, CI still excludes zero, clears the 0.10% floor by a
+wide margin (edge 0.1033%) — **not killed, and not meaningfully explained by reversal.**
+
+**Finding 2 (`touch_x_slope`/SMA50/`from_above`) does *not* survive — this is the
+addendum's actual result, not a clean confirmation.** Default C2 (this addendum's own
+rerun): `c2=-5.4968pp`, CI `[-10.0474pp, -1.8643pp]`, excludes zero. With `rev_tercile`
+added: `c2=-3.3259pp`, CI `[-8.1800pp, +1.2450pp]` (n_events 14,138 → 14,138, n_dates
+2,410 → 2,410 — unchanged, same event population). The point estimate attenuates by
+~40% and **the CI now spans zero** — under the pre-registered rule this is `killed=False`
+(edge 8.18pp still clears the 2pp floor, so it isn't a "no effect at all" kill), but
+`ci_excludes_zero=False`: an inconclusive read, not a confirmed one, per this study's
+own established distinction between those two fields (`modules/slope_conditioner.py`'s
+own `_delta_cell` docstring: "a cell can have `killed=False` and still have a CI
+spanning zero — an inconclusive/underpowered read, not a confirmed effect").
+
+**Reading:** the two findings diverge under this check, unlike every prior
+reversal-robustness pass in this study (M2's `stack_fully_bearish`, M18's two
+`dist_from_52w_low` cells all survived, attenuated by 0–32% but always CI-excluding).
+Finding 1 behaves the same way — a real, reversal-independent effect. **Finding 2 does
+not**: once 1-month reversal is matched out, its CI now spans zero, meaning the "falling
+side is a rare, plausibly-just-bounced subpopulation" alternative explanation named in
+M6.2's own "Argue against both findings" section is not merely a live caveat, it
+substantially accounts for Finding 2's gross number. This does not change Finding 2's
+tier (already Tier 3, already failed the whole-grid FDR pass on independent grounds —
+this addendum cannot lower a tier any further than FDR already has) — but it changes the
+honest read of the underlying mechanism claim: Finding 1 ("extended + rising 50-day
+underperforms extended + falling 50-day") is a real, reversal-robust pattern; Finding 2
+("support test on a rising 50-day holds less often than on a falling one") is now best
+read as **substantially, not just partially, a short-term-reversal artifact** — the
+"two independent constructions pointing the same direction" corroboration the original
+write-up drew between them is weaker than it read at the time, since only one of the two
+constructions survives the confound check that would distinguish "real mechanism" from
+"reversal re-encoding."
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, both dated 2026-09-21,
+`slope_cond_extension_x_slope_sma50_top_reversal_robustness` /
+`slope_cond_touch_x_slope_sma50_from_above_reversal_robustness`); `FINDINGS.md`'s
+Finding 1 and Finding 2 entries updated with this result in place of their prior "no
+reversal control run" open caveat; `STATUS.md`'s post-termination note updated to mark
+this item done and to record Finding 2's weakened reading.
+
 ---
 
 ## M18 — 52-week high/low range as a standalone predictor (2026-09-20)

@@ -34,6 +34,15 @@ LOOKBACKS = (50, 200)
 N_DECILES = 10
 C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 
+# Robustness-check-only match set (PREREGISTRATION.md, 2026-09-21 reversal-
+# robustness addendum), same construction as `modules/stack_minervini.py`'s/
+# `modules/baseline_state.py`'s own `C2_MATCH_COLS_WITH_REVERSAL`: adds a
+# prior-21-day-return tercile so a cell's C2 delta can be re-evaluated with
+# short-term reversal explicitly matched out. Not this module's
+# pre-registered default -- `_delta_cell`'s own `match_cols` stays
+# `C2_MATCH_COLS` unless a caller explicitly opts into this one.
+C2_MATCH_COLS_WITH_REVERSAL = (*C2_MATCH_COLS, "rev_tercile")
+
 # Return-based cells (sub-questions 1-2) use M1/M2's own 0.10% floor;
 # hold-rate cells (sub-question 3) use M5's own 2pp floor -- the floor is
 # keyed to the value type, not a new threshold invented for this module.
@@ -51,11 +60,17 @@ def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     the main cached panel (not the §7.5/M5 placebo panel -- no synthetic-
     neighbor comparison needed for this module). Returns a new frame;
     `panel` itself is not mutated.
+
+    Also adds `rev_tercile` (prior-21-day-return tercile, same construction
+    as `modules/stack_minervini.py`'s/`modules/baseline_state.py`'s own
+    robustness-check column), used only by the short-term-reversal check
+    (`C2_MATCH_COLS_WITH_REVERSAL`), not by this module's default C2 spec.
     """
     working = panel.copy()
     working["fwd_ret_21"] = forward_return(working, horizon=HORIZON)
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
+    working["rev_tercile"] = cross_sectional_bucket(working, "mom_1_0", n_buckets=3)
     for lookback in LOOKBACKS:
         slope_col = f"slope_log_21_sma_{lookback}"
         working[slope_sign_column(lookback)] = (
