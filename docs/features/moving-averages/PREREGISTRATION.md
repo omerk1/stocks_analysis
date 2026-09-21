@@ -1830,3 +1830,173 @@ real report, not silence).
 **Logged:** `EXPERIMENTS.csv` (12 rows); `FINDINGS.md` (2 new entries, Finding 1 and
 Finding 2); `STATUS.md` (module table, minimal-core-list completion, whole-grid FDR
 pass trigger now fired).
+
+---
+
+## M18 — 52-week high/low range as a standalone predictor (2026-09-20)
+
+**Track B.** Written and committed before running, per this study's own workflow.
+DESIGN.md now has a matching M18 section (added same day) — read that first for the
+"why this exists at all" framing; this entry is the concrete hypothesis/kill/scope
+statement DESIGN's own convention asks every module to write down before analysis code
+runs.
+
+**Promoted from:** two independent Track A observations, both from *after* this
+study's formal termination (`STATUS.md`'s "Study-level termination", reached
+2026-09-17): M2's Minervini ablation (`FINDINGS.md`/`EXPERIMENTS.csv`,
+`ablation_tt_c7_h21` — criterion 7, near-52w-high, the single largest attribution
+coefficient, negative sign, but that module's own `linear_attribution` has no control
+at all, not even C1) and the 2026-09-16 348-cell feature×horizon IC sweep
+(`EXPLORATION_LOG.md`), which found `dist_from_52w_high`/`dist_from_52w_low` are the
+two strongest cells in the entire grid and the only ones that *strengthen* with horizon
+rather than fade. Neither prior reading used this study's actual C1/C2 machinery or
+produced a CI — this module is the first controlled test of this feature family.
+Promotion-gate re-slice (DESIGN §1.5, 2026-09-20, `high_low_52w_gate_check.py`): 3 of 4
+(feature, horizon) cells same-signed across a 2010-2015/2016-2021 subperiod split; the
+fourth is near-zero-not-opposite-signed in the early subperiod. Passes the gate.
+
+**Hypothesis:** position within the trailing 252-day high/low range (`dist_from_52w_high`
+= `close/rolling_252d_max - 1`, always ≤ 0; `dist_from_52w_low` = `close/rolling_252d_min
+- 1`, always ≥ 0 — both already in the cached panel, built for M2, `features/context.py`)
+predicts forward return at 63/126-day horizons beyond a momentum/vol/sector-matched
+control. This is the same question this whole study asks of every MA-distance feature
+(does displacement information survive momentum-decile matching), applied to a feature
+that is, by construction, closely related to `mom_12_1` itself — a genuinely harder bar
+to clear than most of this study's other C2 tests, not an easier one, precisely because
+the momentum-tercile match is matching out something close to what the feature already
+measures. Mechanism prior: George & Hwang's 52-week-high anomaly (nearness to the
+52-week high predicts *higher*, not lower, subsequent return in that literature) is the
+standard academic prior — note this cuts the opposite direction from M2's own ablation
+sign (criterion 7 negative) and the IC sweep's own sign (`dist_from_52w_high` IC
+negative), which would make a confirmed result here a genuine sign-conflict with a
+well-known published anomaly, worth flagging explicitly rather than only citing the
+literature that agrees.
+
+**Kill criterion:** for each of the 4 primary cells (`dist_from_52w_high` × {63d, 126d},
+`dist_from_52w_low` × {63d, 126d}), killed if the C2 block-bootstrap CI on the
+top-minus-bottom decile spread of the horizon-matched forward return spans zero — the
+exact same decisive test M4 uses (no separate IC floor gate, unlike M11 — DESIGN §9.2's
+2026-09-10 resolution already separated "kill" from "tier" as independent axes, and
+M11's own two-joint-test construction is exactly the added complexity that resolution
+was reacting to; this module keeps one decisive test and reports the per-date rank-IC
+bootstrap alongside as a corroborating readout, not a second gate). Not killed → tier
+per DESIGN §9.2 using cost (CLAUDE.md invariant #8) and, if it ever gets there, the
+whole-grid FDR pass (already run once against the minimal-core grid; a new cell that
+survives here would need that pass re-run, not silently left out — see "FDR
+re-entry" below).
+
+**Control tier and why:** C1 (date-matched, zero row loss — the primary reading, same
+convention M11 established) and **C2 (date + `mom_tercile` + `vol_tercile` + `sector`,
+unchanged match columns) is the tier the kill criterion above is evaluated on** — the
+same three columns as M1/M2/M4/M6.2/M11's own C2, for direct comparability across the
+study rather than inventing a module-specific spec. A `rev_tercile`-augmented C2 (M1's
+own 1-month-reversal robustness check) is run in the same pass and reported alongside,
+not gating — proactively, since M6.2's own open caveat (no reversal control run for
+either of its two surviving cells) was named as a process gap worth avoiding on the
+next module, not just M6.2's own outstanding item.
+
+**Method:** reuses `modules/cross_sectional.py`'s exact machinery (`daily_rank_ic`,
+`cross_sectional_bucket`, `block_bootstrap_series`, `block_bootstrap_spread`,
+`decile_turnover_hurdle`/`signals_per_year`/`cost_hurdle`) — new module
+`modules/high_low_52w.py` generalizes M11's `cell_result` from a `{feature}_sma_{lookback}`
+column to a plain single-column feature (no lookback grid), otherwise identical
+construction: per-date decile bucketing (10 deciles), IC bootstrap, C1 spread bootstrap,
+C2 spread bootstrap, turnover-based cost hurdle. `fwd_ret_63`/`fwd_ret_126` added via
+the existing `labels/forward_returns.py::forward_return`, unchanged.
+
+**Grid size (`N_tests` contribution):** **4 primary cells** (2 features × 2 horizons).
+No companion/redundancy exclusions needed at declaration — `dist_from_52w_high` and
+`dist_from_52w_low` are two different columns (not correlated normalisations of the same
+one, unlike M4's `dist_pct`/`dist_atr`/`dist_z`), and 63d/126d are two different
+horizons on the same feature, which M11's own precedent (`dist_pct_sma_20`@5d vs. @21d)
+already treats as separate tests, not mirrors. Flagged for a same-module correlation
+check anyway before trusting both as independent (below).
+
+**Correlation check (before trusting 4 independent cells, not deferred):**
+`dist_from_52w_high` and `dist_from_52w_low` are two different quantities (distance from
+the max vs. distance from the min of the same rolling window) but could still move
+together if a ticker's 252-day range is roughly constant in width — checked via the same
+per-date median Spearman convention as M4/the 2026-09-16 sweep before the grid's
+`N_tests=4` is trusted, reported in the "Result" section below alongside the main
+numbers, not assumed independent by construction.
+
+**Cost annotation:** implies a tradeable claim (a return delta) — CLAUDE.md invariant #8
+applies. Turnover measured the same way as M4/M11: top/bottom-decile membership flip
+count (`stats/costs.py::signals_per_year`, entry+exit convention), combined across both
+legs, 10bps/round-trip (this study's U1 convention throughout). `annualize()`'s linear
+scaling is applied at the horizon-correct multiple (`252/63` or `252/126`), not the 21d
+cells' `×12` — a labeled approximation either way, per `costs.py`'s own docstring.
+
+**Plateau check (DESIGN §6.7):** the two horizons (63d, 126d) on the same feature are
+this cell's own neighborhood — a real effect at 126d that reverses sign or vanishes at
+63d (or vice versa) is the kind of lone-bright-pixel pattern the 2026-09-18 distance×
+slope generalization already found once in this study; checked directly rather than
+assumed smooth, given that prior result.
+
+**FDR re-entry, stated up front:** this module runs *after* the whole-grid FDR pass
+already executed (`STATUS.md`, 2026-09-17, N=31). If any of these 4 cells survives its
+own kill criterion and clears cost, the correct handling is to add it to the
+deduplicated grid (N=32) and **re-run** `benjamini_hochberg` against the full,
+now-larger ranked table — not report a standalone significance claim outside that
+grid's own discipline, which is exactly the "widen the grid without going through the
+process" case CLAUDE.md's own Stop-and-ask section names. If no cell survives its own
+kill criterion, no FDR re-entry is needed and this module closes as a dead end, logged
+in `EXPERIMENTS.csv` the same as any other Tier-4 result.
+
+### Result (2026-09-20)
+
+**Correlation check first, as committed above:** per-date median Spearman(`dist_from_
+52w_high`, `dist_from_52w_low`) = **0.4677** — moderate, well short of M4's 0.94–0.98
+redundancy bar. All 4 declared cells trusted as independent.
+
+**`dist_from_52w_high` — killed cleanly at both horizons.** 63d: C2 spread −0.379%, CI
+[−1.514%, +0.734%], spans zero. 126d: C2 spread −0.674%, CI [−2.632%, +1.208%], spans
+zero. Both cells' point estimates keep the sign the raw IC sweep and M2's ablation
+both found — but neither survives momentum/vol/sector matching. **This resolves the
+sign-conflict question this entry's own hypothesis section flagged up front** (M2's
+ablation and the IC sweep's negative reading on this feature vs. George & Hwang's
+published positive-nearness-to-high anomaly): there is no real academic-anomaly-style
+effect here in *either* direction once matched — the gross negative reading both prior
+Track A methods found is, like most of this study's gross reads, momentum re-encoded.
+Tier 4, `EXPERIMENTS.csv` only (no `FINDINGS.md` entry, per this study's own
+Tier-4 convention).
+
+**`dist_from_52w_low` — real at both horizons, one clears cost cleanly.** 63d: C2
+spread +0.956%, CI [+0.128%, +1.843%] — excludes zero, Tier 3, **fails cost** (near
+edge +0.51%/yr vs. 0.825%/yr hurdle). 126d: C2 spread +2.504%, CI [+1.104%, +4.017%] —
+excludes zero, Tier 3, **clears cost at every reading** (near edge +2.21%/yr vs.
+0.834%/yr hurdle) — this study's third cost-clearing Tier-3 cell, alongside `stack_
+fully_bearish` (M2) and `extension_x_slope`/SMA50 (M6.2). Both cells survive a
+`rev_tercile`-augmented C2 (reversal-robustness) essentially unattenuated. Full
+numbers, effective N, and the argue-against-it discussion: `FINDINGS.md`'s M18 section.
+
+**Plateau check:** `dist_from_52w_low`'s effect strengthens from 63d to 126d (matches
+the 2026-09-16 sweep's own horizon-shape finding exactly); `dist_from_52w_high`'s null
+is consistent (spans zero) at both horizons. Neither is a lone-bright-pixel read.
+
+**FDR re-entry, carried out (not deferred):** contrary to this entry's own preview
+language above ("add it to the grid, N=32"), **all 4 declared cells** — not just
+survivors — are added to the deduplicated grid, matching this study's own established
+practice (Tier-4 cells are counted in every other module's `N_tests` contribution too;
+FDR corrects across everything tested, not just the interesting results). New N = 31 +
+4 = **35**. Re-running `benjamini_hochberg` at q = 0.10 and q = 0.05: **0 of 35
+rejected at either level.** `dist_from_52w_low`, 126d is now the smallest Wald p-value
+in the study's entire grid (0.0047, rank 1 of 35, vs. its own BH threshold of
+0.002857 — a 1.64× miss, the closest any cell in this study has come). Full ranked
+table: `STATUS.md`'s "Whole-grid FDR pass" section (2026-09-20 update). `dist_from_
+52w_low`, 63d (p = 0.0667) is not close.
+
+**Study-termination status, updated:** this module does not reopen the study's overall
+verdict — the whole-grid pass, re-run against the larger grid, still finds zero
+survivors, and `REPORT.md`'s headline (0 Tier 1/2, negative-leaning finish) is
+unchanged. What it adds: a fourth Tier-3 cell, the closest individual result to
+clearing FDR this study produced, and a clean resolution of the George & Hwang
+sign question for `dist_from_52w_high` specifically. `STATUS.md` and `REPORT.md`
+updated in the same session, not left stale against this new result.
+
+**Logged:** `EXPERIMENTS.csv` (7 rows: 4 primary cells + 2 reversal-robustness checks +
+1 updated whole-grid FDR summary row); `FINDINGS.md` (2 new entries, both `dist_from_
+52w_low` cells, plus the FDR re-run addendum); `STATUS.md` (module table, whole-grid
+FDR pass section, termination section); `REPORT.md` (executive summary, shrinkage
+table, FDR table, module results, suggestive findings, dead-ends register, cost
+appendix — all updated to reflect M18).
