@@ -1,6 +1,6 @@
 # Moving-averages study — final report
 
-**Date:** 2026-09-18, updated 2026-09-20. **Status:** study terminated per its own
+**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21. **Status:** study terminated per its own
 pre-registered criteria (`STATUS.md`'s "Study-level termination" section) — the
 minimal-core list (DESIGN §12: M1, M2, M4, M5, M6.2, M11, plus the §7.5 placebo) has
 run and been tiered, and the whole-grid FDR pass has executed against the
@@ -9,7 +9,12 @@ deduplicated grid. **One module (M18) was added after termination**, via DESIGN
 readings had flagged as the strongest unexplored feature in the whole study
 (`dist_from_52w_high`/`dist_from_52w_low`) — pre-registered, run, and folded into a
 re-run of the whole-grid FDR pass (N=31→35) rather than reported outside that
-discipline. It does not change the study's overall verdict (§1, §4). Structure follows
+discipline. **2026-09-21: the reversal-robustness check outstanding on M6.2's two
+Tier-3 cells was run** — `extension_x_slope`/SMA50/top survives essentially intact,
+`touch_x_slope`/SMA50/`from_above` does not (its CI now spans zero once reversal is
+matched out). Neither changes tier (both were already FDR-failed), but it changes the
+honest mechanism read for `touch_x_slope` specifically (§6). Does not change the
+study's overall verdict (§1, §4). Structure follows
 DESIGN.md §9.1 exactly. Every number below is sourced to `EXPERIMENTS.csv`,
 `FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
 not re-derive.
@@ -40,7 +45,16 @@ survived it**:
 3. **`touch_x_slope`, SMA50 `from_above`** (M6.2): a support test on a rising 50-day
    holds *less* often than on a falling one — counter to "uptrends make pullbacks
    safer." C2 −5.75pp, CI [−10.22pp, −1.94pp]. **Fails FDR** (p = 0.0223 vs.
-   threshold 0.0194).
+   threshold 0.0194). **Does not survive a reversal-robustness check** (run
+   2026-09-21, after the other three cells' own checks had already been run): with
+   `rev_tercile` added to C2, the delta attenuates ~40% and the CI spans zero
+   (−3.33pp, CI [−8.18pp, +1.25pp]) — the only one of this study's four Tier-3 cells
+   where the confound check itself flips the read from confirmed to inconclusive,
+   unlike `stack_fully_bearish`, `extension_x_slope`, and `dist_from_52w_low`@126d,
+   which all survive it. Already FDR-failed regardless, so this doesn't change the
+   study's headline, but it means the underlying mechanism claim for this cell
+   specifically is best read as substantially a short-term-reversal artifact, not a
+   real slope-conditioning effect.
 4. **`dist_from_52w_low`@126d** (M18, added post-termination): position further above
    the trailing 252-day low predicts a *higher* forward return, beyond a
    momentum/vol/sector-matched control. C2 +2.50%, CI [+1.10%, +4.02%], clears cost
@@ -181,10 +195,10 @@ re-encoded as "above/below the MA."
 
 ### M6.2 — C1 vs. C2, within-state/decile/touch restriction
 
-| cell | C1 | C2 | cost hurdle | verdict |
-|---|---|---|---|---|
-| `extension_x_slope`, SMA50 top | −0.398% | **−0.592% [−1.047%, −0.175%]** | 0.806%/yr | clears cleanly, **fails FDR** |
-| `touch_x_slope`, SMA50 `from_above` | −7.06pp | **−5.75pp [−10.22pp, −1.94pp]** | n/a (mechanism read) | **fails FDR** |
+| cell | C1 | C2 | C2 + `rev_tercile` (2026-09-21) | cost hurdle | verdict |
+|---|---|---|---|---|---|
+| `extension_x_slope`, SMA50 top | −0.398% | **−0.592% [−1.047%, −0.175%]** | −0.550% [−0.978%, −0.103%] — survives | 0.806%/yr | clears cleanly, **fails FDR** |
+| `touch_x_slope`, SMA50 `from_above` | −7.06pp | **−5.75pp [−10.22pp, −1.94pp]** | −3.33pp [−8.18pp, +1.25pp] — **CI spans zero** | n/a (mechanism read) | **fails FDR, fails reversal check** |
 
 ### M18 — C1 vs. C2 (post-termination), decile spread
 
@@ -328,7 +342,11 @@ still falling" populations, mechanistically explained by how much more slowly a
 200-day SMA turns than price moves — not a bug, and a new, more benign entry in the
 cross-module SMA200-anomaly list than the prior three); 9 inconclusive (CI spans
 zero, not "killed" — the CI is wide enough to still contain an economically
-meaningful effect, just not a detected one).
+meaningful effect, just not a detected one). **Reversal-robustness check run
+2026-09-21** (`PREREGISTRATION.md` addendum): `extension_x_slope` survives essentially
+intact; `touch_x_slope` does not — its CI now spans zero once `rev_tercile` is added
+to C2, the only one of the study's four Tier-3 cells where this check flips the read.
+Full account: §6 below.
 
 **M18 — 52-week high/low range as a standalone predictor (added post-termination,
 2026-09-20).** Not part of the minimal-core list — promoted from two independent
@@ -368,17 +386,26 @@ evidence but the accounting for how many hypotheses produced it.
    by DESIGN §7.3's survivorship ceiling (a weak/bearish-state bucket; this repo's
    delisted-ticker price history only runs 2024–2026) and by the missing holdout
    check.
-2. **`extension_x_slope`, SMA50 top decile** (M6.2) — `FINDINGS.md` "Finding 1". Live,
-   unresolved caveat beyond FDR: no short-term-reversal control was run for this
-   cell (M1's own `rev_tercile`/`mom_1_0` precedent, not applied here); the
-   "falling" side is a comparatively rare subgroup (7.1% of the top-decile
-   population).
-3. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — `FINDINGS.md` "Finding 2". Same
-   reversal-control gap; additionally, the 5-day outcome window is short and the
-   CI spans a 5× range between its near and far edges — the sign is better
-   established than the magnitude.
+2. **`extension_x_slope`, SMA50 top decile** (M6.2) — `FINDINGS.md` "Finding 1".
+   **Reversal-robustness check run 2026-09-21**: survives essentially intact
+   (−0.55%, CI still excludes zero, ~6.7% attenuation) — not explained by
+   uncontrolled 1-month reversal. Remaining live caveat: the "falling" side is a
+   comparatively rare subgroup (7.1% of the top-decile population), and M6.3's own
+   warning about post-earnings-gap/low-float contamination of the top slope decile
+   still applies.
+3. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — `FINDINGS.md` "Finding 2". **Does
+   not survive its 2026-09-21 reversal-robustness check** — with `rev_tercile` added
+   to C2 the delta attenuates ~40% and the CI now spans zero (−3.33pp, CI [−8.18pp,
+   +1.25pp]) — the only one of this study's four Tier-3 cells where the confound
+   check flips the read from confirmed to inconclusive. Already FDR-failed
+   regardless, but the honest read is that this cell's gross number is
+   substantially a short-term-reversal artifact, not a real slope-conditioning
+   effect; the earlier "two independent constructions corroborate each other"
+   framing against Finding 1 no longer holds. Additionally, the 5-day outcome
+   window is short and the default-C2 CI spans a 5× range between its near and far
+   edges — the sign was always better established than the magnitude.
 4. **`dist_from_52w_low`@126d** (M18, added post-termination 2026-09-20) — full
-   detail: `FINDINGS.md`'s M18 section. Unlike the other three, this cell *has* a
+   detail: `FINDINGS.md`'s M18 section. Like Finding 1, this cell *has* a
    reversal-robustness check (run in the same pass, not a later gap) and survives it
    essentially unattenuated. Its remaining live caveat is different from the other
    three's: `mom_tercile` (the C2 momentum match) is conceptually close to
@@ -390,11 +417,18 @@ evidence but the accounting for how many hypotheses produced it.
    independent Track A methods flagged the candidate before it was tested, not
    because the study kept searching after termination until something turned up.
 
+**Where this leaves the four Tier-3 cells:** three (`stack_fully_bearish`,
+`extension_x_slope`/SMA50/top, `dist_from_52w_low`@126d) are real, reversal-robust
+effects that fail only on multiple-testing correction — the honest "real but not
+distinguishable from 35-tests-worth of chance" read DESIGN's own FDR framing intends.
+The fourth (`touch_x_slope`/SMA50/`from_above`) is different in kind: its own
+confound check, not just FDR, fails to clear it — the more accurate label for this
+one is closer to a dead end than a near-miss.
+
 **What would move any of these forward, if this study resumed:** a real holdout
-check (2022+, still locked); a second universe tier (U2/U3); a
-`rev_tercile`-augmented C2 spec for the two M6.2 cells (already run for M18's); a
-decile-level momentum match or direct residualization for M18's cell; and, most
-importantly, more data — every one of these is a real effect fighting a genuinely
+check (2022+, still locked); a second universe tier (U2/U3); a decile-level momentum
+match or direct residualization for M18's cell; and, most importantly, more data —
+every one of the three reversal-robust cells is a real effect fighting a genuinely
 small edge relative to the number of ways this study looked for one.
 
 ---

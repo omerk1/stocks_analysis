@@ -19,7 +19,7 @@ def test_prepare_slope_sign_matches_sign_and_masks_nan():
         "ticker": "AAA", "date": dates, "close": 100.0,
         "slope_log_21_sma_50": [np.nan, np.nan, 0.01, -0.02, 0.0, 0.03],
         "slope_log_21_sma_200": [np.nan] * 6,
-        "mom_12_1": 0.05, "realized_vol_63": 0.2, "sector": "X",
+        "mom_12_1": 0.05, "realized_vol_63": 0.2, "mom_1_0": 0.01, "sector": "X",
     })
 
     prepared = sc.prepare(panel)
