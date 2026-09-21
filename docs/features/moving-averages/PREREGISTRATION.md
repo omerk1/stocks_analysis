@@ -1942,3 +1942,61 @@ grid's own discipline, which is exactly the "widen the grid without going throug
 process" case CLAUDE.md's own Stop-and-ask section names. If no cell survives its own
 kill criterion, no FDR re-entry is needed and this module closes as a dead end, logged
 in `EXPERIMENTS.csv` the same as any other Tier-4 result.
+
+### Result (2026-09-20)
+
+**Correlation check first, as committed above:** per-date median Spearman(`dist_from_
+52w_high`, `dist_from_52w_low`) = **0.4677** — moderate, well short of M4's 0.94–0.98
+redundancy bar. All 4 declared cells trusted as independent.
+
+**`dist_from_52w_high` — killed cleanly at both horizons.** 63d: C2 spread −0.379%, CI
+[−1.514%, +0.734%], spans zero. 126d: C2 spread −0.674%, CI [−2.632%, +1.208%], spans
+zero. Both cells' point estimates keep the sign the raw IC sweep and M2's ablation
+both found — but neither survives momentum/vol/sector matching. **This resolves the
+sign-conflict question this entry's own hypothesis section flagged up front** (M2's
+ablation and the IC sweep's negative reading on this feature vs. George & Hwang's
+published positive-nearness-to-high anomaly): there is no real academic-anomaly-style
+effect here in *either* direction once matched — the gross negative reading both prior
+Track A methods found is, like most of this study's gross reads, momentum re-encoded.
+Tier 4, `EXPERIMENTS.csv` only (no `FINDINGS.md` entry, per this study's own
+Tier-4 convention).
+
+**`dist_from_52w_low` — real at both horizons, one clears cost cleanly.** 63d: C2
+spread +0.956%, CI [+0.128%, +1.843%] — excludes zero, Tier 3, **fails cost** (near
+edge +0.51%/yr vs. 0.825%/yr hurdle). 126d: C2 spread +2.504%, CI [+1.104%, +4.017%] —
+excludes zero, Tier 3, **clears cost at every reading** (near edge +2.21%/yr vs.
+0.834%/yr hurdle) — this study's third cost-clearing Tier-3 cell, alongside `stack_
+fully_bearish` (M2) and `extension_x_slope`/SMA50 (M6.2). Both cells survive a
+`rev_tercile`-augmented C2 (reversal-robustness) essentially unattenuated. Full
+numbers, effective N, and the argue-against-it discussion: `FINDINGS.md`'s M18 section.
+
+**Plateau check:** `dist_from_52w_low`'s effect strengthens from 63d to 126d (matches
+the 2026-09-16 sweep's own horizon-shape finding exactly); `dist_from_52w_high`'s null
+is consistent (spans zero) at both horizons. Neither is a lone-bright-pixel read.
+
+**FDR re-entry, carried out (not deferred):** contrary to this entry's own preview
+language above ("add it to the grid, N=32"), **all 4 declared cells** — not just
+survivors — are added to the deduplicated grid, matching this study's own established
+practice (Tier-4 cells are counted in every other module's `N_tests` contribution too;
+FDR corrects across everything tested, not just the interesting results). New N = 31 +
+4 = **35**. Re-running `benjamini_hochberg` at q = 0.10 and q = 0.05: **0 of 35
+rejected at either level.** `dist_from_52w_low`, 126d is now the smallest Wald p-value
+in the study's entire grid (0.0047, rank 1 of 35, vs. its own BH threshold of
+0.002857 — a 1.64× miss, the closest any cell in this study has come). Full ranked
+table: `STATUS.md`'s "Whole-grid FDR pass" section (2026-09-20 update). `dist_from_
+52w_low`, 63d (p = 0.0667) is not close.
+
+**Study-termination status, updated:** this module does not reopen the study's overall
+verdict — the whole-grid pass, re-run against the larger grid, still finds zero
+survivors, and `REPORT.md`'s headline (0 Tier 1/2, negative-leaning finish) is
+unchanged. What it adds: a fourth Tier-3 cell, the closest individual result to
+clearing FDR this study produced, and a clean resolution of the George & Hwang
+sign question for `dist_from_52w_high` specifically. `STATUS.md` and `REPORT.md`
+updated in the same session, not left stale against this new result.
+
+**Logged:** `EXPERIMENTS.csv` (7 rows: 4 primary cells + 2 reversal-robustness checks +
+1 updated whole-grid FDR summary row); `FINDINGS.md` (2 new entries, both `dist_from_
+52w_low` cells, plus the FDR re-run addendum); `STATUS.md` (module table, whole-grid
+FDR pass section, termination section); `REPORT.md` (executive summary, shrinkage
+table, FDR table, module results, suggestive findings, dead-ends register, cost
+appendix — all updated to reflect M18).

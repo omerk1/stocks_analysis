@@ -619,3 +619,131 @@ first appears once you know they're 2 of 31 tests run, not 2 of 2 — DESIGN's o
 Sullivan/Timmermann/White motivation for §6.6 (applying a Reality Check to a whole
 rule universe substantially weakens results that look strong in isolation) is exactly
 what happened here.
+
+## M18 — 52-week high/low range as a standalone predictor (2026-09-20)
+
+Run after this study's formal termination (`STATUS.md`, 2026-09-17) — see
+`PREREGISTRATION.md`'s M18 entry and DESIGN.md's M18 section for the full
+promoted-from/hypothesis/kill-criterion statement. `dist_from_52w_high` killed
+cleanly at both horizons (Tier 4, `EXPERIMENTS.csv` only, no entry needed here); both
+entries below are `dist_from_52w_low`.
+
+### `dist_from_52w_low`, 63d
+
+**Hypothesis:** forward 63-day return is a structured function of position within the
+trailing 252-day high/low range (`close/rolling_252d_min − 1`) beyond a
+momentum/vol/sector-matched control.
+
+**Why it was plausible:** the 2026-09-16 348-cell IC sweep found this the second-
+strongest cell in the entire grid (mean IC +0.021 at 63d, +0.037 at 126d) —
+strengthening, not fading, with horizon, unlike every SMA-distance feature this study
+built. Never run through this study's own C1/C2 machinery before now.
+
+**What was run:** Decile bucket of `dist_from_52w_low` (cross-sectional, per date),
+C2-adjusted (`mom_tercile`/`vol_tercile`/`sector`) decile9-minus-decile0 spread on
+`fwd_ret_63`, block-bootstrapped (block length 126, 500 draws, 90% CI) —
+`modules/high_low_52w.py`, generalizing M11's `cell_result` to a single-column feature.
+
+**The number:** +0.009558, 90% CI [+0.001281, +0.018429]. CI excludes zero.
+
+**Effective N:** 1,095,030 rows, 2,706 distinct dates, 405 tickers.
+
+**Cost:** hurdle 0.8246%/yr (`costs.py::signals_per_year`, 10bps/rt, entry+exit
+convention, combined top+bottom-decile legs). Point, annualized (×252/63): +3.82%/yr,
+clears. Far edge: +7.37%/yr, clears. **Near edge: +0.51%/yr, fails.**
+`decisive_test_status`: `never_tested`.
+
+**Reversal-robustness (C2 + `rev_tercile`):** +1.25%, CI [+0.52%, +1.91%] — still
+excludes zero, magnitude essentially unattenuated (if anything larger than the
+standard-C2 point). Short-term reversal is not the driver of this cell's effect.
+
+**Tier:** 3. Capped by missing FDR/holdout infrastructure and by failing cost on the
+CI-based test.
+
+**Plateau check:** same sign as the 126d cell below, weaker — consistent with the
+2026-09-16 sweep's own "strengthens with horizon" finding, not a lone-bright-pixel
+reading against its own neighbor.
+
+**What would change the verdict:** the whole-grid FDR pass (run, see below); a holdout
+check; decile-level (not tercile) C2 matching at a broader universe.
+
+### `dist_from_52w_low`, 126d
+
+**Hypothesis:** same as above, at a 126-day horizon — the horizon where the 2026-09-16
+sweep found this feature's IC strongest.
+
+**Why it was plausible:** same motivation as the 63d cell; DESIGN's own M18 section
+also flags the George & Hwang 52-week-high academic anomaly as a standard prior for
+this feature family generally (that literature's claim runs the opposite direction on
+`dist_from_52w_high`, not this feature — see the M18 pre-registration entry's own
+discussion of the sign question, resolved by `dist_from_52w_high` killing cleanly
+rather than confirming either direction).
+
+**What was run:** identical construction to the 63d cell, `fwd_ret_126`, block length
+252.
+
+**The number:** +0.025042, 90% CI [+0.011043, +0.040170]. CI excludes zero.
+
+**Effective N:** 1,069,515 rows, 2,643 distinct dates, 405 tickers.
+
+**Cost:** hurdle 0.8336%/yr. Point, annualized (×252/126): +5.01%/yr, clears. Near
+edge: +2.21%/yr, **clears**. Far edge: +8.03%/yr, clears. **Clears cost at every
+reading** — the same shape as `stack_fully_bearish` (M2) and `extension_x_slope`/SMA50
+(M6.2), this study's other two cost-clearing Tier-3 cells.
+
+**Reversal-robustness (C2 + `rev_tercile`):** +2.64%, CI [+1.57%, +3.71%] — still
+excludes zero, essentially unattenuated (if anything a touch larger, tighter CI).
+Short-term reversal is not the driver of this cell's effect either.
+
+**Tier:** 3. Capped by missing FDR/holdout infrastructure, not by cost or by this
+confound.
+
+**Plateau check:** same sign as the 63d cell, stronger — matches the 2026-09-16 sweep's
+own horizon-shape finding exactly (both features get stronger, not weaker, from 63d to
+126d), the cleanest plateau read of any of this study's cells that varies by horizon
+rather than by lookback or decile.
+
+**Argue against this result:** `mom_tercile` (built from `mom_12_1`) is conceptually
+close to `dist_from_52w_low` — both are functions of roughly the trailing year's price
+path — so a cell that survives this particular C2 match is clearing a harder bar than
+most of this study's other C2 tests, not an easier one; that said, "close to" is not
+"identical to," and a genuinely tighter momentum control (e.g. decile rather than
+tercile matching, or a direct residualization of `dist_from_52w_low` on `mom_12_1`)
+has not been run. No holdout check. `dist_from_52w_high` and `dist_from_52w_low` are
+only moderately correlated (per-date median Spearman 0.4677, checked before trusting
+these as 2 of 4 independent M18 cells) — not so correlated that `dist_from_52w_high`'s
+clean kill at both horizons should be read as corroborating evidence against this cell
+being real; they are different quantities, empirically as well as by construction.
+
+**What would change the verdict:** the whole-grid FDR pass (run, see below); a holdout
+check; a decile-level (not tercile) C2 match; a direct residualization of
+`dist_from_52w_low` against `mom_12_1` rather than tercile-matching it.
+
+### Whole-grid FDR pass re-run (2026-09-20) — both `dist_from_52w_low` cells
+
+**Neither survives, but this is the closest miss in the whole study.** M18's 4 primary
+cells were added to the 2026-09-17 pass's deduplicated 31-test grid (N=35 — see
+`STATUS.md`'s "Whole-grid FDR pass" section for the full updated ranked table), per
+this entry's own pre-registered "FDR re-entry" plan (`PREREGISTRATION.md`) — not
+reported as a standalone significance claim outside the study's whole-grid discipline.
+
+**`dist_from_52w_low`, 126d is now the smallest Wald p-value in the entire study**
+(0.0047, rank 1 of 35) — smaller than `stack_fully_bearish`'s 0.0086 (now rank 2). Its
+own BH threshold at rank 1 is 0.10/35 = 0.002857; **0.0047 is 1.64× that threshold** —
+still a miss, but a tighter one than any cell in this study has come to clearing its
+own threshold (the prior closest, `stack_fully_bearish`, missed by 2.7×). `dist_from_
+52w_low`, 63d (p = 0.0667, rank 10 of 35) is not close. **0 of 35 rejected at q = 0.10,
+0 of 35 at q = 0.05.**
+
+**Status, same convention as every other Tier-3 cell's FDR addendum:** "capped at
+Tier 3 by missing FDR infrastructure" → "tested against FDR, and it failed." The point
+estimate, CI, and cost-clearance reported above stand unchanged — what changed is the
+accounting for how many hypotheses produced this number, not the underlying evidence.
+Worth naming directly: **this is the single closest a result in this entire study has
+come to surviving multiple-testing correction**, and it was found by explicitly
+continuing to look after the study's own termination criteria had already been met —
+a genuine tension with "a null result is a successful outcome, don't keep looking for a
+cut that works" (CLAUDE.md), resolved here only because the candidate was flagged by
+two independent methods *before* this test was run, pre-registered with an honest kill
+criterion, and killed by the correction on the same terms as everything else — not
+because looking longer was assumed to eventually pay off.
