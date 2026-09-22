@@ -2127,3 +2127,117 @@ updated in the same session, not left stale against this new result.
 FDR pass section, termination section); `REPORT.md` (executive summary, shrinkage
 table, FDR table, module results, suggestive findings, dead-ends register, cost
 appendix — all updated to reflect M18).
+
+---
+
+## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
+
+**Module / track:** M6.3, Track B (DESIGN.md, "M6.3 — Slope magnitude: monotonic or
+humped?"). Not part of the original minimal-core list (DESIGN §12) — post-termination,
+DESIGN §1.5's porous-scope rule, same standing as M18. Promoted directly from DESIGN's
+own module list (not a Track-A-discovered candidate) as part of a scoping pass over
+every not-yet-run module in DESIGN.md, done in parallel with three sibling modules
+(M6.1, M7, M13) each in their own isolated worktree/branch.
+
+**Hypothesis (DESIGN's own):** forward return is non-monotonic in slope magnitude —
+some trend is good, too much is exhaustion.
+
+**Two logged deviations from DESIGN's literal method text, both load-bearing for this
+module's design, stated up front rather than buried in a result section:**
+
+1. **`slope_atr_21` is not built.** DESIGN's method line asks for "decile buckets of
+   `slope_atr_21` and `slope_pctile_21`." `slope_atr_21` — an ATR-normalized,
+   price-unit slope, `(ma_t − ma_{t−21}) / atr_14` — directly conflicts with CLAUDE.md
+   invariant #7: "Log scale for slopes. `slope_log_k` only. Percentage and price-unit
+   slopes are not comparable across tickers." `features/slope.py`'s own docstring
+   independently confirms this: `slope_pct_k`/`slope_atr_k` were deliberately excluded
+   from Phase 2 because `slope_log_k` is "the only scale-invariant version" CLAUDE.md's
+   invariant permits. This module therefore uses **`slope_pctile_21` only** — a
+   per-date cross-sectional decile rank of the existing, already-lagged, log-scale
+   `slope_log_21_sma_k` column. This is DESIGN's own named alternative formulation in
+   the same sentence, not an invented substitute, and it never leaves log scale.
+2. **The "earnings-excluded companion" DESIGN asks for is a proxy, not the real
+   thing.** No earnings-date table exists anywhere in this repo's raw-data DB (checked
+   directly: `bars_1d/1h/1mo/1w`, `fetch_jobs`, `index_membership`, `macro_series`,
+   `shares_outstanding`, `splits`, `ticker_metadata`, `ticker_sector`, `tickers` — none
+   is earnings-related, same gap M6.3's own sibling check for M13 independently
+   confirmed). Substituted with a `recent_large_move` exclusion flag: an event day
+   preceded within the trailing 5 trading days by a single-day |return| > 7% is
+   excluded from the companion population. First-pass thresholds, not DESIGN-derived —
+   flagged as a proxy, not claimed equivalent to a true earnings-proximity filter (a
+   large move can be a buyout, a guidance cut, a macro shock; a genuine earnings drift
+   with no single outsized day would be missed by this filter). Deliberately distinct
+   from `data.py::flag_large_moves`'s own 50% threshold, which flags likely data
+   errors for manual review, not real gap days — a different purpose, not reused here.
+
+**Method:** `slope_pctile_21_sma_k` (`cross_sectional_bucket` on the already-cached,
+already-lagged `slope_log_21_sma_k`, k ∈ {20, 50, 200} — DESIGN's own named
+lookbacks) built in this module's own `prepare()`, not the shared cached panel (per
+this study's established per-module-local-feature convention, so parallel modules
+don't collide on `features/panel.py`). Two outputs per lookback:
+- **`shape_table`** (descriptive): one row per decile (0–9) of `slope_pctile_21_sma_k`,
+  C0/C1/C2 point-estimate deltas on `fwd_ret_21` — same construction as M4's own
+  `decile_table`, reused pattern, no bootstrap CI (a shape read, not a hypothesis
+  test in itself — "Plots before tests," CLAUDE.md's own style rule).
+- **`humped_test`** (the one CI-backed decisive test per lookback): C2 block-bootstrap
+  delta (`stats/inference.py::block_bootstrap_delta`, reused unchanged, block length
+  42, 500 draws, 90% CI, seed 0) of `fwd_ret_21` between the pooled middle deciles
+  (4, 5) and the pooled tail deciles (0, 1, 8, 9) — restricted to only those 6
+  deciles' rows first, then a group_col=`is_middle` delta, same restrict-then-delta
+  pattern M6.2's `_delta_cell` established. Run twice per lookback: once on the full
+  population, once on the `recent_large_move`-excluded companion population
+  (deviation 2, above).
+
+**Kill criterion:** DESIGN states none explicitly for M6.3 (framed as a
+shape-characterization question, not a binary claim) — stated here, following this
+study's own standard floor for a return-valued cell: `max(|ci_low|,|ci_high|) < 0.10%`
+(M1/M2/M6.2's own floor) on `humped_test`'s middle-vs-tails delta → **killed** (no
+humped or U-shaped structure at this control tier; read `shape_table`'s per-decile
+point estimates for a monotonic-vs-flat characterization instead, descriptively, not
+as a second hypothesis test). CI excluding zero, positive, clearing the floor →
+**humped** (middle beats tails). CI excluding zero, negative, clearing the floor →
+**U-shaped** (tails beat the middle).
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+standard tier, applied here for the same reason DESIGN itself names: "a steep slope in
+ATR units and a high-vol name are not the same thing, and the same trap from M4
+applies here" — vol_tercile matching is this study's standing answer to that
+confound.
+
+**Cost annotation:** `shape_table` is descriptive, not a claim (CLAUDE.md invariant #8
+doesn't apply to it directly). If `humped_test` confirms a middle-vs-tails effect,
+that does imply a tradeable claim (a return delta between two identifiable
+populations) — invariant #8 requires a cost annotation before it's stated as such,
+using the combined middle-vs-tail membership flag's own turnover
+(`stats/costs.py::signals_per_year`, same convention as every prior module), computed
+only if triggered.
+
+**Grid size (`N_tests` contribution):** **3 primary cells** — one `humped_test` per
+lookback (20, 50, 200), full population. The `recent_large_move`-excluded companion
+runs are a robustness check on the same 3 cells (same convention as this study's own
+reversal-robustness addenda — M2, M18, M6.2), not 3 additional independent tests. The
+30 `shape_table` rows (3 lookbacks × 10 deciles) are descriptive, not a hypothesis
+test each — same convention as M4's own `decile_table`, which never counted its 90
+bucket-level rows as 90 independent tests either.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant —
+`humped_test`'s restricted 6-decile population is expected to be smaller than a
+full-panel cell but still large relative to DESIGN §6.9's floor (200 events, ≥30
+dates, ≥30 tickers), flagged via `below_threshold` if any cell falls short, same
+convention as every prior module.
+
+**Plateau check (DESIGN §6.7):** applied as consistency across the three lookbacks
+(20/50/200) — a humped/U-shaped read that only shows up at one lookback with the other
+two flat is the "lone bright pixel" pattern this study has already caught once
+(the 2026-09-18 distance × slope generalization, `EXPLORATION_LOG.md`) and should be
+read the same way here, not as three independent confirmations.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21` (this study's standard horizon).
+
+**New machinery:** `slope_magnitude.py`'s own `prepare`/`shape_table`/`humped_test`/
+`run_grid` — the only genuinely new statistical component is the middle-vs-tails
+restrict-then-delta construction; everything else (`cross_sectional_bucket`,
+`c0_delta`/`c1_delta`/`c2_delta`, `block_bootstrap_delta`) is reused unchanged. New
+column: `recent_large_move` (lagged via the shared `features/panel.py::apply_lag`,
+not a hand-rolled shift, per CLAUDE.md invariant #2).
