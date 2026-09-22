@@ -2247,3 +2247,85 @@ Result section below.
 **Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
 2010-01-04 → 2021-12-31, holdout-safe), `fwd_ret_21` (M1's own horizon, since this
 module directly extends M1's own cell).
+
+### Result (2026-09-22)
+
+| regime | bucket | n_events | n_dates | n_tickers | c1 | c2 | ci_low | ci_high | edge | killed | ci_excludes_zero |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vix | top | 171,836 | 786 | 402 | −0.195% | −0.078% | −0.389% | +0.258% | 0.389% | no | no |
+| vix | bottom | 392,184 | 1,195 | 402 | −0.039% | **−0.318%** | **−0.551%** | **−0.073%** | 0.551% | no | **yes** |
+| breadth | top | 298,354 | 882 | 402 | −0.044% | **−0.388%** | **−0.690%** | **−0.074%** | 0.690% | no | **yes** |
+| breadth | bottom | 205,085 | 871 | 402 | −0.254% | −0.087% | −0.375% | +0.189% | 0.375% | no | no |
+
+None of the 4 cells is killed by the per-cell 0.10% floor. 2 of 4 (`vix`/bottom,
+`breadth`/top) have a C2 CI excluding zero; the other 2 span zero.
+
+**Reading the actual hypothesis (does regime change the effect), not just "is there an
+effect in this slice":** **No — this does not look like a real regime interaction.**
+All 4 point estimates are the same sign (negative) as M1's own whole-sample
+`above_sma_200` number (−0.215%, `EXPERIMENTS.csv`) and all 4 sit within a narrow band
+(−0.078% to −0.388%) around it — no cell flips sign, and no cell is dramatically larger
+in magnitude than M1's own baseline (the largest, `breadth`/top at −0.388%, is under
+2× the whole-sample point estimate, well within the range ordinary sampling noise
+around an already-small, already-borderline-CI number would produce). The 2
+CI-excluding-zero cells are not obviously the *economically distinct* half either:
+`vix`/bottom and `breadth`/top are not the two "config in the same direction" buckets
+by any a priori story this entry's hypothesis section proposed — the pattern reads more
+like "which side of a near-zero, already-thin split happens to land with a
+CI-excluding-zero draw" than a coherent, single regime-driven story.
+
+**Argue against this result (per CLAUDE.md's own discipline):** M1's own
+`above_sma_200` whole-sample cell already has a CI that "touches zero" and is this
+study's most heavily flagged SMA200 anomaly (`STATUS.md`'s cross-module SMA200 watch).
+Splitting an already near-zero, borderline cell into two independent binary facets (4
+buckets total) and finding that *some* buckets' CIs exclude zero while others don't is
+close to the base-rate outcome you'd expect from resampling variation alone, not
+necessarily evidence of a real regime-conditional mechanism — this is exactly the kind
+of pattern DESIGN's own multiple-testing discipline exists to catch, and it's the
+central reason this entry treats the "regime changes the effect" question as answered
+**no** despite 2 of 4 cells individually clearing their own CI-excludes-zero /
+cost bars.
+
+**Cost annotation (invariant #8, computed for the 2 CI-excluding-zero cells only):**
+Turnover measured as `above_sma_200`'s own flip rate *within* the regime-restricted
+population (a labeled simplification — does not additionally count turnover from
+entering/exiting the regime bucket itself).
+- `vix`/bottom: 6.894 flips/ticker-yr → hurdle 0.689%/yr. Annualized (×12): point
+  −3.82%/yr, near edge −0.87%/yr, far edge −6.61%/yr. **Clears at every reading**
+  (barely, at the near edge).
+- `breadth`/top: 6.404 flips/ticker-yr → hurdle 0.640%/yr. Annualized (×12): point
+  −4.66%/yr, near edge −0.88%/yr, far edge −8.28%/yr. **Clears at every reading**
+  (barely, at the near edge).
+
+**Shape stats (invariant #10, descriptive only):**
+- `vix`/bottom: hit rate 57.09% (C2 delta −0.81pp), win/loss ratio 1.11, skew +0.30.
+- `breadth`/top: hit rate 57.72% (C2 delta +0.15pp), win/loss ratio 1.02, skew −0.74.
+Neither shows a shape signature that reinforces the mean-delta story the way
+`stack_fully_bearish` did (M2) — `vix`/bottom's hit-rate delta is *negative* despite a
+negative mean delta (consistent), but `breadth`/top's hit-rate delta is essentially
+zero/slightly positive despite a negative mean delta (inconsistent with a clean
+"more frequent small losses" story) — another data point against reading these as a
+coherent effect.
+
+**Plateau check:** not applicable in the usual lookback-neighborhood sense (this
+module has no neighboring lookback/parameter to compare against) — the "argue against"
+discussion above is this cell's substitute plateau-style skepticism check.
+
+**Tier:** per this study's own mechanical tiering convention (CI excludes zero + clears
+cost → Tier 3, capped by missing FDR/holdout infrastructure, same as every other
+Tier-3 cell in this study), `vix`/bottom and `breadth`/top are **Tier 3**. This entry's
+own "argue against" section above should be read alongside the tier, not overridden by
+it — this study's convention tiers mechanically and lets the accompanying prose carry
+the skepticism (same pattern M6.2's `touch_x_slope` used before its own
+reversal-robustness check). **Pending whole-grid FDR re-entry** (M18's own phrasing) —
+not run here; the coordinating session re-runs the whole-grid pass once, after all
+Batch-1 modules land. `vix`/top and `breadth`/bottom are **not tiered** (CI spans
+zero, not killed — inconclusive, same convention as every other module's
+CI-spanning-zero cells).
+
+**Effective N:** see table above (n_dates 786–1,195 per cell, n_tickers 402 — all well
+above DESIGN §6.9's minimum-sample floor).
+
+**Logged:** `EXPERIMENTS.csv` (4 rows); `FINDINGS.md` (2 new entries, `vix`/bottom and
+`breadth`/top, both carrying this entry's own "argue against" reasoning in full — not
+presented as clean standalone findings).
