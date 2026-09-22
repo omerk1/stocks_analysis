@@ -2130,6 +2130,208 @@ appendix — all updated to reflect M18).
 
 ---
 
+## M13 — Context conditioning (2026-09-21)
+
+**Module / track:** M13, Track B. Not part of the original minimal-core list (DESIGN
+§12) — added post-termination via DESIGN §1.5's porous-scope rule, one of a batch of
+parallel post-termination modules scoped in the same session as M18 (the coordinating
+session's own Batch-1 triage: modules that reuse existing infrastructure with no new
+shared machinery, safe to run independently of one another).
+
+**Promoted from:** DESIGN's own module list directly, not a Track A candidate — DESIGN's
+text for this module (line 974) is short: "Earnings proximity, index membership
+changes, sector momentum, market breadth (`pct_above_200d`), VIX percentile. Mostly
+interaction terms on top of M1–M6 rather than standalone analysis." This entry
+operationalizes that into a concrete, testable first slice rather than attempting all
+four facets against all of M1–M6 at once — the same "first slice, not full spec"
+discipline M1/M4/M5/M6.2 each used on their own first pass.
+
+**Scope decisions, stated up front (not discovered mid-run):**
+- **Earnings proximity is out of scope entirely.** This repo's DB (`bars_1d/1h/1mo/1w`,
+  `fetch_jobs`, `index_membership`, `macro_series`, `shares_outstanding`, `splits`,
+  `ticker_metadata`, `ticker_sector`, `tickers`) has no earnings-date table — building
+  one is new data ingestion, not in scope for this module. A deliberate, named cut, not
+  a silent omission.
+- **Index-membership changes and sector momentum are explicitly deferred**, not
+  attempted this slice — same "explicitly deferred" precedent M6.2 used for
+  golden-cross × slope. Both are feasible with existing tables
+  (`db.read_index_membership`, `ticker_sector`) if a later pass wants them.
+- **This slice tests:** does M1's own `above_sma_200` conditional effect on
+  `fwd_ret_21` hold equally across (a) a VIX regime (top vs. bottom trailing tercile of
+  FRED's `VIXCLS`) and (b) a market-breadth regime (top vs. bottom trailing tercile of
+  `pct_above_sma_200`, i.e. the fraction of the U1 universe above its own 200-day SMA
+  on that date)? `above_sma_200` chosen (over `above_sma_50`/`above_sma_20`) because
+  DESIGN's own regime-conditioning language (M9) centers on the long lookback, and
+  because M1's own `above_sma_200` cell is this study's most-flagged SMA200 anomaly —
+  an already-weak, borderline-CI baseline is exactly the kind of cell where a real
+  regime interaction would be most visible if one exists.
+
+**Hypothesis (skeptical, matching this study's own default framing for a conditioning
+question):** the `above_sma_200` effect is not materially different across VIX or
+breadth regimes — i.e. `above_sma_200` is not a regime-dependent signal, the same
+weak/borderline effect M1 already found holds (or fails to hold) uniformly regardless
+of market context.
+
+**New machinery:** one small helper, `_rolling_tercile` (a trailing/rolling
+percentile-rank bucket over a date-indexed series — **not** a full-sample `pd.qcut`,
+which CLAUDE.md invariant #3 forbids here: a regime bucket for a 2015 date must not be
+informed by 2021 VIX/breadth values). 252-trading-day trailing window, matching this
+study's existing rolling-self-normalisation convention (`dist_z`). Everything else
+reuses existing primitives unchanged: `stats.inference.block_bootstrap_delta`
+(`modules/slope_conditioner.py`'s own "restrict-then-delta" pattern, sub-question 1's
+exact shape — restrict the panel to a regime bucket, then C1/C2 delta of
+`above_sma_200` on `fwd_ret_21` within it), `features.panel.apply_lag` (the one central
+lag function — not a hand-rolled shift), `db.read_macro_series` (`VIXCLS`).
+
+**Method:**
+- `breadth_tercile`: per-date mean of the already-lagged `above_sma_200` column
+  (cross-sectional aggregate across the U1 universe), then `_rolling_tercile` — no
+  further lag needed, since it's built entirely from data already lagged in the cached
+  panel.
+- `vix_tercile`: `db.read_macro_series(conn, "VIXCLS")`, holdout-filtered (`<=
+  2021-12-31`), `_rolling_tercile`, then `features.panel.apply_lag` — a VIX close on
+  day *t* is not tradable information until day *t+1* (CLAUDE.md invariant #2). Since
+  every ticker has exactly one row per date, shifting this date-level column forward
+  one row *within each ticker* (`apply_lag`'s own grouping) is exactly a
+  one-trading-day lag of the underlying date-level series.
+- For each of the 4 (regime, bucket) combinations, restrict the prepared panel to that
+  bucket, then `block_bootstrap_delta(group_col="above_sma_200", value_col=
+  "fwd_ret_21", match_cols=("mom_tercile","vol_tercile","sector"))` — M1's own C2 spec,
+  unchanged.
+- Middle terciles (bucket = 1) are dropped, not tested — a clean two-sided top-vs-bottom
+  comparison, the same "drop the middle tercile" convention the 2026-09-18 distance ×
+  slope generalization script used to match M6.2's own binary construction.
+
+**Kill criterion:** per cell, `max(|ci_low|,|ci_high|) < 0.10%` (M1's own floor — this
+cell's statistic is the exact same shape as M1's primary cells, just row-restricted
+first, so it inherits M1's threshold rather than inventing a new one) → killed (no
+detectable `above_sma_200` effect in that regime bucket). **This floor answers "is
+there any effect in this regime slice," not "does the regime change the effect"** —
+the latter, the module's actual hypothesis, is read by comparing the top-bucket and
+bottom-bucket point estimates/CIs against each other and against M1's own whole-sample
+number, descriptively. A formal delta-of-deltas CI (a joint significance test on "does
+the effect differ between regimes") was considered and **not built**: this study's
+existing bootstrap primitives cover same-rows/different-columns
+(`block_bootstrap_group_diff`) and same-column/different-decile-columns
+(`block_bootstrap_spread_diff`), but not same-column/disjoint-row-subset differences —
+building one is a new statistical primitive, out of scope for this first slice, and
+flagged here as a named limitation rather than silently worked around.
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) as the base,
+unchanged from every module in this study — the regime (VIX/breadth) is an additional
+row-restriction on top of C2, not a replacement for it.
+
+**Cost annotation:** applies (invariant #8) only to whichever cells, if any, have a
+CI excluding zero — computed post-hoc for those cells only, using
+`costs.signals_per_year` on the regime-restricted population's own `above_sma_200`
+flip rate (a labeled simplification: this does not additionally account for turnover
+from entering/exiting the regime bucket itself, only from the state flipping within
+it — flagged, not hidden, same "labeled approximation" convention this study's cost
+math already uses elsewhere).
+
+**Grid size (`N_tests` contribution):** 4 primary cells (2 regimes × 2 buckets).
+Declared independent at declaration: VIX and breadth are two different underlying
+series (FRED macro data vs. an aggregate of the panel's own cross-sectional state), not
+two normalisations of the same quantity — no correlation check performed before
+declaring independence here (unlike M4/M18's own facet-correlation checks), flagged as
+a gap for the eventual whole-grid FDR pass to verify rather than assumed away.
+
+**Shape stats (CLAUDE.md invariant #10, forward-looking, applies to this module):**
+`stats/shape.py`'s `hit_rate_deltas`/`distribution_shape` computed for the event
+(`above_sma_200=True`) side of each of the 4 cells, reported alongside the mean/CI —
+descriptive only, no kill authority, no `N_tests` contribution.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant — see
+Result section below.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31, holdout-safe), `fwd_ret_21` (M1's own horizon, since this
+module directly extends M1's own cell).
+
+### Result (2026-09-22)
+
+| regime | bucket | n_events | n_dates | n_tickers | c1 | c2 | ci_low | ci_high | edge | killed | ci_excludes_zero |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vix | top | 171,836 | 786 | 402 | −0.195% | −0.078% | −0.389% | +0.258% | 0.389% | no | no |
+| vix | bottom | 392,184 | 1,195 | 402 | −0.039% | **−0.318%** | **−0.551%** | **−0.073%** | 0.551% | no | **yes** |
+| breadth | top | 298,354 | 882 | 402 | −0.044% | **−0.388%** | **−0.690%** | **−0.074%** | 0.690% | no | **yes** |
+| breadth | bottom | 205,085 | 871 | 402 | −0.254% | −0.087% | −0.375% | +0.189% | 0.375% | no | no |
+
+None of the 4 cells is killed by the per-cell 0.10% floor. 2 of 4 (`vix`/bottom,
+`breadth`/top) have a C2 CI excluding zero; the other 2 span zero.
+
+**Reading the actual hypothesis (does regime change the effect), not just "is there an
+effect in this slice":** **No — this does not look like a real regime interaction.**
+All 4 point estimates are the same sign (negative) as M1's own whole-sample
+`above_sma_200` number (−0.215%, `EXPERIMENTS.csv`) and all 4 sit within a narrow band
+(−0.078% to −0.388%) around it — no cell flips sign, and no cell is dramatically larger
+in magnitude than M1's own baseline (the largest, `breadth`/top at −0.388%, is under
+2× the whole-sample point estimate, well within the range ordinary sampling noise
+around an already-small, already-borderline-CI number would produce). The 2
+CI-excluding-zero cells are not obviously the *economically distinct* half either:
+`vix`/bottom and `breadth`/top are not the two "config in the same direction" buckets
+by any a priori story this entry's hypothesis section proposed — the pattern reads more
+like "which side of a near-zero, already-thin split happens to land with a
+CI-excluding-zero draw" than a coherent, single regime-driven story.
+
+**Argue against this result (per CLAUDE.md's own discipline):** M1's own
+`above_sma_200` whole-sample cell already has a CI that "touches zero" and is this
+study's most heavily flagged SMA200 anomaly (`STATUS.md`'s cross-module SMA200 watch).
+Splitting an already near-zero, borderline cell into two independent binary facets (4
+buckets total) and finding that *some* buckets' CIs exclude zero while others don't is
+close to the base-rate outcome you'd expect from resampling variation alone, not
+necessarily evidence of a real regime-conditional mechanism — this is exactly the kind
+of pattern DESIGN's own multiple-testing discipline exists to catch, and it's the
+central reason this entry treats the "regime changes the effect" question as answered
+**no** despite 2 of 4 cells individually clearing their own CI-excludes-zero /
+cost bars.
+
+**Cost annotation (invariant #8, computed for the 2 CI-excluding-zero cells only):**
+Turnover measured as `above_sma_200`'s own flip rate *within* the regime-restricted
+population (a labeled simplification — does not additionally count turnover from
+entering/exiting the regime bucket itself).
+- `vix`/bottom: 6.894 flips/ticker-yr → hurdle 0.689%/yr. Annualized (×12): point
+  −3.82%/yr, near edge −0.87%/yr, far edge −6.61%/yr. **Clears at every reading**
+  (barely, at the near edge).
+- `breadth`/top: 6.404 flips/ticker-yr → hurdle 0.640%/yr. Annualized (×12): point
+  −4.66%/yr, near edge −0.88%/yr, far edge −8.28%/yr. **Clears at every reading**
+  (barely, at the near edge).
+
+**Shape stats (invariant #10, descriptive only):**
+- `vix`/bottom: hit rate 57.09% (C2 delta −0.81pp), win/loss ratio 1.11, skew +0.30.
+- `breadth`/top: hit rate 57.72% (C2 delta +0.15pp), win/loss ratio 1.02, skew −0.74.
+Neither shows a shape signature that reinforces the mean-delta story the way
+`stack_fully_bearish` did (M2) — `vix`/bottom's hit-rate delta is *negative* despite a
+negative mean delta (consistent), but `breadth`/top's hit-rate delta is essentially
+zero/slightly positive despite a negative mean delta (inconsistent with a clean
+"more frequent small losses" story) — another data point against reading these as a
+coherent effect.
+
+**Plateau check:** not applicable in the usual lookback-neighborhood sense (this
+module has no neighboring lookback/parameter to compare against) — the "argue against"
+discussion above is this cell's substitute plateau-style skepticism check.
+
+**Tier:** per this study's own mechanical tiering convention (CI excludes zero + clears
+cost → Tier 3, capped by missing FDR/holdout infrastructure, same as every other
+Tier-3 cell in this study), `vix`/bottom and `breadth`/top are **Tier 3**. This entry's
+own "argue against" section above should be read alongside the tier, not overridden by
+it — this study's convention tiers mechanically and lets the accompanying prose carry
+the skepticism (same pattern M6.2's `touch_x_slope` used before its own
+reversal-robustness check). **Pending whole-grid FDR re-entry** (M18's own phrasing) —
+not run here; the coordinating session re-runs the whole-grid pass once, after all
+Batch-1 modules land. `vix`/top and `breadth`/bottom are **not tiered** (CI spans
+zero, not killed — inconclusive, same convention as every other module's
+CI-spanning-zero cells).
+
+**Effective N:** see table above (n_dates 786–1,195 per cell, n_tickers 402 — all well
+above DESIGN §6.9's minimum-sample floor).
+
+**Logged:** `EXPERIMENTS.csv` (4 rows); `FINDINGS.md` (2 new entries, `vix`/bottom and
+`breadth`/top, both carrying this entry's own "argue against" reasoning in full — not
+presented as clean standalone findings).
+
+---
+
 ## M6.1 — Does slope add anything over momentum? (2026-09-21)
 
 **Module / track:** M6.1, Track B (DESIGN.md §6.0/§6.1). Not part of the original
