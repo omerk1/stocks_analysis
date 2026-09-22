@@ -917,3 +917,103 @@ is asymmetric — concentrated on the falling side (decile 0 = +0.104%, decile 1
 +0.125%) with the rising side barely positive to negative (decile 8 = −0.062%, decile
 9 = +0.015%, per `PREREGISTRATION.md`'s `shape_table` numbers) — a different shape
 from SMA50/200's roughly symmetric U, not just a noisier version of the same one.
+
+---
+
+## M13 — Context conditioning (2026-09-22)
+
+Post-termination module, one of a batch of parallel Batch-1 modules scoped and run
+independently (see `PREREGISTRATION.md`'s M13 entry for the full hypothesis/method/
+kill-criterion statement). Both entries below carry an unusually strong "read this
+skeptically" framing in their own text, not as a hedge but as the entry's actual
+honest reading of the evidence — see "Why this probably isn't real" in each.
+
+### `above_sma_200`, restricted to VIX bottom tercile ("low-VIX regime")
+
+**Hypothesis:** M1's own `above_sma_200` conditional effect on `fwd_ret_21` differs
+materially in a low-VIX regime (bottom trailing tercile of FRED's `VIXCLS`, 252-day
+rolling window) vs. the whole-sample baseline.
+
+**What was run:** `block_bootstrap_delta(group_col="above_sma_200",
+value_col="fwd_ret_21", match_cols=("mom_tercile","vol_tercile","sector"))` — M1's own
+C2 spec, unchanged — restricted to rows where a trailing 252-day rolling VIX
+percentile rank falls in the bottom tercile.
+
+**The number(s):** C2 delta **−0.318%** per 21d, 90% CI **[−0.551%, −0.073%]** —
+excludes zero.
+
+**Effective N:** 392,184 rows, 1,195 distinct dates, 402 tickers.
+
+**Cost:** turnover (above_sma_200 flip rate within this regime-restricted population)
+6.894 flips/ticker-yr → hurdle 0.689%/yr (`stats/costs.py`, 10bps/rt — a labeled
+simplification, does not additionally count regime-entry/exit turnover). Annualized
+(×12): point −3.82%/yr, near edge −0.87%/yr, far edge −6.61%/yr. **Clears at every
+reading, but barely** — the near-edge margin over the hurdle is under 0.2pp/yr.
+
+**Tier:** 3, by this study's own mechanical convention (CI excludes zero, clears
+cost → Tier 3, capped by missing FDR/holdout infrastructure). **Pending whole-grid
+FDR re-entry** — not run in this module's own pass; the coordinating session re-runs
+the whole-grid pass once, after every parallel Batch-1 module lands.
+
+**Why this probably isn't real (the actual honest read, not a formality):** M1's own
+`above_sma_200` whole-sample cell already has a CI that "touches zero" and carries
+this study's most heavily flagged SMA200 anomaly (`STATUS.md`'s cross-module SMA200
+watch). This cell's point estimate (−0.318%) is the same sign and same order of
+magnitude as that whole-sample number (−0.215%) — not a larger, distinctly
+regime-driven effect, just ordinary sampling variation around an already-small,
+already-borderline number, exposed by restricting to one half of a binary regime
+split. Splitting a near-zero cell into independent binary facets and finding that
+*some* of the resulting buckets' CIs exclude zero is close to the base-rate outcome
+that kind of slicing produces on its own — exactly the shape DESIGN's own
+multiple-testing discipline exists to catch. Shape stats reinforce this reading only
+partially: hit rate 57.09% (C2 delta −0.81pp, consistent direction with the mean),
+win/loss ratio 1.11, skew +0.30.
+
+**What would change the verdict:** the whole-grid FDR pass (very likely to kill this,
+given the reasoning above); a formal delta-of-deltas test against the whole-sample or
+opposite-bucket estimate (not built this slice, see `PREREGISTRATION.md`'s kill-
+criterion section); a holdout check.
+
+### `above_sma_200`, restricted to breadth top tercile ("high-breadth regime")
+
+**Hypothesis:** M1's own `above_sma_200` conditional effect on `fwd_ret_21` differs
+materially in a high-breadth regime (top trailing tercile of `pct_above_sma_200`,
+the U1 universe's own cross-sectional breadth, 252-day rolling window) vs. the
+whole-sample baseline.
+
+**What was run:** identical construction to the VIX cell above, restricted instead to
+rows where the trailing rolling percentile rank of daily cross-sectional breadth
+falls in the top tercile.
+
+**The number(s):** C2 delta **−0.388%** per 21d, 90% CI **[−0.690%, −0.074%]** —
+excludes zero.
+
+**Effective N:** 298,354 rows, 882 distinct dates, 402 tickers.
+
+**Cost:** turnover 6.404 flips/ticker-yr → hurdle 0.640%/yr. Annualized (×12): point
+−4.66%/yr, near edge −0.88%/yr, far edge −8.28%/yr. **Clears at every reading, but
+barely** — same shape as the VIX cell above.
+
+**Tier:** 3, same mechanical convention and same FDR-pending status as the VIX cell
+above.
+
+**Why this probably isn't real:** the same argument as the VIX cell above applies in
+full — same sign, same order of magnitude as M1's own whole-sample −0.215%, most
+plausibly the same weak baseline effect exposed by regime-slicing rather than a
+distinct high-breadth mechanism. Shape stats here are *less* consistent with a
+coherent story than the VIX cell's: hit rate 57.72% but the **hit-rate C2 delta is
+essentially zero/slightly positive (+0.15pp)** despite a negative mean delta — a
+"more frequent small losses, not fewer wins" shape isn't what the hit-rate number
+shows, which argues against reading this as a clean effect even before the FDR pass
+runs. Win/loss ratio 1.02, skew −0.74.
+
+**What would change the verdict:** same as the VIX cell above.
+
+**Both cells, read together:** two regime facets (VIX, breadth), both producing a
+CI-excluding-zero, cost-clearing bucket on the same underlying M1 cell, with the same
+sign and similar magnitude to M1's own already-weak whole-sample number and to each
+other. This is the shape of "an already-borderline cell sliced two more ways,
+producing two more borderline-significant sub-cells" — not the shape of "a real,
+economically distinct regime interaction was found." Logged honestly as Tier 3 per
+this study's mechanical convention, with this reasoning attached rather than presented
+as a clean finding.
