@@ -2130,6 +2130,284 @@ appendix — all updated to reflect M18).
 
 ---
 
+## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
+
+**Module / track:** M6.3, Track B (DESIGN.md, "M6.3 — Slope magnitude: monotonic or
+humped?"). Not part of the original minimal-core list (DESIGN §12) — post-termination,
+DESIGN §1.5's porous-scope rule, same standing as M18. Promoted directly from DESIGN's
+own module list (not a Track-A-discovered candidate) as part of a scoping pass over
+every not-yet-run module in DESIGN.md, done in parallel with three sibling modules
+(M6.1, M7, M13) each in their own isolated worktree/branch.
+
+**Hypothesis (DESIGN's own):** forward return is non-monotonic in slope magnitude —
+some trend is good, too much is exhaustion.
+
+**Two logged deviations from DESIGN's literal method text, both load-bearing for this
+module's design, stated up front rather than buried in a result section:**
+
+1. **`slope_atr_21` is not built.** DESIGN's method line asks for "decile buckets of
+   `slope_atr_21` and `slope_pctile_21`." `slope_atr_21` — an ATR-normalized,
+   price-unit slope, `(ma_t − ma_{t−21}) / atr_14` — directly conflicts with CLAUDE.md
+   invariant #7: "Log scale for slopes. `slope_log_k` only. Percentage and price-unit
+   slopes are not comparable across tickers." `features/slope.py`'s own docstring
+   independently confirms this: `slope_pct_k`/`slope_atr_k` were deliberately excluded
+   from Phase 2 because `slope_log_k` is "the only scale-invariant version" CLAUDE.md's
+   invariant permits. This module therefore uses **`slope_pctile_21` only** — a
+   per-date cross-sectional decile rank of the existing, already-lagged, log-scale
+   `slope_log_21_sma_k` column. This is DESIGN's own named alternative formulation in
+   the same sentence, not an invented substitute, and it never leaves log scale.
+2. **The "earnings-excluded companion" DESIGN asks for is a proxy, not the real
+   thing.** No earnings-date table exists anywhere in this repo's raw-data DB (checked
+   directly: `bars_1d/1h/1mo/1w`, `fetch_jobs`, `index_membership`, `macro_series`,
+   `shares_outstanding`, `splits`, `ticker_metadata`, `ticker_sector`, `tickers` — none
+   is earnings-related, same gap M6.3's own sibling check for M13 independently
+   confirmed). Substituted with a `recent_large_move` exclusion flag: an event day
+   preceded within the trailing 5 trading days by a single-day |return| > 7% is
+   excluded from the companion population. First-pass thresholds, not DESIGN-derived —
+   flagged as a proxy, not claimed equivalent to a true earnings-proximity filter (a
+   large move can be a buyout, a guidance cut, a macro shock; a genuine earnings drift
+   with no single outsized day would be missed by this filter). Deliberately distinct
+   from `data.py::flag_large_moves`'s own 50% threshold, which flags likely data
+   errors for manual review, not real gap days — a different purpose, not reused here.
+
+**Method:** `slope_pctile_21_sma_k` (`cross_sectional_bucket` on the already-cached,
+already-lagged `slope_log_21_sma_k`, k ∈ {20, 50, 200} — DESIGN's own named
+lookbacks) built in this module's own `prepare()`, not the shared cached panel (per
+this study's established per-module-local-feature convention, so parallel modules
+don't collide on `features/panel.py`). Two outputs per lookback:
+- **`shape_table`** (descriptive): one row per decile (0–9) of `slope_pctile_21_sma_k`,
+  C0/C1/C2 point-estimate deltas on `fwd_ret_21` — same construction as M4's own
+  `decile_table`, reused pattern, no bootstrap CI (a shape read, not a hypothesis
+  test in itself — "Plots before tests," CLAUDE.md's own style rule).
+- **`humped_test`** (the one CI-backed decisive test per lookback): C2 block-bootstrap
+  delta (`stats/inference.py::block_bootstrap_delta`, reused unchanged, block length
+  42, 500 draws, 90% CI, seed 0) of `fwd_ret_21` between the pooled middle deciles
+  (4, 5) and the pooled tail deciles (0, 1, 8, 9) — restricted to only those 6
+  deciles' rows first, then a group_col=`is_middle` delta, same restrict-then-delta
+  pattern M6.2's `_delta_cell` established. Run twice per lookback: once on the full
+  population, once on the `recent_large_move`-excluded companion population
+  (deviation 2, above).
+
+**Kill criterion:** DESIGN states none explicitly for M6.3 (framed as a
+shape-characterization question, not a binary claim) — stated here, following this
+study's own standard floor for a return-valued cell: `max(|ci_low|,|ci_high|) < 0.10%`
+(M1/M2/M6.2's own floor) on `humped_test`'s middle-vs-tails delta → **killed** (no
+humped or U-shaped structure at this control tier; read `shape_table`'s per-decile
+point estimates for a monotonic-vs-flat characterization instead, descriptively, not
+as a second hypothesis test). CI excluding zero, positive, clearing the floor →
+**humped** (middle beats tails). CI excluding zero, negative, clearing the floor →
+**U-shaped** (tails beat the middle).
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+standard tier, applied here for the same reason DESIGN itself names: "a steep slope in
+ATR units and a high-vol name are not the same thing, and the same trap from M4
+applies here" — vol_tercile matching is this study's standing answer to that
+confound.
+
+**Cost annotation:** `shape_table` is descriptive, not a claim (CLAUDE.md invariant #8
+doesn't apply to it directly). If `humped_test` confirms a middle-vs-tails effect,
+that does imply a tradeable claim (a return delta between two identifiable
+populations) — invariant #8 requires a cost annotation before it's stated as such,
+using the combined middle-vs-tail membership flag's own turnover
+(`stats/costs.py::signals_per_year`, same convention as every prior module), computed
+only if triggered.
+
+**Grid size (`N_tests` contribution):** **3 primary cells** — one `humped_test` per
+lookback (20, 50, 200), full population. The `recent_large_move`-excluded companion
+runs are a robustness check on the same 3 cells (same convention as this study's own
+reversal-robustness addenda — M2, M18, M6.2), not 3 additional independent tests. The
+30 `shape_table` rows (3 lookbacks × 10 deciles) are descriptive, not a hypothesis
+test each — same convention as M4's own `decile_table`, which never counted its 90
+bucket-level rows as 90 independent tests either.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant —
+`humped_test`'s restricted 6-decile population is expected to be smaller than a
+full-panel cell but still large relative to DESIGN §6.9's floor (200 events, ≥30
+dates, ≥30 tickers), flagged via `below_threshold` if any cell falls short, same
+convention as every prior module.
+
+**Plateau check (DESIGN §6.7):** applied as consistency across the three lookbacks
+(20/50/200) — a humped/U-shaped read that only shows up at one lookback with the other
+two flat is the "lone bright pixel" pattern this study has already caught once
+(the 2026-09-18 distance × slope generalization, `EXPLORATION_LOG.md`) and should be
+read the same way here, not as three independent confirmations.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21` (this study's standard horizon).
+
+**New machinery:** `slope_magnitude.py`'s own `prepare`/`shape_table`/`humped_test`/
+`run_grid` — the only genuinely new statistical component is the middle-vs-tails
+restrict-then-delta construction; everything else (`cross_sectional_bucket`,
+`c0_delta`/`c1_delta`/`c2_delta`, `block_bootstrap_delta`) is reused unchanged. New
+column: `recent_large_move` (lagged via the shared `features/panel.py::apply_lag`,
+not a hand-rolled shift, per CLAUDE.md invariant #2).
+
+### Result (2026-09-22)
+
+**DESIGN's literal hypothesis (humped: middle beats tails) is not what was found.**
+All three lookbacks show the opposite shape — **U-shaped: the pooled tail deciles
+(0, 1, 8, 9 — the steepest slope magnitude in either direction) outperform the pooled
+middle deciles (4, 5 — the flattest slope) on `fwd_ret_21`**, C2-controlled, CI
+excluding zero, clearing the 0.10% kill floor at all three lookbacks. Stated plainly
+since it's the opposite of what was pre-registered as the hypothesis to test: this is
+a real, honestly-reported result, not the one DESIGN predicted going in.
+
+| lookback | c2 (21d) | 90% CI | edge | killed | n_events | n_dates | n_tickers |
+|---|---|---|---|---|---|---|---|
+| 20 | −0.1173% | [−0.2286%, −0.0063%] | 0.2286% | False | 219,654 | 2,747 | 402 |
+| 50 | −0.2480% | [−0.3540%, −0.1528%] | 0.3540% | False | 219,700 | 2,747 | 402 |
+| 200 | −0.1928% | [−0.3370%, −0.0556%] | 0.3370% | False | 219,731 | 2,747 | 402 |
+
+**Cost (invariant #8, triggered — all three cleared their kill floor):** turnover
+measured on the `is_middle` state-flip flag (`stats/costs.py::signals_per_year`,
+10bps/rt, same convention as every prior module), annualized at this study's standard
+×12 (21d cells):
+
+| lookback | signals/yr | hurdle/yr | point (×12) | near edge | far edge | verdict |
+|---|---|---|---|---|---|---|
+| 20 | 13.365 | 1.3365% | −1.408% | **−0.075%** | −2.743% | **fails** (near edge misses) |
+| 50 | 7.691 | 0.7691% | −2.976% | **−1.833%** | −4.248% | **clears at every reading** |
+| 200 | 3.819 | 0.3819% | −2.313% | **−0.668%** | −4.044% | **clears at every reading** |
+
+**Recent-large-move-excluded companion (this module's proxy for DESIGN's
+"earnings-excluded" robustness check — see the deviations section above):**
+
+| lookback | c2 (excl.) | 90% CI (excl.) | ci_excludes_zero | vs. full-population read |
+|---|---|---|---|---|
+| 20 | −0.1167% | [−0.2373%, **+0.0009%**] | **False** | **effect vanishes** once large-move days are excluded |
+| 50 | −0.2637% | [−0.3759%, −0.1676%] | True | essentially unchanged (if anything slightly larger) |
+| 200 | −0.1693% | [−0.3120%, −0.0297%] | True | survives, magnitude modestly smaller |
+
+**Reading, per lookback:**
+- **SMA50 and SMA200 are the real result of this module**: CI excludes zero, clears
+  cost at every reading, and — critically — **survives the large-move-exclusion
+  companion largely intact**, arguing against "this is just gap/earnings
+  contamination in the tails." **Tier 3** for both, capped by this study's standard
+  missing FDR/holdout infrastructure (not by cost or by this particular confound
+  check).
+- **SMA20 is the weakest of the three and does not reach the same status.** It clears
+  its own kill floor on the primary read, but (a) **fails the CI-based cost test**
+  (near edge −0.075%/yr misses the 1.3365%/yr hurdle by a wide margin — the shortest
+  lookback also has by far the highest turnover, same shape M1's lb20 and M4's SMA20
+  facets showed), and (b) **does not survive the large-move-exclusion companion at
+  all** (CI flips to spanning zero). Read: SMA20's gross number looks substantially
+  driven by exactly the gap-contamination mechanism DESIGN's own "watch for" line
+  named — not a real U-shape at the shortest lookback, or at least not one
+  distinguishable from that confound with this test. **Tier 3 on the literal
+  CI-excludes-zero rule, but functionally closer to a dead end than SMA50/200** — logged
+  as such, not silently upgraded to match its siblings.
+
+**Plateau check (as pre-registered):** all three lookbacks agree in sign (middle
+underperforms tails) — not a lone bright pixel on the headline sign. But the *shape*
+is not uniform: SMA50/200 show a roughly symmetric U (both tails elevated, per
+`shape_table`'s per-decile C2 point estimates — e.g. SMA200: decile 0 = +0.253%,
+decile 9 = +0.389%, both clearly positive), while SMA20's lift is concentrated on the
+falling side (decile 0 = +0.104%, decile 1 = +0.125%) with the rising side barely
+positive to negative (decile 8 = −0.062%, decile 9 = +0.015%) — an asymmetric shape,
+consistent with the large-move-exclusion companion result above (SMA20's effect is
+mechanistically different from, not just a noisier version of, SMA50/200's).
+
+**Argue against SMA50/200 specifically (not resolved here, flagged as live
+alternatives — this is the single most important open item this module leaves):** **no
+short-term-reversal control was run** (`rev_tercile`/`mom_1_0`, this study's own
+established check — M1, M2, M6.2, M18 all eventually got this, not run here). This
+matters more than usual for this specific result: the U-shape's two tails plausibly
+reflect two different mechanisms — the rising tail as momentum continuation, the
+falling tail as a bounce/mean-reversion setup — and an uncontrolled 1-month reversal
+effect would produce exactly the elevated-falling-tail component of this shape without
+needing a real "slope magnitude" mechanism at all. The large-move-exclusion companion
+rules out the crudest version of this (a one-day gap-and-bounce), but not a more
+gradual multi-week reversal pattern `mom_1_0` would catch and `rev_tercile` would
+control for. **What would change the verdict:** the reversal-robustness check;
+the whole-grid FDR pass (this module has not been added to it — see below); a holdout
+check.
+
+**Shape stats (CLAUDE.md invariant #10, descriptive only):**
+
+| lookback | hit_rate (middle) | hit_rate_delta_c2 | win/loss ratio (middle) | skew (middle) |
+|---|---|---|---|---|
+| 20 | 60.59% | +0.13pp | 1.110 | −0.342 |
+| 50 | 60.40% | −0.84pp | 1.094 | −0.444 |
+| 200 | 60.88% | −0.14pp | 1.101 | −0.459 |
+
+The middle group's own hit rate is high (~60-61%) at every lookback, but its C2-matched
+hit-rate *delta* is small and inconsistent in sign (slightly positive at SMA20, negative
+at SMA50/200) — the mean-delta result above is not being driven by a clean hit-rate
+story; skew is consistently negative for the middle group's own distribution. Descriptive
+only, no kill authority (per the invariant).
+
+**FDR re-entry:** this module runs after the whole-grid FDR pass already executed
+(`STATUS.md`, N=35 as of the 2026-09-20 re-run). SMA50 and SMA200 both clear their own
+kill criterion and cost — per this study's own established practice (Tier-3 cells get
+added to the deduplicated grid and the pass re-run), **these 2 primary cells are
+pending whole-grid FDR re-entry**, not yet added to `STATUS.md`'s ranked table. SMA20 is
+also added to the `N_tests` count (3 primary cells total, matching this entry's own
+declared grid size) even though its own robustness reading is weak — this study's
+convention counts every declared cell, not just the interesting ones. **Not run in this
+pass** — flagged for the coordinating session to fold in alongside its sibling
+Batch-1 modules (M6.1, M7, M13), consistent with the instruction that individual
+forked modules don't each run their own mini FDR pass.
+
+**Logged:** `EXPERIMENTS.csv` (6 rows: 3 primary cells + 3 large-move-exclusion
+robustness rows); `FINDINGS.md` (3 new entries — SMA20/50/200 all get one, matching
+this study's actual convention: every Tier-3 cell gets a `FINDINGS.md` entry regardless
+of whether it clears cost, same as M4's `dist_pct_sma_20`@21d, which also fails cost
+and still has a full entry there. SMA20's own entry states its cost failure and
+large-move-exclusion failure prominently, same as M4's own cost-failing entries do —
+not a reason to omit it, per that established precedent).
+
+### Result (reversal-robustness addendum, 2026-09-22)
+
+Both entries above (SMA50, SMA200) flagged the same open caveat as the single most
+important item left unresolved: no short-term-reversal control had been run, and the
+U-shape's falling tail is exactly the shape an uncontrolled 1-month reversal effect
+would produce. SMA20 is out of scope for this addendum — it already fails cost and
+fails its own large-move-exclusion companion, so a reversal check cannot change its
+verdict either way. Same construction as M6.2's own 2026-09-21 reversal-robustness
+addendum and `modules/slope_conditioner.py`'s `C2_MATCH_COLS_WITH_REVERSAL` precedent:
+a `rev_tercile` column (per-date tercile of `mom_1_0`, the prior 1-day return) added to
+`modules/slope_magnitude.py::prepare()`, and a `C2_MATCH_COLS_WITH_REVERSAL =
+(*C2_MATCH_COLS, "rev_tercile")` match set passed into `humped_test` alongside the
+existing default-C2 run — both computed fresh in the same pass, on the real cached
+U1 panel (405-ticker coverage, 2010-01-01→2021-12-31), for an apples-to-apples
+comparison rather than diffing against the originally-logged numbers.
+
+**SMA50 — survives, if anything slightly stronger.** Default C2 (this addendum's own
+fresh rerun): `c2=-0.002480`, CI `[-0.003540,-0.001528]` (matches the originally-logged
+row exactly — no reproducibility drift here, unlike M6.2's addendum). With
+`rev_tercile` added: `c2=-0.002825`, CI `[-0.003886,-0.001754]` (n_events 219,700 →
+219,700, n_dates 2,747 → 2,747, unchanged — the middle/tail decile restriction already
+determines row membership). The point estimate is ~13.9% *larger* in magnitude, not
+smaller, and the CI still excludes zero by a wide margin. **Not explained by reversal —
+if anything, matching reversal out sharpens the read.**
+
+**SMA200 — does not survive.** Default C2 (fresh rerun): `c2=-0.001928`, CI
+`[-0.003370,-0.000556]` (also matches the originally-logged row exactly). With
+`rev_tercile` added: `c2=-0.000376`, CI `[-0.001980,+0.001195]` (same n_events/n_dates,
+219,731/2,747). The point estimate attenuates ~80.5% and **the CI now spans zero** —
+inconclusive, not confirmed, once 1-month reversal is matched out.
+
+**Reading:** the two cells diverge, the same shape of result M6.2's own reversal
+addendum found between its Finding 1 and Finding 2 — one cell's effect is
+reversal-independent, the other's gross number is now best read as substantially a
+short-term-reversal artifact. Combined with `FINDINGS.md`'s own plateau note (SMA50/200
+were "roughly symmetric," SMA20 was "asymmetric, falling-tail-driven" and already failed
+its own robustness check), the honest whole-module read is: **only the SMA50 U-shape
+cell is a real, reversal-robust effect; the SMA200 cell is no longer distinguishable
+from reversal, and SMA20 was already the weakest link on independent grounds.** This
+does not change either surviving cell's tier (both already Tier 3, both already pending
+the same whole-grid FDR re-entry as every other Batch-1 cell) — but it changes which of
+the two cost-clearing cells should be read as a genuine candidate mechanism versus a
+confound re-encoding.
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, dated 2026-09-22:
+`slope_magnitude_humped_test_sma50_reversal_robustness`,
+`slope_magnitude_humped_test_sma200_reversal_robustness`); `FINDINGS.md`'s SMA50 and
+SMA200 entries both updated with this result in place of their prior "no
+reversal-robustness check run" open caveat.
+
+---
+
 ## M13 — Context conditioning (2026-09-21)
 
 **Module / track:** M13, Track B. Not part of the original minimal-core list (DESIGN
