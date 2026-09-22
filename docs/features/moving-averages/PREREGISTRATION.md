@@ -2246,3 +2246,88 @@ lookback in the Result section.
 2010-01-04 → 2021-12-31 — the same cached panel M6.2/M18 already used, reused directly,
 not rebuilt). `fwd_ret_21` for the decisive test (this study's primary horizon
 throughout); `fwd_ret_{21,63,126}` for the descriptive horse race.
+
+### Result (2026-09-21/22)
+
+Ran against the real cached U1 panel (405 tickers, 1,222,605 rows, 2010-01-04 →
+2021-12-31).
+
+**Horse race (descriptive, SMA200, per-date Spearman rank-IC, block-bootstrapped):**
+none of the four candidate features shows a CI-excluding-zero IC at any of the three
+horizons — every one of the 12 cells spans zero, and the point estimates are small and
+not obviously ordered by construction (e.g. at h=21: `block_mean_diff_log` 0.0055,
+`slope_log_21` 0.0050, `raw_return_k` 0.0046, `mom_12_1` 0.0036; at h=63/126 several
+flip sign). Full table: `EXPERIMENTS.csv`. This is already broadly consistent with
+DESIGN's own skeptical hypothesis — none of the four constructions, including momentum
+itself, shows a distinguishable univariate edge at SMA200 in this design.
+
+**Turnover:** `slope_log_21_sma_200`'s own top-decile-membership turnover is
+**0.902 flips/ticker-yr**, vs. `mom_12_1`'s **3.340 flips/ticker-yr** — slope churns
+roughly **3.7× less** than momentum. This is the one clean, directly actionable number
+this module produced (DESIGN's own "lower turnover alone could justify preferring it"
+consideration) — independent of whether slope carries genuinely different information,
+it is markedly cheaper to trade if the two are similar.
+
+**Decisive test (incremental IC, `slope_log_21_sma_k` residualized against `mom_12_1`,
+vs. `fwd_ret_21`, block-bootstrapped, all four lookbacks well-powered — n_events
+1,111,635, n_dates 2,747, n_tickers 405 at every lookback, `below_threshold=False`
+throughout):**
+
+| lookback | incremental IC | 90% CI | edge | CI excludes zero |
+|---|---|---|---|---|
+| 20 | −0.01585 | [−0.03210, +0.00120] | 0.03210 | no |
+| 50 | +0.00164 | [−0.01850, +0.02293] | 0.02293 | no |
+| 150 | −0.01381 | [−0.03301, +0.00440] | 0.03301 | no |
+| 200 | +0.00118 | [−0.01699, +0.01805] | 0.01805 | no |
+
+**Kill verdict: NOT killed** — `kill_verdict()` (the pre-registered rule, `edge < 0.005`
+at every lookback) returns `False`, since lookbacks 20 and 150's edges (0.032, 0.033)
+exceed the 0.005 floor. **This does not mean a real incremental effect was found** — no
+lookback's CI excludes zero, so per this rule not firing is a product of wide CIs at two
+lookbacks, not a detected effect at any of the four. Read precisely, per this study's own
+established `killed=False` + `ci_excludes_zero=False` distinction (`modules/
+slope_conditioner.py`'s own docstring, reused verbatim here): **inconclusive at every
+lookback, not confirmed and not cleanly killed.**
+
+**Plateau check (as pre-registered):** no consistent direction across the four
+lookbacks — negative point estimates at 20/150, near-zero-positive at 50/200 — and none
+individually distinguishable from zero. This is a flat, sign-flipping null across the
+whole grid, not a lone bright pixel and not a directional pattern; read as "no
+detectable incremental information at any lookback in this design," consistent with the
+horse race's own flat univariate ICs.
+
+**Argue against this result (not resolved here, flagged as live alternatives):** (1)
+the per-date OLS residualization is a linear partial correlation — if slope's
+incremental content over momentum is nonlinear (e.g. only shows up in the extreme
+deciles, the kind of thing M4/M6.2 found via decile/event restriction rather than a
+whole-panel linear regression), this construction would not detect it; this module
+deliberately tests DESIGN's own literally-stated method (a joint linear regression),
+not a restricted/interaction form — M6.2 already covers several of those. (2) `mom_12_1`
+itself showed no detectable univariate IC either in the horse race — a possible
+underpowered-horizon/window issue affecting the whole cell, not specific to slope's own
+construction, though the sample is large and well-powered by every effective-N measure
+this study tracks, arguing against a simple power explanation.
+
+**Tier:** 4 for all four decisive-test cells (well-powered, CI spans zero — "no detected
+effect at this control tier and sample," not silence, per this study's own Tier-3/4
+convention). No `FINDINGS.md` entry (Tier 4 needs none, per CLAUDE.md's own logging
+rule). The horse race's 12 descriptive cells and the 2 turnover numbers are not
+independently tiered (descriptive only, no kill criterion of their own, per this
+entry's own N_tests scoping above).
+
+**Reading for the study:** DESIGN's own skeptical prior ("SMA slope is momentum with
+cosmetic smoothing, and the smoothing buys close to nothing") is not confirmed by a
+clean kill, but every number this module produced points the same direction as that
+prior would predict — no univariate feature shows an edge, no lookback shows a
+detectable incremental effect, and the one clear asymmetry between slope and momentum
+(turnover, ~3.7× lower for slope) argues for preferring slope on cost grounds precisely
+in the scenario where the two carry similar information. Honest summary: **not
+distinguishable from "slope is redundant with momentum," but not proven to be so under
+this study's own CI-based kill-criterion discipline** — a genuine inconclusive result,
+reported as such rather than rounded off in either direction.
+
+**Logged:** `EXPERIMENTS.csv` (4 rows, the decisive-test cells; the horse race and
+turnover numbers are referenced here and in `output/moving_averages/m6_1_*.csv`,
+regenerable from this module, not separately logged as CSV rows since they carry no
+kill criterion of their own — same convention as this study's other purely-descriptive
+readouts, e.g. plateau checks).
