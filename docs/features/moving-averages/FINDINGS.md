@@ -770,3 +770,142 @@ cut that works" (CLAUDE.md), resolved here only because the candidate was flagge
 two independent methods *before* this test was run, pre-registered with an honest kill
 criterion, and killed by the correction on the same terms as everything else — not
 because looking longer was assumed to eventually pay off.
+
+## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
+
+DESIGN's own hypothesis for this module was "humped" (middle-magnitude slope beats
+extreme slope, "some trend is good, too much is exhaustion"). **All three lookbacks
+found the opposite: a U-shape.** Two logged deviations from DESIGN's literal method
+text shape all three entries below — `slope_atr_21` was not built (a price-unit slope
+that conflicts with CLAUDE.md invariant #7); `slope_pctile_21` (cross-sectional rank of
+the existing log-scale `slope_log_21_sma_k`) is used instead. The "earnings-excluded
+companion" DESIGN asks for is a proxy (`recent_large_move`, a large-single-day-move
+exclusion flag) — no earnings-date table exists anywhere in this repo's DB. Full
+scope, method, and deviation rationale: `PREREGISTRATION.md`'s M6.3 entry.
+
+### `slope_pctile_21_sma_50` — middle vs. tails, 21d
+
+**Hypothesis:** forward 21-day return differs between stocks in the middle deciles
+(4, 5) of `slope_pctile_21_sma_50` and stocks in the pooled tail deciles (0, 1, 8, 9).
+
+**Why it was plausible:** DESIGN's own module (predicted humped, not U-shaped) —
+tested here as a genuine open question, not assumed in advance.
+
+**What was run:** `stats.inference.block_bootstrap_delta` (block length 42, 500
+draws, 90% CI), `group_col=is_middle`, `value_col=fwd_ret_21`, restricted first to
+only the middle+tail decile rows, C2 match columns unchanged
+(`mom_tercile`/`vol_tercile`/`sector`) — the same restrict-then-delta primitive
+M6.2's own sub-questions use.
+
+**The number:** C2 delta (middle minus tails) **−0.248%** per 21d, 90% CI
+**[−0.354%, −0.153%]** — excludes zero. Read: stocks with the steepest slope
+magnitude, rising *or* falling, outperform stocks with the flattest slope — the
+opposite of "some trend is good, too much is exhaustion."
+
+**Effective N:** 219,700 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** combined `is_middle` state-flip turnover (`stats/costs.py::signals_per_year`,
+same convention as M1): 7.691 flips/ticker-yr → hurdle 0.769%/yr. Annualized (×12):
+point −2.976%/yr, near edge −1.833%/yr, far edge −4.248%/yr — **clears at every
+reading.** This study's fifth cost-clearing Tier-3 cell (alongside `stack_fully_bearish`
+/M2, `extension_x_slope`-SMA50/M6.2, `dist_from_52w_low`@126d/M18, and this module's own
+SMA200 cell below).
+
+**Robustness (recent-large-move-excluded companion):** −0.264%, CI [−0.376%, −0.168%]
+— survives essentially unattenuated (if anything slightly larger). Recent large
+single-day moves are not the driver of this cell's effect.
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
+in this study carries; clearing cost and the large-move-exclusion check doesn't lift
+it. **Not yet run through the whole-grid FDR pass** (pending re-entry — see
+`PREREGISTRATION.md`).
+
+**Argue against this result (not resolved here, flagged as a live alternative — the
+single most important open item this cell leaves):** no short-term-reversal control
+was run (`rev_tercile`/`mom_1_0`). This matters more than usual here: the U-shape's two
+tails plausibly reflect two different mechanisms (rising tail = momentum continuation,
+falling tail = a bounce/mean-reversion setup), and an uncontrolled 1-month reversal
+effect would produce exactly the elevated-falling-tail half of this shape without a
+real "slope magnitude" mechanism at all. The large-move-exclusion check rules out a
+one-day gap-and-bounce specifically, not a more gradual multi-week reversal.
+
+**What would change the verdict:** the reversal-robustness check (highest priority of
+any open item on this cell); the whole-grid FDR pass; a holdout check.
+
+**Plateau check:** same sign as SMA20 and SMA200 (below) — not a lone bright pixel on
+the headline sign — but the *shape* is not uniform across lookbacks: SMA50/200 are
+roughly symmetric (both tails elevated), SMA20 is asymmetric (falling-tail-driven) and
+does not survive its own large-move-exclusion check. See `PREREGISTRATION.md`'s
+per-decile `shape_table` numbers for the full picture.
+
+### `slope_pctile_21_sma_200` — middle vs. tails, 21d
+
+**Hypothesis / what was run:** identical construction to the SMA50 cell above, at
+lookback 200.
+
+**The number:** C2 delta **−0.193%** per 21d, 90% CI **[−0.337%, −0.056%]** —
+excludes zero.
+
+**Effective N:** 219,731 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** turnover 3.819 flips/ticker-yr → hurdle 0.382%/yr. Annualized (×12): point
+−2.313%/yr, near edge −0.668%/yr, far edge −4.044%/yr — **clears at every reading.**
+This study's sixth cost-clearing Tier-3 cell.
+
+**Robustness (recent-large-move-excluded companion):** −0.169%, CI [−0.312%, −0.030%]
+— survives with modest attenuation. Recent large single-day moves are a partial but
+not dominant contributor.
+
+**Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study. **Not yet
+run through the whole-grid FDR pass.**
+
+**Argue against this result:** same live reversal-control caveat as the SMA50 cell
+above — not run here either, and for the same reason (the falling-tail component of a
+U-shape is exactly the shape an uncontrolled 1-month reversal effect would produce).
+
+**What would change the verdict:** same as SMA50 — the reversal-robustness check, the
+whole-grid FDR pass, a holdout check.
+
+**Plateau check:** same sign as SMA20/SMA50; roughly symmetric tail shape like SMA50,
+unlike SMA20.
+
+### `slope_pctile_21_sma_20` — middle vs. tails, 21d (fails cost and its own
+robustness check — reported in full per this study's own convention that a cost- or
+robustness-failing Tier-3 cell still gets a complete entry, same as M4's
+`dist_pct_sma_20`@21d)
+
+**Hypothesis / what was run:** identical construction to the SMA50/200 cells above, at
+lookback 20.
+
+**The number:** C2 delta **−0.117%** per 21d, 90% CI **[−0.229%, −0.006%]** —
+excludes zero, clears the 0.10% kill floor.
+
+**Effective N:** 219,654 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** turnover 13.365 flips/ticker-yr (by far the highest of the three lookbacks)
+→ hurdle 1.337%/yr. Annualized (×12): point −1.408%/yr (clears), near edge −0.075%/yr
+— **fails** — far edge −2.743%/yr (clears). **Fails on the CI-based test.**
+
+**Robustness (recent-large-move-excluded companion): does not survive.** −0.117%, CI
+**[−0.237%, +0.001%]** — the CI now spans zero, the only one of the three lookbacks
+where the large-move exclusion flips the read. Read: this cell's gross effect looks
+substantially driven by exactly the gap-contamination mechanism DESIGN's own "watch
+for" line named for this module, not a real U-shape distinguishable from that
+confound.
+
+**Tier:** 3 on the literal CI-excludes-zero kill rule, but functionally the weakest
+cell in this module — fails cost *and* fails its own robustness companion, unlike
+SMA50/200 which pass both. Not promoted to the same standing as its siblings.
+
+**Argue against this result:** the large-move-exclusion failure above is itself the
+strongest argument against treating this as a real effect — it isn't a live,
+unresolved caveat here, it's a check that was run and failed.
+
+**What would change the verdict:** nothing pre-registered in this pass would rescue
+this cell — its own robustness companion already killed the confound-free reading.
+
+**Plateau check:** same sign as SMA50/200 (middle underperforms tails), but the shape
+is asymmetric — concentrated on the falling side (decile 0 = +0.104%, decile 1 =
++0.125%) with the rising side barely positive to negative (decile 8 = −0.062%, decile
+9 = +0.015%, per `PREREGISTRATION.md`'s `shape_table` numbers) — a different shape
+from SMA50/200's roughly symmetric U, not just a noisier version of the same one.
