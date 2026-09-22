@@ -55,6 +55,16 @@ LOOKBACKS = (20, 50, 200)
 N_DECILES = 10
 C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 
+# Robustness-check-only match set (PREREGISTRATION.md, 2026-09-22 reversal-
+# robustness addendum), same construction as `modules/slope_conditioner.py`'s/
+# `modules/stack_minervini.py`'s/`modules/baseline_state.py`'s own
+# `C2_MATCH_COLS_WITH_REVERSAL`: adds a prior-21-day-return tercile so a
+# cell's C2 delta can be re-evaluated with short-term reversal explicitly
+# matched out. Not this module's pre-registered default -- `humped_test`'s
+# own `match_cols` stays `C2_MATCH_COLS` unless a caller explicitly opts
+# into this one.
+C2_MATCH_COLS_WITH_REVERSAL = (*C2_MATCH_COLS, "rev_tercile")
+
 # "Humped" operationalized as: do the middle deciles of slope_pctile_21
 # outperform (or underperform) the pooled tail deciles? The tails are
 # both extremes pooled together (not "top decile" alone, which is M6.2's
@@ -95,11 +105,18 @@ def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     itself (CLAUDE.md invariant #2 -- reusing the one central lag
     function, not a hand-rolled shift) before it can be used to restrict
     an event population that will be paired with a forward return.
+
+    Also adds `rev_tercile` (prior-21-day-return tercile, same
+    construction as `modules/slope_conditioner.py`'s/`modules/
+    stack_minervini.py`'s own robustness-check column), used only by the
+    short-term-reversal check (`C2_MATCH_COLS_WITH_REVERSAL`), not by
+    this module's default C2 spec.
     """
     working = panel.copy()
     working["fwd_ret_21"] = forward_return(working, horizon=HORIZON)
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
+    working["rev_tercile"] = cross_sectional_bucket(working, "mom_1_0", n_buckets=3)
     for lookback in LOOKBACKS:
         slope_col = f"slope_log_21_sma_{lookback}"
         working[slope_pctile_column(lookback)] = cross_sectional_bucket(working, slope_col, n_buckets=N_DECILES)

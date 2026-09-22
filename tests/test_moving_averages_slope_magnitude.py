@@ -22,7 +22,7 @@ def test_prepare_recent_large_move_is_lagged_and_masks_first_row():
     panel = pd.DataFrame({
         "ticker": "AAA", "date": dates, "close": close,
         "slope_log_21_sma_20": 0.01, "slope_log_21_sma_50": 0.01, "slope_log_21_sma_200": 0.01,
-        "mom_12_1": 0.05, "realized_vol_63": 0.2, "sector": "X",
+        "mom_12_1": 0.05, "mom_1_0": 0.01, "realized_vol_63": 0.2, "sector": "X",
     })
 
     prepared = sm.prepare(panel)
@@ -44,7 +44,7 @@ def test_prepare_slope_pctile_is_a_per_date_decile_of_the_log_slope():
                 "ticker": ticker, "date": date, "close": 100.0,
                 "slope_log_21_sma_20": i / n_tickers, "slope_log_21_sma_50": i / n_tickers,
                 "slope_log_21_sma_200": np.nan,
-                "mom_12_1": 0.0, "realized_vol_63": 0.2, "sector": "X",
+                "mom_12_1": 0.0, "mom_1_0": 0.0, "realized_vol_63": 0.2, "sector": "X",
             })
     panel = pd.DataFrame(rows)
 
@@ -79,7 +79,8 @@ def _u_shape_panel(n_dates=200, n_tickers=320, gradient=0.03, seed=0):
                 "ticker": ticker, "date": date, "close": 100.0,
                 "slope_log_21_sma_20": rank, "slope_log_21_sma_50": rank, "slope_log_21_sma_200": rank,
                 "fwd_ret_21": planted + rng.normal(0, 0.01),
-                "mom_12_1": rng.normal(0, 0.05), "realized_vol_63": abs(rng.normal(0.2, 0.05)), "sector": "X",
+                "mom_12_1": rng.normal(0, 0.05), "mom_1_0": rng.normal(0, 0.02),
+                "realized_vol_63": abs(rng.normal(0.2, 0.05)), "sector": "X",
             })
     panel = pd.DataFrame(rows)
     return panel
@@ -131,7 +132,7 @@ def test_cost_annotation_returns_finite_positive_turnover():
                 "ticker": ticker, "date": date, "close": 100.0,
                 "slope_log_21_sma_50": base + rng.normal(0, 0.15),
                 "slope_log_21_sma_20": base, "slope_log_21_sma_200": base,
-                "mom_12_1": 0.0, "realized_vol_63": 0.2, "sector": "X",
+                "mom_12_1": 0.0, "mom_1_0": 0.0, "realized_vol_63": 0.2, "sector": "X",
             })
     panel = pd.DataFrame(rows)
     prepared = sm.prepare(panel)
@@ -140,3 +141,47 @@ def test_cost_annotation_returns_finite_positive_turnover():
 
     assert cost["signals_per_year"] > 0
     assert cost["hurdle_annual"] > 0
+
+
+def test_humped_test_with_reversal_match_cols_attenuates_a_planted_reversal_confound():
+    # A planted U-shape whose falling-tail half is actually a short-term
+    # reversal bounce, not a real slope-magnitude effect: only the falling
+    # tail (rank <= -0.3, deciles 0/1) gets a `mom_1_0`-correlated bounce
+    # (fwd_ret_21 = -1.2*mom_1_0); the rising tail and middle deciles get
+    # pure noise, uncorrelated with mom_1_0. This is the exact mechanism
+    # M6.3's own PREREGISTRATION.md addendum argues against ("an
+    # uncontrolled 1-month reversal effect would produce exactly the
+    # elevated-falling-tail half of this shape"). Default C2 (no
+    # rev_tercile) should detect a real middle-vs-tail effect; adding
+    # rev_tercile to the match set should substantially attenuate it once
+    # the actual driver (mom_1_0) is matched out.
+    rng = np.random.default_rng(3)
+    n_tickers, n_dates = 320, 200
+    dates = pd.bdate_range("2015-01-01", periods=n_dates)
+    rows = []
+    for i, ticker in enumerate([f"T{i}" for i in range(n_tickers)]):
+        rank = i / (n_tickers - 1) - 0.5
+        is_falling_tail = rank <= -0.3
+        for date in dates:
+            if is_falling_tail:
+                mom_1_0 = 0.8 * rank + rng.normal(0, 0.03)
+                fwd_ret = -1.2 * mom_1_0 + rng.normal(0, 0.01)
+            else:
+                mom_1_0 = rng.normal(0, 0.02)
+                fwd_ret = rng.normal(0, 0.01)
+            rows.append({
+                "ticker": ticker, "date": date, "close": 100.0,
+                "slope_log_21_sma_20": rank, "slope_log_21_sma_50": rank, "slope_log_21_sma_200": rank,
+                "fwd_ret_21": fwd_ret,
+                "mom_12_1": rng.normal(0, 0.05), "mom_1_0": mom_1_0,
+                "realized_vol_63": abs(rng.normal(0.2, 0.05)), "sector": "X",
+            })
+    panel = pd.DataFrame(rows)
+    prepared = sm.prepare(panel)
+    prepared["fwd_ret_21"] = panel["fwd_ret_21"].to_numpy()
+
+    default = sm.humped_test(prepared, lookback=50, match_cols=sm.C2_MATCH_COLS)
+    with_reversal = sm.humped_test(prepared, lookback=50, match_cols=sm.C2_MATCH_COLS_WITH_REVERSAL)
+
+    assert default["ci_excludes_zero"] is True  # confound is detected as a "real" effect under default C2
+    assert abs(with_reversal["c2"]) < abs(default["c2"]) * 0.7  # substantially attenuated once rev_tercile matched

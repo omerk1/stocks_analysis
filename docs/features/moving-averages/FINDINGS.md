@@ -820,17 +820,17 @@ in this study carries; clearing cost and the large-move-exclusion check doesn't 
 it. **Not yet run through the whole-grid FDR pass** (pending re-entry — see
 `PREREGISTRATION.md`).
 
-**Argue against this result (not resolved here, flagged as a live alternative — the
-single most important open item this cell leaves):** no short-term-reversal control
-was run (`rev_tercile`/`mom_1_0`). This matters more than usual here: the U-shape's two
-tails plausibly reflect two different mechanisms (rising tail = momentum continuation,
-falling tail = a bounce/mean-reversion setup), and an uncontrolled 1-month reversal
-effect would produce exactly the elevated-falling-tail half of this shape without a
-real "slope magnitude" mechanism at all. The large-move-exclusion check rules out a
-one-day gap-and-bounce specifically, not a more gradual multi-week reversal.
+**Reversal-robustness (2026-09-22 addendum):** C2 + `rev_tercile` (prior-1-day-return
+tercile, `modules/slope_conditioner.py`'s own `C2_MATCH_COLS_WITH_REVERSAL`
+construction): **−0.283%**, CI **[−0.389%, −0.175%]** (n_events/n_dates unchanged,
+219,700/2,747). The point estimate is ~13.9% *larger* in magnitude than the default-C2
+number, not smaller, and the CI still excludes zero by a wide margin. **Survives —
+if anything strengthened, not explained by short-term reversal.** Full detail:
+`PREREGISTRATION.md`'s M6.3 reversal-robustness addendum.
 
-**What would change the verdict:** the reversal-robustness check (highest priority of
-any open item on this cell); the whole-grid FDR pass; a holdout check.
+**What would change the verdict:** the whole-grid FDR pass; a holdout check. (The
+reversal-robustness check above is now resolved — this cell is the module's
+reversal-robust survivor, unlike the SMA200 cell below.)
 
 **Plateau check:** same sign as SMA20 and SMA200 (below) — not a lone bright pixel on
 the headline sign — but the *shape* is not uniform across lookbacks: SMA50/200 are
@@ -859,12 +859,20 @@ not dominant contributor.
 **Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study. **Not yet
 run through the whole-grid FDR pass.**
 
-**Argue against this result:** same live reversal-control caveat as the SMA50 cell
-above — not run here either, and for the same reason (the falling-tail component of a
-U-shape is exactly the shape an uncontrolled 1-month reversal effect would produce).
+**Reversal-robustness (2026-09-22 addendum) — does not survive.** C2 + `rev_tercile`:
+**−0.038%**, CI **[−0.198%, +0.120%]** (n_events/n_dates unchanged, 219,731/2,747) —
+attenuates ~80.5% from the default-C2 point estimate and **the CI now spans zero**.
+Unlike the SMA50 cell above, this cell's gross number is now best read as
+substantially, not just partially, a short-term-reversal artifact — the
+falling-tail/bounce mechanism named as a live alternative at pre-registration
+substantially accounts for it. Does not change the tier (already Tier 3, already
+pending the same whole-grid FDR re-entry as every other cell here) but materially
+weakens confidence in the underlying "slope magnitude, not just direction, matters at
+SMA200" mechanism claim. Full detail: `PREREGISTRATION.md`'s M6.3 reversal-robustness
+addendum.
 
-**What would change the verdict:** same as SMA50 — the reversal-robustness check, the
-whole-grid FDR pass, a holdout check.
+**What would change the verdict:** already resolved unfavorably by the check above;
+a holdout check remains open but is now secondary to the reversal read.
 
 **Plateau check:** same sign as SMA20/SMA50; roughly symmetric tail shape like SMA50,
 unlike SMA20.

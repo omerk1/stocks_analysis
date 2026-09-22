@@ -2355,3 +2355,53 @@ of whether it clears cost, same as M4's `dist_pct_sma_20`@21d, which also fails 
 and still has a full entry there. SMA20's own entry states its cost failure and
 large-move-exclusion failure prominently, same as M4's own cost-failing entries do —
 not a reason to omit it, per that established precedent).
+
+### Result (reversal-robustness addendum, 2026-09-22)
+
+Both entries above (SMA50, SMA200) flagged the same open caveat as the single most
+important item left unresolved: no short-term-reversal control had been run, and the
+U-shape's falling tail is exactly the shape an uncontrolled 1-month reversal effect
+would produce. SMA20 is out of scope for this addendum — it already fails cost and
+fails its own large-move-exclusion companion, so a reversal check cannot change its
+verdict either way. Same construction as M6.2's own 2026-09-21 reversal-robustness
+addendum and `modules/slope_conditioner.py`'s `C2_MATCH_COLS_WITH_REVERSAL` precedent:
+a `rev_tercile` column (per-date tercile of `mom_1_0`, the prior 1-day return) added to
+`modules/slope_magnitude.py::prepare()`, and a `C2_MATCH_COLS_WITH_REVERSAL =
+(*C2_MATCH_COLS, "rev_tercile")` match set passed into `humped_test` alongside the
+existing default-C2 run — both computed fresh in the same pass, on the real cached
+U1 panel (405-ticker coverage, 2010-01-01→2021-12-31), for an apples-to-apples
+comparison rather than diffing against the originally-logged numbers.
+
+**SMA50 — survives, if anything slightly stronger.** Default C2 (this addendum's own
+fresh rerun): `c2=-0.002480`, CI `[-0.003540,-0.001528]` (matches the originally-logged
+row exactly — no reproducibility drift here, unlike M6.2's addendum). With
+`rev_tercile` added: `c2=-0.002825`, CI `[-0.003886,-0.001754]` (n_events 219,700 →
+219,700, n_dates 2,747 → 2,747, unchanged — the middle/tail decile restriction already
+determines row membership). The point estimate is ~13.9% *larger* in magnitude, not
+smaller, and the CI still excludes zero by a wide margin. **Not explained by reversal —
+if anything, matching reversal out sharpens the read.**
+
+**SMA200 — does not survive.** Default C2 (fresh rerun): `c2=-0.001928`, CI
+`[-0.003370,-0.000556]` (also matches the originally-logged row exactly). With
+`rev_tercile` added: `c2=-0.000376`, CI `[-0.001980,+0.001195]` (same n_events/n_dates,
+219,731/2,747). The point estimate attenuates ~80.5% and **the CI now spans zero** —
+inconclusive, not confirmed, once 1-month reversal is matched out.
+
+**Reading:** the two cells diverge, the same shape of result M6.2's own reversal
+addendum found between its Finding 1 and Finding 2 — one cell's effect is
+reversal-independent, the other's gross number is now best read as substantially a
+short-term-reversal artifact. Combined with `FINDINGS.md`'s own plateau note (SMA50/200
+were "roughly symmetric," SMA20 was "asymmetric, falling-tail-driven" and already failed
+its own robustness check), the honest whole-module read is: **only the SMA50 U-shape
+cell is a real, reversal-robust effect; the SMA200 cell is no longer distinguishable
+from reversal, and SMA20 was already the weakest link on independent grounds.** This
+does not change either surviving cell's tier (both already Tier 3, both already pending
+the same whole-grid FDR re-entry as every other Batch-1 cell) — but it changes which of
+the two cost-clearing cells should be read as a genuine candidate mechanism versus a
+confound re-encoding.
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, dated 2026-09-22:
+`slope_magnitude_humped_test_sma50_reversal_robustness`,
+`slope_magnitude_humped_test_sma200_reversal_robustness`); `FINDINGS.md`'s SMA50 and
+SMA200 entries both updated with this result in place of their prior "no
+reversal-robustness check run" open caveat.
