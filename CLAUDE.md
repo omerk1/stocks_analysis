@@ -128,6 +128,12 @@ docs/features/moving-averages/
                            next, open cross-module (M1/M4/M11/...) watch items. Moved
                            here from docs/STATUS.md (2026-09-11) — it was always
                            MA-study-only content, never genuine cross-feature state.
+  HANDOVER.md              session/execution state for the post-termination parallel
+                           batches (added 2026-09-22) — open PRs not yet merged, the
+                           next-batch module triage, and process notes for resuming
+                           this across a fresh Claude Code conversation. Not a results
+                           doc (that's STATUS.md) — check it before assuming Batch 1+
+                           is either done or not started.
 ```
 
 Code follows this repo's existing per-module convention, not DESIGN.md §10.1's
