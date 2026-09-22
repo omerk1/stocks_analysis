@@ -2127,3 +2127,124 @@ updated in the same session, not left stale against this new result.
 FDR pass section, termination section); `REPORT.md` (executive summary, shrinkage
 table, FDR table, module results, suggestive findings, dead-ends register, cost
 appendix — all updated to reflect M18).
+
+---
+
+## M7 — Ribbon compression / expansion (2026-09-22)
+
+**Module / track:** M7, Track B (DESIGN.md M7, lines 925-929). Not part of the original
+minimal-core list (DESIGN §12) — added post-termination via DESIGN §1.5's porous-scope
+rule, same precedent as M18. Promoted from the coordinating session's own Batch-1
+scoping pass (2026-09-21): M7 was identified as one of the cheapest remaining modules
+in DESIGN's full M0-M18 list — it reuses the existing {20,50,150,200} SMA lookbacks
+already in the cached panel, needs no new crossover/regime/survival machinery, and no
+raw-DB joins.
+
+**Hypothesis (DESIGN's own):** low MA dispersion (compression) precedes volatility
+expansion; direction of that expansion is *not* predictable from compression alone,
+except weakly, conditional on prior trend (DESIGN's own prior: "vol prediction works
+... direction prediction does not, except conditional on prior trend, where it's
+weakly momentum-ish. Worth stating clearly because the folklore conflates the two.").
+
+**New machinery:** two small additions, both new files/functions, neither touching
+`features/panel.py` or any other module's files (this module ran alongside three
+sibling forks working on M6.1/M6.3/M13 in parallel, in isolated worktrees — the
+per-module-local-feature convention every prior module in this study already follows
+is what keeps that safe):
+- `features/ribbon.py::ribbon_width` — coefficient-of-variation dispersion
+  (std/mean) of the four already-cached, already-lagged SMA columns at each row.
+  Needs no re-lagging of its own (arithmetic on already-lagged inputs).
+- `features/ribbon.py::ribbon_width_pctile` — per-ticker rolling min-max scaling of
+  `ribbon_width` over a trailing 252-day window (same window convention as
+  `distance.py::DIST_Z_WINDOW`/`context.py::FIFTY_TWO_WEEK_WINDOW`). **Deliberately an
+  approximation, not an exact rolling percentile rank**: an exact rank would need an
+  O(n×window) rolling `.apply` per ticker; min-max range position is fully vectorized
+  (rolling min/max only) and is the same construction family this codebase's own
+  `dist_from_52w_high`/`dist_from_52w_low` already use for an analogous "position
+  within a trailing range" question. Stated explicitly here rather than silently
+  presented as a true percentile.
+- `labels/forward_returns.py::forward_realized_vol` — std of the next `horizon` daily
+  simple returns (matches `realized_vol_63`'s own convention: simple returns, not log,
+  non-annualized). A forward-looking **label**, not a feature — CLAUDE.md's one-bar-lag
+  invariant constrains features used to condition on a forward outcome, not labels,
+  same as `forward_return` itself.
+
+**Method:** `ribbon_width_pctile` bucketed into 10 deciles (0 = most compressed, 9 =
+most dispersed, via `floor(pctile × 10)` — a direct binning of the already-[0,1]-scaled
+value, not a per-date `cross_sectional_bucket` cut, since this is a per-ticker
+time-series measure, not a cross-sectional one). Five primary cells, all reusing this
+study's existing block-bootstrap primitives unchanged (`stats/inference.py
+::block_bootstrap_spread`/`block_bootstrap_delta`, M4/M11/M18's and M6.2's own):
+1. **Vol expansion, standard C2** (`mom_tercile`/`vol_tercile`/`sector`): decile-9-minus-
+   decile-0 spread of `fwd_vol_21` (forward 21-day realized vol).
+2. **Vol expansion, C2 without `vol_tercile`**: same spread, `mom_tercile`/`sector` only
+   — see "Control tier and why" below for why both readings are reported.
+3. **Direction, unconditional (signed)**: decile-9-minus-decile-0 spread of `fwd_ret_21`.
+4. **Direction, unconditional (magnitude)**: decile-9-minus-decile-0 spread of
+   `fwd_absret_21` (`|fwd_ret_21|`) — a distinct question from vol_21 (a single
+   cumulative 21-day move's magnitude vs. the full window's realized vol), both named
+   by DESIGN, kept as separate cells rather than collapsed into one.
+5. **Direction, conditional on trend**: within the compressed (decile-0) population
+   only, C2 delta of `fwd_ret_21` between `prior_trend_up` (`mom_12_1 > 0`) and
+   `prior_trend_up=False` — DESIGN's own "weakly momentum-ish, conditional on trend"
+   sub-claim, the one cell where direction is expected to show up.
+
+**Kill criterion, per cell (a floor keyed to the value type, same convention every
+prior module uses — no single number DESIGN gives for this module, so each floor is
+stated and justified here rather than assumed):**
+- Cells 1-2 (vol-expansion, `value_col=fwd_vol_21`): `max(|ci_low|,|ci_high|) < 0.001`
+  (absolute, daily-return-std units) → killed. Calibrated against this panel's own
+  `realized_vol_63` distribution (median ≈0.0146, IQR [0.0113, 0.0194]) — 0.001 is
+  ≈7% of the median level, a floor meant to rule out a trivially small but
+  CI-excluding-zero shift, not derived from a DESIGN-stated formula.
+- Cells 3-5 (return-based, `value_col∈{fwd_ret_21, fwd_absret_21}`):
+  `max(|ci_low|,|ci_high|) < 0.10%` — this study's own standard floor (M1/M2/M6.2).
+
+**Control tier and why:** C2 (`mom_tercile`/`vol_tercile`/`sector`) is this study's
+standard tier, used for cells 3-5 without modification. For the two vol-expansion
+cells (1-2), this study's usual `vol_tercile` match column is in direct tension with a
+hypothesis that's partly *about* vol itself — matching on trailing 63-day realized vol
+before testing whether compression predicts a change in vol risks partially matching
+away the very effect being tested. Both readings are reported side by side rather than
+picking one: cell 1 (with `vol_tercile`) is the conservative, standard-tier reading;
+cell 2 (without it) is the more literal test of the hypothesis. Neither is designated
+"primary" over the other up front — both count toward this module's `N_tests`
+contribution (see below), and the write-up will report both numbers rather than
+picking whichever is more favorable after the fact.
+
+**Cost annotation:** cells 3-5 (direction/magnitude) imply a tradeable claim if
+confirmed — CLAUDE.md invariant #8 applies, using `stats/costs.py::signals_per_year`
+on a compressed-decile membership flag, same convention as every prior module. Cells
+1-2 (vol expansion) are a forecast-quality/mechanism read, not directly tradeable on
+their own (same "not applicable" convention M5 used for hold-rate cells) — stated
+explicitly rather than skipped silently.
+
+**Grid size (`N_tests` contribution):** 5 primary cells. No companion/redundancy
+exclusions — each cell is a distinct outcome column or a distinct row restriction, not
+a re-parameterization of another cell in this grid.
+
+**Plateau check (DESIGN §6.7):** not a lookback-neighborhood question (this module has
+no lookback grid — one ribbon, {20,50,150,200}, is the whole feature) — read instead as
+internal consistency across the two vol-expansion readings (cells 1-2, C2 with/without
+`vol_tercile` — should agree in sign and rough magnitude if the effect is real and not
+an artifact of the match-column choice) and between the unconditional (cell 3) and
+trend-conditional (cell 5) direction cells (DESIGN's own prior: cell 3 should be
+null/weak, cell 5 should show more signal than cell 3 — if cell 3 is *stronger* than
+cell 5, that would contradict DESIGN's own stated prior and needs scrutiny, not a
+comfortable "still directionally consistent" wave-through).
+
+**Effective N:** distinct dates and tickers per cell, standard invariant (CLAUDE.md
+#6) — expected to comfortably clear DESIGN §6.9's floor (200 events, ≥30 dates, ≥30
+tickers) given this reuses the full U1 panel population, flagged per cell if not.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21`/`fwd_absret_21`/`fwd_vol_21` all at the 21-day
+horizon this study uses throughout.
+
+**Whole-grid FDR pass:** this module ran after the whole-grid FDR pass already
+executed (`STATUS.md`, most recently N=35, 2026-09-20). Per M18's own established
+"FDR re-entry" precedent: if any cell here survives its own kill criterion and (for
+cells 3-5) clears cost, it gets flagged as **pending whole-grid FDR re-entry** in its
+`EXPERIMENTS.csv` row, not reported as a standalone significance claim — a consolidated
+re-run against the larger grid happens once, after this module and its sibling
+Batch-1 forks (M6.1, M6.3, M13) have all landed, not run separately here.
