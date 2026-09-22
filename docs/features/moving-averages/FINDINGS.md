@@ -770,3 +770,89 @@ cut that works" (CLAUDE.md), resolved here only because the candidate was flagge
 two independent methods *before* this test was run, pre-registered with an honest kill
 criterion, and killed by the correction on the same terms as everything else — not
 because looking longer was assumed to eventually pay off.
+
+## M7 — Ribbon compression / expansion (2026-09-22)
+
+### `ribbon_direction_magnitude`, 21d
+
+**Hypothesis:** DESIGN's own M7 text — low MA-ribbon dispersion (compression) precedes
+volatility expansion. Restated as a testable claim on the specific outcome this cell
+uses: among rows in the bottom decile of `ribbon_width_pctile` (a compressed SMA
+ribbon, {20,50,150,200}), the subsequent 21-day |return| (net displacement magnitude,
+distinct from full-window realized vol) is larger than among rows in the top decile
+(an already-dispersed ribbon).
+
+**Why it was plausible:** DESIGN's own stated prior for this module — "vol prediction
+works ... direction prediction does not, except conditional on prior trend." This
+specific cell tests the vol-adjacent half of that prior on a magnitude measure, as a
+sibling to (not a replacement for) the module's direct realized-vol cells, which came
+out null (see below).
+
+**What was run:** `ribbon_width` (coefficient-of-variation dispersion of the four
+already-cached SMAs, `features/ribbon.py`) scaled into `ribbon_width_pctile` (per-ticker
+rolling min-max range position over a trailing 252-day window — a fast, vectorized
+approximation of a rolling percentile rank, same construction family as this
+codebase's own `dist_from_52w_high`/`dist_from_52w_low`) and bucketed into 10 deciles.
+`stats/inference.py::block_bootstrap_spread` (M4/M11/M18's own decile-spread
+primitive, reused unchanged), decile-9-minus-decile-0 spread of `fwd_absret_21`
+(`|forward 21-day return|`, a new label — `labels/forward_returns.py`), C2-matched
+(`mom_tercile`/`vol_tercile`/`sector`).
+
+**The number:** −0.2471%, 90% CI [−0.3976%, −0.0927%]. CI excludes zero, clears the
+pre-registered 0.10% floor.
+
+**Effective N:** 175,152 rows, 2,549 distinct dates, 402 tickers.
+
+**Cost:** compressed-decile membership flag turnover 3.163 flips/ticker-yr → hurdle
+0.3163%/yr (`stats/costs.py`, 10bps/rt, entry+exit convention, same as every prior
+module). Point, annualized (×12): −2.97%/yr, clears. Near edge (−1.11%/yr): clears.
+Far edge (−4.77%/yr): clears. **Clears at every reading — but with a caveat distinct
+from every other Tier-3 cell in this study**: `fwd_absret_21` is a magnitude, not a
+signed return. "Clears cost" here means the shift in |return| exceeds the turnover
+cost of the flag, not "going long or short this signal is profitable" — no signed
+trading strategy is tested or implied. Turning this into an actionable claim would
+need a specific construction this cell doesn't provide (e.g. a long-volatility/
+straddle-style position, or a position-sizing/stop rule keyed to the flag).
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
+in this study carries, *and* by the magnitude-vs-signed-return actionability gap named
+above (a second, cell-specific cap).
+
+**Argue against this result (not resolved here, flagged as the live alternative):**
+short-term reversal/mean-reversion — the same confound class this study has checked
+repeatedly elsewhere (M1's lb200 diagnostic, M2's `stack_fully_bearish` addendum,
+M18's `dist_from_52w_low` cells, all via a `rev_tercile`/`mom_1_0`-augmented C2).
+Decile 9 (dispersed ribbon) mechanically correlates with tickers that *just had* a
+large recent price move — that's mechanically what pushed the ribbon apart. If such
+tickers partially mean-revert, their subsequent |return| would shrink relative to
+decile 0's for reasons having nothing to do with "compression precedes expansion."
+The existing C2's `vol_tercile` match (63-day trailing realized vol) absorbs some of
+this but not all of it — a ticker's 63-day vol level isn't the same as "just moved
+sharply in the last few days," which is exactly the gap `mom_1_0` exists to close
+elsewhere in this study. **Not run here** — a `rev_tercile`-augmented check is the
+natural next step, left as an explicit open item.
+
+**Plateau check:** not a lookback-neighborhood question (this module has no lookback
+grid — {20,50,150,200} is the whole ribbon) — read instead as internal consistency
+against this module's own sibling cells: the two vol-expansion readings (with/without
+`vol_tercile` match) agree in sign and magnitude with each other (both null, same
+direction), and this cell's own sign is directionally consistent with M4's own
+extension-predicts-lower-forward-return finding in spirit (net displacement is larger,
+not that displacement is necessarily *positive*) — not a formal cross-module plateau
+check, just a directional sanity read.
+
+**What would change the verdict:** the whole-grid FDR pass (pending, not yet re-run —
+see `STATUS.md`); a holdout check; the `rev_tercile`-augmented reversal-robustness
+check named above; and, separately from any statistical test, an actual strategy
+construction that would make the magnitude-vs-signed-return caveat moot (this cell
+alone cannot answer "is this tradeable," only "is the effect real").
+
+**Companion cells, not separately entered here (Tier 4, `EXPERIMENTS.csv` only):**
+both vol-expansion readings (`ribbon_vol_expansion_c2_standard`/`_c2_no_vol_match`)
+killed cleanly under the pre-registered floor — DESIGN's "vol prediction works" prior
+does not hold in this specific 21-day realized-vol construction, a clean negative.
+`ribbon_direction_signed` (unconditional direction) is inconclusive, consistent with
+DESIGN's own prior. `ribbon_direction_conditional_on_trend` is also inconclusive —
+notably **not** confirming DESIGN's own stated prior that trend-conditional direction
+should show more signal than unconditional direction; stated plainly as a partial
+disconfirmation of that prior, not smoothed over.
