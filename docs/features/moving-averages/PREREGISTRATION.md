@@ -3136,3 +3136,145 @@ turnover numbers are referenced here and in `output/moving_averages/m6_1_*.csv`,
 regenerable from this module, not separately logged as CSV rows since they carry no
 kill criterion of their own — same convention as this study's other purely-descriptive
 readouts, e.g. plateau checks).
+
+## M12 — Volume and liquidity interaction (2026-09-23)
+
+**Module / track:** M12, Track B. Not part of the original minimal-core list (DESIGN
+§12) — added post-termination via DESIGN §1.5's porous-scope rule, one of four
+parallel "Batch 2" post-termination modules (M3, M6.5, M6.6, M12 — `HANDOVER.md`'s own
+triage), each scoped to reuse existing infrastructure with no new shared machinery.
+
+**Promoted from:** DESIGN's own module list directly (line ~971), not a Track A
+candidate. DESIGN's text: "MA reclaims on above-average volume are more durable...
+interact key events with relative volume deciles, dollar-volume percentile, and
+VWMA-vs-SMA divergence (which measures whether volume is concentrated on up or down
+days)." Unlike most of DESIGN's other module entries, this one has **no literal kill
+criterion in DESIGN itself** — formulated here, before running anything, per CLAUDE.md's
+"before running any analysis" requirement.
+
+**Hypothesis (skeptical, matching this study's own default framing):** an MA reclaim
+(a state transition from below to above a given SMA — the first day of an `above`
+run, DESIGN §8's own state-run construction, reused unchanged from `features/state.py`)
+is not more durable when it occurs on above-average volume than when it occurs on
+below-average volume. "Durable" operationalized as (a) forward 21-day return
+(`fwd_ret_21`, this study's standard horizon) and (b) whether the reclaim still holds
+(state is still `above` 21 trading days later, a new forward-looking label — see
+"New machinery" below).
+
+**Scope decisions, stated up front:**
+- **Event population:** first day of an `above_sma_k` run at k ∈ {20, 50, 200} (M1's
+  own three primary lookbacks) — `state.state_run_id`/`state.days_in_run`, applied
+  directly to the cached panel's already-lagged `above_sma_k` column (safe: a uniform
+  one-day shift of a boolean series does not change its run structure, so recomputing
+  run-day-count on the already-lagged column gives the same "day 1 of the run" set as
+  computing it pre-lag and then shifting — the same relationship the cached
+  `run_length_bucket_sma_k` column already relies on, since it's computed pre-lag in
+  `features/panel.py::_build_ticker_features` and then centrally lagged alongside
+  `above_sma_k` by the same `apply_lag` call). Left-censored first runs (`run_id == 0`)
+  excluded, same convention as M1's own run-length censoring.
+- **Three sub-questions, DESIGN's own three named facets, each row-restricted to the
+  reclaim-event population above and each its own primary cell set:**
+  1. Relative-volume tercile (`features/liquidity.py::relative_volume`, 63-day trailing
+     average — same order of magnitude as `realized_vol_63`'s own window) — DESIGN's
+     primary named quantity ("above-average volume").
+  2. Dollar-volume percentile (`close * volume`, cross-sectional per-date decile via
+     `stats.controls.cross_sectional_bucket`, collapsed to top/bottom tercile for the
+     test itself, same "drop the middle" convention M13 used) — DESIGN's second named
+     quantity. Distinct from (1): dollar volume is a cross-sectional magnitude (how
+     liquid/large this name's trading is on this date, relative to the rest of the
+     universe that date), not a time-series ratio against the name's own history — not
+     assumed redundant with (1), not checked for correlation before declaring (small
+     grid, cheap to run both rather than spend the check).
+  3. VWMA-vs-SMA divergence (`features/liquidity.py::vwma` at the same lookback as the
+     reclaim's own SMA, `vwma_k / sma_k - 1`) — DESIGN's third named quantity, the
+     "is volume concentrated on up or down days" question. A positive divergence means
+     recent high-volume days traded above the SMA (buying pressure concentrated on
+     up-days); negative means the opposite.
+  4. **Not run this slice:** DESIGN doesn't ask for a fourth facet, but a natural
+     robustness check (does the relative-volume finding hold under an alternative
+     volume normalization) is deferred — dollar-volume-percentile (2) already serves as
+     a second, independently-motivated facet rather than a redundancy check of (1).
+- **Durability's secondary facet (hold-rate) is declared as a companion to
+  sub-question 1 only** (relative volume, DESIGN's own primary-named quantity), not
+  replicated for sub-questions 2/3 — same "one outcome per new sub-question, one
+  companion for the flagship" scope-control precedent M6.3 used (large-move-exclusion
+  companion on its own three primary cells only, not on every derived statistic).
+
+**New machinery:**
+- `features/liquidity.py`: `relative_volume`, `dollar_volume`, `vwma` — module-local,
+  minimal (VWMA's fuller kernel-family treatment is M8's, not built here; see that
+  file's own docstring). All three take raw per-ticker `close`/`volume` (the panel's
+  own un-lagged OHLCV columns) and return a same-bar value; lagging is the caller's job
+  (`modules/volume_liquidity.py::prepare`), same division of labor
+  `modules/stack_minervini.py`'s `rs_rating` join and `modules/context_conditioning.py`'s
+  `vix_tercile` join already use.
+- `modules/volume_liquidity.py::future_state`: a new forward-looking label (parallel to
+  `labels/forward_returns.py::forward_return`, not placed in that file since it's
+  boolean-state-specific, not return-specific) — `state_col` shifted `-horizon` rows
+  within each ticker, i.e. "what will this boolean state read `horizon` trading days
+  from now." A label, not a feature (CLAUDE.md invariant #2 constrains features used to
+  condition on a forward outcome; a label is allowed to look forward by construction,
+  same status as `forward_return`/`forward_realized_vol`).
+- Everything else reuses existing primitives unchanged: `features.state.state_run_id`/
+  `days_in_run` (event detection), `features.panel.apply_lag` (lagging the three new
+  raw features), `stats.controls.cross_sectional_bucket`/`c1_delta`, `stats.inference.
+  block_bootstrap_delta` (restrict-to-reclaim-population, then C1/C2 delta between the
+  volume-tercile halves — the same "restrict-then-delta" pattern
+  `modules/context_conditioning.py`/`modules/slope_conditioner.py` already use), `stats.
+  costs` (turnover measured as the reclaim-event rate itself, not a state-flip rate —
+  see "Cost annotation" below).
+
+**Method (per sub-question, per lookback k ∈ {20, 50, 200}):**
+1. Build the reclaim-event population at k (see "Event population" above).
+2. Bucket the relevant volume facet (relative volume / dollar volume / VWMA
+   divergence) into a per-date tercile across the **whole panel** (not just the
+   reclaim population — the same "compute the match/split column globally, then
+   restrict" order every other module in this study uses for its C2 match columns).
+3. Restrict to the reclaim population, then to top+bottom tercile rows of the facet
+   (middle dropped).
+4. `block_bootstrap_delta(group_col=is_top_tercile, value_col="fwd_ret_21",
+   match_cols=("mom_tercile","vol_tercile","sector"))` — the standard C2 spec,
+   unchanged; the facet under test is the group column, not a match column, so it does
+   not also appear in `match_cols`.
+5. Sub-question 1 only: repeat step 4 with `value_col="hold_{k}"` (the
+   `future_state`-derived 21-day-forward hold indicator) instead of `fwd_ret_21`.
+
+**Kill criterion:** per cell, `max(|ci_low|, |ci_high|) < 0.10%` — this study's
+standard floor (M1/M13's own threshold), inherited rather than invented, since this
+cell's statistic (a C2 delta between two row-restricted groups) is the same shape.
+Applied to the 9 counted primary cells (3 sub-questions × 3 lookbacks — see "Grid size"
+below): if **every** counted cell is killed, declare "volume-conditioning is
+uninformative for reclaim durability" and stop — the whole DESIGN-named hypothesis
+family, not sub-question-by-sub-question (a single surviving sub-question is enough to
+keep the module alive, same "any primary cell survives" logic M1's own
+`evaluate_kill_criterion` uses, generalized from 6 cells to 9). The hold-rate companion
+cells carry **no kill authority of their own** (secondary, same status as M1's
+run-length layer) — reported regardless of the primary kill verdict.
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+default, unchanged. The volume facet under test is a row restriction plus a
+group-column split on top of C2, not a replacement for it; reusing M1/M13's exact
+match-column set means this module's numbers are read on the same footing as every
+other conditional-effect cell in the study, not a bespoke control layer that would
+need its own justification.
+
+**Cost annotation:** DESIGN's own claim ("reclaims on above-average volume are more
+durable") is inherently about a subset of an already-existing signal (M1's own
+`above_sma_k` state), not a new tradeable entry rule on its own — so the turnover used
+for `costs.signals_per_year` is **not** M1's whole-population state-flip rate. Instead,
+for any cell with a CI excluding zero, cost is annotated using the *reclaim-event
+rate itself* (reclaims per ticker-year, at that lookback, restricted to the surviving
+facet's top-tercile population) as the turnover proxy — a labeled simplification (this
+measures how often the tradeable subset of reclaims occurs, not a full round-trip
+strategy's turnover, since there is no pre-registered exit rule here) rather than a
+literal strategy backtest, flagged the same way M13's regime-restricted turnover number
+was flagged as not accounting for regime-entry/exit turnover.
+
+**Grid size (`N_tests` contribution):** 9 primary cells (3 sub-questions × 3
+lookbacks) declared and counted. 3 hold-rate companion cells (sub-question 1 only)
+declared but **not** counted (secondary, no kill authority, same convention as M1's
+24 run-length cells and M6.3's large-move-exclusion companions).
+
+**Holdout:** unaffected — reuses the cached panel (`data/features/moving_averages/
+ma_panel/`, 2010-01-04→2021-12-31) unchanged; the new features are computed from that
+panel's own raw `close`/`volume` columns, never from data past the holdout boundary.
