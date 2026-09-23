@@ -1261,3 +1261,119 @@ producing two more borderline-significant sub-cells" — not the shape of "a rea
 economically distinct regime interaction was found." Logged honestly as Tier 3 per
 this study's mechanical convention, with this reasoning attached rather than presented
 as a clean finding.
+
+## M12 — Volume and liquidity interaction (2026-09-23)
+
+Post-termination "Batch 2" module, one of four parallel modules scoped and run
+independently (see `PREREGISTRATION.md`'s M12 entry for the full hypothesis/method/
+kill-criterion statement). DESIGN's own stated hypothesis — "MA reclaims on
+above-average volume are more durable" — is **not** confirmed in the direction DESIGN
+predicted; the one surviving family points the other way, and the entry below reports
+that directly rather than reframing it.
+
+### `dollar_volume`, SMA50 reclaim durability (`fwd_ret_21`)
+
+**Hypothesis (as pre-registered, restated honestly against what was found):** DESIGN
+predicted MA reclaims on *higher* volume/liquidity are more durable. What was
+tested: does a reclaim's forward 21-day return differ between the top and bottom
+dollar-volume tercile (cross-sectional, per-date, whole-panel) among SMA50
+reclaim-event rows?
+
+**What was run:** `block_bootstrap_delta(group_col=is_top_dollar_volume_tercile,
+value_col="fwd_ret_21", match_cols=("mom_tercile","vol_tercile","sector"))` —
+this study's standard C2 spec — restricted to SMA50 reclaim-event rows in the top or
+bottom dollar-volume tercile (middle dropped).
+
+**The number(s):** C2 delta **−0.870%** per 21d, 90% CI **[−1.381%, −0.402%]** —
+excludes zero. **Sign is the opposite of DESIGN's own hypothesis**: reclaims in the
+*bottom* dollar-volume tercile subsequently outperform reclaims in the *top*
+dollar-volume tercile, not the reverse.
+
+**Effective N:** 13,880 rows, 2,468 distinct dates, 361 tickers.
+
+**Cost:** turnover (top-dollar-volume-tercile reclaim rate at SMA50) 2.909
+events/ticker-yr → hurdle 0.291%/yr (`stats/costs.py`, 10bps/rt — a labeled
+simplification, the event rate of the surviving facet's tradeable subset, not a full
+round-trip strategy backtest; see `PREREGISTRATION.md`'s cost-annotation note).
+Annualized (×12): point −10.44%/yr, near edge −4.82%/yr, far edge −16.57%/yr.
+**Clears at every reading, by a wide margin** — the largest cost-viability margin of
+any Tier-3 cell in this study to date.
+
+**Reversal-robustness (2026-09-23, same day):** survives with `rev_tercile` added to
+the C2 match set — C2 delta attenuates ~34.0% (−0.870% → −0.574%, CI
+[−1.132%,−0.069%]) but still excludes zero. Short-term reversal is a real but partial
+contributor, not the whole effect (same read this study gave `stack_fully_bearish`'s
+own reversal check).
+
+**Tier:** 3. CI excludes zero at default C2, survives reversal-robustness (attenuated),
+clears cost cleanly at every reading. Capped by this study's standard missing
+FDR/holdout infrastructure, same as every other Tier-3 cell — pending the
+coordinating session's next whole-grid FDR re-run.
+
+**Why this probably isn't (only) what it looks like — argue against your own result
+(CLAUDE.md's own requirement):** this study's panel has **no point-in-time
+market-cap/size control** (`HANDOVER.md`'s infrastructure inventory: "Not built: ...
+point-in-time `mktcap_decile`/`universe_flags`"). Dollar volume correlates strongly
+with market cap — the bottom-dollar-volume tercile is disproportionately small/
+micro-cap names. "Reclaims in the bottom dollar-volume tercile outperform" is at
+least as well explained by an uncontrolled small-cap/illiquidity return premium as by
+anything about volume validating an MA reclaim specifically; none of C2's
+`mom_tercile`/`vol_tercile`/`sector` match columns touch size. This is the same shape
+of open caveat `STATUS.md`'s whole-grid FDR pass already carries for
+`dist_from_52w_low`@126d and `slope_pctile_21_sma_50` (a weak/illiquid-adjacent
+population plausibly vulnerable to the delisted-ticker survivorship ceiling DESIGN
+§7.3 names for M1/M2), extended here by analogy to a third candidate mechanism
+(uncontrolled size), not resolved — building a market-cap control is out of scope for
+this module. **Plateau check:** `dollar_volume`'s point estimate is negative at all
+three lookbacks tested (SMA20 −0.334%, SMA50 −0.870%, SMA200 −0.433%) — a real,
+consistent-direction pattern, not a lone bright pixel — but SMA20 fails the
+reversal-robustness check above and SMA200's own CI spans zero (fewest events of the
+three, underpowered rather than contradictory).
+
+**Shape stats:** top-tercile (event) side: hit rate 59.78% (C2 delta **−4.04pp**
+vs. bottom tercile), win/loss ratio 1.10, skew −0.15. Bottom-tercile (control) side:
+win/loss ratio 1.23, skew +0.16. Unfavorable on every shape axis for the
+high-dollar-volume side, not just the mean.
+
+**What would change the verdict:** a point-in-time market-cap/size control added to
+C2 (not built in this study); the whole-grid FDR pass; a holdout check.
+
+### `relative_volume` reclaim-hold rate, SMA200 (companion cell, no kill authority)
+
+**Hypothesis:** among SMA200 reclaim events, does a reclaim in the top
+relative-volume tercile more often still hold (state still `above_sma_200`) 21
+trading days later than a reclaim in the bottom tercile? Pre-registered as a
+companion to the flagship `relative_volume` sub-question (DESIGN's own primary-named
+volume facet), not counted toward this module's `N_tests` and carrying no kill
+authority of its own.
+
+**What was run:** `block_bootstrap_delta(group_col=is_top_relative_volume_tercile,
+value_col="hold_200", match_cols=("mom_tercile","vol_tercile","sector"))`, restricted
+to SMA200 reclaim-event rows in the top or bottom relative-volume tercile. `hold_200`
+is a new forward-looking label (`future_state`, `modules/volume_liquidity.py`): does
+`above_sma_200` still read `True` 21 trading days after the reclaim.
+
+**The number(s):** C2 delta **+3.35pp**, 90% CI **[+0.44pp, +6.37pp]** — excludes
+zero. The one cell in this module that supports DESIGN's literal hypothesis in the
+stated direction: a high-relative-volume reclaim holds more often than a
+low-relative-volume one.
+
+**Effective N:** 7,268 rows, 2,177 distinct dates, 402 tickers.
+
+**Cost:** not applicable — a mechanism/durability read (does the state itself
+persist), not a return claim, same "cost n/a" convention as M5's/M6.2's touch-outcome
+cells.
+
+**Tier:** 3, mechanism read, no cost annotation (same tier-without-cost convention as
+M6.2's `touch_x_slope` finding).
+
+**Why this probably isn't a family effect:** not a plateau — the same statistic at
+SMA20 (+0.45pp, CI [−0.93pp,+1.71pp]) and SMA50 (+0.21pp, CI [−1.86pp,+2.27pp]) is
+flat. A single significant cell among two flat neighbors at shorter lookbacks reads
+as a lookback-specific result, not a general "volume validates reclaims" mechanism —
+tempered somewhat by its being pre-declared as the flagship sub-question's own
+companion (not a post-hoc pick among many facets), but not enough to call it a
+robust family finding on its own.
+
+**What would change the verdict:** a same-construction companion cell at SMA20/SMA50
+that also excluded zero (it doesn't); the whole-grid FDR pass; a holdout check.
