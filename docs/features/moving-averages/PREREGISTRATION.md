@@ -3264,3 +3264,84 @@ DESIGN §6.7 warns against.
 U1 universe, 2010-01-04→2021-12-31), read via `read_panel` unchanged. No panel rebuild
 needed — every input this module needs (`close`, `mom_12_1`, `realized_vol_63`,
 `sector`) is already cached.
+
+### Result (2026-09-23)
+
+Panel: 1,222,605 rows, 405 tickers, 3,021 dates read (`read_panel`, 2010-01-04 to
+2021-12-31, holdout-safe).
+
+**Primary decisive test (both declared cells): inconclusive, neither killed nor
+confirmed.**
+- **SMA50, pooled:** C2 delta (price-driven − drop-off-driven) **−0.081%**, 90% CI
+  **[−0.255%, +0.102%]** — spans zero, edge 0.255% clears the 0.10% floor so this is
+  not a "killed, no effect at all" read, but the CI doesn't distinguish the two flip
+  types either. n_events=65,456 (38,420 price-driven / 27,036 drop-off-driven),
+  n_dates=2,746, n_tickers=402.
+- **SMA200, pooled:** C2 delta **+0.134%**, 90% CI **[−0.196%, +0.458%]** — spans zero,
+  edge 0.458%. n_events=28,767 (15,550 / 13,217), n_dates=2,739, n_tickers=402.
+
+**Plateau check: fails.** SMA50 and SMA200's pooled point estimates disagree in sign
+(−0.081% vs. +0.134%), and neither CI excludes zero — no consistent cross-lookback
+direction, the same flat/sign-flipping-null shape M6.1's own decisive test produced.
+Read together with the `type_vs_background` diagnostics below, the honest summary is
+the same as M6.1's: **not distinguishable from "the decomposition doesn't separate a
+real effect from noise at this sample," but not proven to be so** under this study's
+own CI-based discipline. Tier 4 for both primary cells (well-powered, CI spans zero —
+"no detected effect at this control tier and sample," not silence). No `FINDINGS.md`
+entry (Tier 4 needs none).
+
+**`type_vs_background` diagnostics (not the kill-criterion test, DESIGN's own
+"does each half carry information at all" check):** at SMA50, price-driven flips show
+a small, CI-excluding-zero delta vs. an ordinary non-flip day (**−0.080%**, CI
+[−0.170%, −0.010%]), while drop-off-driven flips do not (**−0.060%**, CI [−0.173%,
++0.035%]) — directionally consistent with DESIGN's own hypothesis, but modest, and
+this diagnostic has no cost annotation, kill criterion, or FDR eligibility of its own
+(same "descriptive, not a new N_tests contribution" treatment this study gives every
+robustness/diagnostic companion). At SMA200, neither type shows a detectable effect
+(price +0.013% CI [−0.105%,+0.120%]; drop-off −0.040% CI [−0.185%,+0.094%]).
+
+**Direction-split companions (pre-registered as not counted in `N_tests`): three of
+four span zero, one does not.** SMA50 up/down and SMA200 up all span zero (edges
+0.53%/0.38%/1.16% respectively — SMA200-up is the thinnest cell, n_events=14,380).
+**SMA200-down (DESIGN's own literal "rolling over" direction) does not**: C2 delta
+**+1.029%**, 90% CI **[+0.231%, +1.716%]**, n_events=14,387 (8,252 price-driven /
+6,135 drop-off-driven), n_dates=2,440. Read precisely: within *down*-direction flips
+at the 200-day lookback specifically, a price-driven flip (a genuine decline) is
+followed by a *better* 21d forward return than a drop-off-driven flip (an artefact
+rollover with no real underlying weakness) — not the sign DESIGN's plain "price-driven
+carries information, drop-off carries none" framing would obviously predict (DESIGN's
+hypothesis is about *whether* each type carries information, not the sign of it, so
+this isn't a direct falsification of the stated hypothesis, but it is a real surprise
+worth naming plainly).
+
+**Argue against this one number, as pre-registered above:** the leading alternative
+explanation is short-term reversal, not a genuine price-driven-vs-artefact distinction.
+A price-driven SMA200 down-flip is, almost by construction, a name that just had a real
+recent decline — exactly the setup M2's `stack_fully_bearish` and M6.3's SMA20 humped
+cell both already found an uncontrolled `mom_1_0`/`rev_tercile` confound can produce a
+subsequent bounce for. This module's C2 match set (`mom_tercile`/`vol_tercile`/`sector`)
+does not include `rev_tercile`, so this explanation is untested here, not ruled out.
+
+**Not promoted to a finding.** This cell was pre-registered as a companion, not a
+primary declared test, specifically so a result like this couldn't be silently
+recast as confirmatory after the fact (CLAUDE.md: "Do not search for a framing that
+makes a dead hypothesis look alive"). It is logged in full in `EXPERIMENTS.csv`
+(`sma_dropoff_decisive_sma200_down`) and flagged here as the module's single most
+interesting number and the strongest candidate for a dedicated, freshly pre-registered
+follow-up (a reversal-robustness check on this one cell, same construction as M2's/
+M6.3's own) — not treated as a Tier 3+ result now.
+
+**Implication for M6.1/M6.3 (discussion, not a re-run of their grids):** M6.1 and M6.3
+both condition on `slope_log_21` (a 21-day, log-scale slope), not the 1-day raw-SMA
+slope this module decomposes — the drop-off mechanism this module tests is a different
+(shorter-window) object, and this result does not directly test whether M6.1/M6.3's
+own 21-day slope columns are drop-off-contaminated. Given that caveat, this module's
+own primary result (inconclusive at the 1-day level, both lookbacks) provides no
+positive evidence that drop-off contamination is diluting M6.1/M6.3's findings, but
+also does not rule it out at the 21-day horizon those modules actually use — an open
+question, not resolved by this module, named here so it isn't silently assumed either
+way.
+
+**Logged:** `EXPERIMENTS.csv` (10 rows: 2 primary + 4 direction-split companions + 4
+`type_vs_background` diagnostics, all `counted_in_n_tests` correctly reflecting only
+the 2 primary cells). No `FINDINGS.md` entry (both primary cells Tier 4).
