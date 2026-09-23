@@ -166,6 +166,30 @@ fails. **Far edge: −4.19%, clears.** **Near edge: −0.95%, fails.**
 **What would change the verdict:** a broader universe reducing the 38.2% row loss and
 its all-above-skewed composition; the whole-grid FDR pass; a holdout check.
 
+### Whole-grid FDR pass addendum (2026-09-23) — `above_sma_20`
+
+**Survives, at N=50.** In the original 2026-09-17/2026-09-20 passes (N=31, then 35)
+this cell missed by a hair (p=0.0090 against a rank-3 threshold of 0.0086). Extending
+the grid to N=50 with Batch-1's four new modules (`STATUS.md`'s "Whole-grid FDR pass"
+section) shifts this cell to rank 5 — its p-value is unchanged, but
+`slope_pctile_21_sma_50`'s (M6.3, p=0.00005) very small p-value now anchors BH's
+step-up procedure, and rank 5's own threshold (0.0100) happens to clear this cell's
+p-value even though ranks 2–4 individually do not clear theirs. Mathematically valid
+under BH (adding tests can loosen as well as tighten a specific cell's effective
+threshold, depending where the new tests land in the ranking) — not a new
+independently-detected effect.
+
+**Tier: unchanged at 3 — not promoted to Tier 2.** This cell fails cost outright (the
+CI-based near-edge test misses the hurdle, established above, unrelated to FDR) — a
+substantive failure, not a missing-infrastructure gap. Per this study's own established
+convention (`M11`'s own entry: "clearing cost doesn't promote it" when FDR/holdout are
+the binding constraint), the same logic runs in reverse here: clearing FDR doesn't
+promote a cell that fails cost. Also still missing the holdout infrastructure common to
+every Tier-3 cell.
+
+**What would change the verdict:** unchanged from above — a broader universe reducing
+the 38.2% row loss; a holdout check. FDR is no longer an open item for this cell.
+
 ### `above_sma_50` (above/below state)
 
 **Hypothesis / why plausible / what was run:** as above, at the 50-day SMA.
@@ -479,6 +503,25 @@ rebuild) by the coordinating session, via `stats/shape.py` (new: `hit_rate_delta
 (including `n_wins`/`n_losses`/`mean_win`/`mean_loss`) in `EXPERIMENTS.csv`'s notes
 field for both primary cells.
 
+### Whole-grid FDR pass re-run (2026-09-23) — now survives, tier unaffected
+
+Extending the 2026-09-17 pass's N=35 to N=50 with Batch-1's four new modules
+(`STATUS.md`'s "Whole-grid FDR pass" section) changes this cell's own status a second
+time: its p-value is unchanged (0.0086), but `slope_pctile_21_sma_50`'s (M6.3,
+p=0.00005) very small p-value now anchors BH's rank-1 threshold, and the step-up rule
+sweeps this cell in at rank 4 (individually still a miss against its own rank's
+threshold, 0.0080 — the same pattern as `ribbon_direction_magnitude`/M7 and
+`above_sma_20`/M1 below). Not a new independently-detected effect.
+
+**Tier: unchanged at 3, for the reason already established above and untouched by
+this development** — DESIGN §7.3's survivorship cap on weak/bearish-state buckets is a
+pre-existing, explicit, named cap (not an infrastructure gap FDR-survival could lift).
+This cell now clears both C2 and FDR, which would ordinarily be the Tier-2 bar per
+DESIGN §9.2 — but §7.3's cap applies "regardless of what the statistics show," by its
+own wording, precisely to prevent a result like this one from reading as more settled
+than the underlying delisted-ticker data gap allows. Also still missing the
+holdout/universe-tier infrastructure common to every Tier-3 cell.
+
 ---
 
 ## M6.2 — Slope as conditioner (2026-09-17)
@@ -771,6 +814,45 @@ two independent methods *before* this test was run, pre-registered with an hones
 criterion, and killed by the correction on the same terms as everything else — not
 because looking longer was assumed to eventually pay off.
 
+### Whole-grid FDR pass re-run (2026-09-23) — now survives
+
+**The closest miss became a survivor.** The pass above extended the grid to N=35;
+Batch-1's four new modules extend it further to N=50 (`STATUS.md`'s "Whole-grid FDR
+pass" section, 2026-09-23 update). This cell's own p-value is unchanged (0.0047) — what
+changed is the ranking around it: `slope_pctile_21_sma_50` (M6.3, p=0.00005) now anchors
+rank 1 with a threshold so far under its own p-value that BH's step-up procedure sweeps
+in every smaller-p cell ranked ahead of where this cell's own threshold would otherwise
+fall, including this one (now rank 2 of 50, threshold 0.0040 — still individually a
+miss at its own rank, but caught by the step-up rule from rank 5's clearance). **This
+is not a new, independently-detected effect** — the underlying number is identical to
+the 2026-09-20 reading; only the correction's context changed.
+
+**Tier: unchanged at 3 — not promoted to Tier 2.** M6.3's `slope_pctile_21_sma_50`
+carried an analogous caveat and *was* promoted the same day (see that entry), once a
+direct rising-tail-only vs. falling-tail-only decomposition ruled it out. **That test
+doesn't transfer here**, and this cell stays unresolved for a structural reason: this
+cell's own hypothesis is specifically *about* the near-52-week-low population — a
+stock that recently sat near its 52-week low is, by construction, in a weak/
+beaten-down state, structurally the same population M1's and M2's already-capped
+buckets occupy. Unlike `slope_pctile_21_sma_50`'s two-sided, symmetric construction
+(which could be split into a survivorship-exposed half and a survivorship-immune half
+and compared), this cell's claim is asymmetric and squarely about the weak-state
+population itself — there's no survivorship-immune "other side" to decompose it
+against. A pre-2024-delisted, bankrupt ticker would have traded near its 52-week low
+immediately before disappearing from this panel (DESIGN §7.3's delisted-history
+ceiling); if such tickers are systematically absent from exactly this bucket, its
+observed forward return is inflated the same way §7.3 already documents for M1/M2.
+Closer in kind to `stack_fully_bearish`'s already-accepted cap than to a resolvable
+open question — extended by analogy rather than literal enumeration (DESIGN §7.3
+names M1/M3/M4 only). Also still capped by the pre-existing holdout/universe-tier
+infrastructure gap, unchanged by this result.
+
+**What would change the verdict:** a delisted-history extension pre-2024 (DESIGN
+§7.3's own stated resolution path) or an explicit bound against a published reference
+using full delisted-history data — either would let this cell's survivorship exposure
+actually be checked instead of argued from mechanism; a holdout check; a second
+universe tier.
+
 ## M7 — Ribbon compression / expansion (2026-09-22)
 
 ### `ribbon_direction_magnitude`, 21d
@@ -859,6 +941,30 @@ notably **not** confirming DESIGN's own stated prior that trend-conditional dire
 should show more signal than unconditional direction; stated plainly as a partial
 disconfirmation of that prior, not smoothed over.
 
+### Whole-grid FDR pass addendum (2026-09-23) — `ribbon_direction_magnitude`
+
+**Survives.** Added to the whole-grid pass's deduplicated grid (N=50 —
+`STATUS.md`'s "Whole-grid FDR pass" section) per HANDOVER.md's consolidation plan.
+Two-sided Wald p-value: **0.0077**, individually below its own rank-3 threshold at N=50
+(0.0060 — a genuine individual miss, same shape as `stack_fully_bearish`/`above_sma_20`
+below), but swept into BH's rejection set by the step-up rule once
+`slope_pctile_21_sma_50`'s (M6.3) very small p-value anchors rank 1. Mathematically
+valid under BH, not a new independently-detected effect — the underlying number is
+unchanged from this module's own original write-up.
+
+**Tier: unchanged at 3 — not promoted to Tier 2.** Clearing FDR resolves one of this
+cell's two named caps (missing FDR infrastructure); it does nothing for the other,
+cell-specific one: the magnitude-vs-signed-return actionability gap named at this
+entry's own "Cost" section above. `fwd_absret_21` is not a tradeable direction — no
+amount of statistical significance on a magnitude statistic answers "is this
+profitable," only "is the effect on |return| real." That gap, not an infrastructure
+gap, is what keeps this at Tier 3 regardless of FDR status. Still also missing the
+holdout/universe-tier infrastructure common to every Tier-3 cell in this study.
+
+**What would change the verdict:** a specific tradeable construction built on top of
+this magnitude effect (e.g. a long-volatility/straddle-style position) that would let
+"clears cost" mean something directional; a holdout check; a second universe tier.
+
 ---
 
 ## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
@@ -927,6 +1033,54 @@ the headline sign — but the *shape* is not uniform across lookbacks: SMA50/200
 roughly symmetric (both tails elevated), SMA20 is asymmetric (falling-tail-driven) and
 does not survive its own large-move-exclusion check. See `PREREGISTRATION.md`'s
 per-decile `shape_table` numbers for the full picture.
+
+### Whole-grid FDR pass addendum (2026-09-23) — `slope_pctile_21_sma_50`
+
+**Survives — the first cell in this study's history to clear Benjamini–Hochberg
+correction.** Added to the whole-grid pass's deduplicated grid (N=50, up from 35 —
+`STATUS.md`'s "Whole-grid FDR pass" section has the full ranked table and dedup
+accounting) per HANDOVER.md's consolidation plan. Two-sided Wald p-value backed out of
+this cell's own CI: **0.00005** — its rank-1 BH threshold at N=50 is 0.0020, so this
+clears by more than an order of magnitude, and it is the only one of this pass's 5
+survivors that also clears the stricter q=0.05 screen. Stress-tested against three
+alternative reasonable ways to count Batch-1's new cells (N=47/50/51): rank 1 and its
+p-value are unchanged in every case — this is not an artifact of a specific dedup
+judgment call.
+
+**Tier: promoted to 2 — the first Tier-2 result in this study's history**, resolved
+the same day the caveat above was first raised, via a direct test rather than left
+open. The caveat: this cell's tail-decile population includes the
+extreme-negative-slope rows, structurally the same shape of population as M1's
+already-capped "weak/below-MA-state" bucket and M2's already-capped
+`stack_fully_bearish` — a row a pre-2024-delisted, bankrupt ticker would have occupied
+immediately before disappearing from this panel (DESIGN §7.3's delisted-history
+ceiling, 2024–2026 coverage only). If such tickers were systematically missing from
+exactly this bucket, the bucket's observed forward return would be inflated by the
+same survivorship mechanism §7.3 already names for M1/M2.
+
+**Resolved by direct test (2026-09-23 tail-decomposition addendum), not by
+analogy.** Split the pooled tail into rising-only (deciles 8,9 — zero survivorship
+exposure, the strongly-bullish side) vs. falling-only (deciles 0,1 — the
+theoretically-exposed side), each compared against the same middle deciles (4,5)
+independently. **Rising-tail-only: `c2=-0.2544%`, CI `[-0.4290%,-0.0846%]` — excludes
+zero. Falling-tail-only: `c2=-0.2442%`, CI `[-0.4127%,-0.0959%]` — excludes zero.**
+The two are within 5% of each other's magnitude. If the pooled result were a
+falling-tail survivorship artifact, the rising-tail-only reading — immune to that
+mechanism by construction — would be null or much smaller; instead it independently
+confirms the same effect. This is not a literal application of DESIGN §7.3's own
+enumerated cap (M1/M3/M4 only) — the concern was raised by analogy, and now ruled out
+by a direct test, the same standard the short-term-reversal confound above was held
+to. Full detail: `PREREGISTRATION.md`'s M6.3 tail-decomposition addendum.
+
+**Per DESIGN §9.2, Tier 2 = "survives C2 and FDR, but fails one of: universe
+generality, holdout, or cost."** This cell now clears C2, FDR (both q=0.10 and
+q=0.05), and cost at every reading; its remaining gaps (holdout, a second universe
+tier) are missing infrastructure, not failures — exactly the Tier-2 profile. This is
+the first cell in the study to reach it.
+
+**What would change the verdict:** a holdout check; a second universe tier — the same
+two items every other Tier-3 cell in this study is still waiting on, now the only
+two remaining for this one.
 
 ### `slope_pctile_21_sma_200` — middle vs. tails, 21d
 

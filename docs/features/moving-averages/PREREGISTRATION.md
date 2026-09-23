@@ -2667,6 +2667,70 @@ confound re-encoding.
 SMA200 entries both updated with this result in place of their prior "no
 reversal-robustness check run" open caveat.
 
+### Result (rising-vs-falling tail decomposition addendum, 2026-09-23)
+
+**Module/track:** M6.3, Track B. **Promoted from:** the 2026-09-23 whole-grid FDR
+consolidation (`STATUS.md`), which flagged a newly-surfaced, not-yet-resolved
+caveat on SMA50's now-FDR-surviving cell: the pooled tail statistic (`TAIL_DECILES
+= (0,1,8,9)`) includes the extreme-negative-slope deciles (0,1), a population
+structurally similar to M1's/M2's already-capped "weak/bearish-state" buckets and
+plausibly vulnerable to the same delisted-ticker survivorship ceiling (DESIGN §7.3,
+zero delisted coverage before 2024) — a company approaching delisting would pass
+through exactly that "sharply falling slope" bucket before disappearing from this
+panel.
+
+**Hypothesis:** if the effect is a genuine "extreme trend, either direction, beats
+flat" phenomenon rather than a survivorship-inflated read of the falling tail
+specifically, the rising-tail-only comparison (deciles 8,9 vs. middle deciles 4,5) —
+a population with *no* survivorship exposure, since it's the strongly-bullish side —
+should independently show a C2-excluding-zero effect of comparable sign and rough
+magnitude to the pooled result, not a null or much-smaller one.
+
+**Kill criterion:** if the rising-tail-only CI spans zero, or its point estimate is
+much smaller than the falling-tail-only comparison's, the pooled SMA50 result is
+better read as substantially driven by the (survivorship-exposed) falling tail —
+the caveat would stand, not be resolved.
+
+**Control tier:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — identical to the
+primary cell, for direct comparability, not the reversal-augmented match set (a
+different confound, already separately resolved above).
+
+**Method:** the same `prepare()`'d panel and `block_bootstrap_delta` primitive
+`humped_test` itself uses, called twice on SMA50 with the tail restricted to one
+side at a time instead of pooled — `{4,5}` vs. `{8,9}` (rising-tail-only) and
+`{4,5}` vs. `{0,1}` (falling-tail-only) — same block length (42), draws (500), CI
+(90%), seed (0) as the primary cell.
+
+**Result: both sides independently confirm the effect, at nearly identical
+magnitude.** Rising-tail-only: `c2=-0.2544%`, CI `[-0.4290%,-0.0846%]` — excludes
+zero. Falling-tail-only: `c2=-0.2442%`, CI `[-0.4127%,-0.0959%]` — excludes zero.
+(n_events_middle=219,700, n_dates=2,747, n_tickers=402, identical across both — the
+middle group doesn't change; n_events_tail 221,609 rising / 221,604 falling, an
+even split.) The two point estimates differ by under 5% of each other's magnitude
+and both individually clear the CI-excludes-zero bar. **The rising tail — which has
+zero exposure to the delisted-ticker survivorship mechanism — shows the same effect
+on its own.** This directly rules out "the pooled result is a falling-tail
+survivorship artifact" as an explanation: if it were, the rising-tail-only number
+would be null or much smaller, not a near-exact match.
+
+**Reading:** this is the last of SMA50's four confound checks (large-move exclusion,
+reversal, whole-grid FDR, and now this) to have been *directly tested* rather than
+argued by analogy. All four resolve in the cell's favor. Per DESIGN §9.2's Tier 2
+definition ("survives C2 and FDR, but fails one of: universe generality, holdout, or
+cost"), this cell now clears C2, FDR (both q=0.10 and q=0.05), and cost at every
+reading, with its only remaining gaps being missing holdout and universe-tier
+*infrastructure* — not failures. **Promoted to Tier 2** — the first Tier 2 result in
+this study's history. See `STATUS.md`/`FINDINGS.md`/`REPORT.md`'s 2026-09-23
+addenda for the full write-up.
+
+**Logged:** `EXPERIMENTS.csv` (2 new rows, dated 2026-09-23:
+`slope_magnitude_humped_test_sma50_rising_tail_only`,
+`slope_magnitude_humped_test_sma50_falling_tail_only`); `FINDINGS.md`'s SMA50 entry
+updated with the tier promotion and this result in place of the prior open
+survivorship caveat; `STATUS.md`'s whole-grid FDR section and study-level-termination
+section updated; `REPORT.md`'s executive summary updated to reflect the study's
+first Tier-2 finding.
+
 ---
 
 ## M13 — Context conditioning (2026-09-21)

@@ -1,67 +1,63 @@
 # Moving-averages study — final report
 
-**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21. **Status:** study terminated per its own
-pre-registered criteria (`STATUS.md`'s "Study-level termination" section) — the
-minimal-core list (DESIGN §12: M1, M2, M4, M5, M6.2, M11, plus the §7.5 placebo) has
-run and been tiered, and the whole-grid FDR pass has executed against the
-deduplicated grid. **One module (M18) was added after termination**, via DESIGN
-§1.5's porous-scope rule, to test a candidate two independent post-termination Track A
-readings had flagged as the strongest unexplored feature in the whole study
-(`dist_from_52w_high`/`dist_from_52w_low`) — pre-registered, run, and folded into a
-re-run of the whole-grid FDR pass (N=31→35) rather than reported outside that
-discipline. **2026-09-21: the reversal-robustness check outstanding on M6.2's two
-Tier-3 cells was run** — `extension_x_slope`/SMA50/top survives essentially intact,
-`touch_x_slope`/SMA50/`from_above` does not (its CI now spans zero once reversal is
-matched out). Neither changes tier (both were already FDR-failed), but it changes the
-honest mechanism read for `touch_x_slope` specifically (§6). Does not change the
-study's overall verdict (§1, §4). Structure follows
-DESIGN.md §9.1 exactly. Every number below is sourced to `EXPERIMENTS.csv`,
-`FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
-not re-derive.
+**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21, 2026-09-23. **Status:** study
+terminated per its own pre-registered criteria (`STATUS.md`'s "Study-level
+termination" section) — the minimal-core list (DESIGN §12: M1, M2, M4, M5, M6.2, M11,
+plus §7.5) ran and was tiered, and the whole-grid FDR pass executed against the
+deduplicated grid. Four further modules were added post-termination via DESIGN
+§1.5's porous-scope rule (M18 on 2026-09-20; M6.1/M6.3/M7/M13 — "Batch 1" — on
+2026-09-22/23), each pre-registered and folded into a re-run of the whole-grid FDR
+pass rather than reported outside that discipline (N: 31→35→50). **The 2026-09-23
+re-run changed the study's headline for the first time**: 5 cells now survive
+Benjamini–Hochberg correction (1 at q=0.05), and one of them — `slope_pctile_21_sma_50`
+(M6.3) — was promoted to Tier 2 the same day once a decomposition test resolved its
+one open caveat. Full detail: §1, §4 below. Every number below is sourced to
+`EXPERIMENTS.csv`, `FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report
+synthesizes, it does not re-derive.
 
 ---
 
 ## 1. Executive summary
 
-**Zero claims survived to Tier 1 or Tier 2.** This is DESIGN §1.5's own anticipated
-negative-finish shape, not a shortfall: "if you end up with twenty Tier-1 claims, you
-have a bug in your controls, not a discovery" (§9.2) is the same logic applied at the
-other end — a study that pre-registers 35 independent tests and finds nothing that
-survives correction is reporting a real, informative null, not a failure to find one.
+**One claim reached Tier 2 ("Probable") — the study's first — and zero reached
+Tier 1.** DESIGN §1.5 expected 3–6 Tier-1/2 survivors from a study this size; landing
+at one, on 50 independent tests, is close to that band's floor rather than inside it,
+and is reported as such rather than rounded up or down.
 
-**Four cells reached Tier 3** (a real, CI-excluding-zero effect, capped short of
-Tier 1/2) — all four were then run through the whole-grid FDR pass and **none
-survived it**:
+**Tier 2 — `slope_pctile_21_sma_50` (M6.3).** Stocks with an extreme 50-day-SMA slope
+— rising or falling, either direction — outperform stocks with a flat one over the
+next 21 days, the opposite of the "some trend is good, too much is exhaustion" prior
+this module set out to test. C2 −0.248%, CI [−0.354%, −0.153%], clears cost at every
+reading. It survives every confound checked against it: a large-move exclusion, a
+short-term-reversal control, the whole-grid FDR pass (p=0.00005 — the smallest in the
+study, clearing even the stricter q=0.05 screen), and a rising-tail-only vs.
+falling-tail-only decomposition that ruled out a delisted-ticker survivorship
+artifact (both sides independently show the same effect: rising −0.254% CI
+[−0.429%, −0.085%], falling −0.244% CI [−0.413%, −0.096%]). Its only remaining gaps —
+an untested holdout period and a second universe tier — are missing infrastructure,
+not failures, which is exactly DESIGN §9.2's Tier-2 profile.
 
-1. **`stack_fully_bearish`** (M2): the full 4-MA bearish stack carries information
-   beyond a single MA's above/below state (M1). Incremental delta +1.06% per 21d,
-   90% CI [+0.42%, +1.74%], clears cost cleanly. Survives a reversal-robustness check
-   (attenuates ~32%, still real). **Fails FDR** (p = 0.0086 vs. its own rank-1
-   threshold of 0.0032).
-2. **`extension_x_slope`, SMA50 top decile** (M6.2): among already-extended stocks, a
-   *rising* 50-day predicts a *lower* forward return than a falling one. C2 −0.59%
-   per 21d, CI [−1.05%, −0.18%], clears cost. **Fails FDR** (p = 0.0254 vs. threshold
-   0.0226).
-3. **`touch_x_slope`, SMA50 `from_above`** (M6.2): a support test on a rising 50-day
-   holds *less* often than on a falling one — counter to "uptrends make pullbacks
-   safer." C2 −5.75pp, CI [−10.22pp, −1.94pp]. **Fails FDR** (p = 0.0223 vs.
-   threshold 0.0194). **Does not survive a reversal-robustness check** (run
-   2026-09-21, after the other three cells' own checks had already been run): with
-   `rev_tercile` added to C2, the delta attenuates ~40% and the CI spans zero
-   (−3.33pp, CI [−8.18pp, +1.25pp]) — the only one of this study's four Tier-3 cells
-   where the confound check itself flips the read from confirmed to inconclusive,
-   unlike `stack_fully_bearish`, `extension_x_slope`, and `dist_from_52w_low`@126d,
-   which all survive it. Already FDR-failed regardless, so this doesn't change the
-   study's headline, but it means the underlying mechanism claim for this cell
-   specifically is best read as substantially a short-term-reversal artifact, not a
-   real slope-conditioning effect.
-4. **`dist_from_52w_low`@126d** (M18, added post-termination): position further above
-   the trailing 252-day low predicts a *higher* forward return, beyond a
-   momentum/vol/sector-matched control. C2 +2.50%, CI [+1.10%, +4.02%], clears cost
-   at every reading, survives a reversal-robustness check essentially unattenuated.
-   **The smallest p-value in the study's entire grid (0.0047)** — and still **fails
-   FDR**, by the narrowest margin any cell in this study has come (1.64× its own
-   threshold, vs. the next-closest cell's 2.7×).
+**Four more cells clear FDR but stay at Tier 3, each for its own separate reason —
+not simply "FDR used to be missing and now isn't":**
+- **`stack_fully_bearish`** (M2, +1.06% incremental delta beyond a single MA's
+  above/below state, clears cost, survives a reversal check attenuated ~32%): capped
+  by DESIGN §7.3's pre-existing, explicit survivorship policy on weak/bearish-state
+  buckets.
+- **`ribbon_direction_magnitude`** (M7, compression predicts a bigger subsequent
+  |return|, −0.247%, clears cost): a magnitude effect, not a signed return — no
+  directional trading claim follows from it regardless of significance.
+- **`dist_from_52w_low`@126d** (M18, +2.50%, clears cost cleanly): the same
+  survivorship-adjacent concern as M6.3's cell above, but not yet resolved by a direct
+  test — an open item, not a closed one.
+- **`above_sma_20`** (M1): fails cost outright.
+
+**Two more Tier-3 cells (M6.2) do not survive FDR at all:** `extension_x_slope`
+(SMA50 top decile, −0.59%, clears cost, p=0.0254) and `touch_x_slope` (SMA50
+`from_above`, −5.75pp) — the latter also fails its own reversal-robustness check
+(attenuates ~40%, CI now spans zero), the only cell in this study where that check
+flips a result from confirmed to inconclusive.
+
+Full ranked table, per-cell reasoning, and the FDR pass's own methodology: §4 below.
 
 **The single cleanest result in the study is a negative one**: M5's touch/test/bounce
 module found **zero** distinguishable difference between price behavior at a real,
@@ -72,17 +68,17 @@ this ex-ante design, is folklore.**
 
 **The recurring shape across the whole study**: wherever a gross, uncontrolled effect
 looked real, it shrank sharply under date-matching (C1) and further under
-momentum/vol/sector matching (C2) — and every one of the handful of cells whose
-shrunk C2 effect still excluded zero either failed a realistic 10bps-round-trip cost
-hurdle (M4's three SMA20 facets, M1's lb20/lb50, M11's SMA20 cells at 21d/63d,
-M18's `dist_from_52w_low`@63d) or, for the four that did clear cost, failed the FDR
-correction described above. `dist_from_52w_high` (M18) is the cleanest instance of the
-first half of this pattern in the whole study: two independent, uncontrolled Track A
-readings (an OLS attribution coefficient, a raw IC screen) both found a real-looking
-gross effect, and it vanished entirely — not just shrank — under C2 matching. **The
-MA-state family in this study is mostly a re-encoding of momentum, and what residual
-signal survives control-matching mostly does not survive being one hypothesis among
-many.**
+momentum/vol/sector matching (C2). Most of the cells whose shrunk C2 effect still
+excluded zero then failed a realistic 10bps-round-trip cost hurdle (M4's three SMA20
+facets, M1's lb20/lb50, M11's SMA20 cells at 21d/63d, M18's `dist_from_52w_low`@63d).
+Among the handful that cleared cost too, most still failed FDR — but not all: one
+(§1's Tier-2 finding above) survived every check run against it. `dist_from_52w_high`
+(M18) is the cleanest instance of the pattern's harshest form: two independent,
+uncontrolled Track A readings (an OLS attribution coefficient, a raw IC screen) both
+found a real-looking gross effect, and it vanished entirely — not just shrank — under
+C2 matching. **The MA-state family in this study is mostly a re-encoding of momentum;
+what survives control-matching mostly does not survive being one hypothesis among
+many — with one confirmed exception.**
 
 ---
 
@@ -191,7 +187,7 @@ re-encoded as "above/below the MA."
 | cell | standalone C2 | incremental vs. `above_sma_50` | cost hurdle | verdict |
 |---|---|---|---|---|
 | `stack_fully_bullish` | −0.064% [−0.202%, +0.067%] | +0.013% [−0.066%, +0.087%] | 1.426%/yr | fails both |
-| `stack_fully_bearish` | +0.474% [+0.161%, +0.776%] | **+1.055% [+0.419%, +1.740%]** | 0.286%/yr | clears cleanly, **fails FDR** |
+| `stack_fully_bearish` | +0.474% [+0.161%, +0.776%] | **+1.055% [+0.419%, +1.740%]** | 0.286%/yr | clears cleanly, **survives FDR as of the 2026-09-23 N=50 re-run (§4), capped at Tier 3 by DESIGN §7.3's survivorship policy instead** |
 
 ### M6.2 — C1 vs. C2, within-state/decile/touch restriction
 
@@ -222,48 +218,74 @@ functions of roughly the trailing year's price path).
 ## 4. Whole-grid FDR pass — full result
 
 Full methodology, per-module deduplication table, and reasoning:
-`STATUS.md`'s "Whole-grid FDR pass" section (originally run 2026-09-17 at N=31,
-re-run 2026-09-20 at N=35 once M18 was added — the 2026-09-17 cells' own p-values are
-unchanged, only the ranks/thresholds shift). Summary:
+`STATUS.md`'s "Whole-grid FDR pass" section (run 2026-09-17 at N=31, re-run
+2026-09-20 at N=35 once M18 was added, re-run again 2026-09-23 at N=50 once Batch 1 —
+M6.1, M6.3, M7, M13 — was added; each pass's own prior cells keep their p-values
+unchanged, only the ranks/thresholds shift as the denominator grows). **Current
+(2026-09-23) summary:**
 
-- **N_tests = 35**, deduplicated from a naive raw sum that would exceed 125 once
-  every module's own mirrors (M1: 6→3), correlated facets (M4: 9→5, using the
-  2026-09-16 Track A sweep's own `dist_pct`/`dist_atr`/`dist_z` correlation numbers),
-  cross-module duplicates (M11: 2 cells traced as exact recomputations of M4's own
-  C2 spread; §7.5: 2 of 3 groups' focal cells are bit-exact duplicates of M4's own
-  `dist_pct_sma_50`/`dist_pct_sma_200`), and no-CI descriptive statistics (M2's 8
-  ablation coefficients) are accounted for. M18's 4 cells (checked for redundancy
-  against each other, 0.4677 correlation, not against anything else — no other module
-  tests this feature) add 4 more, all counted.
+- **N_tests = 50**, deduplicated from a naive raw sum that would run well past 140 once
+  every module's own mirrors, correlated facets, cross-module duplicates, no-CI
+  descriptive statistics, and robustness-check companion rows are accounted for (full
+  per-module dedup table: `STATUS.md`). Batch 1 contributes 15 net new cells: M6.1's 4
+  lookback cells (cross-lookback correlation checked directly, 0.35–0.88, below this
+  study's own 0.89 redundancy bar), M6.3's 3 primary cells, M7's 4 (of 5 declared — two
+  vol-expansion readings merged as the same hypothesis tested two ways), and M13's 4.
 - **`stats/multiple_testing.py::p_value_from_ci`** backs out a two-sided Wald
   p-value from each cell's already-computed 90% CI (a labeled normal approximation —
   this study's bootstrap functions don't archive raw per-cell draws, so an exact
   empirical p-value isn't available without rebuilding every module's pipeline).
-- **Result: 0 of 35 rejected at q = 0.10, 0 of 35 at q = 0.05.** 11 of 35 cells
-  individually clear the *uncorrected* p < 0.10 bar; the smallest p-value in the
-  entire grid (0.0047, M18's `dist_from_52w_low`@126d) is still 1.64× its own rank-1
-  BH threshold (0.0029) — closer than any other cell in this study has come (the
-  prior closest, `stack_fully_bearish` at 2.7×, is now rank 2), but still not a
-  close call in absolute terms.
-- **This is the most generous-to-survivors count achievable** from this study's own
-  stated independence findings — every deduplication decision *raises* the
-  remaining tests' thresholds. A less-deduplicated reading would fail by a wider
-  margin, not a narrower one.
+- **Result: 5 of 50 rejected at q = 0.10, 1 of 50 at q = 0.05.** This is a change from
+  every prior pass in this study (all found zero survivors). `slope_pctile_21_sma_50`
+  (M6.3) anchors the result at p=0.00005 — four orders of magnitude under its own
+  rank-1 threshold, and the only survivor that also clears q=0.05. Its very small
+  p-value sweeps four more cells into BH's rejection set via the step-up rule, three of
+  which (`dist_from_52w_low`@126d, `ribbon_direction_magnitude`, `stack_fully_bearish`)
+  do *not* individually clear their own rank's threshold in isolation — standard,
+  correct BH behavior, not an error, but worth naming because it means those three
+  survive on the grid's overall composition rather than on their own margin the way
+  rank 1 and rank 5 (`above_sma_20`) do.
+- **Stress-tested (2026-09-23) against three alternative reasonable dedup counts**
+  (N=47, 50, 51): identical 5-cell survivor set and identical rank-1 p-value every
+  time — the result is not an artifact of this pass's specific dedup judgment calls.
+- **One of the 5 survivors — `slope_pctile_21_sma_50` (M6.3) — reaches Tier 2**, the
+  first in this study's history: it clears DESIGN §9.2's full bar (C2, FDR, cost),
+  and a same-day rising-tail-only vs. falling-tail-only decomposition resolved its one
+  open caveat (delisted-ticker survivorship exposure in the falling tail) by direct
+  test rather than analogy — both tails independently show the same effect. **The
+  other 4 stay at Tier 3**, each for its own independent reason: cost failure
+  (`above_sma_20`), DESIGN §7.3's pre-existing survivorship cap (`stack_fully_bearish`),
+  a magnitude-vs-signed-return actionability gap (`ribbon_direction_magnitude`), or the
+  same kind of survivorship-cap concern as M6.3's cell but not yet resolved by a direct
+  test (`dist_from_52w_low`@126d). Full per-cell reasoning: `FINDINGS.md`'s 2026-09-23
+  addenda on each cell.
 
-| rank | cell | p-value | BH threshold | reject? |
+| rank | cell | p-value | BH threshold (rank/50×0.10) | reject q=0.10? |
 |---|---|---|---|---|
-| 1 | M18 `dist_from_52w_low`@126d | 0.0047 | 0.0029 | no |
-| 2 | M2 `stack_fully_bearish` | 0.0086 | 0.0057 | no |
-| 3 | M1 `above_sma_20` | 0.0090 | 0.0086 | no |
-| 4 | M11 `dist_pct_sma_20_h5` | 0.0135 | 0.0114 | no |
-| 5 | M4 `dist_pct_sma_20_h21` | 0.0170 | 0.0143 | no |
-| 6 | §7.5 `placebo_ema21_h21` | 0.0200 | 0.0171 | no |
-| 7 | M6.2 `touch_x_slope` SMA50 `from_above` | 0.0223 | 0.0200 | no |
-| 8 | M6.2 `extension_x_slope` SMA50 top | 0.0254 | 0.0229 | no |
-| 9 | M1 `above_sma_50` | 0.0521 | 0.0257 | no |
-| 10 | M18 `dist_from_52w_low`@63d | 0.0667 | 0.0286 | no |
-| 11 | M1 `above_sma_200` | 0.0987 | 0.0314 | no |
-| 12–35 | (remaining 24 cells) | 0.11–0.95 | — | no |
+| 1 | M6.3 `slope_pctile_21_sma_50` | 0.00005 | 0.0020 | **yes — Tier 2** |
+| 2 | M18 `dist_from_52w_low`@126d | 0.0047 | 0.0040 | **yes**\* |
+| 3 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0060 | **yes**\* |
+| 4 | M2 `stack_fully_bearish` | 0.0086 | 0.0080 | **yes**\* |
+| 5 | M1 `above_sma_20` | 0.0090 | 0.0100 | **yes** |
+| 6 | M11 `dist_pct_sma_20_h5` | 0.0135 | 0.0120 | no |
+| 7 | M4 `dist_pct_sma_20_h21` | 0.0170 | 0.0140 | no |
+| 8 | §7.5 `placebo_ema21_h21` | 0.0200 | 0.0160 | no |
+| 9 | M6.2 `touch_x_slope` SMA50 `from_above` | 0.0223 | 0.0180 | no |
+| 10 | M6.3 `slope_pctile_21_sma_200` | 0.0242 | 0.0200 | no |
+| 11 | M6.2 `extension_x_slope` SMA50 top | 0.0254 | 0.0220 | no |
+| 12 | M13 `context_vix_bottom` | 0.0286 | 0.0240 | no |
+| 13 | M13 `context_breadth_top` | 0.0381 | 0.0260 | no |
+| 14 | M1 `above_sma_50` | 0.0521 | 0.0280 | no |
+| 15 | M18 `dist_from_52w_low`@63d | 0.0667 | 0.0300 | no |
+| 16 | M6.3 `slope_pctile_21_sma_20` | 0.0826 | 0.0320 | no |
+| 17 | M1 `above_sma_200` | 0.0987 | 0.0340 | no |
+| 18–50 | (remaining 33 cells) | 0.11–0.95 | — | no |
+
+\*Ranks 2–4 do not individually clear their own rank's threshold — rejected only
+because rank 5 does, and BH's step-up rule rejects every hypothesis up to and
+including the largest rank that clears its own threshold. See `STATUS.md` for the
+full discussion of why this matters for how much confidence to place in each of the
+5 survivors individually.
 
 ---
 
@@ -272,6 +294,14 @@ unchanged, only the ranks/thresholds shift). Summary:
 Only modules actually run are detailed; the rest of DESIGN's M1–M17 list was never
 attempted (out of the minimal-core scope DESIGN §12 defines) and is listed at the end
 for completeness.
+
+**Pending as of 2026-09-23**: this section, §6 (Suggestive findings), §7 (Dead-ends
+register), and §8 (Cost-sensitivity appendix) still describe the study as of
+2026-09-21 and have not yet been rewritten to add full narrative entries for Batch 1's
+four post-termination modules (M6.1, M6.3, M7, M13). §1 and §4 above are current and
+authoritative for the whole-grid FDR result and its consequences; for these four
+modules' own full results in the meantime, see `STATUS.md`'s "Modules run" table and
+`FINDINGS.md`'s per-cell entries — both are current as of 2026-09-23.
 
 **M1 — Baseline state conditioning.** Above/below SMA{20,50,200} state, C0/C1/C2,
 block-bootstrap. lb20/lb50 → Tier 3 (real, CI-excluding effect, fails cost). lb200 →
@@ -596,18 +626,19 @@ this study to test a horizon other than 21d/5d/63d already covered by M11).
 **Synthetic validation gate:** `python -m src.signals.moving_averages.cli
 validate-synth` — must pass before any result here is trusted (CLAUDE.md). Passing
 as of every commit in this study's history (`tests/test_moving_averages_synthetic_validation.py`
-is part of the standard `pytest tests/test_moving_averages_*.py` suite, 174 tests,
-run and green before every commit in this study).
+is part of the standard `pytest tests/test_moving_averages_*.py` suite, ~197 tests
+as of 2026-09-23, run and green before every commit in this study).
 
-**Full pre-registered grid, `N_tests`:** 35 (deduplicated; see §4 — 31 from the
-minimal-core list, +4 from M18, added post-termination). Per-module raw declared
+**Full pre-registered grid, `N_tests`:** 50 as of 2026-09-23 (deduplicated; see §4 —
+31 from the minimal-core list, +4 from M18, +15 from Batch 1). Per-module raw declared
 counts and the full dedup reasoning: `STATUS.md`'s "Whole-grid FDR pass" section.
 
-**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (62
-logged rows across 8 modules + 2 whole-grid-FDR-pass summary rows, 2026-09-17 and
-2026-09-20), cross-referenced to `PREREGISTRATION.md`'s per-module entries
-(hypothesis/kill-criterion/scope, written and committed before each analysis ran) and
-`FINDINGS.md` (full narrative for every Tier 1–3 cell). `git log` on
+**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (89
+logged rows: 86 across 12 modules + 3 whole-grid-FDR-pass summary rows, as of
+2026-09-23),
+cross-referenced to `PREREGISTRATION.md`'s per-module entries (hypothesis/kill-
+criterion/scope, written and committed before each analysis ran) and `FINDINGS.md`
+(full narrative for every Tier 1–3 cell). `git log` on
 `docs/features/moving-averages/` and `src/signals/moving_averages/` gives the
 complete, dated build history.
 
