@@ -20,10 +20,8 @@ work (DESIGN §1.5) — model-input-feature candidates, not a reopening.
 ever to survive this study's whole-grid FDR pass (5 of 50 at q=0.10). Full detail is
 in `STATUS.md`, not repeated here.
 
-**One cleanup item still open**: the 4 Batch-1 worktrees/branches. Remove with
-`git worktree remove` (not `rm -rf`) once confirmed merged, then `git branch -d` +
-`git push origin --delete` for each: `m6-1-slope-vs-momentum`,
-`m6-3-slope-magnitude-shape`, `m7-ribbon-compression`, `m13-context-conditioning`.
+**Cleanup done (2026-09-23)**: all 4 Batch-1 worktrees/branches removed, PR #86
+(FDR consolidation) merged. Nothing left over from Batch 1 — Batch 2 starts clean.
 
 **Batch 2/3/4 scoping below is unchanged and still the reusable part of this file.**
 
