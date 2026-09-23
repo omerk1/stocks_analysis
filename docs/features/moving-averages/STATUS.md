@@ -7,42 +7,20 @@ current, for "what do we actually know and what's still open." Full detail alway
 in `PREREGISTRATION.md` (per-module narrative) and `EXPERIMENTS.csv` (per-cell numbers,
 every tested facet, whatever it found); this file points there rather than re-deriving.
 
-**Minimal-core list complete as of 2026-09-17** (M1, M2, M4, M5, M6.2, M11, plus §7.5 —
-every item on DESIGN §12's list has now been run at least once). **Whole-grid FDR pass
-also run, same day: 0 of 31 deduplicated tests survive at q=0.10 or q=0.05** (see
-"Whole-grid FDR pass" below — this was the study's headline result at termination).
-**Termination condition reached 2026-09-17** (see "Study-level termination" below);
-final report (`REPORT.md`) written the same week. **Post-termination: M18 added
-2026-09-20** (52-week high/low range, DESIGN §1.5's porous-scope rule — not part of
-the minimal-core list), and the whole-grid FDR pass re-run at N=35: **still 0
-survivors**, though M18 contributed the closest individual miss in the study
-(`dist_from_52w_low`@126d, 1.64× its own threshold). This does not reopen the study —
-see "Study-level termination"'s 2026-09-20 update below. **Resolved 2026-09-21:** the
-`rev_tercile`/`mom_1_0` reversal-robustness check on M6.2's two Tier-3 cells has now
-been run (`PREREGISTRATION.md`'s M6.2 reversal-robustness addendum). Moot for tier
-either way (both cells already FDR-failed) — but not moot for the underlying mechanism
-claim: **Finding 1 (`extension_x_slope`/SMA50/top) survives, essentially intact
-(~6.7% attenuation, CI still excludes zero). Finding 2 (`touch_x_slope`/SMA50/
-`from_above`) does not survive — its CI now spans zero once reversal is matched out**,
-the first reversal-robustness check in this study (vs. M2's `stack_fully_bearish`,
-M18's two `dist_from_52w_low` cells, which all survived) where the confound check
-actually flips a cell from confirmed to inconclusive. This weakens the "two
-independently constructed cells corroborate each other" reading the original M6.2
-write-up drew — see `FINDINGS.md`'s Finding 2 entry for the full account.
-**Post-termination Batch 1 (M6.1, M6.3, M7, M13) added and merged 2026-09-22/23**
-(DESIGN §1.5's porous-scope rule, `HANDOVER.md`'s 2026-09-21 triage) — see the four new
-rows in "Modules run" below. **Whole-grid FDR pass re-run at N=50, 2026-09-23: 5 of 50
-now survive at q=0.10 (1 at q=0.05) — the first survivors this study's own correction
-has ever produced.** Four of the five stay capped at Tier 3 for their own independent
-reasons (see "Whole-grid FDR pass" below). **The fifth — M6.3's
-`slope_pctile_21_sma_50` — was promoted to Tier 2, the first Tier-2 result in this
-study's history**, once a same-day rising-tail-only vs. falling-tail-only
-decomposition directly resolved its one open caveat (survivorship-bias exposure in
-the falling tail) rather than leaving it argued by analogy: both tails independently
-show the same effect (rising `−0.254%` CI `[−0.429%,−0.085%]`, falling `−0.244%` CI
-`[−0.413%,−0.096%]`), ruling it out. This changes the study's headline in a way none
-of its post-termination additions have before; see "Study-level termination"'s
-2026-09-23 update below.
+**Timeline (numbers live in the table and sections below, not repeated here):**
+- **2026-09-17** — minimal-core list complete (DESIGN §12: M1, M2, M4, M5, M6.2, M11,
+  §7.5); whole-grid FDR pass run (N=31, 0 survivors); termination condition reached
+  ("Study-level termination" below); `REPORT.md` written.
+- **2026-09-20** — M18 added post-termination (DESIGN §1.5); FDR re-run (N=35, still
+  0 survivors, but M18's `dist_from_52w_low`@126d is the closest individual miss in
+  the study to that point).
+- **2026-09-21** — M6.2's outstanding reversal-robustness check run: Finding 1
+  (`extension_x_slope`) survives; Finding 2 (`touch_x_slope`) does not (`FINDINGS.md`).
+- **2026-09-22/23** — Batch 1 (M6.1, M6.3, M7, M13) added post-termination
+  (`HANDOVER.md`), merged, and consolidated into a third FDR re-run (N=50). **First
+  survivors in the study's history (5 of 50 at q=0.10, 1 at q=0.05), and the first
+  Tier-2 result** (`slope_pctile_21_sma_50`/M6.3, resolved via a same-day tail
+  decomposition — see "Whole-grid FDR pass" below for the full account).
 
 ## Modules run
 
@@ -348,81 +326,14 @@ precedent for tier changes) — a dated addendum was added to each affected
 (`whole_grid_fdr_pass_2026_09_17`, `whole_grid_fdr_pass_2026_09_20`,
 `whole_grid_fdr_pass_2026_09_23`).
 
-**Historical record (trigger condition, now resolved):**
-
-**Trigger condition (2026-09-09, for reference):** the pass runs at whichever comes
-first —
-1. **Before any module is promoted above Tier 3.** Tier 2 requires "survives C2 and
-   FDR" (DESIGN §9.2) — that's not assignable without the correction having actually
-   run, so a Tier-2-or-above call on any facet is a hard trigger, not just a milestone.
-2. **Minimal-core completion** — once M2, M5, and M6.2 have also been attempted
-   (joining M1, M4, and now M11). **This is the condition that fired.**
-
-As part of that pass, both open dedup items below get resolved properly, not deferred
-again:
-- **M1's mirror collapse** — primary cells are 3 independent numbers, not 6 (already
-  found and verified bit-exact in M1's own entry; the pass needs to actually *consume*
-  this, not just cite it).
-- **M4's facet correlations, across all three lookbacks** — SMA20's 0.94–0.98
-  correlation between `dist_pct`/`dist_atr`/`dist_z` is checked (2026-09-09 addendum,
-  `PREREGISTRATION.md`); SMA50 and SMA200 are not yet checked at all. Both need the
-  same per-date Spearman check SMA20 got before M4's contribution to the correction
-  denominator can be trusted.
-
-**Per-module contribution as currently declared (raw, not deduplicated):**
-
-| Module | Declared N_tests | Known non-independence |
-|---|---|---|
-| M4 | 90 (bucket-level) / 9 (facet-level, the level kill was actually evaluated at) | SMA20's 3 normalisations are 0.94–0.98 correlated (found 2026-09-09) — **not corrected in M4's own entry.** SMA50/SMA200 unchecked. |
-| M1 | 30 | Primary 6 cells are exact mirrors → 3 independent. 24 run-length cells are nested inside their parent state cell, not additional independent tests. |
-| M11 | 5 | Already deduplicated at declaration — `dist_atr`/`dist_z` companions (0.94–0.98 correlated with `dist_pct_sma_20`) excluded from the count up front, not left for the whole-grid pass to catch. |
-| §7.5 | 3 (group-level) | Already deduplicated at declaration — the unit is the group (focal + its whole neighborhood), not the 11 individual lookback cells. |
-| M2 | 2 (part a primary) + 8 (part b attribution coefficients) | Part (a)'s 2 cells are declared independent (bullish/bearish are not mirrors of each other, unlike M1). Part (b)'s 256 subsets are explicitly not counted (DESIGN's own attribution framing) — only the 8 linear coefficients are. |
-| M5 | 6 (group × direction) | Declared independent at the group level, same convention as §7.5 (whose neighbor groups this module reuses directly) — a group × direction pair is one test, not one per lookback. |
-| M6.2 | 12 (3 sub-questions × 2 lookbacks × 2 facets) | Declared independent at declaration (rising-within-above and rising-within-below are different row populations, not algebraic mirrors the way M1's above/below pair turned out to be) — **not yet verified**, same caveat as M4's own unresolved correlation check; the FDR pass should confirm this before trusting the 12, not just cite the declaration. |
-| M18 | 4 (2 features × 2 horizons) | Checked at declaration (2026-09-20), not deferred: `dist_from_52w_high`/`dist_from_52w_low` per-date median Spearman = 0.4677 — not redundant. Not part of the minimal-core list; added post-termination (see "Modules run" above). |
-| M6.1 | 4 (lookback grid) | Checked during the 2026-09-23 whole-grid pass, not at declaration: `slope_log_21` cross-lookback median Spearman 0.35–0.88, below the 0.89 bar — kept independent. |
-| M6.3 | 3 (primary lookback grid) + 3 (excl-large-move) + 2 (reversal-robustness) declared, 3 counted | Robustness-companion rows excluded (same convention as M2/M6.2/M18's own reversal rows); cross-lookback correlation bounded via M6.1's own check. |
-| M7 | 5 declared, 4 counted | The two vol-expansion readings merged to 1 — same hypothesis, two match-column variants, an explicit internal-consistency check, not two independent tests. |
-| M13 | 4 (VIX/breadth tercile × top/bottom) | Disjoint subpopulations of M1's `above_sma_200` cell — restricted-subpopulation test, not a literal duplicate. |
-
-Every minimal-core module has contributed a row, plus M18 and Batch-1's four
-post-termination modules (M6.1, M6.3, M7, M13) — this table is complete against the
-2026-09-23 re-run.
-
-**This changes the 30 — and probably the 90 too.** Naively summing the raw declared
-counts (90 + 30 + 5 = 125, before any later module adds its own) overstates the actual
-number of independent hypothesis tests by a wide margin once every module's
-mirrors/companions/nesting are accounted for. M1's
-own entry already states its primary layer is 3 independent numbers, not 6, but the
-FDR pass hasn't been run against that reduced count — it's been reported, not consumed.
-M4 has never had the equivalent check run at all; the SMA20 finding strongly suggests it
-needs one before its 9 (or 90) enters any correction denominator. **The whole-grid pass,
-whenever it runs, needs to deduplicate each module's own contribution first** (per that
-module's own stated independence findings), not take each module's raw declared grid
-size at face value and sum them.
-
-**A second, distinct source of inflation in the naive 125, found 2026-09-10: cells
-aren't only non-independent *within* a module, some aren't independent *across*
-modules either.** M11's neutralized spread for `dist_pct_sma_20`/`dist_atr_sma_20`/
-`dist_z_sma_20`/`dist_pct_sma_50` (all at 21d) is a deterministic recomputation of
-M4's own C2 spread for those same (feature, lookback) pairs — traced at the code
-level, `block_bootstrap_spread` called with identical arguments in both modules (see
-the M11 row's non-independence note above). That's a different failure mode from the
-within-module mirror/nesting/correlation issues already tracked in the table above —
-those are about one module's own grid double-counting itself; this is about two
-modules' grids partially double-counting *each other*. The whole-grid pass needs to
-catch both, and the cross-module case is easy to miss precisely because it looks like
-independent corroboration (two modules, two different pre-registrations) rather than
-the same number twice.
-
-**Superseded 2026-09-17**: everything above this line in this section was written
-while the pass was still deferred — reasoning about *why* deduplication would matter,
-before actually doing it. The completed pass (top of this section) carries out exactly
-the two dedup items this historical record flags (M1's mirror collapse, M4's
-SMA50/SMA200 correlation check — resolved using the 2026-09-16 Track A sweep's own
-numbers) plus a third the record didn't yet know to look for (§7.5 vs. M4's bit-exact
-duplicate). Kept here for the reasoning trail, not as an open item anymore.
+**Historical note:** this section originally carried ~75 lines of pre-pass reasoning
+(written 2026-09-09, before the pass first ran) about *why* deduplication would
+matter — a trigger condition, a raw per-module N_tests table, and the cross-module
+double-counting concern that led to catching §7.5 vs. M4's bit-exact duplicate. All of
+it was superseded on 2026-09-17 once the actual pass (top of this section) carried it
+out; removed here as redundant with the completed dedup table above, not as a loss of
+any conclusion — every dedup decision that reasoning anticipated is reflected in that
+table.
 
 ## Study-level termination — when this is finished
 

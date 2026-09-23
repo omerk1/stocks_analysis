@@ -187,7 +187,7 @@ re-encoded as "above/below the MA."
 | cell | standalone C2 | incremental vs. `above_sma_50` | cost hurdle | verdict |
 |---|---|---|---|---|
 | `stack_fully_bullish` | −0.064% [−0.202%, +0.067%] | +0.013% [−0.066%, +0.087%] | 1.426%/yr | fails both |
-| `stack_fully_bearish` | +0.474% [+0.161%, +0.776%] | **+1.055% [+0.419%, +1.740%]** | 0.286%/yr | clears cleanly, **fails FDR** |
+| `stack_fully_bearish` | +0.474% [+0.161%, +0.776%] | **+1.055% [+0.419%, +1.740%]** | 0.286%/yr | clears cleanly, **survives FDR as of the 2026-09-23 N=50 re-run (§4), capped at Tier 3 by DESIGN §7.3's survivorship policy instead** |
 
 ### M6.2 — C1 vs. C2, within-state/decile/touch restriction
 
@@ -626,18 +626,19 @@ this study to test a horizon other than 21d/5d/63d already covered by M11).
 **Synthetic validation gate:** `python -m src.signals.moving_averages.cli
 validate-synth` — must pass before any result here is trusted (CLAUDE.md). Passing
 as of every commit in this study's history (`tests/test_moving_averages_synthetic_validation.py`
-is part of the standard `pytest tests/test_moving_averages_*.py` suite, 174 tests,
-run and green before every commit in this study).
+is part of the standard `pytest tests/test_moving_averages_*.py` suite, ~197 tests
+as of 2026-09-23, run and green before every commit in this study).
 
-**Full pre-registered grid, `N_tests`:** 35 (deduplicated; see §4 — 31 from the
-minimal-core list, +4 from M18, added post-termination). Per-module raw declared
+**Full pre-registered grid, `N_tests`:** 50 as of 2026-09-23 (deduplicated; see §4 —
+31 from the minimal-core list, +4 from M18, +15 from Batch 1). Per-module raw declared
 counts and the full dedup reasoning: `STATUS.md`'s "Whole-grid FDR pass" section.
 
-**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (62
-logged rows across 8 modules + 2 whole-grid-FDR-pass summary rows, 2026-09-17 and
-2026-09-20), cross-referenced to `PREREGISTRATION.md`'s per-module entries
-(hypothesis/kill-criterion/scope, written and committed before each analysis ran) and
-`FINDINGS.md` (full narrative for every Tier 1–3 cell). `git log` on
+**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (89
+logged rows: 86 across 12 modules + 3 whole-grid-FDR-pass summary rows, as of
+2026-09-23),
+cross-referenced to `PREREGISTRATION.md`'s per-module entries (hypothesis/kill-
+criterion/scope, written and committed before each analysis ran) and `FINDINGS.md`
+(full narrative for every Tier 1–3 cell). `git log` on
 `docs/features/moving-averages/` and `src/signals/moving_averages/` gives the
 complete, dated build history.
 
