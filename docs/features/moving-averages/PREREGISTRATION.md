@@ -3137,6 +3137,276 @@ regenerable from this module, not separately logged as CSV rows since they carry
 kill criterion of their own — same convention as this study's other purely-descriptive
 readouts, e.g. plateau checks).
 
+## M12 — Volume and liquidity interaction (2026-09-23)
+
+**Module / track:** M12, Track B. Not part of the original minimal-core list (DESIGN
+§12) — added post-termination via DESIGN §1.5's porous-scope rule, one of four
+parallel "Batch 2" post-termination modules (M3, M6.5, M6.6, M12 — `HANDOVER.md`'s own
+triage), each scoped to reuse existing infrastructure with no new shared machinery.
+
+**Promoted from:** DESIGN's own module list directly (line ~971), not a Track A
+candidate. DESIGN's text: "MA reclaims on above-average volume are more durable...
+interact key events with relative volume deciles, dollar-volume percentile, and
+VWMA-vs-SMA divergence (which measures whether volume is concentrated on up or down
+days)." Unlike most of DESIGN's other module entries, this one has **no literal kill
+criterion in DESIGN itself** — formulated here, before running anything, per CLAUDE.md's
+"before running any analysis" requirement.
+
+**Hypothesis (skeptical, matching this study's own default framing):** an MA reclaim
+(a state transition from below to above a given SMA — the first day of an `above`
+run, DESIGN §8's own state-run construction, reused unchanged from `features/state.py`)
+is not more durable when it occurs on above-average volume than when it occurs on
+below-average volume. "Durable" operationalized as (a) forward 21-day return
+(`fwd_ret_21`, this study's standard horizon) and (b) whether the reclaim still holds
+(state is still `above` 21 trading days later, a new forward-looking label — see
+"New machinery" below).
+
+**Scope decisions, stated up front:**
+- **Event population:** first day of an `above_sma_k` run at k ∈ {20, 50, 200} (M1's
+  own three primary lookbacks) — `state.state_run_id`/`state.days_in_run`, applied
+  directly to the cached panel's already-lagged `above_sma_k` column (safe: a uniform
+  one-day shift of a boolean series does not change its run structure, so recomputing
+  run-day-count on the already-lagged column gives the same "day 1 of the run" set as
+  computing it pre-lag and then shifting — the same relationship the cached
+  `run_length_bucket_sma_k` column already relies on, since it's computed pre-lag in
+  `features/panel.py::_build_ticker_features` and then centrally lagged alongside
+  `above_sma_k` by the same `apply_lag` call). Left-censored first runs (`run_id == 0`)
+  excluded, same convention as M1's own run-length censoring.
+- **Three sub-questions, DESIGN's own three named facets, each row-restricted to the
+  reclaim-event population above and each its own primary cell set:**
+  1. Relative-volume tercile (`features/liquidity.py::relative_volume`, 63-day trailing
+     average — same order of magnitude as `realized_vol_63`'s own window) — DESIGN's
+     primary named quantity ("above-average volume").
+  2. Dollar-volume percentile (`close * volume`, cross-sectional per-date decile via
+     `stats.controls.cross_sectional_bucket`, collapsed to top/bottom tercile for the
+     test itself, same "drop the middle" convention M13 used) — DESIGN's second named
+     quantity. Distinct from (1): dollar volume is a cross-sectional magnitude (how
+     liquid/large this name's trading is on this date, relative to the rest of the
+     universe that date), not a time-series ratio against the name's own history — not
+     assumed redundant with (1), not checked for correlation before declaring (small
+     grid, cheap to run both rather than spend the check).
+  3. VWMA-vs-SMA divergence (`features/liquidity.py::vwma` at the same lookback as the
+     reclaim's own SMA, `vwma_k / sma_k - 1`) — DESIGN's third named quantity, the
+     "is volume concentrated on up or down days" question. A positive divergence means
+     recent high-volume days traded above the SMA (buying pressure concentrated on
+     up-days); negative means the opposite.
+  4. **Not run this slice:** DESIGN doesn't ask for a fourth facet, but a natural
+     robustness check (does the relative-volume finding hold under an alternative
+     volume normalization) is deferred — dollar-volume-percentile (2) already serves as
+     a second, independently-motivated facet rather than a redundancy check of (1).
+- **Durability's secondary facet (hold-rate) is declared as a companion to
+  sub-question 1 only** (relative volume, DESIGN's own primary-named quantity), not
+  replicated for sub-questions 2/3 — same "one outcome per new sub-question, one
+  companion for the flagship" scope-control precedent M6.3 used (large-move-exclusion
+  companion on its own three primary cells only, not on every derived statistic).
+
+**New machinery:**
+- `features/liquidity.py`: `relative_volume`, `dollar_volume`, `vwma` — module-local,
+  minimal (VWMA's fuller kernel-family treatment is M8's, not built here; see that
+  file's own docstring). All three take raw per-ticker `close`/`volume` (the panel's
+  own un-lagged OHLCV columns) and return a same-bar value; lagging is the caller's job
+  (`modules/volume_liquidity.py::prepare`), same division of labor
+  `modules/stack_minervini.py`'s `rs_rating` join and `modules/context_conditioning.py`'s
+  `vix_tercile` join already use.
+- `modules/volume_liquidity.py::future_state`: a new forward-looking label (parallel to
+  `labels/forward_returns.py::forward_return`, not placed in that file since it's
+  boolean-state-specific, not return-specific) — `state_col` shifted `-horizon` rows
+  within each ticker, i.e. "what will this boolean state read `horizon` trading days
+  from now." A label, not a feature (CLAUDE.md invariant #2 constrains features used to
+  condition on a forward outcome; a label is allowed to look forward by construction,
+  same status as `forward_return`/`forward_realized_vol`).
+- Everything else reuses existing primitives unchanged: `features.state.state_run_id`/
+  `days_in_run` (event detection), `features.panel.apply_lag` (lagging the three new
+  raw features), `stats.controls.cross_sectional_bucket`/`c1_delta`, `stats.inference.
+  block_bootstrap_delta` (restrict-to-reclaim-population, then C1/C2 delta between the
+  volume-tercile halves — the same "restrict-then-delta" pattern
+  `modules/context_conditioning.py`/`modules/slope_conditioner.py` already use), `stats.
+  costs` (turnover measured as the reclaim-event rate itself, not a state-flip rate —
+  see "Cost annotation" below).
+
+**Method (per sub-question, per lookback k ∈ {20, 50, 200}):**
+1. Build the reclaim-event population at k (see "Event population" above).
+2. Bucket the relevant volume facet (relative volume / dollar volume / VWMA
+   divergence) into a per-date tercile across the **whole panel** (not just the
+   reclaim population — the same "compute the match/split column globally, then
+   restrict" order every other module in this study uses for its C2 match columns).
+3. Restrict to the reclaim population, then to top+bottom tercile rows of the facet
+   (middle dropped).
+4. `block_bootstrap_delta(group_col=is_top_tercile, value_col="fwd_ret_21",
+   match_cols=("mom_tercile","vol_tercile","sector"))` — the standard C2 spec,
+   unchanged; the facet under test is the group column, not a match column, so it does
+   not also appear in `match_cols`.
+5. Sub-question 1 only: repeat step 4 with `value_col="hold_{k}"` (the
+   `future_state`-derived 21-day-forward hold indicator) instead of `fwd_ret_21`.
+
+**Kill criterion:** per cell, `max(|ci_low|, |ci_high|) < 0.10%` — this study's
+standard floor (M1/M13's own threshold), inherited rather than invented, since this
+cell's statistic (a C2 delta between two row-restricted groups) is the same shape.
+Applied to the 9 counted primary cells (3 sub-questions × 3 lookbacks — see "Grid size"
+below): if **every** counted cell is killed, declare "volume-conditioning is
+uninformative for reclaim durability" and stop — the whole DESIGN-named hypothesis
+family, not sub-question-by-sub-question (a single surviving sub-question is enough to
+keep the module alive, same "any primary cell survives" logic M1's own
+`evaluate_kill_criterion` uses, generalized from 6 cells to 9). The hold-rate companion
+cells carry **no kill authority of their own** (secondary, same status as M1's
+run-length layer) — reported regardless of the primary kill verdict.
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+default, unchanged. The volume facet under test is a row restriction plus a
+group-column split on top of C2, not a replacement for it; reusing M1/M13's exact
+match-column set means this module's numbers are read on the same footing as every
+other conditional-effect cell in the study, not a bespoke control layer that would
+need its own justification.
+
+**Cost annotation:** DESIGN's own claim ("reclaims on above-average volume are more
+durable") is inherently about a subset of an already-existing signal (M1's own
+`above_sma_k` state), not a new tradeable entry rule on its own — so the turnover used
+for `costs.signals_per_year` is **not** M1's whole-population state-flip rate. Instead,
+for any cell with a CI excluding zero, cost is annotated using the *reclaim-event
+rate itself* (reclaims per ticker-year, at that lookback, restricted to the surviving
+facet's top-tercile population) as the turnover proxy — a labeled simplification (this
+measures how often the tradeable subset of reclaims occurs, not a full round-trip
+strategy's turnover, since there is no pre-registered exit rule here) rather than a
+literal strategy backtest, flagged the same way M13's regime-restricted turnover number
+was flagged as not accounting for regime-entry/exit turnover.
+
+**Grid size (`N_tests` contribution):** 9 primary cells (3 sub-questions × 3
+lookbacks) declared and counted. 3 hold-rate companion cells (sub-question 1 only)
+declared but **not** counted (secondary, no kill authority, same convention as M1's
+24 run-length cells and M6.3's large-move-exclusion companions).
+
+**Holdout:** unaffected — reuses the cached panel (`data/features/moving_averages/
+ma_panel/`, 2010-01-04→2021-12-31) unchanged; the new features are computed from that
+panel's own raw `close`/`volume` columns, never from data past the holdout boundary.
+
+### Result (2026-09-23)
+
+**Module-level kill criterion: does not fire.** Of the 9 counted primary cells, 2
+have a CI excluding zero (`dollar_volume`/SMA20, `dollar_volume`/SMA50) — not all 9
+are killed, so the module survives per PREREGISTRATION's own "any primary cell
+survives" rule. All 3 `relative_volume` cells and all 3 `vwma_divergence` cells are
+CI-spans-zero (inconclusive, not killed — edges of 0.25pp–1.65pp comfortably clear
+the 0.10% floor, so this is genuinely "no detected effect," not "too thin to tell").
+
+**The one surviving family (`dollar_volume`) points the OPPOSITE direction from
+DESIGN's own stated hypothesis.** DESIGN's text: "MA reclaims on above-average volume
+are more durable." The dollar-volume-tercile split shows the reverse: **reclaims in
+the bottom dollar-volume tercile outperform reclaims in the top dollar-volume tercile**
+on `fwd_ret_21` — i.e. *lower*-liquidity reclaims do better, not worse.
+
+**Full primary table** (`c2` = top-tercile mean minus bottom-tercile mean of
+`fwd_ret_21`, within that lookback's reclaim-event population):
+
+| sub_question | lookback | c2 | 90% CI | n_events | n_dates | n_tickers | CI excl. 0 |
+|---|---|---|---|---|---|---|---|
+| relative_volume | 20 | +0.056% | [−0.132%, +0.251%] | 24,168 | 2,637 | 402 | no |
+| dollar_volume | 20 | **−0.334%** | [−0.627%, −0.120%] | 22,712 | 2,589 | 369 | **yes** |
+| vwma_divergence | 20 | +0.041% | [−0.161%, +0.236%] | 20,511 | 2,487 | 402 | no |
+| relative_volume | 50 | −0.117% | [−0.430%, +0.184%] | 15,426 | 2,542 | 402 | no |
+| dollar_volume | 50 | **−0.870%** | [−1.381%, −0.402%] | 13,880 | 2,468 | 361 | **yes** |
+| vwma_divergence | 50 | +0.074% | [−0.422%, +0.583%] | 12,572 | 2,342 | 402 | no |
+| relative_volume | 200 | −0.071% | [−0.515%, +0.383%] | 7,268 | 2,177 | 402 | no |
+| dollar_volume | 200 | −0.433% | [−1.098%, +0.288%] | 6,199 | 2,033 | 338 | no |
+| vwma_divergence | 200 | −0.507% | [−1.655%, +0.662%] | 5,895 | 1,921 | 400 | no |
+
+**Plateau check (DESIGN §6.7):** `dollar_volume`'s point estimate is negative at
+**all three** lookbacks (−0.334%, −0.870%, −0.433%) — a real, consistent-direction
+plateau, not a lone bright pixel. But only SMA50's CI excludes zero cleanly; SMA20's
+does too before the reversal check below (and fails it); SMA200's spans zero outright
+(fewest events of the three, 6,199 — underpowered, not contradictory in sign).
+`relative_volume` and `vwma_divergence` show no consistent sign across lookbacks at
+all (relative_volume: +0.056%/−0.117%/−0.071%; vwma_divergence: +0.041%/+0.074%/
+−0.507%) — both read as genuinely flat, not a suppressed real effect.
+
+**Reversal-robustness check (2026-09-23, same day — this study's own standard
+follow-up once a cell survives default C2, M1/M2/M6.3/M18's precedent), run on the
+2 CI-excluding cells:**
+
+| cell | default C2 | +`rev_tercile` C2 | attenuation | still excludes 0? |
+|---|---|---|---|---|
+| dollar_volume/20 | −0.334% [−0.627%,−0.120%] | −0.178% [−0.562%,+0.137%] | ~46.6% | **no** |
+| dollar_volume/50 | −0.870% [−1.381%,−0.402%] | −0.574% [−1.132%,−0.069%] | ~34.0% | **yes** |
+
+`dollar_volume`/SMA20 does **not** survive — best read as substantially a
+short-term-reversal artifact (a name that just fell hard, landing in the low-price-
+times-volume tercile that day, mean-reverting over the next 21 days — exactly the
+`mom_1_0` confound this check exists to catch). `dollar_volume`/SMA50 **does**
+survive, attenuated but still CI-excluding-zero — a real, if partly
+reversal-adjacent, effect.
+
+**Argue against `dollar_volume`/SMA50 (CLAUDE.md's own requirement, not a
+formality):** this study's panel has **no point-in-time market-cap/size control**
+(`HANDOVER.md`'s own infrastructure inventory: "Not built: ... point-in-time
+`mktcap_decile`/`universe_flags`"). Dollar volume is strongly correlated with market
+cap — the bottom dollar-volume tercile is disproportionately small/micro-cap names.
+"Reclaims in the bottom dollar-volume tercile subsequently outperform" is at least as
+well explained by an uncontrolled small-cap/illiquidity return premium as by anything
+about volume validating an MA reclaim specifically — C2's `mom_tercile`/`vol_tercile`/
+`sector` match set does not touch size at all. This is the same shape of open caveat
+STATUS.md's whole-grid FDR pass already flags for `dist_from_52w_low`@126d and
+`slope_pctile_21_sma_50` (a weak/illiquid/beaten-down-adjacent population plausibly
+vulnerable to the delisted-ticker survivorship ceiling DESIGN §7.3 names for M1/M2) —
+extended here by analogy to a third mechanism (size), not resolved, since building a
+market-cap control is out of scope for this module (a new data-ingestion project, per
+`HANDOVER.md`'s own inventory).
+
+**Hold-rate companion (relative_volume only, 3 cells, no kill authority):**
+
+| lookback | c2 (pp) | 90% CI (pp) | n_events | n_dates | CI excl. 0 |
+|---|---|---|---|---|---|
+| 20 | +0.45pp | [−0.93pp, +1.71pp] | 24,168 | 2,637 | no |
+| 50 | +0.21pp | [−1.86pp, +2.27pp] | 15,426 | 2,542 | no |
+| 200 | **+3.35pp** | [+0.44pp, +6.37pp] | 7,268 | 2,177 | **yes** |
+
+At SMA200 only, a high-relative-volume reclaim is 3.35pp more likely to still hold
+21 trading days later than a low-relative-volume reclaim — the one cell in this
+module that supports DESIGN's literal hypothesis in the stated direction. Not a
+plateau (SMA20/SMA50 both flat) — read as a single-lookback mechanism result, not a
+family effect, same caveat this study applies to any lone significant cell among
+several flat neighbors, tempered here only by its being pre-declared as the flagship
+sub-question's own companion rather than a post-hoc pick.
+
+**Shape stats (CLAUDE.md invariant #10) for `dollar_volume`/SMA50:** top-tercile
+(event) side: hit rate 59.78% (C2 delta **−4.04pp** vs. bottom tercile), win/loss
+ratio 1.10, skew −0.15. Bottom-tercile (control) side: hit rate correspondingly
+higher, win/loss ratio 1.23, skew +0.16. **Unfavorable on every shape axis for the
+high-dollar-volume side**, not just the mean — internally consistent with the
+negative mean delta, same "every axis agrees" read this study gave
+`stack_fully_bearish`'s own (favorable) shape profile. Not computed for the
+hold-rate companion cell — a boolean 0/1 outcome has no meaningful win/loss magnitude
+ratio or skew beyond the hit rate itself, which the reported C2 delta already *is*.
+
+**Cost annotation** (`dollar_volume`/SMA50 only — the sole cell both CI-excluding-zero
+and durability-claiming after the reversal check; `dollar_volume`/SMA20 is excluded
+per this addendum's own reversal-robustness finding, and the hold-rate cell is a
+mechanism read, not a return claim, same "cost n/a" convention as M5/M6.2's touch
+cells): turnover proxy = reclaim-event rate in the top-tercile-restricted population
+(PREREGISTRATION's own pre-committed convention, not M1's whole-population flip
+rate) = 13,880 events / 4,771.25 ticker-years = 2.909 events/ticker-yr → hurdle
+0.291%/yr (`costs.py`, 10bps/rt). Annualized (×12, this study's standard linear
+approximation): point **−10.44%/yr**, near edge **−4.82%/yr**, far edge
+**−16.57%/yr** — **clears at every reading**, by a wide margin.
+
+**Tier:**
+- **`dollar_volume`/SMA50 (fwd_ret_21): Tier 3.** CI excludes zero at default C2,
+  survives (attenuated) reversal-robustness, clears cost cleanly at every reading.
+  Capped by this study's standard missing FDR/holdout infrastructure, same as every
+  other Tier-3 cell — pending the coordinating session's next whole-grid FDR re-run.
+  Open caveat: the uncontrolled size/liquidity confound argued above.
+- **`dollar_volume`/SMA20 (fwd_ret_21): Tier 4.** CI excludes zero at default C2 but
+  does not survive the reversal-robustness check — best read as a short-term-reversal
+  artifact, not tiered as a finding. Reported in full above rather than silently
+  dropped (this study's own "report the result, not just the verdict" rule).
+- **`relative_volume`/SMA200 hold-rate (companion): Tier 3, mechanism read, no cost.**
+  CI excludes zero, real, single-lookback effect supporting DESIGN's literal
+  hypothesis on the "does it hold" facet specifically.
+- **Every other cell (11 of 14 declared): Tier 4** — CI spans zero, no detected
+  effect, well-powered (`below_threshold=False` on every cell).
+
+**Logged:** `EXPERIMENTS.csv` (14 rows — 9 primary + 3 hold-rate companion + 2
+reversal-robustness); `FINDINGS.md` (2 entries: `dollar_volume`/SMA50,
+`relative_volume` hold-rate/SMA200).
+
 ## M6.6 — Slope agreement across the ribbon (2026-09-23)
 
 **Module / track:** M6.6, Track B (DESIGN.md, "M6.6 — Slope agreement across the
