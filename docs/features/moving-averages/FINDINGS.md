@@ -858,3 +858,252 @@ DESIGN's own prior. `ribbon_direction_conditional_on_trend` is also inconclusive
 notably **not** confirming DESIGN's own stated prior that trend-conditional direction
 should show more signal than unconditional direction; stated plainly as a partial
 disconfirmation of that prior, not smoothed over.
+
+---
+
+## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
+
+DESIGN's own hypothesis for this module was "humped" (middle-magnitude slope beats
+extreme slope, "some trend is good, too much is exhaustion"). **All three lookbacks
+found the opposite: a U-shape.** Two logged deviations from DESIGN's literal method
+text shape all three entries below — `slope_atr_21` was not built (a price-unit slope
+that conflicts with CLAUDE.md invariant #7); `slope_pctile_21` (cross-sectional rank of
+the existing log-scale `slope_log_21_sma_k`) is used instead. The "earnings-excluded
+companion" DESIGN asks for is a proxy (`recent_large_move`, a large-single-day-move
+exclusion flag) — no earnings-date table exists anywhere in this repo's DB. Full
+scope, method, and deviation rationale: `PREREGISTRATION.md`'s M6.3 entry.
+
+### `slope_pctile_21_sma_50` — middle vs. tails, 21d
+
+**Hypothesis:** forward 21-day return differs between stocks in the middle deciles
+(4, 5) of `slope_pctile_21_sma_50` and stocks in the pooled tail deciles (0, 1, 8, 9).
+
+**Why it was plausible:** DESIGN's own module (predicted humped, not U-shaped) —
+tested here as a genuine open question, not assumed in advance.
+
+**What was run:** `stats.inference.block_bootstrap_delta` (block length 42, 500
+draws, 90% CI), `group_col=is_middle`, `value_col=fwd_ret_21`, restricted first to
+only the middle+tail decile rows, C2 match columns unchanged
+(`mom_tercile`/`vol_tercile`/`sector`) — the same restrict-then-delta primitive
+M6.2's own sub-questions use.
+
+**The number:** C2 delta (middle minus tails) **−0.248%** per 21d, 90% CI
+**[−0.354%, −0.153%]** — excludes zero. Read: stocks with the steepest slope
+magnitude, rising *or* falling, outperform stocks with the flattest slope — the
+opposite of "some trend is good, too much is exhaustion."
+
+**Effective N:** 219,700 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** combined `is_middle` state-flip turnover (`stats/costs.py::signals_per_year`,
+same convention as M1): 7.691 flips/ticker-yr → hurdle 0.769%/yr. Annualized (×12):
+point −2.976%/yr, near edge −1.833%/yr, far edge −4.248%/yr — **clears at every
+reading.** This study's fifth cost-clearing Tier-3 cell (alongside `stack_fully_bearish`
+/M2, `extension_x_slope`-SMA50/M6.2, `dist_from_52w_low`@126d/M18, and this module's own
+SMA200 cell below).
+
+**Robustness (recent-large-move-excluded companion):** −0.264%, CI [−0.376%, −0.168%]
+— survives essentially unattenuated (if anything slightly larger). Recent large
+single-day moves are not the driver of this cell's effect.
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
+in this study carries; clearing cost and the large-move-exclusion check doesn't lift
+it. **Not yet run through the whole-grid FDR pass** (pending re-entry — see
+`PREREGISTRATION.md`).
+
+**Reversal-robustness (2026-09-22 addendum):** C2 + `rev_tercile` (prior-1-day-return
+tercile, `modules/slope_conditioner.py`'s own `C2_MATCH_COLS_WITH_REVERSAL`
+construction): **−0.283%**, CI **[−0.389%, −0.175%]** (n_events/n_dates unchanged,
+219,700/2,747). The point estimate is ~13.9% *larger* in magnitude than the default-C2
+number, not smaller, and the CI still excludes zero by a wide margin. **Survives —
+if anything strengthened, not explained by short-term reversal.** Full detail:
+`PREREGISTRATION.md`'s M6.3 reversal-robustness addendum.
+
+**What would change the verdict:** the whole-grid FDR pass; a holdout check. (The
+reversal-robustness check above is now resolved — this cell is the module's
+reversal-robust survivor, unlike the SMA200 cell below.)
+
+**Plateau check:** same sign as SMA20 and SMA200 (below) — not a lone bright pixel on
+the headline sign — but the *shape* is not uniform across lookbacks: SMA50/200 are
+roughly symmetric (both tails elevated), SMA20 is asymmetric (falling-tail-driven) and
+does not survive its own large-move-exclusion check. See `PREREGISTRATION.md`'s
+per-decile `shape_table` numbers for the full picture.
+
+### `slope_pctile_21_sma_200` — middle vs. tails, 21d
+
+**Hypothesis / what was run:** identical construction to the SMA50 cell above, at
+lookback 200.
+
+**The number:** C2 delta **−0.193%** per 21d, 90% CI **[−0.337%, −0.056%]** —
+excludes zero.
+
+**Effective N:** 219,731 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** turnover 3.819 flips/ticker-yr → hurdle 0.382%/yr. Annualized (×12): point
+−2.313%/yr, near edge −0.668%/yr, far edge −4.044%/yr — **clears at every reading.**
+This study's sixth cost-clearing Tier-3 cell.
+
+**Robustness (recent-large-move-excluded companion):** −0.169%, CI [−0.312%, −0.030%]
+— survives with modest attenuation. Recent large single-day moves are a partial but
+not dominant contributor.
+
+**Tier:** 3 — same infrastructure cap as every Tier-3 cell in this study. **Not yet
+run through the whole-grid FDR pass.**
+
+**Reversal-robustness (2026-09-22 addendum) — does not survive.** C2 + `rev_tercile`:
+**−0.038%**, CI **[−0.198%, +0.120%]** (n_events/n_dates unchanged, 219,731/2,747) —
+attenuates ~80.5% from the default-C2 point estimate and **the CI now spans zero**.
+Unlike the SMA50 cell above, this cell's gross number is now best read as
+substantially, not just partially, a short-term-reversal artifact — the
+falling-tail/bounce mechanism named as a live alternative at pre-registration
+substantially accounts for it. Does not change the tier (already Tier 3, already
+pending the same whole-grid FDR re-entry as every other cell here) but materially
+weakens confidence in the underlying "slope magnitude, not just direction, matters at
+SMA200" mechanism claim. Full detail: `PREREGISTRATION.md`'s M6.3 reversal-robustness
+addendum.
+
+**What would change the verdict:** already resolved unfavorably by the check above;
+a holdout check remains open but is now secondary to the reversal read.
+
+**Plateau check:** same sign as SMA20/SMA50; roughly symmetric tail shape like SMA50,
+unlike SMA20.
+
+### `slope_pctile_21_sma_20` — middle vs. tails, 21d (fails cost and its own
+robustness check — reported in full per this study's own convention that a cost- or
+robustness-failing Tier-3 cell still gets a complete entry, same as M4's
+`dist_pct_sma_20`@21d)
+
+**Hypothesis / what was run:** identical construction to the SMA50/200 cells above, at
+lookback 20.
+
+**The number:** C2 delta **−0.117%** per 21d, 90% CI **[−0.229%, −0.006%]** —
+excludes zero, clears the 0.10% kill floor.
+
+**Effective N:** 219,654 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** turnover 13.365 flips/ticker-yr (by far the highest of the three lookbacks)
+→ hurdle 1.337%/yr. Annualized (×12): point −1.408%/yr (clears), near edge −0.075%/yr
+— **fails** — far edge −2.743%/yr (clears). **Fails on the CI-based test.**
+
+**Robustness (recent-large-move-excluded companion): does not survive.** −0.117%, CI
+**[−0.237%, +0.001%]** — the CI now spans zero, the only one of the three lookbacks
+where the large-move exclusion flips the read. Read: this cell's gross effect looks
+substantially driven by exactly the gap-contamination mechanism DESIGN's own "watch
+for" line named for this module, not a real U-shape distinguishable from that
+confound.
+
+**Tier:** 3 on the literal CI-excludes-zero kill rule, but functionally the weakest
+cell in this module — fails cost *and* fails its own robustness companion, unlike
+SMA50/200 which pass both. Not promoted to the same standing as its siblings.
+
+**Argue against this result:** the large-move-exclusion failure above is itself the
+strongest argument against treating this as a real effect — it isn't a live,
+unresolved caveat here, it's a check that was run and failed.
+
+**What would change the verdict:** nothing pre-registered in this pass would rescue
+this cell — its own robustness companion already killed the confound-free reading.
+
+**Plateau check:** same sign as SMA50/200 (middle underperforms tails), but the shape
+is asymmetric — concentrated on the falling side (decile 0 = +0.104%, decile 1 =
++0.125%) with the rising side barely positive to negative (decile 8 = −0.062%, decile
+9 = +0.015%, per `PREREGISTRATION.md`'s `shape_table` numbers) — a different shape
+from SMA50/200's roughly symmetric U, not just a noisier version of the same one.
+
+---
+
+## M13 — Context conditioning (2026-09-22)
+
+Post-termination module, one of a batch of parallel Batch-1 modules scoped and run
+independently (see `PREREGISTRATION.md`'s M13 entry for the full hypothesis/method/
+kill-criterion statement). Both entries below carry an unusually strong "read this
+skeptically" framing in their own text, not as a hedge but as the entry's actual
+honest reading of the evidence — see "Why this probably isn't real" in each.
+
+### `above_sma_200`, restricted to VIX bottom tercile ("low-VIX regime")
+
+**Hypothesis:** M1's own `above_sma_200` conditional effect on `fwd_ret_21` differs
+materially in a low-VIX regime (bottom trailing tercile of FRED's `VIXCLS`, 252-day
+rolling window) vs. the whole-sample baseline.
+
+**What was run:** `block_bootstrap_delta(group_col="above_sma_200",
+value_col="fwd_ret_21", match_cols=("mom_tercile","vol_tercile","sector"))` — M1's own
+C2 spec, unchanged — restricted to rows where a trailing 252-day rolling VIX
+percentile rank falls in the bottom tercile.
+
+**The number(s):** C2 delta **−0.318%** per 21d, 90% CI **[−0.551%, −0.073%]** —
+excludes zero.
+
+**Effective N:** 392,184 rows, 1,195 distinct dates, 402 tickers.
+
+**Cost:** turnover (above_sma_200 flip rate within this regime-restricted population)
+6.894 flips/ticker-yr → hurdle 0.689%/yr (`stats/costs.py`, 10bps/rt — a labeled
+simplification, does not additionally count regime-entry/exit turnover). Annualized
+(×12): point −3.82%/yr, near edge −0.87%/yr, far edge −6.61%/yr. **Clears at every
+reading, but barely** — the near-edge margin over the hurdle is under 0.2pp/yr.
+
+**Tier:** 3, by this study's own mechanical convention (CI excludes zero, clears
+cost → Tier 3, capped by missing FDR/holdout infrastructure). **Pending whole-grid
+FDR re-entry** — not run in this module's own pass; the coordinating session re-runs
+the whole-grid pass once, after every parallel Batch-1 module lands.
+
+**Why this probably isn't real (the actual honest read, not a formality):** M1's own
+`above_sma_200` whole-sample cell already has a CI that "touches zero" and carries
+this study's most heavily flagged SMA200 anomaly (`STATUS.md`'s cross-module SMA200
+watch). This cell's point estimate (−0.318%) is the same sign and same order of
+magnitude as that whole-sample number (−0.215%) — not a larger, distinctly
+regime-driven effect, just ordinary sampling variation around an already-small,
+already-borderline number, exposed by restricting to one half of a binary regime
+split. Splitting a near-zero cell into independent binary facets and finding that
+*some* of the resulting buckets' CIs exclude zero is close to the base-rate outcome
+that kind of slicing produces on its own — exactly the shape DESIGN's own
+multiple-testing discipline exists to catch. Shape stats reinforce this reading only
+partially: hit rate 57.09% (C2 delta −0.81pp, consistent direction with the mean),
+win/loss ratio 1.11, skew +0.30.
+
+**What would change the verdict:** the whole-grid FDR pass (very likely to kill this,
+given the reasoning above); a formal delta-of-deltas test against the whole-sample or
+opposite-bucket estimate (not built this slice, see `PREREGISTRATION.md`'s kill-
+criterion section); a holdout check.
+
+### `above_sma_200`, restricted to breadth top tercile ("high-breadth regime")
+
+**Hypothesis:** M1's own `above_sma_200` conditional effect on `fwd_ret_21` differs
+materially in a high-breadth regime (top trailing tercile of `pct_above_sma_200`,
+the U1 universe's own cross-sectional breadth, 252-day rolling window) vs. the
+whole-sample baseline.
+
+**What was run:** identical construction to the VIX cell above, restricted instead to
+rows where the trailing rolling percentile rank of daily cross-sectional breadth
+falls in the top tercile.
+
+**The number(s):** C2 delta **−0.388%** per 21d, 90% CI **[−0.690%, −0.074%]** —
+excludes zero.
+
+**Effective N:** 298,354 rows, 882 distinct dates, 402 tickers.
+
+**Cost:** turnover 6.404 flips/ticker-yr → hurdle 0.640%/yr. Annualized (×12): point
+−4.66%/yr, near edge −0.88%/yr, far edge −8.28%/yr. **Clears at every reading, but
+barely** — same shape as the VIX cell above.
+
+**Tier:** 3, same mechanical convention and same FDR-pending status as the VIX cell
+above.
+
+**Why this probably isn't real:** the same argument as the VIX cell above applies in
+full — same sign, same order of magnitude as M1's own whole-sample −0.215%, most
+plausibly the same weak baseline effect exposed by regime-slicing rather than a
+distinct high-breadth mechanism. Shape stats here are *less* consistent with a
+coherent story than the VIX cell's: hit rate 57.72% but the **hit-rate C2 delta is
+essentially zero/slightly positive (+0.15pp)** despite a negative mean delta — a
+"more frequent small losses, not fewer wins" shape isn't what the hit-rate number
+shows, which argues against reading this as a clean effect even before the FDR pass
+runs. Win/loss ratio 1.02, skew −0.74.
+
+**What would change the verdict:** same as the VIX cell above.
+
+**Both cells, read together:** two regime facets (VIX, breadth), both producing a
+CI-excluding-zero, cost-clearing bucket on the same underlying M1 cell, with the same
+sign and similar magnitude to M1's own already-weak whole-sample number and to each
+other. This is the shape of "an already-borderline cell sliced two more ways,
+producing two more borderline-significant sub-cells" — not the shape of "a real,
+economically distinct regime interaction was found." Logged honestly as Tier 3 per
+this study's mechanical convention, with this reasoning attached rather than presented
+as a clean finding.
