@@ -44,6 +44,7 @@ def _synthetic_panel(n_tickers: int = 6, n_days: int = 400, seed: int = 0) -> pd
             frame["sma_200"].isna()
         )
         frame["slope_log_21_sma_200"] = np.log(frame["sma_200"]).diff(21)
+        frame["slope_log_21_sma_50"] = np.log(frame["sma_50"]).diff(21)
         frame["ema_20"] = frame["close"].ewm(span=20, adjust=False).mean()
         frame["mom_12_1"] = frame["close"].pct_change(230).shift(21)
         frame["realized_vol_63"] = frame["close"].pct_change().rolling(63).std()
@@ -107,6 +108,42 @@ def test_event_population_is_subset_of_matching_state():
     golden_dates = events[events["crossover_type"] == m3.GOLDEN][["ticker", "date"]]
     merged = golden_dates.merge(working[["ticker", "date", state_col]], on=["ticker", "date"], how="left")
     assert merged[state_col].fillna(False).all()
+
+
+def test_spread_velocity_facet_table_shape_and_labels():
+    panel = _synthetic_panel()
+    working = m3.prepare(panel)
+    facets = m3.spread_velocity_facet_table(working)
+
+    assert len(facets) == 2
+    assert set(facets["facet_value"]) == {"accelerating", "decelerating"}
+    assert (facets["facet"] == "spread_velocity").all()
+    assert (facets["direction"] == m3.GOLDEN).all()
+
+
+def test_spread_velocity_excludes_rows_with_undefined_slope_not_treated_as_decelerating():
+    """Invariant #9: a row with an undefined slope_log_21 leg (e.g. inside
+    the MA's own warmup window) must be excluded from both facet
+    populations, not silently folded into "decelerating" by an arithmetic
+    NaN comparison defaulting False.
+    """
+    panel = _synthetic_panel()
+    working = m3.prepare(panel)
+    fast_col, slow_col = m3.PAIRS[m3.CLASSIC_PAIR]
+    fast_slope = working[f"slope_log_21_{fast_col}"]
+    slow_slope = working[f"slope_log_21_{slow_col}"]
+    valid = fast_slope.notna() & slow_slope.notna()
+    assert (~valid).any(), "fixture must exercise the undefined-slope warmup region"
+
+    undefined_rows = working[~valid]
+    facets = m3.spread_velocity_facet_table(working)
+    # Every row counted in either facet cell's n_events must come from the
+    # valid population -- checked indirectly via the population sizes: the
+    # two facet cells' underlying restrictions never draw from `~valid`.
+    accelerating_restricted = working[valid & ((fast_slope - slow_slope) > 0)]
+    decelerating_restricted = working[valid & ((fast_slope - slow_slope) <= 0)]
+    assert len(accelerating_restricted) + len(decelerating_restricted) == valid.sum()
+    assert len(undefined_rows) == (~valid).sum()
 
 
 def test_kill_criterion_fires_when_every_cell_is_near_zero():

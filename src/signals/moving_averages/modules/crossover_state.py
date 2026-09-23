@@ -28,12 +28,18 @@ from spreading thin across every pair (documented scope cut, not silently
 dropped -- see PREREGISTRATION.md): slope-sign of the long MA at the cross
 (`slope_log_21_sma_200`, already in the cached panel) and price position
 (above/below both MAs at the cross, `above_sma_50`/`above_sma_200`, already
-in the cached panel). "Cross angle / spread velocity at crossing" and
-drawdown/MAE metrics (DESIGN's other two "Also test" bullets) are scoped
-out entirely -- the former has no coordinate-free definition (DESIGN's own
-M6.7 note on "MA angle" applies identically to crossover angle), the latter
-needs `labels/path_metrics.py`, which doesn't exist yet and is out of
-scope for this module's build (PREREGISTRATION.md).
+in the cached panel). Drawdown/MAE metrics (DESIGN's other "Also test" bullet) are scoped out
+entirely -- needs `labels/path_metrics.py`, which didn't exist when this
+module first ran and is out of scope for this build (PREREGISTRATION.md).
+
+"Cross angle / spread velocity at crossing" was originally scoped out
+entirely too, under DESIGN's own M6.7 "no coordinate-free angle" reasoning.
+On review (2026-09-23 addendum, PREREGISTRATION.md) that reasoning only
+covers the literal visual angle -- "spread velocity"
+(`slope_log_21_fast - slope_log_21_slow`, `spread_velocity_facet_table`
+below) is already scale-invariant by construction (CLAUDE.md invariant #7)
+and needed no new features for the classic pair, so it's tested here after
+all; "cross angle" itself stays out.
 """
 
 from __future__ import annotations
@@ -219,6 +225,45 @@ def quality_facet_table(working: pd.DataFrame, pair_name: str = CLASSIC_PAIR) ->
         _cell_row(working[slope_falling], pair_name, GOLDEN, label_extra={"facet": "slope_sign", "facet_value": "falling"}),
         _cell_row(working[price_above_both], pair_name, GOLDEN, label_extra={"facet": "price_position", "facet_value": "above_both"}),
         _cell_row(working[price_not_above_both], pair_name, GOLDEN, label_extra={"facet": "price_position", "facet_value": "not_above_both"}),
+    ]
+    return pd.DataFrame(rows)
+
+
+def spread_velocity_facet_table(working: pd.DataFrame, pair_name: str = CLASSIC_PAIR) -> pd.DataFrame:
+    """2 secondary cells on `pair_name`/golden only -- DESIGN's "spread
+    velocity at crossing" bullet (2026-09-23 addendum, PREREGISTRATION.md).
+
+    The module's original write-up scoped out DESIGN's whole "cross angle /
+    spread velocity" bullet under M6.7's "no coordinate-free angle"
+    reasoning. That reasoning applies to the literal visual angle (chart
+    aspect ratio/axis-scale dependent, same as M6.7's single-MA case) but
+    not to velocity: `spread_velocity = slope_log_21_fast - slope_log_21_slow`
+    is built entirely from already scale-invariant `slope_log_21` columns
+    (CLAUDE.md invariant #7), so it carries no such ambiguity and needed no
+    new features to compute for the classic pair (`slope_log_21_sma_50`/
+    `slope_log_21_sma_200` are both already in the cached panel).
+
+    Split by sign of `spread_velocity` -- same sign-split convention the
+    slope-sign quality facet above already uses (not a cross-sectional
+    percentile, to stay consistent within this module).
+    """
+    fast_col, slow_col = PAIRS[pair_name]
+    fast_slope = working[f"slope_log_21_{fast_col}"]
+    slow_slope = working[f"slope_log_21_{slow_col}"]
+    valid = fast_slope.notna() & slow_slope.notna()
+    spread_velocity = fast_slope - slow_slope
+    accelerating = valid & (spread_velocity > 0)
+    decelerating = valid & (spread_velocity <= 0)
+
+    rows = [
+        _cell_row(
+            working[accelerating], pair_name, GOLDEN,
+            label_extra={"facet": "spread_velocity", "facet_value": "accelerating"},
+        ),
+        _cell_row(
+            working[decelerating], pair_name, GOLDEN,
+            label_extra={"facet": "spread_velocity", "facet_value": "decelerating"},
+        ),
     ]
     return pd.DataFrame(rows)
 

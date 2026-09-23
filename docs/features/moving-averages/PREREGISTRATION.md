@@ -3804,6 +3804,44 @@ facets — every cell run, all Tier 4, `counted_in_n_tests=True` for the 10 prim
 quality facets, `False` for the 4 horizon companions per this study's own companion
 convention).
 
+### Spread-velocity addendum (2026-09-23)
+
+**Module / track:** M3, Track B. A genuinely new restricted sub-population added to
+the pre-registered grid via a dated addendum, not a silent edit to the entry above
+(this study's own no-silent-edits convention, same precedent as M6.3's tail-decomposition
+addendum). Motivated by a scope review of this module's original write-up: DESIGN's
+"Also test" bullet reads "Cross angle / spread velocity at crossing" as one item, and
+the write-up above excluded *both* halves under M6.7's "no coordinate-free angle"
+reasoning. That reasoning only holds for the literal visual angle (chart
+aspect-ratio/axis-scale dependent) — "spread velocity" is a different, well-defined
+quantity: the difference between the two legs' own `slope_log_21` columns, already
+scale-invariant by construction (CLAUDE.md invariant #7), needing no new features for
+the classic pair. Bundling it in with "angle" was an over-broad exclusion, not a
+considered one; this addendum corrects that.
+
+**Hypothesis:** at the moment of a golden cross (`sma_50/sma_200`, the classic pair —
+same single-pair scope as this module's existing quality facets, to avoid spreading the
+grid thin), does `spread_velocity = slope_log_21_sma_50 − slope_log_21_sma_200` carry
+information beyond the already-tested state-matched control — distinguishing an
+accelerating ("strong," fast pulling away faster than slow is moving) cross from a
+decelerating/negative-velocity ("grinding," fast barely outpacing slow, or slow still
+catching up) one?
+
+**Kill criterion:** the module's own literal DESIGN-wording threshold, applied
+per-cell — `max(|ci_low|, |ci_high|) < 0.15%`. The facet-level claim ("spread velocity
+carries additional quality information beyond state") is not supported unless at least
+one of the two velocity-restricted cells' CI excludes zero.
+
+**Control tier:** identical C2 (mom_tercile/vol_tercile/sector-matched block-bootstrap
+delta via `_cell_row`), unchanged from the module's existing slope-sign/price-position
+quality facets — no new inference machinery.
+
+**Scope:** `sma_50/sma_200`/golden only (matching the existing quality-facet scope),
+split by `sign(spread_velocity)` into "accelerating" (`> 0`) and "decelerating/negative"
+(`<= 0`) — the same sign-split convention the existing slope-sign facet already uses,
+kept consistent within the module rather than switching to a cross-sectional
+percentile.
+
 ## M6.5 — The SMA drop-off artefact (2026-09-23)
 
 **Module / track:** M6.5, Track B (DESIGN.md, "M6.5 — The SMA drop-off artefact"). Not
