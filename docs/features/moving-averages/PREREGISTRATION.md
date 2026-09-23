@@ -3247,3 +3247,97 @@ standard horizon).
 invariant #2), `ribbon_agreement_state` (masked to NaN wherever any of the five
 lookbacks' slope is undefined — CLAUDE.md invariant #9, enforced by this module's own
 test, `test_ribbon_agreement_state_is_na_during_sma_100_warmup`).
+
+### Result (2026-09-23)
+
+**DESIGN's own stated expectation holds exactly: the drawdown outcome is where the
+signal is, the return outcome is not.**
+
+| cell | c2 (21d) | 90% CI | ci_excludes_zero | edge | n_events | n_dates | n_tickers |
+|---|---|---|---|---|---|---|---|
+| `extreme_state_test` on `fwd_ret_21` | −0.2060% | [−0.6231%, +0.1835%] | False | 0.6231% | 406,663 | 2,747 | 402 |
+| `extreme_state_test` on `fwd_mdd_21` | +0.6538% | [+0.4379%, +0.8870%] | **True** | 0.8870% | 406,663 | 2,747 | 402 |
+
+`fwd_ret_21`: CI spans zero — not confirmed, not killed by the floor either (edge
+clears 0.10%) — a genuine "no detected effect at this control tier" read, same
+convention as M6.2's own inconclusive cells.
+
+`fwd_mdd_21`: CI excludes zero, clears the floor. Positive sign means state 5 (all five
+lookbacks rising) has a *shallower* worst-21-day-drawdown than state 0 (all five
+falling), by 0.65pp beyond the C2 match. **Confirmed.**
+
+**Cost (invariant #8, triggered for the confirmed drawdown cell):** `ribbon_agreement_
+state == 5` flag turnover, `stats/costs.py::signals_per_year` (10bps/rt): 5.415
+flips/ticker-yr → hurdle 0.5415%/yr. Annualized (×12): point +7.85%/yr, near edge
++5.25%/yr, far edge +10.64%/yr — **clears at every reading**, with the same
+avoided-loss-vs-signed-return actionability caveat M7's `ribbon_direction_magnitude`
+carries (see `FINDINGS.md`'s entry for the full statement — "clears cost" here is about
+drawdown-shallowing, not a signed return claim).
+
+**Reversal-robustness (run same day, on the confirmed drawdown cell only — the return
+cell did not confirm, nothing to robustness-check):** C2 + `rev_tercile`
+(`C2_MATCH_COLS_WITH_REVERSAL`): +0.5346%, CI [+0.2397%, +0.8361%] — attenuates ~18%
+from the default-C2 number, CI still excludes zero, still clears the 0.10% floor by a
+wide margin. Short-term reversal is a minor contributor at most, not the driver.
+
+**Correlation matrix (required regardless of outcome, DESIGN's own text):**
+
+| pair | median Spearman |
+|---|---|
+| slope_10 vs slope_20 | 0.8868 |
+| slope_10 vs slope_50 | 0.5141 |
+| slope_10 vs slope_100 | 0.3567 |
+| slope_10 vs slope_200 | 0.2790 |
+| slope_20 vs slope_50 | 0.6806 |
+| slope_20 vs slope_100 | 0.4722 |
+| slope_20 vs slope_200 | 0.3522 |
+| slope_50 vs slope_100 | 0.7329 |
+| slope_50 vs slope_200 | 0.5097 |
+| slope_100 vs slope_200 | 0.7110 |
+| slope_10 vs ribbon_agreement_state | 0.6860 |
+| slope_20 vs ribbon_agreement_state | 0.7570 |
+| slope_50 vs ribbon_agreement_state | 0.7408 |
+| slope_100 vs ribbon_agreement_state | 0.6886 |
+| slope_200 vs ribbon_agreement_state | 0.5966 |
+
+Every pairwise slope correlation sits at or below this study's 0.89 non-redundancy bar
+(M11's precedent) — **DESIGN's own stated collinearity concern ("expect heavy
+collinearity") is not borne out**: the five lookbacks are meaningfully distinct
+signals, closest at the two fastest (10, 20) lookbacks, most distinct at 10-vs-200. Full
+matrix: `output/moving_averages/m6_6_ribbon_slope_agreement_correlation_matrix.csv`.
+
+**Shape table (descriptive, both outcomes, all 6 states):**
+
+| state | n_events | n_dates | c2_return | c2_drawdown |
+|---|---|---|---|---|
+| 0 | 83,990 | 2,766 | +0.2936% | −0.3048% |
+| 1 | 106,458 | 2,768 | +0.1889% | −0.0444% |
+| 2 | 148,020 | 2,779 | −0.1219% | −0.1664% |
+| 3 | 191,367 | 2,779 | −0.0109% | −0.0172% |
+| 4 | 177,453 | 2,778 | −0.0753% | +0.0299% |
+| 5 | 417,307 | 2,779 | −0.0124% | +0.2196% |
+
+**Plateau check (DESIGN §6.7):** the drawdown column is directionally consistent
+end-to-end (state 0 worst, state 5 best) but not a clean monotonic staircase through the
+middle (state 1 less negative than state 2) — endpoints clean, middle noisy, same
+"not a lone bright pixel but not a smooth function either" read M6.3's own U-shape got.
+The return column declines from state 0 to state 2 then flattens near zero through
+state 5 — consistent with that outcome's own CI-spans-zero extreme-state read.
+
+**Argue against the confirmed drawdown result:** the reversal-robustness check above
+(the leading candidate confound) attenuates the effect by only ~18% and the CI still
+excludes zero — not the whole story. A second candidate: `mom_tercile`/`vol_tercile`
+match on their own 12-1-month/63-day windows may not fully capture the *very*
+short-horizon momentum embedded in the fast 10-day-lookback component of
+`ribbon_agreement_state` — the `rev_tercile` check (1-day prior return) partially
+addresses this but a multi-week reversal window is not separately ruled out here. Not
+resolved in this run — flagged as the most plausible remaining alternative explanation,
+same open-item discipline as M6.3's own SMA50/200 argue-against note.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows: the 2 primary decisive cells + 1 reversal-
+robustness companion, not counted in `N_tests`); `FINDINGS.md` (1 entry,
+`ribbon_agreement_extreme_drawdown`, Tier 3, with the return-outcome and correlation-
+matrix results folded into the same entry per this study's convention for a
+two-outcome module); `output/moving_averages/m6_6_ribbon_slope_agreement_*.csv` (full
+result table, correlation matrix, shape table — regenerable via
+`ribbon_slope_agreement_run.py`).
