@@ -3233,3 +3233,98 @@ read in the Result section below, not assumed here.
 
 **Universe/window:** U1 (405 S&P 500 constituents), dev window 2010-01-04 →
 2021-12-31, the same cached panel every other module reuses.
+
+### Result (2026-09-23)
+
+Ran against the real cached U1 panel (405 tickers, 1,222,605 rows, 2010-01-04 →
+2021-12-31). All 10 primary cells well-powered (`below_threshold=False` throughout —
+smallest cell 3,025 events / 1,509 dates / 402 tickers, largest 26,081 events / 2,585
+dates / 402 tickers).
+
+**Primary grid (10 cells, C2 delta on `fwd_ret_21`, event day vs. same-state
+matched-control days):**
+
+| pair | direction | n_events | n_dates | c2 | 90% CI | CI excludes 0 |
+|---|---|---|---|---|---|---|
+| sma_50/sma_200 | golden | 3,025 | 1,531 | −0.0702% | [−0.2865%, +0.1771%] | no |
+| sma_50/sma_200 | death | 3,078 | 1,509 | +0.0831% | [−0.2072%, +0.3720%] | no |
+| sma_20/sma_50 | golden | 12,009 | 2,410 | +0.0003% | [−0.1560%, +0.1878%] | no |
+| sma_20/sma_50 | death | 12,045 | 2,387 | −0.0190% | [−0.1583%, +0.1161%] | no |
+| sma_50/sma_150 | golden | 3,737 | 1,703 | −0.0497% | [−0.2463%, +0.1219%] | no |
+| sma_50/sma_150 | death | 3,840 | 1,703 | −0.0043% | [−0.2765%, +0.2865%] | no |
+| ema_10/ema_20 | golden | 23,782 | 2,580 | −0.0000% | [−0.1036%, +0.1155%] | no |
+| ema_10/ema_20 | death | 23,952 | 2,542 | +0.0081% | [−0.1248%, +0.1193%] | no |
+| ema_8/ema_21 | golden | 25,899 | 2,585 | +0.0074% | [−0.1040%, +0.1242%] | no |
+| ema_8/ema_21 | death | 26,081 | 2,576 | −0.0066% | [−0.1242%, +0.1040%] | no |
+
+**Every one of the 10 primary cells' CI spans zero — no confirmed marginal information
+over the state-matched control at any pair, any direction.** DESIGN's skeptical prior
+holds directionally throughout.
+
+**Kill criterion: `module_killed = False`.** The literal rule (`edge < 0.15%` AND CI
+spans zero, for *every* cell) does not fire — 4 of 10 cells (both `ema_10/ema_20` and
+both `ema_8/ema_21` directions) satisfy it, but the 6 SMA-pair cells have wider CIs
+whose edge exceeds the 0.15% floor even though the CI itself spans zero. **Read
+precisely, per this study's own established `killed=False` + `ci_excludes_zero=False`
+distinction (M6.1's own precedent, `modules/slope_conditioner.py`'s docstring)**: this
+is not a detected effect anywhere in the grid, just a not-clean-enough kill at the SMA
+pairs specifically because their event counts (3,025–3,840) are thin enough to leave a
+wide CI, not because they show any more signal than the EMA pairs' point estimates (all
+10 point estimates are within ±0.08%, indistinguishable from each other by eye).
+
+**Plateau check (DESIGN §6.7):** all 5 pairs agree — flat, near-zero point estimates,
+no lone bright pixel, no consistent directional pattern even in sign (golden is
+negative at sma_50/200 and sma_50/150 but ~zero at sma_20/50 and both EMA pairs; death
+is positive at sma_50/200 but ~zero/negative elsewhere). This is the "flat, sign-
+flipping null across the whole grid" shape M6.1's own decisive-IC test produced, not a
+directional pattern obscured by one thin pair.
+
+**Horizon companions (`sma_50/sma_200` only, not counted in `N_tests`):** 3 of 4 span
+zero. The exception: `death` @ `fwd_ret_5`, c2 = −0.110% CI [−0.2018%, −0.0106%],
+CI-excludes-zero. **Argue against this one result before reading anything into it:**
+it is 1 CI-excluding-zero cell out of 18 total cells run in this module (10 primary + 4
+companions + 4 quality facets) at a 90% CI — under pure noise, roughly 1.8 false
+positives are expected at that rate, so finding exactly 1 is unremarkable. It is also
+not corroborated by the same pair/direction's own 21d primary cell (CI spans zero,
+opposite-signed point estimate) or by its own 63d companion (CI spans zero). Read as
+noise, not flagged as a candidate for further pursuit.
+
+**Quality facets (`sma_50/sma_200`/golden only, 4 cells):** all 4 CI span zero —
+slope-sign (rising vs. falling long MA) and price-position (above vs. not-above both
+MAs) at the cross show no detectable difference from the same-state control in either
+direction. No support for DESIGN's own named quality distinctions in this design.
+
+**Cost:** not evaluated for any primary cell — every CI spans zero before cost applies
+(same convention M13's inconclusive cells and M18's killed `dist_from_52w_high` cells
+use). For the record, `signals_per_year`/annual cost hurdle by pair (state-flip
+turnover, entry+exit convention, `stats/costs.py`): sma_50/sma_200 1.390/yr (0.139%/yr
+hurdle), sma_20/sma_50 5.463/yr (0.546%/yr), sma_50/sma_150 1.742/yr (0.174%/yr),
+ema_10/ema_20 10.838/yr (1.084%/yr), ema_8/ema_21 11.804/yr (1.180%/yr) — crossovers are
+inherently low-turnover events (far fewer per ticker-year than a same-lookback
+above/below state flip, M1's own 7.8–30.4/yr range, since a crossover requires *two*
+MAs to flip relative order, not one MA relative to price).
+
+**Reversal-robustness:** not run — this study's own convention (M1/M2/M6.2/M6.3/M7's
+precedent) is to run the `rev_tercile`-augmented C2 check only on cells that already
+show a CI-excluding-zero effect at the default C2 spec. No primary cell qualifies here.
+
+**Tier:** 4 for all 10 primary cells (well-powered, CI spans zero — "no detected effect
+at this control tier and sample," per this study's own Tier-3/4 convention) and all 8
+secondary cells (4 companions + 4 quality facets). No `FINDINGS.md` entry (Tier 4 needs
+none, per CLAUDE.md's own logging rule).
+
+**Reading for the study:** DESIGN's own skeptical hypothesis is not confirmed by a
+clean module-level kill (the SMA pairs' thinner event counts leave the literal kill
+rule un-tripped), but every cell in the grid — primary, companion, and quality-facet
+alike — points the same direction that hypothesis would predict: **a crossover's day-0
+transition carries no detectable marginal information over the already-established
+state, once state is properly date/momentum/vol/sector-matched.** Honest summary,
+matching M6.1's own framing for the same shape of result: not distinguishable from
+"crossovers are redundant with state," but not proven so under this study's own
+CI-based kill-criterion discipline — a genuine, well-powered null, not a shortfall of
+power or a lone miss.
+
+**Logged:** `EXPERIMENTS.csv` (18 rows: 10 primary, 4 horizon companions, 4 quality
+facets — every cell run, all Tier 4, `counted_in_n_tests=True` for the 10 primary + 4
+quality facets, `False` for the 4 horizon companions per this study's own companion
+convention).
