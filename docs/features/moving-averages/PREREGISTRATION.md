@@ -3136,3 +3136,131 @@ turnover numbers are referenced here and in `output/moving_averages/m6_1_*.csv`,
 regenerable from this module, not separately logged as CSV rows since they carry no
 kill criterion of their own — same convention as this study's other purely-descriptive
 readouts, e.g. plateau checks).
+
+## M6.5 — The SMA drop-off artefact (2026-09-23)
+
+**Module / track:** M6.5, Track B (DESIGN.md, "M6.5 — The SMA drop-off artefact"). Not
+part of the original minimal-core list (DESIGN §12) — post-termination, DESIGN §1.5's
+porous-scope rule, same standing as M18/M6.1/M6.3/M7/M13. Run as one of four "Batch 2"
+modules (M3, M6.5, M6.6, M12 — `HANDOVER.md`'s own scoping), each in its own isolated
+worktree/branch, chosen for needing no new shared infrastructure and touching no file
+another parallel Batch 2 module also touches.
+
+**Promoted from:** DESIGN's own module list, not a Track A candidate — same status as
+M6.1/M6.3.
+
+**Hypothesis (DESIGN's own):** because `SMAn(t) − SMAn(t−1) = (Ct − Ct−n)/n`, an SMA's
+1-day slope can flip sign purely because a large bar rolled out of the trailing window,
+with nothing happening in current price — DESIGN's own example, a 200-day SMA "rolling
+over" in March 2021, substantially an artefact of March 2020 leaving the window, sits
+inside this study's own 2010–2021 dev window. **Price-driven flips carry information;
+drop-off-driven flips carry none, and pooling the two dilutes every SMA-slope result in
+the literature** — including this study's own M6.1/M6.3 results, both of which use
+`slope_log_21`, a 21-day (not 1-day) log-scale slope on the same underlying SMA
+columns. M6.5 does not re-test M6.1/M6.3's own 21-day construction directly (a
+different decomposition would be needed for a 21-day window's own entering/exiting
+split); it tests DESIGN's own literal 1-day-drop-off mechanism, and reports its
+implication for how those two modules' results should be read as a discussion point,
+not a re-run of their own grids.
+
+**DESIGN gives this module no literal kill criterion** (framed as "a genuine trap,
+worth its own analysis," not a binary claim) — one is stated here, following this
+study's own standard floor for a return-valued cell (`KILL_THRESHOLD = 0.10%`,
+`max(|ci_low|,|ci_high|)`, same convention as M1/M2/M6.2/M6.3): **the decisive test is
+the direct price-driven-vs-drop-off-driven comparison within flip events** (see
+Method). Two distinct failure/success readings, stated up front so they are not
+conflated later:
+- CI spans zero (or edge < 0.10%) on the decisive test → the decomposition does not
+  distinguish artefact from signal at this control tier → **not actionable**, Tier 4.
+- CI excludes zero, price-driven and drop-off-driven show materially different
+  forward-return behavior, consistent with DESIGN's stated direction (price-driven
+  real, drop-off-driven null/smaller) → **confirms** the drop-off-dilution hypothesis
+  → Tier 3 (subject to cost, per every other module's convention).
+- A third, DESIGN-falsifying outcome, named explicitly: if drop-off-driven flips *also*
+  show a CI-excluding-zero effect of similar sign/magnitude to price-driven flips, that
+  specifically falsifies "drop-off flips carry none," independent of what the decisive
+  (difference) test shows.
+
+**Control tier:** C2 (date + momentum tercile + vol tercile + sector), reusing
+`stats/inference.py::block_bootstrap_delta` unchanged (block length 42, 500 draws, 90%
+CI, seed 0) — the same primitive M6.1/M6.3 already use for slope-conditioned forward
+returns; this module is a new event-bucketing layer on top of existing infrastructure,
+not a new inference engine.
+
+**New machinery, module-local** (`modules/sma_dropoff.py`, never written to the shared
+panel cache or to `features/slope.py`, same convention M6.1's own local features
+established for a sibling parallel module):
+- A raw (unlagged) `n`-day SMA recomputed directly from the panel's own raw `close` —
+  the cached panel's own `sma_{n}` column is already lagged by
+  `features/panel.py::apply_lag`, the wrong input for decomposing *this* day's own
+  slope change.
+- A 1-day raw-slope sign-flip event on that raw SMA (`raw_sma(t) − raw_sma(t−1)`),
+  distinct from every other slope object in this study (all use `slope_log_21`, a
+  21-day log-scale slope). Only the *sign* of the 1-day raw slope is used, never its
+  magnitude as a cross-ticker-comparable quantity — the sign of a raw difference and
+  the sign of its log-difference counterpart are identical for any positive price
+  series, so this does not conflict with CLAUDE.md invariant #7 (no information the
+  invariant protects is actually used).
+- The entering/exiting decomposition, referenced against the prior day's SMA value:
+  `entering = (Ct − raw_sma(t−1)) / n`, `exiting = (raw_sma(t−1) − Ct−n) / n` — sums
+  exactly to `raw_sma(t) − raw_sma(t−1)` (verified algebraically,
+  `tests/test_moving_averages_sma_dropoff.py::test_entering_plus_exiting_equals_raw_slope_exactly`).
+  A flip is `price_driven` if `|entering| > |exiting|`, `dropoff_driven` otherwise (a
+  tie is `dropoff_driven` by this module's own tie-break convention — vanishingly rare
+  on real float closes).
+- Every raw column above is lagged via the one central `apply_lag` (CLAUDE.md
+  invariant #2) before use.
+
+**Method:**
+1. **Decisive test** (`decisive_test`, the kill-criterion test): within flip events
+   only, C2 block-bootstrap delta of `fwd_ret_21` between `price_driven` and
+   `dropoff_driven` flips. Run pooled (both flip directions) as the primary declared
+   cell, plus `up`-only and `down`-only companions (DESIGN's own literal example is a
+   flip *down* — "rolling over" — so the down-only split is the closest read to
+   DESIGN's own framing; the pooled cell is this module's own broader, primary
+   declared hypothesis, since the drop-off mechanism is symmetric in principle).
+2. **`type_vs_background`** (diagnostic, not the kill-criterion test): each flip type's
+   own C2 delta vs. an ordinary non-flip day, with the *other* flip type excluded from
+   the comparison population (not folded into a mixed control) — answers "does this
+   type show a detectable effect at all," the second half of DESIGN's own two-part
+   hypothesis.
+3. **Scope:** SMA50 and SMA200 only (`LOOKBACKS = (50, 200)`) — the two lookbacks where
+   M6.1/M6.3 already found real slope-related effects, the highest-value place to check
+   for drop-off contamination, rather than spreading thin across all four lookbacks.
+   SMA20 not run (deferred, not declared).
+
+**Declared grid / N_tests scope:** 2 primary decisive-test cells (SMA50, SMA200,
+pooled). The `up`/`down` direction splits and the `type_vs_background` diagnostics are
+companions to the same two hypotheses, not independent tests (same convention as
+M6.3's large-move-exclusion companion, M2/M6.2/M18's reversal-robustness rows) —
+`counted_in_n_tests=False` in `EXPERIMENTS.csv`.
+
+**Cost:** **not applicable** — this is a mechanism/diagnostic question about whether an
+existing slope construction's flips are contaminated, not itself a proposed standalone
+trading signal (same convention as M5's touch/bounce module and §7.5's placebo test,
+both mechanism questions rather than tradeable-edge questions). Descriptive event
+frequency (`event_frequency_per_ticker_year`) is reported for context only, not as a
+cost-hurdle input.
+
+**Argue against this result in advance:** (1) the entering/exiting decomposition uses
+the prior day's SMA as the reference point for both terms — a different, equally
+defensible reference (e.g. the window's own trailing mean excluding both the entering
+and exiting bar) could classify some borderline flips differently; not expected to
+flip the headline direction given the effect sizes this module is designed to detect,
+but a real construction choice, named here rather than silently assumed. (2)
+Drop-off-driven flips are mechanically more likely to occur in names with an
+idiosyncratic large historical move sitting inside the trailing window (a gap, a
+buyout rumor, a crash-and-recover) — the same population M6.3's `recent_large_move`
+proxy and this study's SMA200 watch already flag as potentially anomalous; if
+drop-off-driven flips show *any* effect, this confound (not a genuine "drop-off
+artefact" mechanism) is the first alternative explanation to check before trusting the
+number.
+
+**Plateau check (to run at result time):** do SMA50 and SMA200 agree in sign and rough
+magnitude? A result at only one of the two lookbacks is the lone-bright-pixel case
+DESIGN §6.7 warns against.
+
+**Building on:** cached panel (`data/features/moving_averages/ma_panel/`, 405-ticker
+U1 universe, 2010-01-04→2021-12-31), read via `read_panel` unchanged. No panel rebuild
+needed — every input this module needs (`close`, `mom_12_1`, `realized_vol_63`,
+`sector`) is already cached.
