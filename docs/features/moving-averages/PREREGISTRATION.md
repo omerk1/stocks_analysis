@@ -3136,3 +3136,100 @@ turnover numbers are referenced here and in `output/moving_averages/m6_1_*.csv`,
 regenerable from this module, not separately logged as CSV rows since they carry no
 kill criterion of their own — same convention as this study's other purely-descriptive
 readouts, e.g. plateau checks).
+
+## M3 — Crossovers: state vs transition (2026-09-23)
+
+**Module / track:** M3, Track B. Batch-2 post-termination module (`HANDOVER.md`'s own
+Batch-2 scoping — parallel with M6.5, M6.6, M12, each in its own worktree, no
+cross-module conflicts).
+
+**Promoted from:** DESIGN's own module list directly (lines ~753-762) — the crossover
+question was left for a "real build" (a new event detector), explicitly deferred by
+M6.2's own golden-cross-x-slope sub-question and named again in `HANDOVER.md`'s Batch-2
+triage.
+
+**Hypothesis (skeptical, DESIGN's own wording):** a golden cross carries little
+information beyond "the stock is now in a 50>200 state" — i.e. the transition day
+itself adds nothing over the already-established state once state is properly
+matched-controlled.
+
+**Scope decisions, stated up front:**
+- **5 fast/slow pairs**, not DESIGN's full named list verbatim: `sma_50/sma_200` (the
+  classic golden/death cross), `sma_20/sma_50`, `sma_50/sma_150` — all three built
+  directly from lookbacks already in the cached panel (`sma_20/50/150/200`), no new
+  columns needed — plus `ema_10/ema_20` and `ema_8/ema_21`, which need three new local
+  EMA lookbacks (8, 10, 21) not in the cached panel. Added locally in this module
+  (`add_local_ema_columns`), one-bar-lagged via `features/panel.py::apply_lag` directly
+  (the same central lag function, not a new lag convention), **not** written back to
+  the shared cached panel — module-local, matching M6.6's own planned "new lookbacks
+  added locally, not to the shared panel" precedent (`HANDOVER.md`).
+- **Quality facets (DESIGN's "Also test" bullet) run on `sma_50/sma_200`/golden only**,
+  not crossed against all 5 pairs — slope-sign of the long MA at the cross (reuses
+  `slope_log_21_sma_200`, already in the cached panel) and price position at the cross
+  (above/below both MAs, reuses `above_sma_50`/`above_sma_200`, already in the cached
+  panel). A documented scope cut to keep the grid from spreading thin across every
+  pair, same discipline M13 used to defer earnings/index-membership/sector-momentum
+  facets to "if a later pass wants them."
+- **"Cross angle / spread velocity at crossing" is out of scope entirely** — no
+  coordinate-free definition exists (DESIGN's own M6.7 note on "the angle of the moving
+  average" applies identically here: the visual angle depends on the price axis and
+  aspect ratio; `slope_log_k` already is the scale-invariant version DESIGN itself
+  names as the answer, and the slope-sign quality facet above already uses it).
+- **Drawdown/MAE metrics are out of scope** — `labels/path_metrics.py` (DESIGN's own
+  named location for this, §10.1's stage map) doesn't exist yet; building Kaplan-Meier-
+  adjacent path machinery is a heavier build than this module's slice, closer to M6.4's
+  own scope (`HANDOVER.md`'s Batch-3 triage). DESIGN's own hint that "this is where the
+  death cross may earn its keep" is noted as a live follow-up, not attempted here.
+
+**New machinery:** `features/crossover.py` (`fast_above_slow_state`,
+`crossover_events`) — the only new inference-adjacent primitive. Event detection reuses
+`features/state.py::state_run_id`/`days_in_run` directly (the same primitives M1's
+run-length buckets and M5's touch events use), not a hand-rolled diff: an event is the
+first day of a *non-left-censored* run of the fast-above-slow state, same censoring
+convention `run_length_bucket` already applies. Everything downstream of event
+detection reuses existing infrastructure unchanged: `stats/inference.py::
+block_bootstrap_delta` (a golden/death-cross day is just another boolean `group_col`,
+same shape M5's `hold_flag` used), `stats/controls.py::c1_delta`/`cross_sectional_bucket`,
+`stats/costs.py::signals_per_year`/`cost_hurdle` (a crossover is exactly one state flip,
+so the existing flip-counting cost function applies with zero new logic).
+
+**Control tier — this module's own reading of "state-matched control":** DESIGN's
+literal method ("compare forward returns on day 0 of a golden cross against randomly
+sampled days where 50>200 has been true for a comparable duration, matched on date and
+momentum") is implemented as: restrict the comparison population to the event's own
+state (`state_<pair> == True` for golden, `== False` for death) *before* computing the
+standard C2 block-bootstrap delta (`mom_tercile`, `vol_tercile`, `sector` — this
+study's standard C2 recipe, DESIGN §6.1, used unchanged rather than inventing a
+narrower "date + momentum only" tier). The row-restriction *is* the state-match DESIGN
+asks for; the date/momentum/vol/sector matching layered on top is the same C2 tier
+every other module in this study uses for its own "is this real information beyond the
+obvious control" question — not a new, bespoke control specific to this module.
+
+**Method:**
+- **Primary grid (10 cells, counted in `N_tests`):** 5 pairs × 2 directions
+  (golden/death), `fwd_ret_21` (this study's standard horizon), C2 = (`mom_tercile`,
+  `vol_tercile`, `sector`).
+- **Horizon companions (4 cells, not counted):** `sma_50/sma_200`, both directions, at
+  `fwd_ret_5`/`fwd_ret_63` — speaks to DESIGN's "at every horizon" kill wording for the
+  classic pair specifically; not built for the other 4 pairs (scope cut, named above).
+- **Quality facets (4 cells, counted — genuinely new sub-populations, not robustness
+  companions on an already-counted cell):** `sma_50/sma_200`/golden × {slope rising,
+  slope falling} and × {price above both MAs, price not above both MAs} — both facets
+  restrict *both* the event days and their same-state control days before running the
+  same C2 delta, so e.g. "slope rising" compares fresh crosses against seasoned
+  same-state days that also have a rising long MA, not against the whole unrestricted
+  state population.
+
+**Kill criterion (DESIGN's own literal wording):** if marginal information over
+state-matched controls is `< 0.15%` at every (pair, direction) primary cell, with the
+CI spanning zero, declare crossovers redundant with state and stop. Applied via
+`evaluate_kill_criterion`: `max(|ci_low|,|ci_high|) < 0.0015` for all 10 primary cells
+→ module killed. DESIGN's own prior: ~65% likely.
+
+**Effective N / plateau check:** every cell reports `n_events`/`n_dates`/`n_tickers`
+(invariant #6). Plateau check (DESIGN §6.7): do the 3 SMA pairs (50/200, 20/50, 50/150)
+and the 2 EMA pairs agree in sign/magnitude, or is any one pair a lone bright pixel? —
+read in the Result section below, not assumed here.
+
+**Universe/window:** U1 (405 S&P 500 constituents), dev window 2010-01-04 →
+2021-12-31, the same cached panel every other module reuses.
