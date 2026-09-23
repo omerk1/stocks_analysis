@@ -818,19 +818,21 @@ straddle-style position, or a position-sizing/stop rule keyed to the flag).
 in this study carries, *and* by the magnitude-vs-signed-return actionability gap named
 above (a second, cell-specific cap).
 
-**Argue against this result (not resolved here, flagged as the live alternative):**
-short-term reversal/mean-reversion — the same confound class this study has checked
-repeatedly elsewhere (M1's lb200 diagnostic, M2's `stack_fully_bearish` addendum,
-M18's `dist_from_52w_low` cells, all via a `rev_tercile`/`mom_1_0`-augmented C2).
-Decile 9 (dispersed ribbon) mechanically correlates with tickers that *just had* a
-large recent price move — that's mechanically what pushed the ribbon apart. If such
-tickers partially mean-revert, their subsequent |return| would shrink relative to
-decile 0's for reasons having nothing to do with "compression precedes expansion."
-The existing C2's `vol_tercile` match (63-day trailing realized vol) absorbs some of
-this but not all of it — a ticker's 63-day vol level isn't the same as "just moved
-sharply in the last few days," which is exactly the gap `mom_1_0` exists to close
-elsewhere in this study. **Not run here** — a `rev_tercile`-augmented check is the
-natural next step, left as an explicit open item.
+**Reversal-robustness (2026-09-23 addendum) — survives, if anything strengthened.**
+The leading candidate confound was short-term reversal/mean-reversion — the same
+confound class this study has checked repeatedly elsewhere (M1's lb200 diagnostic,
+M2's `stack_fully_bearish` addendum, M18's `dist_from_52w_low` cells, M6.3's SMA50/200
+cells, all via a `rev_tercile`/`mom_1_0`-augmented C2). Decile 9 (dispersed ribbon)
+mechanically correlates with tickers that *just had* a large recent price move — that's
+mechanically what pushed the ribbon apart; if such tickers partially mean-revert, their
+subsequent |return| would shrink relative to decile 0's for reasons having nothing to
+do with "compression precedes expansion." C2 + `rev_tercile` (prior-1-day-return
+tercile, `modules/slope_conditioner.py`'s own `C2_MATCH_COLS_WITH_REVERSAL`
+construction): **−0.266%**, CI **[−0.424%, −0.103%]** (n_events/n_dates unchanged,
+175,152/2,549). The point estimate is ~7.6% *larger* in magnitude than the default-C2
+number, not smaller, and the CI still excludes zero. **Not explained by short-term
+reversal — if anything sharpened.** Full detail: `PREREGISTRATION.md`'s M7
+reversal-robustness addendum.
 
 **Plateau check:** not a lookback-neighborhood question (this module has no lookback
 grid — {20,50,150,200} is the whole ribbon) — read instead as internal consistency
@@ -842,10 +844,10 @@ not that displacement is necessarily *positive*) — not a formal cross-module p
 check, just a directional sanity read.
 
 **What would change the verdict:** the whole-grid FDR pass (pending, not yet re-run —
-see `STATUS.md`); a holdout check; the `rev_tercile`-augmented reversal-robustness
-check named above; and, separately from any statistical test, an actual strategy
-construction that would make the magnitude-vs-signed-return caveat moot (this cell
-alone cannot answer "is this tradeable," only "is the effect real").
+see `STATUS.md`); a holdout check; and, separately from any statistical test, an actual
+strategy construction that would make the magnitude-vs-signed-return caveat moot (this
+cell alone cannot answer "is this tradeable," only "is the effect real"). (The
+reversal-robustness check above is now resolved — this cell survives it.)
 
 **Companion cells, not separately entered here (Tier 4, `EXPERIMENTS.csv` only):**
 both vol-expansion readings (`ribbon_vol_expansion_c2_standard`/`_c2_no_vol_match`)

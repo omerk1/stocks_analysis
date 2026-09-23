@@ -120,6 +120,7 @@ def _synthetic_panel(n_dates=500, n_tickers=60, seed=0):
                 # constant column collapses to 1 bucket (or NaN throughout),
                 # which would silently drop every row from the C2 match.
                 "realized_vol_63": 0.02 + rng.normal(0, 0.005),
+                "mom_1_0": rng.normal(0, 0.01),
                 "sector": "X",
             })
     return pd.DataFrame(rows)
@@ -171,6 +172,7 @@ def test_prepare_masks_prior_trend_up_where_momentum_is_nan():
         "sma_20": [100.0, 101.0, 102.0], "sma_50": [100.0, 101.0, 102.0],
         "sma_150": [100.0, 101.0, 102.0], "sma_200": [100.0, 101.0, 102.0],
         "mom_12_1": [np.nan, 0.05, -0.02], "realized_vol_63": [np.nan, 0.02, 0.02],
+        "mom_1_0": [np.nan, 0.01, -0.01],
         "sector": "X",
     })
 

@@ -45,6 +45,15 @@ C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 # vol_tercile match is in tension with a hypothesis that's partly *about*
 # vol itself).
 C2_MATCH_COLS_NO_VOL = ("mom_tercile", "sector")
+# Robustness-check-only match set (PREREGISTRATION.md, 2026-09-22 reversal-
+# robustness addendum), same construction as `modules/slope_conditioner.py`'s/
+# `modules/stack_minervini.py`'s/`modules/baseline_state.py`'s own
+# `C2_MATCH_COLS_WITH_REVERSAL`: adds a prior-1-day-return tercile so a
+# cell's C2 delta can be re-evaluated with short-term reversal explicitly
+# matched out. Not this module's pre-registered default -- `_spread_cell`'s
+# own `match_cols` stays `C2_MATCH_COLS` unless a caller explicitly opts
+# into this one.
+C2_MATCH_COLS_WITH_REVERSAL = (*C2_MATCH_COLS, "rev_tercile")
 
 KILL_THRESHOLD_RETURN = 0.001  # M1/M2/M6.2's own 0.10% floor
 # Absolute floor on the vol-spread cells' block-bootstrap CI, in daily-
@@ -68,6 +77,7 @@ def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     working["fwd_vol_21"] = forward_realized_vol(working, horizon=HORIZON)
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
+    working["rev_tercile"] = cross_sectional_bucket(working, "mom_1_0", n_buckets=3)
 
     working["ribbon_width"] = ribbon_width(working)
     working["ribbon_width_pctile"] = ribbon_width_pctile(working["ribbon_width"], working["ticker"])

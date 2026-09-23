@@ -2354,3 +2354,37 @@ re-run happens once, after this module and its three sibling Batch-1 forks (M6.1
 M13) have all landed — not run separately here.
 
 **Logged:** `EXPERIMENTS.csv` (5 rows); `FINDINGS.md` (1 new entry, `direction_magnitude`).
+
+### Result (reversal-robustness addendum, 2026-09-23)
+
+The entry above named the exact open item this addendum resolves: `direction_magnitude`'s
+leading candidate confound is short-term reversal/mean-reversion, left explicitly unrun
+at pre-registration. Same construction as M6.2's/M6.3's own reversal-robustness
+addenda and `modules/slope_conditioner.py`'s `C2_MATCH_COLS_WITH_REVERSAL` precedent: a
+`rev_tercile` column (per-date tercile of `mom_1_0`, the prior 1-day return) added to
+`modules/ribbon_compression.py::prepare()`, and a `C2_MATCH_COLS_WITH_REVERSAL =
+(*C2_MATCH_COLS, "rev_tercile")` match set passed into `_spread_cell` alongside the
+existing default-C2 run — both computed fresh in the same pass, on the real cached U1
+panel (402-ticker coverage, 2010-01-01→2021-12-31).
+
+**Survives — if anything slightly stronger, not explained by reversal.** Default C2
+(this addendum's own fresh rerun): `c2=-0.002471`, CI `[-0.003976,-0.000927]` — matches
+the originally-logged row exactly (no reproducibility drift, unlike M6.2's addendum).
+With `rev_tercile` added: `c2=-0.002660`, CI `[-0.004238,-0.001027]` (n_events 175,152
+→ 175,152, n_dates 2,549 → 2,549, unchanged — the decile-0/decile-9 restriction already
+determines row membership). The point estimate is ~7.6% *larger* in magnitude, not
+smaller, and the CI still excludes zero by a wide margin.
+
+**Reading:** the leading confound named at pre-registration — decile 9's dispersed
+ribbon mechanically correlating with a ticker that just had a large recent move, then
+partially mean-reverting — does not account for this cell's gross number. Matching out
+1-month-scale reversal (`mom_1_0`) leaves the effect intact, sharpened rather than
+attenuated, the same direction M6.3's own SMA50 cell moved under the identical check.
+This does not change the cell's tier (already Tier 3, still capped by missing
+FDR/holdout infrastructure and the magnitude-vs-signed-return actionability gap named
+at pre-registration) or its pending whole-grid FDR re-entry — but it removes the single
+most consequential open caveat this module's own write-up carried.
+
+**Logged:** `EXPERIMENTS.csv` (1 new row, `ribbon_direction_magnitude_reversal_robustness`);
+`FINDINGS.md`'s `direction_magnitude` entry updated with this result in place of its
+prior "leading confound... not tested here" open item.
