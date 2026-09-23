@@ -3842,6 +3842,36 @@ split by `sign(spread_velocity)` into "accelerating" (`> 0`) and "decelerating/n
 kept consistent within the module rather than switching to a cross-sectional
 percentile.
 
+### Result (spread-velocity addendum, 2026-09-23)
+
+**Both cells' CI spans zero — the facet-level claim is not supported.** Accelerating
+(`spread_velocity > 0`): c2 = −0.0631% CI [−0.3006%, +0.1924%]. Decelerating
+(`spread_velocity <= 0`): c2 = +0.2762% CI [−0.0609%, +0.6315%]. Well-powered on both
+sides (2,705/2,813 events, 1,418/1,430 dates, 402 tickers each — comparable to this
+module's other quality facets, no thin-population caveat).
+
+Neither cell clears the module's own 0.15% kill floor (edges 0.3006%/0.6315%), so
+neither is a clean kill either — same "not killed, not confirmed" shape as most of this
+module's grid. The point estimates disagree in sign (accelerating negative,
+decelerating positive), but since both CIs span zero this is not read as a resolvable
+disagreement (a sign flip between two null-consistent cells carries no information, per
+this study's plateau-rule discipline) — it does not, for instance, suggest "grinding
+crosses are secretly better," it just means neither restriction detects an effect at
+this sample size.
+
+**Reading:** the correction to the module's original scope was worth making — spread
+velocity is a legitimately different, well-defined quantity from "cross angle," and
+cheap to test given the columns already existed — but the result adds to, rather than
+changes, this module's headline: one more DESIGN-named crossover-quality facet with no
+detected effect over the state-matched control, consistent with every other quality
+facet already run.
+
+**Tier:** 4 for both cells (well-powered, CI spans zero). No `FINDINGS.md` entry.
+
+**Logged:** `EXPERIMENTS.csv` (2 rows, `counted_in_n_tests=True`, bringing this module's
+running total to 20 logged cells: 10 primary + 4 horizon companions + 4 original quality
+facets + 2 spread-velocity facets).
+
 ## M6.5 — The SMA drop-off artefact (2026-09-23)
 
 **Module / track:** M6.5, Track B (DESIGN.md, "M6.5 — The SMA drop-off artefact"). Not
