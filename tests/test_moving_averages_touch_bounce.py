@@ -12,7 +12,7 @@ import pytest
 
 from src.signals.moving_averages.features.placebo_ma import GROUPS, dist_atr_column
 from src.signals.moving_averages.features.touch import CHOP, FROM_ABOVE, HOLD
-from src.signals.moving_averages.modules import touch_bounce as m5
+from src.signals.moving_averages.modules import touch_bounce as tb
 
 
 def _synthetic_events(n_dates=120, n_per_date=40, focal_hold_rate=0.7, synthetic_hold_rate=0.5, seed=0):
@@ -44,7 +44,7 @@ def _synthetic_events(n_dates=120, n_per_date=40, focal_hold_rate=0.7, synthetic
 def test_cell_row_detects_a_real_planted_hold_rate_gap():
     events = _synthetic_events(focal_hold_rate=0.75, synthetic_hold_rate=0.45, n_dates=150)
 
-    cell = m5._cell_row(events, FROM_ABOVE, {"group": "synthetic"}, block_length=10, n_boot=200, seed=0)
+    cell = tb._cell_row(events, FROM_ABOVE, {"group": "synthetic"}, block_length=10, n_boot=200, seed=0)
 
     assert cell["c2"] > 0
     assert cell["c2_ci_low"] > 0
@@ -54,7 +54,7 @@ def test_cell_row_detects_a_real_planted_hold_rate_gap():
 def test_cell_row_ci_spans_near_zero_when_focal_and_synthetic_match():
     events = _synthetic_events(focal_hold_rate=0.5, synthetic_hold_rate=0.5, n_dates=150, seed=1)
 
-    cell = m5._cell_row(events, FROM_ABOVE, {"group": "synthetic"}, block_length=10, n_boot=200, seed=0)
+    cell = tb._cell_row(events, FROM_ABOVE, {"group": "synthetic"}, block_length=10, n_boot=200, seed=0)
 
     # No planted gap -- the CI should span zero, unlike the real-gap case
     # above whose CI excludes zero entirely on the same sample size.
@@ -64,7 +64,7 @@ def test_cell_row_ci_spans_near_zero_when_focal_and_synthetic_match():
 def test_evaluate_kill_criterion_module_killed_when_every_cell_below_floor():
     primary = pd.DataFrame({"c2_ci_low": [-0.005, -0.01], "c2_ci_high": [0.005, 0.015]})
 
-    result = m5.evaluate_kill_criterion(primary)
+    result = tb.evaluate_kill_criterion(primary)
 
     assert result["module_killed"] is True
     assert result["n_cells_killed"] == 2
@@ -73,7 +73,7 @@ def test_evaluate_kill_criterion_module_killed_when_every_cell_below_floor():
 def test_evaluate_kill_criterion_not_killed_when_one_cell_survives():
     primary = pd.DataFrame({"c2_ci_low": [-0.005, 0.03], "c2_ci_high": [0.005, 0.05]})
 
-    result = m5.evaluate_kill_criterion(primary)
+    result = tb.evaluate_kill_criterion(primary)
 
     assert result["module_killed"] is False
     assert result["n_cells_killed"] == 1
@@ -92,7 +92,7 @@ def test_group_event_table_tags_focal_and_pools_every_neighbor():
         data[dist_atr_column("sma", lookback)] = values
     panel = pd.DataFrame(data)
 
-    pooled = m5.group_event_table(panel, "sma50")
+    pooled = tb.group_event_table(panel, "sma50")
 
     assert set(pooled["is_focal"]) == {True, False}
     assert (pooled["is_focal"] == True).sum() == 1  # noqa: E712 -- one focal touch event
