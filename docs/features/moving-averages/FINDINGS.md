@@ -827,22 +827,25 @@ miss at its own rank, but caught by the step-up rule from rank 5's clearance). *
 is not a new, independently-detected effect** — the underlying number is identical to
 the 2026-09-20 reading; only the correction's context changed.
 
-**Tier: unchanged at 3 — not promoted to Tier 2, same reasoning applied to
-`slope_pctile_21_sma_50` above and for the same reason.** This cell's own hypothesis is
-specifically *about* the near-52-week-low population — a stock that recently sat near
-its 52-week low is, by construction, in a weak/beaten-down state, structurally the same
-population M1's and M2's already-capped buckets occupy. A pre-2024-delisted, bankrupt
-ticker would have traded near its 52-week low immediately before disappearing from this
-panel (DESIGN §7.3's delisted-history ceiling); if such tickers are systematically
-absent from exactly this bucket, its observed forward return is inflated the same way
-§7.3 already documents for M1/M2. Unlike `slope_pctile_21_sma_50`'s two-sided,
-"roughly symmetric" construction, this cell's claim is asymmetric and squarely about
-the weak-state population itself — a cleaner fit to §7.3's own mechanism than M6.3's
-case, closer in kind to `stack_fully_bearish`'s already-accepted cap than to an open
-question. Treated with the same confidence as `stack_fully_bearish`'s cap, extended by
-analogy rather than literal enumeration (DESIGN §7.3 names M1/M3/M4 only). Also still
-capped by the pre-existing holdout/universe-tier infrastructure gap, unchanged by this
-result.
+**Tier: unchanged at 3 — not promoted to Tier 2.** M6.3's `slope_pctile_21_sma_50`
+carried an analogous caveat and *was* promoted the same day (see that entry), once a
+direct rising-tail-only vs. falling-tail-only decomposition ruled it out. **That test
+doesn't transfer here**, and this cell stays unresolved for a structural reason: this
+cell's own hypothesis is specifically *about* the near-52-week-low population — a
+stock that recently sat near its 52-week low is, by construction, in a weak/
+beaten-down state, structurally the same population M1's and M2's already-capped
+buckets occupy. Unlike `slope_pctile_21_sma_50`'s two-sided, symmetric construction
+(which could be split into a survivorship-exposed half and a survivorship-immune half
+and compared), this cell's claim is asymmetric and squarely about the weak-state
+population itself — there's no survivorship-immune "other side" to decompose it
+against. A pre-2024-delisted, bankrupt ticker would have traded near its 52-week low
+immediately before disappearing from this panel (DESIGN §7.3's delisted-history
+ceiling); if such tickers are systematically absent from exactly this bucket, its
+observed forward return is inflated the same way §7.3 already documents for M1/M2.
+Closer in kind to `stack_fully_bearish`'s already-accepted cap than to a resolvable
+open question — extended by analogy rather than literal enumeration (DESIGN §7.3
+names M1/M3/M4 only). Also still capped by the pre-existing holdout/universe-tier
+infrastructure gap, unchanged by this result.
 
 **What would change the verdict:** a delisted-history extension pre-2024 (DESIGN
 §7.3's own stated resolution path) or an explicit bound against a published reference
@@ -1044,33 +1047,40 @@ alternative reasonable ways to count Batch-1's new cells (N=47/50/51): rank 1 an
 p-value are unchanged in every case — this is not an artifact of a specific dedup
 judgment call.
 
-**Tier: unchanged at 3 — not promoted to Tier 2, on a newly-surfaced (not previously
-considered) caveat, checked and named explicitly rather than silently applied:** this
-cell's tail-decile population includes the extreme-negative-slope rows, structurally
-the same shape of population as M1's already-capped "weak/below-MA-state" bucket and
-M2's already-capped `stack_fully_bearish` — a row a pre-2024-delisted, bankrupt ticker
-would have occupied immediately before disappearing from this panel (DESIGN §7.3's
-delisted-history ceiling, 2024–2026 coverage only). If such tickers are systematically
-missing from exactly this bucket, the bucket's observed forward return is inflated by
-the same survivorship mechanism §7.3 already names for M1/M2. This is **not** a literal
-application of §7.3's own enumerated cap (M1/M3/M4 only) — extended here by analogy,
-because the mechanism is the same, not because the text covers it. **Partially, not
-fully, mitigated**: this cell's own shape is "roughly symmetric" (both tails
-contribute similarly, unlike SMA20's falling-tail-driven asymmetry — see the plateau
-check above and `PREREGISTRATION.md`'s `shape_table`), meaning the rising tail — a
-population with no survivorship exposure at all — independently shows a comparable
-contribution. But no direct rising-only-vs-falling-only decomposition has been run to
-settle this quantitatively, unlike the short-term-reversal confound above, which *was*
-directly tested and resolved in this cell's favor. Until that decomposition runs, this
-stays an open, named caveat rather than a resolved one. The cell also remains capped by
-the same missing holdout/universe-tier infrastructure every Tier-3 cell in this study
-carries — clearing FDR resolves one of two named infrastructure gaps, not both.
+**Tier: promoted to 2 — the first Tier-2 result in this study's history**, resolved
+the same day the caveat above was first raised, via a direct test rather than left
+open. The caveat: this cell's tail-decile population includes the
+extreme-negative-slope rows, structurally the same shape of population as M1's
+already-capped "weak/below-MA-state" bucket and M2's already-capped
+`stack_fully_bearish` — a row a pre-2024-delisted, bankrupt ticker would have occupied
+immediately before disappearing from this panel (DESIGN §7.3's delisted-history
+ceiling, 2024–2026 coverage only). If such tickers were systematically missing from
+exactly this bucket, the bucket's observed forward return would be inflated by the
+same survivorship mechanism §7.3 already names for M1/M2.
 
-**What would change the verdict:** a rising-tail-only vs. falling-tail-only
-decomposition of this cell (the single most consequential open follow-up this
-consolidation surfaces — more consequential than the pre-existing holdout/universe-tier
-gap, because it bears on whether *this specific* FDR survival should be trusted at
-face value); a holdout check; a second universe tier.
+**Resolved by direct test (2026-09-23 tail-decomposition addendum), not by
+analogy.** Split the pooled tail into rising-only (deciles 8,9 — zero survivorship
+exposure, the strongly-bullish side) vs. falling-only (deciles 0,1 — the
+theoretically-exposed side), each compared against the same middle deciles (4,5)
+independently. **Rising-tail-only: `c2=-0.2544%`, CI `[-0.4290%,-0.0846%]` — excludes
+zero. Falling-tail-only: `c2=-0.2442%`, CI `[-0.4127%,-0.0959%]` — excludes zero.**
+The two are within 5% of each other's magnitude. If the pooled result were a
+falling-tail survivorship artifact, the rising-tail-only reading — immune to that
+mechanism by construction — would be null or much smaller; instead it independently
+confirms the same effect. This is not a literal application of DESIGN §7.3's own
+enumerated cap (M1/M3/M4 only) — the concern was raised by analogy, and now ruled out
+by a direct test, the same standard the short-term-reversal confound above was held
+to. Full detail: `PREREGISTRATION.md`'s M6.3 tail-decomposition addendum.
+
+**Per DESIGN §9.2, Tier 2 = "survives C2 and FDR, but fails one of: universe
+generality, holdout, or cost."** This cell now clears C2, FDR (both q=0.10 and
+q=0.05), and cost at every reading; its remaining gaps (holdout, a second universe
+tier) are missing infrastructure, not failures — exactly the Tier-2 profile. This is
+the first cell in the study to reach it.
+
+**What would change the verdict:** a holdout check; a second universe tier — the same
+two items every other Tier-3 cell in this study is still waiting on, now the only
+two remaining for this one.
 
 ### `slope_pctile_21_sma_200` — middle vs. tails, 21d
 
