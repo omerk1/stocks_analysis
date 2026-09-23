@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.signals.moving_averages.modules import crossover_state as m3
+from src.signals.moving_averages.modules import crossover_state as cs
 
 
 def _synthetic_panel(n_tickers: int = 6, n_days: int = 400, seed: int = 0) -> pd.DataFrame:
@@ -44,6 +44,7 @@ def _synthetic_panel(n_tickers: int = 6, n_days: int = 400, seed: int = 0) -> pd
             frame["sma_200"].isna()
         )
         frame["slope_log_21_sma_200"] = np.log(frame["sma_200"]).diff(21)
+        frame["slope_log_21_sma_50"] = np.log(frame["sma_50"]).diff(21)
         frame["ema_20"] = frame["close"].ewm(span=20, adjust=False).mean()
         frame["mom_12_1"] = frame["close"].pct_change(230).shift(21)
         frame["realized_vol_63"] = frame["close"].pct_change().rolling(63).std()
@@ -55,18 +56,18 @@ def _synthetic_panel(n_tickers: int = 6, n_days: int = 400, seed: int = 0) -> pd
 
 def test_prepare_adds_expected_columns():
     panel = _synthetic_panel()
-    working = m3.prepare(panel)
+    working = cs.prepare(panel)
 
-    for lb in m3.NEW_EMA_LOOKBACKS:
+    for lb in cs.NEW_EMA_LOOKBACKS:
         assert f"ema_{lb}" in working.columns
-    for pair_name in m3.PAIRS:
+    for pair_name in cs.PAIRS:
         assert f"state_{pair_name}" in working.columns
     assert "fwd_ret_21" in working.columns
 
 
 def test_local_ema_columns_are_lagged_one_bar():
     panel = _synthetic_panel(n_tickers=1, n_days=60)
-    working = m3.add_local_ema_columns(panel)
+    working = cs.add_local_ema_columns(panel)
 
     from src.foundation.market_common.indicators import ema as ema_fn
 
@@ -81,11 +82,11 @@ def test_local_ema_columns_are_lagged_one_bar():
 
 def test_primary_cell_table_shape_and_no_lookahead_in_event_definition():
     panel = _synthetic_panel()
-    working = m3.prepare(panel)
-    primary = m3.primary_cell_table(working)
+    working = cs.prepare(panel)
+    primary = cs.primary_cell_table(working)
 
-    assert len(primary) == len(m3.PAIRS) * 2
-    assert set(primary["direction"]) == {m3.GOLDEN, m3.DEATH}
+    assert len(primary) == len(cs.PAIRS) * 2
+    assert set(primary["direction"]) == {cs.GOLDEN, cs.DEATH}
     # Every cell reports the invariant #6 effective-N fields.
     for col in ("n_events", "n_dates", "n_tickers", "c2_ci_low", "c2_ci_high"):
         assert col in primary.columns
@@ -98,25 +99,61 @@ def test_event_population_is_subset_of_matching_state():
     C2 delta.
     """
     panel = _synthetic_panel()
-    working = m3.prepare(panel)
-    state_col = f"state_{m3.CLASSIC_PAIR}"
+    working = cs.prepare(panel)
+    state_col = f"state_{cs.CLASSIC_PAIR}"
 
     from src.signals.moving_averages.features import crossover
 
     events = crossover.crossover_events(working, state_col)
-    golden_dates = events[events["crossover_type"] == m3.GOLDEN][["ticker", "date"]]
+    golden_dates = events[events["crossover_type"] == cs.GOLDEN][["ticker", "date"]]
     merged = golden_dates.merge(working[["ticker", "date", state_col]], on=["ticker", "date"], how="left")
     assert merged[state_col].fillna(False).all()
+
+
+def test_spread_velocity_facet_table_shape_and_labels():
+    panel = _synthetic_panel()
+    working = cs.prepare(panel)
+    facets = cs.spread_velocity_facet_table(working)
+
+    assert len(facets) == 2
+    assert set(facets["facet_value"]) == {"accelerating", "decelerating"}
+    assert (facets["facet"] == "spread_velocity").all()
+    assert (facets["direction"] == cs.GOLDEN).all()
+
+
+def test_spread_velocity_excludes_rows_with_undefined_slope_not_treated_as_decelerating():
+    """Invariant #9: a row with an undefined slope_log_21 leg (e.g. inside
+    the MA's own warmup window) must be excluded from both facet
+    populations, not silently folded into "decelerating" by an arithmetic
+    NaN comparison defaulting False.
+    """
+    panel = _synthetic_panel()
+    working = cs.prepare(panel)
+    fast_col, slow_col = cs.PAIRS[cs.CLASSIC_PAIR]
+    fast_slope = working[f"slope_log_21_{fast_col}"]
+    slow_slope = working[f"slope_log_21_{slow_col}"]
+    valid = fast_slope.notna() & slow_slope.notna()
+    assert (~valid).any(), "fixture must exercise the undefined-slope warmup region"
+
+    undefined_rows = working[~valid]
+    facets = cs.spread_velocity_facet_table(working)
+    # Every row counted in either facet cell's n_events must come from the
+    # valid population -- checked indirectly via the population sizes: the
+    # two facet cells' underlying restrictions never draw from `~valid`.
+    accelerating_restricted = working[valid & ((fast_slope - slow_slope) > 0)]
+    decelerating_restricted = working[valid & ((fast_slope - slow_slope) <= 0)]
+    assert len(accelerating_restricted) + len(decelerating_restricted) == valid.sum()
+    assert len(undefined_rows) == (~valid).sum()
 
 
 def test_kill_criterion_fires_when_every_cell_is_near_zero():
     tiny = pd.DataFrame({
         "pair": ["p1", "p1"],
-        "direction": [m3.GOLDEN, m3.DEATH],
+        "direction": [cs.GOLDEN, cs.DEATH],
         "c2_ci_low": [-0.0005, -0.0003],
         "c2_ci_high": [0.0004, 0.0006],
     })
-    result = m3.evaluate_kill_criterion(tiny)
+    result = cs.evaluate_kill_criterion(tiny)
     assert result["module_killed"] is True
     assert result["n_cells_killed"] == 2
 
@@ -124,10 +161,10 @@ def test_kill_criterion_fires_when_every_cell_is_near_zero():
 def test_kill_criterion_does_not_fire_when_one_cell_exceeds_floor():
     tiny = pd.DataFrame({
         "pair": ["p1", "p1"],
-        "direction": [m3.GOLDEN, m3.DEATH],
+        "direction": [cs.GOLDEN, cs.DEATH],
         "c2_ci_low": [-0.0005, -0.02],
         "c2_ci_high": [0.0004, -0.01],
     })
-    result = m3.evaluate_kill_criterion(tiny)
+    result = cs.evaluate_kill_criterion(tiny)
     assert result["module_killed"] is False
     assert result["n_cells_killed"] == 1
