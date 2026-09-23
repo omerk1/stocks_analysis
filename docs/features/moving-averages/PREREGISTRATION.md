@@ -2130,6 +2130,267 @@ appendix — all updated to reflect M18).
 
 ---
 
+## M7 — Ribbon compression / expansion (2026-09-22)
+
+**Module / track:** M7, Track B (DESIGN.md M7, lines 925-929). Not part of the original
+minimal-core list (DESIGN §12) — added post-termination via DESIGN §1.5's porous-scope
+rule, same precedent as M18. Promoted from the coordinating session's own Batch-1
+scoping pass (2026-09-21): M7 was identified as one of the cheapest remaining modules
+in DESIGN's full M0-M18 list — it reuses the existing {20,50,150,200} SMA lookbacks
+already in the cached panel, needs no new crossover/regime/survival machinery, and no
+raw-DB joins.
+
+**Hypothesis (DESIGN's own):** low MA dispersion (compression) precedes volatility
+expansion; direction of that expansion is *not* predictable from compression alone,
+except weakly, conditional on prior trend (DESIGN's own prior: "vol prediction works
+... direction prediction does not, except conditional on prior trend, where it's
+weakly momentum-ish. Worth stating clearly because the folklore conflates the two.").
+
+**New machinery:** two small additions, both new files/functions, neither touching
+`features/panel.py` or any other module's files (this module ran alongside three
+sibling forks working on M6.1/M6.3/M13 in parallel, in isolated worktrees — the
+per-module-local-feature convention every prior module in this study already follows
+is what keeps that safe):
+- `features/ribbon.py::ribbon_width` — coefficient-of-variation dispersion
+  (std/mean) of the four already-cached, already-lagged SMA columns at each row.
+  Needs no re-lagging of its own (arithmetic on already-lagged inputs).
+- `features/ribbon.py::ribbon_width_pctile` — per-ticker rolling min-max scaling of
+  `ribbon_width` over a trailing 252-day window (same window convention as
+  `distance.py::DIST_Z_WINDOW`/`context.py::FIFTY_TWO_WEEK_WINDOW`). **Deliberately an
+  approximation, not an exact rolling percentile rank**: an exact rank would need an
+  O(n×window) rolling `.apply` per ticker; min-max range position is fully vectorized
+  (rolling min/max only) and is the same construction family this codebase's own
+  `dist_from_52w_high`/`dist_from_52w_low` already use for an analogous "position
+  within a trailing range" question. Stated explicitly here rather than silently
+  presented as a true percentile.
+- `labels/forward_returns.py::forward_realized_vol` — std of the next `horizon` daily
+  simple returns (matches `realized_vol_63`'s own convention: simple returns, not log,
+  non-annualized). A forward-looking **label**, not a feature — CLAUDE.md's one-bar-lag
+  invariant constrains features used to condition on a forward outcome, not labels,
+  same as `forward_return` itself.
+
+**Method:** `ribbon_width_pctile` bucketed into 10 deciles (0 = most compressed, 9 =
+most dispersed, via `floor(pctile × 10)` — a direct binning of the already-[0,1]-scaled
+value, not a per-date `cross_sectional_bucket` cut, since this is a per-ticker
+time-series measure, not a cross-sectional one). Five primary cells, all reusing this
+study's existing block-bootstrap primitives unchanged (`stats/inference.py
+::block_bootstrap_spread`/`block_bootstrap_delta`, M4/M11/M18's and M6.2's own):
+1. **Vol expansion, standard C2** (`mom_tercile`/`vol_tercile`/`sector`): decile-9-minus-
+   decile-0 spread of `fwd_vol_21` (forward 21-day realized vol).
+2. **Vol expansion, C2 without `vol_tercile`**: same spread, `mom_tercile`/`sector` only
+   — see "Control tier and why" below for why both readings are reported.
+3. **Direction, unconditional (signed)**: decile-9-minus-decile-0 spread of `fwd_ret_21`.
+4. **Direction, unconditional (magnitude)**: decile-9-minus-decile-0 spread of
+   `fwd_absret_21` (`|fwd_ret_21|`) — a distinct question from vol_21 (a single
+   cumulative 21-day move's magnitude vs. the full window's realized vol), both named
+   by DESIGN, kept as separate cells rather than collapsed into one.
+5. **Direction, conditional on trend**: within the compressed (decile-0) population
+   only, C2 delta of `fwd_ret_21` between `prior_trend_up` (`mom_12_1 > 0`) and
+   `prior_trend_up=False` — DESIGN's own "weakly momentum-ish, conditional on trend"
+   sub-claim, the one cell where direction is expected to show up.
+
+**Kill criterion, per cell (a floor keyed to the value type, same convention every
+prior module uses — no single number DESIGN gives for this module, so each floor is
+stated and justified here rather than assumed):**
+- Cells 1-2 (vol-expansion, `value_col=fwd_vol_21`): `max(|ci_low|,|ci_high|) < 0.001`
+  (absolute, daily-return-std units) → killed. Calibrated against this panel's own
+  `realized_vol_63` distribution (median ≈0.0146, IQR [0.0113, 0.0194]) — 0.001 is
+  ≈7% of the median level, a floor meant to rule out a trivially small but
+  CI-excluding-zero shift, not derived from a DESIGN-stated formula.
+- Cells 3-5 (return-based, `value_col∈{fwd_ret_21, fwd_absret_21}`):
+  `max(|ci_low|,|ci_high|) < 0.10%` — this study's own standard floor (M1/M2/M6.2).
+
+**Control tier and why:** C2 (`mom_tercile`/`vol_tercile`/`sector`) is this study's
+standard tier, used for cells 3-5 without modification. For the two vol-expansion
+cells (1-2), this study's usual `vol_tercile` match column is in direct tension with a
+hypothesis that's partly *about* vol itself — matching on trailing 63-day realized vol
+before testing whether compression predicts a change in vol risks partially matching
+away the very effect being tested. Both readings are reported side by side rather than
+picking one: cell 1 (with `vol_tercile`) is the conservative, standard-tier reading;
+cell 2 (without it) is the more literal test of the hypothesis. Neither is designated
+"primary" over the other up front — both count toward this module's `N_tests`
+contribution (see below), and the write-up will report both numbers rather than
+picking whichever is more favorable after the fact.
+
+**Cost annotation:** cells 3-5 (direction/magnitude) imply a tradeable claim if
+confirmed — CLAUDE.md invariant #8 applies, using `stats/costs.py::signals_per_year`
+on a compressed-decile membership flag, same convention as every prior module. Cells
+1-2 (vol expansion) are a forecast-quality/mechanism read, not directly tradeable on
+their own (same "not applicable" convention M5 used for hold-rate cells) — stated
+explicitly rather than skipped silently.
+
+**Grid size (`N_tests` contribution):** 5 primary cells. No companion/redundancy
+exclusions — each cell is a distinct outcome column or a distinct row restriction, not
+a re-parameterization of another cell in this grid.
+
+**Plateau check (DESIGN §6.7):** not a lookback-neighborhood question (this module has
+no lookback grid — one ribbon, {20,50,150,200}, is the whole feature) — read instead as
+internal consistency across the two vol-expansion readings (cells 1-2, C2 with/without
+`vol_tercile` — should agree in sign and rough magnitude if the effect is real and not
+an artifact of the match-column choice) and between the unconditional (cell 3) and
+trend-conditional (cell 5) direction cells (DESIGN's own prior: cell 3 should be
+null/weak, cell 5 should show more signal than cell 3 — if cell 3 is *stronger* than
+cell 5, that would contradict DESIGN's own stated prior and needs scrutiny, not a
+comfortable "still directionally consistent" wave-through).
+
+**Effective N:** distinct dates and tickers per cell, standard invariant (CLAUDE.md
+#6) — expected to comfortably clear DESIGN §6.9's floor (200 events, ≥30 dates, ≥30
+tickers) given this reuses the full U1 panel population, flagged per cell if not.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21`/`fwd_absret_21`/`fwd_vol_21` all at the 21-day
+horizon this study uses throughout.
+
+**Whole-grid FDR pass:** this module ran after the whole-grid FDR pass already
+executed (`STATUS.md`, most recently N=35, 2026-09-20). Per M18's own established
+"FDR re-entry" precedent: if any cell here survives its own kill criterion and (for
+cells 3-5) clears cost, it gets flagged as **pending whole-grid FDR re-entry** in its
+`EXPERIMENTS.csv` row, not reported as a standalone significance claim — a consolidated
+re-run against the larger grid happens once, after this module and its sibling
+Batch-1 forks (M6.1, M6.3, M13) have all landed, not run separately here.
+
+### Result (2026-09-22)
+
+Ran against the real U1 panel (405 S&P 500 constituents, 2010-01-04 → 2021-12-31).
+**A real bug found and fixed before trusting anything below**: `features/ribbon.py
+::ribbon_width` and `labels/forward_returns.py::forward_realized_vol` both initially
+used pandas' default `skipna=True` on a row-wise `.std(axis=1)`/`.mean(axis=1)` — this
+silently computed a width/vol from *fewer than all four SMAs* (or fewer than `horizon`
+forward returns) instead of propagating NaN when one input was still in its warmup
+window, arithmetic NaN-propagation working differently than the comparison-operator
+case CLAUDE.md invariant #9 names, but the same class of "missingness silently
+dropped" bug. Caught by this module's own new tests
+(`test_ribbon_width_is_coefficient_of_variation_of_the_four_smas`,
+`test_forward_realized_vol_matches_hand_computed_std_of_forward_daily_returns`), fixed
+with explicit `skipna=False`, and the real-panel run below reflects the fixed version
+only (an initial buggy run's numbers were discarded, not reported anywhere).
+
+| outcome | match | n_events | n_dates | n_tickers | c2 | ci_low | ci_high | edge | kill_threshold | killed | ci_excludes_zero |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| vol_expansion | c2_standard | 175,152 | 2,549 | 402 | +0.000214 | −0.000069 | +0.000573 | 0.000573 | 0.001 | **True** | False |
+| vol_expansion | c2_no_vol_match | 175,152 | 2,549 | 402 | +0.000277 | −0.000180 | +0.000827 | 0.000827 | 0.001 | **True** | False |
+| direction_signed | — | 175,152 | 2,549 | 402 | −0.002039 | −0.004660 | +0.000915 | 0.004660 | 0.001 | False | False |
+| direction_magnitude | — | 175,152 | 2,549 | 402 | **−0.002471** | **−0.003976** | **−0.000927** | 0.003976 | 0.001 | False | **True** |
+| direction_conditional_on_trend | — | 136,572 | 2,549 | 402 | −0.000784 | −0.004972 | +0.003202 | 0.004972 | 0.001 | False | False |
+
+**Vol expansion — killed cleanly under both C2 readings.** Both the standard C2
+(`+0.000214`, CI spans zero) and the no-vol-match C2 (`+0.000277`, CI spans zero) fall
+under the pre-registered 0.001 floor and don't distinguish from zero — the two
+readings agree in sign and rough magnitude (internal-consistency plateau check named
+in the pre-registration above: **passes**, not a lone-pixel read). DESIGN's own "vol
+prediction works" prior does **not** hold in this specific construction (a 21-day
+forward realized-vol decile spread on `ribbon_width_pctile`'s min-max-scaled
+compression measure) — a clean negative, not an ambiguous one.
+
+**Direction, unconditional — inconclusive, consistent with DESIGN's own prior of no
+effect.** `−0.002039`, CI spans zero. Descriptive shape stats (CLAUDE.md invariant
+#10, no CI/kill authority): hit rate 61.7% (C2 delta +1.03pp vs. control), win/loss
+ratio 1.13, skew −0.30 — a mild negative skew on the compressed-decile population's
+own return distribution, not itself a claim.
+
+**Direction, magnitude — confirmed, the one real cell in this module.** `−0.002471`,
+CI `[−0.003976, −0.000927]`, excludes zero, clears the 0.10% floor. Read: among
+already-compressed-ribbon rows (decile 0), the subsequent 21-day |return| is larger
+than among already-dispersed-ribbon rows (decile 9) — a real, if partial, vindication
+of the compression-precedes-a-bigger-move idea, showing up in *net cumulative
+displacement magnitude* rather than in the *full-window realized-vol* measure the
+vol-expansion cells tested. Shape stats not computed for this cell (a `|return|`
+column is ≥0 by construction, so hit-rate/win-loss on it would be a degenerate,
+near-100%-hit-rate non-statistic — restricted to genuinely signed outcomes only,
+`ribbon_compression.py::_spread_cell`).
+
+**Cost (invariant #8, triggered — this cell is confirmed):** compressed-decile
+membership flag turnover 3.163 flips/ticker-yr → hurdle 0.3163%/yr (10bps/rt,
+`costs.py`). Annualized (×12): point −2.97%/yr, near-zero edge −1.11%/yr, far edge
+−4.77%/yr — **clears at every reading.** **Important caveat, named up front, not
+buried**: `fwd_absret_21` is a *magnitude*, not a signed return — "clears cost" here
+answers "is the shift in |return| bigger than the turnover cost of the flag," not "can
+you make money going long or short this signal." Turning this into an actual monetizable
+claim would need a specific strategy construction this cell doesn't test (e.g. a
+long-volatility/straddle-style position, or a stop/position-sizing rule keyed to the
+flag) — flagged as the live gap between "statistically real" and "actionable,"
+distinct from every other Tier-3 cell in this study, whose confirmed cells are all
+signed-return deltas.
+
+**Direction, conditional on trend — inconclusive, and this itself is worth naming
+plainly: it does *not* confirm DESIGN's own stated prior.** `−0.000784`, CI spans
+zero. DESIGN's own text expected this cell (direction *within* the compressed
+population, split by prior trend) to show *more* signal than the unconditional cell
+above ("direction prediction does not [work], except conditional on prior trend,
+where it's weakly momentum-ish") — it doesn't. Both the unconditional and
+trend-conditional direction cells are CI-spans-zero nulls, not a case where the
+conditional cell picks up signal the unconditional one misses. Stated as a partial
+disconfirmation of DESIGN's own prior, not smoothed into "still broadly consistent."
+Shape stats: hit rate 62.1% (C2 delta −0.03pp, essentially zero — no shape-level
+signal either), win/loss ratio 1.14, skew −0.12.
+
+**Argue against the one confirmed cell (`direction_magnitude`), per CLAUDE.md's own
+"after running" step:** the leading candidate confound is short-term
+reversal/mean-reversion, the same class this study has flagged repeatedly (M1/M2/M6.2's
+own `rev_tercile` diagnostics) — decile 9 (already-dispersed ribbon) mechanically
+correlates with tickers that already had a large *recent* price move (that's what
+pushed the ribbon apart in the first place); if such tickers partially mean-revert,
+their *subsequent* |return| would mechanically shrink relative to decile 0's, producing
+exactly this cell's sign without "compression → expansion" being the real mechanism at
+all. **Partial mitigation, not a full answer**: cells 3-5's C2 already matches on
+`vol_tercile` (63-day trailing realized vol), which absorbs some but not all of this —
+a ticker's 63-day vol level isn't the same as "just had a big move in the last few
+days," which is exactly the gap `mom_1_0`/`rev_tercile` exists to close elsewhere in
+this study. **Not run here** — a `rev_tercile`-augmented C2 check (this study's own
+established diagnostic) is the natural next step to resolve this, left as an explicit
+open item rather than run speculatively in this pass.
+
+**Tier:** 3 for `direction_magnitude` — capped by the same missing FDR/holdout
+infrastructure every Tier-3 cell in this study carries, *and* by the
+signed-vs-magnitude actionability caveat named above (a second, cell-specific cap, not
+just the study-wide one). Tier 4 for the other four cells (2 cleanly killed, 2
+inconclusive — CLAUDE.md's own convention: a Tier-4 CI-spans-zero result is still a
+real, reported outcome, not silence).
+
+**Pending whole-grid FDR re-entry:** `direction_magnitude` clears its own kill
+criterion and cost hurdle — per this entry's own "FDR re-entry" statement above, it is
+flagged pending, not reported as a standalone significance claim. The consolidated
+re-run happens once, after this module and its three sibling Batch-1 forks (M6.1, M6.3,
+M13) have all landed — not run separately here.
+
+**Logged:** `EXPERIMENTS.csv` (5 rows); `FINDINGS.md` (1 new entry, `direction_magnitude`).
+
+### Result (reversal-robustness addendum, 2026-09-23)
+
+The entry above named the exact open item this addendum resolves: `direction_magnitude`'s
+leading candidate confound is short-term reversal/mean-reversion, left explicitly unrun
+at pre-registration. Same construction as M6.2's/M6.3's own reversal-robustness
+addenda and `modules/slope_conditioner.py`'s `C2_MATCH_COLS_WITH_REVERSAL` precedent: a
+`rev_tercile` column (per-date tercile of `mom_1_0`, the prior 1-day return) added to
+`modules/ribbon_compression.py::prepare()`, and a `C2_MATCH_COLS_WITH_REVERSAL =
+(*C2_MATCH_COLS, "rev_tercile")` match set passed into `_spread_cell` alongside the
+existing default-C2 run — both computed fresh in the same pass, on the real cached U1
+panel (402-ticker coverage, 2010-01-01→2021-12-31).
+
+**Survives — if anything slightly stronger, not explained by reversal.** Default C2
+(this addendum's own fresh rerun): `c2=-0.002471`, CI `[-0.003976,-0.000927]` — matches
+the originally-logged row exactly (no reproducibility drift, unlike M6.2's addendum).
+With `rev_tercile` added: `c2=-0.002660`, CI `[-0.004238,-0.001027]` (n_events 175,152
+→ 175,152, n_dates 2,549 → 2,549, unchanged — the decile-0/decile-9 restriction already
+determines row membership). The point estimate is ~7.6% *larger* in magnitude, not
+smaller, and the CI still excludes zero by a wide margin.
+
+**Reading:** the leading confound named at pre-registration — decile 9's dispersed
+ribbon mechanically correlating with a ticker that just had a large recent move, then
+partially mean-reverting — does not account for this cell's gross number. Matching out
+1-month-scale reversal (`mom_1_0`) leaves the effect intact, sharpened rather than
+attenuated, the same direction M6.3's own SMA50 cell moved under the identical check.
+This does not change the cell's tier (already Tier 3, still capped by missing
+FDR/holdout infrastructure and the magnitude-vs-signed-return actionability gap named
+at pre-registration) or its pending whole-grid FDR re-entry — but it removes the single
+most consequential open caveat this module's own write-up carried.
+
+**Logged:** `EXPERIMENTS.csv` (1 new row, `ribbon_direction_magnitude_reversal_robustness`);
+`FINDINGS.md`'s `direction_magnitude` entry updated with this result in place of its
+prior "leading confound... not tested here" open item.
+
+---
+
 ## M6.3 — Slope magnitude: monotonic or humped? (2026-09-22)
 
 **Module / track:** M6.3, Track B (DESIGN.md, "M6.3 — Slope magnitude: monotonic or
