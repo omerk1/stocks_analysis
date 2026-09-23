@@ -3137,6 +3137,211 @@ regenerable from this module, not separately logged as CSV rows since they carry
 kill criterion of their own — same convention as this study's other purely-descriptive
 readouts, e.g. plateau checks).
 
+## M6.6 — Slope agreement across the ribbon (2026-09-23)
+
+**Module / track:** M6.6, Track B (DESIGN.md, "M6.6 — Slope agreement across the
+ribbon"). Not part of the original minimal-core list (DESIGN §12) — post-termination
+"Batch 2" module (`HANDOVER.md`'s 2026-09-22 triage), run in parallel with three
+sibling modules (M3, M6.5, M12) each in their own isolated worktree/branch.
+
+**Hypothesis (DESIGN's own):** the fraction of the ribbon {10, 20, 50, 100, 200} with
+positive slope — an ordinal 0–5 state — is monotonically associated with forward return
+and, more likely to be useful per DESIGN's own text, forward *drawdown*. DESIGN
+explicitly warns the state may "collapse to a single MA's slope" (heavy collinearity)
+and asks for the correlation matrix to be reported either way, not just on a positive
+result.
+
+**One logged deviation from DESIGN's literal lookback set, load-bearing for this
+module's design, stated up front:** DESIGN names {10, 20, 50, 100, 200} — not this
+study's shared cached-panel lookback set {20, 50, 150, 200}. The cached panel has no
+10-day or 100-day SMA. `sma_10`/`sma_100` and their `slope_log_21` are built here,
+module-local (`modules/ribbon_slope_agreement.py::_build_new_sma_slopes`), not added to
+the shared panel — per this study's established per-module-local-feature convention
+(M6.3's `slope_pctile_21`, M7's `ribbon_width`), so parallel Batch-2 modules don't
+collide on `features/panel.py`. `sma_20`/`sma_50`/`sma_200`'s already-cached
+`slope_log_21_sma_k` columns are reused unchanged. 150 is *not* substituted for 100 —
+DESIGN's named set is used exactly, unlike M7's ribbon (which uses this study's
+existing {20,50,150,200} set for a different question, dispersion not slope-sign
+agreement).
+
+**No literal kill criterion from DESIGN** (framed as an exploratory shape/collinearity
+question, same situation M6.3/M6.6's sibling modules were in). Stated here, following
+this study's own established floor for a return-valued cell: `max(|ci_low|,|ci_high|)
+< 0.10%` (M1/M2/M6.2/M6.3's own floor) on the decisive extreme-state test →
+**killed for that outcome** (no detected ribbon-agreement effect beyond a single MA's
+own slope, at this control tier). CI excluding zero and clearing the floor →
+**confirmed for that outcome**, tiered per DESIGN §9.2 as usual.
+
+**Method — two outputs, following M6.3's shape/decisive-test split:**
+- **`slope_correlation_matrix`** (required regardless of the decisive test's outcome,
+  per DESIGN's own text): per-date median Spearman correlation
+  (`feature_sweep.py::per_date_median_corr`, this study's established redundancy-check
+  primitive — M6.1/M11 precedent) between every pair of the five lookbacks'
+  `slope_log_21` values (10 pairs), plus each lookback vs. the ordinal
+  `ribbon_agreement_state` itself (5 more rows).
+- **`shape_table`** (descriptive): one row per ordinal state (0–5), C0/C1/C2
+  point-estimate deltas on both `fwd_ret_21` and a new label, `fwd_mdd_21` (below) — no
+  bootstrap CI, same convention as M4's `decile_table`/M6.3's `shape_table`. The
+  monotonicity read DESIGN asks for is descriptive off this table (consistency across
+  adjacent states, same spirit as this study's plateau checks), not a battery of five
+  separate per-adjacent-pair CI tests — kept out of `N_tests` for the same reason M4/
+  M6.3's own per-bucket rows were.
+- **`extreme_state_test`** (the decisive, CI-backed test): C2 block-bootstrap delta
+  (`stats/inference.py::block_bootstrap_delta`, block length 42, 500 draws, 90% CI,
+  seed 0) between the two ordinal extremes — state 5 (all five lookbacks rising) vs.
+  state 0 (all five falling) — restricted to only those two states' rows first, same
+  restrict-then-delta pattern M6.2/M6.3 established. Run twice: once on `fwd_ret_21`
+  (DESIGN's "forward returns"), once on a new label, `fwd_mdd_21` (DESIGN's "forward
+  drawdown").
+
+**New label — `labels/path_metrics.py::forward_max_drawdown`:** the maximum adverse
+excursion over the forward 21-day window — the worst `low[t+k]/close[t] − 1` for k in
+1..21, using the path's own daily lows, not just the horizon's closing return
+(`forward_return`'s outcome). Minimal, purpose-built for this module's own "forward
+drawdown" need — not DESIGN's full M6.4 path-metrics/MFE scope (Kaplan-Meier survival,
+barrier hits), which stays unbuilt. A forward-looking label, not a lagged feature
+(CLAUDE.md invariant #2 constrains features, not labels — same status as
+`forward_return`/`forward_realized_vol`).
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+standard tier, same reasoning M6.3 gives: a steep slope in one normalisation and a
+high-vol name are not the same thing.
+
+**Cost annotation:** `shape_table` is descriptive, not a claim. If `extreme_state_test`
+on `fwd_ret_21` confirms an effect, that implies a tradeable claim — invariant #8
+requires a cost annotation, computed on the `ribbon_agreement_state == 5` ("fully
+agreeing bullish") flag's own turnover (`stats/costs.py::signals_per_year`, same
+convention as every prior module). State 0 ("fully agreeing bearish") is a short-side/
+exit signal, not separately cost-annotated here. `fwd_mdd_21`'s own extreme-state test
+is a drawdown-avoidance read, not directly a return-implying trading claim in the same
+sense — not cost-annotated on its own (DESIGN itself frames "more useful" drawdown
+information as a risk-management input, not a standalone entry signal).
+
+**Grid size (`N_tests` contribution):** **2 primary cells** — `extreme_state_test` on
+`fwd_ret_21` and on `fwd_mdd_21`. The correlation matrix (15 numbers) and `shape_table`
+(6 states × 6 columns) are descriptive, not hypothesis tests each — same convention as
+M4's `decile_table`/M6.3's `shape_table`, neither of which counted their per-bucket
+rows as independent tests.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant — the
+two-state-extremes-only restricted population is expected to be smaller than a
+full-panel cell but still checked against DESIGN §6.9's floor (200 events, ≥30 dates,
+≥30 tickers) via `below_threshold`, same convention as every prior module.
+
+**Plateau check (DESIGN §6.7):** applied as consistency across `shape_table`'s six
+states — a real extreme-state spread that isn't at least roughly monotonic through the
+middle states (2/3 in particular) is the same "lone bright pixel" pattern this study
+has caught before (M6.3's own SMA20 asymmetry), read the same way here: reported, not
+silently treated as a clean monotonic function.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21` / `fwd_mdd_21` (both 21-day, this study's
+standard horizon).
+
+**New machinery:** `labels/path_metrics.py` (new file, `forward_max_drawdown`);
+`modules/ribbon_slope_agreement.py`'s own `prepare`/`slope_correlation_matrix`/
+`shape_table`/`extreme_state_test`/`cost_annotation`/`run_grid`. Everything else
+(`cross_sectional_bucket`, `c0_delta`/`c1_delta`/`c2_delta`, `block_bootstrap_delta`,
+`per_date_median_corr`) is reused unchanged. New columns: `slope_log_21_sma_{10,100}`
+(module-local, lagged via the shared `features/panel.py::apply_lag`, per CLAUDE.md
+invariant #2), `ribbon_agreement_state` (masked to NaN wherever any of the five
+lookbacks' slope is undefined — CLAUDE.md invariant #9, enforced by this module's own
+test, `test_ribbon_agreement_state_is_na_during_sma_100_warmup`).
+
+### Result (2026-09-23)
+
+**DESIGN's own stated expectation holds exactly: the drawdown outcome is where the
+signal is, the return outcome is not.**
+
+| cell | c2 (21d) | 90% CI | ci_excludes_zero | edge | n_events | n_dates | n_tickers |
+|---|---|---|---|---|---|---|---|
+| `extreme_state_test` on `fwd_ret_21` | −0.2060% | [−0.6231%, +0.1835%] | False | 0.6231% | 406,663 | 2,747 | 402 |
+| `extreme_state_test` on `fwd_mdd_21` | +0.6538% | [+0.4379%, +0.8870%] | **True** | 0.8870% | 406,663 | 2,747 | 402 |
+
+`fwd_ret_21`: CI spans zero — not confirmed, not killed by the floor either (edge
+clears 0.10%) — a genuine "no detected effect at this control tier" read, same
+convention as M6.2's own inconclusive cells.
+
+`fwd_mdd_21`: CI excludes zero, clears the floor. Positive sign means state 5 (all five
+lookbacks rising) has a *shallower* worst-21-day-drawdown than state 0 (all five
+falling), by 0.65pp beyond the C2 match. **Confirmed.**
+
+**Cost (invariant #8, triggered for the confirmed drawdown cell):** `ribbon_agreement_
+state == 5` flag turnover, `stats/costs.py::signals_per_year` (10bps/rt): 5.415
+flips/ticker-yr → hurdle 0.5415%/yr. Annualized (×12): point +7.85%/yr, near edge
++5.25%/yr, far edge +10.64%/yr — **clears at every reading**, with the same
+avoided-loss-vs-signed-return actionability caveat M7's `ribbon_direction_magnitude`
+carries (see `FINDINGS.md`'s entry for the full statement — "clears cost" here is about
+drawdown-shallowing, not a signed return claim).
+
+**Reversal-robustness (run same day, on the confirmed drawdown cell only — the return
+cell did not confirm, nothing to robustness-check):** C2 + `rev_tercile`
+(`C2_MATCH_COLS_WITH_REVERSAL`): +0.5346%, CI [+0.2397%, +0.8361%] — attenuates ~18%
+from the default-C2 number, CI still excludes zero, still clears the 0.10% floor by a
+wide margin. Short-term reversal is a minor contributor at most, not the driver.
+
+**Correlation matrix (required regardless of outcome, DESIGN's own text):**
+
+| pair | median Spearman |
+|---|---|
+| slope_10 vs slope_20 | 0.8868 |
+| slope_10 vs slope_50 | 0.5141 |
+| slope_10 vs slope_100 | 0.3567 |
+| slope_10 vs slope_200 | 0.2790 |
+| slope_20 vs slope_50 | 0.6806 |
+| slope_20 vs slope_100 | 0.4722 |
+| slope_20 vs slope_200 | 0.3522 |
+| slope_50 vs slope_100 | 0.7329 |
+| slope_50 vs slope_200 | 0.5097 |
+| slope_100 vs slope_200 | 0.7110 |
+| slope_10 vs ribbon_agreement_state | 0.6860 |
+| slope_20 vs ribbon_agreement_state | 0.7570 |
+| slope_50 vs ribbon_agreement_state | 0.7408 |
+| slope_100 vs ribbon_agreement_state | 0.6886 |
+| slope_200 vs ribbon_agreement_state | 0.5966 |
+
+Every pairwise slope correlation sits at or below this study's 0.89 non-redundancy bar
+(M11's precedent) — **DESIGN's own stated collinearity concern ("expect heavy
+collinearity") is not borne out**: the five lookbacks are meaningfully distinct
+signals, closest at the two fastest (10, 20) lookbacks, most distinct at 10-vs-200. Full
+matrix: `output/moving_averages/m6_6_ribbon_slope_agreement_correlation_matrix.csv`.
+
+**Shape table (descriptive, both outcomes, all 6 states):**
+
+| state | n_events | n_dates | c2_return | c2_drawdown |
+|---|---|---|---|---|
+| 0 | 83,990 | 2,766 | +0.2936% | −0.3048% |
+| 1 | 106,458 | 2,768 | +0.1889% | −0.0444% |
+| 2 | 148,020 | 2,779 | −0.1219% | −0.1664% |
+| 3 | 191,367 | 2,779 | −0.0109% | −0.0172% |
+| 4 | 177,453 | 2,778 | −0.0753% | +0.0299% |
+| 5 | 417,307 | 2,779 | −0.0124% | +0.2196% |
+
+**Plateau check (DESIGN §6.7):** the drawdown column is directionally consistent
+end-to-end (state 0 worst, state 5 best) but not a clean monotonic staircase through the
+middle (state 1 less negative than state 2) — endpoints clean, middle noisy, same
+"not a lone bright pixel but not a smooth function either" read M6.3's own U-shape got.
+The return column declines from state 0 to state 2 then flattens near zero through
+state 5 — consistent with that outcome's own CI-spans-zero extreme-state read.
+
+**Argue against the confirmed drawdown result:** the reversal-robustness check above
+(the leading candidate confound) attenuates the effect by only ~18% and the CI still
+excludes zero — not the whole story. A second candidate: `mom_tercile`/`vol_tercile`
+match on their own 12-1-month/63-day windows may not fully capture the *very*
+short-horizon momentum embedded in the fast 10-day-lookback component of
+`ribbon_agreement_state` — the `rev_tercile` check (1-day prior return) partially
+addresses this but a multi-week reversal window is not separately ruled out here. Not
+resolved in this run — flagged as the most plausible remaining alternative explanation,
+same open-item discipline as M6.3's own SMA50/200 argue-against note.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows: the 2 primary decisive cells + 1 reversal-
+robustness companion, not counted in `N_tests`); `FINDINGS.md` (1 entry,
+`ribbon_agreement_extreme_drawdown`, Tier 3, with the return-outcome and correlation-
+matrix results folded into the same entry per this study's convention for a
+two-outcome module); `output/moving_averages/m6_6_ribbon_slope_agreement_*.csv` (full
+result table, correlation matrix, shape table — regenerable via
+`ribbon_slope_agreement_run.py`).
+
 ## M3 — Crossovers: state vs transition (2026-09-23)
 
 **Module / track:** M3, Track B. Batch-2 post-termination module (`HANDOVER.md`'s own

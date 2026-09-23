@@ -1261,3 +1261,109 @@ producing two more borderline-significant sub-cells" — not the shape of "a rea
 economically distinct regime interaction was found." Logged honestly as Tier 3 per
 this study's mechanical convention, with this reasoning attached rather than presented
 as a clean finding.
+
+---
+
+## M6.6 — Slope agreement across the ribbon (2026-09-23)
+
+### `ribbon_agreement_extreme_drawdown`
+
+**Hypothesis:** DESIGN's own M6.6 text — the fraction of the ribbon {10, 20, 50, 100,
+200} with positive slope, as an ordinal 0–5 state, is associated with forward outcomes,
+"more likely to be useful," per DESIGN, "in forward *drawdown*" than in forward return.
+Restated as the decisive, testable claim this cell runs: the two extremes of that
+ordinal state — state 5 (all five lookbacks rising) vs. state 0 (all five falling) —
+differ in `fwd_mdd_21` (the worst low touched over the next 21 trading days, relative to
+today's close), beyond what a single MA's own slope, momentum, volatility, and sector
+already explain.
+
+**Why it was plausible:** DESIGN's own stated intuition — synchronized agreement across
+every timeframe at once (not just one MA) is a stronger "healthy uptrend" signal than
+any single lookback alone, and a stronger such signal should manifest first as reduced
+downside risk (shallower drawdowns), before it necessarily shows up as higher expected
+*return* (a noisier, harder-to-detect outcome at this horizon).
+
+**What was run:** `slope_log_21_sma_{10,100}` built module-local (rolling SMA off raw
+`close`, then `slope_log_k`, then the shared `apply_lag`) since the cached panel has no
+10-day or 100-day SMA; `slope_log_21_sma_{20,50,200}` reused from the cache unchanged.
+`ribbon_agreement_state` = count of the five lookbacks with positive slope (NaN unless
+all five are defined — CLAUDE.md invariant #9, enforced by this module's own test).
+`labels/path_metrics.py::forward_max_drawdown` (new label): the worst
+`low[t+k]/close[t] − 1` for k in 1..21. `stats/inference.py::block_bootstrap_delta`
+(reused unchanged, block length 42, 500 draws, 90% CI, seed 0), C2-matched
+(`mom_tercile`/`vol_tercile`/`sector`), restricted to states {0, 5} first, then a
+`is_high` (state==5) group delta — same restrict-then-delta construction M6.2/M6.3
+established.
+
+**The number:** **+0.6538%**, 90% CI **[+0.4379%, +0.8870%]**. CI excludes zero, clears
+the pre-registered 0.10% floor. Positive means state 5's worst 21-day drawdown is
+*shallower* (less negative) than state 0's, by 0.65 percentage points, beyond the C2
+match.
+
+**Effective N:** 406,663 rows, 2,747 distinct dates, 402 tickers.
+
+**Cost:** `ribbon_agreement_state == 5` ("fully agreeing bullish") flag turnover: 5.415
+flips/ticker-yr → hurdle 0.5415%/yr (`stats/costs.py`, 10bps/rt, entry+exit convention,
+same as every prior module). Point, annualized (×12): +7.85%/yr, clears. Near edge
+(+5.25%/yr): clears. Far edge (+10.64%/yr): clears. **Clears at every reading — with the
+same kind of caveat M7's `ribbon_direction_magnitude` carries**: `fwd_mdd_21` measures
+an avoided-loss/drawdown-shallowing effect, not a signed realized-return claim. "Clears
+cost" here means the shift in worst-case-drawdown exceeds the turnover cost of the
+flag, not "going long this signal earns excess return" — no signed trading strategy is
+tested here (the companion return-outcome cell, below, is the direct test of that, and
+it does not confirm).
+
+**Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell in
+this study carries, and by the avoided-loss-vs-signed-return actionability gap named
+above (a second, cell-specific cap, same shape as M7's).
+
+**Reversal-robustness (2026-09-23, run same day) — survives, mildly attenuated.** The
+leading candidate confound: state 5 (all-rising ribbon, including the fast 10-day MA)
+mechanically overlaps heavily with "strong recent short-term momentum" (`mom_1_0`);
+stocks that have just risen sharply across every timeframe at once may simply be less
+likely to have a rough next 21 days for reasons of short-term continuation/reversal
+dynamics, nothing to do with "ribbon agreement" as a distinct construct. C2 +
+`rev_tercile` (prior-1-day-return tercile, this module's own
+`C2_MATCH_COLS_WITH_REVERSAL`, same construction as M2's/M6.3's/M7's own reversal
+checks): **+0.5346%**, CI **[+0.2397%, +0.8361%]** (n_events/n_dates/n_tickers
+unchanged, 406,663/2,747/402). Attenuates ~18% but the CI still excludes zero and
+clears the 0.10% floor by a wide margin — reversal is a minor contributor at most, not
+the driver of this cell's effect.
+
+**Plateau check:** not a lookback-neighborhood question (this module's grid is a single
+ordinal state, not a swept parameter) — read instead as consistency across the six
+states' own `shape_table` point estimates (descriptive, no CI): `c2_drawdown` runs
+−0.305% (state 0) → −0.044% (1) → −0.166% (2) → −0.017% (3) → +0.030% (4) → +0.220% (5)
+— directionally consistent end to end (state 0 worst, state 5 best) but **not a clean
+monotonic staircase through the middle** (state 1 is less negative than state 2). Read
+the same way M6.3 read its own U-shape's imperfect middle: the two-extremes spread this
+cell actually tests is clean, but "a smooth function of agreement" is not established —
+only "the two ends differ."
+
+**What would change the verdict:** the whole-grid FDR pass (pending, not yet re-run —
+see `STATUS.md`, out of scope for this module's own fork); a holdout check; a second
+universe tier; a concrete trading/risk-management construction (e.g. a position-sizing
+or stop-width rule keyed to the state-5/state-0 flag) that would make the
+avoided-loss-vs-signed-return caveat moot.
+
+### `ribbon_agreement_extreme_return` — inconclusive, not confirmed
+
+The companion return-outcome cell (same construction, `fwd_ret_21` in place of
+`fwd_mdd_21`): **−0.2060%**, CI **[−0.6231%, +0.1835%]** — CI spans zero, not confirmed
+(edge 0.6231% would clear the 0.10% floor, so this is a genuine "not detected" read, not
+a floor-based kill). `shape_table`'s per-state point estimates are not monotonic either
+(+0.294%, +0.189%, −0.122%, −0.011%, −0.075%, −0.012% across states 0–5) — a decline
+into a near-zero plateau, not a clean function of agreement. Tier 4, `EXPERIMENTS.csv`
+only, no separate entry here (this study's standard Tier-4 convention). Read together
+with the drawdown cell above: DESIGN's own stated expectation — "more likely to be
+useful in forward drawdown [than] forward return" — held exactly as predicted.
+
+**Correlation matrix (required regardless of outcome, DESIGN's own text — "report the
+correlation matrix rather than pretending it's five signals"):** per-date median
+Spearman among the five lookbacks' `slope_log_21` values ranges **0.279** (10-day vs.
+200-day) to **0.887** (10-day vs. 20-day); `ribbon_agreement_state` itself correlates
+0.60–0.76 with each individual lookback. Every pair sits at or below this study's 0.89
+non-redundancy bar (M11's precedent) — **the ribbon does not collapse to a single MA's
+own slope**; DESIGN's stated collinearity concern is not borne out empirically, though
+the two fastest lookbacks (10, 20) come close. Full matrix:
+`output/moving_averages/m6_6_ribbon_slope_agreement_correlation_matrix.csv`.
