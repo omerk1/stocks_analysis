@@ -3406,3 +3406,609 @@ approximation): point **−10.44%/yr**, near edge **−4.82%/yr**, far edge
 **Logged:** `EXPERIMENTS.csv` (14 rows — 9 primary + 3 hold-rate companion + 2
 reversal-robustness); `FINDINGS.md` (2 entries: `dollar_volume`/SMA50,
 `relative_volume` hold-rate/SMA200).
+
+## M6.6 — Slope agreement across the ribbon (2026-09-23)
+
+**Module / track:** M6.6, Track B (DESIGN.md, "M6.6 — Slope agreement across the
+ribbon"). Not part of the original minimal-core list (DESIGN §12) — post-termination
+"Batch 2" module (`HANDOVER.md`'s 2026-09-22 triage), run in parallel with three
+sibling modules (M3, M6.5, M12) each in their own isolated worktree/branch.
+
+**Hypothesis (DESIGN's own):** the fraction of the ribbon {10, 20, 50, 100, 200} with
+positive slope — an ordinal 0–5 state — is monotonically associated with forward return
+and, more likely to be useful per DESIGN's own text, forward *drawdown*. DESIGN
+explicitly warns the state may "collapse to a single MA's slope" (heavy collinearity)
+and asks for the correlation matrix to be reported either way, not just on a positive
+result.
+
+**One logged deviation from DESIGN's literal lookback set, load-bearing for this
+module's design, stated up front:** DESIGN names {10, 20, 50, 100, 200} — not this
+study's shared cached-panel lookback set {20, 50, 150, 200}. The cached panel has no
+10-day or 100-day SMA. `sma_10`/`sma_100` and their `slope_log_21` are built here,
+module-local (`modules/ribbon_slope_agreement.py::_build_new_sma_slopes`), not added to
+the shared panel — per this study's established per-module-local-feature convention
+(M6.3's `slope_pctile_21`, M7's `ribbon_width`), so parallel Batch-2 modules don't
+collide on `features/panel.py`. `sma_20`/`sma_50`/`sma_200`'s already-cached
+`slope_log_21_sma_k` columns are reused unchanged. 150 is *not* substituted for 100 —
+DESIGN's named set is used exactly, unlike M7's ribbon (which uses this study's
+existing {20,50,150,200} set for a different question, dispersion not slope-sign
+agreement).
+
+**No literal kill criterion from DESIGN** (framed as an exploratory shape/collinearity
+question, same situation M6.3/M6.6's sibling modules were in). Stated here, following
+this study's own established floor for a return-valued cell: `max(|ci_low|,|ci_high|)
+< 0.10%` (M1/M2/M6.2/M6.3's own floor) on the decisive extreme-state test →
+**killed for that outcome** (no detected ribbon-agreement effect beyond a single MA's
+own slope, at this control tier). CI excluding zero and clearing the floor →
+**confirmed for that outcome**, tiered per DESIGN §9.2 as usual.
+
+**Method — two outputs, following M6.3's shape/decisive-test split:**
+- **`slope_correlation_matrix`** (required regardless of the decisive test's outcome,
+  per DESIGN's own text): per-date median Spearman correlation
+  (`feature_sweep.py::per_date_median_corr`, this study's established redundancy-check
+  primitive — M6.1/M11 precedent) between every pair of the five lookbacks'
+  `slope_log_21` values (10 pairs), plus each lookback vs. the ordinal
+  `ribbon_agreement_state` itself (5 more rows).
+- **`shape_table`** (descriptive): one row per ordinal state (0–5), C0/C1/C2
+  point-estimate deltas on both `fwd_ret_21` and a new label, `fwd_mdd_21` (below) — no
+  bootstrap CI, same convention as M4's `decile_table`/M6.3's `shape_table`. The
+  monotonicity read DESIGN asks for is descriptive off this table (consistency across
+  adjacent states, same spirit as this study's plateau checks), not a battery of five
+  separate per-adjacent-pair CI tests — kept out of `N_tests` for the same reason M4/
+  M6.3's own per-bucket rows were.
+- **`extreme_state_test`** (the decisive, CI-backed test): C2 block-bootstrap delta
+  (`stats/inference.py::block_bootstrap_delta`, block length 42, 500 draws, 90% CI,
+  seed 0) between the two ordinal extremes — state 5 (all five lookbacks rising) vs.
+  state 0 (all five falling) — restricted to only those two states' rows first, same
+  restrict-then-delta pattern M6.2/M6.3 established. Run twice: once on `fwd_ret_21`
+  (DESIGN's "forward returns"), once on a new label, `fwd_mdd_21` (DESIGN's "forward
+  drawdown").
+
+**New label — `labels/path_metrics.py::forward_max_drawdown`:** the maximum adverse
+excursion over the forward 21-day window — the worst `low[t+k]/close[t] − 1` for k in
+1..21, using the path's own daily lows, not just the horizon's closing return
+(`forward_return`'s outcome). Minimal, purpose-built for this module's own "forward
+drawdown" need — not DESIGN's full M6.4 path-metrics/MFE scope (Kaplan-Meier survival,
+barrier hits), which stays unbuilt. A forward-looking label, not a lagged feature
+(CLAUDE.md invariant #2 constrains features, not labels — same status as
+`forward_return`/`forward_realized_vol`).
+
+**Control tier and why:** C2 (`mom_tercile`, `vol_tercile`, `sector`) — this study's
+standard tier, same reasoning M6.3 gives: a steep slope in one normalisation and a
+high-vol name are not the same thing.
+
+**Cost annotation:** `shape_table` is descriptive, not a claim. If `extreme_state_test`
+on `fwd_ret_21` confirms an effect, that implies a tradeable claim — invariant #8
+requires a cost annotation, computed on the `ribbon_agreement_state == 5` ("fully
+agreeing bullish") flag's own turnover (`stats/costs.py::signals_per_year`, same
+convention as every prior module). State 0 ("fully agreeing bearish") is a short-side/
+exit signal, not separately cost-annotated here. `fwd_mdd_21`'s own extreme-state test
+is a drawdown-avoidance read, not directly a return-implying trading claim in the same
+sense — not cost-annotated on its own (DESIGN itself frames "more useful" drawdown
+information as a risk-management input, not a standalone entry signal).
+
+**Grid size (`N_tests` contribution):** **2 primary cells** — `extreme_state_test` on
+`fwd_ret_21` and on `fwd_mdd_21`. The correlation matrix (15 numbers) and `shape_table`
+(6 states × 6 columns) are descriptive, not hypothesis tests each — same convention as
+M4's `decile_table`/M6.3's `shape_table`, neither of which counted their per-bucket
+rows as independent tests.
+
+**Effective N:** distinct event dates and tickers per cell, standard invariant — the
+two-state-extremes-only restricted population is expected to be smaller than a
+full-panel cell but still checked against DESIGN §6.9's floor (200 events, ≥30 dates,
+≥30 tickers) via `below_threshold`, same convention as every prior module.
+
+**Plateau check (DESIGN §6.7):** applied as consistency across `shape_table`'s six
+states — a real extreme-state spread that isn't at least roughly monotonic through the
+middle states (2/3 in particular) is the same "lone bright pixel" pattern this study
+has caught before (M6.3's own SMA20 asymmetry), read the same way here: reported, not
+silently treated as a clean monotonic function.
+
+**Universe/window/horizon:** unchanged, U1 (405 S&P 500 constituents, dev window
+2010-01-04 → 2021-12-31), `fwd_ret_21` / `fwd_mdd_21` (both 21-day, this study's
+standard horizon).
+
+**New machinery:** `labels/path_metrics.py` (new file, `forward_max_drawdown`);
+`modules/ribbon_slope_agreement.py`'s own `prepare`/`slope_correlation_matrix`/
+`shape_table`/`extreme_state_test`/`cost_annotation`/`run_grid`. Everything else
+(`cross_sectional_bucket`, `c0_delta`/`c1_delta`/`c2_delta`, `block_bootstrap_delta`,
+`per_date_median_corr`) is reused unchanged. New columns: `slope_log_21_sma_{10,100}`
+(module-local, lagged via the shared `features/panel.py::apply_lag`, per CLAUDE.md
+invariant #2), `ribbon_agreement_state` (masked to NaN wherever any of the five
+lookbacks' slope is undefined — CLAUDE.md invariant #9, enforced by this module's own
+test, `test_ribbon_agreement_state_is_na_during_sma_100_warmup`).
+
+### Result (2026-09-23)
+
+**DESIGN's own stated expectation holds exactly: the drawdown outcome is where the
+signal is, the return outcome is not.**
+
+| cell | c2 (21d) | 90% CI | ci_excludes_zero | edge | n_events | n_dates | n_tickers |
+|---|---|---|---|---|---|---|---|
+| `extreme_state_test` on `fwd_ret_21` | −0.2060% | [−0.6231%, +0.1835%] | False | 0.6231% | 406,663 | 2,747 | 402 |
+| `extreme_state_test` on `fwd_mdd_21` | +0.6538% | [+0.4379%, +0.8870%] | **True** | 0.8870% | 406,663 | 2,747 | 402 |
+
+`fwd_ret_21`: CI spans zero — not confirmed, not killed by the floor either (edge
+clears 0.10%) — a genuine "no detected effect at this control tier" read, same
+convention as M6.2's own inconclusive cells.
+
+`fwd_mdd_21`: CI excludes zero, clears the floor. Positive sign means state 5 (all five
+lookbacks rising) has a *shallower* worst-21-day-drawdown than state 0 (all five
+falling), by 0.65pp beyond the C2 match. **Confirmed.**
+
+**Cost (invariant #8, triggered for the confirmed drawdown cell):** `ribbon_agreement_
+state == 5` flag turnover, `stats/costs.py::signals_per_year` (10bps/rt): 5.415
+flips/ticker-yr → hurdle 0.5415%/yr. Annualized (×12): point +7.85%/yr, near edge
++5.25%/yr, far edge +10.64%/yr — **clears at every reading**, with the same
+avoided-loss-vs-signed-return actionability caveat M7's `ribbon_direction_magnitude`
+carries (see `FINDINGS.md`'s entry for the full statement — "clears cost" here is about
+drawdown-shallowing, not a signed return claim).
+
+**Reversal-robustness (run same day, on the confirmed drawdown cell only — the return
+cell did not confirm, nothing to robustness-check):** C2 + `rev_tercile`
+(`C2_MATCH_COLS_WITH_REVERSAL`): +0.5346%, CI [+0.2397%, +0.8361%] — attenuates ~18%
+from the default-C2 number, CI still excludes zero, still clears the 0.10% floor by a
+wide margin. Short-term reversal is a minor contributor at most, not the driver.
+
+**Correlation matrix (required regardless of outcome, DESIGN's own text):**
+
+| pair | median Spearman |
+|---|---|
+| slope_10 vs slope_20 | 0.8868 |
+| slope_10 vs slope_50 | 0.5141 |
+| slope_10 vs slope_100 | 0.3567 |
+| slope_10 vs slope_200 | 0.2790 |
+| slope_20 vs slope_50 | 0.6806 |
+| slope_20 vs slope_100 | 0.4722 |
+| slope_20 vs slope_200 | 0.3522 |
+| slope_50 vs slope_100 | 0.7329 |
+| slope_50 vs slope_200 | 0.5097 |
+| slope_100 vs slope_200 | 0.7110 |
+| slope_10 vs ribbon_agreement_state | 0.6860 |
+| slope_20 vs ribbon_agreement_state | 0.7570 |
+| slope_50 vs ribbon_agreement_state | 0.7408 |
+| slope_100 vs ribbon_agreement_state | 0.6886 |
+| slope_200 vs ribbon_agreement_state | 0.5966 |
+
+Every pairwise slope correlation sits at or below this study's 0.89 non-redundancy bar
+(M11's precedent) — **DESIGN's own stated collinearity concern ("expect heavy
+collinearity") is not borne out**: the five lookbacks are meaningfully distinct
+signals, closest at the two fastest (10, 20) lookbacks, most distinct at 10-vs-200. Full
+matrix: `output/moving_averages/m6_6_ribbon_slope_agreement_correlation_matrix.csv`.
+
+**Shape table (descriptive, both outcomes, all 6 states):**
+
+| state | n_events | n_dates | c2_return | c2_drawdown |
+|---|---|---|---|---|
+| 0 | 83,990 | 2,766 | +0.2936% | −0.3048% |
+| 1 | 106,458 | 2,768 | +0.1889% | −0.0444% |
+| 2 | 148,020 | 2,779 | −0.1219% | −0.1664% |
+| 3 | 191,367 | 2,779 | −0.0109% | −0.0172% |
+| 4 | 177,453 | 2,778 | −0.0753% | +0.0299% |
+| 5 | 417,307 | 2,779 | −0.0124% | +0.2196% |
+
+**Plateau check (DESIGN §6.7):** the drawdown column is directionally consistent
+end-to-end (state 0 worst, state 5 best) but not a clean monotonic staircase through the
+middle (state 1 less negative than state 2) — endpoints clean, middle noisy, same
+"not a lone bright pixel but not a smooth function either" read M6.3's own U-shape got.
+The return column declines from state 0 to state 2 then flattens near zero through
+state 5 — consistent with that outcome's own CI-spans-zero extreme-state read.
+
+**Argue against the confirmed drawdown result:** the reversal-robustness check above
+(the leading candidate confound) attenuates the effect by only ~18% and the CI still
+excludes zero — not the whole story. A second candidate: `mom_tercile`/`vol_tercile`
+match on their own 12-1-month/63-day windows may not fully capture the *very*
+short-horizon momentum embedded in the fast 10-day-lookback component of
+`ribbon_agreement_state` — the `rev_tercile` check (1-day prior return) partially
+addresses this but a multi-week reversal window is not separately ruled out here. Not
+resolved in this run — flagged as the most plausible remaining alternative explanation,
+same open-item discipline as M6.3's own SMA50/200 argue-against note.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows: the 2 primary decisive cells + 1 reversal-
+robustness companion, not counted in `N_tests`); `FINDINGS.md` (1 entry,
+`ribbon_agreement_extreme_drawdown`, Tier 3, with the return-outcome and correlation-
+matrix results folded into the same entry per this study's convention for a
+two-outcome module); `output/moving_averages/m6_6_ribbon_slope_agreement_*.csv` (full
+result table, correlation matrix, shape table — regenerable via
+`ribbon_slope_agreement_run.py`).
+
+## M3 — Crossovers: state vs transition (2026-09-23)
+
+**Module / track:** M3, Track B. Batch-2 post-termination module (`HANDOVER.md`'s own
+Batch-2 scoping — parallel with M6.5, M6.6, M12, each in its own worktree, no
+cross-module conflicts).
+
+**Promoted from:** DESIGN's own module list directly (lines ~753-762) — the crossover
+question was left for a "real build" (a new event detector), explicitly deferred by
+M6.2's own golden-cross-x-slope sub-question and named again in `HANDOVER.md`'s Batch-2
+triage.
+
+**Hypothesis (skeptical, DESIGN's own wording):** a golden cross carries little
+information beyond "the stock is now in a 50>200 state" — i.e. the transition day
+itself adds nothing over the already-established state once state is properly
+matched-controlled.
+
+**Scope decisions, stated up front:**
+- **5 fast/slow pairs**, not DESIGN's full named list verbatim: `sma_50/sma_200` (the
+  classic golden/death cross), `sma_20/sma_50`, `sma_50/sma_150` — all three built
+  directly from lookbacks already in the cached panel (`sma_20/50/150/200`), no new
+  columns needed — plus `ema_10/ema_20` and `ema_8/ema_21`, which need three new local
+  EMA lookbacks (8, 10, 21) not in the cached panel. Added locally in this module
+  (`add_local_ema_columns`), one-bar-lagged via `features/panel.py::apply_lag` directly
+  (the same central lag function, not a new lag convention), **not** written back to
+  the shared cached panel — module-local, matching M6.6's own planned "new lookbacks
+  added locally, not to the shared panel" precedent (`HANDOVER.md`).
+- **Quality facets (DESIGN's "Also test" bullet) run on `sma_50/sma_200`/golden only**,
+  not crossed against all 5 pairs — slope-sign of the long MA at the cross (reuses
+  `slope_log_21_sma_200`, already in the cached panel) and price position at the cross
+  (above/below both MAs, reuses `above_sma_50`/`above_sma_200`, already in the cached
+  panel). A documented scope cut to keep the grid from spreading thin across every
+  pair, same discipline M13 used to defer earnings/index-membership/sector-momentum
+  facets to "if a later pass wants them."
+- **"Cross angle / spread velocity at crossing" is out of scope entirely** — no
+  coordinate-free definition exists (DESIGN's own M6.7 note on "the angle of the moving
+  average" applies identically here: the visual angle depends on the price axis and
+  aspect ratio; `slope_log_k` already is the scale-invariant version DESIGN itself
+  names as the answer, and the slope-sign quality facet above already uses it).
+- **Drawdown/MAE metrics are out of scope** — `labels/path_metrics.py` (DESIGN's own
+  named location for this, §10.1's stage map) doesn't exist yet; building Kaplan-Meier-
+  adjacent path machinery is a heavier build than this module's slice, closer to M6.4's
+  own scope (`HANDOVER.md`'s Batch-3 triage). DESIGN's own hint that "this is where the
+  death cross may earn its keep" is noted as a live follow-up, not attempted here.
+
+**New machinery:** `features/crossover.py` (`fast_above_slow_state`,
+`crossover_events`) — the only new inference-adjacent primitive. Event detection reuses
+`features/state.py::state_run_id`/`days_in_run` directly (the same primitives M1's
+run-length buckets and M5's touch events use), not a hand-rolled diff: an event is the
+first day of a *non-left-censored* run of the fast-above-slow state, same censoring
+convention `run_length_bucket` already applies. Everything downstream of event
+detection reuses existing infrastructure unchanged: `stats/inference.py::
+block_bootstrap_delta` (a golden/death-cross day is just another boolean `group_col`,
+same shape M5's `hold_flag` used), `stats/controls.py::c1_delta`/`cross_sectional_bucket`,
+`stats/costs.py::signals_per_year`/`cost_hurdle` (a crossover is exactly one state flip,
+so the existing flip-counting cost function applies with zero new logic).
+
+**Control tier — this module's own reading of "state-matched control":** DESIGN's
+literal method ("compare forward returns on day 0 of a golden cross against randomly
+sampled days where 50>200 has been true for a comparable duration, matched on date and
+momentum") is implemented as: restrict the comparison population to the event's own
+state (`state_<pair> == True` for golden, `== False` for death) *before* computing the
+standard C2 block-bootstrap delta (`mom_tercile`, `vol_tercile`, `sector` — this
+study's standard C2 recipe, DESIGN §6.1, used unchanged rather than inventing a
+narrower "date + momentum only" tier). The row-restriction *is* the state-match DESIGN
+asks for; the date/momentum/vol/sector matching layered on top is the same C2 tier
+every other module in this study uses for its own "is this real information beyond the
+obvious control" question — not a new, bespoke control specific to this module.
+
+**Method:**
+- **Primary grid (10 cells, counted in `N_tests`):** 5 pairs × 2 directions
+  (golden/death), `fwd_ret_21` (this study's standard horizon), C2 = (`mom_tercile`,
+  `vol_tercile`, `sector`).
+- **Horizon companions (4 cells, not counted):** `sma_50/sma_200`, both directions, at
+  `fwd_ret_5`/`fwd_ret_63` — speaks to DESIGN's "at every horizon" kill wording for the
+  classic pair specifically; not built for the other 4 pairs (scope cut, named above).
+- **Quality facets (4 cells, counted — genuinely new sub-populations, not robustness
+  companions on an already-counted cell):** `sma_50/sma_200`/golden × {slope rising,
+  slope falling} and × {price above both MAs, price not above both MAs} — both facets
+  restrict *both* the event days and their same-state control days before running the
+  same C2 delta, so e.g. "slope rising" compares fresh crosses against seasoned
+  same-state days that also have a rising long MA, not against the whole unrestricted
+  state population.
+
+**Kill criterion (DESIGN's own literal wording):** if marginal information over
+state-matched controls is `< 0.15%` at every (pair, direction) primary cell, with the
+CI spanning zero, declare crossovers redundant with state and stop. Applied via
+`evaluate_kill_criterion`: `max(|ci_low|,|ci_high|) < 0.0015` for all 10 primary cells
+→ module killed. DESIGN's own prior: ~65% likely.
+
+**Effective N / plateau check:** every cell reports `n_events`/`n_dates`/`n_tickers`
+(invariant #6). Plateau check (DESIGN §6.7): do the 3 SMA pairs (50/200, 20/50, 50/150)
+and the 2 EMA pairs agree in sign/magnitude, or is any one pair a lone bright pixel? —
+read in the Result section below, not assumed here.
+
+**Universe/window:** U1 (405 S&P 500 constituents), dev window 2010-01-04 →
+2021-12-31, the same cached panel every other module reuses.
+
+### Result (2026-09-23)
+
+Ran against the real cached U1 panel (405 tickers, 1,222,605 rows, 2010-01-04 →
+2021-12-31). All 10 primary cells well-powered (`below_threshold=False` throughout —
+smallest cell 3,025 events / 1,509 dates / 402 tickers, largest 26,081 events / 2,585
+dates / 402 tickers).
+
+**Primary grid (10 cells, C2 delta on `fwd_ret_21`, event day vs. same-state
+matched-control days):**
+
+| pair | direction | n_events | n_dates | c2 | 90% CI | CI excludes 0 |
+|---|---|---|---|---|---|---|
+| sma_50/sma_200 | golden | 3,025 | 1,531 | −0.0702% | [−0.2865%, +0.1771%] | no |
+| sma_50/sma_200 | death | 3,078 | 1,509 | +0.0831% | [−0.2072%, +0.3720%] | no |
+| sma_20/sma_50 | golden | 12,009 | 2,410 | +0.0003% | [−0.1560%, +0.1878%] | no |
+| sma_20/sma_50 | death | 12,045 | 2,387 | −0.0190% | [−0.1583%, +0.1161%] | no |
+| sma_50/sma_150 | golden | 3,737 | 1,703 | −0.0497% | [−0.2463%, +0.1219%] | no |
+| sma_50/sma_150 | death | 3,840 | 1,703 | −0.0043% | [−0.2765%, +0.2865%] | no |
+| ema_10/ema_20 | golden | 23,782 | 2,580 | −0.0000% | [−0.1036%, +0.1155%] | no |
+| ema_10/ema_20 | death | 23,952 | 2,542 | +0.0081% | [−0.1248%, +0.1193%] | no |
+| ema_8/ema_21 | golden | 25,899 | 2,585 | +0.0074% | [−0.1040%, +0.1242%] | no |
+| ema_8/ema_21 | death | 26,081 | 2,576 | −0.0066% | [−0.1242%, +0.1040%] | no |
+
+**Every one of the 10 primary cells' CI spans zero — no confirmed marginal information
+over the state-matched control at any pair, any direction.** DESIGN's skeptical prior
+holds directionally throughout.
+
+**Kill criterion: `module_killed = False`.** The literal rule (`edge < 0.15%` AND CI
+spans zero, for *every* cell) does not fire — 4 of 10 cells (both `ema_10/ema_20` and
+both `ema_8/ema_21` directions) satisfy it, but the 6 SMA-pair cells have wider CIs
+whose edge exceeds the 0.15% floor even though the CI itself spans zero. **Read
+precisely, per this study's own established `killed=False` + `ci_excludes_zero=False`
+distinction (M6.1's own precedent, `modules/slope_conditioner.py`'s docstring)**: this
+is not a detected effect anywhere in the grid, just a not-clean-enough kill at the SMA
+pairs specifically because their event counts (3,025–3,840) are thin enough to leave a
+wide CI, not because they show any more signal than the EMA pairs' point estimates (all
+10 point estimates are within ±0.08%, indistinguishable from each other by eye).
+
+**Plateau check (DESIGN §6.7):** all 5 pairs agree — flat, near-zero point estimates,
+no lone bright pixel, no consistent directional pattern even in sign (golden is
+negative at sma_50/200 and sma_50/150 but ~zero at sma_20/50 and both EMA pairs; death
+is positive at sma_50/200 but ~zero/negative elsewhere). This is the "flat, sign-
+flipping null across the whole grid" shape M6.1's own decisive-IC test produced, not a
+directional pattern obscured by one thin pair.
+
+**Horizon companions (`sma_50/sma_200` only, not counted in `N_tests`):** 3 of 4 span
+zero. The exception: `death` @ `fwd_ret_5`, c2 = −0.110% CI [−0.2018%, −0.0106%],
+CI-excludes-zero. **Argue against this one result before reading anything into it:**
+it is 1 CI-excluding-zero cell out of 18 total cells run in this module (10 primary + 4
+companions + 4 quality facets) at a 90% CI — under pure noise, roughly 1.8 false
+positives are expected at that rate, so finding exactly 1 is unremarkable. It is also
+not corroborated by the same pair/direction's own 21d primary cell (CI spans zero,
+opposite-signed point estimate) or by its own 63d companion (CI spans zero). Read as
+noise, not flagged as a candidate for further pursuit.
+
+**Quality facets (`sma_50/sma_200`/golden only, 4 cells):** all 4 CI span zero —
+slope-sign (rising vs. falling long MA) and price-position (above vs. not-above both
+MAs) at the cross show no detectable difference from the same-state control in either
+direction. No support for DESIGN's own named quality distinctions in this design.
+
+**Cost:** not evaluated for any primary cell — every CI spans zero before cost applies
+(same convention M13's inconclusive cells and M18's killed `dist_from_52w_high` cells
+use). For the record, `signals_per_year`/annual cost hurdle by pair (state-flip
+turnover, entry+exit convention, `stats/costs.py`): sma_50/sma_200 1.390/yr (0.139%/yr
+hurdle), sma_20/sma_50 5.463/yr (0.546%/yr), sma_50/sma_150 1.742/yr (0.174%/yr),
+ema_10/ema_20 10.838/yr (1.084%/yr), ema_8/ema_21 11.804/yr (1.180%/yr) — crossovers are
+inherently low-turnover events (far fewer per ticker-year than a same-lookback
+above/below state flip, M1's own 7.8–30.4/yr range, since a crossover requires *two*
+MAs to flip relative order, not one MA relative to price).
+
+**Reversal-robustness:** not run — this study's own convention (M1/M2/M6.2/M6.3/M7's
+precedent) is to run the `rev_tercile`-augmented C2 check only on cells that already
+show a CI-excluding-zero effect at the default C2 spec. No primary cell qualifies here.
+
+**Tier:** 4 for all 10 primary cells (well-powered, CI spans zero — "no detected effect
+at this control tier and sample," per this study's own Tier-3/4 convention) and all 8
+secondary cells (4 companions + 4 quality facets). No `FINDINGS.md` entry (Tier 4 needs
+none, per CLAUDE.md's own logging rule).
+
+**Reading for the study:** DESIGN's own skeptical hypothesis is not confirmed by a
+clean module-level kill (the SMA pairs' thinner event counts leave the literal kill
+rule un-tripped), but every cell in the grid — primary, companion, and quality-facet
+alike — points the same direction that hypothesis would predict: **a crossover's day-0
+transition carries no detectable marginal information over the already-established
+state, once state is properly date/momentum/vol/sector-matched.** Honest summary,
+matching M6.1's own framing for the same shape of result: not distinguishable from
+"crossovers are redundant with state," but not proven so under this study's own
+CI-based kill-criterion discipline — a genuine, well-powered null, not a shortfall of
+power or a lone miss.
+
+**Logged:** `EXPERIMENTS.csv` (18 rows: 10 primary, 4 horizon companions, 4 quality
+facets — every cell run, all Tier 4, `counted_in_n_tests=True` for the 10 primary + 4
+quality facets, `False` for the 4 horizon companions per this study's own companion
+convention).
+
+## M6.5 — The SMA drop-off artefact (2026-09-23)
+
+**Module / track:** M6.5, Track B (DESIGN.md, "M6.5 — The SMA drop-off artefact"). Not
+part of the original minimal-core list (DESIGN §12) — post-termination, DESIGN §1.5's
+porous-scope rule, same standing as M18/M6.1/M6.3/M7/M13. Run as one of four "Batch 2"
+modules (M3, M6.5, M6.6, M12 — `HANDOVER.md`'s own scoping), each in its own isolated
+worktree/branch, chosen for needing no new shared infrastructure and touching no file
+another parallel Batch 2 module also touches.
+
+**Promoted from:** DESIGN's own module list, not a Track A candidate — same status as
+M6.1/M6.3.
+
+**Hypothesis (DESIGN's own):** because `SMAn(t) − SMAn(t−1) = (Ct − Ct−n)/n`, an SMA's
+1-day slope can flip sign purely because a large bar rolled out of the trailing window,
+with nothing happening in current price — DESIGN's own example, a 200-day SMA "rolling
+over" in March 2021, substantially an artefact of March 2020 leaving the window, sits
+inside this study's own 2010–2021 dev window. **Price-driven flips carry information;
+drop-off-driven flips carry none, and pooling the two dilutes every SMA-slope result in
+the literature** — including this study's own M6.1/M6.3 results, both of which use
+`slope_log_21`, a 21-day (not 1-day) log-scale slope on the same underlying SMA
+columns. M6.5 does not re-test M6.1/M6.3's own 21-day construction directly (a
+different decomposition would be needed for a 21-day window's own entering/exiting
+split); it tests DESIGN's own literal 1-day-drop-off mechanism, and reports its
+implication for how those two modules' results should be read as a discussion point,
+not a re-run of their own grids.
+
+**DESIGN gives this module no literal kill criterion** (framed as "a genuine trap,
+worth its own analysis," not a binary claim) — one is stated here, following this
+study's own standard floor for a return-valued cell (`KILL_THRESHOLD = 0.10%`,
+`max(|ci_low|,|ci_high|)`, same convention as M1/M2/M6.2/M6.3): **the decisive test is
+the direct price-driven-vs-drop-off-driven comparison within flip events** (see
+Method). Two distinct failure/success readings, stated up front so they are not
+conflated later:
+- CI spans zero (or edge < 0.10%) on the decisive test → the decomposition does not
+  distinguish artefact from signal at this control tier → **not actionable**, Tier 4.
+- CI excludes zero, price-driven and drop-off-driven show materially different
+  forward-return behavior, consistent with DESIGN's stated direction (price-driven
+  real, drop-off-driven null/smaller) → **confirms** the drop-off-dilution hypothesis
+  → Tier 3 (subject to cost, per every other module's convention).
+- A third, DESIGN-falsifying outcome, named explicitly: if drop-off-driven flips *also*
+  show a CI-excluding-zero effect of similar sign/magnitude to price-driven flips, that
+  specifically falsifies "drop-off flips carry none," independent of what the decisive
+  (difference) test shows.
+
+**Control tier:** C2 (date + momentum tercile + vol tercile + sector), reusing
+`stats/inference.py::block_bootstrap_delta` unchanged (block length 42, 500 draws, 90%
+CI, seed 0) — the same primitive M6.1/M6.3 already use for slope-conditioned forward
+returns; this module is a new event-bucketing layer on top of existing infrastructure,
+not a new inference engine.
+
+**New machinery, module-local** (`modules/sma_dropoff.py`, never written to the shared
+panel cache or to `features/slope.py`, same convention M6.1's own local features
+established for a sibling parallel module):
+- A raw (unlagged) `n`-day SMA recomputed directly from the panel's own raw `close` —
+  the cached panel's own `sma_{n}` column is already lagged by
+  `features/panel.py::apply_lag`, the wrong input for decomposing *this* day's own
+  slope change.
+- A 1-day raw-slope sign-flip event on that raw SMA (`raw_sma(t) − raw_sma(t−1)`),
+  distinct from every other slope object in this study (all use `slope_log_21`, a
+  21-day log-scale slope). Only the *sign* of the 1-day raw slope is used, never its
+  magnitude as a cross-ticker-comparable quantity — the sign of a raw difference and
+  the sign of its log-difference counterpart are identical for any positive price
+  series, so this does not conflict with CLAUDE.md invariant #7 (no information the
+  invariant protects is actually used).
+- The entering/exiting decomposition, referenced against the prior day's SMA value:
+  `entering = (Ct − raw_sma(t−1)) / n`, `exiting = (raw_sma(t−1) − Ct−n) / n` — sums
+  exactly to `raw_sma(t) − raw_sma(t−1)` (verified algebraically,
+  `tests/test_moving_averages_sma_dropoff.py::test_entering_plus_exiting_equals_raw_slope_exactly`).
+  A flip is `price_driven` if `|entering| > |exiting|`, `dropoff_driven` otherwise (a
+  tie is `dropoff_driven` by this module's own tie-break convention — vanishingly rare
+  on real float closes).
+- Every raw column above is lagged via the one central `apply_lag` (CLAUDE.md
+  invariant #2) before use.
+
+**Method:**
+1. **Decisive test** (`decisive_test`, the kill-criterion test): within flip events
+   only, C2 block-bootstrap delta of `fwd_ret_21` between `price_driven` and
+   `dropoff_driven` flips. Run pooled (both flip directions) as the primary declared
+   cell, plus `up`-only and `down`-only companions (DESIGN's own literal example is a
+   flip *down* — "rolling over" — so the down-only split is the closest read to
+   DESIGN's own framing; the pooled cell is this module's own broader, primary
+   declared hypothesis, since the drop-off mechanism is symmetric in principle).
+2. **`type_vs_background`** (diagnostic, not the kill-criterion test): each flip type's
+   own C2 delta vs. an ordinary non-flip day, with the *other* flip type excluded from
+   the comparison population (not folded into a mixed control) — answers "does this
+   type show a detectable effect at all," the second half of DESIGN's own two-part
+   hypothesis.
+3. **Scope:** SMA50 and SMA200 only (`LOOKBACKS = (50, 200)`) — the two lookbacks where
+   M6.1/M6.3 already found real slope-related effects, the highest-value place to check
+   for drop-off contamination, rather than spreading thin across all four lookbacks.
+   SMA20 not run (deferred, not declared).
+
+**Declared grid / N_tests scope:** 2 primary decisive-test cells (SMA50, SMA200,
+pooled). The `up`/`down` direction splits and the `type_vs_background` diagnostics are
+companions to the same two hypotheses, not independent tests (same convention as
+M6.3's large-move-exclusion companion, M2/M6.2/M18's reversal-robustness rows) —
+`counted_in_n_tests=False` in `EXPERIMENTS.csv`.
+
+**Cost:** **not applicable** — this is a mechanism/diagnostic question about whether an
+existing slope construction's flips are contaminated, not itself a proposed standalone
+trading signal (same convention as M5's touch/bounce module and §7.5's placebo test,
+both mechanism questions rather than tradeable-edge questions). Descriptive event
+frequency (`event_frequency_per_ticker_year`) is reported for context only, not as a
+cost-hurdle input.
+
+**Argue against this result in advance:** (1) the entering/exiting decomposition uses
+the prior day's SMA as the reference point for both terms — a different, equally
+defensible reference (e.g. the window's own trailing mean excluding both the entering
+and exiting bar) could classify some borderline flips differently; not expected to
+flip the headline direction given the effect sizes this module is designed to detect,
+but a real construction choice, named here rather than silently assumed. (2)
+Drop-off-driven flips are mechanically more likely to occur in names with an
+idiosyncratic large historical move sitting inside the trailing window (a gap, a
+buyout rumor, a crash-and-recover) — the same population M6.3's `recent_large_move`
+proxy and this study's SMA200 watch already flag as potentially anomalous; if
+drop-off-driven flips show *any* effect, this confound (not a genuine "drop-off
+artefact" mechanism) is the first alternative explanation to check before trusting the
+number.
+
+**Plateau check (to run at result time):** do SMA50 and SMA200 agree in sign and rough
+magnitude? A result at only one of the two lookbacks is the lone-bright-pixel case
+DESIGN §6.7 warns against.
+
+**Building on:** cached panel (`data/features/moving_averages/ma_panel/`, 405-ticker
+U1 universe, 2010-01-04→2021-12-31), read via `read_panel` unchanged. No panel rebuild
+needed — every input this module needs (`close`, `mom_12_1`, `realized_vol_63`,
+`sector`) is already cached.
+
+### Result (2026-09-23)
+
+Panel: 1,222,605 rows, 405 tickers, 3,021 dates read (`read_panel`, 2010-01-04 to
+2021-12-31, holdout-safe).
+
+**Primary decisive test (both declared cells): inconclusive, neither killed nor
+confirmed.**
+- **SMA50, pooled:** C2 delta (price-driven − drop-off-driven) **−0.081%**, 90% CI
+  **[−0.255%, +0.102%]** — spans zero, edge 0.255% clears the 0.10% floor so this is
+  not a "killed, no effect at all" read, but the CI doesn't distinguish the two flip
+  types either. n_events=65,456 (38,420 price-driven / 27,036 drop-off-driven),
+  n_dates=2,746, n_tickers=402.
+- **SMA200, pooled:** C2 delta **+0.134%**, 90% CI **[−0.196%, +0.458%]** — spans zero,
+  edge 0.458%. n_events=28,767 (15,550 / 13,217), n_dates=2,739, n_tickers=402.
+
+**Plateau check: fails.** SMA50 and SMA200's pooled point estimates disagree in sign
+(−0.081% vs. +0.134%), and neither CI excludes zero — no consistent cross-lookback
+direction, the same flat/sign-flipping-null shape M6.1's own decisive test produced.
+Read together with the `type_vs_background` diagnostics below, the honest summary is
+the same as M6.1's: **not distinguishable from "the decomposition doesn't separate a
+real effect from noise at this sample," but not proven to be so** under this study's
+own CI-based discipline. Tier 4 for both primary cells (well-powered, CI spans zero —
+"no detected effect at this control tier and sample," not silence). No `FINDINGS.md`
+entry (Tier 4 needs none).
+
+**`type_vs_background` diagnostics (not the kill-criterion test, DESIGN's own
+"does each half carry information at all" check):** at SMA50, price-driven flips show
+a small, CI-excluding-zero delta vs. an ordinary non-flip day (**−0.080%**, CI
+[−0.170%, −0.010%]), while drop-off-driven flips do not (**−0.060%**, CI [−0.173%,
++0.035%]) — directionally consistent with DESIGN's own hypothesis, but modest, and
+this diagnostic has no cost annotation, kill criterion, or FDR eligibility of its own
+(same "descriptive, not a new N_tests contribution" treatment this study gives every
+robustness/diagnostic companion). At SMA200, neither type shows a detectable effect
+(price +0.013% CI [−0.105%,+0.120%]; drop-off −0.040% CI [−0.185%,+0.094%]).
+
+**Direction-split companions (pre-registered as not counted in `N_tests`): three of
+four span zero, one does not.** SMA50 up/down and SMA200 up all span zero (edges
+0.53%/0.38%/1.16% respectively — SMA200-up is the thinnest cell, n_events=14,380).
+**SMA200-down (DESIGN's own literal "rolling over" direction) does not**: C2 delta
+**+1.029%**, 90% CI **[+0.231%, +1.716%]**, n_events=14,387 (8,252 price-driven /
+6,135 drop-off-driven), n_dates=2,440. Read precisely: within *down*-direction flips
+at the 200-day lookback specifically, a price-driven flip (a genuine decline) is
+followed by a *better* 21d forward return than a drop-off-driven flip (an artefact
+rollover with no real underlying weakness) — not the sign DESIGN's plain "price-driven
+carries information, drop-off carries none" framing would obviously predict (DESIGN's
+hypothesis is about *whether* each type carries information, not the sign of it, so
+this isn't a direct falsification of the stated hypothesis, but it is a real surprise
+worth naming plainly).
+
+**Argue against this one number, as pre-registered above:** the leading alternative
+explanation is short-term reversal, not a genuine price-driven-vs-artefact distinction.
+A price-driven SMA200 down-flip is, almost by construction, a name that just had a real
+recent decline — exactly the setup M2's `stack_fully_bearish` and M6.3's SMA20 humped
+cell both already found an uncontrolled `mom_1_0`/`rev_tercile` confound can produce a
+subsequent bounce for. This module's C2 match set (`mom_tercile`/`vol_tercile`/`sector`)
+does not include `rev_tercile`, so this explanation is untested here, not ruled out.
+
+**Not promoted to a finding.** This cell was pre-registered as a companion, not a
+primary declared test, specifically so a result like this couldn't be silently
+recast as confirmatory after the fact (CLAUDE.md: "Do not search for a framing that
+makes a dead hypothesis look alive"). It is logged in full in `EXPERIMENTS.csv`
+(`sma_dropoff_decisive_sma200_down`) and flagged here as the module's single most
+interesting number and the strongest candidate for a dedicated, freshly pre-registered
+follow-up (a reversal-robustness check on this one cell, same construction as M2's/
+M6.3's own) — not treated as a Tier 3+ result now.
+
+**Implication for M6.1/M6.3 (discussion, not a re-run of their grids):** M6.1 and M6.3
+both condition on `slope_log_21` (a 21-day, log-scale slope), not the 1-day raw-SMA
+slope this module decomposes — the drop-off mechanism this module tests is a different
+(shorter-window) object, and this result does not directly test whether M6.1/M6.3's
+own 21-day slope columns are drop-off-contaminated. Given that caveat, this module's
+own primary result (inconclusive at the 1-day level, both lookbacks) provides no
+positive evidence that drop-off contamination is diluting M6.1/M6.3's findings, but
+also does not rule it out at the 21-day horizon those modules actually use — an open
+question, not resolved by this module, named here so it isn't silently assumed either
+way.
+
+**Logged:** `EXPERIMENTS.csv` (10 rows: 2 primary + 4 direction-split companions + 4
+`type_vs_background` diagnostics, all `counted_in_n_tests` correctly reflecting only
+the 2 primary cells). No `FINDINGS.md` entry (both primary cells Tier 4).
