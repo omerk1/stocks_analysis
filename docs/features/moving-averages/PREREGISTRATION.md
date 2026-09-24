@@ -4931,3 +4931,64 @@ statistic) is the more defensible single test to pre-register.
 
 Ran `modules/pattern_context.py::decisive_test` against the real cached panel (405
 S&P 500 tickers, U1, 2010-2021) joined with the qualifying-pattern flag above.
+`load_qualifying_patterns` found 75,067 breakout-confirmed, confidence>=0.7 pattern
+instances across all 405 tickers in the dev window; `in_pattern_context` flags 23.7%
+of the whole panel (consistent with the AAPL sample check's 36% — some
+ticker-to-ticker variance expected, not investigated further, not load-bearing for
+the decisive test itself).
+
+**Primary cell (default C2: `mom_tercile`/`vol_tercile`/`sector`):** C2 delta
+**−0.4045%** on `fwd_ret_21`, 90% CI **[−0.7483%, −0.0866%]** — excludes zero, clears
+the 0.10% kill floor (edge 0.7483%). `module_killed=False` per the pre-registered
+criterion. **Sign is negative**: `above_sma_50` reclaims that occur shortly after a
+high-confidence pattern breakout *underperform* reclaims with no recent qualifying
+breakout — the opposite of DESIGN's own "compounding result" framing, which implicitly
+expects pattern-conditioning to help, not hurt.
+
+**Effective N:** 39,452 reclaim events, 2,656 distinct dates, 402 tickers
+(10,858 in-context, 28,594 out-of-context — both comfortably above this module's own
+`MIN_EVENTS=200` floor). Well-powered.
+
+**Cost:** in-context reclaim rate 2.251/ticker-yr → hurdle 0.225%/yr (`stats/costs.py`,
+10bps/rt). Annualized (×12): point −4.85%/yr, near edge −1.04%/yr, far edge
+−8.98%/yr. **Clears at every reading.**
+
+**Reversal-robustness (same day):** survives essentially unattenuated — adding
+`rev_tercile` (`mom_1_0` tercile) to the C2 match set gives C2 **−0.4412%**, CI
+**[−0.7904%, −0.1021%]**, if anything slightly *stronger* than the default reading.
+Short-term reversal is not the driver.
+
+**Extension-neutralized (same day) — the decisive check, and the one that changes the
+verdict:** a high-confidence pattern breakout definitionally requires the stock to
+have already made a real directional move to form the pattern in the first place —
+the single most obvious candidate confound for this specific construction, more
+directly relevant here than for almost any other cell in this study. Adding
+`ext_tercile` (`dist_pct_sma_50` tercile, distance-from-the-same-MA the reclaim event
+itself is defined on) to the C2 match set: C2 **−0.1962%** (attenuates ~52% from the
+default reading), CI **[−0.5393%, +0.1721%]** — **CI now spans zero.**
+
+**Verdict, per this study's own established precedent (DESIGN §9.2's 2026-09-10
+resolution, first applied to M11's `dist_pct_sma_50`@21d: "the stronger control tier
+is authoritative when the two disagree"):** the extension-neutralized reading is the
+more directly relevant, more skeptical control for this specific construction, and it
+does not confirm. **Read as: this effect is substantially a re-encoding of the same
+extension/momentum-exhaustion mechanism M6.3 already found (extreme distance-from-MA
+predicts worse forward returns), not new information contributed by pattern-detection
+specifically.** The primary cell's own pre-registered kill criterion (default C2) does
+not literally fire, but per this study's own stronger-control-wins convention, this
+does **not** get tiered as confirmed — same treatment M6.3's own SMA200 cell received
+after its reversal-robustness check failed (there, reversal; here, extension).
+
+**Tier: 4.** Not confirmed once its own most directly relevant confound is controlled
+for. No `FINDINGS.md` entry (CLAUDE.md's own Tier-4 rule).
+
+**What would change the verdict:** a genuinely pattern-specific mechanism test that
+doesn't share this construction's own extension confound — e.g., restricting to
+reclaims where the *breakout itself* was a continuation move (not primarily a
+reversal off a tight base) vs. a contraction/base breakout (VCP-style), which might
+decorrelate "recent breakout" from "currently extended" better than this module's own
+coarse confidence-floor definition does.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows: primary, reversal-robustness companion,
+extension-neutralized companion — only the primary cell counted toward `N_tests`,
+same convention as every other module's robustness-companion rows in this study).
