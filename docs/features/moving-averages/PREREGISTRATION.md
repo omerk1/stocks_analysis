@@ -4481,3 +4481,111 @@ doesn't ask for.
 `counted_in_n_tests=False`** — see the note there for why Reality Check's own
 already-multiplicity-corrected p-value isn't compatible with being fed into the
 separate whole-grid BH pass alongside Wald-approximate CI-based p-values).
+
+## M6.4 — Slope persistence and flip hazard (2026-09-24)
+
+**Module / track:** M6.4, Track B (DESIGN.md lines ~835-839). Not part of the original
+minimal-core list — post-termination "Batch 3" module (`HANDOVER.md`'s own scoping),
+run alongside a sibling M9 fork, each in its own isolated worktree. Unlike Batches 1/2,
+Batch 3 is explicitly not 4-way parallel — heavier standalone infra builds, 1-2 at a
+time.
+
+**Hypothesis, reframed per DESIGN's own words:** not "does slope predict return" but
+"given the N-day SMA's own slope has been positive for N days, what is the probability
+it flips in the next k?" — a survival/hazard question, a better fit for how slope is
+actually used (a trend-intact/trend-broken switch) than a return-prediction question.
+
+**Kill criterion (DESIGN gives none numerically — this module's own, pre-registered
+before any real-panel run):** for a given (lookback, vol-tercile, direction) stratum,
+declare the empirical Kaplan-Meier survival curve for slope-positive (or
+slope-negative) runs "not distinguishable from a random walk's own run-length
+statistics" unless the empirical 21-day survival probability sits *outside* a GBM-null
+simulation's own 90% simulation envelope (5th/95th percentile across 100 independent
+simulation groups) at that same horizon — the same 90% coverage convention this study
+uses for every block-bootstrap CI elsewhere, applied here to a simulation envelope
+instead of a bootstrap resample (the "sample" is generated data, not an observed one
+needing resampling). Module-level: killed iff every declared primary stratum agrees
+with its own null (`evaluate_kill_criterion`).
+
+**Control tier:** not a C2-matched mean-difference test — this is fundamentally a
+distributional comparison against a simulated null. The "control" is the GBM
+simulation itself: daily log-returns i.i.d. `Normal(mu, sigma)`, `mu` = the whole
+panel's own pooled mean daily log-return (one number, shared across every stratum's
+null — a stratum-specific drift would partly launder the very trend-persistence effect
+this module tests for into its own null), `sigma` = that stratum's own median
+`realized_vol_63` among real runs' *entry* rows (a representative volatility level for
+that regime, so a vol-tercile's differing survival curve isn't just a mechanical
+artifact of a different noise level going into the null too).
+
+**Method:**
+1. **Empirical side:** for each lookback in `{20, 50, 150, 200}` (the panel's own
+   cached SMA lookbacks), a slope-positive run is a maximal consecutive stretch where
+   `slope_log_21_sma_<lookback> > 0` (NaN-preserving — CLAUDE.md invariant #9). Runs are
+   built per ticker via `features/state.py::state_run_id`/`days_in_run`, reused
+   unchanged (the same primitives `features/panel.py`'s own `run_length_bucket_*`
+   columns already use, and the same per-ticker groupby-apply pattern that file already
+   establishes as correct for this specific primitive — it explicitly requires a
+   single ticker's series, so this is not a CLAUDE.md-style-rule violation the way a
+   hand-rolled per-ticker loop for something vectorisable would be).
+   - **Censoring, same convention as `features/state.py::run_length_bucket`**: the
+     first run per ticker (`run_id == 0`) is left-censored (unknown true start) and
+     dropped entirely, never counted as either an event or a censored observation.
+     Every other run's `duration` is its own final observed length; `event = 1` if the
+     run ended in an observed flip (i.e. it is *not* the ticker's own final run_id),
+     `event = 0` if it was still the ticker's current run when that ticker's own
+     history ends — delisting or the study's own 2010-2021 coverage window, either way
+     right-censored, never dropped (CLAUDE.md invariant #4's "never drop delisted
+     tickers" spirit, applied to a duration rather than a return).
+   - Primary declared grid: **positive** (rising) runs only, matching DESIGN's own
+     literal wording ("given the slope has been positive for N days"). **Negative
+     (falling) runs are a companion facet**, same construction, not counted toward
+     `N_tests` (same convention as this study's other direction-split companions,
+     e.g. M6.5's own price/dropoff-driven-up/down rows) — reported for symmetry, not a
+     separate declared hypothesis.
+   - Stratified by **vol-tercile** (`realized_vol_63`, this study's own standard C2 vol
+     control, cross-sectional per-date tercile at the run's *entry* date — a baseline
+     covariate, not a time-varying one that would co-evolve with the run's own outcome)
+     and, **separately** (not crossed), by **ER-tercile** (efficiency ratio, see the
+     shared-feature note below). Crossing vol × ER × lookback × direction would produce
+     4 × 3 × 3 × 2 = 72 strata against an already-thin effective N (runs per ticker per
+     lookback) — exactly the "large search space over data with tiny effective N"
+     trap DESIGN itself names for the *sibling* M9 module (§6.4). Applying that same
+     caution here, even though DESIGN's own M6.4 text doesn't explicitly warn about it,
+     to avoid reproducing M9's own named overfitting risk. Primary declared grid: 4
+     lookbacks × 3 vol-terciles = 12 strata (rising only); ER-tercile stratification (4
+     lookbacks × 3 ER-terciles = 12 more) is a **separate, parallel companion grid**,
+     not crossed with vol, also not counted toward `N_tests` beyond the primary 12 (a
+     second look at the same underlying runs through a different stratification lens,
+     not a second independent hypothesis).
+2. **Null side:** `stats/survival.py` (new — nothing like this exists in `stats/` yet).
+   `gbm_null_survival` simulates 2,000 independent GBM price paths (1,500 days each,
+   i.i.d. `Normal(mu, sigma)` daily log-returns), runs the *identical*
+   SMA → `slope_log_21` → sign-run construction on each simulated path, and returns a
+   pooled null Kaplan-Meier curve plus a 90% simulation envelope at 6 reference
+   horizons (5/10/21/42/63/126 days), built by splitting the 2,000 paths into 100
+   independent groups of 20, computing each group's own pooled KM curve as one
+   replicate, and taking the 5th/95th percentile across replicates at each horizon.
+3. **Shared-feature note — real, deliberate overlap with M9, not an oversight**: this
+   module needs "efficiency ratio" (ER) for its own ER-tercile companion facet. A
+   sibling M9 fork owns `features/regime.py`, building a shared ER/ADX/vol-regime
+   module there — but M9 hadn't landed when this module started, so this module built
+   its **own local, temporary** `efficiency_ratio` (`modules/slope_persistence.py`),
+   using the identical formula already implemented (but not exposed as a standalone
+   function) inside `features/kernels.py::kama` — Kaufman's own ER, the same
+   definition this study now uses everywhere the concept comes up, computed the same
+   way in both places so the two independent implementations agree numerically even
+   though they live in separate files for now. **Flagged for reconciliation once M9
+   lands** (this module's own local copy should be deleted and replaced with an import
+   from `features/regime.py` at that point) — not blocked on M9 in the meantime, per
+   the coordinating session's own explicit instruction to both forks.
+4. One-bar lag (CLAUDE.md invariant #2): `efficiency_ratio` is computed from raw
+   (unlagged) `close`, then passed through `features/panel.py::apply_lag` before use —
+   the same discipline every other module's new local features follow. The
+   `slope_log_21_sma_<lookback>` columns are already-lagged shared panel columns,
+   reused directly; building runs off an already-lagged column introduces no further
+   look-ahead (the same reasoning `run_length_bucket_*`'s own construction already
+   relies on).
+5. Holdout (invariant #1): the whole study's own 2010-01-04→2021-12-31 U1 universe/
+   window, never touched past that boundary — including inside the GBM simulation's own
+   calibration (real-data drift/vol inputs only from that window; the simulated paths
+   themselves are synthetic, not a holdout-boundary question at all).
