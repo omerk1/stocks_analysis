@@ -1,26 +1,30 @@
 # Moving-averages study — final report
 
-**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21, 2026-09-23, 2026-09-24 (×2).
+**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21, 2026-09-23, 2026-09-24 (×2),
+2026-09-25.
 **Status:** study terminated per its own pre-registered criteria (`STATUS.md`'s
 "Study-level termination" section) — the minimal-core list (DESIGN §12: M1, M2, M4,
 M5, M6.2, M11, plus §7.5) ran and was tiered, and the whole-grid FDR pass executed
-against the deduplicated grid. Twelve further modules were added post-termination via
+against the deduplicated grid. Fifteen further modules were added post-termination via
 DESIGN §1.5's porous-scope rule (M18 on 2026-09-20; M6.1/M6.3/M7/M13 — "Batch 1" — on
 2026-09-22/23; M3/M6.5/M6.6/M12 — "Batch 2" — on 2026-09-23/24; M8/M9/M10/M6.4 —
-"Batch 3" — on 2026-09-24), each pre-registered and folded into a re-run of the
-whole-grid FDR pass rather than reported outside that discipline (N:
-31→35→50→79→99). **The 2026-09-23 re-run changed the study's headline for the first
-time**: 5 cells then survived Benjamini–Hochberg correction (1 at q=0.05), and one of
-them — `slope_pctile_21_sma_50` (M6.3) — was promoted to Tier 2 the same day once a
-decomposition test resolved its one open caveat. **Both 2026-09-24 re-runs (Batch 2,
-N=79; Batch 3, N=99) changed which cells survive FDR — each time some cells dropped
-out and others joined — but neither changed the Tier-2 count**: still exactly one
-(`slope_pctile_21_sma_50`, confirmed robust across three consecutive grid expansions),
-still zero Tier 1. The Batch-3 pass produced the largest survivor set in this study's
-history (10 of 99 at q=0.10, 5 at q=0.05) and, for the first time, every single
-survivor clears its own BH threshold without depending on the step-up sweep
-mechanism. Full detail: §1, §4 below (§4 carries the current, N=99 table; the N=79
-and N=50 tables are kept alongside it, marked superseded, per this report's own
+"Batch 3" — on 2026-09-24; M16/M17/M14 — "Batch 4" — on 2026-09-25), each
+pre-registered and folded into a re-run of the whole-grid FDR pass rather than
+reported outside that discipline (N: 31→35→50→79→99→107). **The 2026-09-23 re-run
+changed the study's headline for the first time**: 5 cells then survived
+Benjamini–Hochberg correction (1 at q=0.05), and one of them —
+`slope_pctile_21_sma_50` (M6.3) — was promoted to Tier 2 the same day once a
+decomposition test resolved its one open caveat. **The three 2026-09-24/25 re-runs
+(Batch 2, N=79; Batch 3, N=99; Batch 4, N=107) each changed which cells survive
+FDR — cells dropped out, rejoined, and one brand-new cell entered — but none changed
+the Tier-2 count**: still exactly one (`slope_pctile_21_sma_50`, confirmed robust
+across four consecutive grid expansions), still zero Tier 1. The Batch-4 pass
+produced the largest survivor set in this study's history (11 of 107 at q=0.10, 6 at
+q=0.05) and, for the first time, a *second* cell clears the stricter q=0.05 bar
+(M14's VCP-only reclaim cell, the largest point estimate in the study's history —
+still capped at Tier 3 by an unresolved reversal-robustness gap, not promoted). Full
+detail: §1, §4 below (§4 carries the current, N=107 table; the N=99, N=79, and N=50
+tables are kept alongside it, marked superseded, per this report's own
 no-silent-edits convention). Every number below is sourced to `EXPERIMENTS.csv`,
 `FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
 not re-derive.
@@ -47,8 +51,32 @@ artifact (both sides independently show the same effect: rising −0.254% CI
 an untested holdout period and a second universe tier — are missing infrastructure,
 not failures, which is exactly DESIGN §9.2's Tier-2 profile.
 
-**2026-09-24 Batch-3 update, current: 3 more cells clear FDR at N=99 (M6.4's SMA20
-vol-tercile trio), plus a repeat demonstration of FDR "flapping":**
+**2026-09-25 Batch-4 update, current: one new cell clears FDR at N=107 — the largest
+point estimate in this study's history, still capped at Tier 3:**
+- **`pattern_context_reclaim_sma50_vcp_only`** (M14, rank 6, p=0.000425) — an
+  `above_sma_50` reclaim occurring shortly after a confirmed VCP (volatility
+  contraction pattern) breakout, opposite-signed and much larger than the module's own
+  pooled/unrestricted reading (which failed an extension-neutralized control and stays
+  Tier 4). Clears at every cost reading by the widest margin of any cell in this study
+  (point +21.96%/yr vs. a 0.0185%/yr hurdle) and is the second cell ever to clear the
+  stricter q=0.05 bar, alongside M6.3's Tier-2 finding. **Not promoted**: its own
+  reversal-robustness check hit `InsufficientBlocksError` — an infrastructure gap on
+  the single most relevant robustness check for this cell, not a check that ran and
+  passed, so it's held to the same "flagged, not resolved" bar as this study's other
+  Tier-3 caveats rather than promoted on point-estimate size alone.
+- **M17's own MACD histogram cell does NOT survive** despite being real at the C2
+  level (CI barely excludes zero) — ranks 34th (p=0.115) against a 0.032 threshold,
+  missing by more than 3×. The cleanest instance in this study of a cell clearing C2
+  but failing whole-grid FDR by a wide margin, not a boundary case.
+- All 5 of the Batch-3 survivors ranked 6-10 in the prior pass now rank 7-11 — pure
+  denominator effect from M14's new rank-6 entrant, no change in evidence for any of
+  them.
+
+Full reasoning: §4 below; `FINDINGS.md`'s 2026-09-25 addendum on M14's VCP cell.
+
+**2026-09-24 Batch-3 pass's own summary (superseded above, kept for the record): 3
+more cells clear FDR at N=99 (M6.4's SMA20 vol-tercile trio), plus a repeat
+demonstration of FDR "flapping":**
 - **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4, does empirical
   slope-persistence exceed a matched-volatility GBM-null's own survival curve —
   ranks 1/3/5, p≈0.000000/0.000016/0.000105, the three smallest p-values this study
@@ -71,9 +99,10 @@ vol-tercile trio), plus a repeat demonstration of FDR "flapping":**
   all three has never once changed.** This is the concrete, repeated version of the
   risk this report's own 2026-09-24 Batch-2 update first named as a single instance.
 
-**Unlike every prior pass, all 10 current survivors individually clear their own BH
-threshold — none depends on the step-up sweep mechanism**, even the tightest (ranks
-8-9, ~95% of their own threshold).
+**(Batch-3 pass's own note, superseded — all 11 current survivors, per the Batch-4
+update above, also individually clear their own BH threshold with no step-up sweep
+dependency; the Batch-3 pass's 10 did too):** none depended on the step-up sweep
+mechanism, even the tightest (ranks 8-9, ~95% of their own threshold).
 
 **2026-09-24 Batch-2 pass's own summary (superseded above, kept for the record):** 4
 cells cleared FDR at N=79 — `ribbon_agreement_extreme_drawdown` (M6.6, rank 1),
@@ -293,26 +322,54 @@ unchanged, only the ranks/thresholds shift as the denominator grows). **Current
   test (`dist_from_52w_low`@126d). Full per-cell reasoning: `FINDINGS.md`'s 2026-09-23
   addenda on each cell.
 
-**2026-09-24 Batch-3 update, current: N_tests = 99** (the 79 above, unchanged, plus
-Batch 3's 20 — M8 contributes 0 [Reality Check's own p-value is methodologically
-incompatible with this pass's Wald/BH machinery], M9 1 [DESIGN's own false-positive
-warning collapsed the module to a single decisive test], M10 7, M6.4 12; full dedup
-reasoning in `STATUS.md`, including a direct check that neither M9 nor M6.4 left an
-independence gap the way M12 did last pass — none found). **Result: 10 of 99 rejected
-at q=0.10, 5 of 99 at q=0.05** — the largest survivor set in this study's history.
-Three of M6.4's SMA20 vol-tercile cells produced the three smallest p-values this
-study has ever seen (ranks 1, 3, 5), displacing M6.6 to rank 2 and M6.3's own Tier-2
-cell to rank 4 (still clearing q=0.05 comfortably). `reclaim_durability_dollar_volume_sma50`
-(M12) and `dist_from_52w_low`@126d (M18) continue to survive (ranks 6-7). **The three
-cells that dropped out at N=79 are back** (`ribbon_direction_magnitude`,
-`stack_fully_bearish`, `above_sma_20` — ranks 8-10) — three FDR-status flips each
-across three consecutive passes, with the tier assignment for all three never once
-changing. **Unlike every prior pass, all 10 current survivors individually clear
-their own rank's threshold** — none depend on a step-up sweep, even the tightest
-(ranks 8-9, ~95% of their own threshold). **Tier-2 count unchanged: still exactly
-`slope_pctile_21_sma_50`, confirmed robust across three consecutive grid
-expansions.** Full reasoning and the current ranked table: `STATUS.md`'s "Whole-grid
-FDR pass" section.
+**2026-09-25 Batch-4 update, current: N_tests = 107** (the 99 above, unchanged, plus
+Batch 4's 8 — M16 contributes 0 [Track A diagnostic, no Track B cell], M17 contributes
+6 [4 of its 10 declared cells are descriptive/diagnostic-only, excluded], M14
+contributes 2 [pooled primary + VCP-specific addendum, the latter a restricted
+subpopulation counted independently per this study's own within-restriction-facet
+convention]; full dedup reasoning in `STATUS.md`). **Result: 11 of 107 rejected at
+q=0.10, 6 of 107 at q=0.05** — one net new survivor. M14's VCP-only cell
+(`pattern_context_reclaim_sma50_vcp_only`) enters at **rank 6** (p=0.000425) — the
+largest point estimate in this study's history (+21.96%/yr vs. a 0.0185%/yr cost
+hurdle) — and is only the second cell ever to also clear the stricter q=0.05 bar,
+alongside M6.3's Tier-2 finding. This pushes `reclaim_durability_dollar_volume_sma50`
+(M12), `dist_from_52w_low`@126d (M18), `ribbon_direction_magnitude` (M7),
+`stack_fully_bearish_h21` (M2), and `above_sma_20` (M1) each down one rank (7-11); all
+five still individually clear their own (now /107) threshold. **M17's own MACD
+histogram cell does NOT survive** — real at the C2 level (CI barely excludes zero)
+but ranks only 34th (p=0.115) against a 0.032 threshold, missing by more than 3×: the
+cleanest instance in this study of a cell clearing C2 but failing whole-grid FDR by a
+wide margin. **Tier-2 count unchanged: still exactly `slope_pctile_21_sma_50`,
+confirmed robust across four consecutive grid expansions.** M14's VCP cell is **not
+promoted to Tier 2** despite its FDR/cost/point-estimate profile — its own
+reversal-robustness check hit `InsufficientBlocksError` (couldn't run at all on this
+newly-assembled pattern population), an infrastructure gap on the single most
+relevant robustness check, not a passed-and-confirmed one. Full reasoning and the
+current ranked table: `STATUS.md`'s "Whole-grid FDR pass" section.
+
+| rank | cell | p-value | BH threshold (rank/107×0.10) | reject q=0.10? |
+|---|---|---|---|---|
+| 1 | M6.4 `slope_persistence_vol_tercile_sma20_t0` | ~0.000000 | 0.000935 | **yes** |
+| 2 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.000002 | 0.001869 | **yes** |
+| 3 | M6.4 `slope_persistence_vol_tercile_sma20_t1` | 0.000016 | 0.002804 | **yes** |
+| 4 | M6.3 `slope_pctile_21_sma_50` | 0.000050 | 0.003738 | **yes — Tier 2** |
+| 5 | M6.4 `slope_persistence_vol_tercile_sma20_t2` | 0.000105 | 0.004673 | **yes** |
+| 6 | M14 `pattern_context_reclaim_sma50_vcp_only` | 0.000425 | 0.005607 | **yes** |
+| 7 | M12 `reclaim_durability_dollar_volume_sma50` | 0.003476 | 0.006542 | **yes** |
+| 8 | M18 `dist_from_52w_low`@126d | 0.004679 | 0.007477 | **yes** |
+| 9 | M7 `ribbon_direction_magnitude` | 0.007674 | 0.008411 | **yes** |
+| 10 | M2 `stack_fully_bearish_h21` | 0.008606 | 0.009346 | **yes** |
+| 11 | M1 `above_sma_20` | 0.009032 | 0.010280 | **yes** |
+| 12–107 | (remaining 96 cells, incl. M17's MACD cell at rank 34) | ≥0.0135 | — | no |
+
+Full ranked table (top 26 explicitly): `STATUS.md`. Note on the flapping cells:
+`above_sma_20` individually cleared its own threshold at N=50 (0.0090 vs. 0.0100),
+missed at N=79 (0.0090 vs. 0.0089), cleared at N=99 (0.0090 vs. 0.0101), and clears
+again at N=107 (0.0090 vs. 0.0103) — the grid grew again but not enough to flip a
+fourth time. `ribbon_direction_magnitude` and `stack_fully_bearish_h21` show the
+identical pattern.
+
+**Superseded — 2026-09-24 Batch-3 pass's own ranked table (N=99), kept for the record:**
 
 | rank | cell | p-value | BH threshold (rank/99×0.10) | reject q=0.10? |
 |---|---|---|---|---|
@@ -327,12 +384,6 @@ FDR pass" section.
 | 9 | M2 `stack_fully_bearish_h21` | 0.008606 | 0.00909 | **yes** |
 | 10 | M1 `above_sma_20` | 0.009032 | 0.01010 | **yes** |
 | 11–99 | (remaining 89 cells) | ≥0.0135 | — | no |
-
-Full ranked table (top 25 explicitly): `STATUS.md`. Note on the flapping cells:
-`above_sma_20` individually cleared its own threshold at N=50 (0.0090 vs. 0.0100),
-missed at N=79 (0.0090 vs. 0.0089), and clears again at N=99 (0.0090 vs. 0.0101) —
-three flips purely from denominator/anchor-point changes, not new evidence. `ribbon_direction_magnitude`
-and `stack_fully_bearish_h21` show the identical pattern.
 
 **Superseded — 2026-09-24 Batch-2 pass's own ranked table (N=79), kept for the record:**
 
@@ -382,17 +433,20 @@ full discussion of why this matters for how much confidence to place in each of 
 
 Every module actually run is detailed below, including everything added
 post-termination (DESIGN §1.5's porous-scope rule) — Batch 1 (M6.1, M6.3, M7, M13),
-Batch 2 (M3, M6.5, M6.6, M12), Batch 3 (M8, M9, M10, M6.4), and Batch 4 so far (M16,
-M17 merged; M14's PR #105, including its VCP-specific addendum, is complete and open
-but **not yet merged** as of this revision — its own numbers are described in the
-closing list rather than given a full entry here, matching the same discipline this
-report used for every other module before its PR landed. M15 is hard-blocked on M14
-merging). Full per-cell detail for every
+Batch 2 (M3, M6.5, M6.6, M12), Batch 3 (M8, M9, M10, M6.4), and Batch 4 (M16, M17,
+M14 — all three merged as of this revision, including M14's VCP-specific addendum).
+M15 (synthesis) remains the only module not yet run — it was hard-blocked on M14
+merging, and now also has a real second Tier-2-adjacent candidate (M14's VCP cell) to
+synthesize against M6.3's existing Tier-2 finding, not the null note originally
+expected. Full per-cell detail for every
 number below: `STATUS.md`'s "Modules run" table, `EXPERIMENTS.csv`, `FINDINGS.md`.
 (Updated 2026-09-25 — this section, §6, and §7 had gone stale after the minimal-core
 list plus M18, still describing the study as of 2026-09-21/23 and incorrectly listing
 every post-termination module as "never attempted"; caught and fixed in the same
-revision as this note, not left to accumulate further.)
+revision as this note, not left to accumulate further. Updated again 2026-09-25,
+same day, once M14's PR #105 merged — this revision's own "M14 not yet merged"
+language was stale within hours and is corrected here rather than left for a future
+pass.)
 
 **M1 — Baseline state conditioning.** Above/below SMA{20,50,200} state, C0/C1/C2,
 block-bootstrap. lb20/lb50 → Tier 3 (real, CI-excluding effect, fails cost). lb200 →
@@ -499,7 +553,7 @@ as a reversal artifact). **This is the study's sole Tier-2 finding** —
 whole-grid FDR correction (p=0.00005), then was promoted to Tier 2 once a same-day
 rising-tail-only vs. falling-tail-only decomposition directly ruled out a
 survivorship-bias concern (both tails independently show the same effect). Confirmed
-robust across every subsequent FDR re-run (N=50→79→99) without ever needing BH's
+robust across every subsequent FDR re-run (N=50→79→99→107) without ever needing BH's
 step-up sweep to survive. Full detail: §1 above.
 
 **M6.4 — Slope persistence and flip hazard (post-termination Batch 3).** Module
@@ -508,10 +562,11 @@ slope-positive run survival (Kaplan-Meier vs. a matched-volatility random walk, 
 `stats/survival.py` machinery). 7 of 12 primary (vol-tercile) strata depart, always
 toward *more* persistence than the null predicts, a clean plateau at SMA20/SMA50; the
 cleanest result is the ER-tercile companion facet (top efficiency-ratio tercile
-departs at all 4 lookbacks, no lookback-decay). Anchored this study's largest-ever
-whole-grid FDR survivor set (N=99): the 3 SMA20 vol-tercile cells produced the three
-smallest p-values this study has ever seen. **Not promoted to Tier 2** despite
-clearing FDR by the widest margin in the study's history: the GBM null's own
+departs at all 4 lookbacks, no lookback-decay). Anchored this study's largest whole-grid FDR survivor set at the time (N=99, since
+surpassed by N=107's 11 survivors once M14's VCP cell joined): the 3 SMA20
+vol-tercile cells produced the three smallest p-values this study has ever seen, and
+remain ranks 1/3/5 at N=107. **Not promoted to Tier 2** despite clearing FDR by the
+widest FDR margin of any cell family in the study's history: the GBM null's own
 volatility estimate is computed from the same potentially-autocorrelated series being
 tested, an open, unresolved validity question that could bias the null low and
 inflate apparent departures.
@@ -531,7 +586,7 @@ stated expectation held exactly: drawdown is where the signal is, return is not.
 signs, extremes only): Tier 3, clears cost at every reading, survives
 reversal-robustness (~18% attenuation). Was this study's smallest-ever p-value at the
 Batch-2 FDR pass, later displaced by M6.4's own SMA20 vol-tercile cells but still a
-current survivor. Capped by the same magnitude-vs-signed-return actionability gap
+current survivor at N=107 (rank 2). Capped by the same magnitude-vs-signed-return actionability gap
 `ribbon_direction_magnitude` (M7, below) carries. Required correlation matrix
 (regardless of outcome, DESIGN's own explicit ask): the ribbon does not collapse to a
 single MA's own slope (0.28–0.89 pairwise correlation range across the five
@@ -542,10 +597,11 @@ lookbacks).
 vol-tercile match). `ribbon_direction_magnitude` confirmed (Tier 3): compression
 predicts a larger forward 21d `|return|` (magnitude, not signed direction), clears
 cost at every reading, survives reversal-robustness (+7.6%, if anything strengthened).
-Cleared whole-grid FDR at N=79 via BH's step-up sweep, but was never promoted — its
-own magnitude-vs-signed-return actionability gap caps it at Tier 3 independent of FDR
-status. No longer clears FDR at N=99 (pure denominator effect, one of the three
-"flapping" cells named in §4).
+Cleared whole-grid FDR at N=50, dropped out at N=79, and is back at N=99 and N=107
+(§4's "flapping" pattern) — never promoted at any point, independent of FDR status:
+its own magnitude-vs-signed-return actionability gap caps it at Tier 3 regardless.
+(Corrected 2026-09-25: this paragraph previously had the N=79/N=99 direction
+backwards — see §4's own tables for the authoritative history.)
 
 **M8 — MA family horse race at matched lag (post-termination Batch 3).** Module
 killed — DESIGN's own ~80%-likely prior holds. Lag-matching methodology: each
@@ -583,7 +639,7 @@ infrastructure: a `Timeframe` parameter on `build_panel` (backward compatible).
 (bottom-dollar-volume reclaims outperform top, not the reverse), clears cost cleanly
 (the largest cost-viability margin of any Tier-3 cell in the study), survives
 reversal-robustness (~34% attenuation). Newly cleared whole-grid FDR at N=79 and
-remains a survivor at N=99 — but **not promoted to Tier 2**: this panel has no
+remains a survivor at N=99 and N=107 (rank 7) — but **not promoted to Tier 2**: this panel has no
 point-in-time market-cap/size control, and dollar volume correlates strongly with
 size, so an uncontrolled small-cap/illiquidity premium is at least as plausible as a
 genuine mechanism, an open, unresolved confound. `dollar_volume`/SMA20 fails its own
@@ -638,12 +694,12 @@ clears cost at every reading and survives a reversal-robustness check unattenuat
 this study's fourth cost-clearing Tier-3 cell, and the one with the smallest p-value in
 the entire 35-test grid (§4). Still fails FDR, by the narrowest margin in the study.
 
-**Complete but not yet merged as of this revision (2026-09-25):** **M14** (join with
-existing pattern detectors, PR #105) tested whether an MA event fired inside a
-detected chart pattern behaves differently. The pooled cell (all 7 pattern types,
-`above_sma_50` reclaims, confidence≥0.7 breakouts) is **not confirmed** — CI excludes
-zero and clears cost, but fails the same extension-neutralized control that killed
-several other cells in this study (attenuates ~52%, CI now spans zero) — read as a
+**M14 — Integration with existing detectors (post-termination Batch 4, merged
+2026-09-25, PR #105).** Tested whether an MA event fired inside a detected chart
+pattern behaves differently. The pooled cell (all 7 pattern types, `above_sma_50`
+reclaims, confidence≥0.7 breakouts) is **not confirmed** — CI excludes zero and
+clears cost, but fails the same extension-neutralized control that killed several
+other cells in this study (attenuates ~52%, CI now spans zero) — read as a
 re-encoding of M6.3's own extension/momentum-exhaustion mechanism, not new
 information from pattern-detection. **A targeted follow-up split the pooled cell by
 pattern type and found something real underneath the null**: within VCP formations
@@ -657,12 +713,16 @@ events, 409 dates, 227 tickers) but its own reversal-robustness check hit an
 `InsufficientBlocksError` (too few contributing dates) — an honest open gap, not
 forced by loosening the block-length requirement — and its shape carries a real
 caveat (favorable hit rate, 68.9% vs. 61.3%, but markedly more negative skew
-in-context, −0.770 vs. −0.065, a fatter downside tail). Tier 3, pending merge and this
-study's own coordinating-session consolidation (a `STATUS.md` "Modules run" row and
-inclusion in the whole-grid FDR pass, same as every other module in this report).
-**M15** (synthesis) is hard-blocked on M14 merging, per DESIGN's own design (it
-operates on "surviving Tier-1/2 claims," of which exactly one exists, M6.3's cell
-above — arguably now a candidate second, pending FDR, if M14's VCP cell holds up).
+in-context, −0.770 vs. −0.065, a fatter downside tail). **Newly clears the whole-grid
+FDR pass at N=107 (rank 6, p=0.000425), including the stricter q=0.05 bar** — the
+second cell ever to do so in this study — but **not promoted to Tier 2**: FDR survival
+doesn't resolve the reversal-robustness gap above, which is still unrun rather than
+run-and-passed. Tier 3.
+**M15** (synthesis) is the only module in this study not yet run — hard-blocked on
+M14 merging (now done) per DESIGN's own design, it operates on "surviving Tier-1/2
+claims," and now has a real second Tier-2-adjacent candidate (M14's VCP cell, capped
+at Tier 3 pending the reversal-robustness check) to synthesize against M6.3's existing
+Tier-2 finding, not the null note originally expected.
 **M6.7** ("the angle of a moving average") is explicitly not an analysis module by
 DESIGN's own text — a one-line report note that the quantity has no coordinate-free
 definition, folded into M16's own write-up rather than given a separate entry.
@@ -673,61 +733,68 @@ definition, folded into M16's own write-up rather than given a separate entry.
 
 **Rewritten 2026-09-25 — this section described the study's original 4 Tier-3 cells
 and claimed "none survived" whole-grid FDR, both stale by a full order of magnitude:
-the study now has one Tier-2 finding (§1) and, as of the current N=99 pass, 10 cells
-survive FDR (§4), several of which didn't exist when this section was last written.**
+the study now has one Tier-2 finding (§1) and, as of the current N=107 pass, 11 cells
+survive FDR (§4), several of which didn't exist when this section was last written.
+Updated again same day once the N=107 pass folded in M14's VCP cell.**
 Per DESIGN's 2026-09-09 addition to §9.1: these are real, CI-excluding-zero,
 mechanism-plausible effects, not dead ends. Listed here are every *primary/decisive*
 Tier-3 cell in the study (excluding reversal-robustness/large-move-exclusion
 companion rows, which re-test the same hypothesis rather than a new one — see those
 cells' own `FINDINGS.md` entries for the companion numbers) — full per-cell detail in
-`FINDINGS.md`, current FDR status per §4's own N=99 ranked table.
+`FINDINGS.md`, current FDR status per §4's own N=107 ranked table.
 
-**Currently clears whole-grid FDR at q=0.10 (N=99):**
+**Currently clears whole-grid FDR at q=0.10 (N=107):**
 1. **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4) — the study's three
    smallest p-values ever, anchoring the current pass. Capped, not promoted: the GBM
    null's own volatility estimate may be circular (§5's M6.4 entry).
 2. **`ribbon_agreement_extreme_drawdown`** (M6.6) — capped by a
    magnitude-vs-signed-return actionability gap, independent of FDR status.
-3. **`reclaim_durability_dollar_volume_sma50`** (M12) — capped by an open, unresolved
+3. **`pattern_context_reclaim_sma50_vcp_only`** (M14) — within VCP formations
+   specifically, an opposite-signed, extension-robust effect that clears cost by the
+   widest margin in this study (point +21.96%/yr vs. a 0.0185%/yr hurdle), and clears
+   whole-grid FDR at both q=0.10 and q=0.05 (rank 6, p=0.000425) — the second cell
+   ever to clear the stricter bar. Capped, not promoted: its own reversal-robustness
+   check couldn't run (`InsufficientBlocksError`, too few contributing dates) — an
+   honest open gap, and a fatter in-context downside tail (skew −0.770 vs. −0.065) is
+   a real caveat on the shape, not just the mean. Full detail: §5.
+4. **`reclaim_durability_dollar_volume_sma50`** (M12) — capped by an open, unresolved
    small-cap/illiquidity confound (no point-in-time market-cap control exists in this
    panel).
-4. **`dist_from_52w_low`@126d** (M18) — capped by an open, unresolved
+5. **`dist_from_52w_low`@126d** (M18) — capped by an open, unresolved
    survivorship-adjacent caveat, extended by analogy from DESIGN §7.3's own named
    cases, never directly tested.
-5. **`ribbon_direction_magnitude`** (M7) — capped by its own magnitude-vs-signed-return
-   actionability gap. Dropped out of the survivor set at N=79, back in at N=99 — a
-   pure denominator effect, no new evidence either time (§4's "flapping" discussion).
-6. **`stack_fully_bearish`** (M2) — capped by DESIGN §7.3's pre-existing survivorship
-   ceiling on weak/bearish-state buckets. Same flapping pattern as #5.
-7. **`above_sma_20`** (M1) — fails cost outright, independent of FDR status. Same
-   flapping pattern as #5/#6.
+6. **`ribbon_direction_magnitude`** (M7) — capped by its own magnitude-vs-signed-return
+   actionability gap. Dropped out of the survivor set at N=79, back in at N=99 and
+   N=107 — a pure denominator effect, no new evidence either time (§4's "flapping"
+   discussion).
+7. **`stack_fully_bearish`** (M2) — capped by DESIGN §7.3's pre-existing survivorship
+   ceiling on weak/bearish-state buckets. Same flapping pattern as #6.
+8. **`above_sma_20`** (M1) — fails cost outright, independent of FDR status. Same
+   flapping pattern as #6/#7.
 
 **Real, CI-excluding-zero, but does not currently clear whole-grid FDR:**
-8. **`extension_x_slope`, SMA50 top decile** (M6.2) — survives its own
+9. **`extension_x_slope`, SMA50 top decile** (M6.2) — survives its own
    reversal-robustness check essentially intact (~6.7% attenuation). Remaining live
    caveat: the "falling" side is a rare subgroup (7.1% of the top-decile population),
    and M6.3's own post-earnings-gap/low-float contamination warning for the top slope
    decile still applies.
-9. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — **does not survive** its own
-   reversal-robustness check (~40% attenuation, CI now spans zero) — the only cell in
-   this study where that check flips a result from confirmed to inconclusive. Closer
-   to a dead end than a near-miss.
-10. **`context_vix_bottom` / `context_breadth_top`** (M13) — clear zero-exclusion and
+10. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — **does not survive** its own
+    reversal-robustness check (~40% attenuation, CI now spans zero) — the only cell in
+    this study where that check flips a result from confirmed to inconclusive. Closer
+    to a dead end than a near-miss.
+11. **`context_vix_bottom` / `context_breadth_top`** (M13) — clear zero-exclusion and
     cost, barely, but all 4 of this module's cells (including the 2 that don't clear)
     cluster tightly around M1's own whole-sample `above_sma_200` sign/magnitude —
     read by the module's own write-up as probably the same weak baseline effect
     exposed by regime-slicing, not a real interaction.
-11. **`relative_volume` hold-rate companion, SMA200** (M12) — a mechanism read (does
+12. **`relative_volume` hold-rate companion, SMA200** (M12) — a mechanism read (does
     a reclaim hold, not a return magnitude), no cost annotation applicable.
-12. **MACD histogram incremental IC** (M17) — **not yet included in any whole-grid
-    FDR pass**; Batch 4's consolidation is pending PR #105 (M14) merging (§4). Capped
-    by an unresolved short-term-reversal confound in the meantime.
-13. **`pattern_context_reclaim_sma50_vcp_only`** (M14, PR #105, not yet merged) —
-    within VCP formations specifically, an opposite-signed, extension-robust effect
-    that clears cost by the widest margin in this study. Not yet in any whole-grid FDR
-    pass. Its own reversal-robustness check couldn't run (too few contributing dates)
-    — an honest open gap, and a fatter in-context downside tail (skew −0.770 vs.
-    −0.065) is a real caveat on the shape, not just the mean. Full detail: §5.
+13. **MACD histogram incremental IC** (M17) — **included in the N=107 whole-grid FDR
+    pass and does not survive**: real at the C2 level (CI barely excludes zero,
+    [+0.002%,+1.87%]) but ranks 34th (p=0.115) against a 0.032 threshold, missing by
+    more than 3× — the cleanest instance in this study of a cell clearing C2 but
+    failing whole-grid FDR by a wide margin. Capped by an unresolved short-term-reversal
+    confound as well.
 
 **What would move any of these forward, if this study resumed:** a real holdout
 check (2022+, still locked); a second universe tier (U2/U3); a point-in-time
@@ -896,16 +963,20 @@ directly off the panel, never assumed (`stats/costs.py`).
 | **M6.6** `ribbon_agreement_extreme_drawdown` | 5.415 | 0.5415%/yr | +7.85% | +5.25% | **clears** (drawdown-shallowing read, same avoided-loss caveat as M7) |
 | M6.4 (all slope-persistence cells) | n/a | n/a | n/a | n/a | not applicable — survival/mechanism question, no cost annotation |
 | M9 (decisive stage-3 test) | n/a (switching-cost only) | n/a | n/a | n/a | not evaluated — CI (sign-rotated) spans zero before cost applies |
-| M17 MACD histogram | n/a | n/a | n/a | n/a | not fully evaluated — pending the reversal-confound resolution named in §5/§6 |
+| M17 MACD histogram | n/a | n/a | n/a | n/a | not cost-annotated (an incremental-IC correlation test, not a signal-based construction) — real at C2, capped by an unresolved reversal confound, **and now checked against whole-grid FDR: does not survive** (rank 34 of 107, p=0.115 vs. a 0.032 threshold) |
+| M14 `pattern_context_reclaim_sma50` (pooled) | n/a (mechanism/extension-control read) | 0.225%/yr | −4.85% | −1.04% | **clears cost**, but fails the extension-neutralized control (§5) — read as re-encoded momentum, Tier 4 |
+| **M14** `pattern_context_reclaim_sma50_vcp_only` | n/a (rare, high-conviction event) | 0.0185%/yr | +21.96% | +12.72% | **clears** (widest margin of any cell in this study; also clears whole-grid FDR at q=0.05, §4) |
 
 **Reading, corrected 2026-09-25 (the prior version of this table only covered the
 minimal-core list plus M18, and its own closing claim was accordingly wrong)**: this
 study now has **multiple cells that clear both cost and whole-grid FDR** —
 `slope_pctile_21_sma_50` (M6.3) chief among them, the exact combination that promoted
-it to Tier 2 (§1); `reclaim_durability_dollar_volume_sma50` (M12) and
-`ribbon_agreement_extreme_drawdown` (M6.6) both clear cost and currently clear FDR too
-(§4), just not promoted, each for its own independent, non-cost reason (an open
-confound and an actionability gap, respectively — see §6). Among the
+it to Tier 2 (§1); `reclaim_durability_dollar_volume_sma50` (M12),
+`ribbon_agreement_extreme_drawdown` (M6.6), and `pattern_context_reclaim_sma50_vcp_only`
+(M14) all clear cost and currently clear FDR too (§4) — M14's cell by the widest
+margin of any cell in this study — just not promoted, each for its own independent,
+non-cost reason (an open confound, an actionability gap, and an unrun
+reversal-robustness check, respectively — see §6). Among the
 minimal-core-list cells above, the original reading still holds unchanged: every one
 of *those* that clears cost outright either fails FDR or carries its own live
 confound (M11's 5-day cell is the shape a short-term-reversal generator would
@@ -944,17 +1015,18 @@ of 2026-09-25 — check the latest commit's own count rather than trusting this 
 for long, it has grown with every module and will keep growing; run and green before
 every commit in this study).
 
-**Full pre-registered grid, `N_tests`:** 99 as of the 2026-09-24 Batch-3 whole-grid
-pass (deduplicated; see §4) — up from 50 (2026-09-23) and 79 (2026-09-24 Batch-2 pass).
-Batch 4's own contribution (M17's 6 counted cells, M14's pending) is **not yet folded
-into this count** — check `STATUS.md`'s "Whole-grid FDR pass" section for whichever
-pass is current before citing this number. Per-module raw declared counts and the
-full dedup reasoning: same section.
+**Full pre-registered grid, `N_tests`:** 107 as of the 2026-09-25 Batch-4 whole-grid
+pass (deduplicated; see §4) — up from 99 (2026-09-24 Batch-3), 79 (2026-09-24 Batch-2),
+and 50 (2026-09-23). Batch 4's own contribution (M17's 6 counted cells, M14's 2) is
+now folded into this count. Per-module raw declared counts and the full dedup
+reasoning: `STATUS.md`'s "Whole-grid FDR pass" section — check there for whichever
+pass is current before citing this number, since it will keep growing if this study
+resumes further.
 
-**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (214
-logged rows across 21 modules + 5 whole-grid-FDR-pass summary rows, as of 2026-09-25 —
-this number grows with every module and every FDR re-run; check the file itself for
-the current count rather than trusting this one),
+**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (221
+logged rows: 215 across 22 modules + 6 whole-grid-FDR-pass summary rows, as of
+2026-09-25 — this number grows with every module and every FDR re-run; check the file
+itself for the current count rather than trusting this one),
 cross-referenced to `PREREGISTRATION.md`'s per-module entries (hypothesis/kill-
 criterion/scope, written and committed before each analysis ran) and `FINDINGS.md`
 (full narrative for every Tier 1–3 cell). `git log` on

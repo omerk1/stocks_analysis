@@ -88,46 +88,47 @@ far past ER's own 10-day warmup, so no real run-entry row was ever misclassified
 removed, all branches deleted (local and remote). Nothing left over from Batch 3 —
 Batch 4 starts clean.
 
-**Batch 4 (M16, M17, M14, M15) analysis work is done, 2026-09-25 — merging/consolidation
-in progress.** Run as 3 parallel forks (M16/M17/M14, each in its own worktree — no
-shared-file conflicts among the three, unlike Batch 3's M8/M10 pairing) plus M15 held
-back as hard-blocked on the other three finishing, per this file's own scoping below.
-- **M16 (PR #103) and M17 (PR #104) are done, merged, and consolidated into `STATUS.md`.**
-  M16 (Track A): DESIGN's own "one signal, many names" clustering prior holds at a
-  loose similarity threshold, with one genuine deviation found at a tighter one
+**Batch 4 (M16, M17, M14) analysis, merging, and whole-grid FDR consolidation are all
+complete, 2026-09-25.** Run as 3 parallel forks (M16/M17/M14, each in its own
+worktree — no shared-file conflicts among the three, unlike Batch 3's M8/M10 pairing).
+Only M15 remains, hard-blocked no longer (M14 has landed) — see the sequencing
+section below.
+- **M16 (PR #103), M17 (PR #104), and M14 (PR #105) are all merged and fully
+  consolidated into `STATUS.md`/`REPORT.md`/`EXPERIMENTS.csv`/`FINDINGS.md`.** M16
+  (Track A): DESIGN's own "one signal, many names" clustering prior holds at a loose
+  similarity threshold, with one genuine deviation found at a tighter one
   (`slope_log_21_sma_200` doesn't cluster with the SMA200 crossover/distance rules the
   way DESIGN predicted). M17: MACD is **not** redundant with the MA feature set
   (contradicting DESIGN's own 75% prior), Tier 3, capped by an unresolved reversal
-  confound; RSI/stochastics stay inconclusive.
-- **M14 (PR #105) is done, complete, and open, but not yet merged.** Pooled cell
-  (all 7 pattern types): not confirmed, Tier 4, killed by the same extension/momentum
-  confound M6.3 already found. **A targeted VCP-specific addendum** (does the result
-  differ specifically within VCP formations, given VCP's own MA-native construction —
-  a single hypothesis, not a full 7-pattern-type sweep) found something real
-  underneath the pooled null: an **opposite-signed, extension-robust** effect
-  (default C2 +1.83% CI [+1.06%,+2.77%], extension-neutralized +1.99% CI
-  [+1.43%,+2.61%] — not attenuated), clearing cost by the widest margin in this
-  study's history. Well-powered for a targeted slice (505 events, 409 dates, 227
-  tickers, passed its own effective-N gate before trusting the number) but its
-  reversal-robustness check hit `InsufficientBlocksError` (too few contributing
-  dates) — an honest open gap — and carries a real shape caveat (favorable hit rate,
-  but markedly more negative skew in-context, a fatter downside tail). Tier 3.
-  **Once merged**: needs its own `STATUS.md` "Modules run" row and folding into the
-  next whole-grid FDR pass, same as every other module — not done yet, this file's
-  own next-step item.
-- **Whole-grid FDR re-run for Batch 4 not yet done** — M17 contributes 6 new counted
-  cells; M14's own contribution (pending the VCP addendum's outcome) isn't final yet.
-  Held until M14 lands, same one-consolidation-per-batch discipline as Batches 2/3,
-  rather than running it twice in quick succession.
-- **A real, separate documentation-debt item found and partially fixed 2026-09-25,
-  while checking that everything landed this session was actually documented**:
-  `REPORT.md`'s §5 ("Module results"), §6 ("Suggestive findings"), and §7 ("Dead-ends
-  register") had never been updated past the original minimal-core module set + M18 —
-  §5 still explicitly claimed M3/M6.1/M6.3-M6.6/M7-M17 (aside from M18) were "never
-  attempted," which was false for all of them by this point. Being fixed as part of
-  this same revision — check `REPORT.md`'s own header date before trusting it's
-  current, the same "don't assume, verify" discipline this file asks of everything
-  else.
+  confound; RSI/stochastics stay inconclusive. M14's pooled cell (all 7 pattern
+  types): not confirmed, Tier 4, killed by the same extension/momentum confound M6.3
+  already found. **A targeted VCP-specific addendum** (does the result differ
+  specifically within VCP formations, given VCP's own MA-native construction — a
+  single hypothesis, not a full 7-pattern-type sweep) found something real underneath
+  the pooled null: an **opposite-signed, extension-robust** effect (default C2 +1.83%
+  CI [+1.06%,+2.77%], extension-neutralized +1.99% CI [+1.43%,+2.61%] — not
+  attenuated), clearing cost by the widest margin in this study's history.
+  Well-powered for a targeted slice (505 events, 409 dates, 227 tickers, passed its
+  own effective-N gate before trusting the number) but its reversal-robustness check
+  hit `InsufficientBlocksError` (too few contributing dates) — an honest open gap —
+  and carries a real shape caveat (favorable hit rate, but markedly more negative
+  skew in-context, a fatter downside tail). Tier 3.
+- **Whole-grid FDR re-run for Batch 4 done (2026-09-25, N=99→107)**: M17 contributes 6
+  new counted cells, M14 contributes 2 (pooled + VCP-only). Result: 11 of 107 survive
+  at q=0.10 (6 at q=0.05, up from 5) — M14's VCP cell newly clears at **rank 6**
+  (p=0.000425), the largest point estimate in this study's history, and the second
+  cell ever to clear q=0.05. **Not promoted to Tier 2**: the `InsufficientBlocksError`
+  reversal-robustness gap above is unresolved, not a passed-and-confirmed check. M17's
+  own MACD cell does **not** survive (rank 34, p=0.115, misses by >3×). Tier-2 count
+  unchanged (still exactly one, `slope_pctile_21_sma_50`/M6.3, now confirmed across
+  four consecutive grid expansions). Full detail: `STATUS.md`'s "Whole-grid FDR pass"
+  section, `EXPERIMENTS.csv`'s `whole_grid_fdr_pass_2026_09_25_batch4` row.
+- **The documentation-debt item found 2026-09-25 (REPORT.md §5-§7 stale since the
+  minimal-core+M18 era) is now fully fixed**, including this same-day follow-up fix
+  (the first fix's own "M14 not yet merged" language went stale within hours once
+  PR #105 merged — corrected here rather than left for a future pass) and a
+  pre-existing, unrelated error in §5's M7 paragraph (had the N=79/N=99 FDR-flap
+  direction backwards).
 
 **Batch 2/3/4 scoping below is unchanged and still the reusable part of this file.**
 
@@ -179,12 +180,15 @@ back as hard-blocked on the other three finishing, per this file's own scoping b
   ~854-865.
 - **M17** (RSI/stochastics nonlinearity probe) — **done**, PR #104, merged. DESIGN
   lines ~867-887.
-- **M14** (join with existing pattern detectors) — **first result landed**, PR #105,
-  open; a targeted VCP-specific addendum is running as of this revision (see "Where
-  things stand" above). DESIGN lines ~977-979.
-- **M15** (synthesis) — **next up, still hard-blocked on M14 landing** (operates on
-  "surviving Tier-1/2 claims" — one exists as of Batch 1, `slope_pctile_21_sma_50`/
-  M6.3, confirmed robust through every subsequent FDR re-run). DESIGN lines ~980-981.
+- **M14** (join with existing pattern detectors) — **done**, PR #105, merged,
+  including its VCP-specific addendum and full whole-grid FDR consolidation (see
+  "Where things stand" above). DESIGN lines ~977-979.
+- **M15** (synthesis) — **next up, no longer blocked** (M14 has landed). Operates on
+  "surviving Tier-1/2 claims" — one exists, `slope_pctile_21_sma_50`/M6.3, confirmed
+  robust through four consecutive FDR re-runs — and now has a real second
+  Tier-2-adjacent candidate to synthesize against it: M14's VCP cell, the largest
+  point estimate in this study's history but capped at Tier 3 by its own unresolved
+  reversal-robustness gap. DESIGN lines ~980-981.
 
 **Not worth scoping:** M6.7 isn't an analysis module (a one-line report note about
 MA "angle" being ill-defined, DESIGN lines ~849-853).
@@ -231,17 +235,15 @@ MA "angle" being ill-defined, DESIGN lines ~849-853).
 ## Where to actually start next
 
 Read this file, then `STATUS.md` for the study's real tiered state and the relevant
-`DESIGN.md` section for whichever module you're about to run. **All of Batch 4's
-analysis work is done** (M16/M17 merged; M14 including its VCP addendum is complete,
-PR #105 open, not yet merged — see "Where things stand" above for its own striking
-result). **Once M14 merges**: (1) run the whole-grid FDR re-run (M17's 6 counted
-cells + M14's contribution, neither folded in yet), (2) update `STATUS.md`/`REPORT.md`
-the same way every prior batch's consolidation did — including a full M14 entry given
-its VCP finding, not just a one-line mention, (3) clean up the remaining Batch-4
-worktree/branch, (4) start M15 (synthesis) — the only module left in Batch 4,
-hard-blocked until here, and now has a real second Tier-1/2-adjacent candidate to
-synthesize against M6.3's cell, not just a null note.
-Also worth a spot-check before trusting `REPORT.md` for anything: its §5-§7 were
-significantly out of date as of 2026-09-25 (see "Where things stand" above) and were
-being brought current in the same revision as this note — confirm that actually
-landed rather than assuming it did.
+`DESIGN.md` section for whichever module you're about to run. **All of Batch 4 is
+now fully done and consolidated**: M16/M17/M14 merged (including M14's striking VCP
+addendum — see "Where things stand" above), the whole-grid FDR re-run folded in
+(N=99→107, 11 survivors at q=0.10/6 at q=0.05), and `STATUS.md`/`REPORT.md`/
+`EXPERIMENTS.csv`/`FINDINGS.md` all updated to reflect it. The only remaining item
+from Batch 4 is **M15 (synthesis)** — no longer blocked (M14 has landed), and now has
+a real second Tier-2-adjacent candidate (M14's VCP cell) to synthesize against
+M6.3's existing Tier-2 finding, not just a null note as originally expected.
+`REPORT.md`'s §5-§7 staleness (dated 2026-09-25, "Where things stand" above) has been
+fixed, including a same-day follow-up once M14 actually merged and a pre-existing
+unrelated error in §5's M7 paragraph — spot-check `REPORT.md`'s own header date
+before trusting it's current, same discipline as always.

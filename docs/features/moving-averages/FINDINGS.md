@@ -1734,6 +1734,26 @@ tier) to make the reversal-robustness check computable; a holdout check; a secon
 universe tier — the standard missing-infrastructure caps every Tier-3 cell in this
 study carries.
 
+### Addendum (2026-09-25, whole-grid FDR re-run, N=107): newly clears FDR at both q=0.10 and q=0.05
+
+The 2026-09-25 Batch-4 whole-grid Benjamini-Hochberg pass (`STATUS.md`'s "Whole-grid
+FDR pass" section; `EXPERIMENTS.csv`'s `whole_grid_fdr_pass_2026_09_25_batch4` row)
+folded this cell's p-value (0.000425, backed out of the CI above via
+`stats/multiple_testing.py::p_value_from_ci`) into the study's full 107-test grid.
+Result: **new rank 6 of 107**, clearing both the q=0.10 threshold (0.005607) and the
+stricter q=0.05 threshold — only the second cell in this study's history to clear
+q=0.05 (alongside M6.3's `slope_pctile_21_sma_50`, this study's sole Tier-2 finding),
+and by a wide margin (p is roughly 8% of its own q=0.10 threshold). This is also the
+largest point estimate of any cell in this study's grid.
+
+**Still not promoted to Tier 2.** FDR survival changes the multiple-testing bar this
+cell clears, not the tier reasoning above: the reversal-robustness check still hasn't
+run (the `InsufficientBlocksError` gap is unchanged by this pass), and this study's
+own precedent (`slope_pctile_21_sma_50`'s tail-decomposition, run specifically to
+resolve an analogous doubt by direct test rather than leave it as an open caveat)
+treats "clears FDR with an unrun robustness check" as a materially weaker evidentiary
+state than "clears FDR with a robustness check that ran and passed." Remains Tier 3.
+
 ## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
 
 ### MACD histogram carries incremental information over the MA feature set — not redundant with M3/M6, contrary to DESIGN's own prior
