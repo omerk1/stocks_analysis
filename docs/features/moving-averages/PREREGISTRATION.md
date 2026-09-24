@@ -4992,3 +4992,44 @@ coarse confidence-floor definition does.
 **Logged:** `EXPERIMENTS.csv` (3 rows: primary, reversal-robustness companion,
 extension-neutralized companion — only the primary cell counted toward `N_tests`,
 same convention as every other module's robustness-companion rows in this study).
+
+### VCP addendum (2026-09-25)
+
+**Requested scope, explicit:** a targeted VCP-vs-pooled split of the already-declared
+primary cell above — **not** a full 7-way pattern-type breakdown (that would be a
+much larger, thinner, more exploratory sweep, exactly the search-space growth DESIGN's
+own §6.4 warns against). One hypothesis, one cell.
+
+**Hypothesis:** the extension-neutralized result differs specifically inside VCP
+formations. **Why VCP specifically, not any other pattern type**: VCP (volatility
+contraction pattern) is itself an MA-native construction — contraction around moving
+averages, the same Minervini-style methodology M2's own Trend Template already tested
+in this study — unlike the other 6 pattern types (double-top/bottom, H&S,
+triangles/wedges, cup & handle, reversal-123), which have no particular theoretical
+connection to *why* an MA reclaim inside them specifically would behave differently.
+
+**Kill criterion:** same as the primary cell — `module_killed := CI includes zero, OR
+edge < 0.10%` — evaluated on the **extension-neutralized** reading specifically (the
+primary cell's own decisive layer, per this study's stronger-control-wins precedent
+already established above), not the default-C2 reading.
+
+**Control tier:** identical to the primary cell — default C2
+(`mom_tercile`/`vol_tercile`/`sector`) and the extension-neutralized companion
+(+`ext_tercile`, `dist_pct_sma_50`), both reused unchanged.
+
+**Effective-N gate, run first, before the decisive test — per the coordinating
+session's own explicit instruction:** VCP-only qualifying patterns: 3,978 instances,
+404 tickers (vs. 75,067/405 pooled). The reclaim population this actually matters for
+(`is_reclaim_50` events with `in_pattern_context=True` under a VCP-only flag): **505
+events, 409 distinct dates, 227 tickers** — clears this module's own
+`MIN_EVENTS=200`/`MIN_DATES=30`/`MIN_TICKERS=30` floor, but by a much thinner margin
+than the pooled primary cell's 10,858 in-context events (~4.6% of it). **Testable, but
+expect materially wider CIs than the pooled reading — stated before running, not as a
+post-hoc excuse if the result comes back inconclusive.**
+
+#### Result
+
+Ran the same `decisive_test`/extension-neutralized construction as the primary cell,
+restricted to a VCP-only `patterns` input (`pattern_type == "vcp"`, same
+`load_qualifying_patterns` query, `pattern_type` column added to that function this
+session for this split).

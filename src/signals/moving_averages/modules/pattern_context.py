@@ -57,14 +57,16 @@ def load_qualifying_patterns(
 ) -> pd.DataFrame:
     """Breakout-confirmed, confidence>=0.7, holdout-bounded (formation_end
     <= as_of) pattern matches for `tickers`. Returns
-    ticker/formation_end (as Timestamp), one row per qualifying pattern
-    instance -- not deduplicated across overlapping patterns of different
-    types on the same ticker (a ticker legitimately can have more than one
-    qualifying breakout in a year).
+    ticker/formation_end (as Timestamp)/`pattern_type` (2026-09-25 addendum:
+    added for the VCP-vs-pooled split below, unused by the pooled primary
+    cell above), one row per qualifying pattern instance -- not
+    deduplicated across overlapping patterns of different types on the
+    same ticker (a ticker legitimately can have more than one qualifying
+    breakout in a year).
     """
     placeholders = ",".join("?" * len(tickers))
     query = f"""
-        SELECT ticker, formation_start, formation_end, status, confidence
+        SELECT ticker, formation_start, formation_end, status, confidence, pattern_type
         FROM pattern_matches
         WHERE ticker IN ({placeholders})
           AND status IN ({','.join('?' * len(BREAKOUT_STATUSES))})
