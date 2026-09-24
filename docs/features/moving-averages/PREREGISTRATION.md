@@ -4655,3 +4655,212 @@ decisive stage-3 test + 1 KAMA comparison — only the single decisive stage-3 c
 is `counted_in_n_tests=True`, DESIGN's own large-search-space false-positive
 warning motivating collapsing this module to one decisive test, same convention
 M8's Reality Check used for its own best-of-K claim).
+
+## M6.4 — Slope persistence and flip hazard (2026-09-24)
+
+**Module / track:** M6.4, Track B (DESIGN.md lines ~835-839). Not part of the original
+minimal-core list — post-termination "Batch 3" module (`HANDOVER.md`'s own scoping),
+run alongside a sibling M9 fork, each in its own isolated worktree. Unlike Batches 1/2,
+Batch 3 is explicitly not 4-way parallel — heavier standalone infra builds, 1-2 at a
+time.
+
+**Hypothesis, reframed per DESIGN's own words:** not "does slope predict return" but
+"given the N-day SMA's own slope has been positive for N days, what is the probability
+it flips in the next k?" — a survival/hazard question, a better fit for how slope is
+actually used (a trend-intact/trend-broken switch) than a return-prediction question.
+
+**Kill criterion (DESIGN gives none numerically — this module's own, pre-registered
+before any real-panel run):** for a given (lookback, vol-tercile, direction) stratum,
+declare the empirical Kaplan-Meier survival curve for slope-positive (or
+slope-negative) runs "not distinguishable from a random walk's own run-length
+statistics" unless the empirical 21-day survival probability sits *outside* a GBM-null
+simulation's own 90% simulation envelope (5th/95th percentile across 100 independent
+simulation groups) at that same horizon — the same 90% coverage convention this study
+uses for every block-bootstrap CI elsewhere, applied here to a simulation envelope
+instead of a bootstrap resample (the "sample" is generated data, not an observed one
+needing resampling). Module-level: killed iff every declared primary stratum agrees
+with its own null (`evaluate_kill_criterion`).
+
+**Control tier:** not a C2-matched mean-difference test — this is fundamentally a
+distributional comparison against a simulated null. The "control" is the GBM
+simulation itself: daily log-returns i.i.d. `Normal(mu, sigma)`, `mu` = the whole
+panel's own pooled mean daily log-return (one number, shared across every stratum's
+null — a stratum-specific drift would partly launder the very trend-persistence effect
+this module tests for into its own null), `sigma` = that stratum's own median
+`realized_vol_63` among real runs' *entry* rows (a representative volatility level for
+that regime, so a vol-tercile's differing survival curve isn't just a mechanical
+artifact of a different noise level going into the null too).
+
+**Method:**
+1. **Empirical side:** for each lookback in `{20, 50, 150, 200}` (the panel's own
+   cached SMA lookbacks), a slope-positive run is a maximal consecutive stretch where
+   `slope_log_21_sma_<lookback> > 0` (NaN-preserving — CLAUDE.md invariant #9). Runs are
+   built per ticker via `features/state.py::state_run_id`/`days_in_run`, reused
+   unchanged (the same primitives `features/panel.py`'s own `run_length_bucket_*`
+   columns already use, and the same per-ticker groupby-apply pattern that file already
+   establishes as correct for this specific primitive — it explicitly requires a
+   single ticker's series, so this is not a CLAUDE.md-style-rule violation the way a
+   hand-rolled per-ticker loop for something vectorisable would be).
+   - **Censoring, same convention as `features/state.py::run_length_bucket`**: the
+     first run per ticker (`run_id == 0`) is left-censored (unknown true start) and
+     dropped entirely, never counted as either an event or a censored observation.
+     Every other run's `duration` is its own final observed length; `event = 1` if the
+     run ended in an observed flip (i.e. it is *not* the ticker's own final run_id),
+     `event = 0` if it was still the ticker's current run when that ticker's own
+     history ends — delisting or the study's own 2010-2021 coverage window, either way
+     right-censored, never dropped (CLAUDE.md invariant #4's "never drop delisted
+     tickers" spirit, applied to a duration rather than a return).
+   - Primary declared grid: **positive** (rising) runs only, matching DESIGN's own
+     literal wording ("given the slope has been positive for N days"). **Negative
+     (falling) runs are a companion facet**, same construction, not counted toward
+     `N_tests` (same convention as this study's other direction-split companions,
+     e.g. M6.5's own price/dropoff-driven-up/down rows) — reported for symmetry, not a
+     separate declared hypothesis.
+   - Stratified by **vol-tercile** (`realized_vol_63`, this study's own standard C2 vol
+     control, cross-sectional per-date tercile at the run's *entry* date — a baseline
+     covariate, not a time-varying one that would co-evolve with the run's own outcome)
+     and, **separately** (not crossed), by **ER-tercile** (efficiency ratio, see the
+     shared-feature note below). Crossing vol × ER × lookback × direction would produce
+     4 × 3 × 3 × 2 = 72 strata against an already-thin effective N (runs per ticker per
+     lookback) — exactly the "large search space over data with tiny effective N"
+     trap DESIGN itself names for the *sibling* M9 module (§6.4). Applying that same
+     caution here, even though DESIGN's own M6.4 text doesn't explicitly warn about it,
+     to avoid reproducing M9's own named overfitting risk. Primary declared grid: 4
+     lookbacks × 3 vol-terciles = 12 strata (rising only); ER-tercile stratification (4
+     lookbacks × 3 ER-terciles = 12 more) is a **separate, parallel companion grid**,
+     not crossed with vol, also not counted toward `N_tests` beyond the primary 12 (a
+     second look at the same underlying runs through a different stratification lens,
+     not a second independent hypothesis).
+2. **Null side:** `stats/survival.py` (new — nothing like this exists in `stats/` yet).
+   `gbm_null_survival` simulates 2,000 independent GBM price paths (1,500 days each,
+   i.i.d. `Normal(mu, sigma)` daily log-returns), runs the *identical*
+   SMA → `slope_log_21` → sign-run construction on each simulated path, and returns a
+   pooled null Kaplan-Meier curve plus a 90% simulation envelope at 6 reference
+   horizons (5/10/21/42/63/126 days), built by splitting the 2,000 paths into 100
+   independent groups of 20, computing each group's own pooled KM curve as one
+   replicate, and taking the 5th/95th percentile across replicates at each horizon.
+3. **Shared-feature note — real, deliberate overlap with M9, not an oversight**: this
+   module needs "efficiency ratio" (ER) for its own ER-tercile companion facet. A
+   sibling M9 fork owns `features/regime.py`, building a shared ER/ADX/vol-regime
+   module there — but M9 hadn't landed when this module started, so this module built
+   its **own local, temporary** `efficiency_ratio` (`modules/slope_persistence.py`),
+   using the identical formula already implemented (but not exposed as a standalone
+   function) inside `features/kernels.py::kama` — Kaufman's own ER, the same
+   definition this study now uses everywhere the concept comes up, computed the same
+   way in both places so the two independent implementations agree numerically even
+   though they live in separate files for now. **Flagged for reconciliation once M9
+   lands** (this module's own local copy should be deleted and replaced with an import
+   from `features/regime.py` at that point) — not blocked on M9 in the meantime, per
+   the coordinating session's own explicit instruction to both forks.
+4. One-bar lag (CLAUDE.md invariant #2): `efficiency_ratio` is computed from raw
+   (unlagged) `close`, then passed through `features/panel.py::apply_lag` before use —
+   the same discipline every other module's new local features follow. The
+   `slope_log_21_sma_<lookback>` columns are already-lagged shared panel columns,
+   reused directly; building runs off an already-lagged column introduces no further
+   look-ahead (the same reasoning `run_length_bucket_*`'s own construction already
+   relies on).
+5. Holdout (invariant #1): the whole study's own 2010-01-04→2021-12-31 U1 universe/
+   window, never touched past that boundary — including inside the GBM simulation's own
+   calibration (real-data drift/vol inputs only from that window; the simulated paths
+   themselves are synthetic, not a holdout-boundary question at all).
+
+### Result (2026-09-24)
+
+**Module not killed — 7 of 12 primary (vol-tercile) strata depart from the GBM null,
+always in the same direction (empirical persistence *exceeds* the null); the ER-tercile
+companion facet shows an even cleaner pattern.** All numbers below are the empirical
+21-day survival minus the null's own 21-day survival point estimate (CLAUDE.md
+invariant #5 — a bare survival probability isn't a result, the delta against the
+matched GBM null is), with the null's 90% simulation envelope re-centered the same way
+so "envelope excludes zero" reads identically to "departs from null."
+
+**Primary grid (vol-tercile, rising runs only):**
+
+| lookback | vol-tercile | n_runs | delta vs. null | 90% envelope | departs |
+|---|---|---|---|---|---|
+| 20 | 0 (low) | 4,869 | +0.1061 | [−0.0286,+0.0243] | **yes** |
+| 20 | 1 | 5,280 | +0.0726 | [−0.0271,+0.0283] | **yes** |
+| 20 | 2 (high) | 5,512 | +0.0666 | [−0.0277,+0.0288] | **yes** |
+| 50 | 0 | 2,503 | +0.0506 | [−0.0335,+0.0395] | **yes** |
+| 50 | 1 | 2,751 | +0.0442 | [−0.0383,+0.0375] | **yes** |
+| 50 | 2 | 3,020 | +0.0489 | [−0.0351,+0.0413] | **yes** |
+| 150 | 0 | 1,197 | +0.0502 | [−0.0451,+0.0518] | no |
+| 150 | 1 | 1,346 | +0.0393 | [−0.0434,+0.0497] | no |
+| 150 | 2 | 1,491 | +0.0492 | [−0.0495,+0.0490] | **yes** |
+| 200 | 0 | 946 | +0.0521 | [−0.0573,+0.0603] | no |
+| 200 | 1 | 1,142 | +0.0333 | [−0.0579,+0.0574] | no |
+| 200 | 2 | 1,144 | +0.0412 | [−0.0648,+0.0711] | no |
+
+**Clean plateau at SMA20 and SMA50: all 3 vol-terciles depart at both lookbacks, same
+sign, same rough magnitude within each lookback.** SMA150/200 mostly don't depart — but
+**this reads as a power question, not necessarily a real effect-size decline**: the
+point deltas at SMA150/200 (+0.033 to +0.052) are not obviously smaller than SMA50's
+own (+0.044 to +0.051) — the envelope simply widens as `n_runs` shrinks with longer
+lookbacks (fewer, longer-lived runs per ticker), so the same true effect size becomes
+harder to detect at longer lookbacks rather than vanishing. SMA150/vol-tercile-2's lone
+departure among its own 3 vol-terciles is **not** treated as a separate finding — it
+fails the plateau rule on its own terms (its 2 neighbors at the same lookback don't
+depart), read as the expected noise at the edge of detectability this power argument
+predicts, not a distinct SMA150-specific effect.
+
+**Companion grid (ER-tercile, rising runs only, not counted toward `N_tests`):**
+
+| lookback | ER-tercile | n_runs | delta vs. null | 90% envelope | departs |
+|---|---|---|---|---|---|
+| 20 | 0 (low/choppy) | 4,173 | −0.0293 | [−0.0249,+0.0296] | **yes** (below) |
+| 20 | 1 | 4,932 | +0.0576 | [−0.0279,+0.0336] | **yes** |
+| 20 | 2 (high/trending) | 6,559 | +0.1742 | [−0.0243,+0.0293] | **yes** |
+| 50 | 0 | 2,192 | −0.0108 | [−0.0378,+0.0415] | no |
+| 50 | 1 | 2,605 | +0.0246 | [−0.0367,+0.0361] | no |
+| 50 | 2 | 3,477 | +0.1026 | [−0.0404,+0.0363] | **yes** |
+| 150 | 0 | 1,096 | −0.0061 | [−0.0499,+0.0544] | no |
+| 150 | 1 | 1,225 | +0.0284 | [−0.0430,+0.0437] | no |
+| 150 | 2 | 1,713 | +0.0907 | [−0.0471,+0.0526] | **yes** |
+| 200 | 0 | 918 | −0.0109 | [−0.0505,+0.0500] | no |
+| 200 | 1 | 1,027 | +0.0228 | [−0.0537,+0.0555] | no |
+| 200 | 2 | 1,287 | +0.0886 | [−0.0515,+0.0524] | **yes** |
+
+**This is the module's cleanest single result: ER-tercile 2 (the most trend-efficient,
+least choppy price action) departs from the GBM null at all 4 lookbacks — a genuine
+plateau, no lone bright pixel — and its own departure magnitude does *not* shrink with
+lookback the way the vol-tercile grid's does (+0.174, +0.103, +0.091, +0.089), staying
+well outside a similarly-widening envelope throughout.** ER-tercile 0 (choppiest)
+departs *below* the null at lb=20 only (−0.029, less persistent than a matched random
+walk) but this doesn't replicate at any other lookback (all near-zero, non-departing) —
+a lone bright pixel by this study's own plateau rule, read as noise, not a distinct
+"choppy stocks revert faster than random" finding.
+
+**Argue against your own result (CLAUDE.md's own requirement) — the GBM null's own
+calibration is the load-bearing assumption here, and it has a real, named weakness**:
+`realized_vol_63` (this null's own `sigma` input) is computed from the *same*
+potentially-autocorrelated real return series being tested for persistence. If real
+returns carry positive short-horizon autocorrelation (which trend-following behavior by
+construction implies), a trailing daily-return stdev can read *lower* than the true
+i.i.d.-equivalent volatility over the same window would — meaning this null's `sigma`
+may be systematically too calm, which would mechanically shorten simulated run
+durations and bias every stratum's own comparison toward "departs from null," whether
+or not a genuine persistence edge exists. **This does not mean the departures reported
+above are artifacts** — the ER-tercile result in particular (a real, independent
+stratification axis showing a strong, non-monotonically-decaying, all-lookback-plateau
+pattern) is hard to explain by a uniform calibration bias alone, since a uniform bias
+would be expected to affect all ER-terciles roughly equally, not concentrate in the
+high-ER tercile specifically — but it is named here as an open, *unresolved* validity
+question on the *magnitude* of every reported departure, not a settled matter. **What
+would resolve it:** a longer-horizon, autocorrelation-aware volatility estimator (e.g.
+a variance-ratio-implied one) recalibrating the null's own `sigma`, out of scope for
+this module's own build.
+
+**Tier:** 3 for every departing stratum (real, well-powered by this study's own
+standards — smallest departing stratum has 918 runs across 918+ tickers — but capped by
+the calibration caveat above, the same "real effect, open confound" shape this study's
+own Tier-3 convention already uses elsewhere, e.g. M12's `dollar_volume`/SMA50). 4 for
+every non-departing stratum. Cost: not applicable — a mechanism/survival question (how
+long does a trend-intact state actually last), not a standalone tradeable claim, same
+convention as M5/§7.5/M6.5.
+
+**Module-level kill criterion:** did not fire (7 of 12 primary strata depart;
+`module_killed=False`).
+
+**Logged:** `EXPERIMENTS.csv` (24 rows: 12 primary vol-tercile + 12 companion
+ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
+the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).

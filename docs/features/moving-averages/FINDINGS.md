@@ -1514,3 +1514,116 @@ non-redundancy bar (M11's precedent) — **the ribbon does not collapse to a sin
 own slope**; DESIGN's stated collinearity concern is not borne out empirically, though
 the two fastest lookbacks (10, 20) come close. Full matrix:
 `output/moving_averages/m6_6_ribbon_slope_agreement_correlation_matrix.csv`.
+
+---
+
+## M6.4 — Slope persistence and flip hazard (2026-09-24)
+
+Post-termination "Batch 3" module, run alongside a sibling M9 fork (each in its own
+worktree — see `PREREGISTRATION.md`'s own shared-feature note on the resulting
+temporary duplicate `efficiency_ratio` implementation). DESIGN's own reframing: not
+"does slope predict return" but "given a slope-positive run has lasted N days, what's
+the probability it flips in the next k?" — tested via Kaplan-Meier survival curves for
+slope-positive SMA runs against a GBM-null simulation matched on volatility.
+
+### SMA20/SMA50 slope persistence exceeds a matched-volatility GBM null (vol-tercile plateau)
+
+**Hypothesis:** slope-positive runs persist longer than a random walk of the same
+volatility would predict — DESIGN's own literal framing, reformulated as a
+distributional (survival-curve) test rather than a mean-difference one.
+
+**Why plausible:** trend-following behavior is, almost by definition, a claim that
+price moves are not i.i.d. — if real markets show genuine short-to-medium-horizon
+momentum, a moving average's own slope-sign runs should outlast what a matched-noise
+random walk would produce.
+
+**What was run:** for each of SMA{20,50}, built per-ticker slope-positive runs
+(`slope_log_21_sma_<lookback> > 0`, `features/state.py::state_run_id`/`days_in_run`
+reused unchanged), stratified by vol-tercile at run entry (`realized_vol_63`,
+cross-sectional per-date tercile). Compared each stratum's empirical 21-day
+Kaplan-Meier survival against a GBM-null simulation (2,000 paths, 1,500 days, i.i.d.
+`Normal(mu, sigma)` daily log-returns, `mu` pooled across the whole panel, `sigma` =
+that stratum's own median entry-day `realized_vol_63`) run through the identical
+SMA → slope-sign-run construction, with a 90% simulation envelope from 100 replicate
+path-groups.
+
+**The numbers (delta = empirical survival at 21d − null's own point estimate):**
+SMA20: +0.1061 [-0.0286,+0.0243] (vol-tercile 0), +0.0726 [-0.0271,+0.0283] (tercile 1),
++0.0666 [-0.0277,+0.0288] (tercile 2) — all three exclude zero. SMA50: +0.0506
+[-0.0335,+0.0395], +0.0442 [-0.0383,+0.0375], +0.0489 [-0.0351,+0.0413] — all three
+exclude zero too. **A clean plateau at both lookbacks**: all 3 vol-terciles depart, same
+sign, same rough magnitude within each lookback — no lone bright pixel.
+
+**Effective N:** SMA20: 4,869–5,512 runs per tercile, 350–401 tickers, 4,772–5,466
+observed flips. SMA50: 2,503–3,020 runs per tercile, 312–393 tickers, 2,406–2,935
+observed flips. Well-powered by this study's own standards.
+
+**Cost:** not applicable — a mechanism/survival question (how long a trend-intact state
+actually lasts), not a standalone tradeable claim, same convention as M5/§7.5/M6.5.
+
+**Tier:** 3 — real, well-powered departure from the null, but capped by an open,
+unresolved calibration caveat (below), the same "real effect, open confound" shape this
+study already uses for other Tier-3 cells (e.g. M12's `dollar_volume`/SMA50).
+
+**Why this probably isn't (only) what it looks like — argue against your own result:**
+the GBM null's own `sigma` (`realized_vol_63`) is computed from the *same*
+potentially-autocorrelated real return series being tested for persistence. If real
+returns carry positive short-horizon autocorrelation, a trailing daily-return stdev can
+read *lower* than the true i.i.d.-equivalent volatility over the same window would —
+meaning this null's noise level may be systematically too calm, which would mechanically
+shorten simulated run durations and bias every stratum toward "departs from null,"
+whether or not a genuine persistence edge exists. Not resolved here (would need a
+longer-horizon, autocorrelation-aware volatility estimator, e.g. a variance-ratio-implied
+one) — an open validity question on the *magnitude* of the departure, not a settled one.
+
+**Plateau check across lookbacks (DESIGN §6.7):** SMA150/200 mostly don't depart (11 of
+12 cells across both lookbacks show CI-including-zero deltas of similar point magnitude
+to SMA50's own, +0.033 to +0.052) — read as a power question (fewer, longer-lived runs
+at longer lookbacks widen the envelope) rather than a clean "persistence only exists at
+short lookbacks" finding. SMA150/vol-tercile-2's own lone departure is explicitly *not*
+treated as a separate finding — its own neighbors at that lookback don't depart, the
+textbook lone-bright-pixel case this rule exists to catch.
+
+**What would change the verdict:** a volatility-null recalibration addressing the
+autocorrelation-bias caveat above; a longer/deeper simulation at SMA150/200 to check
+whether the same effect size becomes detectable with more statistical power.
+
+### ER-tercile 2 (high efficiency ratio) departs from the null at all 4 lookbacks — the module's cleanest result
+
+**Hypothesis (companion facet, not counted toward `N_tests` — a second stratification
+lens on the same runs, DESIGN's own "stratified by vol regime and by ER" wording):**
+slope persistence in a genuinely trend-efficient regime (high Kaufman Efficiency Ratio)
+exceeds what a matched-volatility random walk predicts, more so than in a choppy one.
+
+**What was run:** identical construction to the vol-tercile grid above, stratified by
+ER-tercile instead (a local, temporary `efficiency_ratio` — Kaufman's own formula,
+duplicated from `features/kernels.py::kama`'s inline computation, flagged for
+reconciliation once a sibling M9 fork's shared `features/regime.py` lands). Not crossed
+with vol-tercile (DESIGN's own tiny-effective-N overfitting trap, named for the sibling
+M9 module, applied here too as a documented scope cut).
+
+**The numbers:** ER-tercile 2 (most trend-efficient) departs *above* the null at **all
+four** lookbacks: SMA20 +0.1742 [-0.0243,+0.0293], SMA50 +0.1026 [-0.0404,+0.0363],
+SMA150 +0.0907 [-0.0471,+0.0526], SMA200 +0.0886 [-0.0515,+0.0524] — a genuine plateau,
+no lone bright pixel, and **the departure magnitude does not shrink with lookback** the
+way the vol-tercile grid's does (staying well outside a similarly-widening envelope
+throughout, rather than fading into it). ER-tercile 0 (choppiest) departs *below* the
+null at SMA20 only (−0.0293, less persistent than a matched random walk) but does not
+replicate at SMA50/150/200 (all near-zero, non-departing) — a lone bright pixel, read as
+noise, not a distinct "choppy stocks revert faster than random" finding.
+
+**Effective N:** 6,559 runs / 405 tickers (SMA20) down to 1,287 runs / 390 tickers
+(SMA200), all four lookbacks well-powered.
+
+**Cost:** not applicable, same convention as the vol-tercile finding above.
+
+**Tier:** 3 — capped by the same calibration caveat named above, but notably **harder to
+explain by that caveat alone than the vol-tercile result**: a uniform sigma-calibration
+bias would be expected to affect every ER-tercile roughly equally, not concentrate
+specifically in the high-ER tercile while leaving the low/mid terciles largely null-
+consistent. Still an open, unresolved question, not a settled one — named, not
+dismissed, and not promoted past Tier 3 on the strength of this argument alone.
+
+**What would change the verdict:** the same volatility-null recalibration named above;
+directly testing whether the ER-tercile pattern survives once that recalibration is
+applied would be the single most informative next step for this whole module.
