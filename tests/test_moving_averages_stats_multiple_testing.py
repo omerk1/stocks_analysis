@@ -7,8 +7,15 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pandas as pd
+import pytest
 
-from src.signals.moving_averages.stats.multiple_testing import benjamini_hochberg, p_value_from_ci
+from src.signals.moving_averages.stats.inference import InsufficientBlocksError
+from src.signals.moving_averages.stats.multiple_testing import (
+    benjamini_hochberg,
+    p_value_from_ci,
+    white_reality_check,
+)
 
 
 def test_p_value_from_ci_is_small_for_a_ci_far_from_zero():
@@ -68,3 +75,51 @@ def test_benjamini_hochberg_ignores_nan_p_values_without_shrinking_others_rank()
 def test_benjamini_hochberg_returns_all_false_for_empty_or_all_nan_input():
     assert not benjamini_hochberg([], q=0.10).any()
     assert not benjamini_hochberg([float("nan"), float("nan")], q=0.10).any()
+
+
+def _synthetic_diffs(n_dates: int = 200, n_candidates: int = 7, best_mean: float = 0.0, seed: int = 0) -> pd.DataFrame:
+    """`n_candidates` columns of pure noise (mean 0, std 1), except
+    candidate 0's mean is shifted by `best_mean` -- lets a test control
+    exactly how much real outperformance (if any) the best candidate has.
+    """
+    rng = np.random.default_rng(seed)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    data = {f"candidate_{i}": rng.normal(0.0, 1.0, n_dates) for i in range(n_candidates)}
+    data["candidate_0"] = data["candidate_0"] + best_mean
+    return pd.DataFrame({"date": dates, **data})
+
+
+def test_white_reality_check_identifies_the_best_candidate():
+    diffs = _synthetic_diffs(best_mean=5.0, seed=1)  # huge, unmistakable edge
+    result = white_reality_check(diffs, block_length=10, n_boot=200, seed=0)
+    assert result["best_candidate"] == "candidate_0"
+    assert result["candidate_means"]["candidate_0"] > max(
+        v for k, v in result["candidate_means"].items() if k != "candidate_0"
+    )
+
+
+def test_white_reality_check_rejects_when_the_best_candidate_has_a_real_large_edge():
+    diffs = _synthetic_diffs(best_mean=5.0, seed=1)
+    result = white_reality_check(diffs, block_length=10, n_boot=500, seed=0)
+    assert result["p_value"] < 0.05
+
+
+def test_white_reality_check_does_not_reject_under_the_pure_null():
+    # No real outperformance anywhere -- the best-of-7 by chance alone
+    # should not usually look like a huge, unmistakable effect.
+    diffs = _synthetic_diffs(best_mean=0.0, seed=2)
+    result = white_reality_check(diffs, block_length=10, n_boot=500, seed=0)
+    assert result["p_value"] > 0.05
+
+
+def test_white_reality_check_raises_on_too_few_dates_for_block_length():
+    diffs = _synthetic_diffs(n_dates=10, seed=3)
+    with pytest.raises(InsufficientBlocksError):
+        white_reality_check(diffs, block_length=42, n_boot=50, seed=0)
+
+
+def test_white_reality_check_drops_rows_with_any_missing_candidate():
+    diffs = _synthetic_diffs(n_dates=100, seed=4)
+    diffs.loc[0, "candidate_1"] = float("nan")
+    result = white_reality_check(diffs, block_length=10, n_boot=50, seed=0)
+    assert result["n_dates"] == 99
