@@ -5033,3 +5033,85 @@ Ran the same `decisive_test`/extension-neutralized construction as the primary c
 restricted to a VCP-only `patterns` input (`pattern_type == "vcp"`, same
 `load_qualifying_patterns` query, `pattern_type` column added to that function this
 session for this split).
+
+**Hypothesis confirmed — and more strongly than the hypothesis itself predicted.**
+VCP doesn't just fail to show the pooled cell's negative, extension-explained effect —
+it shows a **positive** effect of its own that **survives extension-neutralization
+essentially unchanged**:
+
+- **Default C2**: **+1.8298%** on `fwd_ret_21`, 90% CI **[+1.0600%, +2.7680%]** —
+  excludes zero, opposite sign from the pooled primary cell (−0.4045%).
+- **Extension-neutralized** (+`ext_tercile`, the same check that killed the pooled
+  cell): **+1.9852%**, CI **[+1.4334%, +2.6072%]** — **not attenuated at all** (if
+  anything marginally stronger) — this is the opposite of what happened to the pooled
+  cell (52% attenuation, CI moved to spanning zero). **VCP reclaims are not extension
+  in disguise the way the pooled population's reclaims were.**
+
+**Effective N (the actual bootstrap-contributing count, not just the raw event
+count — worth separating explicitly given how thin this slice is):** 505 in-context
+events / 409 raw distinct dates / 227 tickers pass the pre-registered gate, but the
+default-C2 bootstrap's own stratum construction (date × `mom_tercile` × `vol_tercile`
+× `sector`) only finds both group values present on **131 distinct dates** — the
+number actually driving the reported CI's width. Still comfortably above this study's
+30-date floor, but a real, worth-naming precision gap relative to the pooled cell's
+much larger contributing-date count.
+
+**Cost:** in-context reclaim rate (VCP-only) 0.185/ticker-yr → hurdle 0.0185%/yr — a
+very low-turnover, rare-event signal, trivially cleared: annualized (×12) point
++21.96%/yr, near edge +12.72%/yr, far edge +33.22%/yr. **Clears at every reading, by
+the widest margin of any cell in this study** — expected, given how rare and
+high-conviction the underlying event (a reclaim shortly after a confirmed VCP
+breakout) is by construction.
+
+**Reversal-robustness — attempted, not resolved (an honest limitation, not a silent
+gap):** adding `rev_tercile` to the match set (the same 4-column check that
+successfully ran on the pooled cell) raised `InsufficientBlocksError`: only 112
+dates have both group values present in the finer 4-column stratification, below the
+126-date minimum this study's own `stats/inference.py` requires for its standard
+42-day block length. **Not forced by shrinking the block length** — CLAUDE.md's own
+discipline and the coordinating session's explicit instruction both favor reporting
+an honest gap over manufacturing a number from an underpowered slice. Short-term
+reversal is accordingly named as an **open, untested** confound for this specific
+cell (unlike the pooled cell, where it was directly checked and ruled out).
+
+**Shape stats (descriptive only, CLAUDE.md invariant #10 — no CI, no kill authority):**
+in-context hit rate 68.9% vs. 61.3% out-of-context (favorable); win/loss ratio 1.134
+vs. 1.132 (essentially identical, not itself favorable); skew −0.770 vs. −0.065
+(**notably more negative in-context** — a real, worth-naming asymmetry: the average
+outcome is better, but the left tail is fatter, not a uniform improvement across the
+whole distribution).
+
+**Why this probably isn't (only) what it looks like — argue against your own result:**
+two open items, named not resolved: (1) reversal is untested at this cell specifically
+(see above) — the pooled cell's own reversal-robustness result doesn't transfer
+automatically, since VCP reclaims could plausibly have different reversal dynamics
+than the pooled population; (2) the more negative in-context skew means this
+population carries somewhat fatter downside tail risk than the pooled comparison,
+even though its central tendency (mean, hit rate) is more favorable — a nuance a
+mean/CI table alone would miss, exactly the kind of shape-vs-mean divergence CLAUDE.md
+invariant #10 exists to surface.
+
+**Tier: 3.** CI excludes zero at both the default and extension-neutralized readings
+(the decisive layer for this construction), clears cost by the widest margin in this
+study, well-powered *enough* (clears the pre-registered floor, though thinner than the
+pooled cell) — capped at Tier 3 by this study's standard missing FDR/holdout
+infrastructure, plus the open reversal-robustness gap named above, not yet a closed
+question the way the pooled cell's reversal check was.
+
+**Plateau check:** not directly applicable (a single VCP-vs-pooled split, not a
+parameter sweep) — but worth noting for anyone reading this alongside the primary
+cell: VCP's own result doesn't contradict the pooled cell's own null-after-extension
+finding, since VCP was explicitly carved out *because* it has a different underlying
+mechanism (an MA-native construction, unlike the other 6 pattern types) — this is
+two genuinely different populations producing two genuinely different, both
+internally-consistent results, not a contradiction needing reconciliation.
+
+**What would change the verdict:** more data (a longer sample or a broader universe
+tier) to make the reversal-robustness check computable; a holdout check; a second
+universe tier — the standard missing-infrastructure caps every Tier-3 cell in this
+study carries.
+
+**Logged (VCP addendum):** `EXPERIMENTS.csv` (3 rows: VCP default-C2 primary decisive
+cell, VCP extension-neutralized companion, VCP reversal-robustness attempt logged as
+`insufficient_blocks` — not silently omitted — only the primary VCP cell counted
+toward `N_tests`); `FINDINGS.md` (1 entry — Tier 3).
