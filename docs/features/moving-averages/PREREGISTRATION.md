@@ -4262,3 +4262,222 @@ primary decisive test's clean null.
 **Logged:** `EXPERIMENTS.csv` (9 rows: 7 counted toward `N_tests` — `(a)/lb150`, all 3
 `(c)` cells, all 3 `(b)` cells — + 2 non-counted duplicate-reference rows, `(a)/lb50`
 and `(a)/lb200`). No `FINDINGS.md` entry (Tier 4).
+
+## M8 — MA family horse race at matched lag (2026-09-24)
+
+**Module / track:** M8, Track B (DESIGN.md, "M8 — MA family horse race at matched
+lag"). Not part of the original minimal-core list — post-termination "Batch 3" module
+(`HANDOVER.md`'s own scoping), the first of Batch 3's heavy, standalone infra builds,
+run alongside a sibling M10 fork in its own isolated worktree. **Hard cross-module
+constraint honored throughout this build**: M10 owns `features/panel.py` exclusively
+this batch (it needs a new `Timeframe` parameter on `build_panel`) — this module
+touches `features/panel.py` nowhere; every new family is a module-local column
+(`features/kernels.py`), the same "module-local, not shared-panel" pattern M3/M6.6/M12
+already used in Batch 2.
+
+**Hypothesis (DESIGN's own, skeptical):** at matched center of mass (average lag),
+kernel shape is nearly irrelevant to above/below-state forward-return behavior.
+
+**Kill criterion (DESIGN's own literal wording):** if no family beats EMA by > 0.1% at
+matched lag after White's Reality Check, declare "MA family selection a non-question"
+and use EMA everywhere for computational convenience. DESIGN's own prior: ~80% likely
+— a valuable dead end to close if it holds. Operationalized precisely: the module is
+killed unless the best-of-6 non-EMA family's own mean edge over EMA both (a) exceeds
+0.10% in magnitude, **and** (b) the Reality Check rejects the null that this is
+best-of-K data-snooping luck, at this study's own standard significance convention
+(p < 0.10).
+
+**Control tier:** this study's standard C2 (date/momentum/vol/sector-matched
+block-bootstrap delta) for each family's own primary cell — reused unchanged via
+`modules/baseline_state.py::_cell_row`, not re-derived. The *decisive* statistical
+layer is different, though: picking the best-performing family after seeing all 7
+results is itself a multiple-comparisons problem BH doesn't address (BH controls
+false-discovery rate across many *separately reported* cells; it says nothing about
+whether a best-of-K pick beats a benchmark by more than the act of picking the best
+would produce under pure noise). **White's Reality Check (White, 2000)** is DESIGN's
+own named procedure for exactly this — built new this module,
+`stats/multiple_testing.py::white_reality_check`, a block-bootstrap test (reusing
+`stats/inference.py::_block_weights`/`_validate_block_length` directly, not
+reimplemented) of whether the observed best-of-K mean edge exceeds what a
+recentered-at-zero bootstrap null produces. Full method in that function's own
+docstring; validated in `tests/test_moving_averages_stats_multiple_testing.py`
+against a pure-noise null (does not reject) and a large-planted-edge case (does
+reject).
+
+**Method:**
+
+**Event definition, identical across all 7 families (DESIGN's own "identical event
+definitions" wording):** above/below state on `fwd_ret_21`, the exact construction
+M1's own `state_table` uses — "above" state only (not above+below × 7 = 14 cells;
+DESIGN's ask is about kernel *shape*, one clean comparison, not a second dimension of
+facets). `sma`/`ema` reuse the shared cached panel's own already-lagged
+`above_sma_50`/`above_ema_50` directly (no new computation — SMA(50) is this module's
+own lag-matching reference point, see below). `wma`/`hma`/`dema`/`kama`/`vwma` are new
+kernels (`features/kernels.py`), each producing its own `above_{family}_matched`
+module-local column: raw (un-lagged) kernel value computed from the panel's own raw
+`close`/`volume` columns, compared against raw `close` via `features/distance.py::above`
+(the shared panel's own NaN-preserving above/below construction, CLAUDE.md invariant
+#9), then the resulting boolean column lagged once via `apply_lag` — mirroring
+`features/panel.py`'s own "compute on raw same-day values, lag the state column once"
+order exactly.
+
+**Lag-matching methodology (the module's own load-bearing, and most consequential,
+design decision — full reasoning here since it directly shapes every downstream
+number):**
+
+Rather than hand-derive each family's own closed-form average-lag formula (correct for
+SMA/EMA, but genuinely unclear or nontrivial for HMA/DEMA, and a category error for
+KAMA), every family's own average lag ("center of mass") is measured the same way:
+empirically, via a unit-impulse-response test (`features/kernels.py::
+impulse_center_of_mass`) — a synthetic series that is 0 everywhere except a single 1
+well past the kernel's own warmup, run through the kernel, center-of-mass'd over the
+causal response. This is validated against SMA/EMA's own known-exact closed form
+(`(period-1)/2` for both, at the same `period`) in `tests/test_moving_averages_kernels
+.py` before being trusted for the families with no independent closed form to check
+against.
+
+**Reference lag: SMA(50)'s own center of mass, 24.5 days** (chosen because SMA50 is
+already a cached-panel column, and matches M1's own primary lookback set). Each other
+family's own period is found via `features/kernels.py::solve_matched_period` (a linear
+scan, not bisection — center-of-mass is not guaranteed monotonic in period for every
+family, particularly HMA's construction) against this target:
+
+| Family | Matched period | Measured COM | Note |
+|---|---|---|---|
+| SMA | 50 (native) | 24.500 | reference point |
+| EMA | 50 (reuses `ema_50`) | 24.500 | matches SMA exactly, as expected (both converge to the same asymptotic formula) |
+| WMA | 74 | 24.333 | closed-form target was 74.5 (exact solution to `(n-1)/3=24.5`); nearest integer scan found 74 |
+| DEMA | 224 | 24.558 | no independent closed form; DEMA's own lag-reduction means it needs a *much* larger period than EMA to reach the same 24.5-day COM |
+| VWMA | 50 (constant-volume idealization) | 24.500 | see caveat below |
+| HMA | 50 — **NOT matched, see finding below** | 1.667 | idiomatic "same n" convention used instead |
+| KAMA | canonical (`er_period=10, fast=2, slow=30`) — **NOT matched, no period exists to search over** | n/a | adaptive by construction |
+
+**Finding, discovered during this module's own build (before the real-panel run —
+this is a methodology finding, not a Track B result): HMA's lag-reduction is far too
+extreme to match at this reference lag, or even at a shorter one.** A direct scan
+confirmed HMA's own center-of-mass grows far slower than linearly with its period
+parameter (period 300 → COM 5.0; period 900 → COM 9.3) — reaching a COM of 24.5 would
+require a period on the order of **~1,900+ days**, and even matching the shorter
+SMA(20) reference (COM 9.5) would need a period north of 500 days — both impractical
+given this panel's own ~3,000-trading-day history per ticker (a period that large
+would consume most of a ticker's history in warmup alone, leaving too few usable rows
+to say anything). **Decision:** HMA is reported at `period=50` — the idiomatic "same
+`n` as SMA" convention a chartist would actually use, not a matched lag — with its own
+*much shorter* realized lag (COM ≈ 1.67 days at that period) stated explicitly, not
+hidden. This is itself informative, independent of anything the real-panel run finds:
+**HMA is not a modest lag improvement over WMA, it is an order-of-magnitude reduction**,
+and "compare every family at the same matched lag" is not a coherent frame for HMA at
+any lag this study's own data window can support.
+
+**KAMA's own diagnostic impulse-response COM (162.5 days, canonical parameters) is a
+pathological artifact of the impulse test itself, not a meaningful "typical lag"
+number** — a single spike-then-flat impulse registers as *pure noise* under KAMA's own
+efficiency-ratio calculation (near-zero net directional change over a window that
+contains the whole spike-and-revert), forcing KAMA toward its slowest smoothing
+constant for the entire decay. This is the concrete, numeric version of exactly the
+point DESIGN's own module text makes about KAMA (and M9's): a continuously adaptive
+smoothing constant does not reduce to one fixed lag number, and this impulse-response
+methodology — while validated and load-bearing for every other family — is the wrong
+tool for characterizing KAMA specifically. Reported for completeness, explicitly
+flagged as non-representative, not used for anything downstream.
+
+**VWMA caveat:** the constant-volume idealization used for the impulse test (an
+impulse response has no real volume pattern to weight by) makes VWMA's own matched
+period identical to SMA's — `vwma(price, volume, n)` reduces exactly to `SMA(n)` when
+volume is constant, which is provable algebraically, not just an artifact of this
+measurement (`tests/test_moving_averages_kernels.py::
+test_vwma_reduces_to_sma_under_constant_volume`). VWMA's *real* average lag on actual,
+non-uniform volume will generally be shorter than this idealized value (volume tends
+to concentrate near price extremes/reversals, not spread evenly across the window) —
+not measured in this module, named as an open limitation rather than assumed away.
+
+**Reality Check input:** for each non-EMA family, the per-date average C2-style
+stratum delta (`modules/kernel_horse_race.py::per_date_deltas`, reusing
+`stats/controls.py::stratum_deltas`) minus EMA's own same-date value — one row per
+date, one column per candidate family, exactly the shape `white_reality_check` expects.
+Block length 42 (this study's own standard `2x horizon` convention), 1000 bootstrap
+draws, seed 0.
+
+**Scope not run this module:** DESIGN's own module text names only the "which family
+wins" question; a full lookback-grid × family interaction (does the ranking change at
+SMA20's or SMA200's own matched lag, not just SMA50's) is out of scope here — a single
+clean reference lag is what "matched lag" requires to mean anything at all, and
+spreading across multiple reference lags multiplies this module's own scope without a
+clear DESIGN mandate to do so.
+
+### Result (2026-09-24)
+
+**Module killed — DESIGN's own ~80%-likely prior holds. No family beats EMA by a
+margin the Reality Check can distinguish from best-of-6 data-snooping luck.**
+
+**Reality Check (the decisive test):** best candidate **HMA**, own mean edge over EMA
+**+0.1059%** (`fwd_ret_21`, date-equal-weighted — see weighting note below) — nominally
+clears the 0.10% magnitude floor, but **Reality Check p-value = 0.193**, far above this
+study's own 0.10 significance convention. **`module_killed = True`**: the magnitude
+floor alone is not enough: DESIGN's own kill wording requires the edge to survive
+Reality Check too, and it doesn't. 2,548 effective dates, 1,000 bootstrap draws
+(block length 42, seed 0).
+
+**All 7 families' own primary cells (`family_table`, `above`-state C2 delta on
+`fwd_ret_21`, identical construction to M1's own `state_table`):**
+
+| family | c2 | CI | n_events | n_dates |
+|---|---|---|---|---|
+| sma | −0.1839% | [−0.3378%, −0.0349%] | 432,955 | 2,746 |
+| ema (benchmark) | −0.2058% | [−0.3744%, −0.0276%] | 429,867 | 2,746 |
+| wma | −0.1898% | [−0.3449%, −0.0252%] | 433,214 | 2,746 |
+| hma | −0.1512% | [−0.2513%, −0.0393%] | 387,451 | 2,740 |
+| dema | −0.1266% | [−0.2809%, +0.0245%] | 405,601 | 2,553 |
+| kama | −0.1750% | [−0.2886%, −0.0657%] | 431,485 | 2,744 |
+| vwma | −0.1862% | [−0.3423%, −0.0329%] | 431,820 | 2,746 |
+
+**Plateau check (DESIGN §6.7), read directly off this table, independent of the formal
+Reality Check:** all 7 point estimates cluster tightly (−0.127% to −0.206%), same sign,
+overlapping CIs throughout — no lone bright pixel, no family stands out as
+qualitatively different from the pack. This is the single cleanest visual confirmation
+in this study's history that "kernel shape barely matters": seven structurally
+different weighting schemes, applied to an identical event definition at a matched
+lag, produce essentially the same number.
+
+**Weighting note (a real methodological subtlety, not a discrepancy to paper over):**
+`family_table`'s own `c2` is the same *stratum-row-equal-weighted* mean every other C2
+cell in this study uses (`stats/controls.py::stratum_deltas(...).mean()`, via
+`block_bootstrap_delta`'s own point estimate). The Reality Check's own
+`candidate_means`, by contrast, are *date-equal-weighted* (`per_date_deltas` averages
+within each date first, then the Reality Check treats each date as one observation) —
+necessary for the Reality Check's own per-date bootstrap null, and the more
+appropriate weighting for a block-bootstrap-over-dates construction generally
+(consistent with DESIGN's own invariant #6, "report effective N... events cluster").
+The two conventions give noticeably different HMA-minus-EMA numbers (stratum-weighted:
++0.0546pp; date-weighted: +0.1059pp, roughly 2x) — both are legitimate, correctly
+computed statistics, they simply answer slightly different questions ("average over
+every eligible row" vs. "average over every eligible day"), and the kill criterion is
+evaluated on the date-weighted number since that is the actual statistic Reality Check
+tests.
+
+**Cost (descriptive — the kill criterion above doesn't hinge on cost, but CLAUDE.md
+invariant #8 still applies to every family's own above-state effect):** every one of
+the 7 families **fails cost at the CI edge** (`stats/costs.py`, 10bps/rt,
+entry+exit convention) — hurdles range 1.52%/yr (dema, lowest turnover) to 3.61%/yr
+(kama, highest), against near-CI-edge annualized magnitudes of 0.30–0.79%/yr. Worth
+naming: **HMA and KAMA have dramatically higher turnover than the other 5 families**
+(34.1 and 36.1 flips/ticker-yr vs. 15.2–20.4 for sma/ema/wma/dema/vwma) — both are
+explicitly fast-reacting constructions (HMA by design, KAMA adaptively), and that
+reactivity cuts both ways: HMA's own nominal edge over EMA is real in the point
+estimate, but it would also be the single most expensive family in this set to
+actually trade, on top of not surviving Reality Check in the first place.
+
+**Tier:** 4 — module killed per its own pre-registered criterion. No `FINDINGS.md`
+entry (this study's own Tier-4 convention).
+
+**What would change the verdict:** a Reality Check re-run at a different reference lag
+(this module used SMA50's own matched lag only, per its own declared scope); a longer
+holdout-inclusive sample (more dates could sharpen HMA's own borderline p=0.193 in
+either direction); resolving HMA's own "not truly matched" limitation would need
+either a much longer panel history or accepting a shorter reference lag DESIGN itself
+doesn't ask for.
+
+**Logged:** `EXPERIMENTS.csv` (8 rows: 7 family cells + 1 Reality Check summary, **all
+`counted_in_n_tests=False`** — see the note there for why Reality Check's own
+already-multiplicity-corrected p-value isn't compatible with being fed into the
+separate whole-grid BH pass alongside Wald-approximate CI-based p-values).
