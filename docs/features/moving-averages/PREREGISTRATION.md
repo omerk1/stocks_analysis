@@ -4864,3 +4864,70 @@ convention as M5/§7.5/M6.5.
 **Logged:** `EXPERIMENTS.csv` (24 rows: 12 primary vol-tercile + 12 companion
 ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
 the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).
+
+## M14 — Integration with existing detectors (2026-09-25)
+
+**Module / track:** M14, Track B (DESIGN.md lines ~977-979). Batch 4 module
+(`HANDOVER.md`'s own scoping), run alongside sibling M16 and M17 forks, each in its
+own worktree — no shared-file conflicts expected (a different feature family
+entirely: this module integrates with `src/signals/patterns/`, a separate repo
+subsystem, not touched by M16/M17).
+
+**Hypothesis:** an MA event (this module's own choice: `above_sma_50` reclaim, M1's
+own state-transition-into-above construction, reused unchanged) that occurs shortly
+after a high-confidence chart-pattern breakout behaves differently (larger/cleaner
+forward return) than the same MA event with no recent qualifying breakout nearby.
+
+**Kill criterion (self-formulated — DESIGN gives no literal numeric one for this
+module, CLAUDE.md's own requirement to state one before running applies regardless):**
+`module_killed := CI includes zero, OR max(|ci_low|,|ci_high|) < 0.10%` — this study's
+standard floor convention (M1/M13's own `KILL_THRESHOLD`).
+
+**Control tier:** this study's standard C2 (`mom_tercile`/`vol_tercile`/`sector`-matched
+block-bootstrap delta), reused unchanged, applied to the reclaim-event population
+M1/M12 already established.
+
+**"Inside a detected pattern" needed a real, checked definition, not DESIGN's literal
+wording taken naively — full reasoning in `modules/pattern_context.py`'s own
+docstring, summarized here:**
+1. The patterns subsystem (`src/signals/patterns/`) was scanned fresh for this
+   module — **the `pattern_matches` table did not exist anywhere in this repo before
+   this session** — via a one-off script (`pattern_scan_run.py`, not committed,
+   discarded after use) that reused `patterns.cli::run_for_ticker` directly against
+   this study's own U1 universe (`data.py::sp500_full_coverage_tickers`), with
+   `as_of=2021-12-31` **explicitly checked against `scanner.py::detect`'s own source**
+   before trusting it (`load_and_validate` truncates bars to `as_of`, and matches are
+   additionally filtered to `formation_end <= as_of` — confirmed by reading the code,
+   not assumed from the flag's name) — CLAUDE.md invariant #1 is absolute and this is
+   exactly the kind of cross-subsystem gotcha that could silently violate it. Result:
+   355,834 raw matches across 405 tickers (full available history per ticker, only
+   the *end* bounded); 119,140 of those fall inside the 2010-2021 dev window.
+2. **The literal DESIGN reading ("MA event date falls inside ANY detected pattern's
+   own formation window, any type, any status") was tried first and rejected as
+   unusable, not silently avoided**: checked directly for a sample ticker (AAPL),
+   this covers **99.5%** of all trading days — every detected candidate, regardless
+   of quality, together blankets almost the entire calendar, because the scanner
+   considers many overlapping pivot-pair combinations per ticker. Restricting to
+   breakout-confirmed statuses only (`confirmed`/`active`/`hit_target`/
+   `invalidated_failed_breakout`) barely moves this (99.2%). Restricting further to a
+   21-trading-day window after `formation_end` (this study's own standard horizon,
+   not invented for this check) still leaves 79% coverage.
+3. **Only adding a confidence floor produces a genuinely selective flag**:
+   `confidence >= 0.7` (the scanner's own continuous 0-1 score; 0.7 is its own top
+   ~19% of all candidates in the dev window, a round pre-specified cut chosen before
+   looking at this test's own outcome, not tuned to it) combined with the 21-day
+   post-`formation_end` window and the breakout-status restriction above yields 36%
+   coverage for AAPL — a real, usable split, not a near-universal or near-empty one.
+   **This is the definition used below.** Named in full so the choice is auditable.
+
+**Scope cut, named not silently dropped**: only `above_sma_50` reclaims are tested
+(one MA event type, not the full cross-product of every M1/M3/M12 event type against
+every one of the patterns subsystem's 7 pattern types) — DESIGN's own §6.4 tiny-
+effective-N warning applies directly to that full cross-product, and a single,
+well-motivated, already-established event construction (M1's own primary reclaim
+statistic) is the more defensible single test to pre-register.
+
+### Result
+
+Ran `modules/pattern_context.py::decisive_test` against the real cached panel (405
+S&P 500 tickers, U1, 2010-2021) joined with the qualifying-pattern flag above.
