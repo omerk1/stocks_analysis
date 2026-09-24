@@ -4081,6 +4081,188 @@ way.
 `type_vs_background` diagnostics, all `counted_in_n_tests` correctly reflecting only
 the 2 primary cells). No `FINDINGS.md` entry (both primary cells Tier 4).
 
+## M10 — Timeframe and sampling (2026-09-24)
+
+**Module / track:** M10, Track B (DESIGN.md lines ~945-949). Not part of the original
+minimal-core list — post-termination "Batch 3" module (`HANDOVER.md`'s own scoping),
+run alongside a sibling M8 fork, each in its own isolated worktree. Unlike Batches 1/2,
+Batch 3 is explicitly *not* 4-way parallel; each module is its own real infrastructure
+project.
+
+**Hypothesis (DESIGN's own):** weekly MAs offer a better lag/whipsaw tradeoff than
+lookback-equivalent daily MAs.
+
+**Kill criterion (this module's own — DESIGN gives no literal numeric floor for M10,
+unlike M8/M9):** DESIGN's own three-way design isolates two separate questions, not
+one, and the kill criterion is stated against the cleanly-isolated one specifically —
+the **sampling-frequency effect**: does restricting a daily SMA{50,150,200}'s C2
+delta to Friday-only rows (construction "c") differ from evaluating it on every row
+(construction "a"), holding the MA construction itself fixed? If, at all three
+lookbacks, the point-estimate gap between (c) and (a) is both smaller than a 0.10%
+floor (this study's own standard magnitude threshold, e.g. M1/M13's `KILL_THRESHOLD`)
+**and** each cell's own CI comfortably contains the other's point estimate, declare:
+"no advantage from evaluating on a reduced/weekly cadence per se — any apparent
+weekly-vs-daily advantage in the naive comparison below must come from the
+lookback/bar-aggregation choice, not sampling frequency." This directly operationalizes
+DESIGN's own decomposition ask (see Method) as the module's decisive test, rather than
+inventing a separate one.
+
+**Statistical caveat, stated up front:** the sampling-frequency and bar-aggregation
+"effects" below are **descriptive point-estimate gaps between two independently
+block-bootstrapped C2 deltas**, not a single jointly-bootstrapped difference-of-deltas
+CI — building paired-bootstrap machinery for a formal difference test is out of scope
+for this module (`stats/inference.py` has no such function yet). This is the same
+rigor level as M6.3's own rising-tail-vs-falling-tail decomposition (two separate CIs,
+read qualitatively), not a new, weaker standard invented here.
+
+**Control tier:** this study's standard C2 (`mom_tercile`/`vol_tercile`/`sector`-matched
+block-bootstrap delta via `stats/inference.py::block_bootstrap_delta`), reused
+unchanged for every construction. The weekly construction's C2 match columns are
+**joined from the already-correct daily panel** by date (`pd.merge_asof`,
+`direction="backward"`), not recomputed on weekly bars — see the scope note below.
+
+**Method — DESIGN's own three-way design, kept intact:**
+1. **(a) Daily SMA{50,150,200}, evaluated on every daily row.** Recomputed fresh here
+   (not pulled from M1's own `EXPERIMENTS.csv` rows) so (a) and (c) share the exact
+   same seed/bootstrap parameters/code path — essential for the decomposition below to
+   be a clean comparison, not an apples-to-oranges one against a different module's
+   historical run. `above_sma_150` in particular has no standalone C2 cell anywhere
+   else in this study (M1's own 3 primary lookbacks are 20/50/200; M2 uses `sma_150`
+   only inside its stack, never as its own cell).
+2. **(b) Weekly-native SMA{10,30,40}, evaluated on every weekly row.** New
+   infrastructure: `features/panel.py::build_panel` gained a `timeframe` parameter
+   (`Timeframe.WEEKLY` resamples live from `bars_1d`, never reads the separately-
+   ingested, incomplete `bars_1w` table — see that function's own updated docstring).
+   SMA{10,30,40} are local to this module (not the shared panel's {20,50,150,200}
+   grid), same "new lookback goes local" convention M3/M6.6 already established. Same
+   405-ticker U1 universe and 2010-2021 dev window as every other module — not the
+   broader `bars_1w` coverage.
+3. **(c) Daily SMA{50,150,200} from (a), restricted to literal Friday calendar rows
+   only.** DESIGN's own named "key control" — isolates sampling frequency from
+   lookback by construction, since it's the *same* MA on the *same* underlying bars,
+   only the evaluation-date subset differs.
+4. **Lookback pairing is calendar-equivalent, not arbitrary**: 50 daily bars ≈ 10
+   weekly bars, 150 ≈ 30, 200 ≈ 40 (5 trading days/week) — DESIGN's own
+   "lookback-equivalent" framing (the M9 section title), preserved as the pairing the
+   decomposition actually uses.
+5. **Decomposition** (DESIGN's own ask: "decompose any weekly advantage into lag
+   effect vs. sampling effect"): **sampling-frequency effect** = (c) − (a), same
+   lookback, isolates the decisive question above. **Bar-aggregation ("lag") effect**
+   = (b) − (c), matched calendar-equivalent lookback pairs, both at weekly cadence —
+   isolates whether genuinely aggregating into weekly bars before computing the MA
+   (a different effective lag than a daily MA of the same nominal span) changes
+   anything, holding sampling frequency fixed. The naive, confounded (a)-vs-(b)
+   comparison (what a practitioner means by "weekly vs. daily") is reported as
+   context for the decomposition, not as a third independent test.
+6. **Multi-timeframe confluence** (DESIGN's own lower-priority "Also test," daily and
+   weekly agreeing) — **scoped out of this run, not silently dropped**: the three-way
+   decomposition above is the module's actual point and took priority; confluence is a
+   genuinely separate construction (a joint daily+weekly state, not a comparison of the
+   same state at two cadences) that would need its own pre-registered cell, better
+   done as a follow-up addendum than folded in here under time pressure.
+
+**Scope note on `build_panel`'s new `timeframe` parameter:** only the MA/distance/
+slope/ATR/run-length features are timeframe-correct at non-daily granularity (all
+naturally "N bars of this timeframe"). The day-count-calibrated context features
+(`mom_12_1`, `mom_1_0`, `realized_vol_63`, `dist_from_52w_high`/`low`) are **not**
+recalibrated for `Timeframe.WEEKLY` — e.g. `realized_vol_63` on a weekly panel would
+silently be 63 *weeks* of vol, not 63 trading days', if read naively. This module
+never reads those columns off the weekly panel for exactly this reason (joins them
+from the daily panel instead, see Control tier above); recalibrating them generically
+is out of scope for M10 (DESIGN doesn't ask for it) and is named here as a real,
+open infrastructure gap for whichever module needs a fully weekly-native cross-
+sectional control set next.
+
+**New machinery:** `features/panel.py::build_panel`'s `timeframe` parameter (shared,
+reusable — not module-local); `modules/timeframe_sampling.py`
+(`prepare_daily`/`prepare_weekly`/`primary_cell_table`/`decomposition_table`/
+`evaluate_kill_criterion`/`cost_row`); `tests/test_moving_averages_panel_timeframe.py`
+(weekly-path lag-safety, ticker-boundary, and default-unchanged tests, same scrutiny
+the existing daily `build_panel` tests already get);
+`tests/test_moving_averages_timeframe_sampling.py`.
+
+### Result (2026-09-24)
+
+**Kill criterion fires cleanly: `module_killed=True`, 0 of 3 lookbacks show a
+detectable sampling-frequency effect.** Sampling-frequency gap ((c) − (a), same
+lookback): 50 → −0.023pp, 150 → +0.024pp, 200 → −0.033pp — all far under the 0.10%
+`GAP_FLOOR`, and at every lookback each cell's own CI comfortably contains the other's
+point estimate (e.g. lb50: (a) `[−0.338%,−0.035%]` vs (c) `[−0.361%,−0.031%]`, nearly
+identical). Well-powered throughout (64,757–432,955 events, 551–2,747 dates, 402
+tickers per cell — every cell clears `MIN_EVENTS`/`MIN_DATES`/`MIN_TICKERS`).
+**Reading: no advantage from evaluating on a reduced/weekly cadence per se — DESIGN's
+own hypothesis, read this precisely, does not hold.** Any apparent weekly-vs-daily gap
+in the naive comparison below must come from the lookback/bar-aggregation choice, not
+sampling frequency.
+
+**Bar-aggregation gap ((b) − (c), matched calendar-equivalent pairs):** +0.090pp
+(50↔10), +0.026pp (150↔30), +0.082pp (200↔40) — small, all three the *same sign*
+(weekly-native consistently slightly less negative than daily-Friday-sampled, a
+directionally-consistent pattern, not a lone bright pixel), but every pair's CIs
+overlap heavily (e.g. 50↔10: (c) `[−0.361%,−0.031%]` vs (b) `[−0.260%,+0.029%]`) —
+not distinguishable from noise by this module's own descriptive-overlap standard
+either. **Naive (a)-vs-(b) gap** (the confounded, practitioner's comparison): +0.067pp,
++0.050pp, +0.049pp — small and positive at all three pairs, consistent with (but not
+independently confirming) "weekly is a hair less bad than daily," entirely attributable
+to the (already-undetectable) bar-aggregation term per the decomposition above, not to
+sampling frequency.
+
+**Plateau check:** (a) and (c) agree in sign at all 3 lookbacks (both negative
+throughout); (b) also negative at all 3 lookbacks. No lookback flips sign anywhere in
+the 9-cell grid — directionally consistent, no lone bright pixel, consistent with the
+clean kill above rather than a borderline one.
+
+**Cost** (reported for the record, CLAUDE.md invariant #8 — not the decisive gate here,
+since the module's own decisive test is about detecting an effect at all, and it
+didn't): daily-signal hurdles (same flip series underlies both (a) and (c), a sampling
+choice doesn't change the underlying trading frequency) — lb50 1.799%/yr (`spy`=17.993,
+**matches M1's own already-published `above_sma_50` hurdle almost to the decimal
+place** — see the duplicate-cell note below), lb150 0.953%/yr, lb200 0.779%/yr; weekly
+hurdles — lb10 0.905%/yr, lb30 0.468%/yr, lb40 0.385%/yr. Of the 3 CI-excluding-zero raw
+cells ((a)/lb50, (c)/lb50, (c)/lb200), all **fail cost at the near edge** (e.g.
+(a)/lb50: annualized point −2.21%/yr clears the 1.799%/yr hurdle, near edge −0.42%/yr
+does not) — same "point clears, CI-edge doesn't" shape this study's other weak SMA
+cells already show.
+
+**Duplicate-cell note (found this session, not silently reused):** `(a)/lb50` and
+`(a)/lb200` are, by construction, the *same statistic* M1 already tested and logged
+(`above_sma_50`/`above_sma_200`, `EXPERIMENTS.csv`) — same group column, same C2 match
+set, same `fwd_ret_21`, same universe/window. Point estimates and CIs match almost
+exactly (mine: `-0.001839 [-0.003378,-0.000349]`; M1's logged row: `-0.00183
+[-0.003406,-0.000306]`) — **confirmed via direct comparison against `baseline_state.py`'s
+own `_cell_row` run fresh on the identical panel this session, which reproduces my
+number exactly.** **Not counted toward this module's `N_tests`** — reused here only as
+the decomposition's own reference point, same treatment M11's neutralized spread /
+§7.5's bit-exact duplicates of M4 already received. `(a)/lb150` is new (M1 never tested
+lb150 standalone) and *is* counted.
+
+**Open discrepancy, flagged not resolved:** M1's own logged `n_events` for
+`above_sma_50` is 743,745; the fresh run above (both via this module and via
+`baseline_state.py` directly) gives 432,955 on the same cached panel/universe/window —
+a ~1.7x gap, while the point estimate/CI match almost exactly. The most likely
+explanation is that M1's originally-logged `n_events` reported the pre-C2-eligibility
+row count (`unrestricted`, `_cell_row`'s own naming) rather than the post-restriction
+count `event_rows`/`n_events` in the same function actually returns today — i.e. a
+labeling inconsistency in what got written to the CSV at the time, not a change in the
+underlying data or a bug in current code (current `baseline_state.py` code and this
+module's own code agree exactly when run fresh). **Not resolved here** — out of scope
+for M10 to audit M1's own historical logging; flagged for whoever next touches M1's
+`EXPERIMENTS.csv` row or `FINDINGS.md` entry.
+
+**Tier:** 4 throughout — the module's own decisive question (sampling-frequency
+effect) is killed cleanly, and no cell reaches a tier-worthy standalone claim (the
+CI-excluding-zero raw cells are non-independent restatements of M1's own
+already-Tier-3/4 weak effect, not new evidence, per the duplicate-cell note above). No
+`FINDINGS.md` entry (CLAUDE.md's own Tier-4 rule).
+
+**Multi-timeframe confluence:** scoped out this run, as pre-registered above — not
+attempted, not silently dropped. A genuine follow-up candidate, not urgent given the
+primary decisive test's clean null.
+
+**Logged:** `EXPERIMENTS.csv` (9 rows: 7 counted toward `N_tests` — `(a)/lb150`, all 3
+`(c)` cells, all 3 `(b)` cells — + 2 non-counted duplicate-reference rows, `(a)/lb50`
+and `(a)/lb200`). No `FINDINGS.md` entry (Tier 4).
+
 ## M8 — MA family horse race at matched lag (2026-09-24)
 
 **Module / track:** M8, Track B (DESIGN.md, "M8 — MA family horse race at matched

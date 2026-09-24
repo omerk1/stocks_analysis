@@ -152,6 +152,7 @@ def build_panel(
     tickers: list[str],
     start: str | pd.Timestamp | None = None,
     end: str | pd.Timestamp | None = None,
+    timeframe: Timeframe = Timeframe.DAILY,
 ) -> pd.DataFrame:
     """Builds the Phase 2 starting-subset MA feature panel for `tickers` --
     one row per (ticker, date), OHLCV plus every feature column (see this
@@ -176,10 +177,33 @@ def build_panel(
 
     `sector` is joined in from `ticker_sector` as best-effort context --
     current-state-only (see module docstring), not point-in-time.
+
+    `timeframe` (added for M10, PREREGISTRATION.md 2026-09-24): passed
+    through to `load_bars` unchanged -- `Timeframe.WEEKLY` resamples live
+    from `bars_1d` (`market_common.data.load_bars`'s own docstring), never
+    reads the separately-ingested, incomplete `bars_1w` table. Rows are
+    labeled by the week's *nominal Monday*, not the Friday close that
+    produced them (`resample.to_weekly`'s own convention) -- a caller
+    wanting literal Friday-dated rows should filter a `Timeframe.DAILY`
+    panel to `date.dt.weekday == 4` instead (M10's own "(c)" construction
+    does exactly this). `apply_lag`'s per-ticker `.shift(1)` is timeframe-
+    agnostic (row-order-based, not calendar-based), so a one-bar lag here
+    is correctly a one-*week* lag when `timeframe=Timeframe.WEEKLY`.
+    **Important scope limit**: only the MA/distance/slope/ATR/run-length
+    features (all naturally "N bars of this timeframe", correct at any
+    timeframe) are timeframe-correct here. The day-count-calibrated
+    context features (`mom_12_1`, `mom_1_0`, `realized_vol_63`,
+    `dist_from_52w_high`/`low`) are **not** recalibrated for non-daily
+    timeframes -- e.g. `realized_vol_63` on a weekly panel is 63 *weeks*
+    of vol, not 63 trading days' worth, silently wrong if read as the
+    latter. Recalibrating those is out of scope for M10 (DESIGN doesn't
+    ask for it); a caller needing cross-sectional controls on a non-daily
+    panel should join them from an already-correct `Timeframe.DAILY`
+    panel by date instead, the way M10's own module does.
     """
     frames = []
     for ticker in tickers:
-        bars = load_bars(conn, ticker, Timeframe.DAILY, as_of=end, start=start)
+        bars = load_bars(conn, ticker, timeframe, as_of=end, start=start)
         if bars.empty:
             continue
         clean, _ = validate_bars(bars, ticker)
