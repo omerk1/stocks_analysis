@@ -1335,6 +1335,23 @@ vs. bottom tercile), win/loss ratio 1.10, skew −0.15. Bottom-tercile (control)
 win/loss ratio 1.23, skew +0.16. Unfavorable on every shape axis for the
 high-dollar-volume side, not just the mean.
 
+**Whole-grid FDR addendum (2026-09-24):** this cell newly clears the whole-grid FDR
+pass at N=79 (p=0.00348, rank 3 of 79, individually clearing its own BH threshold of
+0.00380 by ~8% — not dependent on a step-up sweep from a smaller anchor p-value; full
+pass detail: `STATUS.md`). **Not promoted to Tier 2 despite clearing FDR, cost, and
+C2, and despite surviving reversal-robustness** — the open small-cap/illiquidity
+confound named above is exactly the kind of gap DESIGN §9.2's Tier-2 bar doesn't
+tolerate: Tier 2 requires the *only* remaining gaps to be missing infrastructure
+(holdout, universe tier), not an active, plausible, untested alternative explanation.
+Unlike M6.3's `slope_pctile_21_sma_50` — which carried an analogous-looking
+survivorship caveat but had it **directly resolved by a same-day rising/falling
+tail decomposition** before promotion — this cell's size/illiquidity confound has not
+been tested against (no point-in-time market-cap data exists in this study's panel to
+run that test with). **What would change the verdict:** a point-in-time
+market-cap/size control added to the C2 match set, showing the delta survives it —
+out of scope for this module, a real build (DESIGN's own M9/M8-adjacent
+infrastructure gap), not a quick addendum.
+
 **What would change the verdict:** a point-in-time market-cap/size control added to
 C2 (not built in this study); the whole-grid FDR pass; a holdout check.
 
@@ -1461,6 +1478,20 @@ see `STATUS.md`, out of scope for this module's own fork); a holdout check; a se
 universe tier; a concrete trading/risk-management construction (e.g. a position-sizing
 or stop-width rule keyed to the state-5/state-0 flag) that would make the
 avoided-loss-vs-signed-return caveat moot.
+
+**Whole-grid FDR addendum (2026-09-24):** the pending pass above has now run. This
+cell is the **new rank 1 of 79**, p≈0.00000 — smaller than this study's previous
+smallest p-value (`slope_pctile_21_sma_50`/M6.3, p=0.00005), clearing both q=0.10 and
+q=0.05 by a wide margin (full pass detail: `STATUS.md`). **Still capped at Tier 3,
+not promoted**: clearing FDR resolves one of Tier 2's three gates, but the
+avoided-loss-vs-signed-return actionability gap named above is an independent cap,
+not conditional on FDR status — the same reasoning that kept M7's
+`ribbon_direction_magnitude` at Tier 3 even when *it* cleared FDR in the 2026-09-23
+pass. (That M7 cell no longer clears FDR at all at N=79 is incidental — this cell's
+own cap doesn't depend on M7's fate either way.) **What would change the verdict,
+updated:** the FDR gate is now cleared; a concrete trading/risk-management
+construction turning the drawdown-shallowing read into an actionable signed claim is
+the one gap left that isn't pure missing infrastructure.
 
 ### `ribbon_agreement_extreme_return` — inconclusive, not confirmed
 
