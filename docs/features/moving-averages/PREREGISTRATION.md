@@ -4482,6 +4482,180 @@ doesn't ask for.
 already-multiplicity-corrected p-value isn't compatible with being fed into the
 separate whole-grid BH pass alongside Wald-approximate CI-based p-values).
 
+## M9 — Regime-conditional lookback (2026-09-24)
+
+**Module / track:** M9, Track B (DESIGN.md, "M9 — Regime-conditional lookback (the
+user's '5 EMA in chop' question)", lines ~935-944). Not part of the original
+minimal-core list — post-termination "Batch 3" module (`HANDOVER.md`'s own scoping),
+run alongside a sibling M6.4 fork, each in its own isolated worktree. Unlike Batches
+1/2, Batch 3 runs 1-2 modules at a time, not 4-way parallel.
+
+**DESIGN itself names this the module most likely to produce a false positive in the
+whole study**, because a regime × lookback grid is a large search space over data
+with tiny effective N (§6.4). Its own explicit instruction: "Pre-register the regime
+definition. Do not tune the regime thresholds." This section is written and committed
+**before any real-panel number is computed** — the two-phase discipline this study
+already uses everywhere else, applied here with extra weight given DESIGN's own
+warning.
+
+**Hypothesis (DESIGN's own):** the best short-term MA lookback varies with regime.
+
+**Kill criterion (DESIGN's own, literal):** if the adaptive (stage 3) regime-
+switching rule does not beat the best *fixed* lookback out-of-sample, net of
+switching costs, report the honest answer — "regime-adaptive lookback selection is
+a plausible idea that does not survive testing." DESIGN's own prior: ~70% likely
+this is what gets found.
+
+**Control tier:** this study's standard C2 (`mom_tercile`/`vol_tercile`/`sector`-
+matched block-bootstrap delta, `stats/inference.py::block_bootstrap_delta`/
+`block_bootstrap_group_diff`, reused unchanged) for every return comparison in every
+stage.
+
+**Regime definition — final, numeric, fixed before any run (`features/regime.py`):**
+- **Efficiency Ratio (ER)**, Kaufman's construction, `period=10` (Kaufman's own
+  canonical choice, matching `features/kernels.py::kama`'s own `er_period=10`
+  default — the identical formula, extracted as a standalone function so a sibling
+  M6.4 fork's own local, temporary copy of the same formula reconciles cleanly
+  later). Regime buckets, Kaufman's own published interpretation, not fit to this
+  panel: **choppy** (ER < 0.30), **moderate** (0.30–0.60), **trending** (ER ≥ 0.60).
+- **ADX**, Wilder's construction, `period=14` (Wilder's own canonical choice,
+  matching this study's existing `atr_14`). Regime buckets, Wilder's own published
+  convention: **no_trend** (ADX < 20), **developing** (20–25), **trending** (ADX ≥ 25).
+  Treated as a **secondary/robustness cross-check on the ER-based regime**, not a
+  second independent grid dimension — see "Scope cut" below for why.
+- **Vol regime**: reuses this study's existing `vol_tercile` construction
+  (`stats/controls.py::cross_sectional_bucket` on `realized_vol_63`, the same
+  per-date cross-sectional tercile every other module's C2 spec already uses) —
+  already effectively part of the C2 match set for every cell in this module, not a
+  fourth grid dimension either.
+
+**Scope cut, documented not silently dropped:** DESIGN's own text says "bucket by
+ER/ADX/vol regime" as if constructing one joint regime label. A joint ER×ADX×vol
+grid (3×3×3 = 27 buckets) crossed with a 3-lookback grid would produce an 81-cell
+descriptive surface on data DESIGN itself already flags as having "tiny effective
+N" for a *smaller* search space than this — directly reproducing the overfitting
+risk DESIGN is warning against, not investigating it responsibly. **ER is the
+primary regime axis** (the "5 EMA in chop" framing is fundamentally an ER
+question — trending vs. choppy), **ADX is a same-construct corroboration check**
+(does an independently-built trend-strength measure tell the same regime story as
+ER, not a second thing to condition on), and **vol regime stays inside the existing
+C2 match set** rather than becoming a fourth axis. This narrows DESIGN's own
+"ER/ADX/vol regime" phrase to a single primary regime axis with one corroboration
+check — a real scope cut, stated plainly rather than left implicit.
+
+**Lookback grid:** EMA at {10, 20, 50} — "short-term" per DESIGN's own framing, and
+literally matching the "5 EMA" folklore reference. `ema_10` is new, module-local
+(not the shared panel — same convention M3/M6.6 already used for their own new
+short lookbacks), lagged the same way `features/panel.py::apply_lag` lags every
+other feature. `ema_20`/`ema_50` reuse the cached panel unchanged.
+
+**Train/test split for stages 2–3 (pre-registered, not retrofitted after seeing
+stage-1 results):** the 2010-01-04–2021-12-31 dev window (holdout after 2021-12-31
+stays locked, CLAUDE.md invariant #1) is split at **2017-01-01** — roughly the
+midpoint of the coverage window used elsewhere in this study
+(`SP500_UNIVERSE_COVERAGE_START=2010-06-01` to `COVERAGE_END=2021-12-01`). **Fit
+period**: 2010-01-04 to 2016-12-31 (used for the descriptive surface, stage 1, and
+to learn the per-regime "best lookback" mapping, stage 2). **Test period**:
+2017-01-01 to 2021-12-31 (used to evaluate whether that mapping's persistence holds
+and whether the resulting adaptive rule beats the fixed benchmark, stage 3). This
+split is fixed before stage 1 runs.
+
+**Method — DESIGN's own three-stage design, staging matters, no skipping to stage 3:**
+1. **Descriptive** (fit period only): for each ER regime bucket, the C2 delta of
+   `above_ema_{10,20,50}` on `fwd_ret_21`, restricted to that bucket. Produces the
+   regime × lookback surface. Plateau rule applied per DESIGN's own "ruthlessly"
+   instruction — a single bright cell among a noisy surface is not trusted.
+   ADX-regime version of the same surface computed as the corroboration check.
+2. **Predictive**: within the fit period, for each ER regime bucket, identify the
+   lookback with the largest-magnitude, correctly-signed (state=True predicts
+   *positive* continuation) C2 delta — this regime's "best" lookback. Separately,
+   measure regime persistence: per ticker, the fraction of rows where the ER
+   regime bucket at date *t* still holds at *t*+21 trading days, vs. the base rate
+   a memoryless (i.i.d.-regime) process would produce.
+3. **Adaptive** (test period only): construct a switching signal — on each test-
+   period row, look up that row's *current* ER regime bucket, use the fit-period
+   mapping to pick that regime's "best" lookback, and read that lookback's
+   `above_ema` state for the row. Compare this adaptive series' C2 delta against
+   (a) the single fixed lookback with the best *overall* fit-period C2 delta held
+   constant through the test period, via
+   `stats/inference.py::block_bootstrap_group_diff` (a proper CI on the
+   *difference*, not two separately-CI'd deltas eyeballed against each other), and
+   (b) KAMA's own above/below state (`features/kernels.py::kama`, already built
+   for M8) over the same test period, DESIGN's own named comparison — KAMA adapts
+   continuously and for free, the natural benchmark for whether a discrete
+   regime-switching rule adds anything a continuous one doesn't already give.
+   Switching cost: `stats/costs.py::signals_per_year` on the adaptive series'
+   own flip rate vs. the fixed series' flip rate, the incremental turnover the
+   switching rule adds, annualized at the same 10bps round-trip convention this
+   study uses everywhere.
+
+**What would count as evidence, precisely:** the adaptive-vs-fixed
+`block_bootstrap_group_diff` CI must exclude zero *and* clear the incremental
+switching-cost hurdle for the module to survive its own kill criterion. Anything
+short of that — CI spans zero, or clears CI but not cost — is the honest null
+DESIGN's own ~70% prior expects.
+
+### Result (2026-09-24)
+
+**Module killed, cleanly, matching DESIGN's own ~70%-likely prior.**
+
+**Stage 1 (descriptive, fit period 2010-01 to 2016-12):** every one of the 9 ER-regime
+× lookback cells (and all 9 ADX-regime corroboration cells) is negatively signed —
+`above_ema_k` predicts *lower* subsequent 21-day returns in every regime bucket at
+every lookback, consistent with this study's own established pattern elsewhere
+(M1's `above_sma_*` cells, M6.3's slope cells). An earlier version of this module's
+own `best_lookback_per_regime` function assumed the "correct" sign was positive
+(state=True → positive continuation) and consequently selected nothing in any
+regime bucket, since nothing in this construction is positively signed — caught and
+fixed before logging, not a result: "best lookback" now means largest-magnitude,
+CI-excluding-zero effect, sign-agnostic, with the sign-awareness moved into the
+stage-3 kill criterion instead (see below).
+
+**Plateau caveat on the descriptive surface itself:** within each ER regime bucket,
+the 3 lookbacks' CIs overlap substantially with each other (e.g. choppy: lb10 CI
+[-0.296%,-0.107%], lb50 CI [-0.535%,-0.136%] — heavily overlapping). Picking the
+argmax magnitude within a regime is picking noise, not a statistically well-separated
+regime-specific lookback preference. DESIGN's own "apply the plateau rule
+ruthlessly" instruction is read here as a live warning, not satisfied — this
+caveat is itself part of the honest read on why stage 3 finds nothing.
+
+**Stage 2 (predictive):** fit-period best-lookback mapping: `{choppy: 50, moderate:
+10, trending: None}` (trending has no CI-excluding-zero cell at any lookback).
+**Regime persistence, a genuinely informative descriptive finding on its own:** ER
+regime shows **essentially zero persistence excess** at the 21-day horizon
+(empirical 40.32% vs. a memoryless-process base rate of 40.46% — the regime bucket
+carries no more information about its own future value than an i.i.d. draw from the
+same marginal distribution would). **ADX regime, by contrast, shows a real +10.4pp
+persistence excess** (45.99% vs. 35.62% memoryless). DESIGN's own text assumed
+"regimes are persistent, so this should partly work" — true for the ADX
+construction, **not true for the ER construction this module's stage 3 actually
+uses**, which pre-empts the stage-3 null with an independent mechanistic
+explanation rather than leaving it as "the bootstrap CI happened to span zero."
+
+**Stage 3 (adaptive, test period 2017-01 to 2021-12), the module's own decisive
+test:** the ER-regime-switching rule (using the fit-period mapping) vs. the single
+best fixed lookback (EMA50, chosen by the same magnitude/CI-excluding-zero rule
+from the regime-unconditional fit-period surface) — `block_bootstrap_group_diff`
+diff = **-0.0091%** per 21d, CI **[-0.0717%, +0.0530%]**, sign-rotated by the fixed
+benchmark's own (negative) sign before evaluation. **CI spans zero after
+rotation — killed.** n_dates=1238 (test period), well-powered. Incremental
+switching cost (30.34 vs. 20.23 flips/ticker-yr) → 1.012%/yr hurdle, not reached
+regardless since the CI itself doesn't clear.
+
+**vs. KAMA** (DESIGN's own named comparison): diff = -0.0080%, CI [-0.1309%,
++0.1105%] — also indistinguishable. The discrete regime-switching rule adds nothing
+over KAMA's own continuous, free adaptation, exactly DESIGN's own expectation.
+
+**Verdict, DESIGN's own literal wording:** *"regime-adaptive lookback selection is a
+plausible idea that does not survive testing."* Tier 4. No `FINDINGS.md` entry.
+
+**Logged:** `EXPERIMENTS.csv` (25 rows: 9 ER descriptive + 9 ADX descriptive
+corroboration + 2 persistence + 3 regime-unconditional-benchmark-selection + 1
+decisive stage-3 test + 1 KAMA comparison — only the single decisive stage-3 cell
+is `counted_in_n_tests=True`, DESIGN's own large-search-space false-positive
+warning motivating collapsing this module to one decisive test, same convention
+M8's Reality Check used for its own best-of-K claim).
+
 ## M6.4 — Slope persistence and flip hazard (2026-09-24)
 
 **Module / track:** M6.4, Track B (DESIGN.md lines ~835-839). Not part of the original
