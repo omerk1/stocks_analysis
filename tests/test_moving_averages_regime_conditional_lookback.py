@@ -61,28 +61,35 @@ def test_regime_features_are_one_bar_lagged():
     assert pd.isna(lagged_er.iloc[0])
 
 
-def test_best_lookback_per_regime_picks_largest_correctly_signed_delta():
+def test_best_lookback_per_regime_picks_largest_magnitude_ci_excluding_zero_delta():
+    # Sign-agnostic: real-panel data (2026-09-24 run) found every cell in
+    # this construction negatively signed -- "best" is the largest |c2|
+    # among CI-excluding-zero cells, not a naive "most positive" pick.
     descriptive = pd.DataFrame({
         "regime_bucket": ["choppy", "choppy", "choppy", "trending", "trending", "trending"],
         "lookback": [10, 20, 50, 10, 20, 50],
-        "c2": [0.001, 0.005, -0.002, 0.003, 0.001, 0.0005],
+        "c2": [-0.001, -0.005, -0.002, 0.003, -0.001, 0.0005],
+        "c2_ci_low": [-0.002, -0.007, -0.004, 0.001, -0.003, -0.001],
+        "c2_ci_high": [-0.0005, -0.003, -0.0005, 0.005, 0.001, 0.002],
         "below_threshold": [False, False, False, False, False, False],
     })
     mapping = rcl.best_lookback_per_regime(descriptive)
-    assert mapping["choppy"] == 20  # largest positive c2 among eligible
-    assert mapping["trending"] == 10
+    assert mapping["choppy"] == 20  # largest |c2| among CI-excluding-zero cells
+    assert mapping["trending"] == 10  # only trending/10 has CI excluding zero
 
 
-def test_best_lookback_per_regime_ignores_negative_and_below_threshold_cells():
+def test_best_lookback_per_regime_ignores_below_threshold_and_ci_spanning_zero_cells():
     descriptive = pd.DataFrame({
         "regime_bucket": ["moderate", "moderate"],
         "lookback": [10, 20],
-        "c2": [0.01, -0.01],
+        "c2": [0.01, -0.02],
+        "c2_ci_low": [0.005, -0.01],
+        "c2_ci_high": [0.015, 0.005],
         "below_threshold": [True, False],
     })
     mapping = rcl.best_lookback_per_regime(descriptive)
-    # lookback 10 is below_threshold (excluded), lookback 20 has negative c2
-    # (wrong sign, excluded) -- no eligible cell.
+    # lookback 10 is below_threshold (excluded), lookback 20's CI spans
+    # zero (excluded) -- no eligible cell.
     assert mapping["moderate"] is None
 
 
@@ -139,21 +146,46 @@ def test_regime_persistence_excess_is_zero_for_a_fully_memoryless_series():
 
 
 def test_evaluate_kill_criterion_kills_when_ci_spans_zero():
-    result = {"diff_point": 0.001, "diff_ci_low": -0.002, "diff_ci_high": 0.003, "incremental_cost_hurdle_annual": 0.01}
+    result = {
+        "diff_point": 0.001, "diff_ci_low": -0.002, "diff_ci_high": 0.003,
+        "incremental_cost_hurdle_annual": 0.01, "fixed_point": -0.003,
+    }
     verdict = rcl.evaluate_kill_criterion(result)
     assert verdict["module_killed"] is True
-    assert verdict["reason"] == "ci_spans_zero"
+    assert verdict["reason"] == "ci_spans_zero_or_wrong_direction"
 
 
 def test_evaluate_kill_criterion_kills_when_ci_excludes_zero_but_fails_cost():
-    result = {"diff_point": 0.0005, "diff_ci_low": 0.0001, "diff_ci_high": 0.001, "incremental_cost_hurdle_annual": 0.05}
+    # fixed_point is negative; diff CI entirely negative means adaptive is
+    # MORE negative than fixed (stronger, in the fixed benchmark's own
+    # direction) -- a real improvement, but too small to clear cost.
+    result = {
+        "diff_point": -0.0005, "diff_ci_low": -0.001, "diff_ci_high": -0.0001,
+        "incremental_cost_hurdle_annual": 0.05, "fixed_point": -0.003,
+    }
     verdict = rcl.evaluate_kill_criterion(result)
     assert verdict["module_killed"] is True
     assert verdict["reason"] == "clears_ci_not_cost"
 
 
 def test_evaluate_kill_criterion_survives_when_ci_excludes_zero_and_clears_cost():
-    result = {"diff_point": 0.005, "diff_ci_low": 0.003, "diff_ci_high": 0.007, "incremental_cost_hurdle_annual": 0.01}
+    result = {
+        "diff_point": -0.005, "diff_ci_low": -0.007, "diff_ci_high": -0.003,
+        "incremental_cost_hurdle_annual": 0.01, "fixed_point": -0.003,
+    }
     verdict = rcl.evaluate_kill_criterion(result)
     assert verdict["module_killed"] is False
     assert verdict["reason"] == "clears_ci_and_cost"
+
+
+def test_evaluate_kill_criterion_kills_when_diff_moves_toward_zero_despite_excluding_it():
+    # fixed_point negative; diff CI entirely POSITIVE means adaptive is
+    # LESS negative (closer to zero) than fixed -- a real, CI-excluding-
+    # zero difference, but in the WRONG direction (weaker, not stronger).
+    result = {
+        "diff_point": 0.002, "diff_ci_low": 0.001, "diff_ci_high": 0.003,
+        "incremental_cost_hurdle_annual": 0.01, "fixed_point": -0.003,
+    }
+    verdict = rcl.evaluate_kill_criterion(result)
+    assert verdict["module_killed"] is True
+    assert verdict["reason"] == "ci_spans_zero_or_wrong_direction"

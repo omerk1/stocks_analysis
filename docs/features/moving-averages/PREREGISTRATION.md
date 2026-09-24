@@ -4594,3 +4594,64 @@ split is fixed before stage 1 runs.
 switching-cost hurdle for the module to survive its own kill criterion. Anything
 short of that — CI spans zero, or clears CI but not cost — is the honest null
 DESIGN's own ~70% prior expects.
+
+### Result (2026-09-24)
+
+**Module killed, cleanly, matching DESIGN's own ~70%-likely prior.**
+
+**Stage 1 (descriptive, fit period 2010-01 to 2016-12):** every one of the 9 ER-regime
+× lookback cells (and all 9 ADX-regime corroboration cells) is negatively signed —
+`above_ema_k` predicts *lower* subsequent 21-day returns in every regime bucket at
+every lookback, consistent with this study's own established pattern elsewhere
+(M1's `above_sma_*` cells, M6.3's slope cells). An earlier version of this module's
+own `best_lookback_per_regime` function assumed the "correct" sign was positive
+(state=True → positive continuation) and consequently selected nothing in any
+regime bucket, since nothing in this construction is positively signed — caught and
+fixed before logging, not a result: "best lookback" now means largest-magnitude,
+CI-excluding-zero effect, sign-agnostic, with the sign-awareness moved into the
+stage-3 kill criterion instead (see below).
+
+**Plateau caveat on the descriptive surface itself:** within each ER regime bucket,
+the 3 lookbacks' CIs overlap substantially with each other (e.g. choppy: lb10 CI
+[-0.296%,-0.107%], lb50 CI [-0.535%,-0.136%] — heavily overlapping). Picking the
+argmax magnitude within a regime is picking noise, not a statistically well-separated
+regime-specific lookback preference. DESIGN's own "apply the plateau rule
+ruthlessly" instruction is read here as a live warning, not satisfied — this
+caveat is itself part of the honest read on why stage 3 finds nothing.
+
+**Stage 2 (predictive):** fit-period best-lookback mapping: `{choppy: 50, moderate:
+10, trending: None}` (trending has no CI-excluding-zero cell at any lookback).
+**Regime persistence, a genuinely informative descriptive finding on its own:** ER
+regime shows **essentially zero persistence excess** at the 21-day horizon
+(empirical 40.32% vs. a memoryless-process base rate of 40.46% — the regime bucket
+carries no more information about its own future value than an i.i.d. draw from the
+same marginal distribution would). **ADX regime, by contrast, shows a real +10.4pp
+persistence excess** (45.99% vs. 35.62% memoryless). DESIGN's own text assumed
+"regimes are persistent, so this should partly work" — true for the ADX
+construction, **not true for the ER construction this module's stage 3 actually
+uses**, which pre-empts the stage-3 null with an independent mechanistic
+explanation rather than leaving it as "the bootstrap CI happened to span zero."
+
+**Stage 3 (adaptive, test period 2017-01 to 2021-12), the module's own decisive
+test:** the ER-regime-switching rule (using the fit-period mapping) vs. the single
+best fixed lookback (EMA50, chosen by the same magnitude/CI-excluding-zero rule
+from the regime-unconditional fit-period surface) — `block_bootstrap_group_diff`
+diff = **-0.0091%** per 21d, CI **[-0.0717%, +0.0530%]**, sign-rotated by the fixed
+benchmark's own (negative) sign before evaluation. **CI spans zero after
+rotation — killed.** n_dates=1238 (test period), well-powered. Incremental
+switching cost (30.34 vs. 20.23 flips/ticker-yr) → 1.012%/yr hurdle, not reached
+regardless since the CI itself doesn't clear.
+
+**vs. KAMA** (DESIGN's own named comparison): diff = -0.0080%, CI [-0.1309%,
++0.1105%] — also indistinguishable. The discrete regime-switching rule adds nothing
+over KAMA's own continuous, free adaptation, exactly DESIGN's own expectation.
+
+**Verdict, DESIGN's own literal wording:** *"regime-adaptive lookback selection is a
+plausible idea that does not survive testing."* Tier 4. No `FINDINGS.md` entry.
+
+**Logged:** `EXPERIMENTS.csv` (25 rows: 9 ER descriptive + 9 ADX descriptive
+corroboration + 2 persistence + 3 regime-unconditional-benchmark-selection + 1
+decisive stage-3 test + 1 KAMA comparison — only the single decisive stage-3 cell
+is `counted_in_n_tests=True`, DESIGN's own large-search-space false-positive
+warning motivating collapsing this module to one decisive test, same convention
+M8's Reality Check used for its own best-of-K claim).

@@ -137,18 +137,29 @@ def descriptive_surface(fit_working: pd.DataFrame, regime_col: str = "er_regime"
 
 def best_lookback_per_regime(descriptive: pd.DataFrame) -> dict:
     """Stage 2 (part 1): for each regime bucket, the lookback with the
-    largest-magnitude, correctly-signed (state=True -> positive `c2`) C2
-    delta -- cells with no valid CI (`below_threshold`) are never selected.
-    A bucket with no eligible cell is mapped to `None` (falls back to
-    whatever the caller treats as "no regime-specific edge").
+    largest-MAGNITUDE, CI-excluding-zero C2 delta -- **not** filtered by
+    sign. Real-panel run (2026-09-24) found every `above_ema_k` cell in
+    this study's entire construction is negatively signed (being above a
+    short EMA predicts *lower* subsequent returns, consistent with every
+    other above/below-state cell this study has produced elsewhere,
+    e.g. M1's own `above_sma_*` cells) -- an earlier version of this
+    function filtered for `c2 > 0` ("correctly signed" under a naive
+    "above predicts continuation" assumption) and consequently selected
+    nothing in any regime, since nothing in this data is positively
+    signed. Magnitude, not an assumed sign, is what "best" means here;
+    `evaluate_kill_criterion` below handles the sign-aware comparison
+    against the fixed benchmark. A bucket with no eligible cell (CI spans
+    zero at every lookback) is mapped to `None` (falls back to whatever
+    the caller treats as "no regime-specific edge").
     """
     mapping: dict = {}
     for bucket, group in descriptive.groupby("regime_bucket", observed=True):
-        eligible = group[(~group["below_threshold"]) & (group["c2"] > 0)]
+        ci_excludes_zero = (group["c2_ci_low"] > 0) | (group["c2_ci_high"] < 0)
+        eligible = group[(~group["below_threshold"]) & ci_excludes_zero]
         if eligible.empty:
             mapping[bucket] = None
             continue
-        best = eligible.loc[eligible["c2"].idxmax()]
+        best = eligible.loc[eligible["c2"].abs().idxmax()]
         mapping[bucket] = int(best["lookback"])
     return mapping
 
@@ -222,6 +233,13 @@ def evaluate_adaptive_vs_fixed(test_working: pd.DataFrame, mapping: dict, fixed_
     incremental_spy = max(adaptive_spy - fixed_spy, 0.0)
     incremental_hurdle = cost_hurdle(incremental_spy, round_trip_cost=0.001)
 
+    # Fixed lookback's own C2 delta on the test period -- needed to know
+    # which *direction* counts as "adaptive is stronger" (this study's
+    # `above_ema_k` cells are consistently negatively signed; "better"
+    # means further from zero in whatever direction the fixed benchmark
+    # itself already points, not naively "more positive").
+    fixed_cell = _c2_cell(subset, "fixed_above")
+
     adaptive_kama_diff = None
     try:
         kama_subset = working.dropna(subset=["adaptive_above", "above_kama", "fwd_ret_21", *C2_MATCH_COLS])
@@ -235,26 +253,37 @@ def evaluate_adaptive_vs_fixed(test_working: pd.DataFrame, mapping: dict, fixed_
         "diff_point": diff["point_estimate"], "diff_ci_low": diff["ci_low"], "diff_ci_high": diff["ci_high"],
         "n_dates": diff["n_dates"], "adaptive_signals_per_year": adaptive_spy, "fixed_signals_per_year": fixed_spy,
         "incremental_signals_per_year": incremental_spy, "incremental_cost_hurdle_annual": incremental_hurdle,
-        "vs_kama_diff": adaptive_kama_diff,
+        "vs_kama_diff": adaptive_kama_diff, "fixed_point": fixed_cell["c2"],
     }
 
 
 def evaluate_kill_criterion(result: dict) -> dict:
     """PREREGISTRATION.md's own literal kill criterion: the adaptive-vs-
-    fixed CI must exclude zero *and* the near edge (toward zero) must
-    clear the incremental switching-cost hurdle for the module to survive.
-    Everything else -- CI spans zero, or clears CI but not cost -- is the
-    honest null DESIGN's own ~70% prior expects.
+    fixed CI must exclude zero *in the direction that represents a
+    stronger effect than the fixed benchmark* (sign-aware -- this study's
+    `above_ema_k` construction is consistently negatively signed
+    throughout, so "adaptive beats fixed" means further from zero in the
+    fixed benchmark's own direction, not naively "more positive"; see
+    `best_lookback_per_regime`'s own docstring for the same real-data
+    finding that motivated this), and the near edge of that improvement
+    must clear the incremental switching-cost hurdle. Everything else --
+    CI spans zero (in either the naive or the sign-rotated sense), or
+    clears CI but not cost -- is the honest null DESIGN's own ~70% prior
+    expects.
     """
-    ci_low, ci_high = result["diff_ci_low"], result["diff_ci_high"]
-    if pd.isna(ci_low) or pd.isna(ci_high):
+    ci_low, ci_high, fixed_point = result["diff_ci_low"], result["diff_ci_high"], result["fixed_point"]
+    if pd.isna(ci_low) or pd.isna(ci_high) or pd.isna(fixed_point):
         return {"module_killed": None, "reason": "insufficient_blocks"}
-    ci_excludes_zero = (ci_low > 0) or (ci_high < 0)
-    if not ci_excludes_zero:
-        return {"module_killed": True, "reason": "ci_spans_zero"}
-    near_edge = ci_low if result["diff_point"] > 0 else ci_high
-    annualized_near_edge = near_edge * 12
-    clears_cost = abs(annualized_near_edge) >= result["incremental_cost_hurdle_annual"] and result["diff_point"] > 0
+    fixed_sign = 1.0 if fixed_point >= 0 else -1.0
+    # Rotate the diff CI into "improvement" space: positive means adaptive
+    # moved further from zero in the fixed benchmark's own direction.
+    rotated_low = min(ci_low * fixed_sign, ci_high * fixed_sign)
+    rotated_high = max(ci_low * fixed_sign, ci_high * fixed_sign)
+    improvement_excludes_zero = rotated_low > 0
+    if not improvement_excludes_zero:
+        return {"module_killed": True, "reason": "ci_spans_zero_or_wrong_direction"}
+    annualized_near_edge = rotated_low * 12
+    clears_cost = annualized_near_edge >= result["incremental_cost_hurdle_annual"]
     return {
         "module_killed": not clears_cost,
         "reason": "clears_ci_and_cost" if clears_cost else "clears_ci_not_cost",
