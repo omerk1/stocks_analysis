@@ -380,17 +380,19 @@ full discussion of why this matters for how much confidence to place in each of 
 
 ## 5. Module results
 
-Only modules actually run are detailed; the rest of DESIGN's M1–M17 list was never
-attempted (out of the minimal-core scope DESIGN §12 defines) and is listed at the end
-for completeness.
-
-**Pending as of 2026-09-23**: this section, §6 (Suggestive findings), §7 (Dead-ends
-register), and §8 (Cost-sensitivity appendix) still describe the study as of
-2026-09-21 and have not yet been rewritten to add full narrative entries for Batch 1's
-four post-termination modules (M6.1, M6.3, M7, M13). §1 and §4 above are current and
-authoritative for the whole-grid FDR result and its consequences; for these four
-modules' own full results in the meantime, see `STATUS.md`'s "Modules run" table and
-`FINDINGS.md`'s per-cell entries — both are current as of 2026-09-23.
+Every module actually run is detailed below, including everything added
+post-termination (DESIGN §1.5's porous-scope rule) — Batch 1 (M6.1, M6.3, M7, M13),
+Batch 2 (M3, M6.5, M6.6, M12), Batch 3 (M8, M9, M10, M6.4), and Batch 4 so far (M16,
+M17 merged; M14's PR #105, including its VCP-specific addendum, is complete and open
+but **not yet merged** as of this revision — its own numbers are described in the
+closing list rather than given a full entry here, matching the same discipline this
+report used for every other module before its PR landed. M15 is hard-blocked on M14
+merging). Full per-cell detail for every
+number below: `STATUS.md`'s "Modules run" table, `EXPERIMENTS.csv`, `FINDINGS.md`.
+(Updated 2026-09-25 — this section, §6, and §7 had gone stale after the minimal-core
+list plus M18, still describing the study as of 2026-09-21/23 and incorrectly listing
+every post-termination module as "never attempted"; caught and fixed in the same
+revision as this note, not left to accumulate further.)
 
 **M1 — Baseline state conditioning.** Above/below SMA{20,50,200} state, C0/C1/C2,
 block-bootstrap. lb20/lb50 → Tier 3 (real, CI-excluding effect, fails cost). lb200 →
@@ -419,6 +421,18 @@ a 2026-09-10 annualization correction). Two of the module's original 7 logged ce
 (the SMA20 `dist_pct`/`dist_pct_sma_50` neutralized spreads) turned out, on tracing
 the code, to be exact recomputations of M4's own C2 spread — not new evidence, and
 excluded from this study's final `N_tests` accordingly (§4).
+
+**M3 — Crossovers: state vs transition (post-termination Batch 2).** DESIGN's own
+skeptical hypothesis — a golden cross carries little information beyond "the stock is
+now in a fast>slow state" — mostly holds. All 10 primary cells (5 fast/slow pairs ×
+golden/death) CI-span zero; the literal module-level kill doesn't formally fire only
+because the 3 SMA pairs' thinner event counts (3,025–3,840) leave wider CIs than the
+EMA pairs (23,782–26,081 events), which do clear the 0.15% floor cleanly — not more
+signal at the SMA pairs, just thinner samples (all 10 point estimates sit within
+±0.08% of each other). 4 quality facets and 2 spread-velocity facets (a same-session
+addendum correcting an initial scope cut that had bundled a genuinely testable
+quantity in with DESIGN's own "no coordinate-free angle" reasoning) all CI-span zero
+too. Tier 4 throughout.
 
 **§7.5 — Level effects vs. trend effects (placebo test).** Real MA vs.
 statistically-identical untraded neighbor lookbacks (SMA200 vs. {187,193,207,213},
@@ -467,6 +481,149 @@ intact; `touch_x_slope` does not — its CI now spans zero once `rev_tercile` is
 to C2, the only one of the study's four Tier-3 cells where this check flips the read.
 Full account: §6 below.
 
+**M6.1 — Slope vs. momentum horse race (post-termination Batch 1).** Incremental-IC
+test (`slope_log_21` residualized against `mom_12_1`) across all 4 lookbacks: every
+CI spans zero, no consistent sign (−0.016/+0.002/−0.014/+0.001) — not distinguishable
+from "slope is redundant with momentum," but not proven so either under this study's
+own CI discipline. One clean, actionable side-finding outside the kill criterion:
+`slope_log_21_sma_200`'s turnover is ~3.7× lower than `mom_12_1`'s (0.902 vs. 3.340
+flips/ticker-yr) — a real diagnostic number even though the primary test is null.
+
+**M6.3 — Slope magnitude: monotonic or humped? (post-termination Batch 1).**
+DESIGN's own "some trend is good, too much is exhaustion" prior does **not** hold —
+U-shaped, not humped, at all 3 SMA lookbacks. SMA50 and SMA200 clear cost at every
+reading; SMA20 clears its own kill floor but fails cost. Reversal-robustness: SMA50
+survives essentially unattenuated (if anything strengthened); SMA200 does not (reads
+as a reversal artifact). **This is the study's sole Tier-2 finding** —
+`slope_pctile_21_sma_50` became the first cell in this study's history to clear
+whole-grid FDR correction (p=0.00005), then was promoted to Tier 2 once a same-day
+rising-tail-only vs. falling-tail-only decomposition directly ruled out a
+survivorship-bias concern (both tails independently show the same effect). Confirmed
+robust across every subsequent FDR re-run (N=50→79→99) without ever needing BH's
+step-up sweep to survive. Full detail: §1 above.
+
+**M6.4 — Slope persistence and flip hazard (post-termination Batch 3).** Module
+**not** killed — a real, well-powered departure from a GBM-null simulation of
+slope-positive run survival (Kaplan-Meier vs. a matched-volatility random walk, new
+`stats/survival.py` machinery). 7 of 12 primary (vol-tercile) strata depart, always
+toward *more* persistence than the null predicts, a clean plateau at SMA20/SMA50; the
+cleanest result is the ER-tercile companion facet (top efficiency-ratio tercile
+departs at all 4 lookbacks, no lookback-decay). Anchored this study's largest-ever
+whole-grid FDR survivor set (N=99): the 3 SMA20 vol-tercile cells produced the three
+smallest p-values this study has ever seen. **Not promoted to Tier 2** despite
+clearing FDR by the widest margin in the study's history: the GBM null's own
+volatility estimate is computed from the same potentially-autocorrelated series being
+tested, an open, unresolved validity question that could bias the null low and
+inflate apparent departures.
+
+**M6.5 — The SMA drop-off artefact (post-termination Batch 2).** Both primary cells
+(SMA50, SMA200 — does a 1-day slope-sign flip driven by price differ from one driven
+by an old bar rolling out of the trailing window?) are inconclusive: not killed, not
+confirmed, and fails its own plateau check (opposite-sign point estimates between the
+two lookbacks). One flagged-not-promoted companion: the SMA200 down-only flip split
+(DESIGN's own literal "rolling over" example) clears the kill floor, but the leading
+alternative explanation (uncontrolled short-term reversal) was never checked for that
+specific cell — left as an open question, not a claim.
+
+**M6.6 — Slope agreement across the ribbon (post-termination Batch 2).** DESIGN's own
+stated expectation held exactly: drawdown is where the signal is, return is not.
+`ribbon_agreement_extreme_drawdown` (ordinal 0–5 state of {10,20,50,100,200}-day slope
+signs, extremes only): Tier 3, clears cost at every reading, survives
+reversal-robustness (~18% attenuation). Was this study's smallest-ever p-value at the
+Batch-2 FDR pass, later displaced by M6.4's own SMA20 vol-tercile cells but still a
+current survivor. Capped by the same magnitude-vs-signed-return actionability gap
+`ribbon_direction_magnitude` (M7, below) carries. Required correlation matrix
+(regardless of outcome, DESIGN's own explicit ask): the ribbon does not collapse to a
+single MA's own slope (0.28–0.89 pairwise correlation range across the five
+lookbacks).
+
+**M7 — Ribbon compression / expansion (post-termination Batch 1).** DESIGN's literal
+"compression → vol expansion" hypothesis killed cleanly (both with and without a
+vol-tercile match). `ribbon_direction_magnitude` confirmed (Tier 3): compression
+predicts a larger forward 21d `|return|` (magnitude, not signed direction), clears
+cost at every reading, survives reversal-robustness (+7.6%, if anything strengthened).
+Cleared whole-grid FDR at N=79 via BH's step-up sweep, but was never promoted — its
+own magnitude-vs-signed-return actionability gap caps it at Tier 3 independent of FDR
+status. No longer clears FDR at N=99 (pure denominator effect, one of the three
+"flapping" cells named in §4).
+
+**M8 — MA family horse race at matched lag (post-termination Batch 3).** Module
+killed — DESIGN's own ~80%-likely prior holds. Lag-matching methodology: each
+family's own average lag measured empirically via a unit-impulse-response center of
+mass, validated against SMA/EMA's own known-exact closed form before being trusted
+for HMA/DEMA (no independent closed form exists there). Best candidate (HMA)
+nominally clears the 0.10% magnitude floor over EMA but fails **White's Reality
+Check** (this study's first use of it, new `stats/multiple_testing.py` machinery) at
+p=0.193 — far from significant. All 7 families' primary cells cluster tightly
+(−0.127% to −0.206%), the cleanest plateau-check confirmation in this study's history
+that kernel shape doesn't matter; all 7 fail cost at the CI edge.
+
+**M9 — Regime-conditional lookback (post-termination Batch 3).** Module killed —
+DESIGN's own ~70%-likely prior holds. DESIGN itself names this the module most likely
+to produce a false positive in the whole study; the regime definition (Kaufman's ER,
+Wilder's ADX, both fixed/published, not tuned) was pre-registered and committed
+before any real-panel number was computed. Stage 1 (descriptive): every regime ×
+lookback cell negatively signed, picks not statistically separated from their own
+neighbors (a plateau-rule failure). Stage 2: ER regime shows ~zero persistence excess
+at 21 days (essentially memoryless, a real side-finding); ADX regime shows a genuine
++10.4pp persistence excess. Stage 3 (the decisive test, out-of-sample 2017–2021): the
+regime-switching rule vs. the best fixed lookback spans zero and is indistinguishable
+from KAMA, DESIGN's own named comparison.
+
+**M10 — Timeframe and sampling (post-termination Batch 3).** Clean null — DESIGN's
+own "weekly MAs offer a better lag/whipsaw tradeoff" hypothesis does not hold.
+DESIGN's own "key control" (the same daily SMA evaluated daily vs. Fridays-only,
+isolating sampling frequency from lookback) killed cleanly at all 3 lookbacks tested.
+The bar-aggregation effect (weekly-native SMA vs. Friday-sampled daily) is small and
+directionally consistent but not distinguishable from noise. New shared
+infrastructure: a `Timeframe` parameter on `build_panel` (backward compatible).
+
+**M12 — Volume and liquidity interaction (post-termination Batch 2).**
+`dollar_volume`/SMA50 survives: Tier 3, **sign opposite DESIGN's own hypothesis**
+(bottom-dollar-volume reclaims outperform top, not the reverse), clears cost cleanly
+(the largest cost-viability margin of any Tier-3 cell in the study), survives
+reversal-robustness (~34% attenuation). Newly cleared whole-grid FDR at N=79 and
+remains a survivor at N=99 — but **not promoted to Tier 2**: this panel has no
+point-in-time market-cap/size control, and dollar volume correlates strongly with
+size, so an uncontrolled small-cap/illiquidity premium is at least as plausible as a
+genuine mechanism, an open, unresolved confound. `dollar_volume`/SMA20 fails its own
+reversal-robustness check (reads as an artifact); `relative_volume`/SMA200 hold-rate
+companion supports DESIGN's literal hypothesis on the "does it hold" facet (Tier 3,
+mechanism read, no cost).
+
+**M13 — Context conditioning (post-termination Batch 1).** Sliced M1's
+`above_sma_200` C2 delta by VIX-percentile and breadth-percentile regime terciles. 2
+of 4 cells clear zero-exclusion and cost, barely — but all 4 point estimates cluster
+tightly around M1's own whole-sample sign and magnitude, read by this module's own
+write-up as "probably the same weak baseline effect exposed by regime-slicing, not a
+real interaction," not oversold. Tiered 3 mechanically, with that skepticism carried
+explicitly. Neither cell has reached the whole-grid FDR survivor set at any pass to
+date.
+
+**M16 — Rules as linear filters (unifying diagnostic, post-termination Batch 4,
+Track A).** DESIGN's own "one signal, many names" clustering prior holds at a loose
+kernel-similarity threshold (cosine similarity ≥0.80: all 23 candidate rules tested —
+`dist_pct`/`slope_log_21` at every {SMA,EMA}×lookback combination, momentum, 5
+crossover spreads — collapse into a single cluster), with one genuine deviation from
+DESIGN's own explicit prediction at a tighter threshold (≥0.95): `slope_log_21_sma_200`
+does not cluster with `crossover_sma_50_sma_200`/`dist_pct_sma_200` the way DESIGN
+predicted ("should land uncomfortably close together") — the 21-day log-difference in
+slope's own definition shifts its effective kernel centroid well past the other two's
+at the "same" nominal 200-day lookback. New machinery (`stats/kernel_space.py`):
+weight vectors measured empirically via a unit-return impulse response, validated
+against `dist_pct`'s own exact closed form. No Track B promotion this session.
+
+**M17 — Nonlinearity probe: does path composition matter? (post-termination Batch
+4).** A split result across DESIGN's three named operations. **MACD is not redundant
+with the MA feature set** (contrary to DESIGN's own ~75%-likely prior): incremental
+IC +0.89%, CI [+0.002%, +1.87%] — excludes zero, barely, and doesn't cluster with
+MA-spread features by direct correlation check (M16's own clustering wasn't available
+yet, run in parallel). Tier 3, capped by an unresolved short-term-reversal confound,
+named not resolved. **RSI and stochastics stay inconclusive** at every horizon tested
+(21d, 63d) — every CI spans zero, though RSI's sign flips positive in a targeted
+ambiguous-region sub-question (price near its own MA), matching DESIGN's own
+prediction directionally without CI-confirming it.
+
 **M18 — 52-week high/low range as a standalone predictor (added post-termination,
 2026-09-20).** Not part of the minimal-core list — promoted from two independent
 post-termination Track A readings (M2's ablation criterion 7; the 2026-09-16 348-cell
@@ -481,74 +638,103 @@ clears cost at every reading and survives a reversal-robustness check unattenuat
 this study's fourth cost-clearing Tier-3 cell, and the one with the smallest p-value in
 the entire 35-test grid (§4). Still fails FDR, by the narrowest margin in the study.
 
-**Not attempted (out of minimal-core scope, DESIGN §12):** M3, the rest of M6 (M6.1
-horse-race, M6.3 slope-magnitude humped-or-monotonic, M6.4 slope-persistence hazard,
-M6.5 SMA drop-off artefact, M6.6 ribbon agreement), M7–M17 aside from M18
-(including M16's "rules as linear filters" unifying diagnostic and M9's regime
-conditioning). None of these were pre-registered or run; they remain open for a
-future study, not silently deprioritized — DESIGN's own text names each as a distinct,
-separately-scoped question.
+**Complete but not yet merged as of this revision (2026-09-25):** **M14** (join with
+existing pattern detectors, PR #105) tested whether an MA event fired inside a
+detected chart pattern behaves differently. The pooled cell (all 7 pattern types,
+`above_sma_50` reclaims, confidence≥0.7 breakouts) is **not confirmed** — CI excludes
+zero and clears cost, but fails the same extension-neutralized control that killed
+several other cells in this study (attenuates ~52%, CI now spans zero) — read as a
+re-encoding of M6.3's own extension/momentum-exhaustion mechanism, not new
+information from pattern-detection. **A targeted follow-up split the pooled cell by
+pattern type and found something real underneath the null**: within VCP formations
+specifically — the one pattern type with a genuine theoretical reason to differ,
+being itself an MA-native construction — the effect is **opposite-signed and survives
+the exact confound that killed the pooled reading**: default C2 +1.83% CI
+[+1.06%,+2.77%], extension-neutralized +1.99% CI [+1.43%,+2.61%] (not attenuated, if
+anything stronger), clearing cost by the widest margin in this study's history
+(0.0185%/yr hurdle vs. +12.72%/yr near edge). Well-powered for a targeted slice (505
+events, 409 dates, 227 tickers) but its own reversal-robustness check hit an
+`InsufficientBlocksError` (too few contributing dates) — an honest open gap, not
+forced by loosening the block-length requirement — and its shape carries a real
+caveat (favorable hit rate, 68.9% vs. 61.3%, but markedly more negative skew
+in-context, −0.770 vs. −0.065, a fatter downside tail). Tier 3, pending merge and this
+study's own coordinating-session consolidation (a `STATUS.md` "Modules run" row and
+inclusion in the whole-grid FDR pass, same as every other module in this report).
+**M15** (synthesis) is hard-blocked on M14 merging, per DESIGN's own design (it
+operates on "surviving Tier-1/2 claims," of which exactly one exists, M6.3's cell
+above — arguably now a candidate second, pending FDR, if M14's VCP cell holds up).
+**M6.7** ("the angle of a moving average") is explicitly not an analysis module by
+DESIGN's own text — a one-line report note that the quantity has no coordinate-free
+definition, folded into M16's own write-up rather than given a separate entry.
 
 ---
 
 ## 6. Suggestive findings (Tier 3)
 
+**Rewritten 2026-09-25 — this section described the study's original 4 Tier-3 cells
+and claimed "none survived" whole-grid FDR, both stale by a full order of magnitude:
+the study now has one Tier-2 finding (§1) and, as of the current N=99 pass, 10 cells
+survive FDR (§4), several of which didn't exist when this section was last written.**
 Per DESIGN's 2026-09-09 addition to §9.1: these are real, CI-excluding-zero,
-mechanism-plausible effects, not dead ends — but per §4 above, **all four have now
-been tested against the whole-grid FDR correction and none survived it.** They are
-kept in their own section, not folded into the dead-ends register, because the
-underlying point estimates are real and well-controlled; what changed is not the
-evidence but the accounting for how many hypotheses produced it.
+mechanism-plausible effects, not dead ends. Listed here are every *primary/decisive*
+Tier-3 cell in the study (excluding reversal-robustness/large-move-exclusion
+companion rows, which re-test the same hypothesis rather than a new one — see those
+cells' own `FINDINGS.md` entries for the companion numbers) — full per-cell detail in
+`FINDINGS.md`, current FDR status per §4's own N=99 ranked table.
 
-1. **`stack_fully_bearish`** (M2) — full detail: `FINDINGS.md`, `PREREGISTRATION.md`
-   M2 entry + 2026-09-17 reversal-robustness addendum. Capped, independently of FDR,
-   by DESIGN §7.3's survivorship ceiling (a weak/bearish-state bucket; this repo's
-   delisted-ticker price history only runs 2024–2026) and by the missing holdout
-   check.
-2. **`extension_x_slope`, SMA50 top decile** (M6.2) — `FINDINGS.md` "Finding 1".
-   **Reversal-robustness check run 2026-09-21**: survives essentially intact
-   (−0.55%, CI still excludes zero, ~6.7% attenuation) — not explained by
-   uncontrolled 1-month reversal. Remaining live caveat: the "falling" side is a
-   comparatively rare subgroup (7.1% of the top-decile population), and M6.3's own
-   warning about post-earnings-gap/low-float contamination of the top slope decile
-   still applies.
-3. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — `FINDINGS.md` "Finding 2". **Does
-   not survive its 2026-09-21 reversal-robustness check** — with `rev_tercile` added
-   to C2 the delta attenuates ~40% and the CI now spans zero (−3.33pp, CI [−8.18pp,
-   +1.25pp]) — the only one of this study's four Tier-3 cells where the confound
-   check flips the read from confirmed to inconclusive. Already FDR-failed
-   regardless, but the honest read is that this cell's gross number is
-   substantially a short-term-reversal artifact, not a real slope-conditioning
-   effect; the earlier "two independent constructions corroborate each other"
-   framing against Finding 1 no longer holds. Additionally, the 5-day outcome
-   window is short and the default-C2 CI spans a 5× range between its near and far
-   edges — the sign was always better established than the magnitude.
-4. **`dist_from_52w_low`@126d** (M18, added post-termination 2026-09-20) — full
-   detail: `FINDINGS.md`'s M18 section. Like Finding 1, this cell *has* a
-   reversal-robustness check (run in the same pass, not a later gap) and survives it
-   essentially unattenuated. Its remaining live caveat is different from the other
-   three's: `mom_tercile` (the C2 momentum match) is conceptually close to
-   `dist_from_52w_low` itself, so a genuinely tighter momentum control (decile-level
-   matching, or direct residualization against `mom_12_1`) has not been ruled out as
-   an explanation for the residual. **The smallest p-value in the study's entire
-   grid** (0.0047) and the closest individual miss against its own FDR threshold
-   (1.64×) — the nearest this study came to a Tier 2 result, found only because two
-   independent Track A methods flagged the candidate before it was tested, not
-   because the study kept searching after termination until something turned up.
+**Currently clears whole-grid FDR at q=0.10 (N=99):**
+1. **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4) — the study's three
+   smallest p-values ever, anchoring the current pass. Capped, not promoted: the GBM
+   null's own volatility estimate may be circular (§5's M6.4 entry).
+2. **`ribbon_agreement_extreme_drawdown`** (M6.6) — capped by a
+   magnitude-vs-signed-return actionability gap, independent of FDR status.
+3. **`reclaim_durability_dollar_volume_sma50`** (M12) — capped by an open, unresolved
+   small-cap/illiquidity confound (no point-in-time market-cap control exists in this
+   panel).
+4. **`dist_from_52w_low`@126d** (M18) — capped by an open, unresolved
+   survivorship-adjacent caveat, extended by analogy from DESIGN §7.3's own named
+   cases, never directly tested.
+5. **`ribbon_direction_magnitude`** (M7) — capped by its own magnitude-vs-signed-return
+   actionability gap. Dropped out of the survivor set at N=79, back in at N=99 — a
+   pure denominator effect, no new evidence either time (§4's "flapping" discussion).
+6. **`stack_fully_bearish`** (M2) — capped by DESIGN §7.3's pre-existing survivorship
+   ceiling on weak/bearish-state buckets. Same flapping pattern as #5.
+7. **`above_sma_20`** (M1) — fails cost outright, independent of FDR status. Same
+   flapping pattern as #5/#6.
 
-**Where this leaves the four Tier-3 cells:** three (`stack_fully_bearish`,
-`extension_x_slope`/SMA50/top, `dist_from_52w_low`@126d) are real, reversal-robust
-effects that fail only on multiple-testing correction — the honest "real but not
-distinguishable from 35-tests-worth of chance" read DESIGN's own FDR framing intends.
-The fourth (`touch_x_slope`/SMA50/`from_above`) is different in kind: its own
-confound check, not just FDR, fails to clear it — the more accurate label for this
-one is closer to a dead end than a near-miss.
+**Real, CI-excluding-zero, but does not currently clear whole-grid FDR:**
+8. **`extension_x_slope`, SMA50 top decile** (M6.2) — survives its own
+   reversal-robustness check essentially intact (~6.7% attenuation). Remaining live
+   caveat: the "falling" side is a rare subgroup (7.1% of the top-decile population),
+   and M6.3's own post-earnings-gap/low-float contamination warning for the top slope
+   decile still applies.
+9. **`touch_x_slope`, SMA50 `from_above`** (M6.2) — **does not survive** its own
+   reversal-robustness check (~40% attenuation, CI now spans zero) — the only cell in
+   this study where that check flips a result from confirmed to inconclusive. Closer
+   to a dead end than a near-miss.
+10. **`context_vix_bottom` / `context_breadth_top`** (M13) — clear zero-exclusion and
+    cost, barely, but all 4 of this module's cells (including the 2 that don't clear)
+    cluster tightly around M1's own whole-sample `above_sma_200` sign/magnitude —
+    read by the module's own write-up as probably the same weak baseline effect
+    exposed by regime-slicing, not a real interaction.
+11. **`relative_volume` hold-rate companion, SMA200** (M12) — a mechanism read (does
+    a reclaim hold, not a return magnitude), no cost annotation applicable.
+12. **MACD histogram incremental IC** (M17) — **not yet included in any whole-grid
+    FDR pass**; Batch 4's consolidation is pending PR #105 (M14) merging (§4). Capped
+    by an unresolved short-term-reversal confound in the meantime.
+13. **`pattern_context_reclaim_sma50_vcp_only`** (M14, PR #105, not yet merged) —
+    within VCP formations specifically, an opposite-signed, extension-robust effect
+    that clears cost by the widest margin in this study. Not yet in any whole-grid FDR
+    pass. Its own reversal-robustness check couldn't run (too few contributing dates)
+    — an honest open gap, and a fatter in-context downside tail (skew −0.770 vs.
+    −0.065) is a real caveat on the shape, not just the mean. Full detail: §5.
 
 **What would move any of these forward, if this study resumed:** a real holdout
-check (2022+, still locked); a second universe tier (U2/U3); a decile-level momentum
-match or direct residualization for M18's cell; and, most importantly, more data —
-every one of the three reversal-robust cells is a real effect fighting a genuinely
-small edge relative to the number of ways this study looked for one.
+check (2022+, still locked); a second universe tier (U2/U3); a point-in-time
+market-cap control (would help M12's cell specifically); an autocorrelation-aware
+volatility-null recalibration (M6.4's cells specifically); and, most generally, more
+data — nearly every cell here is a real effect fighting a genuinely small edge
+relative to the number of ways this study looked for one.
 
 ---
 
@@ -650,6 +836,34 @@ effect at C1 vanishing completely at C2, not merely shrinking). Effective N:
 reading wasn't fully explained — no evidence for that here, but the tercile-vs-decile
 coarseness is a real, named gap (same one every C2 test in this study carries).
 
+**Post-minimal-core dead ends (Batches 1–4), condensed — not DESIGN §9.3's full
+per-cell format, to avoid duplicating dozens of entries already complete in
+`STATUS.md`'s "Modules run" table and `EXPERIMENTS.csv`** (added 2026-09-25, closing
+a real gap: this register had never been extended past the original minimal-core set
+plus M18 despite 18 further modules landing):
+- **M3** (crossovers): all 10 primary + 6 secondary cells, CI spans zero throughout
+  (2 EMA pairs clear the literal kill floor cleanly, 3 SMA pairs don't, purely from
+  thinner samples).
+- **M6.1** (slope vs. momentum): all 4 lookbacks, CI spans zero, no consistent sign.
+- **M6.3** (slope magnitude): SMA20 (fails cost), SMA200 (fails its own
+  reversal-robustness check).
+- **M6.5** (SMA drop-off): both primary cells (SMA50, SMA200), plus fails its own
+  plateau check.
+- **M8** (MA family horse race): all 7 families, killed via White's Reality Check
+  (p=0.193).
+- **M9** (regime-conditional lookback): the module's single decisive stage-3 test,
+  CI spans zero, indistinguishable from KAMA.
+- **M10** (timeframe and sampling): all 3 lookbacks' sampling-frequency test, killed
+  cleanly.
+- **M13** (context conditioning): 2 of its 4 cells (`context_vix_top`,
+  `context_breadth_bottom`).
+- **M14** (pattern-detector integration): the **pooled cell only** (all 7 pattern
+  types) fails its own extension-neutralized control (§5) — a dead end for the
+  pooled construction specifically. The VCP-specific slice is **not** a dead end
+  (§5/§6) — don't conflate the two when citing this module.
+- **M16** (linear-filter diagnostic): Track A, no kill/confirm framing — see §5.
+- **M17** (nonlinearity probe): RSI and stochastics %K, every horizon tested.
+
 ---
 
 ## 8. Cost-sensitivity appendix
@@ -675,17 +889,27 @@ directly off the panel, never assumed (`stats/costs.py`).
 | M18 `dist_from_52w_low`, 126d | 8.336 | 0.834%/yr | +5.01% | +2.21% | **clears** |
 | M18 `dist_from_52w_low`, 126d (reversal-controlled) | 8.336 | 0.834%/yr | +5.29% | +3.14% | **clears** |
 | M5, M6.2 hold-rate cells | n/a | n/a | n/a | n/a | not applicable — mechanism questions, no cost annotation by pre-registered convention |
+| **M6.3** `slope_pctile_21_sma_50` (Tier 2, §1) | 7.691 | 0.7691%/yr | −2.976% | −1.833% | **clears** |
+| M6.3 `slope_pctile_21_sma_200` | 3.819 | 0.3819%/yr | −2.313% | −0.668% | **clears** (fails its own reversal-robustness check separately) |
+| **M7** `ribbon_direction_magnitude` | 3.163 | 0.3163%/yr | −2.97% | −1.11% | **clears** (avoided-loss/magnitude caveat, not a signed-return claim) |
+| **M12** `reclaim_durability_dollar_volume_sma50` | 2.909 | 0.291%/yr | −10.44% | −4.82% | **clears** (largest margin of any Tier-3 cell in the study) |
+| **M6.6** `ribbon_agreement_extreme_drawdown` | 5.415 | 0.5415%/yr | +7.85% | +5.25% | **clears** (drawdown-shallowing read, same avoided-loss caveat as M7) |
+| M6.4 (all slope-persistence cells) | n/a | n/a | n/a | n/a | not applicable — survival/mechanism question, no cost annotation |
+| M9 (decisive stage-3 test) | n/a (switching-cost only) | n/a | n/a | n/a | not evaluated — CI (sign-rotated) spans zero before cost applies |
+| M17 MACD histogram | n/a | n/a | n/a | n/a | not fully evaluated — pending the reversal-confound resolution named in §5/§6 |
 
-**Reading**: every cell that clears cost outright also either fails FDR
-(`stack_fully_bearish`, `extension_x_slope`/SMA50/top, `dist_from_52w_low`@126d) or is
-a secondary/shorter-horizon cell with its own live confound (M11's 5-day cell — a
-horizon short enough that the ~50-round-trip/year turnover hurdle is easiest to clear
-is also the shape a short-term-reversal generator would produce, per
-`mom_1_0`/`rev_tercile` not being in this cell's C2 spec — flagged in
-`PREREGISTRATION.md`'s own 2026-09-10 correction addendum). `dist_from_52w_low`@126d
-is the one exception to the "uncontrolled for reversal" pattern among the
-cost-clearing cells — its own reversal-controlled reading clears just as cleanly, not
-weaker. **No cell in this study clears both cost and FDR.**
+**Reading, corrected 2026-09-25 (the prior version of this table only covered the
+minimal-core list plus M18, and its own closing claim was accordingly wrong)**: this
+study now has **multiple cells that clear both cost and whole-grid FDR** —
+`slope_pctile_21_sma_50` (M6.3) chief among them, the exact combination that promoted
+it to Tier 2 (§1); `reclaim_durability_dollar_volume_sma50` (M12) and
+`ribbon_agreement_extreme_drawdown` (M6.6) both clear cost and currently clear FDR too
+(§4), just not promoted, each for its own independent, non-cost reason (an open
+confound and an actionability gap, respectively — see §6). Among the
+minimal-core-list cells above, the original reading still holds unchanged: every one
+of *those* that clears cost outright either fails FDR or carries its own live
+confound (M11's 5-day cell is the shape a short-term-reversal generator would
+produce, `PREREGISTRATION.md`'s own 2026-09-10 correction addendum).
 
 ---
 
@@ -715,16 +939,22 @@ this study to test a horizon other than 21d/5d/63d already covered by M11).
 **Synthetic validation gate:** `python -m src.signals.moving_averages.cli
 validate-synth` — must pass before any result here is trusted (CLAUDE.md). Passing
 as of every commit in this study's history (`tests/test_moving_averages_synthetic_validation.py`
-is part of the standard `pytest tests/test_moving_averages_*.py` suite, ~197 tests
-as of 2026-09-23, run and green before every commit in this study).
+is part of the standard `pytest tests/test_moving_averages_*.py` suite, 327+ tests as
+of 2026-09-25 — check the latest commit's own count rather than trusting this number
+for long, it has grown with every module and will keep growing; run and green before
+every commit in this study).
 
-**Full pre-registered grid, `N_tests`:** 50 as of 2026-09-23 (deduplicated; see §4 —
-31 from the minimal-core list, +4 from M18, +15 from Batch 1). Per-module raw declared
-counts and the full dedup reasoning: `STATUS.md`'s "Whole-grid FDR pass" section.
+**Full pre-registered grid, `N_tests`:** 99 as of the 2026-09-24 Batch-3 whole-grid
+pass (deduplicated; see §4) — up from 50 (2026-09-23) and 79 (2026-09-24 Batch-2 pass).
+Batch 4's own contribution (M17's 6 counted cells, M14's pending) is **not yet folded
+into this count** — check `STATUS.md`'s "Whole-grid FDR pass" section for whichever
+pass is current before citing this number. Per-module raw declared counts and the
+full dedup reasoning: same section.
 
-**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (89
-logged rows: 86 across 12 modules + 3 whole-grid-FDR-pass summary rows, as of
-2026-09-23),
+**Every result's exact numbers, provenance, and commit:** `EXPERIMENTS.csv` (214
+logged rows across 21 modules + 5 whole-grid-FDR-pass summary rows, as of 2026-09-25 —
+this number grows with every module and every FDR re-run; check the file itself for
+the current count rather than trusting this one),
 cross-referenced to `PREREGISTRATION.md`'s per-module entries (hypothesis/kill-
 criterion/scope, written and committed before each analysis ran) and `FINDINGS.md`
 (full narrative for every Tier 1–3 cell). `git log` on
@@ -733,10 +963,13 @@ complete, dated build history.
 
 **What this study did not build, and would need to before any Tier-3 cell here could
 reach Tier 1/2:** a second/third universe tier (U2/U3 — DESIGN §3.2, blocked in Phase
-0 on thin point-in-time market-cap data); a real holdout check (2022+, still locked);
-White's Reality Check / Hansen's SPA for the horse-race-shaped questions this study
-never got to (M8/M9, not attempted); a Deflated Sharpe ratio for any backtest-shaped
-output (none of this study's cells were ever framed as a backtest); for M18
-specifically, a decile-level (not tercile) momentum match or a direct residualization
-of `dist_from_52w_low` against `mom_12_1`, given how conceptually close the two are by
-construction.
+0 on thin point-in-time market-cap data, still the case as of M12's own Tier-3 cell,
+§6); a real holdout check (2022+, still locked); a Deflated Sharpe ratio for any
+backtest-shaped output (none of this study's cells were ever framed as a backtest);
+for M18 specifically, a decile-level (not tercile) momentum match or a direct
+residualization of `dist_from_52w_low` against `mom_12_1`, given how conceptually
+close the two are by construction. **Corrected 2026-09-25**: White's Reality Check
+was in fact built and used (M8, `stats/multiple_testing.py::white_reality_check`,
+post-termination Batch 3) — the prior version of this line claimed it was "not
+attempted," which was true only as of the study's original termination point, not
+after. Hansen's SPA and a Deflated Sharpe ratio genuinely remain unbuilt.
