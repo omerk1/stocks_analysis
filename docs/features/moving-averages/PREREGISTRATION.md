@@ -4222,3 +4222,80 @@ SMA20's or SMA200's own matched lag, not just SMA50's) is out of scope here — 
 clean reference lag is what "matched lag" requires to mean anything at all, and
 spreading across multiple reference lags multiplies this module's own scope without a
 clear DESIGN mandate to do so.
+
+### Result (2026-09-24)
+
+**Module killed — DESIGN's own ~80%-likely prior holds. No family beats EMA by a
+margin the Reality Check can distinguish from best-of-6 data-snooping luck.**
+
+**Reality Check (the decisive test):** best candidate **HMA**, own mean edge over EMA
+**+0.1059%** (`fwd_ret_21`, date-equal-weighted — see weighting note below) — nominally
+clears the 0.10% magnitude floor, but **Reality Check p-value = 0.193**, far above this
+study's own 0.10 significance convention. **`module_killed = True`**: the magnitude
+floor alone is not enough: DESIGN's own kill wording requires the edge to survive
+Reality Check too, and it doesn't. 2,548 effective dates, 1,000 bootstrap draws
+(block length 42, seed 0).
+
+**All 7 families' own primary cells (`family_table`, `above`-state C2 delta on
+`fwd_ret_21`, identical construction to M1's own `state_table`):**
+
+| family | c2 | CI | n_events | n_dates |
+|---|---|---|---|---|
+| sma | −0.1839% | [−0.3378%, −0.0349%] | 432,955 | 2,746 |
+| ema (benchmark) | −0.2058% | [−0.3744%, −0.0276%] | 429,867 | 2,746 |
+| wma | −0.1898% | [−0.3449%, −0.0252%] | 433,214 | 2,746 |
+| hma | −0.1512% | [−0.2513%, −0.0393%] | 387,451 | 2,740 |
+| dema | −0.1266% | [−0.2809%, +0.0245%] | 405,601 | 2,553 |
+| kama | −0.1750% | [−0.2886%, −0.0657%] | 431,485 | 2,744 |
+| vwma | −0.1862% | [−0.3423%, −0.0329%] | 431,820 | 2,746 |
+
+**Plateau check (DESIGN §6.7), read directly off this table, independent of the formal
+Reality Check:** all 7 point estimates cluster tightly (−0.127% to −0.206%), same sign,
+overlapping CIs throughout — no lone bright pixel, no family stands out as
+qualitatively different from the pack. This is the single cleanest visual confirmation
+in this study's history that "kernel shape barely matters": seven structurally
+different weighting schemes, applied to an identical event definition at a matched
+lag, produce essentially the same number.
+
+**Weighting note (a real methodological subtlety, not a discrepancy to paper over):**
+`family_table`'s own `c2` is the same *stratum-row-equal-weighted* mean every other C2
+cell in this study uses (`stats/controls.py::stratum_deltas(...).mean()`, via
+`block_bootstrap_delta`'s own point estimate). The Reality Check's own
+`candidate_means`, by contrast, are *date-equal-weighted* (`per_date_deltas` averages
+within each date first, then the Reality Check treats each date as one observation) —
+necessary for the Reality Check's own per-date bootstrap null, and the more
+appropriate weighting for a block-bootstrap-over-dates construction generally
+(consistent with DESIGN's own invariant #6, "report effective N... events cluster").
+The two conventions give noticeably different HMA-minus-EMA numbers (stratum-weighted:
++0.0546pp; date-weighted: +0.1059pp, roughly 2x) — both are legitimate, correctly
+computed statistics, they simply answer slightly different questions ("average over
+every eligible row" vs. "average over every eligible day"), and the kill criterion is
+evaluated on the date-weighted number since that is the actual statistic Reality Check
+tests.
+
+**Cost (descriptive — the kill criterion above doesn't hinge on cost, but CLAUDE.md
+invariant #8 still applies to every family's own above-state effect):** every one of
+the 7 families **fails cost at the CI edge** (`stats/costs.py`, 10bps/rt,
+entry+exit convention) — hurdles range 1.52%/yr (dema, lowest turnover) to 3.61%/yr
+(kama, highest), against near-CI-edge annualized magnitudes of 0.30–0.79%/yr. Worth
+naming: **HMA and KAMA have dramatically higher turnover than the other 5 families**
+(34.1 and 36.1 flips/ticker-yr vs. 15.2–20.4 for sma/ema/wma/dema/vwma) — both are
+explicitly fast-reacting constructions (HMA by design, KAMA adaptively), and that
+reactivity cuts both ways: HMA's own nominal edge over EMA is real in the point
+estimate, but it would also be the single most expensive family in this set to
+actually trade, on top of not surviving Reality Check in the first place.
+
+**Tier:** 4 — module killed per its own pre-registered criterion. No `FINDINGS.md`
+entry (this study's own Tier-4 convention).
+
+**What would change the verdict:** a Reality Check re-run at a different reference lag
+(this module used SMA50's own matched lag only, per its own declared scope); a longer
+holdout-inclusive sample (more dates could sharpen HMA's own borderline p=0.193 in
+either direction); resolving HMA's own "not truly matched" limitation would need
+either a much longer panel history or accepting a shorter reference lag DESIGN itself
+doesn't ask for.
+
+**Logged:** `EXPERIMENTS.csv` (8 rows: 7 family cells + 1 Reality Check summary, **all
+`counted_in_n_tests=False`** — see the note there for why Reality Check's own
+already-multiplicity-corrected p-value isn't compatible with being fed into the
+separate whole-grid BH pass alongside Wald-approximate CI-based p-values).
