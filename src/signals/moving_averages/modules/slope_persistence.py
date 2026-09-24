@@ -11,15 +11,20 @@ simulation calibrated to the same volatility level -- DESIGN's own framing:
 "the finding is only interesting where the empirical hazard departs from
 the simulated null."
 
-Shared-feature note (real, deliberate overlap with a sibling M9 fork, not
-an oversight): M9 owns `features/regime.py`, building a shared
-ER/ADX/vol-regime module there. This module was built in parallel before
-that landed, so it carries its own **local, temporary**
-`efficiency_ratio` -- the identical formula already in
-`features/kernels.py::kama` (Kaufman's own ER, reused as the definition of
-"efficiency ratio" throughout this study rather than inventing a second
-one) -- flagged here for reconciliation once M9's shared version exists,
-not blocked on it.
+Shared-feature note: this module originally carried its own local,
+temporary `efficiency_ratio` (built in parallel before a sibling M9 fork's
+`features/regime.py` landed). **Reconciled 2026-09-25**: now imports M9's
+shared `efficiency_ratio` directly. The two implementations differed in one
+respect -- this module's own original version used `.fillna(0.0)`, silently
+treating an undefined warmup row as "zero efficiency ratio" (pure chop)
+rather than missing (a CLAUDE.md invariant #9 concern); `features/regime.py`'s
+version correctly leaves warmup as NaN and only maps `inf` (a zero-volatility
+window) to NaN. Confirmed harmless to every number already logged: this
+module's shortest slope construction (`slope_log_21_sma_20`) needs ~41 days
+of warmup before a run can start, far past `efficiency_ratio`'s own 10-day
+warmup, so no real run-entry row was ever classified via the undefined-as-
+zero path -- checked directly, not assumed, before swapping the
+implementation.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import pandas as pd
 
 from src.signals.moving_averages.features import state
 from src.signals.moving_averages.features.panel import apply_lag
+from src.signals.moving_averages.features.regime import efficiency_ratio
 from src.signals.moving_averages.stats.controls import cross_sectional_bucket
 from src.signals.moving_averages.stats.survival import gbm_null_survival, kaplan_meier, survival_at
 
@@ -40,19 +46,6 @@ N_ER_BUCKETS = 3
 GBM_N_PATHS = 2000
 GBM_N_DAYS = 1500
 GBM_N_GROUPS = 100
-
-
-def efficiency_ratio(close: pd.Series, period: int = 10) -> pd.Series:
-    """Kaufman's Efficiency Ratio -- identical formula to
-    `features/kernels.py::kama`'s own inline computation (duplicated here
-    deliberately, see this module's own docstring), NOT re-imported from
-    there: `kama`'s own ER is a private implementation detail of that one
-    kernel, not exposed as a standalone function, and this module needs it
-    as a first-class per-day feature in its own right.
-    """
-    change = (close - close.shift(period)).abs()
-    volatility = close.diff().abs().rolling(period).sum()
-    return (change / volatility).fillna(0.0)
 
 
 def slope_column(lookback: int) -> str:

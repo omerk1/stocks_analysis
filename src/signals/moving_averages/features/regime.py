@@ -6,13 +6,14 @@ condition on a forward outcome (CLAUDE.md invariant #2).
 
 `efficiency_ratio` is the same Kaufman construction `features/kernels.py
 ::kama` already computes inline for its own adaptive smoothing constant --
-extracted here as a standalone, reusable function (PREREGISTRATION.md's
-M9 entry names this explicitly: a sibling M6.4 fork needs the identical
-formula for its own regime stratification, run in parallel, so the exact
-formula matters for eventual reconciliation, not just this module's own
-correctness). `kernels.py::kama` is left as its own inline computation
-(not refactored to import this) to avoid touching already-merged, tested
-code for a module outside this one's own scope -- noted, not resolved.
+extracted here as a standalone, reusable function. **Reconciled 2026-09-25**:
+`modules/slope_persistence.py` (M6.4), which had built its own local,
+temporary copy of this identical formula in parallel before this module
+landed, now imports this one directly. `kernels.py::kama` is still left as
+its own inline computation (not refactored to import this) to avoid
+touching already-merged, tested code for a module outside this one's own
+scope -- noted, not resolved, lower priority (no known correctness
+difference there, unlike the M6.4 case).
 """
 
 from __future__ import annotations
