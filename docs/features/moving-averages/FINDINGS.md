@@ -1649,6 +1649,91 @@ applied would be the single most informative next step for this whole module.
 
 ---
 
+## M14 — Integration with existing detectors (2026-09-25)
+
+### `above_sma_50` reclaims inside a VCP breakout — opposite sign from the pooled reading, survives its own extension check
+
+**Hypothesis:** M14's own pooled primary cell (an `above_sma_50` reclaim's forward
+return, conditioned on occurring shortly after *any* high-confidence chart-pattern
+breakout) failed a direct extension-neutralized control — the effect attenuated ~52%
+and its CI moved to spanning zero, read as substantially a re-encoding of M6.3's own
+extension/momentum-exhaustion finding rather than new pattern-detection information.
+This addendum (requested by the coordinating session and the user, a single targeted
+follow-up, not a full 7-pattern-type sweep) asks: does that extension-confound result
+hold specifically inside VCP formations, or does VCP behave differently? **Why VCP
+specifically:** VCP (volatility contraction pattern) is itself an MA-native
+construction — contraction around moving averages, the same Minervini-style
+methodology M2's own Trend Template already tested in this study — unlike the other 6
+pattern types (double-top/bottom, H&S, triangles/wedges, cup & handle, reversal-123),
+which have no particular theoretical connection to *why* an MA reclaim inside them
+would behave differently.
+
+**Why plausible:** if VCP's own contraction/breakout structure is genuinely about a
+moving-average-relevant mechanism (price coiling tightly around its own MAs before
+breaking out), a reclaim occurring right after such a breakout could plausibly reflect
+something MA-specific rather than the generic "the stock already moved, this is just
+extension" story the pooled cell's own construction can't rule out.
+
+**What was run:** the identical `decisive_test`/extension-neutralized construction as
+the pooled primary cell (`modules/pattern_context.py`), restricted to a VCP-only
+`patterns` input (`pattern_type == "vcp"`). Effective-N gate checked and passed
+*before* running the decisive test (per the coordinating session's explicit
+instruction): 505 in-context `above_sma_50` reclaim events, 409 distinct dates, 227
+tickers — clears this study's own `MIN_EVENTS=200`/`MIN_DATES=30`/`MIN_TICKERS=30`
+floor, though much thinner than the pooled cell's 10,858 in-context events.
+
+**The numbers:** default C2 **+1.8298%** on `fwd_ret_21`, 90% CI **[+1.0600%,
++2.7680%]** — excludes zero, **opposite sign from the pooled cell** (−0.4045%).
+Extension-neutralized (the same `ext_tercile` check that killed the pooled cell):
+**+1.9852%**, CI **[+1.4334%, +2.6072%]** — **not attenuated at all**, if anything
+marginally stronger. VCP reclaims are not extension in disguise the way the pooled
+population's reclaims were.
+
+**Effective N (bootstrap-contributing, not just raw):** the default-C2 bootstrap's own
+stratum construction finds both group values present on 131 distinct dates — still
+comfortably above this study's 30-date floor, but a real, worth-naming precision gap
+relative to the pooled cell's much larger contributing-date count.
+
+**Cost:** VCP in-context reclaim rate 0.185/ticker-yr → hurdle 0.0185%/yr (`stats/costs.py`,
+10bps/rt). Annualized (×12): point +21.96%/yr, near edge +12.72%/yr, far edge
++33.22%/yr. **Clears at every reading, by the widest margin of any cell in this
+study** — expected, given how rare and high-conviction this specific event
+(a reclaim shortly after a confirmed VCP breakout) is by construction.
+
+**Reversal-robustness — attempted, not resolved, an honest gap:** adding
+`rev_tercile` to the match set raised `InsufficientBlocksError` (only 112 dates have
+both group values present at that finer stratification, below the 126-date minimum
+for this study's standard 42-day block length). **Not forced by shrinking the block
+length** — reported as an open, untested confound specific to this cell, unlike the
+pooled cell where reversal was directly checked and ruled out.
+
+**Tier:** 3. CI excludes zero at both the default and extension-neutralized readings,
+clears cost by the widest margin in this study, clears the pre-registered effective-N
+floor (though thinner than the pooled cell) — capped by this study's standard missing
+FDR/holdout infrastructure, plus the open reversal-robustness gap above.
+
+**Why this probably isn't (only) what it looks like — argue against your own result:**
+two open items. (1) Reversal is untested at this specific cell (see above) — the
+pooled cell's own reversal-robustness result doesn't automatically transfer, since VCP
+reclaims could plausibly have different short-term reversal dynamics than the pooled
+population. (2) Shape stats (descriptive only, CLAUDE.md invariant #10): hit rate
+68.9% vs. 61.3% out-of-context (favorable), win/loss ratio 1.134 vs. 1.132 (essentially
+identical, not itself favorable), skew −0.770 vs. −0.065 (**notably more negative
+in-context** — a real asymmetry: the average outcome is better, but the left tail is
+fatter, not a uniform improvement across the whole distribution).
+
+**Plateau check:** not directly applicable (a single VCP-vs-pooled split, not a
+parameter sweep) — VCP's result doesn't contradict the pooled cell's own
+null-after-extension finding, since VCP was explicitly carved out because it plausibly
+has a different underlying mechanism; two genuinely different populations producing
+two genuinely different, internally-consistent results, not a contradiction needing
+reconciliation.
+
+**What would change the verdict:** more data (a longer sample or a broader universe
+tier) to make the reversal-robustness check computable; a holdout check; a second
+universe tier — the standard missing-infrastructure caps every Tier-3 cell in this
+study carries.
+
 ## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
 
 ### MACD histogram carries incremental information over the MA feature set — not redundant with M3/M6, contrary to DESIGN's own prior
