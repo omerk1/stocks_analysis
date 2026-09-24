@@ -4947,3 +4947,51 @@ signal-line diagnostic (agreement-rate only, no CI); RSI's reverse correlation a
 `dist_z_sma_20` (a period mismatch — RSI is 14-day, the closest cached SMA lookback is
 20 — named explicitly, not hidden); the RSI ambiguous-region sub-question (a restricted
 re-reading of cell 3's own population, not a new hypothesis).
+
+### Result (2026-09-25)
+
+**Module-level verdict: none of the three sub-parts killed by DESIGN's own literal
+criteria — but only MACD histogram's own cell is actually CI-confirmed. RSI and
+stochastics are genuinely inconclusive (wide CI, neither killed nor confirmed), not a
+clean null.**
+
+**M17.1 (MACD): not killed, and confirmed at the primary horizon — contrary to
+DESIGN's own ~75%-likely prior.** Incremental IC +0.8948%, CI [+0.0023%, +1.8718%] —
+excludes zero, though barely. Redundancy check: correlation with `dist_pct_sma_50`
+(+0.30) and `slope_log_21_sma_50` (−0.25) both far under the 0.89 non-redundancy bar —
+MACD is not clustered with the MA-spread family. Neither half of the kill criterion
+fires. **Tier 3** — capped by an unresolved short-term-reversal confound (this
+module's control block has no `mom_1_0`/`rev_tercile`), not by missing infrastructure
+alone. Full reasoning: `FINDINGS.md`.
+
+The histogram-divergence event test (the module's other M17.1 cell) is genuinely
+inconclusive: CI [−0.0945%, +0.0692%] spans zero. **Process gap named honestly**: this
+cell was declared as counted in the pre-registration above but never given its own
+explicit numeric kill floor before running — only the incremental-IC cell got one.
+Doesn't change the outcome (the CI spans zero regardless of what floor would apply),
+but it's a real lapse for this run, not silently patched after the fact.
+
+**M17.2 (RSI): not killed at either horizon (edges 1.47%/2.32%, both >> 0.005), and
+not confirmed either (both CIs span zero).** Point estimates negative and growing with
+horizon (−0.42% at 21d, −0.99% at 63d) — directionally consistent with RSI's classic
+mean-reversion framing, not statistically confirmed. The ambiguous-region sub-question
+(bottom tercile of `|dist_pct_sma_50|`) flips the 21d point estimate positive (+0.90%,
+CI [−0.26%,+2.12%]) — directionally exactly DESIGN's own "strongest possible case for
+RSI" prediction, still not CI-confirmed. Reverse correlation against `dist_z_sma_20`:
+0.86, just under the 0.89 bar, matching DESIGN's own "expect a lot" prediction. Tier 4
+throughout.
+
+**M17.3 (Stochastics %K): same shape as RSI — not killed (edges 0.87%/1.49%), not
+confirmed (both CIs span zero).** Point estimate at 21d is essentially zero (−0.07%),
+the flattest reading in the whole module. Tier 4 throughout.
+
+**Module-level kill criterion:** does not fire for any of the three sub-parts (per
+DESIGN's own literal, per-sub-part wording — this module has no single combined
+kill rule across M17.1/17.2/17.3).
+
+**Logged:** `EXPERIMENTS.csv` (10 rows: 6 counted primary cells — MACD histogram
+incremental IC, MACD histogram divergence event, RSI incremental IC ×2 horizons,
+stochastic %K incremental IC ×2 horizons — + 4 non-counted diagnostics); `FINDINGS.md`
+(1 entry, MACD histogram, Tier 3, covering the RSI/stochastics inconclusive results and
+the pre-registration process gap in the same entry per this study's own multi-outcome
+module convention).
