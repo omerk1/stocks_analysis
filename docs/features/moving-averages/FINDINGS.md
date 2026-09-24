@@ -1733,3 +1733,112 @@ reconciliation.
 tier) to make the reversal-robustness check computable; a holdout check; a second
 universe tier — the standard missing-infrastructure caps every Tier-3 cell in this
 study carries.
+
+## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
+
+### MACD histogram carries incremental information over the MA feature set — not redundant with M3/M6, contrary to DESIGN's own prior
+
+**Hypothesis:** DESIGN's own M17.1 kill criterion — if MACD/PPO features fall inside
+the MA-spread cluster and add < 0.005 incremental IC over the existing MA feature set,
+fold MACD into "redundant with M3/M6." DESIGN's own prior: ~75% likely this holds.
+
+**Why it was plausible:** MACD is literally a spread between two EMAs — mechanically,
+"just" a difference of moving averages, so DESIGN's own skeptical prior that it adds
+nothing beyond what M3 (crossover spreads) and M6 (slope) already capture is a
+reasonable starting point.
+
+**What was run:** per-date cross-sectional partial correlation — `macd_histogram`
+(12,26,9 canonical parameters, via `market_common.indicators.macd`) residualized
+against a compact "full MA feature set" control block (`dist_pct_sma_50`,
+`slope_log_21_sma_50`, `mom_12_1` — one representative feature from each of this
+study's three main MA-derived predictor families, at the SMA50 lookback this study
+already treats as its own frequent primary reference) via one OLS per date, then
+Spearman rank-IC of the residual against `fwd_ret_21`, block-bootstrapped
+(`block_bootstrap_series`, block length 42, 500 draws, 90% CI, seed 0) — DESIGN's own
+named "incremental IC" method, generalizing M6.1's own single-control version to a
+multi-control block. Separately, a redundancy-correlation substitute for the (not yet
+available) M16 kernel-space cross-check: per-date median Spearman between
+`macd_histogram` and two representative MA-spread features.
+
+**The numbers:** incremental IC **+0.8948%**, 90% CI **[+0.0023%, +1.8718%]** — CI
+*barely* excludes zero (the lower edge sits at 0.0023%, not a comfortable margin).
+Redundancy check: `macd_histogram` vs. `dist_pct_sma_50` median Spearman **+0.30**;
+vs. `slope_log_21_sma_50` **−0.25** (notably negative — MACD histogram measures
+trend *acceleration/deceleration*, not trend direction itself, so it can read negative
+exactly when the 21-day slope is strongly positive but decelerating). Both far under
+this study's 0.89 non-redundancy bar. **Neither half of the kill criterion fires**:
+MACD is not clustered with the MA-spread family, and its own incremental IC does not
+fall below the 0.005 floor.
+
+**Effective N:** 1,111,635 rows, 2,747 distinct dates, 405 tickers.
+
+**Cost:** not applicable — this is a diagnostic/redundancy IC question, not a
+standalone tradeable claim, same convention as M6.1's own incremental-IC decisive
+test.
+
+**Tier:** 3 — a real but marginal effect (the CI barely excludes zero), capped by an
+unresolved confound named below, on top of this study's standard missing FDR/holdout
+infrastructure.
+
+**Why this probably isn't (only) what it looks like — argue against your own result:**
+this module's control block includes `mom_12_1` (a 12-month momentum measure that
+skips the most recent month) but nothing capturing *short-term* momentum or reversal
+(`mom_1_0`/`rev_tercile`, the confound this study has already found partially explains
+results in M2, M6.3, and M12). MACD's histogram is mechanically sensitive to recent
+price acceleration over a matter of days to a few weeks — almost exactly the horizon
+an uncontrolled short-term-reversal effect would operate at. No reversal-robustness
+check has been run on this cell. Given how close the CI sits to zero already, this is
+a real, not merely theoretical, risk to the effect's survival under a tighter control
+set.
+
+**Plateau check:** not applicable — a single primary-horizon cell, not a swept
+parameter grid (DESIGN's own M17.1 text doesn't ask for a lookback/horizon sweep the
+way M6.1's slope-vs-momentum horse race did).
+
+**What would change the verdict:** a reversal-robustness check (adding `rev_tercile`
+to the control block, this study's own established precedent) — if the CI comes to
+span zero once short-term reversal is controlled for, this cell would read the same
+way M6.3's SMA200 cell did (a real gross effect that doesn't survive a tighter
+control). Also: revisiting the redundancy check once M16's own kernel-space
+clustering is available, per this module's own named deferral.
+
+### RSI and stochastics %K: inconclusive at every horizon tested — neither killed nor confirmed
+
+DESIGN's own M17.2/M17.3 kill criterion (RSI, then "same kill criterion" for
+stochastics %K): if incremental IC over the MA feature set is < 0.005 at every horizon
+tested, conclude "path composition carries no information beyond net displacement at
+these horizons." **Neither fires** — RSI's own edges are 1.47% (21d) and 2.32% (63d);
+stochastic %K's are 0.87% (21d) and 1.49% (63d), all comfortably above the 0.005
+floor. **But neither is confirmed either**: every one of the four CIs spans zero
+(RSI: [−1.47%,+0.68%] at 21d, [−2.32%,+0.48%] at 63d; stochastic %K:
+[−0.87%,+0.72%] at 21d, [−1.49%,+0.29%] at 63d) — the same "wide CI, no detected
+effect" shape M6.1's own decisive test produced. Tier 4 for all four cells, no
+promotion.
+
+RSI's point estimates are negative and grow with horizon (−0.42% at 21d, −0.99% at
+63d) — directionally consistent with RSI's classic overbought/oversold (mean-reversion)
+framing, but not statistically confirmed at either horizon. **One targeted sub-question
+worth naming, not promoting**: restricting to the bottom tercile of `|dist_pct_sma_50|`
+(price near its own 50-day MA, where linear MA features are most ambiguous — DESIGN's
+own "strongest possible case for RSI" framing), RSI's incremental IC at 21d flips
+positive and grows in magnitude (+0.90%, CI [−0.26%,+2.12%]) — directionally exactly
+what DESIGN's own sub-question predicted, but the CI still spans zero, so this is a
+suggestive point-estimate shift, not a confirmed effect. RSI's own reverse-correlation
+check (median Spearman against `dist_z_sma_20`, noting the RSI-period-14-vs-SMA-
+lookback-20 mismatch) came back at **0.86** — high, matching DESIGN's own explicit
+"expect a lot" prediction, just under this study's 0.89 non-redundancy bar.
+
+**What would change the verdict:** more statistical power (a longer holdout-safe
+window isn't available; a different horizon grid or a less noisy control block might
+narrow these CIs); the ambiguous-region sub-question is the single most promising
+candidate for a dedicated follow-up given its point-estimate sign flip.
+
+### Process note, named honestly: one declared cell shipped without its own numeric kill threshold
+
+The histogram-divergence event test (`nonlinearity_macd_histogram_divergence_event`)
+was declared as a counted cell in `PREREGISTRATION.md` but never given its own
+explicit magnitude floor before running — only the histogram incremental-IC cell got
+one. The result itself is unambiguous regardless (CI [−0.094%,+0.069%] spans zero,
+inconclusive either way), so this gap didn't change any outcome, but it's a real
+pre-registration lapse for this module, named here rather than silently patched with a
+threshold chosen after seeing the number.

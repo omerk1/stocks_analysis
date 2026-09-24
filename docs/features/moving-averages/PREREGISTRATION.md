@@ -5115,3 +5115,134 @@ study carries.
 cell, VCP extension-neutralized companion, VCP reversal-robustness attempt logged as
 `insufficient_blocks` — not silently omitted — only the primary VCP cell counted
 toward `N_tests`); `FINDINGS.md` (1 entry — Tier 3).
+
+## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
+
+**Module / track:** M17, Track B (DESIGN.md lines ~867-887). Not part of the original
+minimal-core list — post-termination "Batch 4" module (`HANDOVER.md`'s own scoping),
+run alongside sibling M16 and M14 forks, each in its own isolated worktree. Unlike
+Batches 1-3, Batch 4 is explicitly sequenced last because M16/M17/M14 read better with
+the already-landed modules in hand — not because it depends on them structurally,
+except for one specific M17.1 sub-question named below.
+
+**Hypothesis, DESIGN's own framing:** M16 (a sibling fork, run in parallel, not landed
+before this module) establishes that MA rules are linear filters of past returns —
+that framing has a blind spot: any information carried by the *asymmetry* or
+*composition* of a return path, not just its net displacement, is invisible to every
+M1-M16 feature. This module tests three distinct mathematical operations on a return
+window that no MA feature can represent: gain/loss decomposition (MACD, M17.1),
+gain/loss asymmetry (RSI, M17.2), and rank-within-range (stochastics %K, M17.3).
+
+**Deferred, not silently dropped:** M17.1's own DESIGN text asks whether MACD/PPO
+"clusters with the MA-spread features in kernel space" — that specific cross-check
+needs M16's own kernel-clustering output, which does not exist yet (M16 runs in
+parallel, in its own worktree). Substituted with a direct per-date median Spearman
+correlation against two representative MA-spread features (`dist_pct_sma_50`,
+`slope_log_21_sma_50`), against this study's own 0.89 non-redundancy bar — a proxy for
+"same cluster," not the literal kernel-space comparison DESIGN's text asks for.
+Revisit once M16 lands.
+
+**Scope simplification, named not hidden:** DESIGN's text says "MACD/PPO" together.
+PPO (percentage MACD) would just be MACD normalized by price level — not separately
+computed here; MACD's own line/signal/histogram are used directly for every M17.1 test.
+
+**"Full MA feature set" control block — a documented scope choice, not literally every
+M1-M18 feature (that regression would be badly multicollinear and uninterpretable):**
+`dist_pct_sma_50` (distance), `slope_log_21_sma_50` (slope), `mom_12_1` (momentum) —
+one representative feature from each of this study's three main MA-derived predictor
+families, at the SMA50 lookback this study already uses as its own frequent "primary"
+reference (M3's classic pair, M6.2's own focus, M8's own matched-lag reference).
+
+**Kill criteria, DESIGN's own literal wording, one per sub-part:**
+- **M17.1 (MACD):** if MACD histogram falls inside the MA-spread cluster (per the
+  deferred-check substitute above, against the 0.89 bar) AND its own incremental IC
+  over the control block is < 0.005 at the primary horizon (21d), fold MACD into
+  "redundant with M3/M6." DESIGN's own prior: ~75% likely.
+- **M17.2 (RSI):** if RSI's incremental IC over the control block is < 0.005 at every
+  horizon tested (21d, 63d — DESIGN's own "every horizon" wording, scoped to these two
+  for this run), conclude "path composition carries no information beyond net
+  displacement at these horizons."
+- **M17.3 (Stochastics %K):** same kill criterion as M17.2, DESIGN's own literal text
+  ("Same kill criterion").
+
+**Control tier:** per-date cross-sectional partial correlation (residualize the
+oscillator feature against the full `CONTROL_COLS` block via one OLS per date, then
+Spearman rank-IC of the residual against forward return) — DESIGN's own named
+"incremental IC" method, generalizing M6.1's own single-control version
+(`_daily_incremental_ic`) to a multi-control block. The histogram-divergence event test
+(M17.1's own decisive cell) instead uses this study's standard C2 restrict-then-delta
+construction (`mom_tercile`/`vol_tercile`/`sector`), matching M3/M6.2's own event-test
+convention — a genuinely different construction (event-based, not IC-based), not a
+second reading of the same statistic.
+
+**New machinery:** `features/oscillators.py` (MACD/RSI wrappers over
+`market_common.indicators`, a new local stochastic-%K build — checked directly, no
+existing wrapper for it in `market_common.indicators`); `modules/nonlinearity_probe.py`
+(the multi-control incremental-IC generalization, the histogram-divergence event
+detector, the RSI ambiguous-region sub-question). Reuses `features/regime.py::efficiency_ratio`
+(already shared, M9) for the RSI×ER interaction term — not a third copy.
+
+**Declared cells, counted toward `N_tests`:**
+1. MACD histogram incremental IC @ 21d (primary horizon only — the correlation
+   check above is a supporting diagnostic, not itself a CI-based hypothesis test).
+2. MACD histogram divergence event delta (fwd_ret_21, C2).
+3. RSI incremental IC @ 21d.
+4. RSI incremental IC @ 63d.
+5. Stochastic %K incremental IC @ 21d.
+6. Stochastic %K incremental IC @ 63d.
+
+**Declared, NOT counted (companions/diagnostics, same convention as every prior
+module's robustness/descriptive rows):** the MACD-vs-MA-spread correlation table
+(descriptive input to cell 1's kill criterion, no CI of its own); the zero-line-vs-
+signal-line diagnostic (agreement-rate only, no CI); RSI's reverse correlation against
+`dist_z_sma_20` (a period mismatch — RSI is 14-day, the closest cached SMA lookback is
+20 — named explicitly, not hidden); the RSI ambiguous-region sub-question (a restricted
+re-reading of cell 3's own population, not a new hypothesis).
+
+### Result (2026-09-25)
+
+**Module-level verdict: none of the three sub-parts killed by DESIGN's own literal
+criteria — but only MACD histogram's own cell is actually CI-confirmed. RSI and
+stochastics are genuinely inconclusive (wide CI, neither killed nor confirmed), not a
+clean null.**
+
+**M17.1 (MACD): not killed, and confirmed at the primary horizon — contrary to
+DESIGN's own ~75%-likely prior.** Incremental IC +0.8948%, CI [+0.0023%, +1.8718%] —
+excludes zero, though barely. Redundancy check: correlation with `dist_pct_sma_50`
+(+0.30) and `slope_log_21_sma_50` (−0.25) both far under the 0.89 non-redundancy bar —
+MACD is not clustered with the MA-spread family. Neither half of the kill criterion
+fires. **Tier 3** — capped by an unresolved short-term-reversal confound (this
+module's control block has no `mom_1_0`/`rev_tercile`), not by missing infrastructure
+alone. Full reasoning: `FINDINGS.md`.
+
+The histogram-divergence event test (the module's other M17.1 cell) is genuinely
+inconclusive: CI [−0.0945%, +0.0692%] spans zero. **Process gap named honestly**: this
+cell was declared as counted in the pre-registration above but never given its own
+explicit numeric kill floor before running — only the incremental-IC cell got one.
+Doesn't change the outcome (the CI spans zero regardless of what floor would apply),
+but it's a real lapse for this run, not silently patched after the fact.
+
+**M17.2 (RSI): not killed at either horizon (edges 1.47%/2.32%, both >> 0.005), and
+not confirmed either (both CIs span zero).** Point estimates negative and growing with
+horizon (−0.42% at 21d, −0.99% at 63d) — directionally consistent with RSI's classic
+mean-reversion framing, not statistically confirmed. The ambiguous-region sub-question
+(bottom tercile of `|dist_pct_sma_50|`) flips the 21d point estimate positive (+0.90%,
+CI [−0.26%,+2.12%]) — directionally exactly DESIGN's own "strongest possible case for
+RSI" prediction, still not CI-confirmed. Reverse correlation against `dist_z_sma_20`:
+0.86, just under the 0.89 bar, matching DESIGN's own "expect a lot" prediction. Tier 4
+throughout.
+
+**M17.3 (Stochastics %K): same shape as RSI — not killed (edges 0.87%/1.49%), not
+confirmed (both CIs span zero).** Point estimate at 21d is essentially zero (−0.07%),
+the flattest reading in the whole module. Tier 4 throughout.
+
+**Module-level kill criterion:** does not fire for any of the three sub-parts (per
+DESIGN's own literal, per-sub-part wording — this module has no single combined
+kill rule across M17.1/17.2/17.3).
+
+**Logged:** `EXPERIMENTS.csv` (10 rows: 6 counted primary cells — MACD histogram
+incremental IC, MACD histogram divergence event, RSI incremental IC ×2 horizons,
+stochastic %K incremental IC ×2 horizons — + 4 non-counted diagnostics); `FINDINGS.md`
+(1 entry, MACD histogram, Tier 3, covering the RSI/stochastics inconclusive results and
+the pre-registration process gap in the same entry per this study's own multi-outcome
+module convention).
