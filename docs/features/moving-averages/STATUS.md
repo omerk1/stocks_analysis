@@ -42,6 +42,10 @@ every tested facet, whatever it found); this file points there rather than re-de
 | **M6.5** — The SMA drop-off artefact | 14th, post-termination Batch 2, 2026-09-23 (PR #88, reverted via #92, restored via #93) | **Both primary cells inconclusive — not killed, not confirmed, and fails its own plateau check.** SMA50 pooled: C2 −0.081% CI [−0.255%,+0.102%]. SMA200 pooled: +0.134% CI [−0.196%,+0.458%]. Neither CI excludes zero; neither clears the module's own 0.15% kill floor either (edges 0.255%/0.458%). **Opposite-sign point estimates between the two lookbacks — plateau check fails**, same flat/sign-flipping-null shape M6.1's own decisive test produced. **One flagged-not-promoted companion, pre-registered as not counted toward `N_tests`:** the SMA200 down-only flip split (DESIGN's own literal "rolling over" example) does clear the kill floor — price-driven down-flips outperform drop-off-driven down-flips by +1.029%/21d, CI [+0.231%,+1.716%] — but the leading alternative explanation (uncontrolled short-term reversal, the same confound M2/M6.3 already found elsewhere) hasn't been checked for this specific cell, so it stays a flagged open question, not a claim. | 2 primary cells (SMA50, SMA200) declared and run as 2 — different lookbacks' flip-event populations are largely disjoint (a 50-day and 200-day SMA don't flip sign on the same days), no redundancy-check needed the way same-date-value column pairs get one. Contributes 2 to the 2026-09-24 whole-grid FDR re-run. | Not applicable — mechanism/diagnostic question about whether an existing slope construction's flips are contaminated by the drop-off artefact, not a standalone tradeable claim (same convention as M5/§7.5). | Post-termination "Batch 2" module. New machinery: `modules/sma_dropoff.py` (entering-bar/exiting-bar slope-change decomposition). Explicitly does not resolve whether M6.1/M6.3's own 21-day `slope_log_21` results are drop-off-contaminated (this module only decomposes the 1-day raw slope) — left as an open question, not assumed either way. | `PREREGISTRATION.md` M6.5 entry; `EXPERIMENTS.csv` (10 rows: 2 primary + 4 direction-split companions + 4 diagnostics); no `FINDINGS.md` entry (both primary cells Tier 4). |
 | **M6.6** — Slope agreement across the ribbon | 15th, post-termination Batch 2, 2026-09-23 (PR #90) | **DESIGN's own stated expectation held exactly — drawdown is where the signal is, return is not.** `ribbon_agreement_extreme_drawdown` (ordinal state 5 vs. state 0 of {10,20,50,100,200}-day SMA slope signs, on `fwd_mdd_21`): **Tier 3**, C2 +0.6538% CI [+0.4379%,+0.8870%], clears cost at every reading (0.5415%/yr hurdle vs. point +7.85%/yr, near edge +5.25%/yr), survives reversal-robustness (~18% attenuation, CI still excludes zero). **2026-09-24 whole-grid FDR re-run: this cell is now the study's smallest p-value ever (p≈0.00000), the new rank-1 survivor at N=79** — but stays capped at Tier 3 by its own magnitude-vs-signed-return actionability gap (an avoided-loss/drawdown-shallowing read, not a direct realized-return claim — the same limitation M7's `ribbon_direction_magnitude` carries, and which that cell no longer even needs since it drops out of FDR survivorship at the larger N — see the FDR section below). `ribbon_agreement_extreme_return` (same restriction, on `fwd_ret_21`): Tier 4, CI spans zero. **Required correlation matrix** (regardless of outcome, DESIGN's own text): pairwise per-date median Spearman among `slope_log_21` at {10,20,50,100,200} ranges 0.279 (10-vs-200) to 0.887 (10-vs-20, right at this study's 0.89 non-redundancy bar) — the ribbon does not collapse to a single MA's own slope. | 2 declared, run as 2 — different outcome variables (`fwd_mdd_21` vs. `fwd_ret_21`) on the same state5-vs-state0 restriction, not a robustness check of the same hypothesis (kept independent, same treatment M2's `stack_fully_bullish`/`stack_fully_bearish` pair received). Contributes 2 to the 2026-09-24 whole-grid FDR re-run. | `ribbon_agreement_extreme_drawdown`: 0.5415%/yr hurdle vs. point +7.85%/yr, near edge +5.25%/yr, far edge +10.64%/yr — clears at every reading, with the avoided-loss caveat named above. | Post-termination "Batch 2" module. New machinery: `labels/path_metrics.py::forward_max_drawdown` (independently built here; M3's own fork was separately told it might need the same function and didn't collide since neither depended on the other landing first). New local (not shared-panel) `sma_10`/`sma_100` + their `slope_log_21`, DESIGN's own named lookback set, not the panel's {20,50,150,200}. | `PREREGISTRATION.md` M6.6 entry + Result addendum; `FINDINGS.md` (1 entry, `ribbon_agreement_extreme_drawdown`); `EXPERIMENTS.csv` (3 rows). |
 | **M12** — Volume and liquidity interaction | 16th, post-termination Batch 2, 2026-09-23 (PR #91) | **`dollar_volume`/SMA50 survives — Tier 3, opposite sign from DESIGN's own hypothesis.** C2 −0.8696% CI [−1.3809%,−0.4019%], clears cost cleanly (0.291%/yr hurdle vs. point −10.44%/yr, near edge −4.82%/yr — the largest cost-viability margin of any Tier-3 cell in this study), survives reversal-robustness (~34% attenuation, CI still excludes zero). **Sign is opposite DESIGN's own hypothesis**: bottom-dollar-volume reclaims outperform top-dollar-volume reclaims, not the reverse. **2026-09-24 whole-grid FDR re-run: this cell newly clears FDR too (p=0.00348, rank 3 of 79)** — but **not promoted to Tier 2**: this panel has no point-in-time market-cap/size control (`HANDOVER.md`'s own infra inventory), and dollar volume correlates strongly with size, so an uncontrolled small-cap/illiquidity premium remains at least as plausible as a genuine reclaim-durability mechanism — an open, *un*resolved confound (unlike M6.3's tail-decomposition, nothing here has directly ruled it out), same "flagged, not promoted" treatment M18's `dist_from_52w_low_h126` already received for an analogous reason. `dollar_volume`/SMA20: Tier 4 — same direction, but does *not* survive reversal-robustness (CI now spans zero, ~47% attenuation) — reads as a reversal artifact. `relative_volume`/SMA200 hold-rate companion: Tier 3, mechanism read, no cost — the one cell supporting DESIGN's literal hypothesis in the stated direction. Every other cell (6 of 9 primary): Tier 4, flat. | 9 primary cells (3 sub-questions × 3 lookbacks) declared as 9, **independence explicitly checked this session (2026-09-24)** — M12's own pre-registration had left this unchecked ("not checked for correlation before declaring... cheap to run both rather than spend the check"), a real gap by this study's own standard (every other multi-feature grid, M4/M18, got this check before being counted). Per-date median Spearman across all pairs of {`relative_volume`, `dollar_volume`, `vwma_divergence`-at-own-lookback}: 0.00–0.41 (highest: `vwma_divergence_20` vs. `vwma_divergence_50`, expected from overlapping windows) — well under this study's 0.89 bar. All 9 confirmed independent, kept as 9. Contributes 9 to the 2026-09-24 whole-grid FDR re-run. | `dollar_volume`/SMA50: 0.291%/yr hurdle vs. point −10.44%/yr, near edge −4.82%/yr, far edge −16.57%/yr — clears at every reading. | Post-termination "Batch 2" module. New machinery: `features/liquidity.py` (`relative_volume`, `dollar_volume`, a minimal module-local `vwma` stub — full VWMA kernel deferred to M8). | `PREREGISTRATION.md` M12 entry + reversal-robustness addendum; `FINDINGS.md` (2 entries: `dollar_volume`/SMA50, `relative_volume` hold-rate/SMA200); `EXPERIMENTS.csv` (14 rows). |
+| **M8** — MA family horse race at matched lag | 17th, post-termination Batch 3, 2026-09-24 (PR #97) | **Module killed — DESIGN's own ~80%-likely prior holds.** Lag-matching methodology: each family's own average lag measured empirically via an impulse-response center-of-mass test (`features/kernels.py::impulse_center_of_mass`), validated against SMA/EMA's known-exact closed form `(period-1)/2` before trusting it for HMA/DEMA (no independent closed form). Reference lag: SMA(50)'s own COM = 24.5 days; matched periods SMA=50, EMA=50, WMA=74, DEMA=224, VWMA=50 (a constant-volume idealization reduces exactly to SMA). **HMA's lag reduction is so extreme that literal matching to 24.5 days would need a ~1,900-day period** — impractical given this panel's ~3,000-day history; reported at the idiomatic "same n=50" convention instead, with its own much-shorter realized lag (~1.67 days) stated explicitly, not hidden. KAMA used canonical params (10/2/30) — its own impulse-response COM (162.5) is a documented artifact of the test itself against KAMA's own adaptive mechanism, not a meaningful lag number. **Best candidate (HMA) nominally clears the 0.10% magnitude floor over EMA (+0.1059%, date-equal-weighted) but White's Reality Check p=0.193** — far from this study's 0.10 convention. All 7 families' primary cells cluster tightly (−0.127% to −0.206%), same sign, overlapping CIs — the cleanest plateau-check confirmation in this study's history that kernel shape doesn't matter. All 7 fail cost at the CI edge. Tier 4, no `FINDINGS.md` entry. | 8 declared (7 family cells + 1 Reality Check summary), **all `counted_in_n_tests=False`** — Reality Check's own empirical bootstrap p-value (from a max-order-statistic null, already internally corrected for comparing 6 candidates) is methodologically incompatible with the whole-grid pass's Wald-approximate CI-based p-values; BH-correcting it again would double-count the same multiplicity question. Contributes 0 to the whole-grid FDR re-run. | Not evaluated per-family (all fail cost at the CI edge; hurdles 1.52–3.61%/yr vs. 0.30–0.79%/yr near-edge magnitudes) — not the module's decisive test regardless (Reality Check is). | Post-termination "Batch 3" module (`HANDOVER.md`'s own scoping — unlike Batches 1/2, run 1-2 at a time, not 4-way parallel; ran alongside a sibling M10 fork, explicitly not touching `features/panel.py`, M10's own exclusive file this batch). New machinery: `features/kernels.py` (WMA/HMA/DEMA/KAMA/VWMA + lag-matching tools), `stats/multiple_testing.py::white_reality_check` (White 2000, new). | `PREREGISTRATION.md` M8 entry; `EXPERIMENTS.csv` (8 rows); no `FINDINGS.md` entry (Tier 4). |
+| **M10** — Timeframe and sampling | 18th, post-termination Batch 3, 2026-09-24 (PR #98) | **Clean null — DESIGN's own hypothesis ("weekly MAs offer a better lag/whipsaw tradeoff") does not hold.** DESIGN's own "key control" (construction c: daily SMA evaluated Fridays-only, isolating sampling frequency from lookback) killed cleanly at all 3 lookbacks — gaps of −0.02pp/+0.02pp/−0.03pp vs. construction (a) (daily, evaluated daily), all far under the 0.10% floor, CIs overlapping heavily. The bar-aggregation effect (construction b, weekly-native SMA{10,30,40} vs. construction c) is small and directionally consistent (weekly-native always slightly less negative, all 3 matched pairs) but not distinguishable from noise. Well-powered throughout (64,757–432,955 events, 402 tickers per cell). Tier 4 throughout, no `FINDINGS.md` entry. Real bugs caught and fixed against real-panel data before logging: a `merge_asof` global-sort requirement, a datetime64 dtype mismatch between a fresh weekly resample and the cached daily panel, a silent `sector`-column merge collision (now covered by a regression test). Also flagged, not resolved: M1's own logged `n_events` for `above_sma_50` (743,745) doesn't match a fresh recomputation on the identical panel (432,955) despite matching point estimate/CI closely — likely a pre/post-C2-eligibility-restriction labeling inconsistency in M1's historical row, named for whoever next touches M1, not audited here. | 9 declared, **7 counted** — `(a)/lb50` and `(a)/lb200` are exact duplicates of M1's own already-counted `above_sma_50`/`above_sma_200` cells (confirmed via a fresh run of `baseline_state.py`'s own construction on the identical panel), excluded; `(a)/lb150` (M1 never tested SMA150 standalone), all 3 `(c)` cells, and all 3 `(b)` cells are genuinely new, kept. Contributes 7 to the whole-grid FDR re-run. | Not evaluated for any of the 7 counted cells — every CI spans zero or the decisive (c)-vs-(a) gap is far under the kill floor before cost applies. | Post-termination "Batch 3" module. **Owns `features/panel.py` exclusively this batch** — new `Timeframe` parameter on `build_panel` (backward compatible, `Timeframe.WEEKLY` resamples live from `bars_1d`, never the separately-ingested, incomplete `bars_1w` table). Scope note: only MA/distance/slope/ATR/run-length features are timeframe-correct at non-daily granularity; day-count-calibrated context features (`mom_12_1`, `realized_vol_63`, etc.) are not recalibrated, a named open gap. | `PREREGISTRATION.md` M10 entry; `EXPERIMENTS.csv` (9 rows); no `FINDINGS.md` entry (Tier 4). |
+| **M6.4** — Slope persistence and flip hazard | 19th, post-termination Batch 3, 2026-09-24 (PR #99) | **Module NOT killed — a real, well-powered departure from a GBM null.** Kaplan-Meier survival of slope-positive runs (SMA{20,50,150,200}) vs. a matched-volatility GBM-null simulation (2,000 paths, `sigma` = each vol-tercile's own median entry-day `realized_vol_63`). Primary grid (vol-tercile, 12 strata): 7 depart, always toward *more* persistence than the null predicts — a clean plateau at SMA20/SMA50 (all 6 cells depart), SMA150/200 read as underpowered (envelopes widen as runs get scarcer) rather than a clean effect-size decline. **The module's cleanest result is its companion facet** (ER-tercile, not counted toward `N_tests`): the top efficiency-ratio tercile departs at **all four lookbacks**, a genuine plateau with no lookback-decay. **Argued against directly**: the GBM null's own `sigma` is computed from the same potentially-autocorrelated series being tested — if real returns carry positive short-horizon autocorrelation, this could bias the null's noise level low and inflate apparent departures. Named as an open, unresolved validity question, the reason every departing stratum caps at Tier 3. **2026-09-24 whole-grid FDR re-run: the 3 SMA20 vol-tercile cells clear FDR by the widest margin in this study's history** — t0 is the new rank 1 of 99 (p≈0.000000), t1 rank 3, t2 rank 5 — **still not promoted to Tier 2**, same open-caveat reasoning as M12's `dollar_volume`/SMA50. | 12 primary (vol-tercile) declared and counted; 12 ER-tercile companion cells (a second stratification lens on the same runs, pre-registered as a companion, deliberately not crossed with vol-tercile per DESIGN §6.4's own tiny-effective-N warning) not counted. Contributes 12 to the whole-grid FDR re-run. | Not applicable — a survival/mechanism question (how long a trend-intact state actually lasts), not a standalone tradeable claim, same convention as M5/§7.5/M6.5. | Post-termination "Batch 3" module, run alongside a sibling M9 fork (both needed an "efficiency ratio" feature — M6.4 built its own local, temporary copy of the identical formula already inline in M8's `kernels.py::kama`, flagged for reconciliation once M9's shared `features/regime.py` landed). New machinery: `stats/survival.py` (Kaplan-Meier estimator + GBM-null simulator, nothing like this existed before), `modules/slope_persistence.py` (per-ticker slope-run construction with proper right-censoring for delisted/coverage-boundary-truncated tickers). | `PREREGISTRATION.md` M6.4 entry; `FINDINGS.md` (2 entries + 2026-09-24 FDR addendum on the SMA20 vol-tercile plateau); `EXPERIMENTS.csv` (24 rows). |
+| **M9** — Regime-conditional lookback | 20th, post-termination Batch 3, 2026-09-24 (PR #100) | **Module killed — DESIGN's own ~70%-likely prior holds.** DESIGN itself names this the module most likely to produce a false positive in the whole study; regime definition (ER via Kaufman's formula, ADX via Wilder's formula, both fixed/published, not tuned) pre-registered and committed before any real-panel number was computed. Stage 1 (descriptive, fit period 2010-2016): every regime × lookback cell negatively signed, CIs overlapping heavily within each regime — picks aren't statistically separated from their own neighbors (DESIGN's own "apply the plateau rule ruthlessly" reads this as noise). Stage 2: ER regime shows ~zero persistence excess at 21 days (essentially memoryless) — a real, informative side-finding that mechanistically pre-explains stage 3's null; ADX regime, by contrast, shows a genuine +10.4pp persistence excess. Stage 3 (test period 2017-2021, the decisive test): the ER-regime-switching rule vs. the best fixed lookback (EMA50) — CI spans zero after sign-rotation; also indistinguishable from KAMA, DESIGN's own named comparison. Tier 4, no `FINDINGS.md` entry. Real bug caught before logging: an earlier `best_lookback_per_regime` assumed positive-only signing and consequently selected nothing in any regime (every cell in this study's own `above_ema_k` construction is negatively signed) — fixed to sign-agnostic largest-magnitude/CI-excluding-zero selection. | 25 declared, **only 1 counted** (the single decisive stage-3 test) — DESIGN's own large-search-space false-positive warning motivated collapsing this module to one decisive test before running anything, same convention M8's Reality Check used for its own best-of-K claim. Contributes 1 to the whole-grid FDR re-run. | Incremental switching cost (30.34 vs. 20.23 flips/ticker-yr) not evaluated — the decisive test's own CI (sign-rotated) spans zero before cost applies. | Post-termination "Batch 3" module, run alongside a sibling M6.4 fork. **Owns `features/regime.py` exclusively this batch** — `efficiency_ratio` (extracted from M8's `kernels.py::kama` own inline formula, so M6.4's independently-built local copy of the identical formula reconciles cleanly), `average_directional_index` (Wilder's ADX). | `PREREGISTRATION.md` M9 entry; `EXPERIMENTS.csv` (25 rows); no `FINDINGS.md` entry (Tier 4). |
 
 **M2 plateau note:** `stack_fully_bullish`'s and `stack_fully_bearish`'s C2 signs both
 agree with all four individual `above_sma_{20,50,150,200}` cells' own signs — passes
@@ -146,36 +150,54 @@ placebo neighborhood," which is mildly against a SMA200-specific mechanism and m
 for "SMA200's oddities are a small-effect/low-power story, not a level-specific one."
 Not resolved; still owner-less.
 
-## Whole-grid FDR pass — RUN 2026-09-17, RE-RUN 2026-09-20, RE-RUN 2026-09-23, RE-RUN 2026-09-24. Result: 4 of 79 survive at q=0.10 (2 at q=0.05) — the survivor SET changed, not just its size; the study's one Tier-2 finding is unchanged and confirmed robust to the larger grid.
+## Whole-grid FDR pass — RUN 2026-09-17, RE-RUN 2026-09-20, RE-RUN 2026-09-23, RE-RUN 2026-09-24 (Batch 2), RE-RUN 2026-09-24 (Batch 3). Result: 10 of 99 survive at q=0.10 (5 at q=0.05) — the largest survivor set in this study's history, anchored by M6.4's SMA20 vol-tercile cells; the study's one Tier-2 finding is unchanged and confirmed robust across three consecutive grid expansions.
 
-**Verdict, up front (2026-09-24, current): at q = 0.10, 4 of 79 deduplicated tests
-survive Benjamini–Hochberg correction; at q = 0.05, 2 of 79 survive.** Adding Batch 2
-(M3, M6.5, M6.6, M12 — see the "Modules run" table above) to the grid did not just
-shrink every existing threshold mechanically (as the 2026-09-20 re-run did) — one of
-the new cells produced this study's smallest p-value ever, which changed *which* cells
-survive, not merely how many. **Survivor set (all 4 individually clear their own
-rank's threshold this time — no reliance on a step-up "sweep" the way three of the
-2026-09-23 pass's five survivors needed):**
-1. `ribbon_agreement_extreme_drawdown` (M6.6, p≈0.00000) — new rank 1, the smallest
-   p-value this study has produced, displacing M6.3 from the top.
-2. `slope_pctile_21_sma_50` (M6.3, p=0.00005) — **still the study's sole Tier-2
-   finding**, still clears q=0.05, confirmed robust to a much larger, more skeptical
-   grid.
-3. `reclaim_durability_dollar_volume_sma50` (M12, p=0.00348) — newly clears FDR.
-4. `dist_from_52w_low`@126d (M18, p=0.00468) — still survives, now at rank 4 not 2.
+**Verdict, up front (2026-09-24, Batch 3 re-run, current): at q = 0.10, 10 of 99
+deduplicated tests survive Benjamini–Hochberg correction; at q = 0.05, 5 of 99
+survive.** Adding Batch 3 (M8 [0 counted], M9 [1], M10 [7], M6.4 [12] — see the
+"Modules run" table above) pushed N from 79 to 99. Three of M6.4's new cells produced
+p-values an order of magnitude below anything in this study's prior history, which —
+unlike the 2026-09-20 re-run's pure threshold-shrinking — pulled the whole survivor set
+up, not down: **every one of the 10 survivors individually clears its own BH threshold**
+(the cleanest pass yet — even the 2026-09-24 Batch 2 pass's 4 survivors needed ranks 3-4
+to clear by only ~8%; here the tightest margins, ranks 8-9, still clear by ~5%).
+**Survivor set, ranked:**
+1. `slope_persistence_vol_tercile_sma20_t0` (M6.4, p≈0.000000) — new rank 1, the
+   smallest p-value this study has ever produced.
+2. `ribbon_agreement_extreme_drawdown` (M6.6, p=0.000002) — was rank 1 last pass.
+3. `slope_persistence_vol_tercile_sma20_t1` (M6.4, p=0.000016).
+4. `slope_pctile_21_sma_50` (M6.3, p=0.000050) — **still the study's sole Tier-2
+   finding**, still clears q=0.05, confirmed robust across three consecutive grid
+   expansions (N=50→79→99) without ever needing a step-up sweep to survive.
+5. `slope_persistence_vol_tercile_sma20_t2` (M6.4, p=0.000105).
+6. `reclaim_durability_dollar_volume_sma50` (M12, p=0.003476) — survives again.
+7. `dist_from_52w_low`@126d (M18, p=0.004679) — survives again.
+8. `ribbon_direction_magnitude` (M7, p=0.007674) — **back in**, having dropped out at
+   N=79.
+9. `stack_fully_bearish_h21` (M2, p=0.008606) — **back in**, same as M7.
+10. `above_sma_20` (M1, p=0.009032) — **back in**, same as M7/M2.
 
-**Three of the 2026-09-23 pass's five survivors no longer clear FDR at N=79**:
-`ribbon_direction_magnitude` (M7, p=0.0077, now rank 5, its own threshold shrank from
-0.0100 to 0.0063), `stack_fully_bearish` (M2, p=0.0086, rank 6), `above_sma_20` (M1,
-p=0.0090, rank 7). **None of these three had reached Tier 2** (each was already capped
-by an independent reason — M7 by its own actionability gap, M2 by DESIGN §7.3's
-survivorship cap, M1 by failing cost outright), so **no tier is downgraded** by this —
-they simply stop appearing in the "cleared FDR" list, the exact scenario the
-2026-09-23 pass's own Wald-approximation caveat flagged as a live risk for
-exactly these three specifically. **The study's actionable headline is unchanged**:
-still exactly one Tier-2 finding (`slope_pctile_21_sma_50`), still zero Tier 1 — but
-the FDR-survivor *set* is a real, substantive change, not bookkeeping, and is written
-up in full below rather than folded silently into the prior pass's numbers.
+**The "flapping" pattern is worth naming plainly, not smoothing over**: M7's, M2's, and
+M1's cells survived FDR at N=50, dropped out at N=79, and are now back at N=99 —
+three flips in three consecutive passes, purely from denominator/anchor-point changes,
+zero new evidence about those three cells themselves. This is the concrete, repeated
+demonstration of exactly what this study's own Wald-approximation caveat has been
+warning about since the 2026-09-23 pass: a cell sitting close to its own BH threshold
+will flip in and out as the grid's composition changes, and that flipping is not
+informative about the cell's own evidence. **None of these three has ever reached
+Tier 2** (each capped by an independent, FDR-independent reason — M7's actionability
+gap, M2's DESIGN §7.3 survivorship cap, M1's outright cost failure) — so despite three
+flips each, **the tier assignment for all three has never once changed.** **The
+study's actionable headline is unchanged across all five passes to date**: still
+exactly one Tier-2 finding (`slope_pctile_21_sma_50`), still zero Tier 1.
+
+**2026-09-24 Batch 2 pass (superseded above, kept for the record): at q = 0.10, 4 of 79
+deduplicated tests survived; at q = 0.05, 2 of 79.** Survivor set: `ribbon_agreement_extreme_drawdown`
+(M6.6, p=0.00000, rank 1), `slope_pctile_21_sma_50` (M6.3, p=0.00005, rank 2),
+`reclaim_durability_dollar_volume_sma50` (M12, p=0.00348, rank 3),
+`dist_from_52w_low`@126d (M18, p=0.00468, rank 4). Three of the 2026-09-23 pass's five
+survivors (`ribbon_direction_magnitude`, `stack_fully_bearish`, `above_sma_20`) had
+dropped out at this N — see the Batch-3 update above for what happened to them next.
 
 **2026-09-23 pass (superseded above, kept for the record): at q = 0.10, 5 of 50
 deduplicated tests survived Benjamini–Hochberg correction; at q = 0.05, 1 of 50
@@ -227,6 +249,21 @@ pass **both adds a new smaller rank-1 p-value AND removes three previous survivo
 the first re-run in this study's history where the survivor *composition* changes in
 both directions at once, not just its count.
 
+**2026-09-24 re-run (Batch 3), why:** the remaining four post-termination "Batch 3"
+modules (M8, M9, M10, M6.4 — see the "Modules run" table above) landed the same day,
+run 1-2 at a time per `HANDOVER.md`'s own Batch-3 scoping (heavier standalone infra
+builds, not 4-way parallel). Per this study's own established practice, every
+declared/deduplicated cell counts toward `N_tests` regardless of outcome. N = 79 →
+**99** (0 from M8 — Reality Check's own p-value is methodologically incompatible with
+this pass's Wald/BH machinery, see the dedup table below; 1 from M9 — DESIGN's own
+false-positive warning collapsed the whole module to a single decisive test; 7 from
+M10; 12 from M6.4). Checked directly before trusting the count: none of the four
+modules left an independence check unresolved the way M12 did last pass (grepped both
+modules' own `PREREGISTRATION.md` sections for the same "not checked for
+correlation"-style admission — none found). This pass **both adds three new
+smaller-than-ever p-values AND restores three previously-dropped survivors** — the
+"flapping" pattern named in the verdict above.
+
 **Method (`stats/multiple_testing.py`, new — DESIGN §6.6's own named procedure):**
 1. **`p_value_from_ci`**: a two-sided Wald p-value backed out of each cell's
    already-computed 90% block-bootstrap CI (`SE = (ci_high − ci_low) / (2 × 1.645)`,
@@ -257,6 +294,17 @@ both directions at once, not just its count.
    approximation risk here is about whether the *exact* p-value might sit just above
    0.00380/0.00506 rather than just below, which would drop that one cell specifically,
    not about the qualitative "does anything survive" question.
+   **2026-09-24 Batch-3 update: this pass is the cleanest yet on this specific
+   precision axis.** All 10 survivors individually clear their own BH threshold — even
+   the tightest (ranks 8-9, `ribbon_direction_magnitude` and `stack_fully_bearish_h21`,
+   at ~95% of their own threshold, the closest margins in this pass) don't depend on
+   the step-up sweep mechanism the way three of the 2026-09-23 pass's five survivors
+   did. The precision caveat is now narrower in scope than it has ever been: it applies
+   only to whether ranks 8-10 (the three "flapping" cells) individually clear by their
+   own ~5-11% margins, not to whether the pass's headline finding survives — M6.4's
+   three new top-ranked p-values are orders of magnitude under their own thresholds,
+   and M6.3's Tier-2 cell clears by nearly three orders of magnitude, both far outside
+   any plausible Wald-vs-exact-bootstrap discrepancy.
 2. **`benjamini_hochberg`**: standard BH step-up procedure.
 
 **Deduplication (the actual work of this pass — every open item the sections below
@@ -280,17 +328,73 @@ used to defer is resolved here, not just cited):**
 | M6.5 | 2 (primary decisive cells, sma50/sma200) | **2**, unchanged — **new this pass**. The two lookbacks' flip-event populations are largely disjoint in time (a 50-day and 200-day SMA's 1-day slope rarely flips sign on the same date), unlike M4/M6.1's same-date-value-column pairs — no per-date Spearman check applies the same way; kept independent by construction. |
 | M6.6 | 2 (return, drawdown outcomes on the same state5-vs-state0 restriction) | **2**, unchanged — **new this pass**. Different outcome variables (`fwd_ret_21` vs. `fwd_mdd_21`) on the same row restriction, not the same hypothesis tested twice — same treatment M2's `stack_fully_bullish`/`stack_fully_bearish` pair received (different statistics, not a redundancy-check pair). Cross-module: `ribbon_agreement_state` (an aggregate ordinal count across 5 lookbacks) is a new derived statistic, not a duplicate of any single-lookback `slope_log_21` test M6.1/M6.3 already ran. |
 | M12 | 9 (3 sub-questions × 3 lookbacks) | **9**, unchanged — **independence explicitly checked this session (2026-09-24)**, closing a gap M12's own pre-registration had left open ("not checked for correlation before declaring"). Per-date median Spearman across all 3 pairs of {`relative_volume`, `dollar_volume`, `vwma_divergence`-at-own-lookback}: 0.00–0.41 (highest: `vwma_divergence_20` vs. `vwma_divergence_50`, the two most-overlapping windows) — well under this study's 0.89 bar at every pair. All 9 kept independent. |
+| M8 | 8 (7 family cells + 1 Reality Check summary) | **0**. Reality Check's own p-value is an empirical bootstrap p-value from a max-order-statistic null (already internally corrected for comparing 6 candidates against EMA) — methodologically incompatible with this pass's Wald-approximate, CI-half-width p-values; feeding it through `p_value_from_ci`/`benjamini_hochberg` would double-count the same best-of-K multiplicity question Reality Check already resolves on its own terms. The 7 family cells are explicitly descriptive input to that one decisive test, not independent claims (same convention as M4's decile tables). |
+| M9 | 25 (9 ER descriptive + 9 ADX descriptive + 2 persistence + 3 benchmark-selection + 1 decisive + 1 KAMA comparison) | **1**: `regime_adaptive_vs_fixed_decisive`. DESIGN's own explicit false-positive warning for this module ("a regime × lookback grid is a large search space over data with tiny effective N") motivated collapsing the entire module to its one pre-registered decisive test before running anything — same convention M8's Reality Check used, applied here to a different mechanism (module-level pre-commitment rather than a best-of-K correction). |
+| M10 | 9 (2 duplicate-of-M1 + 1 new lookback + 3 `(c)` + 3 `(b)`) | **7**. `(a)/lb50` and `(a)/lb200` are exact duplicates of M1's own already-counted `above_sma_50`/`above_sma_200` (confirmed via a fresh run of `baseline_state.py`'s own construction on the identical panel) — excluded. `(a)/lb150` (M1 never tested SMA150 standalone), all 3 `(c)` (Friday-only sampling) cells, and all 3 `(b)` (weekly-native) cells are genuinely new constructions, kept independent — no correlation check needed the way same-date-value-column pairs (M4-style) get one, since these are different row-selection/sampling-frequency constructions, not the same statistic recomputed. |
+| M6.4 | 24 (12 primary vol-tercile + 12 companion ER-tercile) | **12** (primary only). The 12 ER-tercile companion cells are a second stratification lens on the *same* underlying slope-runs, pre-registered as a companion before running (not crossed with vol-tercile, per DESIGN §6.4's own tiny-effective-N warning) — excluded from `N_tests`, same treatment this study gives every companion/robustness row. The 12 primary cells (4 lookbacks × 3 vol-terciles) are disjoint row populations (terciles partition the data) — same treatment M13's VIX/breadth tercile cells received, kept independent. |
 
-**N_tests = 5 + 3 + 3 + 1 + 2 + 6 + 11 + 4 + 4 + 3 + 4 + 4 + 16 + 2 + 2 + 9 = 79**
-(the first 12 terms — 50 — unchanged from the 2026-09-23 pass; the last 4 terms are
-Batch 2's contribution) — down from a naive raw sum that would run well past 165 once
-every module's raw declared grid is added in without deduplication. **Not
-re-stress-tested against alternative dedup counts this pass** (the 2026-09-23 pass's
-own N=47/50/51 stress test is not repeated here for the +29 new cells) — worth doing
-before treating the exact rank-3/rank-4 margins as load-bearing, given how tight they
-are (see the Wald-approximation caveat above).
+**N_tests = 5 + 3 + 3 + 1 + 2 + 6 + 11 + 4 + 4 + 3 + 4 + 4 + 16 + 2 + 2 + 9 + 0 + 1 + 7 + 12 = 99**
+(the first 16 terms — 79 — unchanged from the 2026-09-24 Batch-2 pass; the last 4 terms
+are Batch 3's contribution) — down from a naive raw sum that would run well past 200
+once every module's raw declared grid is added in without deduplication. **Independence
+check explicitly done for this pass, not deferred**: grepped both M9's and M6.4's
+`PREREGISTRATION.md` sections for the same "not checked for correlation"-style
+admission M12 carried last pass — none found in either, so no extra correlation
+computation was needed before trusting their declared counts (unlike M12 last time).
+**Not re-stress-tested against alternative dedup counts this pass** (the 2026-09-23
+pass's own N=47/50/51 stress test is not repeated here for the +20 new cells) — worth
+doing eventually, though this pass's own survivors clear their own thresholds by wider
+margins on average than the 2026-09-24 Batch-2 pass's did, so the exact dedup count is
+less load-bearing here than it was for that pass's ranks 3-4.
 
-**Full ranked table (79 tests, p-value ascending, 2026-09-24 re-run — current):**
+**Full ranked table (99 tests, p-value ascending, 2026-09-24 Batch-3 re-run — current):**
+
+| rank | module | cell | p (Wald, from CI) | BH threshold (rank/99×0.10) | reject q=0.10 |
+|---|---|---|---|---|---|
+| 1 | M6.4 | `slope_persistence_vol_tercile_sma20_t0` | ~0.000000 | 0.00101 | **yes** |
+| 2 | M6.6 | `ribbon_agreement_extreme_drawdown` | 0.000002 | 0.00202 | **yes** |
+| 3 | M6.4 | `slope_persistence_vol_tercile_sma20_t1` | 0.000016 | 0.00303 | **yes** |
+| 4 | M6.3 | `slope_pctile_21_sma_50` | 0.000050 | 0.00404 | **yes — Tier 2** |
+| 5 | M6.4 | `slope_persistence_vol_tercile_sma20_t2` | 0.000105 | 0.00505 | **yes** |
+| 6 | M12 | `reclaim_durability_dollar_volume_sma50` | 0.003476 | 0.00606 | **yes** |
+| 7 | M18 | `dist_from_52w_low`@126d | 0.004679 | 0.00707 | **yes** |
+| 8 | M7 | `ribbon_direction_magnitude` | 0.007674 | 0.00808 | **yes** |
+| 9 | M2 | `stack_fully_bearish_h21` | 0.008606 | 0.00909 | **yes** |
+| 10 | M1 | `above_sma_20` | 0.009032 | 0.01010 | **yes** |
+| 11 | M11 | `dist_pct_sma_20_h5` | 0.013494 | 0.01111 | no |
+| 12 | M4 | `dist_pct_sma_20_h21` | 0.016963 | 0.01212 | no |
+| 13 | §7.5 | `placebo_ema21_h21` | 0.020025 | 0.01313 | no |
+| 14 | M6.2 | `touch_x_slope`/SMA50/`from_above` | 0.022273 | 0.01414 | no |
+| 15 | M6.4 | `slope_persistence_vol_tercile_sma50_t0` | 0.022592 | 0.01515 | no |
+| 16 | M6.3 | `slope_pctile_21_sma_200` | 0.024201 | 0.01616 | no |
+| 17 | M6.2 | `extension_x_slope`/SMA50/top | 0.025408 | 0.01717 | no |
+| 18 | M13 | `context_vix_bottom` | 0.028563 | 0.01818 | no |
+| 19 | M12 | `reclaim_durability_dollar_volume_sma20` | 0.030302 | 0.01919 | no |
+| 20 | M6.4 | `slope_persistence_vol_tercile_sma50_t2` | 0.035240 | 0.02020 | no |
+| 21 | M13 | `context_breadth_top` | 0.038108 | 0.02121 | no |
+| 22 | M10 | `timeframe_daily_fridays_only_sma50` | 0.039204 | 0.02222 | no |
+| 23 | M1 | `above_sma_50` | 0.052138 | 0.02323 | no |
+| 24 | M6.4 | `slope_persistence_vol_tercile_sma50_t1` | 0.055076 | 0.02424 | no |
+| 25 | M18 | `dist_from_52w_low`@63d | 0.066710 | 0.02525 | no |
+| 26–99 | — | (all remaining cells, incl. M6.3's SMA20 cell, M1's `above_sma_200`, M9's decisive cell, M6.4's SMA150/200 cells, all of M3/M6.5) | ≥0.083 | — | no |
+
+**Every one of the 10 survivors individually clears its own threshold — no step-up
+sweep dependency anywhere in this pass**, unlike the 2026-09-23 pass (3 of 5 survivors
+needed the sweep) and even the 2026-09-24 Batch-2 pass (ranks 3-4 cleared by only ~8%).
+The tightest margins here are ranks 8-9 (`ribbon_direction_magnitude`,
+`stack_fully_bearish_h21`, both ~95% of their own threshold) — real margins, not
+sweep-dependent ones.
+
+**Note on the "flapping" cells (ranks 8-10 — `ribbon_direction_magnitude`,
+`stack_fully_bearish_h21`, `above_sma_20`):** all three survived at N=50, dropped out
+at N=79, and are back at N=99 — three flips in three passes, purely from
+denominator/anchor-point changes. None has ever reached Tier 2 (each capped by its own
+independent, FDR-independent reason), so despite flipping FDR status three times, the
+tier assignment for all three has never once changed. This is the concrete pattern the
+2026-09-20 pass's own commentary first warned about, now observed directly and
+repeatedly rather than as a hypothetical risk.
+
+**Superseded — full ranked table (79 tests, p-value ascending, 2026-09-24 Batch-2 pass, kept for the record):**
 
 | rank | module | cell | p (Wald, from CI) | BH threshold (rank/79×0.10) | reject q=0.10 |
 |---|---|---|---|---|---|
@@ -301,29 +405,7 @@ are (see the Wald-approximation caveat above).
 | 5 | M7 | `ribbon_direction_magnitude` | 0.0077 | 0.0063 | no |
 | 6 | M2 | `stack_fully_bearish_h21` | 0.0086 | 0.0076 | no |
 | 7 | M1 | `above_sma_20` | 0.0090 | 0.0089 | no |
-| 8 | M11 | `dist_pct_sma_20_h5` | 0.0135 | 0.0101 | no |
-| 9 | M4 | `dist_pct_sma_20_h21` | 0.0170 | 0.0114 | no |
-| 10 | §7.5 | `placebo_ema21_h21` | 0.0200 | 0.0127 | no |
-| 11 | M6.2 | `touch_x_slope`/SMA50/`from_above` | 0.0223 | 0.0139 | no |
-| 12 | M6.3 | `slope_pctile_21_sma_200` | 0.0242 | 0.0152 | no |
-| 13 | M6.2 | `extension_x_slope`/SMA50/top | 0.0254 | 0.0165 | no |
-| 14 | M13 | `context_vix_bottom` | 0.0286 | 0.0177 | no |
-| 15 | M12 | `reclaim_durability_dollar_volume_sma20` | 0.0303 | 0.0190 | no |
-| 16 | M13 | `context_breadth_top` | 0.0381 | 0.0203 | no |
-| 17 | M1 | `above_sma_50` | 0.0521 | 0.0215 | no |
-| 18 | M18 | `dist_from_52w_low`@63d | 0.0667 | 0.0228 | no |
-| 19 | M6.3 | `slope_pctile_21_sma_20` | 0.0826 | 0.0241 | no |
-| 20 | M1 | `above_sma_200` | 0.0987 | 0.0253 | no |
-| 21–79 | — | (all remaining cells, incl. all of M3, M6.5, M3's spread-velocity addendum, and M12's other 7 cells) | ≥0.11 | — | no |
-
-**Note on rank 7 (`above_sma_20`):** at N=50 this cell individually cleared its own
-threshold (0.0090 vs. 0.0100). At N=79 it does not (0.0090 vs. 0.0089) — a **direct
-demonstration of the exact mechanism the 2026-09-20 pass's own commentary warned about**
-(adding tests that don't themselves survive still shrinks everyone else's threshold).
-This cell was never going to reach Tier 2 regardless (it fails cost outright), so
-nothing about the study's actionable conclusion turns on this specific flip — but it is
-the clearest real instance in this study's history of a cell's FDR status changing
-purely from denominator growth, not from any new evidence about that cell itself.
+| 8–79 | — | (all remaining cells) | ≥0.0135 | — | no |
 
 **Superseded — full ranked table (50 tests, p-value ascending, 2026-09-23 pass, kept for the record):**
 
@@ -365,9 +447,37 @@ own thresholds).
 
 **What this means, precisely — two separate questions, not one:**
 
-**(1) Does anything reach Tier 2? — 2026-09-24 update, current.** **Still just one:
-`slope_pctile_21_sma_50` (M6.3) — confirmed, not newly joined.** Each of the 4 current
-survivors checked individually against DESIGN §9.2's bar:
+**(1) Does anything reach Tier 2? — 2026-09-24 Batch-3 update, current.** **Still just
+one: `slope_pctile_21_sma_50` (M6.3) — confirmed across three consecutive grid
+expansions, not newly joined.** Each of the 10 current survivors checked individually
+against DESIGN §9.2's bar:
+- **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4, ranks 1/3/5) are **not
+  promoted** despite clearing FDR by the widest margin in this study's history: the
+  GBM null's own `sigma` is computed from the same potentially-autocorrelated series
+  being tested for persistence, which could bias the null's noise level low and
+  inflate apparent departures — an open, *unresolved* validity question named
+  explicitly in M6.4's own `FINDINGS.md` entry, not something a direct test has ruled
+  out the way M6.3's tail-decomposition ruled out its own analogous-looking concern.
+  Same "flagged, not resolved" bar as `reclaim_durability_dollar_volume_sma50` below.
+  Stays Tier 3 (all three).
+- **`ribbon_agreement_extreme_drawdown`** (M6.6, rank 2) — unchanged reasoning from the
+  Batch-2 pass below. Stays Tier 3.
+- **`slope_pctile_21_sma_50`** (M6.3, rank 4) — unchanged reasoning from the
+  2026-09-23 pass below. Confirmed to survive an even larger, more skeptical grid (99
+  tests vs. 79 vs. 50) without ever needing a step-up sweep. **Remains Tier 2.**
+- **`reclaim_durability_dollar_volume_sma50`** (M12, rank 6) — unchanged reasoning
+  from the Batch-2 pass below. Stays Tier 3.
+- **`dist_from_52w_low`@126d** (M18, rank 7) — unchanged reasoning from the
+  2026-09-23 pass below. Stays Tier 3.
+- **`ribbon_direction_magnitude`** (M7, rank 8), **`stack_fully_bearish_h21`** (M2,
+  rank 9), **`above_sma_20`** (M1, rank 10) — all three back in this pass after
+  dropping out at N=79 (the "flapping" pattern named above). Unchanged reasoning from
+  the 2026-09-23 pass below for each — **tier assignment for all three has never once
+  changed across any pass**, despite three FDR-status flips each. Stay Tier 3/4
+  respectively (per their own original tiering).
+
+**Per-cell reasoning for the 2026-09-24 Batch-2 pass's own 4 survivors (superseded
+above where it conflicts, kept for the record):**
 - **`ribbon_agreement_extreme_drawdown`** (M6.6) is capped by its own
   magnitude-vs-signed-return actionability gap — an avoided-loss/drawdown-shallowing
   read, not a direct realized-return claim, the identical limitation `ribbon_direction_magnitude`
@@ -427,32 +537,33 @@ Full per-cell reasoning: `FINDINGS.md`'s 2026-09-23 addenda on each of the 5 cel
 cells' own tier reasoning above needs to actually be written into those entries, not
 just asserted here (open item for this session, see below).
 
-**(2) Does the study's statistical headline change? — 2026-09-24 update.** The
-Tier-2 count does **not** change (still exactly one, `slope_pctile_21_sma_50`) — but
-the **FDR-survivor set does**, materially: 3 cells that survived at N=50 no longer do
-at N=79 (`ribbon_direction_magnitude`, `stack_fully_bearish`, `above_sma_20`), and 2
-new cells survive that didn't exist in the N=50 grid at all (`ribbon_agreement_extreme_drawdown`,
-`reclaim_durability_dollar_volume_sma50`). Anyone citing "which cells survive this
-study's FDR correction" needs the 2026-09-24 table above, not the 2026-09-23 one.
-The **study's actionable headline is unchanged**: one Tier-2 finding, zero Tier 1,
-same as before Batch 2 ran. `REPORT.md`'s executive summary needs updating to
-reflect the new survivor set even though its conclusion doesn't change (open item,
-see below).
+**(2) Does the study's statistical headline change? — 2026-09-24 Batch-3 update,
+current.** The Tier-2 count still does **not** change (still exactly one,
+`slope_pctile_21_sma_50`) across all five passes to date — but the **FDR-survivor set
+keeps changing, materially, every time the grid grows**: this pass alone adds 3 new
+cells that didn't exist in any prior grid (M6.4's SMA20 vol-tercile trio) and restores
+3 cells that had dropped out at N=79 (`ribbon_direction_magnitude`, `stack_fully_bearish_h21`,
+`above_sma_20`) — the "flapping" pattern named above. Anyone citing "which cells
+survive this study's FDR correction" needs the current N=99 table above, not any
+earlier one. The **study's actionable headline is unchanged across every pass run so
+far**: one Tier-2 finding, zero Tier 1. `REPORT.md`'s executive summary has been
+updated to reflect the current survivor set (see below).
 
-**2026-09-23 pass's own version of this question (superseded, kept for the record):**
-Yes, on both axes then: "zero of any deduplicated grid this study has ever assembled
-survives BH correction" was true through the 2026-09-20 pass and became false;
-"zero claims have reached Tier 2" was true through that pass's own first draft and
-became false once the tail decomposition resolved same-day.
+**2026-09-24 Batch-2 pass's own version of this question (superseded above, kept for
+the record):** Tier-2 count unchanged; FDR-survivor set changed materially (3 dropped,
+2 new). **2026-09-23 pass's own version (superseded, kept for the record):** "zero of
+any deduplicated grid this study has ever assembled survives BH correction" was true
+through the 2026-09-20 pass and became false; "zero claims have reached Tier 2" was
+true through that pass's own first draft and became false once the tail decomposition
+resolved same-day.
 
 **Not silently re-tiered in `EXPERIMENTS.csv` or `FINDINGS.md`** at any point in this
 history (this study's own no-silent-edits convention, `PREREGISTRATION.md`'s own
 precedent for tier changes) — a dated addendum was added to each affected
 `FINDINGS.md` entry, and a summary row logged in `EXPERIMENTS.csv` for each pass
 (`whole_grid_fdr_pass_2026_09_17`, `whole_grid_fdr_pass_2026_09_20`,
-`whole_grid_fdr_pass_2026_09_23`, `whole_grid_fdr_pass_2026_09_24` — the last of
-these still needs to actually be appended to `EXPERIMENTS.csv`/`FINDINGS.md`, tracked
-as an open item below rather than silently assumed done).
+`whole_grid_fdr_pass_2026_09_23`, `whole_grid_fdr_pass_2026_09_24`,
+`whole_grid_fdr_pass_2026_09_24_batch3`).
 
 **Historical note:** this section originally carried ~75 lines of pre-pass reasoning
 (written 2026-09-09, before the pass first ran) about *why* deduplication would
