@@ -862,6 +862,52 @@ Fraction of {10, 20, 50, 100, 200} with positive slope, as an ordinal 0–5 stat
 
 **Why it's worth doing:** it is the cleanest possible answer to "how many independent signals do we actually have?" — and my strong prior is *far fewer than the number of indicators*. If the kernel-space IC surface is a smooth blob, then the entire MA indicator zoo is one signal with a hundred names, and the report can say so with a single figure.
 
+**Run 2026-09-24 (Track A, `EXPLORATION_LOG.md`).** Weight vectors were measured
+*empirically* via a unit-return impulse response (`stats/kernel_space.py`), not
+hand-derived per rule — `slope_log_k` has no clean closed form (it's a log-of-an-average
+difference), so a uniform empirical method was used for every rule rather than mixing
+derived and measured kernels. Validated against `dist_pct`'s own exact closed-form
+triangular kernel (`(n-1-j)/n`, derived from the SMA's own definition via telescoping)
+before being trusted for `slope_log_21` — same discipline M8's own `impulse_center_of_mass`
+used for HMA/DEMA. 23 candidate rules: `dist_pct`/`slope_log_21` at {SMA,EMA}×{20,50,150,200},
+`mom_12_1`/`mom_1_0`, and 5 crossover spreads (M3's own pairs). Already-thresholded
+rules (`above_sma_k`, a golden-cross event) were excluded from the comparison — a
+decision boundary on top of a linear filter, not a linear filter itself; scoped out
+explicitly, not silently dropped.
+
+**Result: DESIGN's own strong prior holds, with one real deviation from its own
+stated expectation.** At a loose similarity threshold (cosine ≥ 0.80), all 23 rules
+collapse into a single cluster — the entire MA-indicator zoo *is* one signal in kernel
+space, exactly as this section's own motivation predicted. At a tighter threshold
+(≥ 0.95), 10 clusters emerge, and **effective lookback (centroid), not indicator type,
+is the dominant axis of separation**: distance, slope, and crossover-spread rules at
+similar centroids land in the same cluster across type (e.g. `slope_log_21_sma_20`,
+`slope_log_21_ema_20`, `slope_log_21_ema_50`, and `crossover_sma_20_sma_50` cluster
+together). **The one real surprise**: `slope_log_21_sma_200` does *not* cluster with
+`crossover_sma_50_sma_200` or `dist_pct_sma_200` at the 0.90-0.95 threshold, contradicting
+this section's own explicit prediction that "200-day slope positive" should land
+"uncomfortably close" to the 50/200 crossover and 200-day distance. Mechanism: the
+`k=21` log-difference operation that defines slope shifts and widens its own effective
+kernel centroid substantially relative to a raw distance or crossover spread at the
+"same" nominal 200-day lookback (centroid 109.5 for `slope_log_21_sma_200` vs. 66-82
+for `dist_pct_sma_200`/`crossover_sma_50_sma_200`) — slope and distance at a shared
+lookback are not the same kernel, just correlated ones, a sharper and more specific
+statement than this study's own earlier collinearity observations
+(`EXPLORATION_LOG.md`, 2026-09-16/18) already carried. **IC-vs-kernel-shape**: no
+homogeneous IC series exists across these 23 rules in `EXPERIMENTS.csv` (M4's `dist_pct`
+cells, M6.1's incremental-IC-over-momentum cells, and M3's post-threshold event deltas
+are three different statistics computed three different ways) — reported as an honest
+scope limitation, not forced into an artificial comparison; the qualitative picture
+(every already-tested effect size in this study is small, none shows an obvious
+non-monotonic "sweet spot" in lookback space) is consistent with, but doesn't
+decisively confirm, a smooth IC surface. **Not promoted to Track B this session** —
+logged as a Track A finding, a well-defined candidate for a future incremental-IC
+regression test specifically on the slope-vs-distance-at-SMA200 deviation if picked up
+later. Full table/similarity matrix/plot: `output/moving_averages/m16_kernel_table.csv`,
+`m16_similarity_matrix.csv`, `m16_kernel_space.png` (all regenerable via
+`python -m src.signals.moving_averages.kernel_space_scan`, gitignored per this repo's
+own `output/` convention).
+
 ---
 
 ### M17 — Nonlinearity probe: does path composition matter?
