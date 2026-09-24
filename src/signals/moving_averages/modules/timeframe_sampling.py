@@ -110,8 +110,8 @@ def prepare_weekly(weekly_panel: pd.DataFrame, daily_working: pd.DataFrame) -> p
     One-week lag via `apply_lag` (row-order-based, timeframe-agnostic).
     `fwd_ret_4` (this module's weekly horizon).
 
-    C2 match columns (`mom_tercile`/`vol_tercile`/`sector`) are **joined
-    from `daily_working`** (already correctly day-count-calibrated), via
+    C2 match columns `mom_tercile`/`vol_tercile` are **joined from
+    `daily_working`** (already correctly day-count-calibrated), via
     `merge_asof` per ticker (`direction="backward"`) rather than
     recomputed on weekly bars -- `build_panel`'s own docstring names this
     exact gap: `mom_12_1`/`realized_vol_63` are day-count-calibrated and
@@ -120,6 +120,14 @@ def prepare_weekly(weekly_panel: pd.DataFrame, daily_working: pd.DataFrame) -> p
     as of the prior week's Friday close; the nearest on-or-before daily
     row (itself 1-day-lagged) reflects the same effective information
     time, so the two align correctly without needing exact-date matches.
+    `sector` is *not* part of this join -- `build_panel` already joins it
+    independently onto the weekly panel itself (same current-state-only
+    value either way), and including it here would collide with that
+    existing column, which `merge_asof` resolves by silently renaming both
+    to `sector_x`/`sector_y` rather than erroring at the merge call itself
+    (found against the real panel, not caught by the synthetic fixture
+    tests until one was added with its own `sector` column -- see
+    `tests/test_moving_averages_timeframe_sampling.py`).
     """
     working = weekly_panel.sort_values(["ticker", "date"]).reset_index(drop=True)
     new_cols = [ma.ma_column_name("sma", lb) for lb in WEEKLY_LOOKBACKS]
@@ -130,14 +138,32 @@ def prepare_weekly(weekly_panel: pd.DataFrame, daily_working: pd.DataFrame) -> p
     working = apply_lag(working, columns=[*new_cols, *[f"above_{c}" for c in new_cols]])
     working["fwd_ret_4"] = forward_return(working, horizon=WEEKLY_HORIZON)
 
-    controls = daily_working[["ticker", "date", "mom_tercile", "vol_tercile", "sector"]].dropna(
+    # `sector` is deliberately NOT joined here -- `build_panel` already
+    # joins it independently onto both the daily and weekly panels (it's
+    # current-state-only, not time-varying, so either source is the same
+    # value), and including it in this merge would collide with the
+    # weekly panel's own `sector` column, silently renaming both to
+    # `sector_x`/`sector_y` (confirmed against the real panel: this
+    # exact collision raised `KeyError: 'sector' not in index` two frames
+    # downstream, not at the merge call itself). The weekly panel's own
+    # `sector` column is used as-is.
+    controls = daily_working[["ticker", "date", "mom_tercile", "vol_tercile"]].dropna(
         subset=["date"]
-    )
+    ).copy()
     # `merge_asof` requires both frames globally sorted by the `on` key
     # (date) -- sorting by (ticker, date) only leaves date non-monotonic
     # across ticker boundaries, which `merge_asof`'s `by="ticker"` grouping
     # does not relax (confirmed the hard way: it raises "left keys must be
     # sorted" on a >1-ticker frame sorted only within each ticker group).
+    # It also requires *matching* datetime precision -- a real cached
+    # (parquet-round-tripped) daily panel's `date` column comes back as
+    # datetime64[us], while the freshly-resampled weekly panel's is
+    # datetime64[ns]; `merge_asof` raises `MergeError` on that mismatch
+    # rather than silently coercing (confirmed against the real panel, not
+    # a synthetic-fixture-only assumption).
+    working = working.copy()
+    working["date"] = pd.to_datetime(working["date"]).astype("datetime64[ns]")
+    controls["date"] = pd.to_datetime(controls["date"]).astype("datetime64[ns]")
     working_by_date = working.sort_values("date")
     controls_by_date = controls.sort_values("date")
     merged = pd.merge_asof(

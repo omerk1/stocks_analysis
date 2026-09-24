@@ -4180,3 +4180,85 @@ reusable — not module-local); `modules/timeframe_sampling.py`
 (weekly-path lag-safety, ticker-boundary, and default-unchanged tests, same scrutiny
 the existing daily `build_panel` tests already get);
 `tests/test_moving_averages_timeframe_sampling.py`.
+
+### Result (2026-09-24)
+
+**Kill criterion fires cleanly: `module_killed=True`, 0 of 3 lookbacks show a
+detectable sampling-frequency effect.** Sampling-frequency gap ((c) − (a), same
+lookback): 50 → −0.023pp, 150 → +0.024pp, 200 → −0.033pp — all far under the 0.10%
+`GAP_FLOOR`, and at every lookback each cell's own CI comfortably contains the other's
+point estimate (e.g. lb50: (a) `[−0.338%,−0.035%]` vs (c) `[−0.361%,−0.031%]`, nearly
+identical). Well-powered throughout (64,757–432,955 events, 551–2,747 dates, 402
+tickers per cell — every cell clears `MIN_EVENTS`/`MIN_DATES`/`MIN_TICKERS`).
+**Reading: no advantage from evaluating on a reduced/weekly cadence per se — DESIGN's
+own hypothesis, read this precisely, does not hold.** Any apparent weekly-vs-daily gap
+in the naive comparison below must come from the lookback/bar-aggregation choice, not
+sampling frequency.
+
+**Bar-aggregation gap ((b) − (c), matched calendar-equivalent pairs):** +0.090pp
+(50↔10), +0.026pp (150↔30), +0.082pp (200↔40) — small, all three the *same sign*
+(weekly-native consistently slightly less negative than daily-Friday-sampled, a
+directionally-consistent pattern, not a lone bright pixel), but every pair's CIs
+overlap heavily (e.g. 50↔10: (c) `[−0.361%,−0.031%]` vs (b) `[−0.260%,+0.029%]`) —
+not distinguishable from noise by this module's own descriptive-overlap standard
+either. **Naive (a)-vs-(b) gap** (the confounded, practitioner's comparison): +0.067pp,
++0.050pp, +0.049pp — small and positive at all three pairs, consistent with (but not
+independently confirming) "weekly is a hair less bad than daily," entirely attributable
+to the (already-undetectable) bar-aggregation term per the decomposition above, not to
+sampling frequency.
+
+**Plateau check:** (a) and (c) agree in sign at all 3 lookbacks (both negative
+throughout); (b) also negative at all 3 lookbacks. No lookback flips sign anywhere in
+the 9-cell grid — directionally consistent, no lone bright pixel, consistent with the
+clean kill above rather than a borderline one.
+
+**Cost** (reported for the record, CLAUDE.md invariant #8 — not the decisive gate here,
+since the module's own decisive test is about detecting an effect at all, and it
+didn't): daily-signal hurdles (same flip series underlies both (a) and (c), a sampling
+choice doesn't change the underlying trading frequency) — lb50 1.799%/yr (`spy`=17.993,
+**matches M1's own already-published `above_sma_50` hurdle almost to the decimal
+place** — see the duplicate-cell note below), lb150 0.953%/yr, lb200 0.779%/yr; weekly
+hurdles — lb10 0.905%/yr, lb30 0.468%/yr, lb40 0.385%/yr. Of the 3 CI-excluding-zero raw
+cells ((a)/lb50, (c)/lb50, (c)/lb200), all **fail cost at the near edge** (e.g.
+(a)/lb50: annualized point −2.21%/yr clears the 1.799%/yr hurdle, near edge −0.42%/yr
+does not) — same "point clears, CI-edge doesn't" shape this study's other weak SMA
+cells already show.
+
+**Duplicate-cell note (found this session, not silently reused):** `(a)/lb50` and
+`(a)/lb200` are, by construction, the *same statistic* M1 already tested and logged
+(`above_sma_50`/`above_sma_200`, `EXPERIMENTS.csv`) — same group column, same C2 match
+set, same `fwd_ret_21`, same universe/window. Point estimates and CIs match almost
+exactly (mine: `-0.001839 [-0.003378,-0.000349]`; M1's logged row: `-0.00183
+[-0.003406,-0.000306]`) — **confirmed via direct comparison against `baseline_state.py`'s
+own `_cell_row` run fresh on the identical panel this session, which reproduces my
+number exactly.** **Not counted toward this module's `N_tests`** — reused here only as
+the decomposition's own reference point, same treatment M11's neutralized spread /
+§7.5's bit-exact duplicates of M4 already received. `(a)/lb150` is new (M1 never tested
+lb150 standalone) and *is* counted.
+
+**Open discrepancy, flagged not resolved:** M1's own logged `n_events` for
+`above_sma_50` is 743,745; the fresh run above (both via this module and via
+`baseline_state.py` directly) gives 432,955 on the same cached panel/universe/window —
+a ~1.7x gap, while the point estimate/CI match almost exactly. The most likely
+explanation is that M1's originally-logged `n_events` reported the pre-C2-eligibility
+row count (`unrestricted`, `_cell_row`'s own naming) rather than the post-restriction
+count `event_rows`/`n_events` in the same function actually returns today — i.e. a
+labeling inconsistency in what got written to the CSV at the time, not a change in the
+underlying data or a bug in current code (current `baseline_state.py` code and this
+module's own code agree exactly when run fresh). **Not resolved here** — out of scope
+for M10 to audit M1's own historical logging; flagged for whoever next touches M1's
+`EXPERIMENTS.csv` row or `FINDINGS.md` entry.
+
+**Tier:** 4 throughout — the module's own decisive question (sampling-frequency
+effect) is killed cleanly, and no cell reaches a tier-worthy standalone claim (the
+CI-excluding-zero raw cells are non-independent restatements of M1's own
+already-Tier-3/4 weak effect, not new evidence, per the duplicate-cell note above). No
+`FINDINGS.md` entry (CLAUDE.md's own Tier-4 rule).
+
+**Multi-timeframe confluence:** scoped out this run, as pre-registered above — not
+attempted, not silently dropped. A genuine follow-up candidate, not urgent given the
+primary decisive test's clean null.
+
+**Logged:** `EXPERIMENTS.csv` (9 rows: 7 counted toward `N_tests` — `(a)/lb150`, all 3
+`(c)` cells, all 3 `(b)` cells — + 2 non-counted duplicate-reference rows, `(a)/lb50`
+and `(a)/lb200`). No `FINDINGS.md` entry (Tier 4).

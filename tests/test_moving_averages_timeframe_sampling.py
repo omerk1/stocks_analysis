@@ -42,7 +42,11 @@ def _synthetic_weekly(n_tickers: int = 6, n_weeks: int = 120, seed: int = 0) -> 
         ticker = f"T{i}"
         steps = rng.normal(0, 1, n_weeks)
         close = 100 + np.cumsum(steps)
-        frames.append(pd.DataFrame({"ticker": ticker, "date": dates, "close": close}))
+        # `build_panel` always joins `sector` regardless of timeframe --
+        # included here so `prepare_weekly`'s own controls join (which
+        # must NOT also bring in a `sector` column) is exercised the same
+        # way the real weekly panel exercises it, not a lucky-fixture pass.
+        frames.append(pd.DataFrame({"ticker": ticker, "date": dates, "close": close, "sector": "tech"}))
     return pd.concat(frames, ignore_index=True).sort_values(["ticker", "date"]).reset_index(drop=True)
 
 
@@ -73,6 +77,22 @@ def test_prepare_weekly_adds_local_lookbacks_and_lags_them():
         assert f"above_sma_{lb}" in working.columns
     assert "fwd_ret_4" in working.columns
     assert "mom_tercile" in working.columns  # joined from daily_working
+
+
+def test_prepare_weekly_does_not_collide_with_its_own_sector_column():
+    """Regression: `build_panel` joins `sector` onto both the daily and
+    weekly panels independently -- `prepare_weekly`'s controls join must
+    not also bring in `daily_working`'s `sector`, which `merge_asof`
+    would otherwise resolve by silently renaming both to
+    `sector_x`/`sector_y` (found against the real panel).
+    """
+    daily = ts.prepare_daily(_synthetic_daily())
+    weekly = ts.prepare_weekly(_synthetic_weekly(), daily)
+
+    assert "sector" in weekly.columns
+    assert "sector_x" not in weekly.columns
+    assert "sector_y" not in weekly.columns
+    assert (weekly["sector"] == "tech").all()
 
 
 def test_prepare_weekly_one_bar_lag_is_one_week():
