@@ -1588,6 +1588,25 @@ textbook lone-bright-pixel case this rule exists to catch.
 autocorrelation-bias caveat above; a longer/deeper simulation at SMA150/200 to check
 whether the same effect size becomes detectable with more statistical power.
 
+**Whole-grid FDR addendum (2026-09-24):** the 3 SMA20 vol-tercile cells (t0/t1/t2) newly
+clear the whole-grid FDR pass at N=99 — **t0 is the new rank 1 of 99** (p≈0.000000,
+smaller than any p-value this study has produced), t1 is rank 3 (p=0.000016), t2 is
+rank 5 (p=0.000105); all three individually clear their own BH threshold by a wide
+margin (full pass detail: `STATUS.md`). The 3 SMA50 vol-tercile cells do **not** clear
+FDR despite showing a comparably real departure per the C2/plateau reading above —
+their p-values (0.023–0.055) are an order of magnitude larger, consistent with this
+entry's own effective-N numbers (SMA50 has roughly half SMA20's run count). **Not
+promoted to Tier 2 despite clearing FDR by a wide margin**: the open GBM-null
+calibration caveat named above is exactly the kind of gap DESIGN §9.2's Tier-2 bar
+doesn't tolerate — Tier 2 requires the *only* remaining gaps to be missing
+infrastructure (holdout, universe tier), not an active, plausible, unresolved validity
+question about the null itself. Unlike M6.3's `slope_pctile_21_sma_50` — which carried
+an analogous-looking caveat but had it directly resolved by a same-day decomposition —
+this cell's autocorrelation-bias concern has not been tested against. **What would
+change the verdict, updated:** the FDR gate is now cleared by the widest margin in this
+study's history; the autocorrelation-aware volatility-null recalibration named above is
+now the single gate standing between this cell and a real Tier-2 candidacy.
+
 ### ER-tercile 2 (high efficiency ratio) departs from the null at all 4 lookbacks — the module's cleanest result
 
 **Hypothesis (companion facet, not counted toward `N_tests` — a second stratification

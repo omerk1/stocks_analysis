@@ -1,24 +1,29 @@
 # Moving-averages study — final report
 
-**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21, 2026-09-23, 2026-09-24. **Status:** study
-terminated per its own pre-registered criteria (`STATUS.md`'s "Study-level
-termination" section) — the minimal-core list (DESIGN §12: M1, M2, M4, M5, M6.2, M11,
-plus §7.5) ran and was tiered, and the whole-grid FDR pass executed against the
-deduplicated grid. Eight further modules were added post-termination via DESIGN
-§1.5's porous-scope rule (M18 on 2026-09-20; M6.1/M6.3/M7/M13 — "Batch 1" — on
-2026-09-22/23; M3/M6.5/M6.6/M12 — "Batch 2" — on 2026-09-23/24), each pre-registered
-and folded into a re-run of the whole-grid FDR pass rather than reported outside that
-discipline (N: 31→35→50→79). **The 2026-09-23 re-run changed the study's headline for
-the first time**: 5 cells then survived Benjamini–Hochberg correction (1 at q=0.05),
-and one of them — `slope_pctile_21_sma_50` (M6.3) — was promoted to Tier 2 the same
-day once a decomposition test resolved its one open caveat. **The 2026-09-24 re-run
-(Batch 2, N=79) changed which cells survive FDR — 3 of the prior 5 dropped out, 2 new
-cells joined — but did not change the Tier-2 count**: still exactly one
-(`slope_pctile_21_sma_50`, confirmed robust to the larger grid), still zero Tier 1.
-Full detail: §1, §4 below (§4 carries the current, N=79 table; the N=50 table is kept
-alongside it, marked superseded, per this report's own no-silent-edits convention).
-Every number below is sourced to `EXPERIMENTS.csv`, `FINDINGS.md`, `PREREGISTRATION.md`,
-or `STATUS.md` — this report synthesizes, it does not re-derive.
+**Date:** 2026-09-18, updated 2026-09-20, 2026-09-21, 2026-09-23, 2026-09-24 (×2).
+**Status:** study terminated per its own pre-registered criteria (`STATUS.md`'s
+"Study-level termination" section) — the minimal-core list (DESIGN §12: M1, M2, M4,
+M5, M6.2, M11, plus §7.5) ran and was tiered, and the whole-grid FDR pass executed
+against the deduplicated grid. Twelve further modules were added post-termination via
+DESIGN §1.5's porous-scope rule (M18 on 2026-09-20; M6.1/M6.3/M7/M13 — "Batch 1" — on
+2026-09-22/23; M3/M6.5/M6.6/M12 — "Batch 2" — on 2026-09-23/24; M8/M9/M10/M6.4 —
+"Batch 3" — on 2026-09-24), each pre-registered and folded into a re-run of the
+whole-grid FDR pass rather than reported outside that discipline (N:
+31→35→50→79→99). **The 2026-09-23 re-run changed the study's headline for the first
+time**: 5 cells then survived Benjamini–Hochberg correction (1 at q=0.05), and one of
+them — `slope_pctile_21_sma_50` (M6.3) — was promoted to Tier 2 the same day once a
+decomposition test resolved its one open caveat. **Both 2026-09-24 re-runs (Batch 2,
+N=79; Batch 3, N=99) changed which cells survive FDR — each time some cells dropped
+out and others joined — but neither changed the Tier-2 count**: still exactly one
+(`slope_pctile_21_sma_50`, confirmed robust across three consecutive grid expansions),
+still zero Tier 1. The Batch-3 pass produced the largest survivor set in this study's
+history (10 of 99 at q=0.10, 5 at q=0.05) and, for the first time, every single
+survivor clears its own BH threshold without depending on the step-up sweep
+mechanism. Full detail: §1, §4 below (§4 carries the current, N=99 table; the N=79
+and N=50 tables are kept alongside it, marked superseded, per this report's own
+no-silent-edits convention). Every number below is sourced to `EXPERIMENTS.csv`,
+`FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
+not re-derive.
 
 ---
 
@@ -42,32 +47,42 @@ artifact (both sides independently show the same effect: rising −0.254% CI
 an untested holdout period and a second universe tier — are missing infrastructure,
 not failures, which is exactly DESIGN §9.2's Tier-2 profile.
 
-**2026-09-24 update: 3 more cells clear FDR at N=79, stay at Tier 3, each for its own
-separate reason — plus the study's smallest-ever p-value:**
-- **`ribbon_agreement_extreme_drawdown`** (M6.6, ribbon-slope-agreement state 5 vs. 0,
-  +0.65% on forward max drawdown, clears cost, p≈0.00000 — the new rank 1, smaller
-  than M6.3's own p=0.00005): a magnitude/avoided-loss effect on drawdown, not a
-  signed-return claim — the same actionability gap `ribbon_direction_magnitude` (M7,
-  below) carried, now this study's clearest instance of the pattern.
-- **`reclaim_durability_dollar_volume_sma50`** (M12, −0.87%, clears cost cleanly —
-  the largest cost-viability margin of any Tier-3 cell in this study, survives
-  reversal-robustness attenuated ~34%, p=0.00348): **sign opposite DESIGN's own
-  hypothesis** (low-dollar-volume reclaims outperform high-dollar-volume ones). Not
-  promoted: this panel has no point-in-time market-cap/size control, and dollar volume
-  correlates strongly with size, so an uncontrolled small-cap/illiquidity premium is at
-  least as plausible as a genuine mechanism — an open, unresolved confound.
-- **`dist_from_52w_low`@126d** (M18, +2.50%, clears cost cleanly, still survives —
-  now rank 4, not rank 2): unchanged reasoning, still an open survivorship-adjacent
-  caveat.
+**2026-09-24 Batch-3 update, current: 3 more cells clear FDR at N=99 (M6.4's SMA20
+vol-tercile trio), plus a repeat demonstration of FDR "flapping":**
+- **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4, does empirical
+  slope-persistence exceed a matched-volatility GBM-null's own survival curve —
+  ranks 1/3/5, p≈0.000000/0.000016/0.000105, the three smallest p-values this study
+  has ever produced): real, well-powered departures from the null (all three vol
+  terciles, both SMA20 and SMA50 show the same plateau; only SMA20's p-values are
+  small enough to clear correction). **Not promoted**: the GBM null's own volatility
+  estimate is computed from the same potentially-autocorrelated series being tested,
+  which could bias the null low and inflate apparent departures — an open, unresolved
+  validity question, not yet ruled out by a direct test.
+- **`ribbon_agreement_extreme_drawdown`** (M6.6) and **`reclaim_durability_dollar_volume_sma50`**
+  (M12) continue to survive (ranks 2 and 6) — unchanged reasoning from the prior pass.
+- **`dist_from_52w_low`@126d** (M18, rank 7) continues to survive — unchanged
+  reasoning.
+- **The "flapping" pattern, now observed three times in a row**: `ribbon_direction_magnitude`
+  (M7), `stack_fully_bearish` (M2), and `above_sma_20` (M1) survived at N=50, dropped
+  out at N=79, and are back at N=99 (ranks 8-10) — three FDR-status flips each, zero
+  new evidence about any of the three. None has ever reached Tier 2 at any point (each
+  capped by its own independent reason — M7's actionability gap, M2's survivorship
+  policy, M1's cost failure), so **despite three flips each, the tier assignment for
+  all three has never once changed.** This is the concrete, repeated version of the
+  risk this report's own 2026-09-24 Batch-2 update first named as a single instance.
 
-**3 of the 2026-09-23 pass's 5 survivors no longer clear FDR at N=79** — pure
-denominator effect, not new evidence against them, and none had reached Tier 2 anyway:
-`ribbon_direction_magnitude` (M7, capped by its own actionability gap regardless),
-`stack_fully_bearish` (M2, capped by DESIGN §7.3's survivorship policy regardless),
-`above_sma_20` (M1, fails cost outright regardless). **`above_sma_20`'s flip is the
-clearest demonstration in this study of a cell's FDR status changing purely because
-the grid grew** (0.0090 vs. a threshold of 0.0100 at N=50; 0.0090 vs. 0.0089 at N=79)
-— worth naming precisely because it changes nothing about that cell's own evidence.
+**Unlike every prior pass, all 10 current survivors individually clear their own BH
+threshold — none depends on the step-up sweep mechanism**, even the tightest (ranks
+8-9, ~95% of their own threshold).
+
+**2026-09-24 Batch-2 pass's own summary (superseded above, kept for the record):** 4
+cells cleared FDR at N=79 — `ribbon_agreement_extreme_drawdown` (M6.6, rank 1),
+`slope_pctile_21_sma_50` (M6.3, rank 2), `reclaim_durability_dollar_volume_sma50`
+(M12, rank 3), `dist_from_52w_low`@126d (M18, rank 4) — while `ribbon_direction_magnitude`
+(M7), `stack_fully_bearish` (M2), and `above_sma_20` (M1) had dropped out from the
+2026-09-23 pass's own 5-survivor set, purely from denominator growth (`above_sma_20`'s
+own threshold moved from 0.0100 at N=50 to 0.0089 at N=79 against an unchanged
+p=0.0090). See the Batch-3 update above for what happened to all three next.
 
 **Two more Tier-3 cells (M6.2) do not survive FDR at all:** `extension_x_slope`
 (SMA50 top decile, −0.59%, clears cost, p=0.0254) and `touch_x_slope` (SMA50
@@ -278,21 +293,48 @@ unchanged, only the ranks/thresholds shift as the denominator grows). **Current
   test (`dist_from_52w_low`@126d). Full per-cell reasoning: `FINDINGS.md`'s 2026-09-23
   addenda on each cell.
 
-**2026-09-24 update, current: N_tests = 79** (the 50 above, unchanged, plus Batch 2's
-29 — M3 contributes 16, M6.5 2, M6.6 2, M12 9; full dedup reasoning in `STATUS.md`,
-including M12's cross-feature independence check, run this session, closing a gap its
-own pre-registration had explicitly left open). **Result: 4 of 79 rejected at q=0.10,
-2 of 79 at q=0.05** — a change in *which* cells survive, not just how many:
-`ribbon_agreement_extreme_drawdown` (M6.6) is the new rank 1 at p≈0.00000, smaller than
-M6.3's own p=0.00005; `reclaim_durability_dollar_volume_sma50` (M12) newly clears at
-p=0.00348. **3 of the old pass's 5 survivors drop out purely from the larger
-denominator** (`ribbon_direction_magnitude`, `stack_fully_bearish`, `above_sma_20`) —
-none had reached Tier 2, so this changes no tier assignment. **Unlike the 2026-09-23
-pass, all 4 current survivors individually clear their own rank's threshold** — none
-depend on a step-up sweep from rank 1's small p-value, though ranks 3–4 clear by only
-~8%. **Tier-2 count unchanged: still exactly `slope_pctile_21_sma_50`, confirmed
-robust to the larger grid.** Full reasoning and the current ranked table:
-`STATUS.md`'s "Whole-grid FDR pass" section.
+**2026-09-24 Batch-3 update, current: N_tests = 99** (the 79 above, unchanged, plus
+Batch 3's 20 — M8 contributes 0 [Reality Check's own p-value is methodologically
+incompatible with this pass's Wald/BH machinery], M9 1 [DESIGN's own false-positive
+warning collapsed the module to a single decisive test], M10 7, M6.4 12; full dedup
+reasoning in `STATUS.md`, including a direct check that neither M9 nor M6.4 left an
+independence gap the way M12 did last pass — none found). **Result: 10 of 99 rejected
+at q=0.10, 5 of 99 at q=0.05** — the largest survivor set in this study's history.
+Three of M6.4's SMA20 vol-tercile cells produced the three smallest p-values this
+study has ever seen (ranks 1, 3, 5), displacing M6.6 to rank 2 and M6.3's own Tier-2
+cell to rank 4 (still clearing q=0.05 comfortably). `reclaim_durability_dollar_volume_sma50`
+(M12) and `dist_from_52w_low`@126d (M18) continue to survive (ranks 6-7). **The three
+cells that dropped out at N=79 are back** (`ribbon_direction_magnitude`,
+`stack_fully_bearish`, `above_sma_20` — ranks 8-10) — three FDR-status flips each
+across three consecutive passes, with the tier assignment for all three never once
+changing. **Unlike every prior pass, all 10 current survivors individually clear
+their own rank's threshold** — none depend on a step-up sweep, even the tightest
+(ranks 8-9, ~95% of their own threshold). **Tier-2 count unchanged: still exactly
+`slope_pctile_21_sma_50`, confirmed robust across three consecutive grid
+expansions.** Full reasoning and the current ranked table: `STATUS.md`'s "Whole-grid
+FDR pass" section.
+
+| rank | cell | p-value | BH threshold (rank/99×0.10) | reject q=0.10? |
+|---|---|---|---|---|
+| 1 | M6.4 `slope_persistence_vol_tercile_sma20_t0` | ~0.000000 | 0.00101 | **yes** |
+| 2 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.000002 | 0.00202 | **yes** |
+| 3 | M6.4 `slope_persistence_vol_tercile_sma20_t1` | 0.000016 | 0.00303 | **yes** |
+| 4 | M6.3 `slope_pctile_21_sma_50` | 0.000050 | 0.00404 | **yes — Tier 2** |
+| 5 | M6.4 `slope_persistence_vol_tercile_sma20_t2` | 0.000105 | 0.00505 | **yes** |
+| 6 | M12 `reclaim_durability_dollar_volume_sma50` | 0.003476 | 0.00606 | **yes** |
+| 7 | M18 `dist_from_52w_low`@126d | 0.004679 | 0.00707 | **yes** |
+| 8 | M7 `ribbon_direction_magnitude` | 0.007674 | 0.00808 | **yes** |
+| 9 | M2 `stack_fully_bearish_h21` | 0.008606 | 0.00909 | **yes** |
+| 10 | M1 `above_sma_20` | 0.009032 | 0.01010 | **yes** |
+| 11–99 | (remaining 89 cells) | ≥0.0135 | — | no |
+
+Full ranked table (top 25 explicitly): `STATUS.md`. Note on the flapping cells:
+`above_sma_20` individually cleared its own threshold at N=50 (0.0090 vs. 0.0100),
+missed at N=79 (0.0090 vs. 0.0089), and clears again at N=99 (0.0090 vs. 0.0101) —
+three flips purely from denominator/anchor-point changes, not new evidence. `ribbon_direction_magnitude`
+and `stack_fully_bearish_h21` show the identical pattern.
+
+**Superseded — 2026-09-24 Batch-2 pass's own ranked table (N=79), kept for the record:**
 
 | rank | cell | p-value | BH threshold (rank/79×0.10) | reject q=0.10? |
 |---|---|---|---|---|
@@ -304,11 +346,6 @@ robust to the larger grid.** Full reasoning and the current ranked table:
 | 6 | M2 `stack_fully_bearish` | 0.0086 | 0.0076 | no |
 | 7 | M1 `above_sma_20` | 0.0090 | 0.0089 | no |
 | 8–79 | (remaining 72 cells) | ≥0.0135 | — | no |
-
-Full ranked table (top 20 explicitly): `STATUS.md`. Note on rank 7: `above_sma_20`
-individually cleared its own threshold at N=50 (0.0090 vs. 0.0100) and no longer does
-at N=79 (0.0090 vs. 0.0089) — the clearest instance in this study of a cell's FDR
-status changing purely from denominator growth, not new evidence.
 
 **Superseded — 2026-09-23 pass's own ranked table (N=50), kept for the record:**
 

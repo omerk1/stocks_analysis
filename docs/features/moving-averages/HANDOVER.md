@@ -1,11 +1,12 @@
 # Handover — post-termination parallel batches
 
 **Written 2026-09-22, revised 2026-09-23 (Batch 1 done), revised 2026-09-24 (Batch 2
-done).** This file exists so a *different* Claude Code conversation (no memory of this
-one) can pick this initiative up cold. It's session/execution state and a forward
-plan, not part of this study's original file set (`STATUS.md` covers results). Read
-`CLAUDE.md` first (its invariants apply to every module below, no exceptions), then
-this file, then `STATUS.md` for the study's actual tiered results.
+done), revised 2026-09-24 (Batch 3 done).** This file exists so a *different* Claude
+Code conversation (no memory of this one) can pick this initiative up cold. It's
+session/execution state and a forward plan, not part of this study's original file set
+(`STATUS.md` covers results). Read `CLAUDE.md` first (its invariants apply to every
+module below, no exceptions), then this file, then `STATUS.md` for the study's actual
+tiered results.
 
 ## Where things stand
 
@@ -50,6 +51,40 @@ larger N — but **the Tier-2 count is unchanged** (still exactly one,
 **Cleanup done (2026-09-24)**: all 4 Batch-2 worktrees/branches removed. Nothing left
 over from Batch 2 — Batch 3 starts clean.
 
+**Batch 3 (M8, M9, M10, M6.4) is done, merged, and consolidated** (PRs #97–#100, plus
+this session's own FDR consolidation — same coordinating-session job as Batches 1/2).
+Run 2 pairs, not 4-way parallel, per this file's own Batch-3 scoping: M8+M10 first
+(disjoint files — M10 owns `features/panel.py` exclusively, M8 never touches it), then
+M9+M6.4 (both wanted an "efficiency ratio" feature; M9 owns the new shared
+`features/regime.py`, M6.4 built its own local temporary copy of the identical formula
+rather than block on M9, flagged for reconciliation — never actually reconciled this
+session, still open, see below). Result: **M8 and M9 killed cleanly** (DESIGN's own
+~80%/~70% priors both held); **M10 killed cleanly** (no weekly-sampling advantage);
+**M6.4 was NOT killed** — a real, well-powered slope-persistence departure from a GBM
+null, capped at Tier 3 by an open, unresolved null-calibration caveat (the GBM null's
+own volatility estimate may be circular). The whole-grid FDR re-run (N=79→99) produced
+this study's **largest survivor set to date** (10 of 99 at q=0.10, 5 at q=0.05),
+anchored by M6.4's SMA20 vol-tercile trio (the three smallest p-values this study has
+ever produced) — **but the Tier-2 count is still unchanged** (still exactly one,
+`slope_pctile_21_sma_50`/M6.3, now confirmed robust across three consecutive grid
+expansions). A genuinely new, repeated pattern surfaced this pass: `ribbon_direction_magnitude`
+(M7), `stack_fully_bearish` (M2), and `above_sma_20` (M1) have each now flipped FDR
+status three times across three consecutive passes (survived at N=50, dropped at
+N=79, back at N=99) with their tier assignment never once changing — a live
+demonstration, not just a hypothetical, of why FDR-survivor-set membership alone
+shouldn't be read as evidence quality. Full detail in `STATUS.md`'s "Whole-grid FDR
+pass" section (2026-09-24 Batch-3 update) and `REPORT.md`.
+
+**Open item carried forward, not resolved this session**: M9's `features/regime.py::efficiency_ratio`
+and M6.4's own local, temporary `efficiency_ratio` copy (identical formula,
+independently implemented, both extracted from M8's `kernels.py::kama`) were never
+actually reconciled into one shared function once both landed. Low priority (both
+compute the same thing) but worth a small follow-up cleanup PR before it's forgotten.
+
+**Cleanup done (2026-09-24)**: all 2 Batch-3 worktree pairs (4 worktrees total)
+removed, all branches deleted (local and remote). Nothing left over from Batch 3 —
+Batch 4 starts clean.
+
 **Batch 2/3/4 scoping below is unchanged and still the reusable part of this file.**
 
 ## Infrastructure inventory (check again before starting a new batch — it may have changed)
@@ -61,21 +96,28 @@ over from Batch 2 — Batch 3 starts clean.
   `run_length_bucket_sma_*`, `dist_from_52w_high`/`dist_from_52w_low`, `sector`
   (current-state only, not PIT), `stacked_sma`/`stacked_ema`. Full list: run
   `read_panel(...).columns` or read `features/panel.py`'s own docstring.
-- **Not built**: WMA/HMA/DEMA/KAMA (only SMA/EMA exist; a minimal module-local VWMA
-  stub now exists in `features/liquidity.py`, built for M12 — the full 5-kernel build
-  + White's Reality Check is still M8's job), lookbacks other than {20,50,150,200} in
-  the *shared* panel (M6.6 added local-only 10/100 SMA slope for its own ribbon;
-  M3 added local-only EMA 8/10/21 for its own crossover pairs — neither touched the
-  shared panel), `ribbon_width` as a shared panel column (M7 built its own local one),
-  `features/regime.py` (ER/ADX/vol-regime), point-in-time `mktcap_decile`/
-  `universe_flags` (M12's `dollar_volume`/SMA50 finding is capped at Tier 3 partly for
-  lack of this — a live, named reason to eventually build it), weekly-timeframe panel
-  build (though `bars_1w` raw data exists with broad coverage — 6,539 tickers — the
-  panel-build path itself is daily-only). **Now built**: crossover/state-flip event
-  detection (`features/crossover.py`, M3); `labels/path_metrics.py` (built twice,
-  independently, by M6.6 (`forward_max_drawdown`) and M3's fork was told it might need
-  the same thing and didn't collide — only `forward_max_drawdown` actually landed;
-  MFE/MAE proper is still unbuilt).
+- **Not built**: lookbacks other than {20,50,150,200} in the *shared* panel (M6.6
+  added local-only 10/100 SMA slope for its own ribbon; M3 added local-only EMA
+  8/10/21 for its own crossover pairs; M9's `efficiency_ratio`/`average_directional_index`
+  and M6.4's own local temporary `efficiency_ratio` both operate off existing panel
+  columns without adding new lookbacks either — none of these touched the shared
+  panel), `ribbon_width` as a shared panel column (M7 built its own local one),
+  point-in-time `mktcap_decile`/`universe_flags` (M12's `dollar_volume`/SMA50 finding
+  and M6.4's GBM-null calibration are both capped at Tier 3 partly for lack of
+  this-or-adjacent infra — live, named reasons to eventually build it), MFE/MAE proper
+  (`labels/path_metrics.py` only has `forward_max_drawdown` so far). **Now built**:
+  crossover/state-flip event detection (`features/crossover.py`, M3); WMA/HMA/DEMA/
+  KAMA/VWMA (`features/kernels.py`, M8 — VWMA also has a separate, simpler module-local
+  stub in `features/liquidity.py` from M12, not reconciled with `kernels.py`'s own
+  version, low priority); White's Reality Check (`stats/multiple_testing.py::white_reality_check`,
+  M8); a `Timeframe` parameter on `build_panel` (`features/panel.py`, M10 — daily
+  default unchanged, `Timeframe.WEEKLY` resamples live from `bars_1d`; only
+  MA/distance/slope/ATR/run-length features are timeframe-correct at non-daily
+  granularity, day-count-calibrated context features like `mom_12_1` are not
+  recalibrated, a named open gap); `features/regime.py` (`efficiency_ratio`,
+  `average_directional_index`, M9 — M6.4's own local temporary `efficiency_ratio` copy
+  is not yet reconciled with this one, see the open item above); Kaplan-Meier survival
+  + GBM-null simulation (`stats/survival.py`, M6.4, entirely new).
 - **DB tables** (`data/raw/market_data.sqlite`): `bars_1d/1h/1mo/1w`, `fetch_jobs`,
   `index_membership`, `macro_series` (VIX/FRED, no earnings), `shares_outstanding`,
   `splits`, `ticker_metadata`, `ticker_sector`, `tickers`. **No earnings-date table
@@ -87,16 +129,7 @@ over from Batch 2 — Batch 3 starts clean.
 - **`market_common.indicators`** already has RSI/MACD/ATR/OBV wrappers (this repo's
   own reuse pointer in `CLAUDE.md`) — relevant to M17.
 
-## Batch 3 — heavy, standalone infra builds (parallel-safe, but each a real project — 1-2 at a time, not 4) (next up)
-
-| Module | What it needs |
-|---|---|
-| M8 | 5 new MA kernels (WMA/HMA/DEMA/KAMA/VWMA) + White's Reality Check (only BH exists in `stats/multiple_testing.py`) — DESIGN lines ~930-934 |
-| M9 | `features/regime.py` (ER/ADX/vol regime), 3-stage methodology. **DESIGN itself flags this as the module most likely to produce a false positive** — pre-register the regime definition, don't tune thresholds after seeing results. DESIGN lines ~935-944 |
-| M6.4 | Kaplan-Meier survival machinery + GBM-null simulation — nothing like this exists in `stats/` yet. DESIGN lines ~835-839 |
-| M10 | Weekly panel-build path (`bars_1w` exists, but this needs a `Timeframe` parameter on `build_panel` — should be the only thing touching `features/panel.py` in its batch). DESIGN lines ~945-949 |
-
-## Batch 4 — soft/hard dependencies, sequence last
+## Batch 4 — soft/hard dependencies, sequence last (next up)
 
 - **M16** (linear-filter unification) and **M17** (RSI/stochastics nonlinearity
   probe) read better with M3/M6.1/M6.3 numbers in hand (M17 needs the full MA
@@ -154,10 +187,12 @@ MA "angle" being ill-defined, DESIGN lines ~849-853).
 ## Where to actually start next
 
 Read this file, then `STATUS.md` for the study's real tiered state and the relevant
-`DESIGN.md` section for whichever module you're about to run. Batch 2's worktree
-cleanup is done (2026-09-24) — nothing left over. **Batch 3 is the actual next body of
-work**, but unlike Batches 1/2 it's explicitly *not* meant to run as 4 parallel forks —
-each of its 4 modules (M8, M9, M6.4, M10) is its own real infrastructure project; run
-1-2 at a time. M9 in particular needs a pre-registered regime definition committed
-*before* looking at any results (DESIGN's own flag: "the module most likely to produce
-a false positive").
+`DESIGN.md` section for whichever module you're about to run. Batch 3's worktree
+cleanup is done (2026-09-24) — nothing left over. **Batch 4 is the actual next body of
+work** (M16, M17, M14, M15 — see that section above): soft/hard dependencies on
+already-landed modules, sequenced last on purpose, not parallel-safe the way Batches
+1-3 were. M15 (synthesis) is hard-blocked on everything else finishing first. Before
+starting, also pick up the one small open item Batch 3 left behind: reconciling M9's
+`features/regime.py::efficiency_ratio` with M6.4's own independently-built local copy
+of the identical formula (see "Batch 3 done" note above) — low priority, cheap, easy
+to forget.
