@@ -4865,6 +4865,257 @@ convention as M5/§7.5/M6.5.
 ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
 the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).
 
+## M14 — Integration with existing detectors (2026-09-25)
+
+**Module / track:** M14, Track B (DESIGN.md lines ~977-979). Batch 4 module
+(`HANDOVER.md`'s own scoping), run alongside sibling M16 and M17 forks, each in its
+own worktree — no shared-file conflicts expected (a different feature family
+entirely: this module integrates with `src/signals/patterns/`, a separate repo
+subsystem, not touched by M16/M17).
+
+**Hypothesis:** an MA event (this module's own choice: `above_sma_50` reclaim, M1's
+own state-transition-into-above construction, reused unchanged) that occurs shortly
+after a high-confidence chart-pattern breakout behaves differently (larger/cleaner
+forward return) than the same MA event with no recent qualifying breakout nearby.
+
+**Kill criterion (self-formulated — DESIGN gives no literal numeric one for this
+module, CLAUDE.md's own requirement to state one before running applies regardless):**
+`module_killed := CI includes zero, OR max(|ci_low|,|ci_high|) < 0.10%` — this study's
+standard floor convention (M1/M13's own `KILL_THRESHOLD`).
+
+**Control tier:** this study's standard C2 (`mom_tercile`/`vol_tercile`/`sector`-matched
+block-bootstrap delta), reused unchanged, applied to the reclaim-event population
+M1/M12 already established.
+
+**"Inside a detected pattern" needed a real, checked definition, not DESIGN's literal
+wording taken naively — full reasoning in `modules/pattern_context.py`'s own
+docstring, summarized here:**
+1. The patterns subsystem (`src/signals/patterns/`) was scanned fresh for this
+   module — **the `pattern_matches` table did not exist anywhere in this repo before
+   this session** — via a one-off script (`pattern_scan_run.py`, not committed,
+   discarded after use) that reused `patterns.cli::run_for_ticker` directly against
+   this study's own U1 universe (`data.py::sp500_full_coverage_tickers`), with
+   `as_of=2021-12-31` **explicitly checked against `scanner.py::detect`'s own source**
+   before trusting it (`load_and_validate` truncates bars to `as_of`, and matches are
+   additionally filtered to `formation_end <= as_of` — confirmed by reading the code,
+   not assumed from the flag's name) — CLAUDE.md invariant #1 is absolute and this is
+   exactly the kind of cross-subsystem gotcha that could silently violate it. Result:
+   355,834 raw matches across 405 tickers (full available history per ticker, only
+   the *end* bounded); 119,140 of those fall inside the 2010-2021 dev window.
+2. **The literal DESIGN reading ("MA event date falls inside ANY detected pattern's
+   own formation window, any type, any status") was tried first and rejected as
+   unusable, not silently avoided**: checked directly for a sample ticker (AAPL),
+   this covers **99.5%** of all trading days — every detected candidate, regardless
+   of quality, together blankets almost the entire calendar, because the scanner
+   considers many overlapping pivot-pair combinations per ticker. Restricting to
+   breakout-confirmed statuses only (`confirmed`/`active`/`hit_target`/
+   `invalidated_failed_breakout`) barely moves this (99.2%). Restricting further to a
+   21-trading-day window after `formation_end` (this study's own standard horizon,
+   not invented for this check) still leaves 79% coverage.
+3. **Only adding a confidence floor produces a genuinely selective flag**:
+   `confidence >= 0.7` (the scanner's own continuous 0-1 score; 0.7 is its own top
+   ~19% of all candidates in the dev window, a round pre-specified cut chosen before
+   looking at this test's own outcome, not tuned to it) combined with the 21-day
+   post-`formation_end` window and the breakout-status restriction above yields 36%
+   coverage for AAPL — a real, usable split, not a near-universal or near-empty one.
+   **This is the definition used below.** Named in full so the choice is auditable.
+
+**Scope cut, named not silently dropped**: only `above_sma_50` reclaims are tested
+(one MA event type, not the full cross-product of every M1/M3/M12 event type against
+every one of the patterns subsystem's 7 pattern types) — DESIGN's own §6.4 tiny-
+effective-N warning applies directly to that full cross-product, and a single,
+well-motivated, already-established event construction (M1's own primary reclaim
+statistic) is the more defensible single test to pre-register.
+
+### Result
+
+Ran `modules/pattern_context.py::decisive_test` against the real cached panel (405
+S&P 500 tickers, U1, 2010-2021) joined with the qualifying-pattern flag above.
+`load_qualifying_patterns` found 75,067 breakout-confirmed, confidence>=0.7 pattern
+instances across all 405 tickers in the dev window; `in_pattern_context` flags 23.7%
+of the whole panel (consistent with the AAPL sample check's 36% — some
+ticker-to-ticker variance expected, not investigated further, not load-bearing for
+the decisive test itself).
+
+**Primary cell (default C2: `mom_tercile`/`vol_tercile`/`sector`):** C2 delta
+**−0.4045%** on `fwd_ret_21`, 90% CI **[−0.7483%, −0.0866%]** — excludes zero, clears
+the 0.10% kill floor (edge 0.7483%). `module_killed=False` per the pre-registered
+criterion. **Sign is negative**: `above_sma_50` reclaims that occur shortly after a
+high-confidence pattern breakout *underperform* reclaims with no recent qualifying
+breakout — the opposite of DESIGN's own "compounding result" framing, which implicitly
+expects pattern-conditioning to help, not hurt.
+
+**Effective N:** 39,452 reclaim events, 2,656 distinct dates, 402 tickers
+(10,858 in-context, 28,594 out-of-context — both comfortably above this module's own
+`MIN_EVENTS=200` floor). Well-powered.
+
+**Cost:** in-context reclaim rate 2.251/ticker-yr → hurdle 0.225%/yr (`stats/costs.py`,
+10bps/rt). Annualized (×12): point −4.85%/yr, near edge −1.04%/yr, far edge
+−8.98%/yr. **Clears at every reading.**
+
+**Reversal-robustness (same day):** survives essentially unattenuated — adding
+`rev_tercile` (`mom_1_0` tercile) to the C2 match set gives C2 **−0.4412%**, CI
+**[−0.7904%, −0.1021%]**, if anything slightly *stronger* than the default reading.
+Short-term reversal is not the driver.
+
+**Extension-neutralized (same day) — the decisive check, and the one that changes the
+verdict:** a high-confidence pattern breakout definitionally requires the stock to
+have already made a real directional move to form the pattern in the first place —
+the single most obvious candidate confound for this specific construction, more
+directly relevant here than for almost any other cell in this study. Adding
+`ext_tercile` (`dist_pct_sma_50` tercile, distance-from-the-same-MA the reclaim event
+itself is defined on) to the C2 match set: C2 **−0.1962%** (attenuates ~52% from the
+default reading), CI **[−0.5393%, +0.1721%]** — **CI now spans zero.**
+
+**Verdict, per this study's own established precedent (DESIGN §9.2's 2026-09-10
+resolution, first applied to M11's `dist_pct_sma_50`@21d: "the stronger control tier
+is authoritative when the two disagree"):** the extension-neutralized reading is the
+more directly relevant, more skeptical control for this specific construction, and it
+does not confirm. **Read as: this effect is substantially a re-encoding of the same
+extension/momentum-exhaustion mechanism M6.3 already found (extreme distance-from-MA
+predicts worse forward returns), not new information contributed by pattern-detection
+specifically.** The primary cell's own pre-registered kill criterion (default C2) does
+not literally fire, but per this study's own stronger-control-wins convention, this
+does **not** get tiered as confirmed — same treatment M6.3's own SMA200 cell received
+after its reversal-robustness check failed (there, reversal; here, extension).
+
+**Tier: 4.** Not confirmed once its own most directly relevant confound is controlled
+for. No `FINDINGS.md` entry (CLAUDE.md's own Tier-4 rule).
+
+**What would change the verdict:** a genuinely pattern-specific mechanism test that
+doesn't share this construction's own extension confound — e.g., restricting to
+reclaims where the *breakout itself* was a continuation move (not primarily a
+reversal off a tight base) vs. a contraction/base breakout (VCP-style), which might
+decorrelate "recent breakout" from "currently extended" better than this module's own
+coarse confidence-floor definition does.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows: primary, reversal-robustness companion,
+extension-neutralized companion — only the primary cell counted toward `N_tests`,
+same convention as every other module's robustness-companion rows in this study).
+
+### VCP addendum (2026-09-25)
+
+**Requested scope, explicit:** a targeted VCP-vs-pooled split of the already-declared
+primary cell above — **not** a full 7-way pattern-type breakdown (that would be a
+much larger, thinner, more exploratory sweep, exactly the search-space growth DESIGN's
+own §6.4 warns against). One hypothesis, one cell.
+
+**Hypothesis:** the extension-neutralized result differs specifically inside VCP
+formations. **Why VCP specifically, not any other pattern type**: VCP (volatility
+contraction pattern) is itself an MA-native construction — contraction around moving
+averages, the same Minervini-style methodology M2's own Trend Template already tested
+in this study — unlike the other 6 pattern types (double-top/bottom, H&S,
+triangles/wedges, cup & handle, reversal-123), which have no particular theoretical
+connection to *why* an MA reclaim inside them specifically would behave differently.
+
+**Kill criterion:** same as the primary cell — `module_killed := CI includes zero, OR
+edge < 0.10%` — evaluated on the **extension-neutralized** reading specifically (the
+primary cell's own decisive layer, per this study's stronger-control-wins precedent
+already established above), not the default-C2 reading.
+
+**Control tier:** identical to the primary cell — default C2
+(`mom_tercile`/`vol_tercile`/`sector`) and the extension-neutralized companion
+(+`ext_tercile`, `dist_pct_sma_50`), both reused unchanged.
+
+**Effective-N gate, run first, before the decisive test — per the coordinating
+session's own explicit instruction:** VCP-only qualifying patterns: 3,978 instances,
+404 tickers (vs. 75,067/405 pooled). The reclaim population this actually matters for
+(`is_reclaim_50` events with `in_pattern_context=True` under a VCP-only flag): **505
+events, 409 distinct dates, 227 tickers** — clears this module's own
+`MIN_EVENTS=200`/`MIN_DATES=30`/`MIN_TICKERS=30` floor, but by a much thinner margin
+than the pooled primary cell's 10,858 in-context events (~4.6% of it). **Testable, but
+expect materially wider CIs than the pooled reading — stated before running, not as a
+post-hoc excuse if the result comes back inconclusive.**
+
+#### Result
+
+Ran the same `decisive_test`/extension-neutralized construction as the primary cell,
+restricted to a VCP-only `patterns` input (`pattern_type == "vcp"`, same
+`load_qualifying_patterns` query, `pattern_type` column added to that function this
+session for this split).
+
+**Hypothesis confirmed — and more strongly than the hypothesis itself predicted.**
+VCP doesn't just fail to show the pooled cell's negative, extension-explained effect —
+it shows a **positive** effect of its own that **survives extension-neutralization
+essentially unchanged**:
+
+- **Default C2**: **+1.8298%** on `fwd_ret_21`, 90% CI **[+1.0600%, +2.7680%]** —
+  excludes zero, opposite sign from the pooled primary cell (−0.4045%).
+- **Extension-neutralized** (+`ext_tercile`, the same check that killed the pooled
+  cell): **+1.9852%**, CI **[+1.4334%, +2.6072%]** — **not attenuated at all** (if
+  anything marginally stronger) — this is the opposite of what happened to the pooled
+  cell (52% attenuation, CI moved to spanning zero). **VCP reclaims are not extension
+  in disguise the way the pooled population's reclaims were.**
+
+**Effective N (the actual bootstrap-contributing count, not just the raw event
+count — worth separating explicitly given how thin this slice is):** 505 in-context
+events / 409 raw distinct dates / 227 tickers pass the pre-registered gate, but the
+default-C2 bootstrap's own stratum construction (date × `mom_tercile` × `vol_tercile`
+× `sector`) only finds both group values present on **131 distinct dates** — the
+number actually driving the reported CI's width. Still comfortably above this study's
+30-date floor, but a real, worth-naming precision gap relative to the pooled cell's
+much larger contributing-date count.
+
+**Cost:** in-context reclaim rate (VCP-only) 0.185/ticker-yr → hurdle 0.0185%/yr — a
+very low-turnover, rare-event signal, trivially cleared: annualized (×12) point
++21.96%/yr, near edge +12.72%/yr, far edge +33.22%/yr. **Clears at every reading, by
+the widest margin of any cell in this study** — expected, given how rare and
+high-conviction the underlying event (a reclaim shortly after a confirmed VCP
+breakout) is by construction.
+
+**Reversal-robustness — attempted, not resolved (an honest limitation, not a silent
+gap):** adding `rev_tercile` to the match set (the same 4-column check that
+successfully ran on the pooled cell) raised `InsufficientBlocksError`: only 112
+dates have both group values present in the finer 4-column stratification, below the
+126-date minimum this study's own `stats/inference.py` requires for its standard
+42-day block length. **Not forced by shrinking the block length** — CLAUDE.md's own
+discipline and the coordinating session's explicit instruction both favor reporting
+an honest gap over manufacturing a number from an underpowered slice. Short-term
+reversal is accordingly named as an **open, untested** confound for this specific
+cell (unlike the pooled cell, where it was directly checked and ruled out).
+
+**Shape stats (descriptive only, CLAUDE.md invariant #10 — no CI, no kill authority):**
+in-context hit rate 68.9% vs. 61.3% out-of-context (favorable); win/loss ratio 1.134
+vs. 1.132 (essentially identical, not itself favorable); skew −0.770 vs. −0.065
+(**notably more negative in-context** — a real, worth-naming asymmetry: the average
+outcome is better, but the left tail is fatter, not a uniform improvement across the
+whole distribution).
+
+**Why this probably isn't (only) what it looks like — argue against your own result:**
+two open items, named not resolved: (1) reversal is untested at this cell specifically
+(see above) — the pooled cell's own reversal-robustness result doesn't transfer
+automatically, since VCP reclaims could plausibly have different reversal dynamics
+than the pooled population; (2) the more negative in-context skew means this
+population carries somewhat fatter downside tail risk than the pooled comparison,
+even though its central tendency (mean, hit rate) is more favorable — a nuance a
+mean/CI table alone would miss, exactly the kind of shape-vs-mean divergence CLAUDE.md
+invariant #10 exists to surface.
+
+**Tier: 3.** CI excludes zero at both the default and extension-neutralized readings
+(the decisive layer for this construction), clears cost by the widest margin in this
+study, well-powered *enough* (clears the pre-registered floor, though thinner than the
+pooled cell) — capped at Tier 3 by this study's standard missing FDR/holdout
+infrastructure, plus the open reversal-robustness gap named above, not yet a closed
+question the way the pooled cell's reversal check was.
+
+**Plateau check:** not directly applicable (a single VCP-vs-pooled split, not a
+parameter sweep) — but worth noting for anyone reading this alongside the primary
+cell: VCP's own result doesn't contradict the pooled cell's own null-after-extension
+finding, since VCP was explicitly carved out *because* it has a different underlying
+mechanism (an MA-native construction, unlike the other 6 pattern types) — this is
+two genuinely different populations producing two genuinely different, both
+internally-consistent results, not a contradiction needing reconciliation.
+
+**What would change the verdict:** more data (a longer sample or a broader universe
+tier) to make the reversal-robustness check computable; a holdout check; a second
+universe tier — the standard missing-infrastructure caps every Tier-3 cell in this
+study carries.
+
+**Logged (VCP addendum):** `EXPERIMENTS.csv` (3 rows: VCP default-C2 primary decisive
+cell, VCP extension-neutralized companion, VCP reversal-robustness attempt logged as
+`insufficient_blocks` — not silently omitted — only the primary VCP cell counted
+toward `N_tests`); `FINDINGS.md` (1 entry — Tier 3).
+
 ## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
 
 **Module / track:** M17, Track B (DESIGN.md lines ~867-887). Not part of the original
