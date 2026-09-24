@@ -128,49 +128,74 @@ def build_run_table(working: pd.DataFrame, lookback: int) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
-def gbm_calibration(working: pd.DataFrame, run_table: pd.DataFrame, direction: bool = True) -> dict:
+def gbm_calibration(
+    working: pd.DataFrame, run_table: pd.DataFrame, direction: bool = True,
+    stratify_col: str = "entry_vol_tercile", n_buckets: int = N_VOL_BUCKETS,
+) -> dict:
     """Global daily log-return drift (pooled across the whole panel, never
     per-stratum -- a stratum-specific drift would partly launder the very
     trend-persistence effect this module tests for into its own null) and
-    a per-vol-tercile sigma (median `realized_vol_63` among this
-    direction's real run *entry* rows in that tercile, captured directly in
-    `build_run_table`'s own aggregation -- a representative level for that
-    regime, not the whole panel's, and no re-scan of `working` needed).
+    a per-tercile sigma (median `realized_vol_63` among this direction's
+    real run *entry* rows in that tercile of `stratify_col` -- a
+    representative volatility level for that regime, whether the
+    stratification axis is vol-tercile itself or the ER-tercile companion
+    facet; the null's own noise level always tracks realized volatility
+    either way, only the *grouping* changes).
+
+    **Open calibration caveat, named not resolved (CLAUDE.md's own "argue
+    against your own result" requirement):** `realized_vol_63` is computed
+    from the *same* (potentially autocorrelated/trending) real return
+    series this module is testing for persistence. If real returns have
+    positive short-horizon autocorrelation, a trailing daily-return stdev
+    can read *lower* than the volatility of a matched-total-variance i.i.d.
+    process would over the same window -- meaning this null's `sigma` could
+    be a systematically "too calm" input, which would mechanically shorten
+    simulated run durations and bias this module's own comparison toward
+    finding "departure from null" even without a genuine persistence edge.
+    Not corrected here (would need a longer-horizon, autocorrelation-aware
+    volatility estimator, e.g. a variance-ratio-implied one) -- flagged as
+    an open validity question on the magnitude of any reported departure,
+    not on whether this module's own construction is internally consistent.
     """
     log_returns = np.log(working["close"]).groupby(working["ticker"]).diff().dropna()
     mu = float(log_returns.mean())
 
     subset = run_table[run_table["direction"] == direction]
     sigma_by_tercile = {}
-    for tercile in range(N_VOL_BUCKETS):
-        tercile_runs = subset[subset["entry_vol_tercile"] == tercile]
+    for tercile in range(n_buckets):
+        tercile_runs = subset[subset[stratify_col] == tercile]
         if tercile_runs.empty or tercile_runs["entry_realized_vol_63"].isna().all():
             sigma_by_tercile[tercile] = float(working["realized_vol_63"].median())
         else:
             sigma_by_tercile[tercile] = float(tercile_runs["entry_realized_vol_63"].median())
 
-    return {"mu": mu, "sigma_by_vol_tercile": sigma_by_tercile}
+    return {"mu": mu, "sigma_by_tercile": sigma_by_tercile}
 
 
-def stratum_result(run_table: pd.DataFrame, working: pd.DataFrame, lookback: int, vol_tercile: int, direction: bool = True) -> dict:
-    """Empirical KM curve for one (lookback, vol_tercile, direction)
-    stratum vs. a GBM null calibrated to that stratum's own sigma. The
-    decisive comparison (this module's own pre-registered kill criterion):
-    is the empirical survival at `REFERENCE_HORIZON` days outside the
-    null's 90% simulation envelope at that same horizon?
+def stratum_result(
+    run_table: pd.DataFrame, working: pd.DataFrame, lookback: int, tercile: int, direction: bool = True,
+    stratify_col: str = "entry_vol_tercile", n_buckets: int = N_VOL_BUCKETS, seed_offset: int = 0,
+) -> dict:
+    """Empirical KM curve for one (lookback, tercile, direction) stratum
+    vs. a GBM null calibrated to that stratum's own sigma. The decisive
+    comparison (this module's own pre-registered kill criterion): is the
+    empirical survival at `REFERENCE_HORIZON` days outside the null's 90%
+    simulation envelope at that same horizon? `stratify_col` switches
+    between the primary vol-tercile grid and the ER-tercile companion
+    facet without duplicating this logic.
     """
-    subset = run_table[(run_table["entry_vol_tercile"] == vol_tercile) & (run_table["direction"] == direction)]
+    subset = run_table[(run_table[stratify_col] == tercile) & (run_table["direction"] == direction)]
     n_runs = len(subset)
     n_tickers = subset["ticker"].nunique()
 
     empirical_km = kaplan_meier(subset["duration"], subset["event"])
     empirical_survival_21 = survival_at(empirical_km, REFERENCE_HORIZON)
 
-    calibration = gbm_calibration(working, run_table, direction=direction)
-    sigma = calibration["sigma_by_vol_tercile"][vol_tercile]
+    calibration = gbm_calibration(working, run_table, direction=direction, stratify_col=stratify_col, n_buckets=n_buckets)
+    sigma = calibration["sigma_by_tercile"][tercile]
     null = gbm_null_survival(
         n_paths=GBM_N_PATHS, n_days=GBM_N_DAYS, mu=calibration["mu"], sigma=sigma,
-        sma_period=lookback, slope_k=SLOPE_K, seed=vol_tercile * 100 + lookback, n_groups=GBM_N_GROUPS,
+        sma_period=lookback, slope_k=SLOPE_K, seed=seed_offset + tercile * 100 + lookback, n_groups=GBM_N_GROUPS,
     )
     envelope_lo, envelope_hi = null["envelope"][REFERENCE_HORIZON]
     departs = (
@@ -181,7 +206,8 @@ def stratum_result(run_table: pd.DataFrame, working: pd.DataFrame, lookback: int
 
     return {
         "lookback": lookback,
-        "vol_tercile": vol_tercile,
+        "stratify_col": stratify_col,
+        "tercile": tercile,
         "direction": "rising" if direction else "falling",
         "n_runs": n_runs,
         "n_tickers": n_tickers,

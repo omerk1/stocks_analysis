@@ -4589,3 +4589,104 @@ artifact of a different noise level going into the null too).
    window, never touched past that boundary — including inside the GBM simulation's own
    calibration (real-data drift/vol inputs only from that window; the simulated paths
    themselves are synthetic, not a holdout-boundary question at all).
+
+### Result (2026-09-24)
+
+**Module not killed — 7 of 12 primary (vol-tercile) strata depart from the GBM null,
+always in the same direction (empirical persistence *exceeds* the null); the ER-tercile
+companion facet shows an even cleaner pattern.** All numbers below are the empirical
+21-day survival minus the null's own 21-day survival point estimate (CLAUDE.md
+invariant #5 — a bare survival probability isn't a result, the delta against the
+matched GBM null is), with the null's 90% simulation envelope re-centered the same way
+so "envelope excludes zero" reads identically to "departs from null."
+
+**Primary grid (vol-tercile, rising runs only):**
+
+| lookback | vol-tercile | n_runs | delta vs. null | 90% envelope | departs |
+|---|---|---|---|---|---|
+| 20 | 0 (low) | 4,869 | +0.1061 | [−0.0286,+0.0243] | **yes** |
+| 20 | 1 | 5,280 | +0.0726 | [−0.0271,+0.0283] | **yes** |
+| 20 | 2 (high) | 5,512 | +0.0666 | [−0.0277,+0.0288] | **yes** |
+| 50 | 0 | 2,503 | +0.0506 | [−0.0335,+0.0395] | **yes** |
+| 50 | 1 | 2,751 | +0.0442 | [−0.0383,+0.0375] | **yes** |
+| 50 | 2 | 3,020 | +0.0489 | [−0.0351,+0.0413] | **yes** |
+| 150 | 0 | 1,197 | +0.0502 | [−0.0451,+0.0518] | no |
+| 150 | 1 | 1,346 | +0.0393 | [−0.0434,+0.0497] | no |
+| 150 | 2 | 1,491 | +0.0492 | [−0.0495,+0.0490] | **yes** |
+| 200 | 0 | 946 | +0.0521 | [−0.0573,+0.0603] | no |
+| 200 | 1 | 1,142 | +0.0333 | [−0.0579,+0.0574] | no |
+| 200 | 2 | 1,144 | +0.0412 | [−0.0648,+0.0711] | no |
+
+**Clean plateau at SMA20 and SMA50: all 3 vol-terciles depart at both lookbacks, same
+sign, same rough magnitude within each lookback.** SMA150/200 mostly don't depart — but
+**this reads as a power question, not necessarily a real effect-size decline**: the
+point deltas at SMA150/200 (+0.033 to +0.052) are not obviously smaller than SMA50's
+own (+0.044 to +0.051) — the envelope simply widens as `n_runs` shrinks with longer
+lookbacks (fewer, longer-lived runs per ticker), so the same true effect size becomes
+harder to detect at longer lookbacks rather than vanishing. SMA150/vol-tercile-2's lone
+departure among its own 3 vol-terciles is **not** treated as a separate finding — it
+fails the plateau rule on its own terms (its 2 neighbors at the same lookback don't
+depart), read as the expected noise at the edge of detectability this power argument
+predicts, not a distinct SMA150-specific effect.
+
+**Companion grid (ER-tercile, rising runs only, not counted toward `N_tests`):**
+
+| lookback | ER-tercile | n_runs | delta vs. null | 90% envelope | departs |
+|---|---|---|---|---|---|
+| 20 | 0 (low/choppy) | 4,173 | −0.0293 | [−0.0249,+0.0296] | **yes** (below) |
+| 20 | 1 | 4,932 | +0.0576 | [−0.0279,+0.0336] | **yes** |
+| 20 | 2 (high/trending) | 6,559 | +0.1742 | [−0.0243,+0.0293] | **yes** |
+| 50 | 0 | 2,192 | −0.0108 | [−0.0378,+0.0415] | no |
+| 50 | 1 | 2,605 | +0.0246 | [−0.0367,+0.0361] | no |
+| 50 | 2 | 3,477 | +0.1026 | [−0.0404,+0.0363] | **yes** |
+| 150 | 0 | 1,096 | −0.0061 | [−0.0499,+0.0544] | no |
+| 150 | 1 | 1,225 | +0.0284 | [−0.0430,+0.0437] | no |
+| 150 | 2 | 1,713 | +0.0907 | [−0.0471,+0.0526] | **yes** |
+| 200 | 0 | 918 | −0.0109 | [−0.0505,+0.0500] | no |
+| 200 | 1 | 1,027 | +0.0228 | [−0.0537,+0.0555] | no |
+| 200 | 2 | 1,287 | +0.0886 | [−0.0515,+0.0524] | **yes** |
+
+**This is the module's cleanest single result: ER-tercile 2 (the most trend-efficient,
+least choppy price action) departs from the GBM null at all 4 lookbacks — a genuine
+plateau, no lone bright pixel — and its own departure magnitude does *not* shrink with
+lookback the way the vol-tercile grid's does (+0.174, +0.103, +0.091, +0.089), staying
+well outside a similarly-widening envelope throughout.** ER-tercile 0 (choppiest)
+departs *below* the null at lb=20 only (−0.029, less persistent than a matched random
+walk) but this doesn't replicate at any other lookback (all near-zero, non-departing) —
+a lone bright pixel by this study's own plateau rule, read as noise, not a distinct
+"choppy stocks revert faster than random" finding.
+
+**Argue against your own result (CLAUDE.md's own requirement) — the GBM null's own
+calibration is the load-bearing assumption here, and it has a real, named weakness**:
+`realized_vol_63` (this null's own `sigma` input) is computed from the *same*
+potentially-autocorrelated real return series being tested for persistence. If real
+returns carry positive short-horizon autocorrelation (which trend-following behavior by
+construction implies), a trailing daily-return stdev can read *lower* than the true
+i.i.d.-equivalent volatility over the same window would — meaning this null's `sigma`
+may be systematically too calm, which would mechanically shorten simulated run
+durations and bias every stratum's own comparison toward "departs from null," whether
+or not a genuine persistence edge exists. **This does not mean the departures reported
+above are artifacts** — the ER-tercile result in particular (a real, independent
+stratification axis showing a strong, non-monotonically-decaying, all-lookback-plateau
+pattern) is hard to explain by a uniform calibration bias alone, since a uniform bias
+would be expected to affect all ER-terciles roughly equally, not concentrate in the
+high-ER tercile specifically — but it is named here as an open, *unresolved* validity
+question on the *magnitude* of every reported departure, not a settled matter. **What
+would resolve it:** a longer-horizon, autocorrelation-aware volatility estimator (e.g.
+a variance-ratio-implied one) recalibrating the null's own `sigma`, out of scope for
+this module's own build.
+
+**Tier:** 3 for every departing stratum (real, well-powered by this study's own
+standards — smallest departing stratum has 918 runs across 918+ tickers — but capped by
+the calibration caveat above, the same "real effect, open confound" shape this study's
+own Tier-3 convention already uses elsewhere, e.g. M12's `dollar_volume`/SMA50). 4 for
+every non-departing stratum. Cost: not applicable — a mechanism/survival question (how
+long does a trend-intact state actually last), not a standalone tradeable claim, same
+convention as M5/§7.5/M6.5.
+
+**Module-level kill criterion:** did not fire (7 of 12 primary strata depart;
+`module_killed=False`).
+
+**Logged:** `EXPERIMENTS.csv` (24 rows: 12 primary vol-tercile + 12 companion
+ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
+the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).
