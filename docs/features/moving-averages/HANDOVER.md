@@ -1,11 +1,11 @@
 # Handover — post-termination parallel batches
 
-**Written 2026-09-22, revised 2026-09-23 (Batch 1 done).** This file exists so a
-*different* Claude Code conversation (no memory of this one) can pick this initiative
-up cold. It's session/execution state and a forward plan, not part of this study's
-original file set (`STATUS.md` covers results). Read `CLAUDE.md` first (its
-invariants apply to every module below, no exceptions), then this file, then
-`STATUS.md` for the study's actual tiered results.
+**Written 2026-09-22, revised 2026-09-23 (Batch 1 done), revised 2026-09-24 (Batch 2
+done).** This file exists so a *different* Claude Code conversation (no memory of this
+one) can pick this initiative up cold. It's session/execution state and a forward
+plan, not part of this study's original file set (`STATUS.md` covers results). Read
+`CLAUDE.md` first (its invariants apply to every module below, no exceptions), then
+this file, then `STATUS.md` for the study's actual tiered results.
 
 ## Where things stand
 
@@ -20,8 +20,35 @@ work (DESIGN §1.5) — model-input-feature candidates, not a reopening.
 ever to survive this study's whole-grid FDR pass (5 of 50 at q=0.10). Full detail is
 in `STATUS.md`, not repeated here.
 
-**Cleanup done (2026-09-23)**: all 4 Batch-1 worktrees/branches removed, PR #86
-(FDR consolidation) merged. Nothing left over from Batch 1 — Batch 2 starts clean.
+**Batch 2 (M3, M6.5, M6.6, M12) is done, merged, and consolidated** (PRs #88–#91,
+#95 [M3's spread-velocity addendum], #96 [FDR consolidation]). Process note for
+whoever reads this next: PRs #88/#89 (M6.5/M3) were briefly merged, then reverted
+(#92) and re-restored (#93) mid-session over a branch-protection/review-process
+discussion with the user — the *content* that landed is identical to the original
+PRs, just via an extra revert/restore round-trip; nothing about the module results
+themselves changed. Result: **the FDR survivor set changed materially at N=79** (up
+from N=50) — `ribbon_agreement_extreme_drawdown` (M6.6) is now this study's smallest
+p-value ever, `reclaim_durability_dollar_volume_sma50` (M12) newly clears FDR too,
+and 3 of the old pass's 5 survivors (M7/M2/M1's cells) no longer clear FDR at the
+larger N — but **the Tier-2 count is unchanged** (still exactly one,
+`slope_pctile_21_sma_50`/M6.3, confirmed robust to the larger grid). Full detail in
+`STATUS.md`'s "Whole-grid FDR pass" section (2026-09-24 update) and `REPORT.md`.
+
+**Two process notes worth keeping for the next batch:**
+- **No module-number-prefixed file names or import aliases** — caught and fixed
+  twice this batch (a scratch script, and pre-existing `as m2`/`as m5` test import
+  aliases from months-earlier modules). Use descriptive acronyms instead (`cs`, `sd`,
+  `bs`, `cc`, `smv`, `tb`, etc.), matching this repo's own dominant convention.
+- **Multi-feature grids need an explicit cross-feature independence check before
+  being counted as separate `N_tests`** — M12's own pre-registration had explicitly
+  skipped this ("not checked for correlation before declaring... cheap to run both
+  rather than spend the check"), which the coordinating session had to catch and run
+  before finalizing the FDR consolidation. Any future module declaring 2+ features
+  measuring related things (volume, distance, slope, etc.) should run this check
+  itself, at declaration time, rather than leaving it for later.
+
+**Cleanup done (2026-09-24)**: all 4 Batch-2 worktrees/branches removed. Nothing left
+over from Batch 2 — Batch 3 starts clean.
 
 **Batch 2/3/4 scoping below is unchanged and still the reusable part of this file.**
 
@@ -34,12 +61,21 @@ in `STATUS.md`, not repeated here.
   `run_length_bucket_sma_*`, `dist_from_52w_high`/`dist_from_52w_low`, `sector`
   (current-state only, not PIT), `stacked_sma`/`stacked_ema`. Full list: run
   `read_panel(...).columns` or read `features/panel.py`'s own docstring.
-- **Not built**: WMA/HMA/DEMA/KAMA/VWMA (only SMA/EMA exist), lookbacks other than
-  {20,50,150,200}, `ribbon_width` as a shared panel column (M7 built its own local
-  one), `features/regime.py` (ER/ADX/vol-regime), crossover/state-flip event
-  detection, point-in-time `mktcap_decile`/`universe_flags`, weekly-timeframe panel
+- **Not built**: WMA/HMA/DEMA/KAMA (only SMA/EMA exist; a minimal module-local VWMA
+  stub now exists in `features/liquidity.py`, built for M12 — the full 5-kernel build
+  + White's Reality Check is still M8's job), lookbacks other than {20,50,150,200} in
+  the *shared* panel (M6.6 added local-only 10/100 SMA slope for its own ribbon;
+  M3 added local-only EMA 8/10/21 for its own crossover pairs — neither touched the
+  shared panel), `ribbon_width` as a shared panel column (M7 built its own local one),
+  `features/regime.py` (ER/ADX/vol-regime), point-in-time `mktcap_decile`/
+  `universe_flags` (M12's `dollar_volume`/SMA50 finding is capped at Tier 3 partly for
+  lack of this — a live, named reason to eventually build it), weekly-timeframe panel
   build (though `bars_1w` raw data exists with broad coverage — 6,539 tickers — the
-  panel-build path itself is daily-only).
+  panel-build path itself is daily-only). **Now built**: crossover/state-flip event
+  detection (`features/crossover.py`, M3); `labels/path_metrics.py` (built twice,
+  independently, by M6.6 (`forward_max_drawdown`) and M3's fork was told it might need
+  the same thing and didn't collide — only `forward_max_drawdown` actually landed;
+  MFE/MAE proper is still unbuilt).
 - **DB tables** (`data/raw/market_data.sqlite`): `bars_1d/1h/1mo/1w`, `fetch_jobs`,
   `index_membership`, `macro_series` (VIX/FRED, no earnings), `shares_outstanding`,
   `splits`, `ticker_metadata`, `ticker_sector`, `tickers`. **No earnings-date table
@@ -51,16 +87,7 @@ in `STATUS.md`, not repeated here.
 - **`market_common.indicators`** already has RSI/MACD/ATR/OBV wrappers (this repo's
   own reuse pointer in `CLAUDE.md`) — relevant to M17.
 
-## Batch 2 — moderate builds, module-local, no cross-conflicts (next up)
-
-| Module | What it needs |
-|---|---|
-| M3 | New crossover-event detector (DESIGN lines ~753-762) — also the shared infra M6.2's deferred "golden cross × slope" sub-question needs, loosely relevant to M16 |
-| M6.5 | SMA drop-off decomposition (entering-bar vs. exiting-bar contribution, DESIGN lines ~840-845) |
-| M6.6 | New lookbacks 10/100 added locally (not to the shared panel) so ribbon-slope-agreement can be computed (DESIGN lines ~846-848) |
-| M12 | Relative-volume/dollar-volume features (`volume` already in the panel); VWMA — soft overlap with M8, can stub its own minimal version (DESIGN lines ~970-973) |
-
-## Batch 3 — heavy, standalone infra builds (parallel-safe, but each a real project — 1-2 at a time, not 4)
+## Batch 3 — heavy, standalone infra builds (parallel-safe, but each a real project — 1-2 at a time, not 4) (next up)
 
 | Module | What it needs |
 |---|---|
@@ -127,5 +154,10 @@ MA "angle" being ill-defined, DESIGN lines ~849-853).
 ## Where to actually start next
 
 Read this file, then `STATUS.md` for the study's real tiered state and the relevant
-`DESIGN.md` section for whichever module you're about to run. Worktree cleanup
-(above) is a quick first step; Batch 2 is the actual next body of work.
+`DESIGN.md` section for whichever module you're about to run. Batch 2's worktree
+cleanup is done (2026-09-24) — nothing left over. **Batch 3 is the actual next body of
+work**, but unlike Batches 1/2 it's explicitly *not* meant to run as 4 parallel forks —
+each of its 4 modules (M8, M9, M6.4, M10) is its own real infrastructure project; run
+1-2 at a time. M9 in particular needs a pre-registered regime definition committed
+*before* looking at any results (DESIGN's own flag: "the module most likely to produce
+a false positive").
