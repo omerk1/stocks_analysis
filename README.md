@@ -179,7 +179,7 @@ stocks_analysis/
 │   │   └── utils/              # Config loading and shared utilities
 │   ├── signals/                # One self-contained detection engine per concept, each
 │   │   │                       # with its own config/compute/store/cli
-│   │   ├── avwap/               # Anchored VWAP
+│   │   ├── avwap/               # Anchored VWAP + volume-weighted std bands
 │   │   ├── breadth/             # Market breadth
 │   │   ├── divergences/         # Price/indicator divergences
 │   │   ├── fibonacci/           # Fibonacci retracement/extension levels
