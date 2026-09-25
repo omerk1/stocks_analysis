@@ -6,50 +6,19 @@ builds these, store.py/plotting.py/cli.py are pure consumers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 
+# AnchorType/AnchorStatus/seniority helpers live in market_common.anchors
+# (shared with volume_profile) -- re-exported here so existing
+# `avwap.models` imports keep working.
+from src.foundation.market_common.anchors import (
+    CYCLE_ROLES, SENIORITY, AnchorStatus, AnchorType, is_pure_cycle, primary_role,
+)
 from src.foundation.market_common.models import Timeframe
 
 __all__ = [
     "Timeframe", "AnchorType", "AnchorStatus", "AnchoredVwap",
     "CYCLE_ROLES", "is_pure_cycle", "primary_role", "SENIORITY",
 ]
-
-
-class AnchorType(str, Enum):
-    ATH = "ath"
-    ATL = "atl"
-    WEEK_52_HIGH = "52w_high"
-    WEEK_52_LOW = "52w_low"
-    CYCLE_HIGH = "cycle_high"
-    CYCLE_LOW = "cycle_low"
-
-
-class AnchorStatus(str, Enum):
-    ACTIVE = "active"
-    STALE = "stale"
-
-
-CYCLE_ROLES = frozenset({AnchorType.CYCLE_HIGH, AnchorType.CYCLE_LOW})
-
-# Shared by anchors.py (cap-trimming only ever removes pure-cycle anchors,
-# never ath/atl/52w_*) and plotting.py (color/saturation keyed off the most
-# senior role present) -- one ranking, not two independently-maintained
-# copies that could drift.
-SENIORITY = {
-    AnchorType.ATH: 0, AnchorType.ATL: 0,
-    AnchorType.WEEK_52_HIGH: 1, AnchorType.WEEK_52_LOW: 1,
-    AnchorType.CYCLE_HIGH: 2, AnchorType.CYCLE_LOW: 2,
-}
-
-
-def is_pure_cycle(types) -> bool:
-    types = frozenset(types)
-    return bool(types) and types <= CYCLE_ROLES
-
-
-def primary_role(types) -> AnchorType:
-    return min(types, key=lambda t: SENIORITY[t])
 
 
 @dataclass
