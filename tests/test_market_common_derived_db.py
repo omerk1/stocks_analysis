@@ -46,3 +46,31 @@ def test_create_runs_table_is_idempotent(conn):
     derived_db.create_runs_table(conn)  # second call must not raise
     derived_db.record_run(conn, "fibonacci", "T", "daily", None, "{}", rows_dropped=0, quality_warning=False)
     assert conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+
+
+def test_connections_wait_on_locks_instead_of_failing_fast(tmp_path):
+    """A writer must outlast a concurrent reader's lock rather than dying
+    with "database is locked" after sqlite3's 5s default."""
+    from src.foundation.data_processing import db as raw_db
+
+    path = tmp_path / "x.sqlite"
+    for get_conn in (raw_db.get_connection, derived_db.get_connection):
+        conn = get_conn(path)
+        (busy_ms,) = conn.execute("PRAGMA busy_timeout").fetchone()
+        assert busy_ms >= 30_000
+        conn.close()
+
+
+def test_readonly_uri_connection_cannot_write(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "x.sqlite"
+    rw = derived_db.get_connection(path)
+    rw.execute("CREATE TABLE t (x INTEGER)")
+    rw.commit()
+    rw.close()
+
+    ro = derived_db.get_connection(f"file:{path}?mode=ro", uri=True)
+    with pytest.raises(sqlite3.OperationalError):
+        ro.execute("INSERT INTO t VALUES (1)")
+    ro.close()
