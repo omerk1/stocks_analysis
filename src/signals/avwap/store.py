@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS avwap_anchors (
     distance_atr REAL, n_crosses INTEGER,
     pct_bars_above REAL, pct_bars_below REAL,
     last_cross_date TEXT, avg_reaction_atr_on_touch REAL,
+    current_std REAL, distance_std REAL,
     run_id TEXT,
     UNIQUE (ticker, timeframe, anchor_date)
 );
@@ -32,12 +33,12 @@ INSERT INTO avwap_anchors
     (id, ticker, timeframe, anchor_date, anchor_types, status,
      current_value, updated_through,
      distance_atr, n_crosses, pct_bars_above, pct_bars_below,
-     last_cross_date, avg_reaction_atr_on_touch, run_id)
+     last_cross_date, avg_reaction_atr_on_touch, current_std, distance_std, run_id)
 VALUES
     (:id, :ticker, :timeframe, :anchor_date, :anchor_types, :status,
      :current_value, :updated_through,
      :distance_atr, :n_crosses, :pct_bars_above, :pct_bars_below,
-     :last_cross_date, :avg_reaction_atr_on_touch, :run_id)
+     :last_cross_date, :avg_reaction_atr_on_touch, :current_std, :distance_std, :run_id)
 ON CONFLICT (ticker, timeframe, anchor_date) DO UPDATE SET
     anchor_types = excluded.anchor_types,
     status = excluded.status,
@@ -49,13 +50,39 @@ ON CONFLICT (ticker, timeframe, anchor_date) DO UPDATE SET
     pct_bars_below = excluded.pct_bars_below,
     last_cross_date = excluded.last_cross_date,
     avg_reaction_atr_on_touch = excluded.avg_reaction_atr_on_touch,
+    current_std = excluded.current_std,
+    distance_std = excluded.distance_std,
     run_id = excluded.run_id
 """
 
 
+# Columns added after the table's original schema, in the order they were
+# added -- each one ALTER TABLE ADD COLUMN'd onto an existing table that
+# predates it (see _migrate_add_columns).
+_ADDED_COLUMNS = [("current_std", "REAL"), ("distance_std", "REAL")]
+
+
 def create_avwap_table(conn: sqlite3.Connection) -> None:
     conn.execute(_ANCHORS_SCHEMA)
+    _migrate_add_columns(conn)
     conn.commit()
+
+
+def _migrate_add_columns(conn: sqlite3.Connection) -> None:
+    """Bring an `avwap_anchors` table created before `_ADDED_COLUMNS`
+    existed up to date. `CREATE TABLE IF NOT EXISTS` silently no-ops
+    against the old table, and every upsert would then fail with "table
+    avwap_anchors has no column named current_std". Unlike
+    breadth.store._migrate_pre_weighting_schema (a PK change SQLite can't
+    ALTER, hence its rename-copy-drop rebuild), these are pure nullable
+    additions, so a plain ALTER TABLE ADD COLUMN is enough: existing rows
+    read NULL ("not computed yet") until the next detection run refills
+    them. No-op when the columns already exist.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(avwap_anchors)").fetchall()}
+    for name, sql_type in _ADDED_COLUMNS:
+        if name not in existing:
+            conn.execute(f"ALTER TABLE avwap_anchors ADD COLUMN {name} {sql_type}")
 
 
 def upsert_anchors(conn: sqlite3.Connection, anchors: list[AnchoredVwap], run_id: str) -> None:

@@ -29,7 +29,7 @@ def apply_interaction_tracking(
     """Mutates and returns `anchor` with `current_value`/`updated_through`
     (same snapshot the old code set) plus `distance_atr`/`n_crosses`/
     `pct_bars_above`/`pct_bars_below`/`last_cross_date`/
-    `avg_reaction_atr_on_touch`.
+    `avg_reaction_atr_on_touch`/`current_std`/`distance_std`.
     """
     series = compute.anchored_vwap(bars, anchor.anchor_date, config.price_source)
     on_or_after = bars.index >= pd.Timestamp(anchor.anchor_date)
@@ -38,6 +38,8 @@ def apply_interaction_tracking(
 
     if sub.empty:
         anchor.current_value = None
+        anchor.current_std = None
+        anchor.distance_std = None
         anchor.updated_through = bars.index[-1].isoformat() if not bars.empty else None
         return anchor
 
@@ -116,5 +118,12 @@ def apply_interaction_tracking(
     anchor.pct_bars_below = pct_below
     anchor.last_cross_date = last_cross_date
     anchor.avg_reaction_atr_on_touch = (sum(reactions) / len(reactions)) if reactions else None
+
+    std_vals = compute.anchored_vwap_std(bars, anchor.anchor_date, config.price_source)["std"]
+    now_std = std_vals.reindex(idx).iloc[-1]
+    anchor.current_std = float(now_std) if pd.notna(now_std) else None
+    anchor.distance_std = (
+        float((closes[-1] - avwap_vals[-1]) / now_std) if pd.notna(now_std) and now_std > 0 else None
+    )
 
     return anchor
