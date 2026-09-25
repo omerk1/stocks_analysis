@@ -108,12 +108,13 @@ def distribute_uniform_hl(high: np.ndarray, low: np.ndarray, edges: np.ndarray) 
 
 
 def _poc_row(total: np.ndarray, mids: np.ndarray) -> int:
-    """Max-volume row. Ties (exactly equal volume -- realistic only on
-    synthetic data) go to the row closest to the profile's own
-    volume-weighted mean price, then to the lower row: the most "central"
-    of several equally-traded prices, deterministically."""
+    """Max-volume row. Ties (equal volume up to float rounding from the
+    cumulative-fraction spreading -- realistic only on synthetic data) go
+    to the row closest to the profile's own volume-weighted mean price,
+    then to the lower row: the most "central" of several equally-traded
+    prices, deterministically."""
     peak = total.max()
-    tied = np.flatnonzero(total >= peak)
+    tied = np.flatnonzero(np.isclose(total, peak, rtol=1e-9, atol=0.0))
     if len(tied) == 1:
         return int(tied[0])
     vwap = float((total * mids).sum() / total.sum())
@@ -135,10 +136,13 @@ def value_area_rows(total: np.ndarray, poc_row: int, value_area_pct: float) -> t
     while acc < target and (lo > 0 or hi < n - 1):
         above = total[hi + 1 : hi + 3].sum() if hi < n - 1 else -1.0
         below = total[max(lo - 2, 0) : lo].sum() if lo > 0 else -1.0
-        if above >= below:
+        # Equal up to float rounding counts as equal (same tolerance as
+        # _poc_row's tie detection).
+        tie = bool(np.isclose(above, below, rtol=1e-9, atol=0.0))
+        if above > below or tie:
             acc += above
             hi = min(hi + 2, n - 1)
-        if below >= above:
+        if below > above or tie:
             acc += below
             lo = max(lo - 2, 0)
     return lo, hi
