@@ -5,6 +5,8 @@ sane-looking output; the synthetic tests own exact-value correctness.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
@@ -23,6 +25,8 @@ DB_PATH = "data/raw/market_data.sqlite"
 
 @pytest.fixture
 def conn():
+    if not Path(DB_PATH).exists():
+        pytest.skip(f"real DB not found at {DB_PATH}")
     connection = db.get_connection(f"file:{DB_PATH}?mode=ro", uri=True)
     yield connection
     connection.close()

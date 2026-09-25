@@ -631,3 +631,27 @@ def test_read_index_universe_tickers_includes_past_non_current_members(conn):
 
 def test_read_index_universe_tickers_empty_index_list_returns_empty(conn):
     assert db.read_index_universe_tickers(conn, []) == []
+
+
+def test_read_universe_tickers_all_active_common_stock(conn):
+    db.upsert_tickers(conn, _tickers_df([
+        ("MSFT", "Microsoft", "CS", True, None),
+        ("AAPL", "Apple Inc.", "CS", True, None),
+        ("AABA", "Altaba Inc.", "CS", False, "2019-10-07T04:00:00Z"),
+        ("SPY", "SPDR S&P 500", "ETF", True, None),
+    ]))
+
+    assert db.read_universe_tickers(conn, None) == ["AAPL", "MSFT"]
+
+
+def test_read_universe_tickers_from_indices(conn):
+    db.replace_index_membership(conn, "sp500", _membership_df([("AAPL", "1996-01-02", None)]))
+
+    assert db.read_universe_tickers(conn, "sp500") == ["AAPL"]
+
+
+def test_read_universe_tickers_raises_rather_than_returning_nothing(conn):
+    with pytest.raises(RuntimeError):
+        db.read_universe_tickers(conn, None)
+    with pytest.raises(RuntimeError):
+        db.read_universe_tickers(conn, "sp500")
