@@ -5246,3 +5246,64 @@ stochastic %K incremental IC ×2 horizons — + 4 non-counted diagnostics); `FIN
 (1 entry, MACD histogram, Tier 3, covering the RSI/stochastics inconclusive results and
 the pre-registration process gap in the same entry per this study's own multi-outcome
 module convention).
+
+## M15 — Synthesis (2026-09-25)
+
+**Module / track:** M15, Track A (DESIGN.md lines ~1026-1027). Diagnostic/synthesis,
+same framing this study already used for M16's own diagnostic module — no CI, no
+statistical kill criterion, nothing here is stated as a Track B finding. Written into
+`PREREGISTRATION.md` anyway (unlike M16, which has no entry here) because this module's
+own scope required an explicit, auditable decision before running, made with the
+coordinating session and the user, not something to leave undocumented.
+
+**DESIGN's own literal text:** "Take the surviving Tier-1/Tier-2 claims and answer: do
+they combine additively, or are they the same signal wearing different hats?
+Correlation matrix of the surviving signals." **Checked directly before writing any
+analysis code, not assumed:** this study has exactly one Tier-2 claim
+(`slope_pctile_21_sma_50`, M6.3) and zero Tier-1. A literal reading makes this module's
+own "correlation matrix" a degenerate 1×1 -- nothing to correlate a single claim
+against. **Reported as the primary, honest finding below**, not silently worked
+around.
+
+**Scope-extension, explicit (this study's own established porous-scope-extension
+convention, e.g. M14's own VCP-only addendum):** broadens the comparison to also
+include M14's Tier-3 `pattern_context_reclaim_sma50_vcp_only` cell -- the only other
+cell in the study with a comparably strong profile (largest point estimate in this
+study's history, clears whole-grid FDR at q=0.05 same as M6.3's cell, per the
+2026-09-25 Batch-4 whole-grid FDR pass). **This explicitly extends past DESIGN's
+literal Tier-1/Tier-2-only text** -- flagged here the same way every other scope
+extension in this study has been, not silently substituted for the literal reading.
+
+**What "correlation" means for this pair, decided before running:** not a Pearson
+correlation -- these are two differently-shaped signals. M6.3's cell is a continuous
+per-date decile rank (`slope_pctile_21_sma_50`, both-extremes-pooled `TAIL_DECILES`
+per `modules/slope_magnitude.py`). M14's VCP cell is a rare binary event (an
+`above_sma_50` reclaim inside a confirmed VCP breakout, 505 events per `FINDINGS.md`).
+The question DESIGN poses ("same signal wearing different hats?") is operationalized
+as an **overlap/enrichment check**: do M14's VCP-reclaim events disproportionately
+co-occur with M6.3's own extreme-slope tail, on the same (ticker, date), more than
+chance or the general reclaim population would predict? High enrichment reads as
+"largely the same underlying phenomenon"; enrichment near or below 1.0 reads as
+"additive/distinct."
+
+**Kill criterion:** N/A -- Track A diagnostic, no CI, nothing here is a statistical
+test with a pre-committed kill condition. The one honest finding this module can
+produce either way (high enrichment vs. not) is reported as a descriptive fact, not a
+confirmed-or-killed claim.
+
+**Control tier:** N/A for the same reason -- no C0/C1/C2 matching is applicable to an
+overlap-rate calculation between two already-independently-controlled cells. Both
+underlying cells (M6.3's, M14's) were themselves evaluated under this study's standard
+C2 in their own modules; this module only asks how their two event definitions relate
+to each other.
+
+**Method, reusing existing code rather than reimplementing (checked and confirmed
+importable before committing to this plan):** `modules/slope_magnitude.py::prepare`/
+`slope_pctile_column`/`TAIL_DECILES` for M6.3's own tail definition;
+`modules/pattern_context.py::prepare`/`load_qualifying_patterns`/`C2_MATCH_COLS` for
+M14's own reclaim-event construction (both the pooled-all-types and VCP-only
+`patterns` inputs). Three base rates reported for honesty: unconditional (whole
+panel), all eligible `above_sma_50` reclaims regardless of pattern context, and
+reclaims inside *any* of the 7 pattern types (M14's own pooled population) -- isolates
+whether "near a confirmed pattern breakout" in general already shifts the tail rate,
+before asking whether VCP specifically adds anything beyond that.

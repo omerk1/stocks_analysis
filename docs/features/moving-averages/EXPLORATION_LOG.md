@@ -48,3 +48,43 @@ promoted past the gate goes in the final report, not here.
 - **DESIGN's own strong prior holds at a loose threshold, with one real deviation from its own stated expectation at a tighter one.** At cosine similarity ≥0.80, all 23 rules collapse into one cluster (the whole MA-indicator zoo is one signal in kernel space). At ≥0.95, 10 clusters emerge, separated primarily by effective lookback (centroid), not indicator type — distance/slope/crossover rules at similar centroids land together across type. **Genuine surprise**: `slope_log_21_sma_200` does *not* cluster with `crossover_sma_50_sma_200`/`dist_pct_sma_200` at 0.90-0.95, contradicting this section's own explicit prediction that these three should land "uncomfortably close together" — the `k=21` log-difference in slope's own definition shifts its effective centroid to 109.5 vs. 66-82 for the other two at the "same" nominal 200-day lookback. A sharper, more specific statement than this study's earlier slope-vs-distance collinearity observations (2026-09-16/18 entries above).
 - **No homogeneous IC series exists across these 23 rules in `EXPERIMENTS.csv`** to plot IC directly against kernel shape (M4's `dist_pct` cells, M6.1's incremental-IC-over-momentum cells, and M3's post-threshold event deltas are three different statistics) — reported as a scope limitation, not forced into an artificial comparison. Qualitatively consistent with (not proof of) a smooth IC surface: every already-tested effect size in this study is small, none shows an obvious non-monotonic "sweet spot" in lookback space.
 - **Not promoted to Track B this session** — the slope-vs-distance-at-SMA200 deviation is a well-defined candidate for a future incremental-IC regression test if picked up later, left as a Track A finding for now, per this study's own "Track A discovers, Track B confirms" workflow (not forced into a same-session promotion).
+
+## 2026-09-25
+
+- **M15 — synthesis: overlap/enrichment check between M6.3's Tier-2 extreme-slope-tail
+  cell and M14's Tier-3 VCP-reclaim cell** (`modules/synthesis.py`, real cached panel,
+  405 S&P 500 tickers, U1, 2010-2021, holdout untouched; PREREGISTRATION.md's M15
+  entry). Motivation: DESIGN's own literal M15 text ("correlation matrix of the
+  surviving Tier-1/Tier-2 signals") is a degenerate 1×1 with this study's exactly-one
+  Tier-2 claim -- broadened, explicitly, to also compare against M14's Tier-3 VCP cell,
+  the only other cell with a comparably strong FDR/point-estimate profile. Not a
+  Pearson correlation (the two signals are differently shaped: a continuous per-date
+  decile rank vs. a rare binary event) -- an overlap/enrichment check instead, reusing
+  `modules/slope_magnitude.py`'s own tail-decile code and `modules/pattern_context.py`'s
+  own reclaim-event construction unchanged. EXPLORATORY, no significance bar, nothing
+  here is a Track B finding.
+- **VCP reclaims are *under*-represented, not over-represented, in M6.3's own
+  extreme-slope tail -- the opposite of "same signal wearing different hats."**
+  Unconditional tail rate across the whole panel: 40.03% (confirms the decile
+  construction directly -- 4 of 10 pooled tail deciles, matches 0.40 almost exactly,
+  a real sanity check, not assumed). Tail rate among all eligible `above_sma_50`
+  reclaims regardless of pattern context: 36.53% (n=39,452). Tail rate among reclaims
+  inside *any* of the 7 pattern types (M14's own pooled population): 38.40% (n=10,858).
+  Tail rate specifically among VCP-only reclaims: 27.13% (n=505; sanity-checked against
+  `FINDINGS.md`'s own VCP addendum numbers -- 505 events/409 dates/227 tickers matched
+  exactly before trusting anything downstream). Enrichment ratios: 0.678 vs. the
+  unconditional rate, 0.743 vs. the general reclaim population, 0.706 vs. the
+  any-pattern-context reclaim population -- VCP reclaims are consistently 26-32%
+  *less* likely to co-occur with an extreme slope reading than any of the three
+  baselines, not more. A plausible mechanistic read (not tested further here): a
+  volatility-contraction pattern implies a calming/tightening trend, more consistent
+  with a moderate slope than an extreme trending-or-reversing one -- the opposite of
+  what redundancy with M6.3's own extreme-tail effect would predict.
+- **Read: additive, not redundant.** DESIGN's own stated expectation for this module
+  ("expect high collinearity... that's the honest finding") does not hold for this
+  pair -- if anything, mild anti-collinearity. M6.3's and M14's VCP findings look like
+  two genuinely distinct mechanisms, not the same underlying phenomenon measured two
+  ways. Caveat named honestly: this is one overlap check between one pair of cells,
+  not a full correlation matrix (there is nothing else at a comparable tier to include
+  in one) -- DESIGN's own literal "matrix" framing is unmet by this study's own thin
+  survivor set, not by a limitation of this check's method.
