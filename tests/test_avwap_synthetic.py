@@ -289,3 +289,26 @@ def test_52w_low_anchor_goes_stale_then_reactivates():
     anchor_x_3 = next(a for a in anchors_3 if a.anchor_date == x_date.isoformat())
     assert anchor_x_3.status == AnchorStatus.ACTIVE
     assert anchor_x_3.anchor_types == frozenset({AnchorType.WEEK_52_LOW})
+
+
+def test_earlier_as_of_rerun_leaves_out_anchors_dated_after_its_last_bar():
+    """A rerun at an earlier as_of must not resurrect (as stale) an anchor
+    a later-as_of run stored -- it didn't exist yet as of that bar, and a
+    consumer would blank its stored snapshot from an empty window."""
+    bars = _flat_bars(20)
+    bars.loc[bars.index[0], "high"] = 200.0
+    bars.loc[bars.index[1], "low"] = 1.0
+    config = _config(trailing_window_bars={"daily": 5, "weekly": 52})
+
+    anchors_full = discover_anchor_dates(bars, "TEST", Timeframe.DAILY, config)
+    previous = {a.anchor_date: a.anchor_types for a in anchors_full}
+    future = pd.Timestamp("2099-01-01").isoformat()
+    previous[future] = frozenset({AnchorType.CYCLE_HIGH})
+
+    truncated = bars.iloc[:10]
+    anchors_early = discover_anchor_dates(
+        truncated, "TEST", Timeframe.DAILY, config, previous_anchor_types=previous
+    )
+    last_bar = truncated.index[-1]
+    assert anchors_early
+    assert all(pd.Timestamp(a.anchor_date) <= last_bar for a in anchors_early)
