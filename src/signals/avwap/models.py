@@ -81,6 +81,14 @@ class AnchoredVwap:
     # actually bounce off this AVWAP, same mechanics as
     # sr_lines.events._reaction_atr / fibonacci's avg_reaction_atr.
     avg_reaction_atr_on_touch: float | None = None
+    # Volume-weighted std of price around the AVWAP since the anchor, at the
+    # last bar (compute.anchored_vwap_std), and the current close's signed
+    # distance from the AVWAP in those units. Band prices (value +/- k *
+    # current_std) are derived, not stored -- same reasoning as the series
+    # itself above. distance_std is None while std is 0 (e.g. the anchor
+    # bar itself, or a flat price since the anchor).
+    current_std: float | None = None
+    distance_std: float | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:
@@ -99,5 +107,7 @@ class AnchoredVwap:
             "pct_bars_below": self.pct_bars_below,
             "last_cross_date": self.last_cross_date,
             "avg_reaction_atr_on_touch": self.avg_reaction_atr_on_touch,
+            "current_std": self.current_std,
+            "distance_std": self.distance_std,
             "run_id": self.run_id,
         }

@@ -118,6 +118,23 @@ def render_avwap_chart(
             legendgroup=rep.id,
         ))
 
+        # Std bands: same hue as the line, thinner, dotted, and fainter the
+        # further out they sit, sharing the line's legend group so toggling
+        # the anchor toggles its bands too.
+        std = compute.anchored_vwap_std(bars, rep.anchor_date, config.price_source)["std"]
+        std = std.reindex(visible.index)
+        for k in config.band_multipliers:
+            band_opacity = opacity * max(0.2, 0.6 / k)
+            for sign in (1, -1):
+                fig.add_trace(go.Scatter(
+                    x=visible.index, y=(visible + sign * k * std).values, mode="lines",
+                    line=dict(color=color, width=0.8, dash="dot"),
+                    opacity=band_opacity,
+                    name=f"{'+' if sign > 0 else '-'}{k:g} std",
+                    showlegend=False, legendgroup=rep.id,
+                    hoverinfo="skip",
+                ))
+
         if anchor_ts in bars.index:
             anchor_bar = bars.loc[anchor_ts]
             fig.add_trace(go.Scatter(
