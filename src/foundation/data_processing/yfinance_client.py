@@ -7,6 +7,28 @@ import yfinance as yf
 _COLUMN_MAP = {"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
 
 
+def to_yfinance_symbol(ticker: str) -> str:
+    """Polygon uses '.' for share classes (e.g. BF.A, BF.B); yfinance wants
+    '-' (BF-A, BF-B) -- confirmed directly against the real API: yfinance
+    returns "possibly delisted; no timezone found" for the dotted form and
+    real data for the hyphenated one. ~183 tickers (~3.4%) in a real pull of
+    the reference universe use the dotted form, and without this translation
+    they'd fail every run forever (pending_keys would keep retrying a ticker
+    that can structurally never succeed).
+
+    Applied to every yfinance call in this module (bars, shares, splits,
+    sector) and by `bulk_yfinance_ingest`'s batch download. It only affects
+    the API call -- results are stored under the *original* (Polygon-style)
+    ticker so both sources key the same company the same way.
+
+    Doesn't necessarily cover every exotic suffix Polygon uses (units 'U',
+    warrants 'W', foreign listings 'T', etc. also show up as dotted suffixes)
+    -- '.' -> '-' is confirmed correct for ordinary share classes, not
+    verified for every suffix type.
+    """
+    return ticker.replace(".", "-")
+
+
 class YFinanceClient:
     """Secondary data source: cross-checking Polygon and covering lower
     timeframes Polygon's free tier doesn't offer (intraday bars)."""
@@ -44,7 +66,7 @@ class YFinanceClient:
         window: 2 of 6 raw rows shared a date with another row, values
         differing by ~2%, most likely a same-day filing revision).
         """
-        raw = yf.Ticker(ticker).get_shares_full(start=start, end=end)
+        raw = yf.Ticker(to_yfinance_symbol(ticker)).get_shares_full(start=start, end=end)
         if raw is None or raw.empty:
             return pd.Series(dtype="float64", name="shares_outstanding").rename_axis("date")
 
@@ -71,7 +93,7 @@ class YFinanceClient:
         No bulk endpoint -- one call per ticker, same shape as
         `PolygonClient.get_ticker_details`.
         """
-        info = yf.Ticker(ticker).get_info()
+        info = yf.Ticker(to_yfinance_symbol(ticker)).get_info()
         return {"ticker": ticker, "sector": info.get("sector"), "industry": info.get("industry")}
 
     def get_splits(self, ticker: str) -> pd.DataFrame:
@@ -96,7 +118,7 @@ class YFinanceClient:
             # yf.config.debug.hide_exceptions; the per-call flag avoids
             # flipping process-wide state other callers rely on.
             warnings.simplefilter("ignore", DeprecationWarning)
-            history = yf.Ticker(ticker).history(period="max", actions=True, raise_errors=True)
+            history = yf.Ticker(to_yfinance_symbol(ticker)).history(period="max", actions=True, raise_errors=True)
         if history.empty:
             raise RuntimeError(f"{ticker}: yfinance returned no price history")
 
@@ -129,7 +151,7 @@ class YFinanceClient:
         # cover different date ranges for the "same" start/end request. Shifting
         # by one day here makes `end` inclusive for every caller of this client.
         end_inclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-        raw = yf.Ticker(ticker).history(start=start, end=end_inclusive, interval=interval)
+        raw = yf.Ticker(to_yfinance_symbol(ticker)).history(start=start, end=end_inclusive, interval=interval)
         if raw.empty:
             columns = ["open", "high", "low", "close", "volume"]
             return pd.DataFrame(columns=columns).rename_axis("timestamp")
