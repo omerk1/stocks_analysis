@@ -237,7 +237,15 @@ def discover_anchors(
     merged: dict[str, tuple[frozenset[AnchorType], AnchorStatus]] = {
         d: (frozenset(roles), AnchorStatus.ACTIVE) for d, roles in role_map.items()
     }
+    # A stored anchor dated after this frame's last bar can only come from a
+    # run at a later as_of -- it didn't exist yet as of this frame, so it's
+    # left out entirely (and its stored row untouched) rather than marked
+    # stale and handed to the consumer, which would overwrite its snapshot
+    # with an empty pre-anchor window.
+    last_bar = bars.index[-1] if not bars.empty else None
     for d, prev_types in previous_anchor_types.items():
+        if last_bar is not None and pd.Timestamp(d) > last_bar:
+            continue
         if d not in merged:
             # Still stored, no longer qualifies for anything today -- kept,
             # marked stale, anchor_types frozen at its last known value
