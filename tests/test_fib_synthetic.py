@@ -333,6 +333,6 @@ def sqlite_market_db():
     db_path = pathlib.Path(__file__).resolve().parents[1] / "data" / "raw" / "market_data.sqlite"
     if not db_path.exists():
         pytest.skip("real market_data.sqlite not available")
-    conn = raw_db.get_connection(str(db_path))
+    conn = raw_db.get_connection(f"file:{db_path}?mode=ro", uri=True)
     yield conn
     conn.close()

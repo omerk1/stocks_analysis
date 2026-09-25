@@ -212,7 +212,7 @@ def test_validate_bars_flags_real_att_2023_01_24_intraday_spike():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
-    conn = sqlite3.connect(REAL_DB_PATH)
+    conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
     clean, report = load_and_validate(conn, "T", Timeframe.DAILY, as_of="2023-02-01")
     conn.close()
 

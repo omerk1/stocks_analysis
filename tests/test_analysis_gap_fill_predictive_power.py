@@ -380,8 +380,8 @@ DERIVED_DB_PATH = "data/derived/analysis.sqlite"
 
 def _has_real_data() -> bool:
     try:
-        raw_conn = sqlite3.connect(RAW_DB_PATH)
-        derived_conn = sqlite3.connect(DERIVED_DB_PATH)
+        raw_conn = sqlite3.connect(f"file:{RAW_DB_PATH}?mode=ro", uri=True)
+        derived_conn = sqlite3.connect(f"file:{DERIVED_DB_PATH}?mode=ro", uri=True)
     except sqlite3.OperationalError:
         return False
     try:
@@ -409,8 +409,8 @@ def test_real_aapl_gap_reconstruction_matches_hand_verified_values():
     if not _has_real_data():
         pytest.skip("Real AAPL data not present in local market_data.sqlite/analysis.sqlite")
 
-    raw_conn = sqlite3.connect(RAW_DB_PATH)
-    derived_conn = sqlite3.connect(DERIVED_DB_PATH)
+    raw_conn = sqlite3.connect(f"file:{RAW_DB_PATH}?mode=ro", uri=True)
+    derived_conn = sqlite3.connect(f"file:{DERIVED_DB_PATH}?mode=ro", uri=True)
     try:
         df, _n_skipped = build_dataset(
             raw_conn, derived_conn, horizons=(5,), fill_threshold=50.0, ticker_filter="AAPL",

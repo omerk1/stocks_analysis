@@ -257,7 +257,7 @@ def test_smoke_delisted_tickers_have_price_history():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
-    conn = sqlite3.connect(REAL_DB_PATH)
+    conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
     coverage = delisted_coverage_by_year(conn)
     conn.close()
 
@@ -280,7 +280,7 @@ def test_smoke_hygiene_functions_run_against_real_data():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
-    conn = sqlite3.connect(REAL_DB_PATH)
+    conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
     bars = load_bars(conn, "AAPL", Timeframe.DAILY)
     conn.close()
 
@@ -297,7 +297,7 @@ def test_smoke_spot_check_sample_is_reproducible():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
-    conn = sqlite3.connect(REAL_DB_PATH)
+    conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
     first = spot_check_sample(conn, n=20, seed=42)
     second = spot_check_sample(conn, n=20, seed=42)
     conn.close()

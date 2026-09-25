@@ -43,8 +43,10 @@ def default_derived_db_path(derived_data_dir: str | Path) -> Path:
     return Path(derived_data_dir) / "analysis.sqlite"
 
 
-def get_connection(db_path: str | Path) -> sqlite3.Connection:
-    return sqlite3.connect(db_path)
+def get_connection(db_path: str | Path, uri: bool = False) -> sqlite3.Connection:
+    """Same lock-wait as the raw DB's `db.get_connection` (see
+    `raw_db.BUSY_TIMEOUT_SECONDS`); `uri=True` accepts `file:...?mode=ro`."""
+    return sqlite3.connect(db_path, timeout=raw_db.BUSY_TIMEOUT_SECONDS, uri=uri)
 
 
 def create_runs_table(conn: sqlite3.Connection) -> None:

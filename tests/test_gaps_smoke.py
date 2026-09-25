@@ -107,7 +107,7 @@ def test_smoke_real_aapl_daily_ticker_detection():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
-    conn = sqlite3.connect(REAL_DB_PATH)
+    conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
     config = GapConfig()
 
     gaps, report, skip_reason = detect(conn, "AAPL", Timeframe.DAILY, config)

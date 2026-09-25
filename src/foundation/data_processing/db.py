@@ -183,8 +183,19 @@ def default_db_path(raw_data_dir: str | Path) -> Path:
     return Path(raw_data_dir) / "market_data.sqlite"
 
 
-def get_connection(db_path: str | Path) -> sqlite3.Connection:
-    return sqlite3.connect(db_path)
+# How long a connection waits on another connection's lock before raising
+# "database is locked". sqlite3's own default is 5s, which a long-running
+# reader (a test's full-table scan, an analysis query) can easily outlast,
+# killing a concurrent bulk ingest mid-run (found 2026-09-25: the metadata
+# backfill died after 50 tickers while the test suite was reading the same
+# file). Bulk ingests commit once per ticker, so waiting is always preferable
+# to crashing.
+BUSY_TIMEOUT_SECONDS = 60.0
+
+
+def get_connection(db_path: str | Path, uri: bool = False) -> sqlite3.Connection:
+    """`uri=True` accepts a `file:...?mode=ro` path for read-only access."""
+    return sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_SECONDS, uri=uri)
 
 
 def create_tables(conn: sqlite3.Connection) -> None:

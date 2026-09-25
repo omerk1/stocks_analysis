@@ -23,7 +23,7 @@ DB_PATH = "data/raw/market_data.sqlite"
 
 @pytest.fixture
 def conn():
-    connection = db.get_connection(DB_PATH)
+    connection = db.get_connection(f"file:{DB_PATH}?mode=ro", uri=True)
     yield connection
     connection.close()
 

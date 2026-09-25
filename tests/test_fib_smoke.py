@@ -18,7 +18,7 @@ REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
 def _real_conn():
     if not REAL_DB_PATH.exists():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
-    return sqlite3.connect(REAL_DB_PATH)
+    return sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
 
 
 def test_smoke_real_aapl_daily_detection_and_store():
