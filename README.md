@@ -174,7 +174,8 @@ stocks_analysis/
 │   │   │                       # rate limiting, and per-ticker (fetch_data.py) + bulk-market
 │   │   │                       # ingestion CLIs
 │   │   ├── feature_engineering/ # Technical indicators (price, momentum, trend, general)
-│   │   ├── market_common/      # Shared pivot detection, ATR/indicators, bar loading, models
+│   │   ├── market_common/      # Shared pivot detection, ATR/indicators, bar loading, models,
+│   │   │                       # anchor-date discovery (shared by avwap + volume_profile)
 │   │   └── utils/              # Config loading and shared utilities
 │   ├── signals/                # One self-contained detection engine per concept, each
 │   │   │                       # with its own config/compute/store/cli
@@ -185,7 +186,8 @@ stocks_analysis/
 │   │   ├── gaps/                 # Gap detection + fill tracking
 │   │   ├── patterns/            # Chart pattern detection (H&S, triangles, VCP, cup & handle, ...)
 │   │   ├── relative_strength/   # Relative strength vs. benchmark
-│   │   └── sr_lines/            # Support/resistance line detection engine + Plotly review chart
+│   │   ├── sr_lines/            # Support/resistance line detection engine + Plotly review chart
+│   │   └── volume_profile/      # Anchored volume profile (POC / value area), same anchors as avwap
 │   ├── analysis/                # Ad-hoc research scripts (not a detection engine)
 │   └── models/                  # Model training and evaluation (not yet built)
 ├── configs/
