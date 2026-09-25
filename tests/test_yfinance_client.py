@@ -261,3 +261,30 @@ def test_split_factors_rejects_invalid_multipliers(mult):
 
     with pytest.raises(ValueError):
         _split_factors(mult)
+
+
+@pytest.mark.parametrize("call", [
+    lambda c: c.get_daily_bars("BRK.B", "2020-01-01", "2020-01-10"),
+    lambda c: c.get_shares_outstanding("BRK.B", "2020-01-01", "2020-01-10"),
+    lambda c: c.get_sector_info("BRK.B"),
+    lambda c: c.get_splits("BRK.B"),
+])
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_every_call_uses_yahoos_hyphenated_share_class_symbol(mock_ticker_cls, call):
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits([], [])
+    mock_ticker_cls.return_value.get_shares_full.return_value = None
+    mock_ticker_cls.return_value.get_info.return_value = {}
+
+    try:
+        call(YFinanceClient())
+    except Exception:
+        pass  # only the symbol passed to yfinance matters here
+
+    mock_ticker_cls.assert_called_once_with("BRK-B")
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_sector_info_keeps_the_original_ticker(mock_ticker_cls):
+    mock_ticker_cls.return_value.get_info.return_value = {"sector": "Financial Services", "industry": "Insurance"}
+
+    assert YFinanceClient().get_sector_info("BRK.B")["ticker"] == "BRK.B"

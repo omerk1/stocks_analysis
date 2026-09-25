@@ -5,7 +5,8 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
-from src.foundation.data_processing.bulk_yfinance_ingest import JOB_TYPE, _to_yfinance_symbol, backfill_yfinance_daily
+from src.foundation.data_processing.bulk_yfinance_ingest import JOB_TYPE, backfill_yfinance_daily
+from src.foundation.data_processing.yfinance_client import to_yfinance_symbol
 
 
 @pytest.fixture
@@ -194,8 +195,8 @@ def test_to_yfinance_symbol_translates_dots_to_hyphens():
     # Polygon uses '.' for share classes (e.g. BF.A); yfinance needs '-'
     # (confirmed directly against the real API -- the dotted form returns
     # "possibly delisted", the hyphenated one returns real data).
-    assert _to_yfinance_symbol("BF.A") == "BF-A"
-    assert _to_yfinance_symbol("AAPL") == "AAPL"  # no dot, unaffected
+    assert to_yfinance_symbol("BF.A") == "BF-A"
+    assert to_yfinance_symbol("AAPL") == "AAPL"  # no dot, unaffected
 
 
 @patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
