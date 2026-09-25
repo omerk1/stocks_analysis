@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from src.foundation.data_processing.yfinance_client import YFinanceClient
 
@@ -155,18 +156,21 @@ def test_get_sector_info_handles_missing_fields(mock_ticker_cls):
     assert result == {"ticker": "XYZ", "sector": None, "industry": None}
 
 
-def _raw_splits(dates, mults, tz="America/New_York"):
-    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+def _history_with_splits(dates, mults, tz="America/New_York", extra_days=3):
+    """A yfinance .history() frame: a few zero-split days plus the given splits."""
+    base = pd.bdate_range("1990-01-02", periods=extra_days)
+    idx = base.append(pd.DatetimeIndex(pd.to_datetime(dates)))
     if tz:
         idx = idx.tz_localize(tz)
-    return pd.Series(mults, index=idx, name="Stock Splits")
+    splits = [0.0] * extra_days + list(mults)
+    return pd.DataFrame({"Close": [1.0] * len(idx), "Stock Splits": splits}, index=idx)
 
 
 @patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_splits_forward_and_reverse_match_polygon_shape(mock_ticker_cls):
     # GEVO's real reverse splits as yfinance reports them: 1-for-15, 1-for-20.
-    mock_ticker_cls.return_value.splits = _raw_splits(
-        ["2017-01-06", "2015-04-21", "2020-08-31"], [0.05, 0.066667, 4.0]
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits(
+        ["2015-04-21", "2017-01-06", "2020-08-31"], [0.066667, 0.05, 4.0]
     )
 
     result = YFinanceClient().get_splits("GEVO")
@@ -179,8 +183,19 @@ def test_get_splits_forward_and_reverse_match_polygon_shape(mock_ticker_cls):
 
 
 @patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_asks_yfinance_to_raise_instead_of_hiding_errors(mock_ticker_cls):
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits(["2020-08-31"], [4.0])
+
+    YFinanceClient().get_splits("AAPL")
+
+    _, kwargs = mock_ticker_cls.return_value.history.call_args
+    assert kwargs["raise_errors"] is True
+    assert kwargs["period"] == "max"
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_splits_keeps_exchange_local_calendar_date(mock_ticker_cls):
-    mock_ticker_cls.return_value.splits = _raw_splits(["2020-08-31"], [4.0])
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits(["2020-08-31"], [4.0])
 
     result = YFinanceClient().get_splits("AAPL")
 
@@ -189,20 +204,60 @@ def test_get_splits_keeps_exchange_local_calendar_date(mock_ticker_cls):
 
 
 @patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
-def test_get_splits_empty_for_a_ticker_with_no_splits(mock_ticker_cls):
-    mock_ticker_cls.return_value.splits = pd.Series(dtype="float64")
+def test_get_splits_empty_for_a_ticker_that_never_split(mock_ticker_cls):
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits([], [])
 
-    result = YFinanceClient().get_splits("XLNX")
+    result = YFinanceClient().get_splits("XYZ")
 
     assert result.empty
     assert list(result.columns) == ["execution_date", "split_from", "split_to", "ratio"]
 
 
 @patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_raises_on_empty_history_instead_of_reporting_no_splits(mock_ticker_cls):
+    # What a hidden fetch failure looks like -- must not be stored as a
+    # successful "never split".
+    mock_ticker_cls.return_value.history.return_value = pd.DataFrame()
+
+    with pytest.raises(RuntimeError):
+        YFinanceClient().get_splits("XLNX")
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_propagates_yfinance_errors(mock_ticker_cls):
+    mock_ticker_cls.return_value.history.side_effect = ConnectionError("yahoo down")
+
+    with pytest.raises(ConnectionError):
+        YFinanceClient().get_splits("AAPL")
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
 def test_get_splits_recovers_non_unit_fractions(mock_ticker_cls):
     # 3-for-2 forward and 2-for-3 reverse, with float noise on the reverse.
-    mock_ticker_cls.return_value.splits = _raw_splits(["2019-01-02", "2021-01-04"], [1.5, 0.666667])
+    mock_ticker_cls.return_value.history.return_value = _history_with_splits(
+        ["2019-01-02", "2021-01-04"], [1.5, 0.666667]
+    )
 
     result = YFinanceClient().get_splits("XYZ")
 
     assert list(zip(result["split_from"], result["split_to"])) == [(2.0, 3.0), (3.0, 2.0)]
+
+
+@pytest.mark.parametrize("mult, expected", [
+    (0.0005, (2000.0, 1.0)),   # 1-for-2000
+    (0.0004, (2500.0, 1.0)),   # 1-for-2500: previously collapsed to 0/1
+    (0.001, (1000.0, 1.0)),
+    (4.0, (1.0, 4.0)),
+])
+def test_split_factors_handle_reverse_splits_beyond_the_denominator_limit(mult, expected):
+    from src.foundation.data_processing.yfinance_client import _split_factors
+
+    assert _split_factors(mult) == expected
+
+
+@pytest.mark.parametrize("mult", [0.0, -1.0, float("nan")])
+def test_split_factors_rejects_invalid_multipliers(mult):
+    from src.foundation.data_processing.yfinance_client import _split_factors
+
+    with pytest.raises(ValueError):
+        _split_factors(mult)

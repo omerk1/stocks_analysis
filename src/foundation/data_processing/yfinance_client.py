@@ -1,3 +1,4 @@
+import warnings
 from fractions import Fraction
 
 import pandas as pd
@@ -81,13 +82,30 @@ class YFinanceClient:
         4-for-1 forward split, 0.05 for a 1-for-20 reverse split); it's
         turned back into whole from/to factors here.
 
-        Delisted tickers usually come back empty (confirmed on XLNX) --
-        stored as a successful zero-row fetch, same as a ticker that never
-        split.
+        Raises on any fetch problem instead of returning empty. yfinance
+        hides most errors by default (a network/HTTP failure, or a missing
+        timezone -- its usual "possibly delisted" signal, which a transient
+        outage produces too) and hands back an empty frame, which would be
+        stored as "this ticker never split" and never retried. Raising sends
+        it through the retry/failed-job path instead. The cost: a genuinely
+        delisted ticker shows up as a failed job every run rather than an
+        empty success -- visible, and harmless.
         """
-        raw = yf.Ticker(ticker).splits
+        with warnings.catch_warnings():
+            # `raise_errors` is deprecated in favour of the global
+            # yf.config.debug.hide_exceptions; the per-call flag avoids
+            # flipping process-wide state other callers rely on.
+            warnings.simplefilter("ignore", DeprecationWarning)
+            history = yf.Ticker(ticker).history(period="max", actions=True, raise_errors=True)
+        if history.empty:
+            raise RuntimeError(f"{ticker}: yfinance returned no price history")
+
         columns = ["execution_date", "split_from", "split_to", "ratio"]
-        if raw is None or raw.empty:
+        if "Stock Splits" not in history.columns:
+            return pd.DataFrame(columns=columns)
+        raw = history["Stock Splits"]
+        raw = raw[raw != 0]
+        if raw.empty:
             return pd.DataFrame(columns=columns)
 
         # Exchange-local midnight (America/New_York) -- drop the tz rather
@@ -95,11 +113,7 @@ class YFinanceClient:
         idx = raw.index.tz_localize(None) if raw.index.tz is not None else raw.index
         rows = []
         for date, mult in zip(idx.normalize(), raw.to_numpy()):
-            # Real split factors are small-denominator fractions (4/1, 3/2,
-            # 1/15), so the nearest such fraction recovers them exactly --
-            # plain rounding of 1/0.066667 gives 14.9999, not 15.
-            frac = Fraction(float(mult)).limit_denominator(1000)
-            split_from, split_to = float(frac.denominator), float(frac.numerator)
+            split_from, split_to = _split_factors(float(mult))
             rows.append({
                 "execution_date": date, "split_from": split_from,
                 "split_to": split_to, "ratio": split_to / split_from,
@@ -128,3 +142,20 @@ class YFinanceClient:
         df.index = idx.tz_localize(None)
         df.index.name = "timestamp"
         return df
+
+
+def _split_factors(mult: float) -> tuple[float, float]:
+    """(split_from, split_to) for a yfinance split multiplier. Real factors
+    are small-denominator fractions (4/1, 3/2, 1/15), so the nearest such
+    fraction recovers them exactly where plain rounding wouldn't (1/0.066667
+    -> 14.9999). Reverse splits are resolved on the inverted multiplier, so
+    a 1-for-2500 (0.0004) comes out as 2500/1 rather than collapsing to 0/1
+    under the denominator limit.
+    """
+    if not mult > 0:
+        raise ValueError(f"invalid split multiplier: {mult!r}")
+    if mult >= 1:
+        frac = Fraction(mult).limit_denominator(1000)
+        return float(frac.denominator), float(frac.numerator)
+    frac = Fraction(1 / mult).limit_denominator(1000)
+    return float(frac.numerator), float(frac.denominator)
