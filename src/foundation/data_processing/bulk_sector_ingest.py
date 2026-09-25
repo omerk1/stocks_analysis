@@ -50,9 +50,14 @@ def main():
         description="Bulk-backfill GICS-style sector/industry classification from "
         "yfinance -- one call per ticker"
     )
-    parser.add_argument(
+    universe = parser.add_mutually_exclusive_group()
+    universe.add_argument(
         "--indices", default="sp500,nasdaq100",
         help="Comma-separated index_membership index_names to source the ticker universe from",
+    )
+    universe.add_argument(
+        "--all-active", action="store_true",
+        help="Every active common stock in the tickers reference table instead of --indices",
     )
     args = parser.parse_args()
 
@@ -63,13 +68,7 @@ def main():
     conn = db.get_connection(db_path)
     db.create_tables(conn)
 
-    index_names = [s.strip() for s in args.indices.split(",")]
-    tickers = db.read_index_universe_tickers(conn, index_names)
-    if not tickers:
-        raise RuntimeError(
-            f"No tickers found in index_membership for {index_names} -- "
-            "run index_membership.refresh_index_membership first."
-        )
+    tickers = db.read_universe_tickers(conn, None if args.all_active else args.indices)
 
     client = YFinanceClient()
     backfill_sectors(client, conn, tickers)

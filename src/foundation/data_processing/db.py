@@ -626,6 +626,30 @@ def record_job_result(
     conn.commit()
 
 
+def read_universe_tickers(conn: sqlite3.Connection, indices: str | None) -> list[str]:
+    """Ticker universe for a bulk backfill CLI: every all-time member of the
+    comma-separated `indices` (see `read_index_universe_tickers`), or, when
+    `indices` is None, every active common stock in the `tickers` reference
+    table (the same universe `bulk_shares_outstanding_ingest.py` defaults
+    to). Raises rather than silently backfilling nothing.
+    """
+    if indices is None:
+        rows = read_tickers(conn, type_="CS", active=True)
+        if rows.empty:
+            raise RuntimeError(
+                "No tickers in the reference table -- run ticker_universe.py first."
+            )
+        return sorted(rows["ticker"])
+    index_names = [s.strip() for s in indices.split(",")]
+    tickers = read_index_universe_tickers(conn, index_names)
+    if not tickers:
+        raise RuntimeError(
+            f"No tickers found in index_membership for {index_names} -- "
+            "run index_membership.refresh_index_membership first."
+        )
+    return tickers
+
+
 def pending_keys(conn: sqlite3.Connection, job_type: str, all_keys: list[str]) -> list[str]:
     """Of `all_keys`, return those not yet marked 'success' for `job_type` --
     i.e. never attempted, or previously failed. Order is preserved from

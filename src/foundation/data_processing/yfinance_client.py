@@ -1,3 +1,5 @@
+from fractions import Fraction
+
 import pandas as pd
 import yfinance as yf
 
@@ -70,6 +72,40 @@ class YFinanceClient:
         """
         info = yf.Ticker(ticker).get_info()
         return {"ticker": ticker, "sector": info.get("sector"), "industry": info.get("industry")}
+
+    def get_splits(self, ticker: str) -> pd.DataFrame:
+        """Full split history, in the same shape as
+        `PolygonClient.get_splits` (execution_date, split_from, split_to,
+        ratio) so `db.upsert_splits` and every reader treat both sources
+        alike. yfinance reports a single multiplier per split (4.0 for a
+        4-for-1 forward split, 0.05 for a 1-for-20 reverse split); it's
+        turned back into whole from/to factors here.
+
+        Delisted tickers usually come back empty (confirmed on XLNX) --
+        stored as a successful zero-row fetch, same as a ticker that never
+        split.
+        """
+        raw = yf.Ticker(ticker).splits
+        columns = ["execution_date", "split_from", "split_to", "ratio"]
+        if raw is None or raw.empty:
+            return pd.DataFrame(columns=columns)
+
+        # Exchange-local midnight (America/New_York) -- drop the tz rather
+        # than converting to UTC so the calendar date stays the real one.
+        idx = raw.index.tz_localize(None) if raw.index.tz is not None else raw.index
+        rows = []
+        for date, mult in zip(idx.normalize(), raw.to_numpy()):
+            # Real split factors are small-denominator fractions (4/1, 3/2,
+            # 1/15), so the nearest such fraction recovers them exactly --
+            # plain rounding of 1/0.066667 gives 14.9999, not 15.
+            frac = Fraction(float(mult)).limit_denominator(1000)
+            split_from, split_to = float(frac.denominator), float(frac.numerator)
+            rows.append({
+                "execution_date": date, "split_from": split_from,
+                "split_to": split_to, "ratio": split_to / split_from,
+            })
+        df = pd.DataFrame(rows, columns=columns)
+        return df.sort_values("execution_date").reset_index(drop=True)
 
     @staticmethod
     def _fetch(ticker: str, start, end, interval: str, keep_time: bool) -> pd.DataFrame:

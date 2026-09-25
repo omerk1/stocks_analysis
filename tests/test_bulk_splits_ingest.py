@@ -98,3 +98,28 @@ def test_a_ticker_with_no_splits_is_stored_as_a_success_with_zero_rows(conn):
     )
     assert statuses == {"GEVO": "success"}
     assert db.read_splits(conn, "GEVO", db.POLYGON).empty
+
+
+def test_yfinance_source_stores_under_its_own_source_and_job_type(conn):
+    from src.foundation.data_processing.bulk_splits_ingest import JOB_TYPE_YFINANCE
+
+    client = MagicMock()
+    client.get_splits.side_effect = lambda t: _splits()
+
+    backfill_splits(client, conn, ["AAPL"], source=db.YFINANCE)
+
+    assert len(db.read_splits(conn, "AAPL", db.YFINANCE)) == 1
+    assert db.read_splits(conn, "AAPL", db.POLYGON).empty
+    jobs = conn.execute("SELECT job_type, status FROM fetch_jobs WHERE key = 'AAPL'").fetchall()
+    assert jobs == [(JOB_TYPE_YFINANCE, "success")]
+
+
+def test_a_finished_yfinance_pass_does_not_make_polygon_skip_tickers(conn):
+    client = MagicMock()
+    client.get_splits.side_effect = lambda t: _splits()
+    backfill_splits(client, conn, ["AAPL", "MSFT"], source=db.YFINANCE)
+
+    client.get_splits.reset_mock()
+    backfill_splits(client, conn, ["AAPL", "MSFT"], source=db.POLYGON)
+
+    assert client.get_splits.call_count == 2

@@ -153,3 +153,56 @@ def test_get_sector_info_handles_missing_fields(mock_ticker_cls):
     result = YFinanceClient().get_sector_info("XYZ")
 
     assert result == {"ticker": "XYZ", "sector": None, "industry": None}
+
+
+def _raw_splits(dates, mults, tz="America/New_York"):
+    idx = pd.DatetimeIndex(pd.to_datetime(dates))
+    if tz:
+        idx = idx.tz_localize(tz)
+    return pd.Series(mults, index=idx, name="Stock Splits")
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_forward_and_reverse_match_polygon_shape(mock_ticker_cls):
+    # GEVO's real reverse splits as yfinance reports them: 1-for-15, 1-for-20.
+    mock_ticker_cls.return_value.splits = _raw_splits(
+        ["2017-01-06", "2015-04-21", "2020-08-31"], [0.05, 0.066667, 4.0]
+    )
+
+    result = YFinanceClient().get_splits("GEVO")
+
+    assert list(result.columns) == ["execution_date", "split_from", "split_to", "ratio"]
+    assert list(result["execution_date"]) == list(pd.to_datetime(["2015-04-21", "2017-01-06", "2020-08-31"]))
+    assert list(result["split_from"]) == [15.0, 20.0, 1.0]
+    assert list(result["split_to"]) == [1.0, 1.0, 4.0]
+    assert result["ratio"].tolist() == [1 / 15, 1 / 20, 4.0]
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_keeps_exchange_local_calendar_date(mock_ticker_cls):
+    mock_ticker_cls.return_value.splits = _raw_splits(["2020-08-31"], [4.0])
+
+    result = YFinanceClient().get_splits("AAPL")
+
+    assert result["execution_date"].iloc[0] == pd.Timestamp("2020-08-31")
+    assert result["execution_date"].dt.tz is None
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_empty_for_a_ticker_with_no_splits(mock_ticker_cls):
+    mock_ticker_cls.return_value.splits = pd.Series(dtype="float64")
+
+    result = YFinanceClient().get_splits("XLNX")
+
+    assert result.empty
+    assert list(result.columns) == ["execution_date", "split_from", "split_to", "ratio"]
+
+
+@patch("src.foundation.data_processing.yfinance_client.yf.Ticker")
+def test_get_splits_recovers_non_unit_fractions(mock_ticker_cls):
+    # 3-for-2 forward and 2-for-3 reverse, with float noise on the reverse.
+    mock_ticker_cls.return_value.splits = _raw_splits(["2019-01-02", "2021-01-04"], [1.5, 0.666667])
+
+    result = YFinanceClient().get_splits("XYZ")
+
+    assert list(zip(result["split_from"], result["split_to"])) == [(2.0, 3.0), (3.0, 2.0)]
