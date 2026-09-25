@@ -1424,3 +1424,64 @@ Chart patterns, candlestick formations, Elliott/Gann/Fibonacci constructions, ma
 ### E.4 — The general principle
 
 Before adding any indicator to this study, answer one question: **what operation does it perform on the return series, and is that operation already represented?** If the answer is "weighted average of past prices," it's already here — add it as an alias and a redundancy check, not a module. If it's something else, it earns a probe. This test is cheap, and it is the difference between a study that grows in depth and one that grows only in length.
+
+## Appendix F — Infrastructure actually built (snapshot as of 2026-09-25, study complete)
+
+Moved here from a since-retired `HANDOVER.md` (a live batch-coordination scratch doc
+used while running this study's post-termination modules in parallel — its
+MA-study-specific technical content belongs with the rest of this design reference,
+not in an archived coordination file). Verify against the code before trusting any
+individual claim — this is a snapshot, not kept live.
+
+**Cached panel** (`data/features/moving_averages/ma_panel/`, 405 S&P 500 tickers, U1
+universe, 2010-01-04→2021-12-31, holdout-safe) has: SMA/EMA at {20,50,150,200},
+`dist_pct`/`dist_atr`/`dist_z` + `above` state at those lookbacks, `slope_log_k` at
+k∈{5,21,63}, `atr_14`, `volume`, `mom_12_1`/`mom_1_0`/`realized_vol_63`,
+`run_length_bucket_sma_*`, `dist_from_52w_high`/`dist_from_52w_low`, `sector`
+(current-state only, not PIT), `stacked_sma`/`stacked_ema`. Full list: run
+`read_panel(...).columns` or read `features/panel.py`'s own docstring.
+
+**Not built**: lookbacks other than {20,50,150,200} in the *shared* panel (M6.6 added
+local-only 10/100 SMA slope for its own ribbon; M3 added local-only EMA 8/10/21 for
+its own crossover pairs; M9's `efficiency_ratio`/`average_directional_index` operate
+off existing panel columns without adding new lookbacks either), `ribbon_width` as a
+shared panel column (M7 built its own local one), point-in-time
+`mktcap_decile`/`universe_flags` (M12's `dollar_volume`/SMA50 finding and M6.4's
+GBM-null calibration are both capped at Tier 3 partly for lack of this-or-adjacent
+infra), MFE/MAE proper (`labels/path_metrics.py` only has `forward_max_drawdown` so
+far), a real 2022+ holdout check (still locked per CLAUDE.md invariant #1 — every
+Tier-3 cell in this study is capped partly on this), a second/third universe tier
+(U2/U3, §3.2), an earnings-date table (M13, M6.3 both hit this gap and substituted
+proxies).
+
+**Now built** (beyond what §4/§8 describe as originally planned): crossover/state-flip
+event detection (`features/crossover.py`, M3); WMA/HMA/DEMA/KAMA/VWMA
+(`features/kernels.py`, M8 — VWMA also has a separate, simpler module-local stub in
+`features/liquidity.py` from M12, not reconciled with `kernels.py`'s own version, low
+priority); White's Reality Check (`stats/multiple_testing.py::white_reality_check`,
+M8); a `Timeframe` parameter on `build_panel` (`features/panel.py`, M10 — daily
+default unchanged, `Timeframe.WEEKLY` resamples live from `bars_1d`; only
+MA/distance/slope/ATR/run-length features are timeframe-correct at non-daily
+granularity, day-count-calibrated context features like `mom_12_1` are not
+recalibrated); `features/regime.py` (`efficiency_ratio`, `average_directional_index`,
+M9 — reconciled with M6.4's own independently-built duplicate into one shared
+implementation); Kaplan-Meier survival + GBM-null simulation (`stats/survival.py`,
+M6.4); `features/oscillators.py` (MACD/RSI/stochastic-%K wrappers, M17);
+`stats/kernel_space.py` (linear-filter weight-vector diagnostics, M16 — a different
+concept from M8's `features/kernels.py`, named distinctly to avoid confusion);
+`modules/pattern_context.py` and a `pattern_matches` SQLite table (M14, joins the
+shared panel against `src/signals/patterns/`'s own chart-pattern detectors);
+`modules/synthesis.py` (M15, the overlap/enrichment check between M6.3's and M14's
+cells).
+
+**DB tables** (`data/raw/market_data.sqlite`): `bars_1d/1h/1mo/1w`, `fetch_jobs`,
+`index_membership`, `macro_series` (VIX/FRED, no earnings), `shares_outstanding`,
+`splits`, `ticker_metadata`, `ticker_sector`, `tickers`. No earnings-date table exists
+anywhere.
+
+**Existing pattern detectors** (a different repo subsystem, integrated by M14):
+`src/signals/patterns/detectors/{cup_and_handle,double_top_bottom,flags_pennants,
+head_shoulders,reversal_123,triangles,vcp}.py`.
+
+**`market_common.indicators`** already has RSI/MACD/ATR/OBV wrappers (this repo's own
+reuse pointer in `CLAUDE.md`).
