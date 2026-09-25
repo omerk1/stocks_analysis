@@ -128,12 +128,15 @@ docs/features/moving-averages/
                            next, open cross-module (M1/M4/M11/...) watch items. Moved
                            here from docs/STATUS.md (2026-09-11) — it was always
                            MA-study-only content, never genuine cross-feature state.
-  HANDOVER.md              session/execution state for the post-termination parallel
-                           batches (added 2026-09-22) — open PRs not yet merged, the
-                           next-batch module triage, and process notes for resuming
-                           this across a fresh Claude Code conversation. Not a results
-                           doc (that's STATUS.md) — check it before assuming Batch 1+
-                           is either done or not started.
+  HANDOVER.md              retired 2026-09-25 (study complete, no more batches to hand
+                           off) — its MA-specific infrastructure inventory moved to
+                           DESIGN.md's Appendix F; the general parallel-forked-agent
+                           process notes moved to this file's own "Working with
+                           parallel forked agents" section. Historical references to
+                           it elsewhere in this study's docs (STATUS.md,
+                           PREREGISTRATION.md, FINDINGS.md) are left as-is — they
+                           accurately cite what justified a scoping decision at the
+                           time, per this study's own no-silent-edits convention.
 ```
 
 Code follows this repo's existing per-module convention, not DESIGN.md §10.1's
@@ -194,3 +197,60 @@ and report nothing on (b).
 - float32 for features.
 - Every module reads from cache; no module recomputes the panel.
 - Plots before tests. Look at the distribution before you summarise it.
+
+## Working with parallel forked agents (general — not MA-specific)
+
+Moved here from a since-retired `docs/features/moving-averages/HANDOVER.md` (a live
+batch-coordination scratch doc used while running the MA study's post-termination
+modules in parallel). This section is repo-wide operational knowledge, learned from
+that study but not specific to it — it applies to any future task in this repo run as
+a coordinating session plus multiple parallel forked agents in isolated worktrees.
+
+- **Use `Agent` with `subagent_type: "fork"` and `isolation: "worktree"`, one per
+  independent unit of work, launched in a single message for true parallelism.**
+  Forking inherits the coordinating conversation's context without re-explaining it
+  per prompt. From a fresh conversation with no shared context, use a non-fork agent
+  and paste in the relevant design/status docs directly.
+- **Rate limits and premature turn-endings are the real bottleneck, not the work
+  itself.** Forks routinely get interrupted mid-run, or end their own turn right
+  after launching a slow background script instead of waiting for it or checking its
+  output — sometimes repeatedly, restarting the same script from scratch each time
+  rather than resuming. Don't trust a "done" or "waiting" self-report at face value:
+  inspect the worktree directly (`git log --oneline`, `git status --short`,
+  `ps aux | grep python3`) before deciding whether to nudge, and when nudging, be
+  explicit ("don't restart the script, check `<output file>` from the run already in
+  progress" or "run with an explicit long `timeout` instead of letting it get
+  backgrounded"). A fork can go genuinely idle for hours before quietly resuming on
+  its own after a nudge — don't assume "no progress in a while" means dead; check
+  before duplicating its work.
+- **Worktrees don't get large gitignored data files** (e.g. this repo's
+  `data/raw/market_data.sqlite`, ~4GB) — only git-tracked or explicitly-symlinked
+  paths reliably show up. Any fork needing such a file needs an explicit
+  `ln -s <main-repo>/<path> <same-relative-path>` inside its own worktree (untracked,
+  no extra disk use) — tell forks needing it to do this proactively, not discover it
+  mid-run.
+- **Division of labor**: each fork owns its own new files plus its own entries in
+  per-unit-of-work logs — never the shared, prose-heavy cross-cutting docs (this
+  study's own analogues: `STATUS.md`, `REPORT.md`, the whole-grid FDR pass). The
+  coordinating session consolidates those once after a batch lands, instead of
+  multiple agents fighting over the same paragraphs.
+- **No task-number-prefixed file names or import aliases anywhere** in committed
+  code — no `m15_synthesis.py`, no `import ... as m15`. Use descriptive names
+  matching this repo's own dominant convention. Caught and fixed repeatedly across
+  the MA study whenever missed.
+- **No AI attribution in this repo's commits or PR bodies** — no `Claude-Session:`
+  line, no `Co-Authored-By`. Repeat this explicitly in every fork prompt.
+- **Two-phase commit** for any pre-register/build workflow: pre-register (commit) →
+  build+run+log results (commit). Worth a quick `git log` spot-check before trusting
+  a "done" report.
+- **Verify before reporting a PR clean**: `gh pr view <n> --json files,additions,
+  deletions,mergeStateStatus` (no unexpected shared-doc touch), grep the PR body for
+  attribution lines, check for leftover untracked scratch files in the worktree
+  before calling it done.
+- **Doc-append merge conflicts between sibling PRs are expected and trivial** — both
+  sides add a row/section at the same point; keep both, in whatever order reads
+  sensibly (usually chronological).
+- **The coordinating session never merges its own or a fork's PRs** — only the human
+  user merges. The coordinating session opens PRs, resolves conflicts by pushing to
+  the PR's own branch, and waits to be told a PR number has been merged before doing
+  any cleanup (worktree/branch removal) or starting dependent follow-on work.

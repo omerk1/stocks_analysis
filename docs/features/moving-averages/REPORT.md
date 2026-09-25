@@ -5,12 +5,15 @@
 **Status:** study terminated per its own pre-registered criteria (`STATUS.md`'s
 "Study-level termination" section) — the minimal-core list (DESIGN §12: M1, M2, M4,
 M5, M6.2, M11, plus §7.5) ran and was tiered, and the whole-grid FDR pass executed
-against the deduplicated grid. Fifteen further modules were added post-termination via
+against the deduplicated grid. Sixteen further modules were added post-termination via
 DESIGN §1.5's porous-scope rule (M18 on 2026-09-20; M6.1/M6.3/M7/M13 — "Batch 1" — on
 2026-09-22/23; M3/M6.5/M6.6/M12 — "Batch 2" — on 2026-09-23/24; M8/M9/M10/M6.4 —
-"Batch 3" — on 2026-09-24; M16/M17/M14 — "Batch 4" — on 2026-09-25), each
-pre-registered and folded into a re-run of the whole-grid FDR pass rather than
-reported outside that discipline (N: 31→35→50→79→99→107). **The 2026-09-23 re-run
+"Batch 3" — on 2026-09-24; M16/M17/M14/M15 — "Batch 4" — on 2026-09-25), each
+pre-registered and logged per this study's own discipline. **M15 (Synthesis) was the
+last module on DESIGN's own list — this study is now fully complete, with nothing
+further queued.** M14/M16/M17 were folded into a re-run of the whole-grid FDR pass
+(N: 31→35→50→79→99→107); M15 is a Track A synthesis diagnostic with no `N_tests`
+footprint (§5 below). **The 2026-09-23 re-run
 changed the study's headline for the first time**: 5 cells then survived
 Benjamini–Hochberg correction (1 at q=0.05), and one of them —
 `slope_pctile_21_sma_50` (M6.3) — was promoted to Tier 2 the same day once a
@@ -718,11 +721,34 @@ FDR pass at N=107 (rank 6, p=0.000425), including the stricter q=0.05 bar** — 
 second cell ever to do so in this study — but **not promoted to Tier 2**: FDR survival
 doesn't resolve the reversal-robustness gap above, which is still unrun rather than
 run-and-passed. Tier 3.
-**M15** (synthesis) is the only module in this study not yet run — hard-blocked on
-M14 merging (now done) per DESIGN's own design, it operates on "surviving Tier-1/2
-claims," and now has a real second Tier-2-adjacent candidate (M14's VCP cell, capped
-at Tier 3 pending the reversal-robustness check) to synthesize against M6.3's existing
-Tier-2 finding, not the null note originally expected.
+**M15 — Synthesis (post-termination Batch 4, merged 2026-09-25, PR #107, the last
+module in this study).** DESIGN's own literal text ("take the surviving Tier-1/Tier-2
+claims... correlation matrix of the surviving signals") is a degenerate 1×1 given
+this study's actual survivor set — one Tier-2 claim (M6.3's `slope_pctile_21_sma_50`),
+zero Tier-1 — stated as the honest primary finding before scoping past it. Extended,
+via a dated `PREREGISTRATION.md` addendum, to also compare M6.3's cell against M14's
+Tier-3 VCP-reclaim cell — the only other cell in the study with a comparably strong
+profile (the largest point estimate in this study's history, and the only other cell
+to clear whole-grid FDR at q=0.05). Operationalized as an **overlap/enrichment
+check**, not a Pearson correlation, since the two signals are differently shaped (a
+continuous per-date decile rank vs. a rare binary event): do M14's VCP-reclaim events
+disproportionately co-occur with M6.3's own extreme-slope tail (`TAIL_DECILES` of
+`slope_pctile_21_sma_50`), on the same (ticker, date)? Reused `modules/slope_magnitude.py`'s
+and `modules/pattern_context.py`'s own code unchanged rather than reimplementing
+either. **Result: the opposite of DESIGN's own "expect high collinearity" prior.**
+VCP-reclaim events land in the extreme-slope tail 27.1% of the time, vs. 40.0%
+unconditionally, 36.5% for `above_sma_50` reclaims in general, and 38.4% for
+any-pattern-context reclaims — consistently 26–32% **less** likely than every
+baseline, not more (enrichment ratios 0.68/0.74/0.71). A plausible mechanism, not
+tested further: a volatility-contraction pattern implies a calming/moderating trend,
+the opposite of an extreme slope reading. Read as **two genuinely distinct
+mechanisms**, not the same signal wearing different hats. Track A diagnostic (no
+CI/kill criterion, same framing as M16's own module) — zero `N_tests` footprint.
+Caveat named honestly in its own write-up: this is one overlap check between one pair
+of cells, not a full correlation matrix — DESIGN's own literal "matrix" framing is
+unmet by this study's own thin survivor set, not by a limitation of the check's
+method. **This closes out the study: M15 was the last module on DESIGN's own list,
+nothing further is queued.**
 **M6.7** ("the angle of a moving average") is explicitly not an analysis module by
 DESIGN's own text — a one-line report note that the quantity has no coordinate-free
 definition, folded into M16's own write-up rather than given a separate entry.
