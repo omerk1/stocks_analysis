@@ -12,6 +12,7 @@ TABLES = ("bars_1d", "bars_1w", "bars_1mo", "bars_1h")
 # could typo-diverge (e.g. "yfinance" vs "y_finance") across modules.
 POLYGON = "polygon"
 YFINANCE = "yfinance"
+SEC_EDGAR = "sec_edgar"
 FRED = "fred"
 
 BAR_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "is_partial"]
