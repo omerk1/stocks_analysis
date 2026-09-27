@@ -8,9 +8,10 @@ data page into `--sec-dir`. See `sec_companyfacts` for what is extracted
 and why (filing-date keyed). A company is stored only if its counts agree
 with yfinance's where the two overlap (see `backfill_sec_shares`).
 
-Each ticker's `sec_edgar` rows are replaced wholesale, in one transaction,
-so a rerun against a newer download (or after a parsing change) never
-leaves stale points behind. Other sources' rows are never touched. No
+Each ticker's `sec_edgar` rows are deleted and (if it still qualifies)
+rewritten in one transaction, so a rerun against a newer download (or
+after a parsing change) never leaves stale points behind -- including for
+a ticker that no longer qualifies at all. Other sources' rows are never touched. No
 `fetch_jobs` resumability: a full run is local and takes minutes.
 """
 
@@ -29,62 +30,76 @@ from src.foundation.data_processing import sec_companyfacts as sec
 from src.foundation.utils.config_loader import load_config
 
 
-# Acceptance band for the median SEC/yfinance ratio where both have data,
-# and the minimum overlap for that check to count. Scale errors are >=1000x
-# and class mix-ups typically >=1.5x, so +-25% separates them from real
-# timing differences between the two sources' filing dates.
+# Acceptance band for the median SEC/yfinance ratio wherever the two
+# overlap. Scale errors are >=1000x and class mix-ups typically >=1.5x, so
+# +-25% separates them from real timing differences between the two
+# sources' filing dates.
 AGREEMENT_BAND = (0.8, 1.25)
-MIN_OVERLAP = 3
 
 
 def backfill_sec_shares(
     conn: sqlite3.Connection, zf: zipfile.ZipFile, cik_map: dict[str, int], tickers: list[str],
+    active_common: list[str],
 ) -> Counter:
     """Returns a tally of outcomes: stored / no_cik / not_in_zip /
-    no_share_facts / disagrees_with_yfinance / ambiguous_class.
+    no_share_facts / disagrees_with_yfinance / ambiguous_class /
+    unverified_inactive.
 
-    A company whose counts overlap yfinance's is kept only if they agree
-    (median ratio inside AGREEMENT_BAND) -- this catches both scale errors
-    and share-class mix-ups without guessing which tickers are classes.
-    With no usable overlap there's nothing to check against, so it's kept
-    only when no other ticker in `tickers` maps to the same company.
+    Every ticker's existing `sec_edgar` rows are deleted first, whatever
+    this run then decides, so a company that no longer qualifies never
+    keeps serving counts from an earlier run.
+
+    Where SEC and yfinance overlap at all, the company is kept only if they
+    agree (median ratio inside AGREEMENT_BAND) -- this catches both scale
+    errors and share-class mix-ups. With no overlap there's nothing to
+    check against, so it's kept only when the ticker is currently active
+    (SEC's ticker file maps *today's* symbols, so a delisted or reused
+    symbol could point at a different company) and no other active common
+    stock (`active_common`, independent of this run's `tickers`) maps to
+    the same company.
     """
+    active = set(active_common)
     shared_ciks = {
-        cik for cik, n in Counter(cik_map.get(sec.to_sec_ticker(t)) for t in tickers).items()
+        cik for cik, n in Counter(cik_map.get(sec.to_sec_ticker(t)) for t in active).items()
         if cik is not None and n > 1
     }
     tally: Counter = Counter()
     for ticker in tickers:
-        cik = cik_map.get(sec.to_sec_ticker(ticker))
-        if cik is None:
-            tally["no_cik"] += 1
-            continue
-        company = sec.read_company(zf, cik)
-        if company is None:
-            tally["not_in_zip"] += 1
-            continue
-        counts = sec.drop_isolated_spikes(sec.share_counts(company))
-        if counts.empty:
-            tally["no_share_facts"] += 1
-            continue
-        reference = db.read_shares_outstanding(conn, ticker, db.YFINANCE)
-        n_overlap, ratio = sec.agreement(
-            counts, pd.Series(reference["shares_outstanding"].to_numpy(), index=pd.to_datetime(reference["date"]))
-        )
-        if n_overlap >= MIN_OVERLAP:
-            if not (AGREEMENT_BAND[0] <= ratio <= AGREEMENT_BAND[1]):
-                tally["disagrees_with_yfinance"] += 1
-                continue
-        elif cik in shared_ciks:
-            tally["ambiguous_class"] += 1
-            continue
         conn.execute(
             "DELETE FROM shares_outstanding WHERE ticker = ? AND source = ?", (ticker, db.SEC_EDGAR)
         )
-        db.upsert_shares_outstanding(conn, ticker, db.SEC_EDGAR, counts)  # commits delete + insert together
-        tally["stored"] += 1
-        tally["points"] += len(counts)
+        outcome, counts = _evaluate(conn, zf, cik_map, ticker, active, shared_ciks)
+        if outcome == "stored":
+            db.upsert_shares_outstanding(conn, ticker, db.SEC_EDGAR, counts)  # commits delete + insert together
+            tally["points"] += len(counts)
+        else:
+            conn.commit()
+        tally[outcome] += 1
     return tally
+
+
+def _evaluate(conn, zf, cik_map, ticker, active, shared_ciks) -> tuple[str, pd.Series | None]:
+    cik = cik_map.get(sec.to_sec_ticker(ticker))
+    if cik is None:
+        return "no_cik", None
+    company = sec.read_company(zf, cik)
+    if company is None:
+        return "not_in_zip", None
+    counts = sec.drop_isolated_spikes(sec.share_counts(company))
+    if counts.empty:
+        return "no_share_facts", None
+    reference = db.read_shares_outstanding(conn, ticker, db.YFINANCE)
+    _, ratio = sec.agreement(
+        counts, pd.Series(reference["shares_outstanding"].to_numpy(), index=pd.to_datetime(reference["date"]))
+    )
+    if ratio is not None:
+        ok = AGREEMENT_BAND[0] <= ratio <= AGREEMENT_BAND[1]
+        return ("stored", counts) if ok else ("disagrees_with_yfinance", None)
+    if ticker not in active:
+        return "unverified_inactive", None
+    if cik in shared_ciks:
+        return "ambiguous_class", None
+    return "stored", counts
 
 
 def main():
@@ -105,15 +120,17 @@ def main():
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
     tickers = db.read_universe_tickers(conn, args.indices)
+    active_common = db.read_universe_tickers(conn, None)
     cik_map = sec.load_cik_map(tickers_path)
 
     with zipfile.ZipFile(zip_path) as zf:
-        tally = backfill_sec_shares(conn, zf, cik_map, tickers)
+        tally = backfill_sec_shares(conn, zf, cik_map, tickers, active_common)
     conn.close()
 
     print(f"{len(tickers)} tickers: stored {tally['stored']} ({tally['points']} points); skipped -- "
           f"disagrees with yfinance {tally['disagrees_with_yfinance']}, "
-          f"ambiguous share class {tally['ambiguous_class']}, no SEC ticker match {tally['no_cik']}, "
+          f"ambiguous share class {tally['ambiguous_class']}, "
+          f"inactive with nothing to verify against {tally['unverified_inactive']}, no SEC ticker match {tally['no_cik']}, "
           f"no company file {tally['not_in_zip']}, no share-count facts {tally['no_share_facts']}")
 
 

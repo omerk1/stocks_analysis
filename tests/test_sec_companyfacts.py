@@ -141,7 +141,8 @@ def test_backfill_keeps_agreeing_companies_and_rejects_scale_or_class_mismatches
     # A stale sec_edgar row for AAA must be replaced; its yfinance rows must stay.
     db.upsert_shares_outstanding(conn, "AAA", db.SEC_EDGAR, pd.Series([1.0], index=pd.to_datetime(["2010-01-01"])))
 
-    tally = backfill_sec_shares(conn, zf, cik_map, ["AAA", "SCALE", "SOLO", "CLS.A", "CLS.B", "EMPTY", "GONE", "NOPE"])
+    universe = ["AAA", "SCALE", "SOLO", "CLS.A", "CLS.B", "EMPTY", "GONE", "NOPE"]
+    tally = backfill_sec_shares(conn, zf, cik_map, universe, active_common=universe)
 
     assert tally["stored"] == 2 and tally["points"] == 40
     assert tally["disagrees_with_yfinance"] == 1
@@ -151,3 +152,51 @@ def test_backfill_keeps_agreeing_companies_and_rejects_scale_or_class_mismatches
     assert len(aaa) == 20 and aaa["date"].min() == "2012-01-01"
     assert len(db.read_shares_outstanding(conn, "AAA", db.YFINANCE)) == 8
     assert db.read_shares_outstanding(conn, "SCALE", db.SEC_EDGAR).empty
+
+
+def test_endpoint_scale_errors_are_dropped_but_a_real_final_reverse_split_is_kept():
+    idx = pd.to_datetime(["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01"])
+    first_bad = pd.Series([100_000.0, 100.0, 101.0, 102.0], index=idx)      # 1000x at the start
+    assert sec.drop_isolated_spikes(first_bad).tolist() == [100.0, 101.0, 102.0]
+    last_bad = pd.Series([100.0, 101.0, 102.0, 0.000102], index=idx)        # 1,000,000x at the end
+    assert sec.drop_isolated_spikes(last_bad).tolist() == [100.0, 101.0, 102.0]
+    last_split = pd.Series([100.0, 101.0, 102.0, 5.1], index=idx)           # real 1-for-20 at the end
+    assert sec.drop_isolated_spikes(last_split).tolist() == last_split.tolist()
+
+
+def test_rerun_clears_rows_of_a_ticker_that_no_longer_qualifies(conn, tmp_path):
+    zf = _zip(tmp_path, {2: _company(cover=_quarterly("2012-01-01", 20, 100_000.0))})
+    db.upsert_shares_outstanding(conn, "SCALE", db.SEC_EDGAR, pd.Series([5.0], index=pd.to_datetime(["2012-01-01"])))
+    _yf(conn, "SCALE", "2015-01-01", 8, 100.0)
+
+    tally = backfill_sec_shares(conn, zf, {"SCALE": 2}, ["SCALE", "NOPE"], active_common=["SCALE"])
+
+    assert tally["disagrees_with_yfinance"] == 1
+    assert db.read_shares_outstanding(conn, "SCALE", db.SEC_EDGAR).empty
+
+
+def test_a_single_overlapping_point_that_disagrees_is_enough_to_reject(conn, tmp_path):
+    zf = _zip(tmp_path, {1: _company(cover=_quarterly("2012-01-01", 20, 100_000.0))})
+    _yf(conn, "AAA", "2016-10-01", 1, 100.0)
+
+    tally = backfill_sec_shares(conn, zf, {"AAA": 1}, ["AAA"], active_common=["AAA"])
+
+    assert tally["disagrees_with_yfinance"] == 1
+
+
+def test_inactive_ticker_with_nothing_to_verify_against_is_not_stored(conn, tmp_path):
+    # SEC maps today's symbols; a delisted symbol may now belong to another company.
+    zf = _zip(tmp_path, {1: _company(cover=_quarterly("2012-01-01", 20, 100.0))})
+
+    tally = backfill_sec_shares(conn, zf, {"OLD": 1}, ["OLD"], active_common=["OTHER"])
+
+    assert tally["unverified_inactive"] == 1
+    assert db.read_shares_outstanding(conn, "OLD", db.SEC_EDGAR).empty
+
+
+def test_share_class_check_sees_siblings_outside_this_runs_universe(conn, tmp_path):
+    zf = _zip(tmp_path, {4: _company(cover=_quarterly("2012-01-01", 20, 50.0))})
+
+    tally = backfill_sec_shares(conn, zf, {"CLS-A": 4, "CLS-B": 4}, ["CLS.A"], active_common=["CLS.A", "CLS.B"])
+
+    assert tally["ambiguous_class"] == 1
