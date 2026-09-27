@@ -100,16 +100,36 @@ def share_counts(company: dict) -> pd.Series:
 
 
 def drop_isolated_spikes(series: pd.Series, factor: float = 10.0) -> pd.Series:
-    """Drop single filings >= `factor` x off from both neighbours while the
-    neighbours agree with each other (within 2x) -- a mis-tagged filing,
-    not a real change: a genuine reverse split or issuance doesn't revert
-    at the next filing."""
-    if len(series) < 3:
+    """Drop single filings >= `factor` x off from their neighbours while
+    those neighbours agree with each other (within 2x) -- a mis-tagged
+    filing, not a real change: a genuine reverse split or issuance doesn't
+    revert at the next filing. An interior point is judged against the
+    filings on both sides. The first and last points have only one side,
+    so a real reverse split at the latest filing would look the same as a
+    glitch; they're dropped only for the XBRL scale-error signature -- off
+    by ~1,000x or ~1,000,000x (+-20%) from the next filing inward, which
+    must agree with the one after it.
+    """
+    n = len(series)
+    if n < 3:
         return series
-    prev, nxt = series.shift(1), series.shift(-1)
-    jump = series / prev
-    spike = ((jump >= factor) | (jump <= 1 / factor)) & (nxt / prev).between(0.5, 2)
-    return series[~spike]
+    v = series.to_numpy(dtype="float64")
+    off = lambda a, b: a / b >= factor or a / b <= 1 / factor
+    close = lambda a, b: 0.5 <= a / b <= 2
+    keep = [True] * n
+    for i in range(1, n - 1):
+        if off(v[i], v[i - 1]) and close(v[i + 1], v[i - 1]):
+            keep[i] = False
+    if _scale_error(v[0], v[1]) and close(v[1], v[2]):
+        keep[0] = False
+    if _scale_error(v[-1], v[-2]) and close(v[-2], v[-3]):
+        keep[-1] = False
+    return series[keep]
+
+
+def _scale_error(a: float, b: float) -> bool:
+    r = a / b
+    return any(0.8 * k <= r <= 1.25 * k for k in (1e3, 1e6, 1e-3, 1e-6))
 
 
 def agreement(sec_series: pd.Series, reference: pd.Series, tolerance_days: int = 10) -> tuple[int, float | None]:
