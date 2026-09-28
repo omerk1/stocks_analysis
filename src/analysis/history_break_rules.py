@@ -12,8 +12,9 @@ each point-in-time (uses only what was known at the date it's applied to):
 
 2. Training eligibility, per (ticker, date). A row is ineligible if, as of
    that date: the actual traded (split-unadjusted) close is below $1; or a
-   reverse split happened within the last 12 months; or trailing 63-day
-   median dollar volume is in the bottom 0.1% of the universe that day.
+   reverse split happened within the last 12 months; or more than half of
+   the trailing 63 days had zero volume (an absolute per-stock test -- a
+   rank against other tickers would be survivors-only here).
    Reports the share of rows each condition removes, by year, and each
    reviewed ticker's ineligible spans next to the manual cut from the
    History Break Review page.
@@ -40,7 +41,7 @@ RAW_DB_PATH = "data/raw/market_data.sqlite"
 DISTANCE_LEVELS = (5, 10, 20, 50, 100)
 PENNY_PRICE = 1.0
 REVERSE_SPLIT_COOLDOWN_DAYS = 365
-DORMANT_PCTILE = 0.001   # bottom 0.1% of the universe that day (was 5%; see review)
+ZERO_VOLUME_SHARE = 0.5  # dormant: >50% of the trailing window's days had zero volume
 PRE_SPLIT_WINDOW = 20
 CUM_REVERSE_RESET = 20
 DORMANCY_WINDOW = 63
@@ -159,18 +160,18 @@ def eligibility(bars: pd.DataFrame, splits: pd.DataFrame) -> pd.DataFrame:
     )
     b = b.sort_values(["ticker", "date"]).reset_index(drop=True)
 
-    dollar = b["close"] * b["volume"]
-    med = (
-        dollar.groupby(b["ticker"]).rolling(DORMANCY_WINDOW, min_periods=DORMANCY_WINDOW).median()
+    # Absolute, per-stock test (no ranking against other tickers, whose set
+    # here is survivors only): more than half of the trailing window's days
+    # had zero volume.
+    zero = (b["volume"] <= 0).astype("float64")
+    zero_share = (
+        zero.groupby(b["ticker"]).rolling(DORMANCY_WINDOW, min_periods=DORMANCY_WINDOW).mean()
         .reset_index(level=0, drop=True)
     )
-    # method="min": many dead tickers tie at exactly zero dollar volume, and
-    # an averaged tie rank would lift all of them above a 0.1% cutoff.
-    rank = med.groupby(b["date"]).rank(method="min", pct=True)
 
     b["penny"] = b["raw_close"] < PENNY_PRICE
     b["post_reverse_split"] = (b["date"] - b["last_rev"]).dt.days.between(0, REVERSE_SPLIT_COOLDOWN_DAYS)
-    b["dormant"] = (rank <= DORMANT_PCTILE).fillna(False)
+    b["dormant"] = (zero_share > ZERO_VOLUME_SHARE).fillna(False)
     b["ineligible"] = b["penny"] | b["post_reverse_split"] | b["dormant"]
     return b[["ticker", "date", "raw_close", "penny", "post_reverse_split", "dormant", "ineligible"]]
 
