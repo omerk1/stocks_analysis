@@ -114,3 +114,40 @@ def test_evaluate_kill_criterion_not_killed_when_one_stratum_departs():
     verdict = sp.evaluate_kill_criterion(results)
     assert verdict["module_killed"] is False
     assert verdict["n_departing"] == 1
+
+
+def test_stratum_result_requests_a_direction_matched_null(monkeypatch):
+    """The empirical side of `stratum_result` is one direction at a time
+    (rising by default); the GBM null must be built from runs of that same
+    sign, not pooled across both (2026-09-28 review finding -- see
+    `stats/survival.py::_slope_sign_runs_single_path`).
+    """
+    captured: dict = {}
+
+    def fake_null(**kwargs):
+        captured.update(kwargs)
+        return {
+            "km": pd.DataFrame({"time": [21.0], "survival": [0.5], "at_risk": [10], "events": [5]}),
+            "envelope": {h: (0.4, 0.6) for h in (5, 10, 21, 42, 63, 126)},
+            "n_runs": 10,
+            "direction": kwargs.get("direction"),
+        }
+
+    monkeypatch.setattr(sp, "gbm_null_survival", fake_null)
+
+    dates = pd.bdate_range("2021-01-01", periods=12)
+    panel = pd.DataFrame({
+        "ticker": ["AAA"] * 12,
+        "date": dates,
+        "close": np.linspace(100, 110, 12),
+        "slope_positive_50": [True, True, False, False, True, True, True, False, False, False, True, True],
+        "vol_tercile": [1] * 12,
+        "er_tercile": [1] * 12,
+        "realized_vol_63": [0.02] * 12,
+    })
+    run_table = sp.build_run_table(panel, lookback=50)
+
+    for direction in (True, False):
+        result = sp.stratum_result(run_table, panel, lookback=50, tercile=1, direction=direction)
+        assert captured["direction"] is direction
+        assert result["null_direction"] is direction
