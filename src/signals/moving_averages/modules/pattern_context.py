@@ -45,9 +45,15 @@ MIN_DATES = 30
 MIN_TICKERS = 30
 
 HORIZON = 21
+# Statuses the 2026-09-25 run filtered on. Kept for the record only: every one
+# of them (and `expired_unresolved`) is assigned by `patterns/lifecycle.py`
+# *after* the breakout bar, so filtering on status uses the pattern's outcome.
+# The as-of-safe qualifier (2026-09-29) is `breakout_bar IS NOT NULL` alone --
+# "a breakout has printed" -- with the window anchored at that bar's date.
 BREAKOUT_STATUSES = ("confirmed", "active", "hit_target", "invalidated_failed_breakout")
 CONFIDENCE_FLOOR = 0.7
 POST_BREAKOUT_WINDOW_DAYS = 21
+PATTERN_TIMEFRAME = "daily"
 C2_MATCH_COLS = ("mom_tercile", "vol_tercile", "sector")
 KILL_THRESHOLD = 0.001
 
@@ -55,47 +61,96 @@ KILL_THRESHOLD = 0.001
 def load_qualifying_patterns(
     derived_conn: sqlite3.Connection, tickers: list[str], as_of: str,
 ) -> pd.DataFrame:
-    """Breakout-confirmed, confidence>=0.7, holdout-bounded (formation_end
-    <= as_of) pattern matches for `tickers`. Returns
-    ticker/formation_end (as Timestamp)/`pattern_type` (2026-09-25 addendum:
-    added for the VCP-vs-pooled split below, unused by the pooled primary
-    cell above), one row per qualifying pattern instance -- not
-    deduplicated across overlapping patterns of different types on the
-    same ticker (a ticker legitimately can have more than one qualifying
-    breakout in a year).
+    """Confidence>=0.7, holdout-bounded (formation_end <= as_of) pattern
+    matches with a breakout on record (`breakout_bar IS NOT NULL`) for
+    `tickers`. Returns ticker/formation_start/formation_end (as Timestamp)/
+    status/confidence/`pattern_type`/`breakout_bar`/`entry_price`, one row
+    per qualifying pattern instance -- not deduplicated across overlapping
+    patterns of different types on the same ticker.
+
+    2026-09-29 (as-of-safe re-run, PREREGISTRATION.md M14 addendum): the
+    2026-09-25 run additionally filtered on `status IN BREAKOUT_STATUSES`.
+    Every status is assigned by the lifecycle *after* the breakout bar
+    (`hit_target` after the target prints, `invalidated_failed_breakout`
+    after the reclaim window closes), so that filter selected patterns by
+    their outcome. Dropped; `breakout_bar IS NOT NULL` is the whole
+    qualifier now, and `attach_breakout_dates` turns the bar index into
+    the date the breakout became knowable.
     """
     placeholders = ",".join("?" * len(tickers))
     query = f"""
-        SELECT ticker, formation_start, formation_end, status, confidence, pattern_type
+        SELECT ticker, formation_start, formation_end, status, confidence, pattern_type,
+               breakout_bar, entry_price
         FROM pattern_matches
         WHERE ticker IN ({placeholders})
-          AND status IN ({','.join('?' * len(BREAKOUT_STATUSES))})
+          AND timeframe = ?
           AND confidence >= ?
           AND breakout_bar IS NOT NULL
           AND formation_end <= ?
     """
-    params = [*tickers, *BREAKOUT_STATUSES, CONFIDENCE_FLOOR, as_of]
+    params = [*tickers, PATTERN_TIMEFRAME, CONFIDENCE_FLOOR, as_of]
     df = pd.read_sql(query, derived_conn, params=params)
     df["formation_start"] = pd.to_datetime(df["formation_start"])
     df["formation_end"] = pd.to_datetime(df["formation_end"])
     return df
 
 
+def attach_breakout_dates(
+    patterns: pd.DataFrame, raw_conn: sqlite3.Connection, as_of: str,
+    price_tolerance: float = 1e-6,
+) -> pd.DataFrame:
+    """Adds `breakout_date`: the timestamp of `breakout_bar`, a positional
+    index into the bars `patterns.scanner.detect` scanned -- i.e.
+    `market_common.data.load_and_validate(conn, ticker, "1d", as_of=as_of)`
+    in the same order. Verified per row: the bar's close must equal the
+    stored `entry_price` (which the lifecycle sets to `closes[breakout_bar]`);
+    rows that don't verify get `breakout_date = NaT` and are excluded by
+    `add_pattern_context_flag` rather than guessed at. Holdout-safe: bars
+    are loaded up to `as_of` only.
+    """
+    from src.foundation.market_common.data import load_and_validate
+
+    working = patterns.copy()
+    working["breakout_date"] = pd.NaT
+    for ticker, group in working.groupby("ticker"):
+        bars, _ = load_and_validate(raw_conn, ticker, "1d", as_of=as_of)
+        idx = group["breakout_bar"].astype(int).to_numpy()
+        in_range = (idx >= 0) & (idx < len(bars))
+        dates = pd.Series(pd.NaT, index=group.index, dtype="datetime64[ns]")
+        closes = pd.Series(float("nan"), index=group.index)
+        if in_range.any():
+            dates.loc[group.index[in_range]] = pd.to_datetime(bars.index.to_numpy()[idx[in_range]])
+            closes.loc[group.index[in_range]] = bars["close"].to_numpy()[idx[in_range]]
+        verified = (closes - group["entry_price"]).abs() <= price_tolerance * group["entry_price"].abs().clip(lower=1.0)
+        working.loc[group.index, "breakout_date"] = dates.where(verified)
+    working["breakout_date"] = pd.to_datetime(working["breakout_date"])
+    return working
+
+
 def add_pattern_context_flag(panel: pd.DataFrame, patterns: pd.DataFrame) -> pd.DataFrame:
     """Adds `in_pattern_context`: True if `date` falls within
-    [formation_end, formation_end + POST_BREAKOUT_WINDOW_DAYS trading
-    days] of any qualifying pattern for that ticker. Vectorised per
-    ticker (not a Python double-loop over the whole panel) -- `patterns`
-    is small enough per ticker (tens, not thousands) that a per-ticker
-    interval scan is cheap. Returns a new frame; `panel` itself is not
-    mutated.
+    (`breakout_date`, `breakout_date` + POST_BREAKOUT_WINDOW_DAYS trading
+    days] of any qualifying pattern for that ticker -- strictly *after* the
+    breakout bar, so the flag on a date only uses a breakout that had
+    already printed at the previous close (the same one-bar convention
+    every lagged panel feature follows). Patterns with a missing
+    `breakout_date` are ignored. Vectorised per ticker; returns a new
+    frame, `panel` itself is not mutated.
+
+    Before 2026-09-29 the window was anchored at `formation_end` and
+    included dates before the breakout, so the flag encoded "this pattern
+    *will* break out" (code review PR #118 C2, validation audit PR #120
+    C.2). `breakout_date` is now required; see `attach_breakout_dates`.
     """
+    if "breakout_date" not in patterns.columns:
+        raise KeyError("patterns needs a `breakout_date` column -- run attach_breakout_dates first")
     working = panel.copy()
     working["in_pattern_context"] = False
+    patterns = patterns.dropna(subset=["breakout_date"])
     if patterns.empty:
         return working
 
-    window_end = patterns["formation_end"] + pd.tseries.offsets.BDay(POST_BREAKOUT_WINDOW_DAYS)
+    window_end = patterns["breakout_date"] + pd.tseries.offsets.BDay(POST_BREAKOUT_WINDOW_DAYS)
     patterns = patterns.assign(window_end=window_end)
 
     flag = pd.Series(False, index=working.index)
@@ -106,7 +161,7 @@ def add_pattern_context_flag(panel: pd.DataFrame, patterns: pd.DataFrame) -> pd.
         dates = working.loc[ticker_rows, "date"]
         in_any = pd.Series(False, index=dates.index)
         for _, row in group.iterrows():
-            in_any |= (dates >= row["formation_end"]) & (dates <= row["window_end"])
+            in_any |= (dates > row["breakout_date"]) & (dates <= row["window_end"])
         flag.loc[in_any.index] = in_any
 
     working["in_pattern_context"] = flag
