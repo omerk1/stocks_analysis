@@ -107,3 +107,46 @@ def test_gbm_null_survival_smoke_and_sanity():
     for lo, hi in result["envelope"].values():
         if not np.isnan(lo):
             assert 0.0 <= lo <= hi <= 1.0
+
+
+def test_slope_sign_runs_single_path_direction_filter_keeps_only_that_sign():
+    # 2 leading NaNs, then T,T,T,F,F,T,T,F -- run0=[T,T,T] dropped
+    # (left-censored), run1=[F,F] (falling, event=1), run2=[T,T] (rising,
+    # event=1), run3=[F] (falling, right-censored, event=0).
+    path = np.array([np.nan, np.nan, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0])
+
+    pooled = surv._slope_sign_runs_single_path(path)
+    rising = surv._slope_sign_runs_single_path(path, direction=True)
+    falling = surv._slope_sign_runs_single_path(path, direction=False)
+
+    assert pooled == [(2.0, 1), (2.0, 1), (1.0, 0)]
+    assert rising == [(2.0, 1)]
+    assert falling == [(2.0, 1), (1.0, 0)]
+    assert sorted(rising + falling) == sorted(pooled)
+
+
+def test_gbm_null_survival_rising_and_falling_runs_differ_under_positive_drift():
+    """Regression for the 2026-09-28 review finding: with a positive drift
+    (this study's own panel runs ~+0.06%/day), rising slope runs last longer
+    than falling ones under a pure random walk. A pooled null therefore sits
+    strictly between the two, so a rising-only empirical curve compared
+    against a pooled null reads the drift asymmetry as "more persistence
+    than the null" -- the exact shape M6.4 reported. The null must be
+    direction-matched.
+    """
+    common = dict(n_paths=400, n_days=600, mu=0.0006, sigma=0.015, sma_period=20, slope_k=21, seed=0, n_groups=20)
+    pooled = surv.gbm_null_survival(**common)
+    rising = surv.gbm_null_survival(**common, direction=True)
+    falling = surv.gbm_null_survival(**common, direction=False)
+
+    assert rising["direction"] is True and falling["direction"] is False and pooled["direction"] is None
+    assert rising["n_runs"] + falling["n_runs"] == pooled["n_runs"]
+
+    s_rising = surv.survival_at(rising["km"], 21)
+    s_pooled = surv.survival_at(pooled["km"], 21)
+    s_falling = surv.survival_at(falling["km"], 21)
+    assert s_rising > s_pooled > s_falling
+    # The gap is not a rounding effect: it exceeds the pooled null's own
+    # 90% simulation half-width at the same horizon.
+    lo, hi = pooled["envelope"][21]
+    assert s_rising - s_pooled > (hi - lo) / 2
