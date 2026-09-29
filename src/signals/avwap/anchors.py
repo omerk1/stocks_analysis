@@ -23,7 +23,7 @@ from src.signals.avwap.config import AvwapConfig
 from src.signals.avwap.lifecycle import apply_interaction_tracking
 from src.signals.avwap.models import AnchoredVwap, AnchorType
 from src.foundation.market_common import data as data_mod
-from src.foundation.market_common import indicators
+from src.foundation.market_common import history_breaks, indicators
 from src.foundation.market_common.anchors import discover_anchors
 from src.foundation.market_common.models import DataQualityReport, Timeframe
 
@@ -36,6 +36,7 @@ def discover_anchor_dates(
     timeframe: Timeframe,
     config: AvwapConfig,
     previous_anchor_types: dict[str, frozenset[AnchorType]] | None = None,
+    history_start: pd.Timestamp | None = None,
 ) -> list[AnchoredVwap]:
     """Pure (no DB): given an already as_of-truncated bars frame and
     whatever anchor_types were previously stored for this (ticker,
@@ -49,7 +50,7 @@ def discover_anchor_dates(
             id=str(uuid.uuid4()), ticker=ticker, timeframe=timeframe,
             anchor_date=a.anchor_date, anchor_types=a.anchor_types, status=a.status,
         )
-        for a in discover_anchors(bars, timeframe, config, previous_anchor_types)
+        for a in discover_anchors(bars, timeframe, config, previous_anchor_types, history_start=history_start)
     ]
 
 
@@ -75,7 +76,8 @@ def detect(
         logger.warning("%s/%s: skipping avwap anchor discovery -- %s", ticker, timeframe.value, reason)
         return [], report, reason
 
-    anchors = discover_anchor_dates(bars, ticker, timeframe, config, previous_anchor_types)
+    history_start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    anchors = discover_anchor_dates(bars, ticker, timeframe, config, previous_anchor_types, history_start=history_start)
 
     # Same ATR series/period cycle-pivot detection above already uses
     # (config.cycle_atr_period) -- reused here rather than adding a second

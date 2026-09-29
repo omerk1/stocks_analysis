@@ -22,7 +22,7 @@ from datetime import date
 import pandas as pd
 
 from src.foundation.market_common import data as data_mod
-from src.foundation.market_common import indicators
+from src.foundation.market_common import history_breaks, indicators
 from src.foundation.market_common.anchors import AnchorType, discover_anchors
 from src.foundation.market_common.models import DataQualityReport, Timeframe
 from src.signals.volume_profile import compute
@@ -49,6 +49,7 @@ def discover_profiles(
     timeframe: Timeframe,
     config: VolumeProfileConfig,
     previous_anchor_types: dict[str, frozenset[AnchorType]] | None = None,
+    history_start: pd.Timestamp | None = None,
 ) -> list[AnchoredVolumeProfile]:
     """Pure (no DB): deduped, capped, staleness-resolved anchors as
     `AnchoredVolumeProfile`s, snapshot fields left unset (see
@@ -58,7 +59,7 @@ def discover_profiles(
             id=str(uuid.uuid4()), ticker=ticker, timeframe=timeframe,
             anchor_date=a.anchor_date, anchor_types=a.anchor_types, status=a.status,
         )
-        for a in discover_anchors(bars, timeframe, config, previous_anchor_types)
+        for a in discover_anchors(bars, timeframe, config, previous_anchor_types, history_start=history_start)
     ]
 
 
@@ -117,7 +118,8 @@ def detect(
         logger.warning("%s/%s: skipping volume profile -- %s", ticker, timeframe.value, reason)
         return [], report, reason
 
-    profiles = discover_profiles(bars, ticker, timeframe, config, previous_anchor_types)
+    history_start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    profiles = discover_profiles(bars, ticker, timeframe, config, previous_anchor_types, history_start=history_start)
     atr = indicators.atr(bars, config.atr_period)
     for profile in profiles:
         apply_snapshot(bars, atr, profile, config)
