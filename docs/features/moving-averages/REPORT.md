@@ -19,7 +19,7 @@ write-ups: `FINDINGS.md`.
   and M6.6's drawdown cell. The drawdown cell says that when all ribbon slopes agree, the
   next 21 days' drawdown is 0.65pp shallower, but signed return is unchanged.
 - **Several effects are real but weak.** They clear C2 and most clear cost, but miss FDR
-  by a factor of 1.2–1.6: low-dollar-volume reclaims (size-confounded), distance above the
+  by a factor of 1.2–1.8: low-dollar-volume reclaims (size-confounded), distance above the
   52-week low at 126 days, compression predicting move size, the fully bearish stack, and
   above/below SMA20.
 - **The clearest results are nulls:**
@@ -87,7 +87,7 @@ ledger.
 | M6.6 ribbon agreement, 21d drawdown | +0.65pp (+0.44, +0.89) | 0.0000017 | yes |
 | M6.3 extreme vs flat SMA50 slope | 0.25% (0.15, 0.35) per 21d | 0.00005 | yes |
 
-The next five cells (M12, M18@126d, M7, M2, M1 SMA20) miss by a factor of 1.2–1.6, so
+The next five cells (M12, M18@126d, M7, M1 SMA20, M2) miss by a factor of 1.2–1.8, so
 their status depends on grid size. p-values below about 0.004 are normal-tail
 extrapolations of a 500-draw bootstrap.
 
@@ -96,7 +96,7 @@ extrapolations of a 500-draw bootstrap.
 | module | result | tier |
 |---|---|---|
 | M1 state | SMA20/50 real, fail cost; SMA200 spans zero; state age fails plateau | 3 / 4 |
-| M2 stacks | Bearish stack +1.06% over one-MA state, survivorship-capped; bullish adds nothing | 3 / 4 |
+| M2 stacks | Bearish stack +1.01% over one-MA state, survivorship-capped; bullish adds nothing | 3 / 4 |
 | M3 crossovers | 16 cells span zero | 4 |
 | M4 distance | SMA20 −0.46%, fails cost; SMA50/200 span zero | 3 / 4 |
 | M5 touch/bounce | 6 cells killed, largest CI edge 0.61pp vs 2pp floor | 4 |
@@ -157,7 +157,7 @@ Cells whose CI edge nearest zero clears cost, annualised, at 10 bps:
 | M12 dollar volume | 0.29% | −4.82% / −16.57% | yes |
 | M18 52w low, 126d | 0.83% | +2.21% / +8.03% | yes |
 | M7 magnitude | 0.32% | −1.11% / −4.77% | yes (not directional) |
-| M2 bearish stack | 0.29% | +1.93% / +9.31% | reversal-controlled: no |
+| M2 bearish stack | 0.30% | +1.70% / +8.98% | yes; reversal-controlled fails even at 10 bps |
 | M6.2 extension × slope | 0.81% | −2.10% / −12.56% | yes |
 | M6.3 SMA200 | 0.38% | −0.67% / −4.04% | no |
 

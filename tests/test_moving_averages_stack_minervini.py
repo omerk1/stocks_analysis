@@ -51,16 +51,18 @@ def test_trend_template_criteria_all_true_for_a_clean_bullish_stack():
 
 
 def test_trend_template_criteria_are_na_not_false_during_sma200_warmup():
+    # Row 1, not row 0: the price criteria compare yesterday's close, so row 0
+    # has no price input at all.
     frame = _base_frame()
-    frame.loc[0, "sma_200"] = np.nan
-    frame.loc[0, "slope_log_21_sma_200"] = np.nan
+    frame.loc[1, "sma_200"] = np.nan
+    frame.loc[1, "slope_log_21_sma_200"] = np.nan
 
     result = smv._add_trend_template_criteria(frame)
 
-    assert pd.isna(result.loc[0, "tt_c1"])  # depends on sma_200
-    assert pd.isna(result.loc[0, "tt_c3"])  # depends on the slope column directly
-    assert pd.isna(result.loc[0, "tt_c4"])  # depends on sma_200
-    assert result.loc[0, "tt_c5"] == True  # noqa: E712 -- doesn't depend on sma_200, must be unaffected
+    assert pd.isna(result.loc[1, "tt_c1"])  # depends on sma_200
+    assert pd.isna(result.loc[1, "tt_c3"])  # depends on the slope column directly
+    assert pd.isna(result.loc[1, "tt_c4"])  # depends on sma_200
+    assert result.loc[1, "tt_c5"] == True  # noqa: E712 -- doesn't depend on sma_200, must be unaffected
 
 
 def test_trend_template_criterion_6_and_7_are_na_during_52w_warmup_not_false():
@@ -97,21 +99,37 @@ def test_trend_template_criterion_6_7_8_thresholds():
 
 
 def test_stack_fully_bullish_and_bearish_are_mutually_exclusive_and_correct():
-    frame = _base_frame(n=3)
-    # Row 0: clean bullish (close > 20 > 50 > 150 > 200).
-    # Row 1: clean bearish (reverse order).
-    # Row 2: mixed (not fully ordered either way).
-    frame.loc[1, ["close", "sma_20", "sma_50", "sma_150", "sma_200"]] = [90.0, 92.0, 94.0, 96.0, 98.0]
-    frame.loc[2, ["close", "sma_20", "sma_50", "sma_150", "sma_200"]] = [100.0, 108.0, 106.0, 104.0, 102.0]
+    # The price link uses the prior row's close (the MAs are already lagged),
+    # so each tested row's intended close sits on the row before it.
+    frame = _base_frame(n=6)
+    # Row 1: clean bullish -- prior close 110 > 108 > 106 > 104 > 102.
+    # Row 3: clean bearish -- prior close 90 < 92 < 94 < 96 < 98.
+    # Row 5: mixed -- SMAs not ordered either way.
+    frame.loc[2, "close"] = 90.0
+    frame.loc[3, ["sma_20", "sma_50", "sma_150", "sma_200"]] = [92.0, 94.0, 96.0, 98.0]
+    frame.loc[4, "close"] = 100.0
+    frame.loc[5, ["sma_20", "sma_50", "sma_150", "sma_200"]] = [108.0, 102.0, 106.0, 104.0]
 
     result = smv._add_stack_features(frame)
 
-    assert result.loc[0, "stack_fully_bullish"] == True  # noqa: E712
-    assert result.loc[0, "stack_fully_bearish"] == False  # noqa: E712
-    assert result.loc[1, "stack_fully_bearish"] == True  # noqa: E712
+    assert pd.isna(result.loc[0, "stack_fully_bullish"])  # no prior close yet
+    assert result.loc[1, "stack_fully_bullish"] == True  # noqa: E712
+    assert result.loc[1, "stack_fully_bearish"] == False  # noqa: E712
+    assert result.loc[3, "stack_fully_bearish"] == True  # noqa: E712
+    assert result.loc[3, "stack_fully_bullish"] == False  # noqa: E712
+    assert result.loc[5, "stack_fully_bullish"] == False  # noqa: E712
+    assert result.loc[5, "stack_fully_bearish"] == False  # noqa: E712
+
+
+def test_stack_price_link_uses_the_prior_close_not_todays():
+    # Today's close (row 1) is above every MA, but yesterday's close (row 0)
+    # was below sma_20 -- the row must not read as fully bullish (invariant #2).
+    frame = _base_frame(n=2)
+    frame.loc[0, "close"] = 100.0
+
+    result = smv._add_stack_features(frame)
+
     assert result.loc[1, "stack_fully_bullish"] == False  # noqa: E712
-    assert result.loc[2, "stack_fully_bullish"] == False  # noqa: E712
-    assert result.loc[2, "stack_fully_bearish"] == False  # noqa: E712
 
 
 def test_stack_fully_bullish_stays_na_not_false_when_only_sma20_has_warmed_up():

@@ -102,14 +102,14 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 
 - **Hypothesis**: the full bearish stack carries information beyond `above_sma_50`.
 - **Result**:
-  - Standalone: +0.474% [+0.161%, +0.776%].
-  - Incremental over `above_sma_50`: +1.055% [+0.419%, +1.740%].
-  - With a reversal control: +0.319% [+0.044%, +0.598%].
-  - Shape: hit rate 63.9%, skew +0.99.
-- **Effective N**: 2,696 dates.
-- **Cost**: standalone +1.93% / +9.31% per year vs 0.29%; the reversal-controlled near
-  edge +0.53% fails at 20 bps.
-- **FDR**: misses.
+  - Standalone: +0.444% [+0.142%, +0.748%].
+  - Incremental over `above_sma_50`: +1.011% [+0.359%, +1.682%].
+  - With a reversal control: +0.275% [+0.009%, +0.547%].
+  - Shape: hit rate 63.9%, skew +1.01.
+- **Effective N**: 2,698 dates.
+- **Cost**: standalone +1.70% / +8.98% per year vs 0.30%; the reversal-controlled near
+  edge +0.10% fails even at 10 bps.
+- **FDR**: misses (p=0.012).
 - **Tier 3**: a beaten-down bucket in a universe with no delistings (DESIGN §7.3).
 
 ### M6.2 `extension_x_slope`, SMA50 top decile — extended and rising is worse
