@@ -4900,6 +4900,64 @@ direction-matched null; (3) append 24 new rows to `EXPERIMENTS.csv` dated 2026-0
 (the 2026-09-24 rows are kept, marked superseded in `notes`), re-run the whole-grid
 FDR pass, and update `FINDINGS.md`/`STATUS.md`/`REPORT.md` with dated addenda.
 
+### Result (2026-09-29 addendum — direction-matched null)
+
+Run via `src/signals/moving_averages/slope_persistence_run.py` (both nulls from the
+same simulated paths and seeds; raw output `output/moving_averages/slope_persistence_results.csv`).
+
+**Step 1 — reproduction.** With the pooled null (`direction=None`) every one of the 12
+primary strata reproduces the 2026-09-24 table to four decimals (e.g. SMA20 t0/t1/t2:
++0.1061 / +0.0726 / +0.0666, envelopes identical). The ER-tercile companion rows
+reproduce to within ±0.006 (simulation noise; the companion grid's seed offset was not
+recorded on 2026-09-24), with identical `n_runs`.
+
+**Step 2 — direction-matched null. Module killed: 0 of 12 primary strata depart.**
+
+| lookback | vol-tercile | n_runs | 2026-09-24 delta (pooled null) | delta vs. matched null | 90% envelope | departs |
+|---|---|---|---|---|---|---|
+| 20 | 0 | 4,869 | +0.1061 | **+0.0227** | [−0.0404, +0.0350] | no |
+| 20 | 1 | 5,280 | +0.0726 | **+0.0078** | [−0.0417, +0.0314] | no |
+| 20 | 2 | 5,512 | +0.0666 | **+0.0216** | [−0.0347, +0.0388] | no |
+| 50 | 0 | 2,503 | +0.0506 | −0.0034 | [−0.0460, +0.0390] | no |
+| 50 | 1 | 2,751 | +0.0442 | +0.0072 | [−0.0386, +0.0402] | no |
+| 50 | 2 | 3,020 | +0.0489 | +0.0218 | [−0.0469, +0.0423] | no |
+| 150 | 0 | 1,197 | +0.0502 | +0.0006 | [−0.0649, +0.0686] | no |
+| 150 | 1 | 1,346 | +0.0393 | +0.0015 | [−0.0672, +0.0601] | no |
+| 150 | 2 | 1,491 | +0.0492 | +0.0253 | [−0.0540, +0.0598] | no |
+| 200 | 0 | 946 | +0.0521 | +0.0054 | [−0.0722, +0.0779] | no |
+| 200 | 1 | 1,142 | +0.0333 | −0.0018 | [−0.0699, +0.0788] | no |
+| 200 | 2 | 1,144 | +0.0412 | +0.0197 | [−0.0749, +0.0627] | no |
+
+The 2026-09-24 "departure toward more persistence" was the drift asymmetry of the
+null itself: a random walk with this panel's drift has longer rising runs than
+falling runs, and the pooled null averaged the two. Read against the matched null,
+rising slope runs on SMA20–SMA200 last about as long as a drifting random walk's
+would. The kill criterion fires (`module_killed=True`); every primary stratum is
+Tier 4. The 2026-09-24 `FINDINGS.md` entry on the SMA20/SMA50 vol-tercile plateau is
+withdrawn (dated addendum there), and the three SMA20 cells leave the whole-grid FDR
+grid's survivor set (see the 2026-09-29 FDR re-run in `STATUS.md`).
+
+**Companion grid (ER-tercile, not counted):** ER-tercile 2 still departs *above* the
+matched null at SMA20 (+0.1090, envelope [−0.0396, +0.0336]) and SMA50 (+0.0600,
+[−0.0439, +0.0402]) but not at SMA150 (+0.0598, [−0.0655, +0.0674]) or SMA200
+(+0.0583, [−0.0682, +0.0669]); ER-tercile 0 departs *below* at SMA20 (−0.0900) and
+SMA50 (−0.0487). A two-lookback plateau in each direction, not the four-lookback one
+logged on 2026-09-24 — and the ER tercile is assigned at run entry from the trailing
+efficiency ratio, which is itself a function of how straight the recent path has
+been, so "high-ER runs persist longer" is close to a restatement of the conditioning
+variable. Stays a companion facet, Tier 3 by this study's mechanical convention,
+with that circularity named; not promoted, not counted.
+
+**The 2026-09-24 sigma caveat is retired as second-order:** the panel's median
+per-ticker lag-1 return autocorrelation is −0.05 and its 21d/1d variance ratio is
+0.84 (`VALIDATION_2026-09-28.md` §C.5), so an i.i.d. null calibrated on daily sigma
+has, if anything, *more* multi-day variance than the data — a bias toward shorter
+null runs, i.e. toward finding departures, which makes the null result above
+conservative in that respect. `ci_low`/`ci_high` in `EXPERIMENTS.csv` for every M6.4
+row are the null's simulation envelope, not a confidence interval on the estimate
+(`VALIDATION_2026-09-28.md` §D.2); no p-value is backed out of them in the 2026-09-29
+FDR re-run.
+
 ## M14 — Integration with existing detectors (2026-09-25)
 
 **Module / track:** M14, Track B (DESIGN.md lines ~977-979). Batch 4 module
