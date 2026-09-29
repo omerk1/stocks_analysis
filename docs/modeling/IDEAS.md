@@ -95,12 +95,16 @@ in combination, so the model gets them rather than dropping them. Each feature c
   (M12), MACD histogram (M17), `ribbon_width` (M7), `extension_x_slope` (M6.2).
 - **null:** tested and not distinguishable from zero, but cheap. Examples: crossover
   state age (M3), slope-sign run length (M6.4), VCP and other per-pattern flags (M14),
-  RSI/%K (M17), `dist_from_52w_high` (M18), state age (M1).
+  `dist_from_52w_high` (M18), state age (M1).
   Enters as a group, and stays only if the group ablation shows an out-of-sample gain.
 
+Near-copies are not kept, since they're the same signal twice: extra distance
+normalisations at one lookback, `slope_log_5` on EMAs, exotic MA kernels (M8), weekly
+MAs (M10), and RSI/%K next to `dist_z_sma_20` (M17, corr 0.86).
+Full list: `ma_study_insights.md` §2.3.
+
 A null prior never becomes evidence by being in the model. Only the harness's ablation
-result counts. This departs from `ma_study_insights.md` §2.3, which drops the null
-features outright.
+result counts. `ma_study_insights.md` §2.3 carries the same split.
 
 **"Least resistance path" (LRP):** the term doesn't appear anywhere in the repo's docs or
 code yet. It needs a written definition before it can be a feature or a target.
