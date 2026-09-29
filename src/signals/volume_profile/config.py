@@ -37,8 +37,16 @@ class VolumeProfileConfig(AnchorConfig):
     # "log" (equal-percentage-width rows). Log keeps resolution at the low
     # end of an anchor whose price has since moved several-fold -- e.g. a
     # $20 -> $200 run gets ~11 of 100 linear rows below $40, but ~30 log
-    # rows.
-    row_scale: str = "linear"
+    # rows. Default switched to "log" (2026-09-29) together with
+    # volume_measure="dollars": for AAPL's 1982 anchor the POC goes from
+    # $1.76 (linear, shares) to $174 (log, dollars) against a $331 close;
+    # for a recent anchor all four combinations agree to within cents.
+    row_scale: str = "log"
+
+    # "shares" (TradingView's) or "dollars" (shares x typical price -- the
+    # money traded at each price). See compute.build_profile. Stored
+    # total/up/down/POC volumes are in this unit.
+    volume_measure: str = "dollars"
 
     # "up_down" (TradingView default), "total" or "delta" -- how each row's
     # volume is split for display (plotting.py). POC and value area are
