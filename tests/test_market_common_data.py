@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -188,6 +189,50 @@ def test_validate_bars_flags_intraday_spike_that_fully_round_trips():
     assert len(clean) == len(rows)  # soft flag -- nothing dropped
     assert spike_date in report.suspicious_intraday_range_dates
     assert spike_date not in report.suspicious_jump_dates  # close-to-close looked normal
+
+
+def test_a_lone_wide_range_bar_is_logged_at_debug_not_warning(caplog):
+    idx = pd.bdate_range("2024-01-01", periods=20)
+    rows = [(d.strftime("%Y-%m-%d"), 100.0, 101.0, 99.0, 100.0, 1000, 0) for d in idx]
+    spike_date = (idx[-1] + pd.Timedelta(days=3)).strftime("%Y-%m-%d")
+    rows.append((spike_date, 100.0, 130.0, 99.0, 100.5, 1000, 0))
+    bars = _bars(rows).drop(columns=["is_partial"])
+
+    with caplog.at_level(logging.DEBUG, logger="src.foundation.market_common.data"):
+        _, report = validate_bars(bars, "TEST")
+
+    assert spike_date in report.suspicious_intraday_range_dates  # still reported
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(spike_date in r.getMessage() and r.levelno == logging.DEBUG for r in caplog.records)
+
+
+def test_many_wide_range_bars_raise_one_summary_warning(caplog):
+    # Alternate quiet and very wide bars: far above the 10% share threshold.
+    idx = pd.bdate_range("2024-01-01", periods=60)
+    rows = []
+    for i, d in enumerate(idx):
+        hi, lo = (101.0, 99.0) if i < 20 or i % 3 else (140.0, 70.0)
+        rows.append((d.strftime("%Y-%m-%d"), 100.0, hi, lo, 100.0, 1000, 0))
+    bars = _bars(rows).drop(columns=["is_partial"])
+
+    with caplog.at_level(logging.WARNING, logger="src.foundation.market_common.data"):
+        _, report = validate_bars(bars, "TEST")
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(report.suspicious_intraday_range_dates) / len(bars) > 0.10
+    assert len(warnings) == 1 and "unusually many" in warnings[0]
+
+
+def test_close_jumps_are_still_warned_per_bar(caplog):
+    idx = pd.bdate_range("2024-01-01", periods=5)
+    closes = [100.0, 100.0, 400.0, 400.0, 400.0]
+    rows = [(d.strftime("%Y-%m-%d"), c, c, c, c, 1000, 0) for d, c in zip(idx, closes)]
+    bars = _bars(rows).drop(columns=["is_partial"])
+
+    with caplog.at_level(logging.WARNING, logger="src.foundation.market_common.data"):
+        validate_bars(bars, "TEST")
+
+    assert any("close jump" in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
 
 
 def test_validate_bars_does_not_flag_normal_intraday_ranges():
