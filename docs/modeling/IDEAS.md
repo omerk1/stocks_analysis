@@ -55,31 +55,52 @@ level-distance features below (§3, "LRP made quantitative").
 | # | Family | Exists in repo? | Notes / risks |
 |---|---|---|---|
 | F1 | Raw OHLCV time series | `market_common.data` (load/validate) | Must be normalised (log returns, ranges in ATR units, relative volume), otherwise the model learns each ticker's price *level*. Raw series imply a sequence model (see §5). |
-| F2 | Main MAs as TS, slopes | `moving_averages/features/` panel (`slope.py`, `ribbon.py`, `state.py`, `crossover.py`) | Slope set: signed `slope_log_k` (so rising vs falling is built in); its cross-sectional percentile (`slope_pctile_21_sma_50` is the study's Tier 2, and it's the *extremes in both directions* that matter); a sign-state flag and its run length (days rising or falling); acceleration (change in slope); agreement across MAs (ribbon). Also SMA20 slope persistence (M6.4) and `dist_from_52w_low` (M18). `slope_log_k` only (MA invariant 7). |
+| F2 | Main MAs as TS, slopes | `moving_averages/features/` panel (`slope.py`, `ribbon.py`, `state.py`, `crossover.py`) | Slope set: signed `slope_log_k` (so rising vs falling is built in); its cross-sectional percentile (`slope_pctile_21_sma_50` is the study's Tier 2, and it's the *extremes in both directions* that matter); acceleration (change in slope); agreement across MAs (ribbon, M6.6 state 0–5); `dist_from_52w_low` (M18). Null-prior candidates kept cheap: a slope-sign flag and its run length (M1's state-age cells failed the plateau rule; M6.4 found slope runs last as long as a drifting random walk's). `slope_log_k` only (MA invariant 7). |
 | F3 | Price distance from MAs (% / ATR) | `features/distance.py` | Already built. `extension_x_slope` (M6.2 Finding 1) is a candidate interaction. |
 | F4 | RSI, MACD, ATR, ADR… | `market_common.indicators`, `feature_engineering/`, `moving_averages/features/oscillators.py` (M17) | M17 (final): MACD adds information beyond the MA set at its control (Tier 3) but **fails the whole-grid FDR pass** (p=0.115). RSI/stochastics inconclusive; RSI flips sign when price is near its MA, a hint of an interaction worth letting a tree find. For MACD, include both lines *and* the histogram and let feature importance decide. ATR is needed anyway (barrier units). |
 | F5 | Relative strength | `signals/relative_strength` (`rs_rank`) | Also the momentum **baseline** (see §6). |
 | F6 | Divergences, gaps, FVGs, fibs, AVWAP, AVP | `divergences`, `gaps` (FVGs included), `fibonacci`, `avwap` (now with volume-weighted std bands, #109). **AVP now built:** `signals/volume_profile` (#110), with shared anchor discovery in `market_common`. | Event/level objects, not series. They need converting to per-date features (§3). Check that each one is `as_of`-safe when computed across the full panel. |
 | F7 | S/R lines (duration, relevance, strength) | `sr_lines` (has scoring and lifecycle) | Same conversion to per-date features. |
-| F8 | Chart patterns (duration, relevance, strength) | `patterns` (7 detectors, scoring); a holdout-bounded `pattern_matches` table was populated by M14 | **M14 (final):** "any pattern" pooled across all 7 types adds nothing once extension (`dist_pct_sma_50`) is controlled for; it re-encodes extension. **VCP alone is the strongest single event in the MA study:** +1.8–2.0% vs control, survives the extension control, clears FDR at q=0.05. Tier 3 (reversal check underpowered), and it has fatter downside skew. So: per-pattern-type features rather than one pooled flag, and every pattern feature must beat the extension features, not just a base rate. |
+| F8 | Chart patterns (duration, relevance, strength) | `patterns` (7 detectors, scoring); a holdout-bounded `pattern_matches` table was populated by M14 | **M14:** nothing once the pattern flag is as-of-safe. The earlier flag used the future breakout. Pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%] on 402 events / 335 dates; both span zero. So per-pattern-type features are *untested*, not supported. Keep them as null-prior candidates, each of which must beat an extension-aware baseline, not just a base rate. |
 | F9 | Metadata: market cap, shares, sector… | Code exists: `shares_outstanding` table (historical, from yfinance), `market_cap.py` (split-reconciled). **Data doesn't: `shares_outstanding` and `ticker_metadata` both have 0 rows (checked 2026-09-24).** `ticker_sector`: 1,148 rows, current snapshot only. | ⚠ Historical market cap has to be ingested first (see §7). The snapshot tables are look-ahead if used as history. Sector is probably tolerable (it changes slowly) but that needs a note. |
 | F10 | Macro: rates, VIX… | FRED `CURATED_SERIES` (18 series), `market_common.macro.as_of_join` (publication-date safe). ⚠ Stored history: **HY OAS starts 2023-09 and SP500 starts 2016-09**, so both are unusable for the 2010–2021 development window. VIX, rates, curve, dollar and claims go back far enough. | Identical for every ticker on a given date, so it can only help with *timing*, never with ranking stocks against each other. Its effective N is the number of distinct regimes (a handful in 2010–2021), and the fed funds rate sat near zero for most of the window, so the model never sees a rate-hike regime while the 2022 holdout *is* one. Prefer a few coarse, trailing-percentile regime gates used as interactions over 18 raw series. |
 
-**What the finished MA study tells the model (revisited 2026-09-25; the study is complete through M15):**
-- **The MA family is close to one signal.** M16: all 23 MA rules fall into one cluster
-  at cosine similarity ≥0.80, and about 10 clusters (sorted by effective lookback) at
-  ≥0.95. So give the model a few representatives per lookback cluster, not dozens of
-  near-duplicates.
-- **Two independent strong signals:** the extreme-slope percentile (M6.3, Tier 2) and the
-  VCP reclaim (M14, Tier 3). M15 found VCP events are *under*-represented in the
-  extreme-slope tail, so these are distinct mechanisms. They're the obvious first
-  features, and a model that doesn't beat them isn't adding anything.
-- **Extension is the recurring confound.** Several cells (pooled patterns, M6.2 touch)
-  died once `dist_pct_sma_50` was controlled for. Any feature family's ablation should
-  include extension in its baseline.
-- **Fatter downside tails** on the best event (VCP) are the reason the barrier/path
-  target (§1) beats a mean-return target: the same mean can hide a very different
-  stop-out rate.
+**What the finished MA study tells the model.** Full detail, numbers and a v1 feature
+list: `ma_study_insights.md`. The points that shape this inbox:
+- **One Tier-2 feature.** `slope_pctile_21_sma_50` (M6.3): flat-slope stocks trail both
+  extreme tails by about 0.25% per 21 days, roughly 3%/yr gross. That's a feature, not a
+  strategy. Whole-grid FDR keeps 2 of 107 tests; the other survivor (M6.6 ribbon
+  agreement) is a drawdown read, not a return claim.
+- **The MA family is close to one signal.** M16: all 23 MA rules form one cluster at
+  cosine ≥0.80, about 10 clusters (by effective lookback) at ≥0.95. Pick a few
+  representatives per lookback cluster.
+- **Recurring confounds: momentum/vol matching and short-term reversal.** M6.2's touch
+  cell died to the reversal control; `dist_from_52w_high` died to momentum matching.
+  Extension killed the pooled pattern cell (M14). Every family's ablation baseline should
+  include `mom_12_1`, `mom_1_0`, realised vol and extension.
+- **A mean can hide an asymmetric stop-out rate.** M2's `stack_fully_bullish` has a flat
+  mean but a hit rate +1.2pp above control and skew −0.35: it wins slightly more often
+  and loses bigger. That's why the barrier/path target (§1) beats a mean-return target.
+- **Survivorship.** The study universe has no delisted tickers inside 2010–2021, so
+  weak-state (bearish-side) results are biased. The model universe should be
+  point-in-time with delisted history (§7).
+
+**Keeping weak and null MA features (decided 2026-09-29).** Weak signals may still help
+in combination, so the model gets them rather than dropping them. Each feature carries a
+*prior* in the feature registry (§9), used only to order ablations and to read results:
+- **supported:** Tier 2, or Tier 3 that survives FDR (M6.3 slope percentile, M6.6 ribbon
+  agreement).
+- **weak:** Tier 3, real at its control but not FDR-surviving. Examples: SMA20
+  extension (M4), `dist_from_52w_low` (M18), `stack_fully_bearish` (M2), dollar volume
+  (M12), MACD histogram (M17), `ribbon_width` (M7), `extension_x_slope` (M6.2).
+- **null:** tested and not distinguishable from zero, but cheap. Examples: crossover
+  state age (M3), slope-sign run length (M6.4), VCP and other per-pattern flags (M14),
+  RSI/%K (M17), `dist_from_52w_high` (M18), state age (M1).
+  Enters as a group, and stays only if the group ablation shows an out-of-sample gain.
+
+A null prior never becomes evidence by being in the model. Only the harness's ablation
+result counts. This departs from `ma_study_insights.md` §2.3, which drops the null
+features outright.
 
 **"Least resistance path" (LRP):** the term doesn't appear anywhere in the repo's docs or
 code yet. It needs a written definition before it can be a feature or a target.
@@ -110,8 +131,9 @@ The families above come in five different shapes:
 
 **Events:** each can be a *feature* (the event encodings above) or define the *training
 population* (only rows where the event fired, which is the "score a setup" use in §6).
-MA-study M3 already tested crossover state vs transition, and
-`features/crossover.py` / `state.py` give event day and run age.
+MA-study M3 found crossover *events* add nothing beyond the *state* (all 16 cells span
+zero). So encode crossovers as state plus state age (`features/crossover.py` /
+`state.py`), with a null prior, rather than as an event family of their own.
 
 ---
 
@@ -127,14 +149,15 @@ MA-study M3 already tested crossover state vs transition, and
 - **Market structure (BOS/CHoCH):** `signals/market_structure` already exists and isn't
   on the list.
 - **Time-since features:** days since the 52-week high, since the last gap, since the
-  last MA cross, since the last touch of a level. These are often more informative than
-  the level itself.
+  last touch of a level. These are often more informative than the level itself. (Days
+  since an MA cross is the same as crossover state age, a null prior per M3.)
 
 **Volatility and volume**
 - Volatility regime: realised vol, its percentile against the ticker's own history, and
   vol-of-vol.
-- Compression: ATR percentile, Bollinger-width percentile, NR7. The VCP detector already
-  exists. Compression changes barrier probabilities directly, because a squeeze reaches
+- Compression: ATR percentile, Bollinger-width percentile, NR7, ribbon width (M7: predicts
+  the *size* of the forward move, a weak prior). The VCP detector already exists; it's an
+  untested compression candidate (M14 is a null once as-of-safe). Compression changes barrier probabilities directly, because a squeeze reaches
   a far barrier more easily.
 - Volume structure: relative volume, up-volume vs down-volume, accumulation/distribution
   days, OBV slope.
@@ -318,7 +341,8 @@ hand. Written earlier, they'd lock in guesses.
 ## 10. Phase B: conditional alerts ("coiling, watch a break above $100")
 
 This builds on Phase A:
-- *Coiling* = compression features (ATR/BB-width percentile, VCP, ribbon compression).
+- *Coiling* = compression features (ATR/BB-width percentile, ribbon compression). VCP is
+  an untested candidate here, not a validated signal.
 - *$100* = nearest-resistance level from the LRP features.
 - The alert = score the barrier surface under a **hypothetical bar** that closes just
   above the level, and report how much the surface improves.
@@ -337,8 +361,9 @@ the model's output, not a separate model. Three kinds of alert:
    The message reads like the §1 statement.
 2. **Watch alert (Phase B, §10):** a coiling stock near a level; "if it closes above L,
    the surface becomes X".
-3. **Event alert:** a known strong event fires (VCP reclaim, extreme-slope entry),
-   with the model's surface attached for context.
+3. **Event alert:** reserved for an event that proves alert-grade out of sample. None in
+   the MA study is. Extreme slope covers 40% of the panel on any date, so it's a ranking
+   feature, not an alert.
 
 What a notification service changes in the evaluation:
 - **Precision beats recall.** A missed setup costs nothing; a bad alert costs trust.
