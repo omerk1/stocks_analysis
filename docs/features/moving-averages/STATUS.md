@@ -59,6 +59,32 @@ every tested facet, whatever it found); this file points there rather than re-de
 | **M14** — Integration with existing detectors | 23rd, post-termination Batch 4, 2026-09-25 (PR #105) | **Pooled cell not confirmed; a targeted VCP-specific addendum found something real and striking underneath it.** Joins M1's `above_sma_50` reclaim construction against `src/signals/patterns/` (a separate repo subsystem — 7 pattern-type detectors). "Inside a detected pattern" needed a real, checked definition: the `pattern_matches` table didn't exist anywhere in this repo before this module — populated fresh, holdout-bounded (`as_of=2021-12-31`, verified against `scanner.py`'s own source). DESIGN's literal reading ("inside ANY detected pattern") covers 99.5% of all trading days for a sample ticker — rejected as unusable; only a confidence≥0.7 + 21-day post-breakout + breakout-confirmed-status flag produces a genuinely selective one (23.7% panel-wide coverage). **Pooled cell** (all 7 pattern types): CI excludes zero, clears cost, but fails the same extension-neutralized control (`dist_pct_sma_50` tercile added to C2) that killed several other cells in this study — attenuates ~52%, CI now spans zero. Tier 4, read as a re-encoding of M6.3's own extension/momentum-exhaustion mechanism, not new information from pattern-detection. **VCP-specific addendum** (coordinator-requested follow-up, effective-N gate checked first: 505 events, 409 dates, 227 tickers — thinner than the pooled cell's 10,858 but clears this study's own MIN_EVENTS/MIN_DATES/MIN_TICKERS convention): **opposite-signed, extension-robust** — default C2 +1.83% CI [+1.06%,+2.77%], extension-neutralized +1.99% CI [+1.43%,+2.61%] (not attenuated, if anything stronger), clears cost by the widest margin in this study's history (0.0185%/yr hurdle vs. +12.72%/yr near edge). **2026-09-25 whole-grid FDR re-run (N=107): the VCP cell newly clears FDR at both q=0.10 and q=0.05** (p=0.000425, rank 6 of 107) — but **not promoted to Tier 2**: its own reversal-robustness check hit `InsufficientBlocksError` (only 112 contributing dates, below this study's 126-date minimum), an untested gap, not a ruled-out one, the same "flagged, not resolved" bar that's kept every other FDR-clearing cell at Tier 3 this study. Shape carries a real caveat too: favorable hit rate (68.9% vs. 61.3%) but markedly more negative skew in-context (−0.770 vs. −0.065) — a fatter downside tail. | 3 declared, **2 counted** (pooled primary + VCP-specific addendum — a restricted subpopulation of the same underlying reclaim construction, same treatment this study gives every within-restriction facet, e.g. M6.2's/M3's own quality facets; 4 robustness-companion rows excluded). Contributed 2 to the 2026-09-25 whole-grid FDR re-run. | Pooled: 0.225%/yr hurdle vs. point −4.85%/yr, near edge −1.04%/yr — clears, but tiers on the neutralized reading. VCP: 0.0185%/yr hurdle vs. point +21.96%/yr, near edge +12.72%/yr — clears by the widest margin of any cell in this study. | Post-termination "Batch 4" module, run alongside sibling M16/M17 forks, no shared-file conflicts (different feature family entirely). New machinery: `modules/pattern_context.py`; a one-off `pattern_matches`-population script (discarded after use, not committed — reproducible via `patterns.cli` plus the module code). | `PREREGISTRATION.md` M14 entry + VCP addendum; `FINDINGS.md` (1 entry, the VCP finding, Tier 3); `EXPERIMENTS.csv` (6 rows: 3 pooled + 3 VCP). |
 | **M15** — Synthesis | 24th, post-termination Batch 4, 2026-09-25 (PR #107) | **Additive, not redundant — the opposite of DESIGN's own "expect high collinearity" prior.** DESIGN's literal text (correlation matrix of surviving Tier-1/Tier-2 claims) is a degenerate 1×1 with this study's actual survivor set — one Tier-2 claim (M6.3's `slope_pctile_21_sma_50`), zero Tier-1 — stated as the honest primary finding before scoping past it. Extended, via a dated `PREREGISTRATION.md` addendum, to also compare M6.3's Tier-2 cell against M14's Tier-3 VCP-reclaim cell (the only other cell with a comparably strong profile — largest point estimate in the study, clears FDR at q=0.05 too), via an overlap/enrichment check rather than a Pearson correlation (the two signals are differently shaped: a continuous per-date decile rank vs. a rare binary event). Reused `modules/slope_magnitude.py`'s and `modules/pattern_context.py`'s own code unchanged rather than reimplementing either. **Result:** VCP-reclaim events land in M6.3's own extreme-slope tail 27.1% of the time, vs. 40.0% unconditionally, 36.5% for reclaims in general, and 38.4% for any-pattern-context reclaims — consistently 26–32% **less** likely than every baseline, not more. Plausible mechanism (not tested further): a volatility-contraction pattern implies a calming/moderating trend, the opposite of an extreme slope reading. Read as two genuinely distinct mechanisms, not the same signal wearing different hats. | Track A diagnostic, no CI/kill criterion — zero `N_tests` contribution, same convention as M16's own diagnostic module. | Not applicable — a relationship check between two already cost-annotated cells, not a new tradeable claim. | Post-termination "Batch 4" module, run after M16/M17/M14 landed (needed M14's own merged code to reuse). Caveat named honestly in its own write-up: one overlap check between one pair of cells, not a full correlation matrix — DESIGN's own literal "matrix" framing is unmet by this study's own thin survivor set, not by a limitation of this check's method. Last module in the study; nothing left queued after this. | `PREREGISTRATION.md` M15 entry; `EXPLORATION_LOG.md` (dated entry). No `EXPERIMENTS.csv`/`FINDINGS.md` entries (Track A, no Track B cell, no new tiered claim). |
 
+**2026-09-29 review addenda to the rows above** (from `CODE_REVIEW_2026-09-28.md`,
+`VALIDATION_2026-09-28.md`; the rows themselves are left as written, per this file's
+no-silent-edits convention):
+- **M6.4 — withdrawn, module killed.** The GBM null pooled rising and falling simulated
+  runs against a rising-only empirical grid; re-run with a direction-matched null, 0 of 12
+  primary strata depart (SMA20 t0/t1/t2 deltas +0.023/+0.008/+0.022 inside envelopes of
+  about ±0.04). All 12 primary cells Tier 4. The ER-tercile companion keeps a two-lookback
+  departure (SMA20/SMA50 only), and the ER tercile is close to a restatement of "how
+  straight was the path" — companion only. The row's sigma-autocorrelation caveat runs the
+  other way (lag-1 autocorrelation −0.05) and is retired.
+- **M14 — both cells Tier 4.** The `in_pattern_context` flag used the pattern's future
+  breakout and its post-breakout status. As-of-safe re-run: pooled +0.07% [−0.31%, +0.42%]
+  (killed); VCP-only +0.85% [−0.10%, +1.88%] on 402 events / 335 dates (inconclusive, not
+  confirmed; companions cannot run at 105/90 dates). The logged VCP shape (68.9% hit rate,
+  −0.77 skew) belonged to the look-ahead subset.
+- **M15 — reading downgraded.** Re-run on the corrected flag gives the same
+  under-representation (enrichment 0.63–0.69), but it now compares one Tier-2 cell with a
+  Tier-4 one; "two distinct mechanisms" no longer follows.
+- **M12, M18** — unchanged numbers, no longer FDR survivors (see the FDR section). M12's
+  effective N behind its CI is 866 bootstrap-contributing dates, not the 2,468 in its row.
+- **M1** — the `n_events` M10 flagged is the C2-eligible row set (event + control) on the
+  408-ticker panel; event rows on the 405-ticker panel are 420,066 / 432,955 / 325,243.
+- **All modules** — U1 contains no ticker that delisted during 2010–2021 (the DB has no
+  delisted daily bars before 2024); invariant #4 holds vacuously and every weak-state bucket
+  is survivorship-selected (`REPORT.md` §2 note).
+
 **M2 plateau note:** `stack_fully_bullish`'s and `stack_fully_bearish`'s C2 signs both
 agree with all four individual `above_sma_{20,50,150,200}` cells' own signs — passes
 DESIGN §6.7 as applied here (directional consistency, not a lookback-neighborhood
@@ -163,6 +189,47 @@ for "SMA200's oddities are a small-effect/low-power story, not a level-specific 
 Not resolved; still owner-less.
 
 ## Whole-grid FDR pass — RUN 2026-09-17, RE-RUN 2026-09-20, RE-RUN 2026-09-23, RE-RUN 2026-09-24 (Batch 2), RE-RUN 2026-09-24 (Batch 3), RE-RUN 2026-09-25 (Batch 4). Result: 11 of 107 survive at q=0.10 (6 at q=0.05) — a new cell reaches q=0.05 for the first time alongside M6.3's Tier-2 finding; the study's one Tier-2 finding remains unchanged and confirmed robust across four consecutive grid expansions.
+
+**Verdict, up front (2026-09-29 review re-run — CURRENT; the 2026-09-25 text below is
+superseded and kept for the record): at q = 0.10 and at q = 0.05, 2 of 107 deduplicated
+tests survive Benjamini–Hochberg.** Run via `whole_grid_fdr_run.py` (reproducible from the
+ledger; earlier passes were in-conversation). What changed and why
+(`CODE_REVIEW_2026-09-28.md`, `VALIDATION_2026-09-28.md`, both merged into this pass):
+- **M6.4's 3 SMA20 cells (2026-09-25 ranks 1/3/5) are withdrawn.** Their GBM null pooled
+  rising and falling simulated runs while the empirical side was rising-only; with the
+  panel's positive drift that alone produced the logged "departure". Re-run with a
+  direction-matched null: 0 of 12 primary strata depart, module killed
+  (`PREREGISTRATION.md` M6.4 2026-09-29 addendum). Their logged `ci_low`/`ci_high` were the
+  null's envelope, never a CI, so the "three smallest p-values in the study" were never
+  comparable to the other 104. The 12 cells stay in the denominator at p = 1.
+- **M14's VCP cell (2026-09-25 rank 6) is withdrawn.** The event flag was anchored at
+  `formation_end` and qualified patterns by post-breakout status; one-third of its events
+  preceded their own breakout, which then landed inside the label window. As-of-safe re-run:
+  +0.85% [−0.10%, +1.88%], spans zero; the pooled cell +0.07% [−0.31%, +0.42%]. Both Tier 4.
+- **Every other p-value is unchanged**, but with the four invalid cells gone from the top of
+  the ranking, every lower rank's threshold fell: M12 (p=0.00348, rank 3, threshold 0.00280),
+  M18@126d (0.00468 vs 0.00374), M7, M2 and M1's `above_sma_20` all now miss. This is the
+  same "flapping" mechanism this file already documented, run in reverse.
+- `counted_in_n_tests` in `EXPERIMENTS.csv` now reproduces N = 107 by itself (9 dedup
+  rows had never had their flag updated).
+
+| rank | cell | p-value | BH threshold (rank/107×0.10) | reject q=0.10? |
+|---|---|---|---|---|
+| 1 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.0000017 | 0.000935 | **yes** (also q=0.05) — Tier 3, drawdown read |
+| 2 | M6.3 `slope_pctile_21_sma_50` | 0.000050 | 0.001869 | **yes** (also q=0.05) — **Tier 2, unchanged** |
+| 3 | M12 `reclaim_durability_dollar_volume_sma50` | 0.003476 | 0.002804 | no |
+| 4 | M18 `dist_from_52w_low`@126d | 0.004679 | 0.003738 | no |
+| 5 | M7 `ribbon_direction_magnitude` | 0.007674 | 0.004673 | no |
+| 6 | M2 `stack_fully_bearish_h21` | 0.008606 | 0.005607 | no |
+| 7 | M1 `above_sma_20` | 0.009032 | 0.006542 | no |
+| 8–107 | (remaining 100, incl. 12 M6.4 cells at p=1 and M14's two as-of-safe cells) | ≥0.0135 | — | no |
+
+**Tier-2 count: still exactly one** (`slope_pctile_21_sma_50`), now on a grid with no
+invalid p-values above it. Tier assignments for M12/M18/M7/M2/M1 do not change (none was
+ever promoted on FDR status alone). Standing caveats carried into this pass: p-values
+below ~0.004 are normal-tail extrapolations of a 500-draw bootstrap; U1 is a
+survivorship-selected universe (`REPORT.md` §2, 2026-09-29 note); the decile "spread"
+statistic is 10/9 × the literal top-minus-bottom (`CODE_REVIEW_2026-09-28.md` M5).
 
 **Verdict, up front (2026-09-25, Batch 4 re-run, current): at q = 0.10, 11 of 107
 deduplicated tests survive Benjamini–Hochberg correction; at q = 0.05, 6 of 107

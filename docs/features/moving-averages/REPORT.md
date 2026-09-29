@@ -32,6 +32,33 @@ no-silent-edits convention). Every number below is sourced to `EXPERIMENTS.csv`,
 `FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
 not re-derive.
 
+**2026-09-29 review note — read first; supersedes the 2026-09-25 headline below where the
+two conflict.** A code review (`CODE_REVIEW_2026-09-28.md`, PR #118), a results audit
+(`VALIDATION_2026-09-28.md`, PR #120) and the re-runs they triggered changed this report's
+survivor set but not its one Tier-2 claim:
+- **M6.4 is withdrawn (module killed).** Its GBM null pooled rising and falling simulated
+  runs against a rising-only empirical grid; with a direction-matched null 0 of 12 primary
+  strata depart. The "three smallest p-values in the study" were never p-values in the same
+  sense as the others (their logged CI was the null's envelope).
+- **M14's VCP cell is withdrawn (Tier 4).** Its event flag used the pattern's future
+  breakout; as-of-safe, +0.85% [−0.10%, +1.88%] — spans zero. The pooled cell is a clean
+  null too. M15's "two distinct mechanisms" reading falls with it.
+- **Whole-grid FDR, re-run on the corrected ledger (N=107): 2 survivors at both q=0.10 and
+  q=0.05** — `ribbon_agreement_extreme_drawdown` (M6.6, Tier 3, a drawdown read) and
+  `slope_pctile_21_sma_50` (M6.3, **Tier 2, unchanged**: reproduces exactly, seed-stable,
+  clears cost at 20 bps). M12, M18@126d, M7, M2, M1 keep their numbers but no longer clear
+  BH once the invalid cells above them are gone.
+- **U1 is survivorship-selected**: no delisted ticker has any daily bar inside 2010–2021,
+  so invariant #4 holds vacuously and every weak-state bucket is biased upward by
+  construction (§2 note). The decile-spread statistic is 10/9 × the literal top-minus-bottom
+  (cost margins ~11% optimistic where they are thin).
+- Ledger fixes: `counted_in_n_tests` now reproduces N=107; M14's effective N corrected
+  (505/409/227, not the 39,452-row reclaim population); M1's `n_events` relabelled.
+The narrative below is left as written (no silent edits); the 2026-09-29 rows in
+`EXPERIMENTS.csv`, the dated addenda in `PREREGISTRATION.md`/`FINDINGS.md`, and
+`STATUS.md`'s FDR section are the current record. For the modeling phase:
+`docs/modeling/ma_study_insights.md` (PR #117), to be read with this note.
+
 ---
 
 ## 1. Executive summary
@@ -776,6 +803,8 @@ Tier-3 cell in the study (excluding reversal-robustness/large-move-exclusion
 companion rows, which re-test the same hypothesis rather than a new one — see those
 cells' own `FINDINGS.md` entries for the companion numbers) — full per-cell detail in
 `FINDINGS.md`, current FDR status per §4's own N=107 ranked table.
+
+**(2026-09-29: this list is superseded — only items 2 and, via §1, M6.3's Tier-2 cell still clear FDR; items 1 and 3 are withdrawn; see the review note at the top.)**
 
 **Currently clears whole-grid FDR at q=0.10 (N=107):**
 1. **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4) — the study's three
