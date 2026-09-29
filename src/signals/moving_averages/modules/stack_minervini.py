@@ -157,6 +157,16 @@ def prepare(panel: pd.DataFrame, conn: sqlite3.Connection, index_name: str = "sp
     return working
 
 
+def _prior_close(working: pd.DataFrame) -> pd.Series:
+    """Yesterday's close, aligned with the panel's already-lagged MA columns.
+    Every MA in the panel is as of close(t-1) (`apply_lag`); comparing it to
+    the row's own raw close mixed t-1 and t information and made the price
+    link of every price-vs-MA criterion a same-bar signal (invariant #2).
+    Found 2026-09-29 by `tests/test_moving_averages_leakage.py`.
+    """
+    return apply_lag(working[["ticker", "close"]], ["close"])["close"]
+
+
 def _add_trend_template_criteria(working: pd.DataFrame) -> pd.DataFrame:
     """The 8 Trend Template criteria as lagged booleans. Every criterion
     built from a comparison (not arithmetic) gets an explicit NaN mask
@@ -166,7 +176,7 @@ def _add_trend_template_criteria(working: pd.DataFrame) -> pd.DataFrame:
     inline, rather than reusing `above` (which is specifically a > b, not
     a threshold test).
     """
-    close = working["close"]
+    close = _prior_close(working)
     sma50, sma150, sma200 = working["sma_50"], working["sma_150"], working["sma_200"]
 
     working["tt_c1"] = distance.above(close, sma150) & distance.above(close, sma200)
@@ -224,7 +234,7 @@ def _add_stack_features(working: pd.DataFrame) -> pd.DataFrame:
     already-warmed-up link could determine on its own -- a single leading
     gap, matching every other state column's shape.
     """
-    close = working["close"]
+    close = _prior_close(working)
     sma20, sma50, sma150, sma200 = working["sma_20"], working["sma_50"], working["sma_150"], working["sma_200"]
 
     ma_cols = ["sma_20", "sma_50", "sma_150", "sma_200"]
