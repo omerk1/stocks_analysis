@@ -254,7 +254,9 @@ before it (ablation), not by being on the list.
       2026-09-29, open to revision). At short horizons, one daily bar can touch both
       barriers, and daily data can't say which came first. The label needs a stated
       tie-break (e.g. count it as a stop-out).
-- [ ] **LRP definition.** An industry term with no single definition; worth exploring
+- [x] **LRP definition → proposed formulation in `LRP.md`** (2026-09-29): unified level
+      object, per-source and aggregate features, barrier-conditional features, test plan.
+      An industry term with no single definition; worth exploring
       rather than fixing up front. Working direction (2026-09-29): both a *direction*
       ("which side is easier") and a *distance* ("how much clear air"), from:
       - the nearest-levels pool: S/R lines, fibs, AVWAPs, gap edges;
@@ -268,8 +270,8 @@ before it (ablation), not by being on the list.
         trend/extension features, where the evidence is.
       Open: how level strength is weighted, and whether one strong level outweighs
       several weak ones.
-- [ ] **Earnings dates.** Source identified: SEC `submissions.zip` (8-K item 2.02
-      filings). Waiting on the hand download into `data/raw/sec/`.
+- [ ] **Earnings dates: missing for now**, logged in `docs/backlog.md`. Source identified:
+      SEC `submissions.zip` (8-K item 2.02 filings), deferred until it's downloaded.
 - [x] **AVP** → built (`signals/volume_profile`, #110).
 
 ---
