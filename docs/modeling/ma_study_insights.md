@@ -13,19 +13,18 @@ C2-controlled, block-bootstrapped result. Everything under "Track A" is an uncon
 screen and is cited only as feature-selection evidence, never as an effect size.
 
 **The honest headline, before any table:** the study's single Tier-2 effect is
-−0.248% per 21 trading days (`slope_magnitude_humped_test_sma50`). The largest
-return-based point estimate in the whole grid is +1.83% per 21d on 505 events
-(`pattern_context_reclaim_sma50_vcp_only`). The largest |rank-IC| in a 348-cell Track A
+−0.248% per 21 trading days (`slope_magnitude_humped_test_sma50`), and only 2 of 107
+tests survive whole-grid FDR. The largest |rank-IC| in a 348-cell Track A
 sweep is 0.038. Every "clears cost" verdict rests on a 10 bps round-trip convention and
-a linear ×12 annualisation (`stats/costs.py::annualize`). Several FDR survivors are
-mechanism reads (drawdown depth, run survival), not return claims. A model built on
+a linear ×12 annualisation (`stats/costs.py::annualize`). The other FDR survivor is a
+drawdown read, not a return claim. A model built on
 this feature family is working in a weak-signal regime and should be evaluated as such.
 
 ---
 
 ## 1. What the study established, at the confidence the evidence supports
 
-### 1.1 Track B — Tier 2 and the FDR survivor set (N=107, q=0.10, 2026-09-25 pass)
+### 1.1 Track B — Tier 2 and the strongest Tier-3 cells (FDR survivors at N=107: M6.3 and M6.6 only)
 
 Units: return cells are per-21-trading-day C2 deltas unless the row says otherwise.
 "n_dates" is the effective N the study reports (distinct contributing dates). "Capped
@@ -35,19 +34,15 @@ own call for the modeling phase.
 | cell_id (module) | Tier | statistic | point | 90% CI | n_events / n_dates | shape (if logged) | capped by | usable as |
 |---|---|---|---|---|---|---|---|---|
 | `slope_magnitude_humped_test_sma50` (M6.3) | **2** | C2 delta, middle deciles {4,5} minus tails {0,1,8,9} of per-date pctile of `slope_log_21_sma_50`, `fwd_ret_21` | −0.248% | [−0.354%, −0.153%] | 219,700 / 2,747 | — | holdout + universe tier only (infrastructure) | **feature** (per-date slope percentile, both tails) and **baseline** the model must beat |
-| `slope_persistence_vol_tercile_sma20_t0/t1/t2` (M6.4) | 3 | KM survival at 21d minus GBM-null survival | +0.106 / +0.073 / +0.067 | envelopes ≈ ±0.028 | 4,772–5,466 runs / 1,857–2,018 | — | GBM null's σ from the same (possibly autocorrelated) series; unresolved | **target-design evidence** (run age of `slope_log_21_sma_20 > 0` is informative); not a return claim |
 | `ribbon_agreement_extreme_drawdown` (M6.6) | 3 | C2 delta on `fwd_mdd_21`, state 5 vs 0 of {10,20,50,100,200} slope signs | +0.654pp shallower | [+0.438pp, +0.887pp] | 406,663 / 2,747 | — | drawdown read, companion `fwd_ret_21` cell spans zero | **target-design evidence** (path/drawdown labels carry signal the mean does not) + feature (ordinal 0–5 state) |
-| `pattern_context_reclaim_sma50_vcp_only` (M14) | 3 | C2 delta, `above_sma_50` reclaim inside a confirmed VCP breakout vs. not | +1.83% | [+1.06%, +2.77%] | 505 in-context events / 409 dates (131 bootstrap-contributing) | hit 68.9% vs 61.3%; W/L 1.134 vs 1.132; skew −0.770 vs −0.065 | reversal check could not run (`InsufficientBlocksError`, 112 dates < 126) | **feature** (rare event flag) with a fat-left-tail caveat; too thin to be a baseline |
 | `reclaim_durability_dollar_volume_sma50` (M12) | 3 | C2 delta, top vs bottom dollar-volume tercile among SMA50 reclaims | −0.870% | [−1.381%, −0.402%] | 13,880 / 2,468 | — | no PIT market-cap control; size/illiquidity premium equally plausible | **feature** only if a PIT size control exists; otherwise a **confound proxy** |
 | `dist_from_52w_low_h126` (M18) | 3 | C2 decile spread, `fwd_ret_126` | +2.50% per 126d | [+1.10%, +4.02%] | 1,069,515 / 2,643 | — | survivorship-adjacent (beaten-down bucket), argued by analogy, never tested | **feature** at long horizons; carries §7.3 exposure |
 | `ribbon_direction_magnitude` (M7) | 3 | C2 decile spread on `abs(fwd_ret_21)`, ribbon-width decile 9 vs 0 | −0.247% | [−0.398%, −0.093%] | 175,152 / 2,549 | — | magnitude, not signed return | **target-design evidence** (compression predicts the size of the move, not its direction) + feature for a vol/barrier model |
 | `stack_fully_bearish_h21` (M2) | 3 | incremental C2 diff vs `above_sma_50`; standalone C2 +0.474% [+0.161%, +0.776%] | +1.055% incremental | [+0.419%, +1.740%] | 40,102 / 2,696 | hit 63.85%; W/L 1.32; skew +0.99 | DESIGN §7.3 survivorship cap (bearish bucket, zero delisted history pre-2024) | **feature** (full-stack state) with the survivorship caveat stamped on it |
 | `above_sma_20` (M1) | 3 | C2 delta | −0.215% | [−0.350%, −0.079%] | 751,406 / 2,744 | — | fails cost (30.4 flips/ticker-yr → 3.04%/yr hurdle) | **baseline** (cheap state feature); not a standalone signal |
 
-Flapping note (`STATUS.md`, `REPORT.md` §4): `ribbon_direction_magnitude`,
-`stack_fully_bearish_h21`, and `above_sma_20` entered/left the survivor set three times
-across N=50→79→99→107 with no new evidence. Treat FDR membership at the margin
-(p≈0.008–0.009 against thresholds of 0.008–0.010) as fragile.
+M12, M18, M7, M2 and M1 miss FDR by a factor of 1.2–1.6; their FDR status depends on
+grid size, not on new evidence.
 
 ### 1.2 Track B — real at C2 but not an FDR survivor (Tier 3)
 
@@ -63,7 +58,6 @@ across N=50→79→99→107 with no new evidence. Treat FDR membership at the ma
 | `context_vix_bottom`, `context_breadth_top` (M13) | −0.318% / −0.388%; other two regime buckets span zero | 1,195 / 882 | All four buckets sit within a narrow band around M1's own `above_sma_200` (−0.215%). The module's own read: no real regime interaction. Regime restriction also halves effective N. |
 | `reclaim_hold_rate_relative_volume_sma200` (M12) | +3.35pp [+0.44pp, +6.37pp] | 2,177 | The one cell supporting "reclaim on high volume holds better", at SMA200 only. Mechanism read, single lookback. |
 | `nonlinearity_macd_histogram_incremental_ic_h21` (M17) | +0.0089 [+0.00002, +0.0187]; FDR rank 34/107, p=0.115 | 2,747 | MACD histogram is not redundant with `dist_pct_sma_50`/`slope_log_21_sma_50`/`mom_12_1` (corr +0.30 / −0.25), but the incremental IC barely excludes zero and no reversal control was run. |
-| `slope_persistence_er_tercile_*_t2` (M6.4 companion, not counted) | +0.174 / +0.103 / +0.091 / +0.089 at SMA20/50/150/200 | 2,109 / 1,699 / 1,116 / 895 | High-efficiency-ratio runs persist beyond the null at every lookback — the cleanest plateau in M6.4. Same null-calibration caveat. |
 | `sma_dropoff_decisive_sma200_down` (M6.5 companion, not counted) | +1.03% [+0.23%, +1.72%] | 2,440 | Flagged, not promoted; reversal untested. Ignore for v1. |
 
 ### 1.3 Track B — strong nulls: do not spend features here
@@ -82,7 +76,8 @@ across N=50→79→99→107 with no new evidence. Treat FDR membership at the ma
 | **M1** run length; `above_sma_200` | 24 age-bucket cells; SMA200 state | 1 of 24 excludes zero with opposite-signed neighbours; SMA200 CI [−0.42%, +0.005%] | State *age* as a feature failed the plateau rule. SMA200 is the study's recurring anomaly (three independent oddities, never resolved). |
 | **M7** compression → vol expansion | forward realized vol | +0.021% [−0.007%, +0.057%] with vol match | Compression does not predict forward *vol*; it predicts the size of the forward return (`ribbon_direction_magnitude`). |
 | **M17** RSI, stochastics | incremental IC at 21d/63d | all CIs span zero; RSI vs `dist_z_sma_20` corr 0.86 | RSI is nearly `dist_z`. Keep at most one. RSI's sign flips positive near the MA (+0.90%, CI spans zero) — a tree can find this if both are present; not worth hand-building. |
-| **M14** pooled pattern context | reclaim inside any of 7 pattern types | −0.40% at C2 → −0.20% [−0.54%, +0.17%] once `ext_tercile` is matched (52% attenuation) | "Inside any pattern" is extension re-encoded. Only VCP survived the extension control. |
+| **M14** pattern context | reclaim inside a detected pattern, as-of-safe flag | pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%], 402 events | Nothing here. The earlier +1.83% VCP reading came from a flag that used the future breakout. |
+| **M6.4** slope persistence | slope-sign run survival vs a direction-matched GBM null | 0 of 12 strata depart | Slope runs last as long as a drifting random walk's. No hazard-model evidence. |
 
 ### 1.4 Track A — screens that inform feature selection (never effect sizes)
 
@@ -92,7 +87,7 @@ across N=50→79→99→107 with no new evidence. Treat FDR membership at the ma
 | Same sweep, redundancy | `dist_pct` vs `dist_atr` 0.96–0.98 at every lookback and family; `dist_z` vs `dist_pct` 0.94 (SMA20) → 0.89 (50) → 0.74 (150) → 0.69 (200); `slope_log_5_ema_200` vs `dist_pct_ema_200` 0.986; `slope_log_63` decorrelates from distance (0.18 at SMA20, 0.32 at EMA20). |
 | Distance × slope surface (2026-09-18) | `slope_log_21` vs `dist_atr` correlation 0.34→0.80 (SMA 20→200), 0.59→0.93 (EMA). No smooth 2D interaction anywhere; M6.2's SMA50 top-decile cell is a lone pixel. |
 | Kernel-space scan, M16 (2026-09-24) | 23 MA rules form one cluster at cosine ≥0.80; 10 clusters at ≥0.95, ordered by effective lookback (centroid), not by indicator type. `slope_log_21_sma_200` sits at centroid 109.5 vs 66–82 for `dist_pct_sma_200`/`crossover_sma_50_sma_200`. |
-| M15 overlap check (2026-09-25) | VCP reclaims fall in M6.3's extreme-slope tail 27.1% of the time vs 40.0% unconditionally (enrichment 0.68) — the two strongest cells are anti-correlated, not redundant. |
+| M15 overlap check (re-run 2026-09-29) | VCP reclaims fall in M6.3's extreme-slope tail 25.4% of the time vs 40.0% unconditionally. With the VCP cell now a null, this says nothing about a second signal. |
 | M0.1 atlas (2026-09-07/08) | Era skew shifts were a crash artefact (4% of rows). `dist_z_sma_50` shows a dollar-volume-decile gradient in mean and skew (Candidate C-1) despite per-ticker normalisation — a size/liquidity axis the panel cannot yet separate from market cap. |
 
 ---
@@ -116,25 +111,23 @@ in `modules/slope_magnitude.py::prepare`).
 ### 2.2 Recommended v1 MA-family feature list
 
 The ordering principle from M16 and the IC sweep: **one representative per effective-lookback
-cluster per operation (distance, slope, spread), transformed to per-date ranks.** Roughly
-a dozen columns replace the 68 numeric MA columns in the panel.
+cluster per operation (distance, slope, spread), transformed to per-date ranks.** Twelve
+columns replace the 68 numeric MA columns in the panel.
 
 | # | feature | construction | one-line justification |
 |---|---|---|---|
 | 1 | `slope_pctile_21_sma_50` | per-date `cross_sectional_bucket`/rank of `slope_log_21_sma_50` (as `modules/slope_magnitude.py::prepare`) | The Tier-2 cell. Keep the *rank*, and let the model see both tails (the effect is U-shaped, M6.3). |
 | 2 | `abs_slope_pctile_21_sma_50` | rank − 0.5, absolute value | Encodes the U directly so a linear baseline can use it; a tree does not need it. |
-| 3 | slope-sign run age of `slope_log_21_sma_20` | `features/state.py::state_run_id`/`days_in_run` on `slope_log_21_sma_20 > 0` | M6.4: runs persist beyond a GBM null at SMA20/50, all vol terciles. Age of the current slope-sign run is the feature, not the sign alone (M1's *state* age failed; M6.4's *slope* run survival did not). |
-| 4 | `dist_z_sma_20` (or `dist_pct_sma_20`, one only) | panel | M4/M11: the only extension lookback with a real effect; `dist_z` is 0.94-correlated with `dist_pct` here so either works. Also the extension confound control for every pattern feature (M14). |
-| 5 | `dist_z_sma_200` | panel | Keeps a slow-lookback extension that is only 0.69-correlated with `dist_pct_sma_200` (sweep). Carries the SMA200 anomaly; expect little. |
-| 6 | `slope_log_63_sma_50` | panel | The one slope window that decorrelates from distance at every lookback (0.18–0.32, sweep). Cheap diversification of the slope cluster. |
-| 7 | `ribbon_agreement_state` (0–5 over {10,20,50,100,200} slope signs) | rebuild as in `modules/ribbon_slope_agreement.py` | M6.6: predicts `fwd_mdd_21` (+0.65pp), pairwise slope correlations 0.28–0.89 so it is not one MA in disguise. A drawdown-side feature. |
-| 8 | `ribbon_width_pctile` | `features/ribbon.py::ribbon_width_pctile` | M7: compression predicts the size of the forward return (−0.25% decile spread on `abs(fwd_ret_21)`). Directly relevant to a barrier target's reach probability. |
-| 9 | `stack_fully_bearish` (price < SMA20 < SMA50 < SMA150 < SMA200) | `modules/stack_minervini.py` construction | M2: +1.06% incremental over `above_sma_50`, hit 63.85%, skew +0.99. Survivorship-capped (§7.3); flag it as such in the feature registry. |
-| 10 | `dist_from_52w_low` | panel | M18: +0.96% (63d), +2.50% (126d) C2 decile spread, reversal-robust. Matters only at H ≥ 63. |
-| 11 | `vcp_reclaim_event` (`above_sma_50` reclaim within 21d of a confirmed VCP breakout, confidence ≥ 0.7) | `modules/pattern_context.py` joined to the `pattern_matches` table | M14: +1.83–1.99% per 21d, extension-robust, FDR q=0.05. 505 events in 12 years: an event-population feature, not a dense column. |
-| 12 | `macd_histogram` (12,26,9) | `features/oscillators.py::macd_components` | M17: incremental IC +0.0089 over the MA block, correlation −0.25 with `slope_log_21_sma_50`. Marginal; include and let importance decide, as IDEAS F4 already says. |
-| 13 | `dollar_volume` per-date tercile | `features/liquidity.py::dollar_volume` | M12's strongest cell, but only as a **size/liquidity control** until PIT market cap exists (§2.4). |
-| 14 | `adx_14` regime (`features/regime.py::adx_regime`) | M9 | The regime construction that actually persists (+10.4pp). Use as an interaction gate, not as a lookback selector (M9 killed that). |
+| 3 | `dist_z_sma_20` (or `dist_pct_sma_20`, one only) | panel | M4/M11: the only extension lookback with a real effect; `dist_z` is 0.94-correlated with `dist_pct` here so either works. Also the extension confound control for every pattern feature (M14). |
+| 4 | `dist_z_sma_200` | panel | Keeps a slow-lookback extension that is only 0.69-correlated with `dist_pct_sma_200` (sweep). Carries the SMA200 anomaly; expect little. |
+| 5 | `slope_log_63_sma_50` | panel | The one slope window that decorrelates from distance at every lookback (0.18–0.32, sweep). Cheap diversification of the slope cluster. |
+| 6 | `ribbon_agreement_state` (0–5 over {10,20,50,100,200} slope signs) | rebuild as in `modules/ribbon_slope_agreement.py` | M6.6: predicts `fwd_mdd_21` (+0.65pp), pairwise slope correlations 0.28–0.89 so it is not one MA in disguise. A drawdown-side feature. |
+| 7 | `ribbon_width_pctile` | `features/ribbon.py::ribbon_width_pctile` | M7: compression predicts the size of the forward return (−0.25% decile spread on `abs(fwd_ret_21)`). Directly relevant to a barrier target's reach probability. |
+| 8 | `stack_fully_bearish` (price < SMA20 < SMA50 < SMA150 < SMA200) | `modules/stack_minervini.py` construction | M2: +1.06% incremental over `above_sma_50`, hit 63.85%, skew +0.99. Survivorship-capped (§7.3); flag it as such in the feature registry. |
+| 9 | `dist_from_52w_low` | panel | M18: +0.96% (63d), +2.50% (126d) C2 decile spread, reversal-robust. Matters only at H ≥ 63. |
+| 10 | `macd_histogram` (12,26,9) | `features/oscillators.py::macd_components` | M17: incremental IC +0.0089 over the MA block, correlation −0.25 with `slope_log_21_sma_50`. Marginal; include and let importance decide, as IDEAS F4 already says. |
+| 11 | `dollar_volume` per-date tercile | `features/liquidity.py::dollar_volume` | M12's strongest cell, but only as a **size/liquidity control** until PIT market cap exists (§2.4). |
+| 12 | `adx_14` regime (`features/regime.py::adx_regime`) | M9 | The regime construction that actually persists (+10.4pp). Use as an interaction gate, not as a lookback selector (M9 killed that). |
 
 Controls that belong in every feature set and every baseline (§3): `mom_12_1`, `mom_1_0`
 (reversal), `realized_vol_63`, `sector`, and `ext_tercile` (= `dist_pct_sma_50` tercile).
@@ -149,7 +142,8 @@ Controls that belong in every feature set and every baseline (§3): `mom_12_1`, 
 | Golden/death cross event flags, days-since-cross | M3: 16 cells, all span zero. State + age already covers it. |
 | WMA/HMA/DEMA/KAMA/VWMA columns | M8: Reality Check p=0.193; 2× turnover for HMA/KAMA. |
 | Weekly-timeframe MAs | M10: sampling frequency effect < 0.03pp. |
-| Run-length bucket of `above_sma_k` (state age) | M1: plateau failure across 24 cells. Keep slope-run age (M6.4) instead. |
+| Run-length bucket of `above_sma_k` (state age), or slope-sign run age | M1: plateau failure across 24 cells. M6.4: slope runs match a direction-matched random walk. |
+| VCP-reclaim event flag | M14: as-of-safe VCP cell +0.85% [−0.10%, +1.88%], spans zero on 402 events. |
 | `dist_from_52w_high` | M18: C2 CI spans zero at both horizons; the C1 effect was momentum. |
 | Distance-to-MA as a *support level* input to an LRP feature (IDEAS §3) | M5: 6/6 cells killed against synthetic neighbours; §7.5 placebo. |
 | RSI and stochastic %K as separate columns when `dist_z_sma_20` is present | M17: RSI vs `dist_z_sma_20` corr 0.86; incremental IC spans zero at 21d and 63d. |
@@ -165,7 +159,7 @@ Controls that belong in every feature set and every baseline (§3): `mom_12_1`, 
 | Intraday (wick) touches | close-only bars in the touch detector (`features/touch.py`) | M5's named caveat. Only matters if an LRP feature is rebuilt on intraday data. |
 | Point-in-time sector | `ticker_sector` is a current snapshot | Every C2 match in the study used a non-PIT sector column (`panel.py` docstring). Same leak in a model's sector feature. |
 | MFE / MAE / barrier hit times | `labels/path_metrics.py` has only `forward_max_drawdown` | Needed for the barrier surface (IDEAS §1). |
-| Delisted-ticker history before 2024 | zero rows (DESIGN §7.3, §12) | Every bearish/weak-state feature (rows 9, 10 in §2.2) is survivorship-exposed. |
+| Delisted-ticker history before 2024 | zero rows (DESIGN §7.3, §12) | Every bearish/weak-state feature (rows 8, 9 in §2.2) is survivorship-exposed. |
 
 ---
 
@@ -218,8 +212,7 @@ Evidence for a path-aware target over a mean-return target:
 | Same restriction, different label, opposite verdicts | M6.6: `fwd_mdd_21` +0.65pp [+0.44, +0.89] vs `fwd_ret_21` −0.21% [−0.62%, +0.18%] | The ribbon signal lives in the *lower barrier* hit probability, not in the terminal return. A mean-return model would drop the feature; a barrier model keeps it. |
 | Magnitude without direction | M7: `abs(fwd_ret_21)` decile spread −0.25% while the signed spread spans zero | Compression changes the *width* of the outcome distribution. Only a target that separates "reaches +U" from "reaches −D" can use it; a signed mean cannot. |
 | Mean and hit rate disagree | M2 `stack_fully_bullish`: mean +0.01% (spans zero), hit-rate delta +1.21pp, skew −0.35 | "Wins slightly more often, loses larger" is invisible to a mean. A calibrated P(hit +U before −D) exposes it. |
-| Fat left tail under a large mean | M14 VCP: +1.83% mean, hit 68.9%, skew −0.770 vs −0.065 out of context | The best event in the study has a worse tail than its control. The EV-after-cost cell in IDEAS §1 must use the full barrier distribution, not P·U − (1−P)·D with a fixed D. |
-| Survival, not return | M6.4: SMA20 slope-run 21d survival exceeds the GBM null by +0.07 to +0.11 | "How long does the state last" is a hazard model. A discretised-hazard head (IDEAS §1 option b) is the natural encoding. |
+| Fat left tail | M2 `stack_fully_bearish`: hit rate 63.9%, skew +0.99; M2 `stack_fully_bullish`: skew −0.35 on a flat mean | Tails differ between states with similar means. The EV cell in IDEAS §1 must use the full barrier distribution, not P·U − (1−P)·D with a fixed D. |
 
 Horizon evidence:
 
@@ -235,7 +228,7 @@ not 5–63, or the 52-week family is wasted; (b) effective N per H cell falls as
 n_dates / (2H) — at H=126 the study had about 10 independent blocks, which is a Tier-3
 ceiling by DESIGN §6.4's own rule; (c) turnover differs by an order of magnitude across
 the features (`above_sma_20` 30.4 flips/ticker-yr; `slope_log_21_sma_200` top-decile
-0.90; VCP reclaim 0.185 events/ticker-yr; crossovers 1.4–11.8), so the cost term in the
+0.90; crossovers 1.4–11.8), so the cost term in the
 EV cell must be per-feature-implied-turnover, not one constant.
 
 Barrier units: ATR multiples (IDEAS §1 already chooses this). The study's own
@@ -271,7 +264,7 @@ so barrier distances and extension features share units.
 | 12-1 momentum, vol, sector (C1→C2) | M1: a further 10–25% of the gross effect; M18 `dist_from_52w_high` to zero; M6.1: raw slope indistinguishable from `mom_12_1` | `mom_12_1` in every baseline (B2); report incremental gain over it. |
 | Short-term reversal (`mom_1_0`) | `touch_x_slope` (−40%, CI spans zero); `dollar_volume`/SMA20 (−47%); `slope_pctile_21_sma_200` (−80%); `stack_fully_bearish` (−32%); M11's 5d cell is the shape it produces; M17 MACD untested | `mom_1_0` in B3. Any H=5 target without it is measuring reversal. |
 | Extension (`dist_pct_sma_50`) | M14 pooled cell (−52%, CI spans zero); M6.2 `extension_x_slope` lives inside it | `ext_tercile` in B4; every level/pattern feature is judged against it. |
-| Volatility | C2's `vol_tercile`; M7's vol-match changed nothing; M6.4's null is vol-matched | `realized_vol_63` in B2; barrier units in ATR so extreme buckets are not vol buckets (DESIGN §5.5). |
+| Volatility | C2's `vol_tercile`; M7's vol-match changed nothing | `realized_vol_63` in B2; barrier units in ATR so extreme buckets are not vol buckets (DESIGN §5.5). |
 | Sector | C2's `sector` (non-PIT) | sector in B2; document the PIT gap. |
 | Size / liquidity | M12 `dollar_volume`/SMA50 capped; C-1 gradient in `dist_z_sma_50` by dollar-volume decile | `dollar_volume` tercile as a control until PIT market cap exists; never as an alpha feature before that. |
 | Survivorship | §7.3 caps on `stack_fully_bearish`, `dist_from_52w_low`, falling slope tails (M6.3 resolved its own by the rising-tail decomposition) | Point-in-time universe; keep delisted names; flag weak-state features; report event share in capped buckets. |
@@ -292,31 +285,30 @@ so barrier distances and extension features share units.
 | `stats/costs.py` (`signals_per_year`, `cost_hurdle`, `annualize`, `ci_clears_cost`) | yes | generalise `signals_per_year` from a boolean state column to a position series (the model's chosen top-k per day) | Linear annualisation; entry+exit convention; per-ticker loop inside `signals_per_year`. |
 | `stats/shape.py` (`hit_rate_deltas`, `distribution_shape`) | yes | compute per fold and per barrier cell | Descriptive only by charter (invariant #10). |
 | `stats/multiple_testing.py` (`benjamini_hochberg`, `white_reality_check`) | yes | Reality Check is the right tool for "best of K models" claims (M8 used it for 7 kernels); BH for per-experiment trial grids | `p_value_from_ci` is a Wald approximation; do not feed it into BH when draws are available. |
-| `stats/survival.py` (`kaplan_meier`, `gbm_null_survival`) | yes | fix the null's σ to an autocorrelation-aware estimator before relying on it (the open M6.4 caveat) | GBM null calibrated from the tested series. |
+| `stats/survival.py` (`kaplan_meier`, `gbm_null_survival`) | yes | always pass `direction=` to match the empirical side | A pooled-direction null reads positive drift as persistence (the M6.4 error). |
 | `labels/forward_returns.py`, `labels/path_metrics.py` | yes | add MFE, first-touch ordering, hit time, and a triple-barrier label alongside `forward_max_drawdown`, keeping its `skipna=False` convention | Only `forward_return`, `forward_realized_vol`, `forward_max_drawdown` exist. |
 | `synthetic.py` (`build_synthetic_panels`, `run_validation`, `gate_verdict`) | port the pattern | plant a barrier-hit effect rather than a +3% mean shift | The gate tests a 5-day SMA state and `c1_delta`; the model harness needs its own planted target. |
-| `features/state.py` (`state_run_id`, `days_in_run`) | yes | slope-sign run age (M6.4) | Rejects internal NaN gaps by design. |
+| `features/state.py` (`state_run_id`, `days_in_run`) | yes | age of any state | Rejects internal NaN gaps by design. |
 | `features/touch.py`, `features/crossover.py`, `features/placebo_ma.py` | available | only if an event-population model is built on touches/crosses (both are study nulls) | Close-only touches; first-pass thresholds. |
-| `modules/pattern_context.py` (`load_qualifying_patterns`, `add_pattern_context_flag`) | yes | the VCP event feature; reuse the confidence ≥ 0.7 + 21-day + breakout-confirmed definition | `pattern_matches` is current-state-only (`docs/backlog.md`); the populated table was holdout-bounded once and is not reproducible as of a given date without a re-run. |
+| `modules/pattern_context.py` (`load_qualifying_patterns`, `attach_breakout_dates`, `add_pattern_context_flag`) | only if pattern features are tried | use the as-of-safe flag (window after the verified breakout date, no status filter) | `pattern_matches` is current-state-only; a strict point-in-time history needs the scanner re-run as of each date. |
 | `modules/synthesis.py` | pattern only | overlap/enrichment check between any rare event and any dense rank feature | — |
 | `data.py::sp500_full_coverage_tickers` | **do not reuse for the model universe** | replace with `db.read_index_membership` per date plus a liquidity floor | End-of-window membership + full coverage = survivorship on both axes. |
 
 ---
 
-## 8. Proposed first three modeling experiments (pre-registration drafts)
+## 8. Proposed first modeling experiments (pre-registration drafts)
 
 Each is written so it can be copied into a modeling pre-registration file with a
-date. All three sit inside the 2010–2021 window; the holdout stays locked.
+date. Both sit inside the 2010–2021 window; the holdout stays locked.
 
 ### E1 — Does the MA feature set add anything over the C2/reversal baseline on a 21-day barrier target?
 
-- **Hypothesis.** A gradient-boosted classifier on the §2.2 v1 list (14 columns plus
+- **Hypothesis.** A gradient-boosted classifier on the §2.2 v1 list (12 columns plus
   controls) improves calibrated `P(+1 ATR before −1 ATR within 21d)` over baseline B3
   (date-demeaned target; `mom_12_1`, `mom_1_0`, `realized_vol_63`, `sector`, `dollar_volume`
   tercile).
-- **Motivating evidence.** M6.3 (Tier 2), M6.6/M7 (path labels carry the signal), M2 and
-  M14 (shape statistics diverge from the mean), M15 (the two strongest cells are
-  anti-correlated so they should be additive).
+- **Motivating evidence.** M6.3 (Tier 2), M6.6/M7 (path labels carry the signal), M2
+  (shape statistics diverge from the mean).
 - **Baseline.** B3, then B5 (B3 + `slope_pctile_21_sma_50` both tails). E1 passes only if
   it beats B5, not just B3.
 - **Metric.** Brier score and reliability curve per fold; EV after cost of the top-5%
@@ -347,40 +339,20 @@ date. All three sit inside the 2010–2021 window; the holdout stays locked.
   return target for this family, and IDEAS §1 option (a) is sufficient.
 - **Trial budget.** 4 trials (2 features × 2 horizons {21, 63}).
 
-### E3 — Does the VCP-reclaim event survive as an event-population model?
-
-- **Hypothesis.** Training only on `above_sma_50` reclaim events (39,452 in 2010–2021,
-  `pattern_context_reclaim_sma50` population), a model with the VCP flag plus the v1 list
-  has higher top-decile EV after cost than the same model without the VCP flag, and the
-  VCP flag's effect survives `mom_1_0` in the baseline (the check M14 could not run).
-- **Motivating evidence.** M14 VCP cell +1.83% [+1.06%, +2.77%], extension-robust, FDR
-  q=0.05; the reversal check hit `InsufficientBlocksError` at 112 dates. Pooling the
-  event population across all reclaims gives 2,656 dates, so the reversal control becomes
-  computable inside a model rather than as a stratum match.
-- **Baseline.** B4 (with `ext_tercile`) on the reclaim population, no VCP flag.
-- **Metric.** Top-decile EV after cost at 10 and 25 bps; hit rate; skew of the top decile
-  (M14's −0.770 in-context skew is the number to beat); `n_dates` of the VCP-positive rows
-  per fold (expect about 50 per yearly fold — most folds will be under the 3 × 42 gate, so
-  the primary read is pooled across folds).
-- **Kill criterion.** The block-bootstrap CI on the VCP flag's SHAP/permutation
-  contribution to top-decile EV includes zero, **or** the flag's contribution changes sign
-  once `mom_1_0` is added. Either kill closes the VCP line for v1.
-- **Trial budget.** 2 trials (with / without the flag), plus the `mom_1_0` ablation.
-
 ---
 
 ## 9. Corrections and caveats to IDEAS.md
 
 | inbox statement | what the evidence supports | corrected statement |
 |---|---|---|
-| §2 F2: "SMA20 slope persistence (M6.4)" listed as a feature alongside the Tier-2 cell | M6.4's cells are survival-vs-null departures, not return effects; capped by an unresolved null-calibration caveat | List slope-run *age* as a feature and M6.4 as the reason to try it; do not cite M6.4's p-values (Wald extrapolations, §5) as evidence of return predictability. |
+| §2 F2: "SMA20 slope persistence (M6.4)" listed as a feature alongside the Tier-2 cell | M6.4 is killed: 0 of 12 strata depart from a direction-matched null | Drop it. |
 | §2 F3: "`extension_x_slope` (M6.2 Finding 1) is a candidate interaction" | Real at C2 and reversal-robust, but fails FDR (p=0.0254) and the 2026-09-18 Track A surface found no gradient across deciles — a lone pixel | Let a tree find extension × slope; do not hand-build it as a v1 interaction. |
 | §2 F4: "MACD adds information beyond the MA set at its control (Tier 3) but fails the whole-grid FDR pass" | Correct as written; add that the incremental IC's lower CI edge is +0.00002 and no reversal control was run | Keep the sentence; add "marginal, untested against `mom_1_0`". |
-| §2 F8: "VCP alone is the strongest single event in the MA study … Tier 3 (reversal check underpowered)" | Correct; add the effective-N numbers: 505 events, 409 dates, 131 bootstrap-contributing dates, 0.185 events/ticker-yr | Add the numbers; note that per-fold evaluation will mostly be under the bootstrap gate (§8 E3). |
+| §2 F8: "VCP alone is the strongest single event in the MA study" | Wrong: the flag used the future breakout. As-of-safe, +0.85% [−0.10%, +1.88%] on 402 events | Drop VCP as evidence; per-pattern features must each beat B4 on an as-of-safe flag. |
 | §2 closing bullet: "The MA family is close to one signal … give the model a few representatives per lookback cluster" | Correct; the cluster count is 10 at cosine ≥0.95 and the axis is effective lookback, not indicator type; `slope_log_21_sma_200` is an outlier cluster | Add the cluster count and that M16 excluded thresholded rules (`above_*`, crossover events). |
 | §2b "Sparse events … golden/death cross … Fired-today flag, days since the event" | M3: crossover events add nothing over state (16 cells span zero) | Encode crossover *state* and its age; drop the event flag as a primary feature. |
 | §3 "LRP made quantitative: distance in ATR to the nearest resistance above and support below, pooled across every level source (S/R lines, fib levels, AVWAPs, gap edges, round numbers, prior 52-week high/low)" | M5 and §7.5: an MA is not a level; the 52-week *high* is momentum re-encoded (M18); the 52-week *low* is a real feature but as distance, not as a level | Exclude MAs from the level pool. Keep the 52-week low as its own feature. The remaining level sources (S/R lines, fibs, AVWAP, gaps) are untested by this study and must each beat B4. |
-| §3 "Time-since features: days since the 52-week high, since the last gap, since the last MA cross" | Days since MA cross = state age; M1's state-age buckets failed the plateau rule; M6.4's slope-run age did not | Replace "since the last MA cross" with "age of the current slope-sign run". |
+| §3 "Time-since features: days since the 52-week high, since the last gap, since the last MA cross" | Days since MA cross = state age; M1's state-age buckets failed the plateau rule, and M6.4's slope runs match a random walk | Drop "since the last MA cross". |
 | §3 "Per-date cross-sectional ranks of most features … the MA study's only Tier-2 survivor is a percentile feature, which is evidence that ranks travel better" | The evidence is one cell; M4's decile spreads are also per-date ranks and stayed Tier 3 | Weaken to "the Tier-2 cell is a rank feature; rank transforms are cheap and consistent with the study's construction, not proven superior". |
 | §3 "Classic factor controls: 1–5-day reversal, 12-1 momentum, size. If the model can't beat them, nothing else matters" | Correct and under-stated: these are exactly C2 + `rev_tercile`, and the study shows they remove 60–100% of gross MA effects | Promote to §4 constraints as B2/B3 (this document §3); add `dist_pct_sma_50` tercile as B4. |
 | §3 "Volatility regime … vol-of-vol"; "Compression: ATR percentile, Bollinger-width percentile, NR7" | M7: compression predicts the size of the move, not forward vol; Bollinger width ≈ ribbon width (DESIGN Appendix E) | Keep one compression feature (`ribbon_width_pctile` or Bollinger-width percentile, not both); drop the expectation that it predicts realised vol. |
@@ -389,7 +361,7 @@ date. All three sit inside the 2010–2021 window; the holdout stays locked.
 | §5 stage 1 "F2–F5 … cross-sectional ranks" | F5 `rs_rank` is the momentum baseline, not a stage-1 alpha feature (DESIGN §4.3: "this is the momentum control, and it is load-bearing") | Move `rs_rank`/`mom_12_1` into stage 0's baselines explicitly. |
 | §7 "SEC XBRL … best candidate" | The SEC EDGAR bulk company-facts ingest has landed on `main` (commits 8915910 and a35b57f, 2026-09-27) | Update the data-gap table once coverage against the PIT S&P 500 universe (delisted included) is measured; until then M12's cell stays a control, not a feature. |
 | §8 "Confidence intervals via the MA study's block bootstrap" | Correct; add the gate: `MIN_BLOCKS × block_length` dates, and that the study's p-values were Wald approximations because draws were discarded | Archive draws; report `n_dates` per fold; state the block length per horizon. |
-| §11 "Event alert: a known strong event fires (VCP reclaim, extreme-slope entry)" | Extreme-slope tail is 40% of the panel on any date (M15: 40.03% unconditional tail rate) — it is not a rare event | Only the VCP reclaim is alert-shaped (0.185/ticker-yr). Extreme slope is a ranking feature, not an alert. |
+| §11 "Event alert: a known strong event fires (VCP reclaim, extreme-slope entry)" | The VCP reclaim is a null; the extreme-slope tail is 40% of the panel | No event in the study is alert-grade. Extreme slope is a ranking feature. |
 | §12 "Half the families aren't sequences … trailing summaries … exactly what the MA study validated" | The study validated that trailing summaries carry *weak* signal after controls; it did not compare them against a sequence model | Keep trees-first on effective-N and diagnosability grounds; drop "validated" in favour of "the study's effect sizes are what a sequence model has to beat". |
 
 **Not in the inbox, worth adding:** (1) the universe must be point-in-time membership,
@@ -397,5 +369,5 @@ not `sp500_full_coverage_tickers` (§5, §7); (2) `sector` is not PIT (§2.4); (
 2022+ holdout is the first rate-hiking regime in the data (IDEAS F10 notes the fed funds
 rate, not the consequence for the holdout read); (4) the SMA200 anomaly (§6) argues
 against giving SMA200 any privileged role; (5) `pattern_matches` is current-state-only,
-so a VCP feature history must be regenerated as-of each date for the model, not read from
+so any pattern feature history must be regenerated as-of each date for the model, not read from
 the table (`docs/backlog.md`, chart-pattern entry).
