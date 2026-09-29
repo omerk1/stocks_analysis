@@ -52,15 +52,15 @@ grid size, not on new evidence.
 | `above_sma_50` (M1) | −0.183% [−0.341%, −0.031%] | 2,746 | Same shape as SMA20, lower turnover (18.0 flips/ticker-yr). |
 | `dist_pct_sma_20_h5` (M11) | rank-IC −0.0138 [−0.0225, −0.0041]; the one M11 cell that clears cost after the ×50.4 annualisation | 2,996 | The shortest horizon clears cost — the shape a short-term-reversal generator would produce (`PREREGISTRATION.md` M11 2026-09-10 correction). A model with `mom_1_0` in the baseline should expect this to shrink. |
 | `slope_cond_extension_x_slope_sma50_top` (M6.2) | −0.592% [−1.047%, −0.175%]; reversal-robust −0.550% | 2,747 | Interaction: within the top `dist_atr_sma_50` decile, a rising 50-day is *worse* than a falling one. Rare falling subgroup (7.1%). Track A follow-up (2026-09-18 surface) found it is a lone bright pixel across deciles, not a gradient. |
-| `slope_cond_touch_x_slope_sma50_from_above` (M6.2) | −5.75pp hold-rate; reversal-controlled −3.33pp [−8.18pp, +1.25pp] | 2,410 | Does not survive reversal control. Do not build a feature on it. |
+| `slope_cond_touch_x_slope_sma50_from_above` (M6.2) | −5.75pp hold-rate; reversal-controlled −3.33pp [−8.18pp, +1.25pp] | 2,410 | Does not survive reversal control. Null prior only (§2.3); don't hand-build it. |
 | `dist_from_52w_low_h63` (M18) | +0.956% [+0.128%, +1.843%] per 63d | 2,706 | Effect grows with horizon (63d → 126d); fails cost at 63d. |
 | `slope_magnitude_humped_test_sma20` / `_sma200` (M6.3) | −0.117% / −0.193%; SMA200 attenuates 80.5% under reversal control, CI spans zero | 2,747 | The Tier-2 SMA50 cell's neighbours agree in sign (plateau holds on sign) but SMA200 is a reversal artefact. Use the SMA50 percentile; treat SMA20/SMA200 as weaker copies. |
 | `context_vix_bottom`, `context_breadth_top` (M13) | −0.318% / −0.388%; other two regime buckets span zero | 1,195 / 882 | All four buckets sit within a narrow band around M1's own `above_sma_200` (−0.215%). The module's own read: no real regime interaction. Regime restriction also halves effective N. |
 | `reclaim_hold_rate_relative_volume_sma200` (M12) | +3.35pp [+0.44pp, +6.37pp] | 2,177 | The one cell supporting "reclaim on high volume holds better", at SMA200 only. Mechanism read, single lookback. |
 | `nonlinearity_macd_histogram_incremental_ic_h21` (M17) | +0.0089 [+0.00002, +0.0187]; FDR rank 34/107, p=0.115 | 2,747 | MACD histogram is not redundant with `dist_pct_sma_50`/`slope_log_21_sma_50`/`mom_12_1` (corr +0.30 / −0.25), but the incremental IC barely excludes zero and no reversal control was run. |
-| `sma_dropoff_decisive_sma200_down` (M6.5 companion, not counted) | +1.03% [+0.23%, +1.72%] | 2,440 | Flagged, not promoted; reversal untested. Ignore for v1. |
+| `sma_dropoff_decisive_sma200_down` (M6.5 companion, not counted) | +1.03% [+0.23%, +1.72%] | 2,440 | Flagged, not promoted; reversal untested. Null prior for v1 (§2.3). |
 
-### 1.3 Track B — strong nulls: do not spend features here
+### 1.3 Track B — strong nulls: null prior only, never a hand-picked feature
 
 | module | what was killed | the number that kills it | model implication |
 |---|---|---|---|
@@ -76,7 +76,7 @@ grid size, not on new evidence.
 | **M1** run length; `above_sma_200` | 24 age-bucket cells; SMA200 state | 1 of 24 excludes zero with opposite-signed neighbours; SMA200 CI [−0.42%, +0.005%] | State *age* as a feature failed the plateau rule. SMA200 is the study's recurring anomaly (three independent oddities, never resolved). |
 | **M7** compression → vol expansion | forward realized vol | +0.021% [−0.007%, +0.057%] with vol match | Compression does not predict forward *vol*; it predicts the size of the forward return (`ribbon_direction_magnitude`). |
 | **M17** RSI, stochastics | incremental IC at 21d/63d | all CIs span zero; RSI vs `dist_z_sma_20` corr 0.86 | RSI is nearly `dist_z`. Keep at most one. RSI's sign flips positive near the MA (+0.90%, CI spans zero) — a tree can find this if both are present; not worth hand-building. |
-| **M14** pattern context | reclaim inside a detected pattern, as-of-safe flag | pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%], 402 events | Nothing here. The earlier +1.83% VCP reading came from a flag that used the future breakout. |
+| **M14** pattern context | reclaim inside a detected pattern, as-of-safe flag | pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%], 402 events | Null. Per-pattern flags stay only as null-prior candidates (§2.3). The earlier +1.83% VCP reading came from a flag that used the future breakout. |
 | **M6.4** slope persistence | slope-sign run survival vs a direction-matched GBM null | 0 of 12 strata depart | Slope runs last as long as a drifting random walk's. No hazard-model evidence. |
 
 ### 1.4 Track A — screens that inform feature selection (never effect sizes)
@@ -132,23 +132,38 @@ columns replace the 68 numeric MA columns in the panel.
 Controls that belong in every feature set and every baseline (§3): `mom_12_1`, `mom_1_0`
 (reversal), `realized_vol_63`, `sector`, and `ext_tercile` (= `dist_pct_sma_50` tercile).
 
-### 2.3 Dropped, and why
+### 2.3 Near-copies (drop) and nulls (null prior, test as a group)
+
+Two different reasons a feature is off the v1 list above, handled differently
+(decided 2026-09-29, matching IDEAS §2's feature priors).
+
+**Near-copies: drop.** The same signal a v1 feature already carries. Adding them gives
+the model nothing new and splits feature-importance credit across copies.
 
 | dropped | evidence |
 |---|---|
 | Any second distance normalisation at the same lookback (`dist_pct` + `dist_atr` + `dist_z` together) | 0.94–0.98 pairwise correlation at SMA20 (M4 2026-09-09; sweep 2026-09-16). |
 | `slope_log_5_*` on EMAs | 0.986 correlation with `dist_pct` at EMA200 (sweep); it *is* distance. |
-| `above_sma_k` flags beyond one lookback | M1: mirror cells, three independent numbers; SMA200 anomalous; §7.5 shows no lookback is special. |
-| Golden/death cross event flags, days-since-cross | M3: 16 cells, all span zero. State + age already covers it. |
 | WMA/HMA/DEMA/KAMA/VWMA columns | M8: Reality Check p=0.193; 2× turnover for HMA/KAMA. |
-| Weekly-timeframe MAs | M10: sampling frequency effect < 0.03pp. |
-| Run-length bucket of `above_sma_k` (state age), or slope-sign run age | M1: plateau failure across 24 cells. M6.4: slope runs match a direction-matched random walk. |
-| VCP-reclaim event flag | M14: as-of-safe VCP cell +0.85% [−0.10%, +1.88%], spans zero on 402 events. |
-| `dist_from_52w_high` | M18: C2 CI spans zero at both horizons; the C1 effect was momentum. |
-| Distance-to-MA as a *support level* input to an LRP feature (IDEAS §3) | M5: 6/6 cells killed against synthetic neighbours; §7.5 placebo. |
+| Weekly-timeframe MAs | M10: sampling frequency effect < 0.03pp; they are the daily MAs at a longer lookback. |
 | RSI and stochastic %K as separate columns when `dist_z_sma_20` is present | M17: RSI vs `dist_z_sma_20` corr 0.86; incremental IC spans zero at 21d and 63d. |
+| ER-regime lookback switching | M9 killed; ER regime memoryless at 21d. A method, not a feature. |
+
+**Nulls: null prior, test as a group.** Separate measurements that came out
+indistinguishable from zero. Individually dead, but weak signals may still combine, so
+they enter the model as one group and stay only if the group ablation shows an
+out-of-sample gain. Being in the model never turns one into evidence.
+
+| null-prior candidate | evidence |
+|---|---|
+| `above_sma_k` flags beyond one lookback | M1: mirror cells, three independent numbers; SMA200 anomalous; §7.5 shows no lookback is special. |
+| Crossover state age (covers golden/death cross flags and days-since-cross) | M3: 16 cells, all span zero. Encode as state + age, not as event flags. |
+| Run-length bucket of `above_sma_k` (state age), or slope-sign run age | M1: plateau failure across 24 cells. M6.4: slope runs match a direction-matched random walk. |
+| VCP-reclaim and other per-pattern flags (as-of-safe only) | M14: as-of-safe VCP cell +0.85% [−0.10%, +1.88%], spans zero on 402 events. |
+| `dist_from_52w_high` | M18: C2 CI spans zero at both horizons; the C1 effect was momentum. |
+| Distance to an MA as a *level* in the LRP pool (IDEAS §3) | M5: 6/6 cells killed against synthetic neighbours; §7.5 placebo. |
 | VIX/breadth regime × MA-state interactions | M13: all four buckets sit around the whole-sample number; effective N falls to 786–1,195 dates. |
-| ER-regime lookback switching | M9 killed; ER regime memoryless at 21d. |
+| `touch_x_slope` (M6.2), `sma_dropoff_decisive_sma200_down` (M6.5 companion) | §1.2: fails reversal control / reversal untested. |
 
 ### 2.4 Needs new infrastructure before it can be a feature
 
@@ -345,7 +360,7 @@ date. Both sit inside the 2010–2021 window; the holdout stays locked.
 
 | inbox statement | what the evidence supports | corrected statement |
 |---|---|---|
-| §2 F2: "SMA20 slope persistence (M6.4)" listed as a feature alongside the Tier-2 cell | M6.4 is killed: 0 of 12 strata depart from a direction-matched null | Drop it. |
+| §2 F2: "SMA20 slope persistence (M6.4)" listed as a feature alongside the Tier-2 cell | M6.4 is killed: 0 of 12 strata depart from a direction-matched null | Drop it as evidence; slope-run length stays only as a null-prior candidate (§2.3). |
 | §2 F3: "`extension_x_slope` (M6.2 Finding 1) is a candidate interaction" | Real at C2 and reversal-robust, but fails FDR (p=0.0254) and the 2026-09-18 Track A surface found no gradient across deciles — a lone pixel | Let a tree find extension × slope; do not hand-build it as a v1 interaction. |
 | §2 F4: "MACD adds information beyond the MA set at its control (Tier 3) but fails the whole-grid FDR pass" | Correct as written; add that the incremental IC's lower CI edge is +0.00002 and no reversal control was run | Keep the sentence; add "marginal, untested against `mom_1_0`". |
 | §2 F8: "VCP alone is the strongest single event in the MA study" | Wrong: the flag used the future breakout. As-of-safe, +0.85% [−0.10%, +1.88%] on 402 events | Drop VCP as evidence; per-pattern features must each beat B4 on an as-of-safe flag. |
