@@ -1013,7 +1013,7 @@ single-day moves are not the driver of this cell's effect.
 
 **Tier:** 3 — capped by the same missing FDR/holdout infrastructure every Tier-3 cell
 in this study carries; clearing cost and the large-move-exclusion check doesn't lift
-it. **Not yet run through the whole-grid FDR pass** (pending re-entry — see
+it. **Not yet run through the whole-grid FDR pass** (superseded by the 2026-09-23 addendum below — pending re-entry — see
 `PREREGISTRATION.md`).
 
 **Reversal-robustness (2026-09-22 addendum):** C2 + `rev_tercile` (prior-1-day-return
@@ -1648,6 +1648,45 @@ directly testing whether the ER-tercile pattern survives once that recalibration
 applied would be the single most informative next step for this whole module.
 
 ---
+
+### Withdrawn (2026-09-29) — both M6.4 entries above
+
+**Both entries above are withdrawn.** The 2026-09-28 code review (`CODE_REVIEW_2026-09-28.md`,
+finding C1) found that the GBM null pooled rising *and* falling simulated runs while every
+empirical stratum is rising-only. With this panel's drift (`mu` = +0.00059/day) a random
+walk's own rising runs are longer than its falling runs, so the pooled null sat below the
+rising-only null by more than the envelope half-width at SMA20/SMA50 — a pure random walk,
+read this way, would have been reported as "persistence exceeds the null" in exactly the
+direction logged. Re-run 2026-09-29 with a direction-matched null (pre-registered addendum
+in `PREREGISTRATION.md`, run via `slope_persistence_run.py`; same seeds, same `sigma`/`mu`,
+old numbers reproduced first to four decimals):
+
+| stratum | logged delta (pooled null) | delta vs. direction-matched null | envelope | departs |
+|---|---|---|---|---|
+| SMA20 vol-tercile 0 / 1 / 2 | +0.1061 / +0.0726 / +0.0666 | **+0.0227 / +0.0078 / +0.0216** | ≈[−0.04, +0.035] | no / no / no |
+| SMA50 vol-tercile 0 / 1 / 2 | +0.0506 / +0.0442 / +0.0489 | −0.0034 / +0.0072 / +0.0218 | ≈[−0.045, +0.04] | no / no / no |
+| SMA150, SMA200 (all 6) | +0.033 to +0.052 | −0.002 to +0.025 | wider | no |
+| ER-tercile 2 at SMA20 / 50 / 150 / 200 | +0.174 / +0.103 / +0.091 / +0.089 | +0.109 / +0.060 / +0.060 / +0.058 | — | **yes / yes** / no / no |
+
+**0 of 12 primary strata depart; the module's own kill criterion fires.** Every primary
+cell is Tier 4 (`EXPERIMENTS.csv`, 2026-09-29 rows; the 2026-09-24 rows are kept, marked
+superseded, and no longer counted). The three SMA20 cells leave the whole-grid FDR
+survivor set; because their (invalid — see below) p-values had anchored ranks 1/3/5, every
+other cell's BH threshold falls with them (`STATUS.md`, 2026-09-29 FDR re-run).
+
+The ER-tercile companion keeps a two-lookback departure in each direction (top tercile
+above the null at SMA20/SMA50, bottom tercile below), not the four-lookback plateau claimed
+above — and the ER tercile is assigned from the trailing efficiency ratio at run entry,
+itself a measure of how straight the recent path was, so "high-ER runs persist longer" is
+close to a restatement of the conditioning variable. Companion only, not counted, not a
+finding.
+
+Two further corrections to the entries above, from `VALIDATION_2026-09-28.md`: (1) the
+`ci_low`/`ci_high` columns logged for every M6.4 row are the null's simulation envelope, not
+a confidence interval on the estimate, so the "three smallest p-values in the study" were
+not p-values in the same sense as any other cell's; (2) the sigma-autocorrelation caveat
+the entries name runs the other way (median lag-1 autocorrelation −0.05, 21d/1d variance
+ratio 0.84) and is retired as second-order.
 
 ## M14 — Integration with existing detectors (2026-09-25)
 
