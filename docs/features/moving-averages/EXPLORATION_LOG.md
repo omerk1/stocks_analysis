@@ -88,3 +88,14 @@ promoted past the gate goes in the final report, not here.
   not a full correlation matrix (there is nothing else at a comparable tier to include
   in one) -- DESIGN's own literal "matrix" framing is unmet by this study's own thin
   survivor set, not by a limitation of this check's method.
+
+## 2026-09-29
+
+- **M15 re-run on the as-of-safe pattern flag** (`synthesis_run.py`; PREREGISTRATION.md M15
+  2026-09-29 addendum). The 2026-09-25 run consumed M14's formation_end-anchored flag.
+  Corrected: VCP reclaims sit in M6.3's extreme-slope tail 25.4% of the time (n=402) vs.
+  40.0% unconditional / 36.5% all reclaims / 38.2% any-pattern reclaims — enrichment
+  0.63/0.69/0.66, same direction as before. Interpretation downgraded: M14's VCP cell is Tier
+  4 as of 2026-09-29, so this is one Tier-2 cell vs. a null, not two mechanisms. Track A, no
+  N_tests footprint.
+

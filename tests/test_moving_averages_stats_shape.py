@@ -103,3 +103,32 @@ def test_distribution_shape_drops_nan_before_computing():
     values = pd.Series([0.01, np.nan, -0.01, 0.02, np.nan])
     result = distribution_shape(values)
     assert result["n_wins"] + result["n_losses"] == 3  # NaNs excluded, zeros also excluded (none here)
+
+
+def test_hit_rate_deltas_treats_a_nan_return_as_undefined_not_a_miss():
+    """CLAUDE.md invariant #9: `value > 0` is False on NaN. A row with no
+    forward return must not be scored as "not positive"; it must drop out
+    of both the raw hit rate and the matched deltas exactly as if the row
+    had been removed beforehand.
+    """
+    n_dates, n_tickers = 40, 10
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for d, date in enumerate(dates):
+        for i in range(n_tickers):
+            is_event = i < 5
+            value = 0.01 if (i % 2 == 0) else -0.01
+            # Every event row on odd dates has no forward return.
+            if is_event and d % 2 == 1:
+                value = np.nan
+            rows.append({"date": date, "ticker": f"T{i}", "is_event": is_event, "value": value, "sector": "X"})
+    panel = pd.DataFrame(rows)
+
+    with_nan = hit_rate_deltas(panel, "is_event", "value", match_cols=["sector"])
+    without = hit_rate_deltas(panel.dropna(subset=["value"]), "is_event", "value", match_cols=["sector"])
+
+    assert with_nan["hit_rate"] == pytest.approx(without["hit_rate"])
+    assert with_nan["hit_rate_delta_c1"] == pytest.approx(without["hit_rate_delta_c1"])
+    assert with_nan["hit_rate_delta_c2"] == pytest.approx(without["hit_rate_delta_c2"])
+    # And the raw hit rate is the 3-of-5 positive mix, not diluted by NaN rows.
+    assert with_nan["hit_rate"] == pytest.approx(0.6)

@@ -91,13 +91,26 @@ def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     working["efficiency_ratio_raw"] = pd.concat(ers)
     working["rsi_er_interaction_raw"] = working["rsi_raw"] * working["efficiency_ratio_raw"]
 
+    # `is_new_high` is a same-bar function of `close` (is today's close at
+    # or above its own trailing `NEW_HIGH_WINDOW`-bar high?) and defines
+    # the event population `histogram_divergence_delta` pairs with a
+    # forward return -- so it goes through the same central one-bar lag
+    # as every other raw feature here (CLAUDE.md invariant #2). Before
+    # 2026-09-28 it was left unlagged, i.e. the new-high event was paired
+    # with a return starting on that same close. NA (not False) during the
+    # rolling warmup, per invariant #9.
+    rolling_high = working.groupby("ticker")["close"].transform(lambda s: s.rolling(NEW_HIGH_WINDOW).max())
+    working["is_new_high_raw"] = (working["close"] >= rolling_high).astype("boolean").mask(rolling_high.isna())
+
     raw_cols = [
         "macd_line_raw", "macd_signal_raw", "macd_histogram_raw",
         "rsi_raw", "stochastic_k_raw", "efficiency_ratio_raw", "rsi_er_interaction_raw",
+        "is_new_high_raw",
     ]
     working = apply_lag(working, raw_cols)
     for col in raw_cols:
         working[col.removesuffix("_raw")] = working[col]
+    working["is_new_high"] = working["is_new_high"].astype("boolean")
     working["rsi_slope"] = working.groupby("ticker")["rsi"].diff(5)
 
     for h in HORIZONS:
@@ -106,13 +119,9 @@ def prepare(panel: pd.DataFrame) -> pd.DataFrame:
     working["mom_tercile"] = cross_sectional_bucket(working, "mom_12_1", n_buckets=3)
     working["vol_tercile"] = cross_sectional_bucket(working, "realized_vol_63", n_buckets=3)
 
-    working["is_new_high"] = working["close"] >= working.groupby("ticker")["close"].transform(
-        lambda s: s.rolling(NEW_HIGH_WINDOW).max()
-    )
-
     def _divergence_for_ticker(group: pd.DataFrame) -> pd.Series:
         result = pd.Series(pd.NA, index=group.index, dtype="boolean")
-        highs = group[group["is_new_high"]]
+        highs = group[group["is_new_high"].fillna(False).astype(bool)]
         if len(highs) < 2:
             return result
         hist_diff = highs["macd_histogram"].diff()
@@ -241,7 +250,7 @@ def histogram_divergence_delta(panel: pd.DataFrame) -> dict:
     restrict-then-delta construction M3/M6.2 already established.
     """
     population = panel.dropna(subset=["divergence", "fwd_ret_21", *C2_MATCH_COLS])
-    population = population[population["is_new_high"]]
+    population = population[population["is_new_high"].fillna(False).astype(bool)]
     n_events, n_dates, n_tickers = len(population), population["date"].nunique(), population["ticker"].nunique()
     try:
         boot = block_bootstrap_delta(population, "divergence", "fwd_ret_21", match_cols=list(C2_MATCH_COLS))

@@ -343,3 +343,36 @@ def test_block_bootstrap_delta_rejects_a_degenerate_block_length():
             panel, "is_event", "value", match_cols=["sector", "bucket"],
             date_col="date", block_length=42,  # the module's own default
         )
+
+
+def test_block_bootstrap_spread_ignores_rows_with_an_undefined_decile():
+    """A NaN decile is neither "decile 0" nor a valid "not decile 0"
+    control (CLAUDE.md invariant #9) -- `==` alone would count such rows
+    as controls and shift both legs of the spread. The result must equal
+    the spread on the frame with those rows removed.
+    """
+    n_dates, n_tickers = 60, 10
+    rng = np.random.default_rng(1)
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    rows = []
+    for date in dates:
+        for i in range(n_tickers):
+            rows.append({
+                "date": date, "ticker": f"T{i}", "decile": float(i),
+                "value": i * 0.01 + rng.normal(0, 0.001), "sector": "X", "bucket": 0,
+            })
+    panel = pd.DataFrame(rows)
+    # Undefined-decile rows with wildly off values: if they leak into the
+    # control leg, the spread moves by a lot.
+    junk = panel.iloc[::7].copy()
+    junk["decile"] = np.nan
+    junk["value"] = 5.0
+    panel_with_nan = pd.concat([panel, junk], ignore_index=True)
+
+    kwargs = dict(decile_col="decile", decile_low=0, decile_high=9, value_col="value",
+                  match_cols=["sector", "bucket"], date_col="date", block_length=10, n_boot=50, seed=0)
+    clean = block_bootstrap_spread(panel, **kwargs)
+    dirty = block_bootstrap_spread(panel_with_nan, **kwargs)
+
+    assert dirty["point_estimate"] == pytest.approx(clean["point_estimate"], abs=1e-9)
+    assert dirty["ci_low"] == pytest.approx(clean["ci_low"], abs=1e-9)

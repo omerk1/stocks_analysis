@@ -44,7 +44,12 @@ def hit_rate_deltas(
     own, same convention as `c1_delta`/`c2_delta`).
     """
     working = panel.copy()
-    working["_is_positive"] = (working[value_col] > 0).astype(float)
+    # `> 0` reads a NaN return as "not positive" (False) rather than
+    # undefined (CLAUDE.md invariant #9) -- masked back to NaN explicitly so
+    # a row with no forward return is dropped by `c1_delta`/`c2_delta`'s own
+    # dropna, not counted as a miss.
+    is_positive = (working[value_col] > 0).astype(float)
+    working["_is_positive"] = is_positive.where(working[value_col].notna())
 
     event_rows = working[working[group_col].astype(bool)]
     raw_hit_rate = event_rows["_is_positive"].mean() if len(event_rows) else float("nan")

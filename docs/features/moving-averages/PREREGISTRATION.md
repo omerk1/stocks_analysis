@@ -4865,6 +4865,99 @@ convention as M5/§7.5/M6.5.
 ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
 the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).
 
+### Re-run with a direction-matched null (2026-09-29 addendum, pre-registered before running)
+
+**Module / track:** M6.4, Track B — a re-run of the 24 cells already declared above
+with a corrected null, not a new hypothesis. Adds nothing to `N_tests`; the 12 primary
+rows keep their existing `counted_in_n_tests=True` status and the re-run's numbers
+supersede the 2026-09-24 ones in the whole-grid FDR pass.
+
+**Why (found in the 2026-09-28 code review, code review PR #118 finding C1):**
+the empirical side of every stratum above is rising runs only, but
+`stats/survival.py::gbm_null_survival` pooled rising *and* falling runs from the
+simulated paths. With the panel's pooled drift (`mu` = +0.00059/day) the null's own
+rising runs are longer than its falling runs, so the pooled null sits below the
+rising-only null by more than the envelope half-width at SMA20/SMA50. A pure random
+walk with positive drift, sampled rising-only and compared against the pooled null,
+would have been reported as "persistence exceeds the null". `gbm_null_survival` now
+takes `direction=` and `stratum_result` passes its own direction through.
+
+**Hypothesis:** unchanged from the entry above.
+
+**Kill criterion:** unchanged — a stratum departs iff its empirical 21-day survival
+sits outside the 90% simulation envelope of the *direction-matched* GBM null at that
+horizon; module killed iff no primary stratum departs.
+
+**Control tier:** the GBM null simulation, unchanged except that simulated runs are
+now filtered to the same sign as the empirical stratum. `mu`, per-tercile `sigma`,
+2,000 paths × 1,500 days, 100 replicate groups, and the seed formula are identical
+to the 2026-09-24 run. The open `sigma` calibration caveat above still stands and is
+not addressed by this re-run.
+
+**Procedure:** (1) re-run all 24 strata with the old pooled null (`direction=None`)
+and confirm the 2026-09-24 numbers reproduce; (2) re-run all 24 with the
+direction-matched null; (3) append 24 new rows to `EXPERIMENTS.csv` dated 2026-09-29
+(the 2026-09-24 rows are kept, marked superseded in `notes`), re-run the whole-grid
+FDR pass, and update `FINDINGS.md`/`STATUS.md`/`REPORT.md` with dated addenda.
+
+### Result (2026-09-29 addendum — direction-matched null)
+
+Run via `src/signals/moving_averages/slope_persistence_run.py` (both nulls from the
+same simulated paths and seeds; raw output `output/moving_averages/slope_persistence_results.csv`).
+
+**Step 1 — reproduction.** With the pooled null (`direction=None`) every one of the 12
+primary strata reproduces the 2026-09-24 table to four decimals (e.g. SMA20 t0/t1/t2:
++0.1061 / +0.0726 / +0.0666, envelopes identical). The ER-tercile companion rows
+reproduce to within ±0.006 (simulation noise; the companion grid's seed offset was not
+recorded on 2026-09-24), with identical `n_runs`.
+
+**Step 2 — direction-matched null. Module killed: 0 of 12 primary strata depart.**
+
+| lookback | vol-tercile | n_runs | 2026-09-24 delta (pooled null) | delta vs. matched null | 90% envelope | departs |
+|---|---|---|---|---|---|---|
+| 20 | 0 | 4,869 | +0.1061 | **+0.0227** | [−0.0404, +0.0350] | no |
+| 20 | 1 | 5,280 | +0.0726 | **+0.0078** | [−0.0417, +0.0314] | no |
+| 20 | 2 | 5,512 | +0.0666 | **+0.0216** | [−0.0347, +0.0388] | no |
+| 50 | 0 | 2,503 | +0.0506 | −0.0034 | [−0.0460, +0.0390] | no |
+| 50 | 1 | 2,751 | +0.0442 | +0.0072 | [−0.0386, +0.0402] | no |
+| 50 | 2 | 3,020 | +0.0489 | +0.0218 | [−0.0469, +0.0423] | no |
+| 150 | 0 | 1,197 | +0.0502 | +0.0006 | [−0.0649, +0.0686] | no |
+| 150 | 1 | 1,346 | +0.0393 | +0.0015 | [−0.0672, +0.0601] | no |
+| 150 | 2 | 1,491 | +0.0492 | +0.0253 | [−0.0540, +0.0598] | no |
+| 200 | 0 | 946 | +0.0521 | +0.0054 | [−0.0722, +0.0779] | no |
+| 200 | 1 | 1,142 | +0.0333 | −0.0018 | [−0.0699, +0.0788] | no |
+| 200 | 2 | 1,144 | +0.0412 | +0.0197 | [−0.0749, +0.0627] | no |
+
+The 2026-09-24 "departure toward more persistence" was the drift asymmetry of the
+null itself: a random walk with this panel's drift has longer rising runs than
+falling runs, and the pooled null averaged the two. Read against the matched null,
+rising slope runs on SMA20–SMA200 last about as long as a drifting random walk's
+would. The kill criterion fires (`module_killed=True`); every primary stratum is
+Tier 4. The 2026-09-24 `FINDINGS.md` entry on the SMA20/SMA50 vol-tercile plateau is
+withdrawn (dated addendum there), and the three SMA20 cells leave the whole-grid FDR
+grid's survivor set (see the 2026-09-29 FDR re-run in `STATUS.md`).
+
+**Companion grid (ER-tercile, not counted):** ER-tercile 2 still departs *above* the
+matched null at SMA20 (+0.1090, envelope [−0.0396, +0.0336]) and SMA50 (+0.0600,
+[−0.0439, +0.0402]) but not at SMA150 (+0.0598, [−0.0655, +0.0674]) or SMA200
+(+0.0583, [−0.0682, +0.0669]); ER-tercile 0 departs *below* at SMA20 (−0.0900) and
+SMA50 (−0.0487). A two-lookback plateau in each direction, not the four-lookback one
+logged on 2026-09-24 — and the ER tercile is assigned at run entry from the trailing
+efficiency ratio, which is itself a function of how straight the recent path has
+been, so "high-ER runs persist longer" is close to a restatement of the conditioning
+variable. Stays a companion facet, Tier 3 by this study's mechanical convention,
+with that circularity named; not promoted, not counted.
+
+**The 2026-09-24 sigma caveat is retired as second-order:** the panel's median
+per-ticker lag-1 return autocorrelation is −0.05 and its 21d/1d variance ratio is
+0.84 (validation audit PR #120 §C.5), so an i.i.d. null calibrated on daily sigma
+has, if anything, *more* multi-day variance than the data — a bias toward shorter
+null runs, i.e. toward finding departures, which makes the null result above
+conservative in that respect. `ci_low`/`ci_high` in `EXPERIMENTS.csv` for every M6.4
+row are the null's simulation envelope, not a confidence interval on the estimate
+(validation audit PR #120 §D.2); no p-value is backed out of them in the 2026-09-29
+FDR re-run.
+
 ## M14 — Integration with existing detectors (2026-09-25)
 
 **Module / track:** M14, Track B (DESIGN.md lines ~977-979). Batch 4 module
@@ -5247,6 +5340,89 @@ stochastic %K incremental IC ×2 horizons — + 4 non-counted diagnostics); `FIN
 the pre-registration process gap in the same entry per this study's own multi-outcome
 module convention).
 
+### As-of-safe re-run (2026-09-29 addendum, pre-registered before running)
+
+**Module / track:** M14, Track B — a re-run of the pooled primary cell and the VCP
+addendum cell (plus their `ext_tercile`/`rev_tercile` companions) with an as-of-safe
+event definition. Adds nothing to `N_tests`; the two counted rows are superseded by
+the two re-run rows in the whole-grid FDR pass.
+
+**Why (2026-09-28 code review finding C2; validation audit PR #120 §C.2):** the
+2026-09-25 `in_pattern_context` flag was True on every date in
+`[formation_end, formation_end + 21 trading days]` of a pattern with
+`breakout_bar IS NOT NULL` and a breakout-derived `status`. `patterns/lifecycle.py`
+finds `breakout_bar` by walking *forward* from `formation_end` and assigns every
+status after it, so on a reclaim date inside that window the qualifying breakout —
+and for `hit_target`, the target hit — was often still in the future. On the logged
+VCP population 169 of 505 events precede their own breakout and carry the whole
+effect (mean `fwd_ret_21` +6.6%, hit rate 84%, breakout inside the label window
+97.6% of the time); the 336 as-of-safe events have the control's hit rate (61.3%).
+
+**Changed definition (the only change):**
+- Qualifier: `confidence >= 0.7`, `formation_end <= as_of`, `breakout_bar IS NOT
+  NULL`. **No status filter** — every status is a post-breakout outcome.
+- `breakout_date` := the timestamp of `breakout_bar` in
+  `load_and_validate(ticker, "1d", as_of=2021-12-31)`'s bars, verified per pattern by
+  `close[breakout_bar] == entry_price` (`modules/pattern_context.py::attach_breakout_dates`);
+  unverifiable rows are excluded, never guessed.
+- Window: `breakout_date < date <= breakout_date + 21 trading days` — strictly after
+  the breakout bar, so the flag on date *t* uses only a breakout printed by *t−1*'s
+  close (the panel's own one-bar convention).
+- Everything else identical: `above_sma_50` reclaim events, C2
+  (`mom_tercile`/`vol_tercile`/`sector`), block length 42, 500 draws, seed 0, 90% CI;
+  companions add `ext_tercile` (`dist_pct_sma_50`) and `rev_tercile` (`mom_1_0`).
+
+**Hypothesis and kill criterion:** unchanged from the 2026-09-25 entry and its VCP
+addendum (`module_killed := CI includes zero OR max(|ci_low|,|ci_high|) < 0.10%`).
+**Control tier:** unchanged.
+
+**Expected effective N:** thinner than logged — the as-of-safe VCP subset had 336
+events / 291 dates / 185 tickers on the diagnostic re-run, and its reversal
+companion could not run at block 42 on 112 dates. `InsufficientBlocksError` is
+reported as such, not worked around by shortening the block.
+
+**Logging:** new dated rows `pattern_context_reclaim_sma50_as_of_safe`,
+`..._as_of_safe_extension_neutralized`, `..._as_of_safe_reversal_robustness`, and the
+`_vcp_only_` triple; the 2026-09-25 rows are kept, marked superseded, and the two
+counted ones drop out of `N_tests` in favour of the re-run rows. M15's enrichment
+check consumed the old flag and is re-run afterwards (its own addendum).
+
+### Result (2026-09-29 addendum — as-of-safe re-run)
+
+Run via `src/signals/moving_averages/pattern_context_run.py`. 78,759 qualifying patterns
+(breakout on record, confidence ≥ 0.7, `formation_end` ≤ 2021-12-31; 32 excluded because
+`close[breakout_bar]` did not verify against `entry_price`), of which 4,089 VCP. Status mix
+of the qualifying set: 37,600 `hit_target`, 36,910 `invalidated_failed_breakout`, 3,707
+`expired_unresolved`, 542 `active` — the 2026-09-25 status filter had kept the first two
+and `active`, i.e. patterns selected on their post-breakout outcome.
+
+| cell | in-context N (events / dates / tickers) | bootstrap dates | C2 delta (`fwd_ret_21`) | 90% CI | verdict |
+|---|---|---|---|---|---|
+| pooled, default C2 | 7,697 / 2,037 / 402 | 988 | **+0.0737%** | [−0.3082%, +0.4232%] | **spans zero — killed** (was −0.4045% [−0.7483%, −0.0866%]) |
+| pooled, + `ext_tercile` | same | 872 | +0.1239% | [−0.2774%, +0.5456%] | spans zero |
+| pooled, + `rev_tercile` | same | 760 | −0.0615% | [−0.4305%, +0.3284%] | spans zero |
+| VCP-only, default C2 | 402 / 335 / 197 | 135 | **+0.8471%** | [−0.0961%, +1.8827%] | **spans zero — not confirmed** (was +1.8298% [+1.0600%, +2.7680%]) |
+| VCP-only, + `ext_tercile` | same | — | — | `InsufficientBlocksError` (105 dates < 126) | unresolved |
+| VCP-only, + `rev_tercile` | same | — | — | `InsufficientBlocksError` (90 dates < 126) | unresolved |
+
+Shape (descriptive): pooled in-context hit rate 60.9% (C2 delta +1.1pp), win/loss 1.11,
+skew −0.11; VCP in-context hit rate 60.0% (C2 delta +4.0pp), win/loss 1.01, skew −0.21 —
+the VCP cell's logged 68.9% hit rate and −0.77 skew were properties of the look-ahead
+subset.
+
+**Reading.** Both cells' logged effects were the future breakout inside the label window,
+not information available on the reclaim date. On an as-of-safe flag the pooled cell is a
+clean null; the VCP-only cell's point estimate stays positive but its CI spans zero and its
+own kill criterion fires (`CI includes zero`), with an upper edge (+1.88%) wide enough that
+"inconclusive, not confirmed" is the honest read rather than "killed" — the population is
+too thin (135 bootstrap-contributing dates) for the companions to run at all. **Both cells
+are Tier 4.** The 2026-09-25 rows are kept and marked superseded; the two counted rows are
+replaced by the two `_as_of_safe` rows in the whole-grid FDR pass. The 2026-09-25
+`FINDINGS.md` entry is withdrawn (dated addendum there). Residual caveat, named not
+resolved: `confidence` includes a `breakout_strength` component scored at the breakout
+bar, and `pattern_matches` is current-state-only, so a strictly point-in-time flag would
+need the scanner re-run as of each date (`docs/backlog.md`, chart-pattern entry).
+
 ## M15 — Synthesis (2026-09-25)
 
 **Module / track:** M15, Track A (DESIGN.md lines ~1026-1027). Diagnostic/synthesis,
@@ -5307,3 +5483,16 @@ panel), all eligible `above_sma_50` reclaims regardless of pattern context, and
 reclaims inside *any* of the 7 pattern types (M14's own pooled population) -- isolates
 whether "near a confirmed pattern breakout" in general already shifts the tail rate,
 before asking whether VCP specifically adds anything beyond that.
+
+
+### Re-run on the as-of-safe pattern flag (2026-09-29 addendum)
+
+Track A diagnostic, unchanged construction, re-run via `synthesis_run.py` because the
+2026-09-25 run consumed M14's formation_end-anchored flag (one-third of its VCP events were
+look-ahead). Rates: unconditional tail 40.03% (n=1,193,850); all reclaims 36.53% (n=39,452);
+any-pattern-context reclaims 38.20% (n=7,697); VCP reclaims **25.37%** (n=402). Enrichment
+0.634 / 0.695 / 0.664 vs. the three baselines — the same under-representation as before,
+slightly stronger. The mechanical reading (VCP reclaims sit less often in the extreme-slope
+tail) stands; the *interpretation* does not: M14's VCP cell is now Tier 4 (its 2026-09-29
+result above), so this is an overlap check between one Tier-2 cell and a null, not
+"two genuinely distinct mechanisms". No `N_tests` footprint, as before.

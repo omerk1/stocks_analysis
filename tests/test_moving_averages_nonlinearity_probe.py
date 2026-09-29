@@ -80,7 +80,7 @@ def test_kill_verdict_does_not_fire_when_one_edge_exceeds_floor():
 def test_divergence_flag_is_boolean_or_na_and_only_set_on_new_high_rows():
     panel = _synthetic_panel()
     working = nlp.prepare(panel)
-    non_high_rows = working[~working["is_new_high"]]
+    non_high_rows = working[~working["is_new_high"].fillna(False).astype(bool)]
     # Divergence is only ever meaningfully True/False on new-high rows --
     # off those rows it may still carry a value from construction, but the
     # decisive test itself (`histogram_divergence_delta`) restricts its
@@ -103,3 +103,22 @@ def test_zero_vs_signal_diagnostic_returns_rates_between_0_and_1():
     result = nlp.zero_vs_signal_diagnostic(working)
     assert 0.0 <= result["zero_line_vs_trend_state_agreement"] <= 1.0
     assert 0.0 <= result["signal_line_vs_accel_state_agreement"] <= 1.0
+
+
+def test_is_new_high_is_lagged_one_bar_and_na_during_warmup():
+    """CLAUDE.md invariant #2: `is_new_high` conditions the histogram-
+    divergence event population on a forward return, so a row's flag must
+    describe the *prior* close, not the row's own (2026-09-28 review
+    finding -- it was previously unlagged). Invariant #9: NA, not False,
+    while the trailing window is still warming up.
+    """
+    panel = _synthetic_panel(n_tickers=1)
+    working = nlp.prepare(panel).sort_values("date").reset_index(drop=True)
+
+    close = panel.sort_values("date")["close"].reset_index(drop=True)
+    raw_flag = close >= close.rolling(nlp.NEW_HIGH_WINDOW).max()
+
+    assert working["is_new_high"].dtype == "boolean"
+    assert working["is_new_high"].iloc[: nlp.NEW_HIGH_WINDOW].isna().all()
+    for t in (nlp.NEW_HIGH_WINDOW + 5, 100, 200, 299):
+        assert bool(working["is_new_high"].iloc[t]) == bool(raw_flag.iloc[t - 1])

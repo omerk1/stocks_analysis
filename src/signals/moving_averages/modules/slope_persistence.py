@@ -186,9 +186,16 @@ def stratum_result(
 
     calibration = gbm_calibration(working, run_table, direction=direction, stratify_col=stratify_col, n_buckets=n_buckets)
     sigma = calibration["sigma_by_tercile"][tercile]
+    # Same direction as the empirical stratum -- the null's own rising and
+    # falling runs have different length distributions whenever `mu != 0`
+    # (this panel's pooled drift is ~+0.06%/day), so a pooled null is not
+    # the "identical construction" the pre-registration describes. Before
+    # 2026-09-28 this call pooled both directions; see
+    # `stats/survival.py::_slope_sign_runs_single_path`.
     null = gbm_null_survival(
         n_paths=GBM_N_PATHS, n_days=GBM_N_DAYS, mu=calibration["mu"], sigma=sigma,
         sma_period=lookback, slope_k=SLOPE_K, seed=seed_offset + tercile * 100 + lookback, n_groups=GBM_N_GROUPS,
+        direction=direction,
     )
     envelope_lo, envelope_hi = null["envelope"][REFERENCE_HORIZON]
     departs = (
@@ -210,6 +217,7 @@ def stratum_result(
         "null_envelope_21d_hi": envelope_hi,
         "null_sigma": sigma,
         "null_mu": calibration["mu"],
+        "null_direction": null["direction"],
         "departs_from_null": bool(departs),
         "empirical_km": empirical_km,
         "null_km": null["km"],

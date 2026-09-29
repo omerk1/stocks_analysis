@@ -161,6 +161,13 @@ def block_bootstrap_spread(
     wrong; the spread must be computed within each draw.
     """
     strata_cols = [date_col, *match_cols]
+    # A row with an undefined decile (feature NaN, or a date too thin for
+    # `cross_sectional_bucket` to form the requested buckets) is neither
+    # "in decile k" nor a valid "not in decile k" control -- `==` would
+    # silently read it as the latter (CLAUDE.md invariant #9). Every
+    # current caller already drops these rows itself; this makes the
+    # function safe on its own.
+    panel = panel.dropna(subset=[decile_col])
     panel_low = panel.assign(__is_event=panel[decile_col] == decile_low)
     panel_high = panel.assign(__is_event=panel[decile_col] == decile_high)
     low = stratum_deltas(panel_low, "__is_event", value_col, strata_cols)
@@ -276,6 +283,9 @@ def block_bootstrap_spread_diff(
     CIs afterwards would be wrong.
     """
     strata_cols = [date_col, *match_cols]
+    # Same undefined-decile exclusion as `block_bootstrap_spread` -- applied
+    # jointly so both spreads are computed on one row population.
+    panel = panel.dropna(subset=[focal_decile_col, neighbor_decile_col])
 
     def _low_high(decile_col: str) -> tuple[pd.DataFrame, pd.DataFrame]:
         low_panel = panel.assign(__is_event=panel[decile_col] == decile_low)

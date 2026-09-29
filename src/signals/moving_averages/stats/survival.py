@@ -93,12 +93,24 @@ def _sma(prices: np.ndarray, period: int) -> np.ndarray:
     return out
 
 
-def _slope_sign_runs_single_path(slope_positive: np.ndarray) -> list[tuple[float, int]]:
+def _slope_sign_runs_single_path(
+    slope_positive: np.ndarray, direction: bool | None = None
+) -> list[tuple[float, int]]:
     """`(duration, event)` pairs for one boolean path (NaN-padded prefix
     allowed), same censoring convention as the real-data construction:
     the first run is left-censored (dropped, unknown true start), the
     last run is right-censored (`event=0`, still active when the path
     ends), every run in between ended in an observed flip (`event=1`).
+
+    `direction` restricts the returned runs to one sign (`True` = rising
+    runs only, `False` = falling only); `None` pools both. The real-data
+    side (`modules/slope_persistence.py::stratum_result`) always tests one
+    direction at a time, so the null must be filtered the same way: with a
+    non-zero drift, rising and falling runs have different length
+    distributions, and a pooled null sits between them -- comparing a
+    rising-only empirical curve against a pooled null then reads the drift
+    asymmetry itself as "departure from the null" (found in review,
+    2026-09-28).
     """
     valid = ~np.isnan(slope_positive)
     if not valid.any():
@@ -115,6 +127,8 @@ def _slope_sign_runs_single_path(slope_positive: np.ndarray) -> list[tuple[float
     # Run 0 (first) is left-censored -- drop, matching `features/state.py`'s
     # own `run_length_bucket` convention for the real-data construction.
     for i in range(1, len(run_lengths)):
+        if direction is not None and bool(vals[run_starts[i]]) != direction:
+            continue
         is_last = i == len(run_lengths) - 1
         pairs.append((float(run_lengths[i]), 0 if is_last else 1))
     return pairs
@@ -129,6 +143,7 @@ def gbm_null_survival(
     slope_k: int,
     seed: int,
     n_groups: int = 100,
+    direction: bool | None = None,
 ) -> dict:
     """Simulates `n_paths` GBM paths, runs the identical
     SMA -> `slope_log_k` -> sign-run construction real data goes through,
@@ -138,6 +153,11 @@ def gbm_null_survival(
     taking each group's own pooled KM curve as one replicate -- a
     simulation-based band, not a bootstrap of a single sample, since the
     "sample" here is generated data, not observed data needing resampling).
+
+    `direction` (see `_slope_sign_runs_single_path`) selects rising-only
+    (`True`), falling-only (`False`) or pooled (`None`, the pre-2026-09-28
+    behaviour) runs. A caller comparing a one-direction empirical curve must
+    pass that same direction here.
     """
     prices = simulate_gbm_paths(n_paths, n_days, mu, sigma, seed)
     sma = _sma(prices, sma_period)
@@ -157,7 +177,7 @@ def gbm_null_survival(
             continue
         group_pairs: list[tuple[float, int]] = []
         for path in group_paths:
-            group_pairs.extend(_slope_sign_runs_single_path(path))
+            group_pairs.extend(_slope_sign_runs_single_path(path, direction=direction))
         all_pairs.extend(group_pairs)
         if not group_pairs:
             continue
@@ -178,4 +198,4 @@ def gbm_null_survival(
         else:
             envelope[h] = (float(np.percentile(vals, 5)), float(np.percentile(vals, 95)))
 
-    return {"km": pooled_km, "envelope": envelope, "n_runs": len(all_pairs)}
+    return {"km": pooled_km, "envelope": envelope, "n_runs": len(all_pairs), "direction": direction}

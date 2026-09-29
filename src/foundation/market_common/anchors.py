@@ -21,6 +21,7 @@ from enum import Enum
 import pandas as pd
 
 from src.foundation.market_common import indicators
+from src.foundation.market_common.history_breaks import HistoryBreakConfig
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.pivots import PivotKind, detect_pivots
 
@@ -113,6 +114,12 @@ class AnchorConfig:
     # deliberately searched over the *full* available history regardless of
     # this setting.
     warmup_bars: int = 50
+
+    # Where anchor discovery starts for tickers with "irrelevant history"
+    # (GEVO's split-adjusted $158k 2011 high) -- see history_breaks. The DB
+    # -facing detect() callers resolve it to a date and pass it in as
+    # discover_anchors(history_start=...); discover_anchors itself stays pure.
+    history_breaks: HistoryBreakConfig = field(default_factory=HistoryBreakConfig)
 
 
 @dataclass(frozen=True)
@@ -225,13 +232,19 @@ def discover_anchors(
     timeframe: Timeframe,
     config: AnchorConfig,
     previous_anchor_types: dict[str, frozenset[AnchorType]] | None = None,
+    history_start: pd.Timestamp | None = None,
 ) -> list[DiscoveredAnchor]:
     """Pure (no DB): given an already as_of-truncated bars frame and
     whatever anchor_types the *caller's own table* previously stored for
     this (ticker, timeframe) (empty/None for a from-scratch run), returns
     the deduped, capped, staleness-resolved anchors sorted by date.
+
+    `history_start` (from history_breaks.anchor_start_date) limits where
+    new anchor roles are searched for; previously stored anchors before it
+    simply stop qualifying and go stale like any other.
     """
-    role_map = _current_role_map(bars, timeframe, config)
+    search = bars if history_start is None else bars[bars.index >= history_start]
+    role_map = _current_role_map(search, timeframe, config) if len(search) else {}
     previous_anchor_types = previous_anchor_types or {}
 
     merged: dict[str, tuple[frozenset[AnchorType], AnchorStatus]] = {
