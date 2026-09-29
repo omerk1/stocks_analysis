@@ -21,6 +21,28 @@ a linear ×12 annualisation (`stats/costs.py::annualize`). Several FDR survivors
 mechanism reads (drawdown depth, run survival), not return claims. A model built on
 this feature family is working in a weak-signal regime and should be evaluated as such.
 
+**Correction (2026-09-29) — read before any table below.** This document was written
+before the review's re-runs landed (`STATUS.md` 2026-09-29 addenda; PR #121). Two cells it
+treats as live evidence are withdrawn, and the whole-grid FDR survivor set is now 2 of 107,
+not 11. The text below is left as written; apply these overrides:
+
+| where | as written | now |
+|---|---|---|
+| §1.1 M6.4 row; §1.2 ER-tercile row; §4 "Survival, not return" | SMA20 runs outlast the GBM null by +0.07 to +0.11 | **Withdrawn.** The null pooled rising and falling runs; with a direction-matched null 0 of 12 strata depart (+0.008 to +0.023, inside ±0.04). ER-tercile keeps a two-lookback departure only, close to circular. Not evidence for a hazard head. |
+| §1.1 M14 VCP row; §1.4 M15 row; §4 "Fat left tail"; §2.2 feature #11 | +1.83%, FDR q=0.05, 68.9% hit rate, skew −0.77; "two strongest cells anti-correlated" | **Withdrawn.** The flag used the future breakout. As-of-safe: +0.85% [−0.10%, +1.88%], 402 events / 335 dates, hit rate 60.0%, skew −0.21. Tier 4. M15 now compares the Tier-2 cell with a null. |
+| §1.1 FDR survivors | 11 of 107 | **2 of 107** at q=0.10 and q=0.05: M6.6 drawdown and M6.3 Tier-2. M12, M18@126d, M7, M2, M1 unchanged in value, no longer clear BH. |
+| §2.2 feature #3 (slope-run age) | justified by M6.4 | Keep only as a cheap state feature; no study evidence behind it now. |
+| §2.2 feature #11 (VCP flag) | "extension-robust, FDR q=0.05" | Drop from v1, or keep as an untested candidate built on the as-of-safe flag (`attach_breakout_dates`). |
+| §4 "Fat left tail" exhibit | M14 VCP | Use M2 `stack_fully_bullish` instead: flat mean, +1.2pp hit rate, skew −0.35. |
+| §7 `modules/pattern_context.py` | "reuse the … breakout-confirmed definition" | Reuse the 2026-09-29 as-of-safe definition only; the status filter selected on outcome. |
+| §7 `stats/survival.py` | "fix σ to an autocorrelation-aware estimator" | Direction-match the null (done). The σ caveat runs the other way (lag-1 autocorrelation −0.05) and is second-order. |
+| §8 E3 | VCP event-population experiment | Demote. The as-of-safe cell spans zero on thin data; run only as a cheap check, not a headline experiment. E1 and E2 stand. |
+| §9 rows on F8 and §11 "only the VCP reclaim is alert-shaped" | VCP as the study's strongest event | Hold. No event in the study is currently alert-grade. |
+
+Add to §5: the universe is survivorship-selected (no delisted ticker has any daily bar
+inside 2010–2021), and the synthetic gate plants +3%/21d and never exercises C2, the
+bootstrap, or `p_value_from_ci` (`VALIDATION_2026-09-28.md` §A, §B.4).
+
 ---
 
 ## 1. What the study established, at the confidence the evidence supports
