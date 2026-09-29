@@ -10,7 +10,7 @@ from the same simulated paths:
   part of the record), and
 - `matched` -- simulated runs filtered to the same sign as the empirical
   stratum (`gbm_null_survival(direction=True)`, the corrected null --
-  `CODE_REVIEW_2026-09-28.md` finding C1).
+  code review PR #118 finding C1).
 
 Writes the raw results to
 `output/moving_averages/slope_persistence_results.csv` (gitignored,

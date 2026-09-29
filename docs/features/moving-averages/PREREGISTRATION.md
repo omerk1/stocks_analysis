@@ -4872,7 +4872,7 @@ with a corrected null, not a new hypothesis. Adds nothing to `N_tests`; the 12 p
 rows keep their existing `counted_in_n_tests=True` status and the re-run's numbers
 supersede the 2026-09-24 ones in the whole-grid FDR pass.
 
-**Why (found in the 2026-09-28 code review, `CODE_REVIEW_2026-09-28.md` finding C1):**
+**Why (found in the 2026-09-28 code review, code review PR #118 finding C1):**
 the empirical side of every stratum above is rising runs only, but
 `stats/survival.py::gbm_null_survival` pooled rising *and* falling runs from the
 simulated paths. With the panel's pooled drift (`mu` = +0.00059/day) the null's own
@@ -4950,12 +4950,12 @@ with that circularity named; not promoted, not counted.
 
 **The 2026-09-24 sigma caveat is retired as second-order:** the panel's median
 per-ticker lag-1 return autocorrelation is −0.05 and its 21d/1d variance ratio is
-0.84 (`VALIDATION_2026-09-28.md` §C.5), so an i.i.d. null calibrated on daily sigma
+0.84 (validation audit PR #120 §C.5), so an i.i.d. null calibrated on daily sigma
 has, if anything, *more* multi-day variance than the data — a bias toward shorter
 null runs, i.e. toward finding departures, which makes the null result above
 conservative in that respect. `ci_low`/`ci_high` in `EXPERIMENTS.csv` for every M6.4
 row are the null's simulation envelope, not a confidence interval on the estimate
-(`VALIDATION_2026-09-28.md` §D.2); no p-value is backed out of them in the 2026-09-29
+(validation audit PR #120 §D.2); no p-value is backed out of them in the 2026-09-29
 FDR re-run.
 
 ## M14 — Integration with existing detectors (2026-09-25)
@@ -5347,7 +5347,7 @@ addendum cell (plus their `ext_tercile`/`rev_tercile` companions) with an as-of-
 event definition. Adds nothing to `N_tests`; the two counted rows are superseded by
 the two re-run rows in the whole-grid FDR pass.
 
-**Why (2026-09-28 code review finding C2; `VALIDATION_2026-09-28.md` §C.2):** the
+**Why (2026-09-28 code review finding C2; validation audit PR #120 §C.2):** the
 2026-09-25 `in_pattern_context` flag was True on every date in
 `[formation_end, formation_end + 21 trading days]` of a pattern with
 `breakout_bar IS NOT NULL` and a breakout-derived `status`. `patterns/lifecycle.py`

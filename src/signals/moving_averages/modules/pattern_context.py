@@ -139,7 +139,7 @@ def add_pattern_context_flag(panel: pd.DataFrame, patterns: pd.DataFrame) -> pd.
 
     Before 2026-09-29 the window was anchored at `formation_end` and
     included dates before the breakout, so the flag encoded "this pattern
-    *will* break out" (CODE_REVIEW_2026-09-28.md C2, VALIDATION_2026-09-28.md
+    *will* break out" (code review PR #118 C2, validation audit PR #120
     C.2). `breakout_date` is now required; see `attach_breakout_dates`.
     """
     if "breakout_date" not in patterns.columns:

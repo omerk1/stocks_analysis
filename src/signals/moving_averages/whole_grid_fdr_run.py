@@ -6,7 +6,7 @@ ledger alone.
 Grid: rows with `counted_in_n_tests == True`. p-values: `p_value_from_ci`
 (a labelled Wald back-out of each row's 90% block-bootstrap CI). Rows whose
 `ci_low`/`ci_high` are not a CI on the estimate -- M6.4's survival cells,
-whose columns hold the GBM null's simulation envelope (VALIDATION_2026-09-28.md
+whose columns hold the GBM null's simulation envelope (validation audit PR #120
 §D.2) -- stay in the grid at p = 1: they are declared tests and belong in the
 denominator, but no p-value can be backed out of an envelope. Rows with a NaN
 CI (unresolved cells, descriptive coefficients) are excluded from the grid, as
