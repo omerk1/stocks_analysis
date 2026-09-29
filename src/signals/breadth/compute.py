@@ -61,57 +61,6 @@ def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> p
     return df
 
 
-def _load_shares_outstanding(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
-    """Bulk-load `shares_outstanding` for every ticker in `tickers` (one
-    query, not one per ticker, same discipline as `_load_closes`).
-
-    Two sources hold real share-count history: SEC EDGAR (back to ~2009-2011,
-    `bulk_sec_shares_ingest.py`) and yfinance (mostly from ~2015-2017). Per
-    ticker, SEC is used whenever it has any rows, yfinance otherwise -- one
-    source per ticker, never interleaved, so a ticker's series never jumps
-    between two sources' filing-date conventions. The SEC ingest only
-    stores a company whose counts agree with yfinance's where they overlap,
-    so preferring it trades nothing but depth."""
-    if not tickers:
-        return pd.DataFrame(columns=["ticker", "date", "shares_outstanding"])
-    return _prefer_source(
-        conn, "shares_outstanding", "date", ["shares_outstanding"], tickers, [db.SEC_EDGAR, db.YFINANCE]
-    )
-
-
-def _load_splits(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
-    """Bulk-load the local `splits` cache for every ticker in `tickers`
-    (one query, not one per ticker). Per ticker, Polygon rows are used if
-    there are any, yfinance's otherwise (`bulk_splits_ingest.py --source
-    yfinance`; both sources store the same columns). Never a live call:
-    this reads the cache `bulk_splits_ingest.py` already backfilled."""
-    if not tickers:
-        return pd.DataFrame(columns=["ticker", "execution_date", "split_from", "split_to", "ratio"])
-    return _prefer_source(
-        conn, "splits", "execution_date", ["split_from", "split_to", "ratio"], tickers, [db.POLYGON, db.YFINANCE]
-    )
-
-
-def _prefer_source(
-    conn: sqlite3.Connection, table: str, date_col: str, value_cols: list[str],
-    tickers: list[str], sources: list[str],
-) -> pd.DataFrame:
-    """Rows of `table` for `tickers`, keeping for each ticker only the
-    first source in `sources` (priority order) that has any rows for it."""
-    placeholders = ",".join("?" for _ in tickers)
-    source_placeholders = ",".join("?" for _ in sources)
-    query = (
-        f"SELECT ticker, source, {date_col}, {', '.join(value_cols)} FROM {table} "
-        f"WHERE source IN ({source_placeholders}) AND ticker IN ({placeholders}) ORDER BY ticker, {date_col}"
-    )
-    df = pd.read_sql_query(query, conn, params=[*sources, *tickers], parse_dates=[date_col])
-    if df.empty:
-        return df.drop(columns="source")
-    rank = df["source"].map({source: i for i, source in enumerate(sources)})
-    best = rank.groupby(df["ticker"]).transform("min")
-    return df[rank == best].drop(columns="source").reset_index(drop=True)
-
-
 def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """Bulk market cap per (ticker, date) for `tickers` -- long format:
     ticker, date, market_cap. `prices` is the caller's *already-loaded*
@@ -133,10 +82,10 @@ def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: l
     if prices.empty:
         return pd.DataFrame(columns=["ticker", "date", "market_cap"])
 
-    shares = _load_shares_outstanding(conn, tickers)
+    shares = market_cap.load_shares_outstanding(conn, tickers)
     if shares.empty:
         return pd.DataFrame(columns=["ticker", "date", "market_cap"])
-    splits = _load_splits(conn, tickers)
+    splits = market_cap.load_splits(conn, tickers)
 
     shares_by_ticker = {
         ticker: group.set_index("date")["shares_outstanding"]
