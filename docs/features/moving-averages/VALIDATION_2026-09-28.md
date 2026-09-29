@@ -50,10 +50,14 @@ here are flagged for the code-review branch, not fixed.
    `formation_end` of patterns whose `breakout_bar IS NOT NULL` — but `breakout_bar`
    is resolved by walking *forward* from `formation_end` (`patterns/lifecycle.py`),
    so on the reclaim date the breakout that qualifies the pattern is often still in
-   the future. §C.2 quantifies this on the actual events and re-runs the cell with the
-   flag restricted to breakouts already observed by the reclaim date. This is the
-   single most consequential finding in this audit; the cell should not be described
-   as a signal until that number is in its record.
+   the future. On the actual events: 169 of the 505 VCP reclaims (33 %) precede the
+   breakout that qualified them, and those 169 carry the whole effect (mean +6.6 %,
+   hit rate 84 %); the 336 `as_of`-safe events have the control's hit rate (61.3 %)
+   and a C2 delta of +0.26 % with a CI spanning zero. The pooled cell shows the same
+   split (52 % look-ahead events; `as_of`-safe half −0.04 %, CI spans zero). §C.2 has
+   the full decomposition. This is the single most consequential finding in this
+   audit: **both M14 cells are, as logged, label leakage, not signal**, and the fix is
+   in the event definition (`add_pattern_context_flag`), not in any robustness check.
 
 5. **Costs are arithmetically right** for every 21d/63d/126d cell checked (§E); the
    M11 rows are the exception only because the CSV stores their rank-IC, not the
@@ -219,7 +223,26 @@ The no-look-ahead subset's hit rate (61.3 %) is indistinguishable from the contr
 breakout that qualified the pattern*. The look-ahead share is stable across years
 (19–50 % of each year's events), so this is structural, not a boundary artefact.
 
-C2B_PLACEHOLDER
+**Re-running the cell with the flag restricted to breakouts already observed on the
+reclaim date** (same `decisive_test` construction; the study's own 42-day block cannot
+run on the resulting 112 contributing dates, so the CI column is a block-length-21
+bootstrap, labelled *diagnostic* and not comparable to the logged 42-day CIs):
+
+| construction | n in-context (events / dates / tickers) | C1 | C2 point | C2 90 % CI (block 21, diagnostic) | bootstrap dates |
+|---|---|---|---|---|---|
+| VCP as logged | 505 / 409 / 227 | +2.06 % | **+1.83 %** | [+0.78 %, +3.00 %] (block 21) / [+1.06 %, +2.77 %] (block 42, logged) | 168 |
+| VCP, breakout known by reclaim date | 336 / 291 / 185 | +0.69 % | **+0.26 %** | **[−0.62 %, +1.37 %] — spans zero** | 112 |
+| same, + `ext_tercile` | 336 / 291 / 185 | +0.69 % | +0.39 % | [−0.51 %, +1.29 %] — spans zero | 82 |
+| VCP, breakout after reclaim date (look-ahead subset) | 169 / 151 / 109 | +4.71 % | **+4.84 %** | (too few dates even at block 21) | — |
+| pooled as logged | 10,858 / 2,274 / 402 | — | −0.40 % | [−0.75 %, −0.09 %] (block 42, logged) | 1,097 |
+| pooled, breakout known by reclaim date | 5,164 / 1,764 / 402 | +0.05 % | **−0.04 %** | [−0.41 %, +0.37 %] (block 42) — **spans zero** | 810 |
+| pooled, breakout after reclaim date | 5,694 / 1,844 / 402 | −0.86 % | −0.59 % | [−1.18 %, −0.05 %] (block 42) | 838 |
+
+Both M14 cells are, on the `as_of`-safe half of their own events, indistinguishable
+from zero; both logged effects live entirely in the half whose label window contains
+the qualifying breakout (upward for VCP, mostly downward for the pooled set, which is
+dominated by double/triple tops and `reversal_123`). Note the pooled cell is 52 %
+look-ahead events, the VCP cell 33 %.
 
 **Reading.** The logged VCP number is reproducible and the module's code did what the
 pre-registration said; the *definition* that was pre-registered is not `as_of`-safe. A
@@ -523,7 +546,8 @@ out of CIs).
 - M14 VCP → Tier 3 "not promoted, reversal check unrun": **understated** — the cell's
   event definition uses future information (§C.2). It should not carry a Tier-3
   "real effect" label until re-run on an `as_of`-safe flag; on this audit's
-  no-look-ahead re-run it is [see §C.2 for the number].
+  no-look-ahead re-run it is +0.26 % with a CI spanning zero (§C.2), i.e. Tier 4 on
+  the evidence available today.
 - M6.4 SMA20 t0/t1/t2 → Tier 3 "GBM null may be miscalibrated": **the stated caveat
   is the wrong one**. The bigger issues are the p-value construction (§D) and
   cross-sectional dependence of runs; the σ-autocorrelation concern the module names
@@ -545,7 +569,7 @@ model").**
 | claim | verdict | why |
 |---|---|---|
 | "The MA family is close to one signal (M16: all 23 rules one cluster at cosine ≥ 0.80)" | **overstated** | Kernel-weight cosine similarity is not signal redundancy. The study's own empirical correlations say otherwise: `slope_log_21` across lookbacks 0.28–0.89 (M6.6), 0.35–0.88 (M6.1); `dist_z` vs `dist_pct` 0.69 at SMA200 (M4/Track A); at cosine ≥ 0.95 M16 itself finds 10 clusters. "A few representatives per effective-lookback cluster" is the right practical conclusion, but for the reason M16 gives at 0.95, not 0.80. |
-| "Two independent strong signals: extreme-slope percentile (M6.3, Tier 2) and the VCP reclaim (M14, Tier 3)" | **overstated / partly unsupported** | M6.3 is real but *small*: −0.25 %/21d, about −3 %/yr gross before any portfolio construction. M14-VCP is contaminated by look-ahead in its event definition (§C.2); until re-run on an as_of-safe flag it is not evidence of anything. "Independent" (M15's enrichment check) is supported. |
+| "Two independent strong signals: extreme-slope percentile (M6.3, Tier 2) and the VCP reclaim (M14, Tier 3)" | **overstated / half unsupported** | M6.3 is real but *small*: −0.25 %/21d, about −3 %/yr gross before any portfolio construction. M14-VCP is label leakage in its event definition (§C.2): on `as_of`-safe events it is +0.26 % with a CI spanning zero. "Independent" (M15's enrichment check) was computed on the same leaky flag and should be re-run; it is probably still true, since the leak is in the label window, not in the slope tail. |
 | "Extension is the recurring confound; several cells (pooled patterns, M6.2 touch) died once `dist_pct_sma_50` was controlled for" | **partly wrong** | M14 pooled: yes (extension-neutralised). M6.2 `touch_x_slope`: died to the *reversal* control (`rev_tercile`), not extension; extension was never added to its match set. The recurring confounds in this study are short-term reversal (M6.2 touch, M6.3/SMA200, M12/SMA20) and momentum/vol/sector matching in general (the C1→C2 shrinkage). Extension appears once. |
 | "Fatter downside tails on the best event (VCP) are the reason the barrier/path target beats a mean-return target" | **supported in principle, wrong exhibit** | The principle (a mean can hide an asymmetric stop-out rate; CLAUDE.md invariant #10 exists for exactly this) is right and M2's `stack_fully_bullish` shape addendum is a clean, uncontaminated exhibit (+1.2 pp hit rate, −0.35 skew, flat mean). The VCP skew (−0.77) is a descriptive statistic on a cell whose events are selected with future information. |
 
