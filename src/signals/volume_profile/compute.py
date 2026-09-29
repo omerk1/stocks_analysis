@@ -19,6 +19,7 @@ import pandas as pd
 
 ROW_SCALES = ("linear", "log")
 VOLUME_DISTRIBUTIONS = ("uniform_hl",)
+VOLUME_MEASURES = ("shares", "dollars")
 
 
 @dataclass(frozen=True)
@@ -155,6 +156,7 @@ def build_profile(
     row_scale: str = "linear",
     value_area_pct: float = 0.70,
     volume_distribution: str = "uniform_hl",
+    volume_measure: str = "shares",
 ) -> Profile | None:
     """Volume profile of `bars` from `anchor_date` (inclusive) through the
     frame's last bar. `bars` needs open/high/low/close/volume and a
@@ -163,15 +165,27 @@ def build_profile(
     Returns None when the window has no bars or no volume.
 
     Up/down split by the bar's own close >= open (TradingView's bar-level
-    rule). POC/value area always use total volume."""
+    rule). POC/value area always use total volume.
+
+    `volume_measure`: "shares" (TradingView's) counts each bar's share
+    volume; "dollars" counts share volume x the bar's typical price
+    (hlc3) -- the money traded. On split-adjusted history shares overweight
+    the low-price years (AAPL's 1995 volume is inflated ~224x by later
+    splits while its price is deflated by the same factor), which is why a
+    long anchor's share-counted POC lands in the early decades; dollars
+    don't. Over a narrow price range the two agree."""
     if volume_distribution not in VOLUME_DISTRIBUTIONS:
         raise ValueError(f"Unknown volume_distribution: {volume_distribution!r}")
+    if volume_measure not in VOLUME_MEASURES:
+        raise ValueError(f"Unknown volume_measure: {volume_measure!r}")
 
     anchor_ts = pd.Timestamp(anchor_date).normalize()
     window = bars.loc[bars.index >= anchor_ts, ["open", "high", "low", "close", "volume"]].dropna()
     if window.empty:
         return None
     volume = window["volume"].to_numpy(dtype=float)
+    if volume_measure == "dollars":
+        volume = volume * ((window["high"] + window["low"] + window["close"]) / 3.0).to_numpy(dtype=float)
     if volume.sum() <= 0:
         return None
 

@@ -155,3 +155,34 @@ def test_hourly_bars_on_the_anchor_date_are_included():
     p = build_profile(bars, "2020-01-02", row_count=2)
     assert p.n_bars == 3
     assert p.total.sum() == pytest.approx(6.0)
+
+
+def test_dollar_volume_weights_each_bar_by_its_typical_price():
+    # Two single-price bars with equal share volume: in shares they tie;
+    # in dollars the $100 bar carries 10x the $10 bar.
+    idx = pd.bdate_range("2020-01-01", periods=2)
+    bars = pd.DataFrame(
+        {"open": [10.0, 100.0], "high": [10.0, 100.0], "low": [10.0, 100.0], "close": [10.0, 100.0], "volume": [1000.0, 1000.0]},
+        index=idx,
+    )
+    shares = build_profile(bars, idx[0], row_count=2, row_scale="log")
+    dollars = build_profile(bars, idx[0], row_count=2, row_scale="log", volume_measure="dollars")
+    assert shares.total.tolist() == [1000.0, 1000.0]
+    assert dollars.total.tolist() == [10_000.0, 100_000.0]
+    assert dollars.poc > 50
+
+
+def test_dollars_and_shares_agree_over_a_flat_price_range():
+    idx = pd.bdate_range("2020-01-01", periods=20)
+    price = pd.Series([50.0 + (i % 3) * 0.1 for i in range(20)], index=idx)
+    bars = pd.DataFrame({"open": price, "high": price + 0.2, "low": price - 0.2, "close": price, "volume": 1000.0 + idx.day})
+    a = build_profile(bars, idx[0], row_count=10, volume_measure="shares")
+    b = build_profile(bars, idx[0], row_count=10, volume_measure="dollars")
+    assert a.poc == pytest.approx(b.poc, abs=0.1)
+
+
+def test_unknown_volume_measure_is_rejected():
+    idx = pd.bdate_range("2020-01-01", periods=2)
+    bars = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}, index=idx)
+    with pytest.raises(ValueError):
+        build_profile(bars, idx[0], volume_measure="euros")
