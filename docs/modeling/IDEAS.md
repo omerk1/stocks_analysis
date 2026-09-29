@@ -234,12 +234,43 @@ before it (ablation), not by being on the list.
 
 - [x] **How the model will be used → a notification service** (decided 2026-09-25,
       see §11).
-- [ ] **Universe.** Point-in-time S&P 500 only, or broader? Liquidity floor?
-- [ ] **Long only, or long and short?**
-- [ ] **Horizon range.** Is 5–63 trading days right?
-- [ ] **LRP definition.** Write down what it means (see the §2 note).
-- [ ] **Earnings dates.** Source them, or accept the gap?
-- [ ] **AVP.** Build it as part of this work, or defer it?
+- [x] **Universe → S&P 500, Nasdaq-100 and a Russell-style broad set, each with a
+      liquidity floor** (decided 2026-09-29). What the data supports today:
+      - S&P 500: point-in-time membership since 1996 (`index_membership`).
+      - Nasdaq-100: point-in-time membership only from 2015-01-01, so it covers
+        half the development window.
+      - Russell: **no membership data**, and point-in-time Russell history isn't freely
+        available. Proposal: rebuild it the way Russell does, as the top 1,000 / 3,000
+        US common stocks by point-in-time market cap, reconstituted each June, from SEC
+        share counts × price. Until delisted prices exist (§7), that rebuilt universe is
+        survivors-only too.
+      - Liquidity floor: a minimum trailing dollar volume, e.g. $20M ADV for the large
+        caps. The level is still open, and may need to differ per universe.
+- [x] **Direction → long-only alerts for v1, short side later** (decided 2026-09-29).
+      The barrier surface is symmetric, so the short side is computed from the start as
+      a diagnostic. Short-side *insights* are a stated later goal. They need borrow
+      costs and, more than the long side, survivorship-free data (§7).
+- [x] **Horizons → 10, 21, 42, 63 trading days; 5 as a diagnostic only** (decided
+      2026-09-29, open to revision). At short horizons, one daily bar can touch both
+      barriers, and daily data can't say which came first. The label needs a stated
+      tie-break (e.g. count it as a stop-out).
+- [ ] **LRP definition.** An industry term with no single definition; worth exploring
+      rather than fixing up front. Working direction (2026-09-29): both a *direction*
+      ("which side is easier") and a *distance* ("how much clear air"), from:
+      - the nearest-levels pool: S/R lines, fibs, AVWAPs, gap edges;
+      - the volume profile: low-volume nodes are easy to travel through;
+      - market structure;
+      - **MAs**: requested as core to how traders read the chart. Evidence caveat: M5
+        and the §7.5 placebo found MAs don't act as support or resistance levels (real
+        MAs did no better than unwatched synthetic neighbours). So MA distance enters
+        the level pool as a **null-prior** source (§2), tested as a group like the other
+        nulls, not as an assumed level. MAs still enter the model through the
+        trend/extension features, where the evidence is.
+      Open: how level strength is weighted, and whether one strong level outweighs
+      several weak ones.
+- [ ] **Earnings dates.** Source identified: SEC `submissions.zip` (8-K item 2.02
+      filings). Waiting on the hand download into `data/raw/sec/`.
+- [x] **AVP** → built (`signals/volume_profile`, #110).
 
 ---
 
@@ -300,6 +331,9 @@ before it (ablation), not by being on the list.
   before, although `relative_strength` expects SPY. Side effect to know about: signal CLIs'
   `--all` (`SELECT DISTINCT ticker FROM bars_1d`) now include these ETFs too.
 - **Earnings dates:** absent (§3).
+- **Survivorship-free prices: decision pending**, logged in `docs/backlog.md`. Options:
+  pay for a source (Norgate, Sharadar, EODHD, roughly $30–100/month), or state a bias
+  bound next to every reported probability.
 
 ---
 
