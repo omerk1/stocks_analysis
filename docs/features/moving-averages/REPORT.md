@@ -32,13 +32,40 @@ no-silent-edits convention). Every number below is sourced to `EXPERIMENTS.csv`,
 `FINDINGS.md`, `PREREGISTRATION.md`, or `STATUS.md` — this report synthesizes, it does
 not re-derive.
 
+**2026-09-29 review note — read first; supersedes the 2026-09-25 headline below where the
+two conflict.** A code review (`CODE_REVIEW_2026-09-28.md`, PR #118), a results audit
+(`VALIDATION_2026-09-28.md`, PR #120) and the re-runs they triggered changed this report's
+survivor set but not its one Tier-2 claim:
+- **M6.4 is withdrawn (module killed).** Its GBM null pooled rising and falling simulated
+  runs against a rising-only empirical grid; with a direction-matched null 0 of 12 primary
+  strata depart. The "three smallest p-values in the study" were never p-values in the same
+  sense as the others (their logged CI was the null's envelope).
+- **M14's VCP cell is withdrawn (Tier 4).** Its event flag used the pattern's future
+  breakout; as-of-safe, +0.85% [−0.10%, +1.88%] — spans zero. The pooled cell is a clean
+  null too. M15's "two distinct mechanisms" reading falls with it.
+- **Whole-grid FDR, re-run on the corrected ledger (N=107): 2 survivors at both q=0.10 and
+  q=0.05** — `ribbon_agreement_extreme_drawdown` (M6.6, Tier 3, a drawdown read) and
+  `slope_pctile_21_sma_50` (M6.3, **Tier 2, unchanged**: reproduces exactly, seed-stable,
+  clears cost at 20 bps). M12, M18@126d, M7, M2, M1 keep their numbers but no longer clear
+  BH once the invalid cells above them are gone.
+- **U1 is survivorship-selected**: no delisted ticker has any daily bar inside 2010–2021,
+  so invariant #4 holds vacuously and every weak-state bucket is biased upward by
+  construction (§2 note). The decile-spread statistic is 10/9 × the literal top-minus-bottom
+  (cost margins ~11% optimistic where they are thin).
+- Ledger fixes: `counted_in_n_tests` now reproduces N=107; M14's effective N corrected
+  (505/409/227, not the 39,452-row reclaim population); M1's `n_events` relabelled.
+The narrative below is left as written (no silent edits); the 2026-09-29 rows in
+`EXPERIMENTS.csv`, the dated addenda in `PREREGISTRATION.md`/`FINDINGS.md`, and
+`STATUS.md`'s FDR section are the current record. For the modeling phase:
+`docs/modeling/ma_study_insights.md` (PR #117), to be read with this note.
+
 ---
 
 ## 1. Executive summary
 
 **One claim reached Tier 2 ("Probable") — the study's first — and zero reached
 Tier 1.** DESIGN §1.5 expected 3–6 Tier-1/2 survivors from a study this size; landing
-at one, on 50 independent tests, is close to that band's floor rather than inside it,
+at one, on 107 deduplicated tests (§4; "50" here was stale from the 2026-09-23 pass, corrected 2026-09-29), is close to that band's floor rather than inside it,
 and is reported as such rather than rounded up or down.
 
 **Tier 2 — `slope_pctile_21_sma_50` (M6.3).** Stocks with an extreme 50-day-SMA slope
@@ -83,7 +110,7 @@ demonstration of FDR "flapping":**
 - **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4, does empirical
   slope-persistence exceed a matched-volatility GBM-null's own survival curve —
   ranks 1/3/5, p≈0.000000/0.000016/0.000105, the three smallest p-values this study
-  has ever produced): real, well-powered departures from the null (all three vol
+  has ever produced — **withdrawn 2026-09-29: these were never p-values in the same sense as the rest of the grid (the logged "CI" is the null's simulation envelope), and the cells do not depart from a direction-matched null at all; see the 2026-09-29 status note at the top of this report**): real, well-powered departures from the null (all three vol
   terciles, both SMA20 and SMA50 show the same plateau; only SMA20's p-values are
   small enough to clear correction). **Not promoted**: the GBM null's own volatility
   estimate is computed from the same potentially-autocorrelated series being tested,
@@ -155,6 +182,17 @@ holdout boundary, `data.py::sp500_full_coverage_tickers`). **Holdout** (everythi
 after 2021-12-31) was never read, loaded, or aggregated in this study (CLAUDE.md
 invariant #1) — no result here has been checked for holdout stability, and "holdout"
 is accordingly one of the standing caps on every Tier-3 cell.
+
+**Added 2026-09-29 (`VALIDATION_2026-09-28.md` §B.4, `CODE_REVIEW_2026-09-28.md` C3):
+because membership is taken as of the *end* of the window and full 2010–2021 coverage is
+required, U1 contains no ticker that delisted or left the index during the window — the
+database holds no daily bars at all for any delisted ticker before 2024. Invariant #4
+("never drop delisted tickers") holds vacuously, and every below-MA / falling-slope /
+near-52-week-low bucket in this report is populated only by names that were still S&P 500
+members on 2021-12-31. This is a universe-level survivorship selection, not only the
+per-cell §7.3 cap, and its sign is known: it flatters beaten-down states. The panel was
+408 tickers when M4/M1/M11 ran (2026-09-08/10) and 405 from the 2026-09-17 rebuild
+onward; M1 reproduces on the 405-ticker panel to the fourth decimal.**
 
 **One-bar lag** (invariant #2): every feature is shifted forward one trading day
 before being paired with a forward return or used to define an event, applied
@@ -438,10 +476,7 @@ Every module actually run is detailed below, including everything added
 post-termination (DESIGN §1.5's porous-scope rule) — Batch 1 (M6.1, M6.3, M7, M13),
 Batch 2 (M3, M6.5, M6.6, M12), Batch 3 (M8, M9, M10, M6.4), and Batch 4 (M16, M17,
 M14 — all three merged as of this revision, including M14's VCP-specific addendum).
-M15 (synthesis) remains the only module not yet run — it was hard-blocked on M14
-merging, and now also has a real second Tier-2-adjacent candidate (M14's VCP cell) to
-synthesize against M6.3's existing Tier-2 finding, not the null note originally
-expected. Full per-cell detail for every
+(Corrected 2026-09-29: an earlier revision of this paragraph still said M15 had not yet run; it ran 2026-09-25 — see its own entry below.) Full per-cell detail for every
 number below: `STATUS.md`'s "Modules run" table, `EXPERIMENTS.csv`, `FINDINGS.md`.
 (Updated 2026-09-25 — this section, §6, and §7 had gone stale after the minimal-core
 list plus M18, still describing the study as of 2026-09-21/23 and incorrectly listing
@@ -567,7 +602,7 @@ toward *more* persistence than the null predicts, a clean plateau at SMA20/SMA50
 cleanest result is the ER-tercile companion facet (top efficiency-ratio tercile
 departs at all 4 lookbacks, no lookback-decay). Anchored this study's largest whole-grid FDR survivor set at the time (N=99, since
 surpassed by N=107's 11 survivors once M14's VCP cell joined): the 3 SMA20
-vol-tercile cells produced the three smallest p-values this study has ever seen, and
+vol-tercile cells produced the three smallest p-values this study has ever seen (withdrawn 2026-09-29 — see the status note at the top of this report), and
 remain ranks 1/3/5 at N=107. **Not promoted to Tier 2** despite clearing FDR by the
 widest FDR margin of any cell family in the study's history: the GBM null's own
 volatility estimate is computed from the same potentially-autocorrelated series being
@@ -768,6 +803,8 @@ Tier-3 cell in the study (excluding reversal-robustness/large-move-exclusion
 companion rows, which re-test the same hypothesis rather than a new one — see those
 cells' own `FINDINGS.md` entries for the companion numbers) — full per-cell detail in
 `FINDINGS.md`, current FDR status per §4's own N=107 ranked table.
+
+**(2026-09-29: this list is superseded — only items 2 and, via §1, M6.3's Tier-2 cell still clear FDR; items 1 and 3 are withdrawn; see the review note at the top.)**
 
 **Currently clears whole-grid FDR at q=0.10 (N=107):**
 1. **`slope_persistence_vol_tercile_sma20_t0/t1/t2`** (M6.4) — the study's three
