@@ -13,7 +13,9 @@ Two separate outputs, because the two uses need different things:
    stock actually traded below `penny_price` (a split done to stay listed,
    not a late 1-for-10 in an established company -- AMC 2023 and SIRI 2024
    don't qualify), provided at least `min_days_after_reset` of history has
-   followed it. Hand-reviewed exceptions live in
+   followed it, and the company wasn't long-established and mostly
+   normal before it (a crisis, not a zombie reset). Hand-reviewed
+   exceptions live in
    `history_break_overrides.HISTORY_RESET_OVERRIDES`.
 
 2. `training_eligibility` -- a per-date flag, never a deletion. A date is
@@ -66,6 +68,14 @@ class HistoryBreakConfig:
     # leave almost nothing to anchor to -- 305 tickers in the 2026-09
     # measurement).
     min_days_after_reset: int = 210
+    # "Established company" guard: no reset when the history before the
+    # split is at least this long AND at least this share of it was
+    # training-eligible -- a crisis in a long-lived company (AIG 2009, NBR
+    # 2020, PDS 2020), not a zombie reset. Removed 85 of 783 resets in the
+    # 2026-09 measurement; GEVO/MTA/PRPO/YDKG, whose trouble came early,
+    # still reset.
+    established_min_years: float = 10.0
+    established_min_eligible_share: float = 0.8
     # Training eligibility: dates within this many days after a reverse split.
     reverse_split_cooldown_days: int = 365
     # Training eligibility: trailing window (bars) and share of zero-volume
@@ -125,8 +135,13 @@ def anchor_start_date(
         window = raw[(raw.index < d) & (raw.index >= d - pd.Timedelta(days=config.pre_split_days))]
         if len(window) and float(window.median()) < config.penny_price:
             start = d
-    if start is not None and (last - start).days < config.min_days_after_reset:
+    if start is None or (last - start).days < config.min_days_after_reset:
         return None
+    before = bars[bars.index < start]
+    if len(before) and (start - before.index[0]).days / 365.25 >= config.established_min_years:
+        eligible_share = float(training_eligibility(before, sp, config)["eligible"].mean())
+        if eligible_share >= config.established_min_eligible_share:
+            return None
     return start
 
 

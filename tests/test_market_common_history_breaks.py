@@ -71,6 +71,20 @@ def test_reset_waits_until_enough_history_follows_it():
     assert hb.anchor_start_date(bars, _splits((split_day, 0.05)), CFG) is None
 
 
+def test_established_company_crisis_does_not_reset():
+    # 12 years of normal $40 trading, a crash to $0.40, a penny 1-for-20.
+    n_normal, n_crash, n_after = 3000, 150, 300
+    closes = [40.0] * n_normal + [8.0] * n_crash + [8.0] * n_after   # adjusted
+    bars = _bars(closes, start="2005-01-03")
+    split_day = bars.index[n_normal + n_crash]
+    sp = _splits((split_day, 0.05))
+    assert hb.unadjusted_close(bars, sp).iloc[n_normal] == pytest.approx(0.4)
+    assert hb.anchor_start_date(bars, sp, CFG) is None
+    # the same crisis with a short history before it still resets
+    short = bars.iloc[n_normal - 500:]
+    assert hb.anchor_start_date(short, sp, CFG) == split_day
+
+
 def test_split_after_the_last_bar_is_not_seen():
     bars, split_day = _penny_then_reverse_split()
     truncated = bars[bars.index < split_day]
