@@ -267,8 +267,11 @@ before it (ablation), not by being on the list.
     (e.g. Norgate, Sharadar, EODHD), or an explicit bias bound on every
     reported probability.
 - **HY credit spread and SP500 from FRED:** stored history starts after 2021, so neither
-  exists inside the development window. Use SPY/index bars from the bars table for SPX,
-  and drop HY OAS or find another source.
+  exists inside the development window. **Filled 2026-09-28:** ETF daily bars (yfinance, 2005+) now in
+  `bars_1d`: SPY/QQQ/IWM/DIA, the 11 SPDR sectors (XLRE from 2015, XLC from 2018),
+  HYG (2007+)/LQD for a credit proxy, IEF/TLT/SHY for rates, GLD, UUP. None were loaded
+  before, although `relative_strength` expects SPY. Side effect to know about: signal CLIs'
+  `--all` (`SELECT DISTINCT ticker FROM bars_1d`) now include these ETFs too.
 - **Earnings dates:** absent (§3).
 
 ---
