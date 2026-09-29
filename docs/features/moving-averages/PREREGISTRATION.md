@@ -5340,6 +5340,53 @@ stochastic %K incremental IC ×2 horizons — + 4 non-counted diagnostics); `FIN
 the pre-registration process gap in the same entry per this study's own multi-outcome
 module convention).
 
+### As-of-safe re-run (2026-09-29 addendum, pre-registered before running)
+
+**Module / track:** M14, Track B — a re-run of the pooled primary cell and the VCP
+addendum cell (plus their `ext_tercile`/`rev_tercile` companions) with an as-of-safe
+event definition. Adds nothing to `N_tests`; the two counted rows are superseded by
+the two re-run rows in the whole-grid FDR pass.
+
+**Why (2026-09-28 code review finding C2; `VALIDATION_2026-09-28.md` §C.2):** the
+2026-09-25 `in_pattern_context` flag was True on every date in
+`[formation_end, formation_end + 21 trading days]` of a pattern with
+`breakout_bar IS NOT NULL` and a breakout-derived `status`. `patterns/lifecycle.py`
+finds `breakout_bar` by walking *forward* from `formation_end` and assigns every
+status after it, so on a reclaim date inside that window the qualifying breakout —
+and for `hit_target`, the target hit — was often still in the future. On the logged
+VCP population 169 of 505 events precede their own breakout and carry the whole
+effect (mean `fwd_ret_21` +6.6%, hit rate 84%, breakout inside the label window
+97.6% of the time); the 336 as-of-safe events have the control's hit rate (61.3%).
+
+**Changed definition (the only change):**
+- Qualifier: `confidence >= 0.7`, `formation_end <= as_of`, `breakout_bar IS NOT
+  NULL`. **No status filter** — every status is a post-breakout outcome.
+- `breakout_date` := the timestamp of `breakout_bar` in
+  `load_and_validate(ticker, "1d", as_of=2021-12-31)`'s bars, verified per pattern by
+  `close[breakout_bar] == entry_price` (`modules/pattern_context.py::attach_breakout_dates`);
+  unverifiable rows are excluded, never guessed.
+- Window: `breakout_date < date <= breakout_date + 21 trading days` — strictly after
+  the breakout bar, so the flag on date *t* uses only a breakout printed by *t−1*'s
+  close (the panel's own one-bar convention).
+- Everything else identical: `above_sma_50` reclaim events, C2
+  (`mom_tercile`/`vol_tercile`/`sector`), block length 42, 500 draws, seed 0, 90% CI;
+  companions add `ext_tercile` (`dist_pct_sma_50`) and `rev_tercile` (`mom_1_0`).
+
+**Hypothesis and kill criterion:** unchanged from the 2026-09-25 entry and its VCP
+addendum (`module_killed := CI includes zero OR max(|ci_low|,|ci_high|) < 0.10%`).
+**Control tier:** unchanged.
+
+**Expected effective N:** thinner than logged — the as-of-safe VCP subset had 336
+events / 291 dates / 185 tickers on the diagnostic re-run, and its reversal
+companion could not run at block 42 on 112 dates. `InsufficientBlocksError` is
+reported as such, not worked around by shortening the block.
+
+**Logging:** new dated rows `pattern_context_reclaim_sma50_as_of_safe`,
+`..._as_of_safe_extension_neutralized`, `..._as_of_safe_reversal_robustness`, and the
+`_vcp_only_` triple; the 2026-09-25 rows are kept, marked superseded, and the two
+counted ones drop out of `N_tests` in favour of the re-run rows. M15's enrichment
+check consumed the old flag and is re-run afterwards (its own addendum).
+
 ## M15 — Synthesis (2026-09-25)
 
 **Module / track:** M15, Track A (DESIGN.md lines ~1026-1027). Diagnostic/synthesis,
