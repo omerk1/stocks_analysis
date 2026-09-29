@@ -1793,6 +1793,30 @@ resolve an analogous doubt by direct test rather than leave it as an open caveat
 treats "clears FDR with an unrun robustness check" as a materially weaker evidentiary
 state than "clears FDR with a robustness check that ran and passed." Remains Tier 3.
 
+### Withdrawn (2026-09-29) — the VCP entry above and its FDR addendum
+
+**Withdrawn.** `CODE_REVIEW_2026-09-28.md` (C2) and `VALIDATION_2026-09-28.md` (§C.2) found
+that `in_pattern_context` was anchored at `formation_end` and qualified patterns by a
+`status` assigned after the breakout: 169 of the 505 VCP events preceded their own
+qualifying breakout, which then fell inside the 21-day label window (those 169: mean
++6.6%, hit rate 84%; the other 336: hit rate 61.3%, the control's). Re-run 2026-09-29 with
+the window anchored strictly after the verified breakout date and no status filter
+(`PREREGISTRATION.md` M14 2026-09-29 addendum, `pattern_context_run.py`):
+
+| cell | 2026-09-25 (logged) | 2026-09-29 (as-of-safe) |
+|---|---|---|
+| VCP-only, default C2 | +1.8298% [+1.0600%, +2.7680%], 505 ev / 409 dates | **+0.8471% [−0.0961%, +1.8827%]**, 402 ev / 335 dates / 197 tickers, 135 bootstrap dates — **spans zero** |
+| VCP-only, + `ext_tercile` | +1.9852% [+1.4334%, +2.6072%] | `InsufficientBlocksError` (105 dates) |
+| pooled, default C2 | −0.4045% [−0.7483%, −0.0866%] | +0.0737% [−0.3082%, +0.4232%] — spans zero |
+
+Tier 4 for both cells; the VCP cell reads "inconclusive, not confirmed" (wide upper edge,
+too thin for its companions to run), the pooled cell "killed". Neither survives the
+2026-09-29 whole-grid FDR re-run (`STATUS.md`). The shape statistics logged above (68.9%
+hit rate, −0.77 skew) were properties of the look-ahead subset; the as-of-safe VCP events
+have hit rate 60.0%, win/loss 1.01, skew −0.21. M15's enrichment check was re-run on the
+corrected flag (`PREREGISTRATION.md` M15 addendum): same under-representation (enrichment
+0.63–0.69), but it is now an overlap between one Tier-2 cell and a Tier-4 one.
+
 ## M17 — Nonlinearity probe: does path composition matter? (2026-09-25)
 
 ### MACD histogram carries incremental information over the MA feature set — not redundant with M3/M6, contrary to DESIGN's own prior

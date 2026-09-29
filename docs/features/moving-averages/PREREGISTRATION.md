@@ -5387,6 +5387,42 @@ reported as such, not worked around by shortening the block.
 counted ones drop out of `N_tests` in favour of the re-run rows. M15's enrichment
 check consumed the old flag and is re-run afterwards (its own addendum).
 
+### Result (2026-09-29 addendum — as-of-safe re-run)
+
+Run via `src/signals/moving_averages/pattern_context_run.py`. 78,759 qualifying patterns
+(breakout on record, confidence ≥ 0.7, `formation_end` ≤ 2021-12-31; 32 excluded because
+`close[breakout_bar]` did not verify against `entry_price`), of which 4,089 VCP. Status mix
+of the qualifying set: 37,600 `hit_target`, 36,910 `invalidated_failed_breakout`, 3,707
+`expired_unresolved`, 542 `active` — the 2026-09-25 status filter had kept the first two
+and `active`, i.e. patterns selected on their post-breakout outcome.
+
+| cell | in-context N (events / dates / tickers) | bootstrap dates | C2 delta (`fwd_ret_21`) | 90% CI | verdict |
+|---|---|---|---|---|---|
+| pooled, default C2 | 7,697 / 2,037 / 402 | 988 | **+0.0737%** | [−0.3082%, +0.4232%] | **spans zero — killed** (was −0.4045% [−0.7483%, −0.0866%]) |
+| pooled, + `ext_tercile` | same | 872 | +0.1239% | [−0.2774%, +0.5456%] | spans zero |
+| pooled, + `rev_tercile` | same | 760 | −0.0615% | [−0.4305%, +0.3284%] | spans zero |
+| VCP-only, default C2 | 402 / 335 / 197 | 135 | **+0.8471%** | [−0.0961%, +1.8827%] | **spans zero — not confirmed** (was +1.8298% [+1.0600%, +2.7680%]) |
+| VCP-only, + `ext_tercile` | same | — | — | `InsufficientBlocksError` (105 dates < 126) | unresolved |
+| VCP-only, + `rev_tercile` | same | — | — | `InsufficientBlocksError` (90 dates < 126) | unresolved |
+
+Shape (descriptive): pooled in-context hit rate 60.9% (C2 delta +1.1pp), win/loss 1.11,
+skew −0.11; VCP in-context hit rate 60.0% (C2 delta +4.0pp), win/loss 1.01, skew −0.21 —
+the VCP cell's logged 68.9% hit rate and −0.77 skew were properties of the look-ahead
+subset.
+
+**Reading.** Both cells' logged effects were the future breakout inside the label window,
+not information available on the reclaim date. On an as-of-safe flag the pooled cell is a
+clean null; the VCP-only cell's point estimate stays positive but its CI spans zero and its
+own kill criterion fires (`CI includes zero`), with an upper edge (+1.88%) wide enough that
+"inconclusive, not confirmed" is the honest read rather than "killed" — the population is
+too thin (135 bootstrap-contributing dates) for the companions to run at all. **Both cells
+are Tier 4.** The 2026-09-25 rows are kept and marked superseded; the two counted rows are
+replaced by the two `_as_of_safe` rows in the whole-grid FDR pass. The 2026-09-25
+`FINDINGS.md` entry is withdrawn (dated addendum there). Residual caveat, named not
+resolved: `confidence` includes a `breakout_strength` component scored at the breakout
+bar, and `pattern_matches` is current-state-only, so a strictly point-in-time flag would
+need the scanner re-run as of each date (`docs/backlog.md`, chart-pattern entry).
+
 ## M15 — Synthesis (2026-09-25)
 
 **Module / track:** M15, Track A (DESIGN.md lines ~1026-1027). Diagnostic/synthesis,
@@ -5447,3 +5483,16 @@ panel), all eligible `above_sma_50` reclaims regardless of pattern context, and
 reclaims inside *any* of the 7 pattern types (M14's own pooled population) -- isolates
 whether "near a confirmed pattern breakout" in general already shifts the tail rate,
 before asking whether VCP specifically adds anything beyond that.
+
+
+### Re-run on the as-of-safe pattern flag (2026-09-29 addendum)
+
+Track A diagnostic, unchanged construction, re-run via `synthesis_run.py` because the
+2026-09-25 run consumed M14's formation_end-anchored flag (one-third of its VCP events were
+look-ahead). Rates: unconditional tail 40.03% (n=1,193,850); all reclaims 36.53% (n=39,452);
+any-pattern-context reclaims 38.20% (n=7,697); VCP reclaims **25.37%** (n=402). Enrichment
+0.634 / 0.695 / 0.664 vs. the three baselines — the same under-representation as before,
+slightly stronger. The mechanical reading (VCP reclaims sit less often in the extreme-slope
+tail) stands; the *interpretation* does not: M14's VCP cell is now Tier 4 (its 2026-09-29
+result above), so this is an overlap check between one Tier-2 cell and a null, not
+"two genuinely distinct mechanisms". No `N_tests` footprint, as before.
