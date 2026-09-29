@@ -62,10 +62,15 @@ def _base_panel(n_tickers: int = N_TICKERS, n_days: int = N_DAYS) -> pd.DataFram
 
 def _patterns(vcp_tickers: list[str], other_tickers: list[str], formation_end: str) -> pd.DataFrame:
     rows = []
+    # `breakout_date` (2026-09-29, as-of-safe flag) set equal to `formation_end`
+    # so the flagged window (breakout_date, +21 bdays] still contains the fixture's
+    # reclaim day exactly as the formation_end-anchored window did.
     for ticker in vcp_tickers:
-        rows.append({"ticker": ticker, "formation_end": pd.Timestamp(formation_end), "pattern_type": "vcp"})
+        rows.append({"ticker": ticker, "formation_end": pd.Timestamp(formation_end),
+                     "breakout_date": pd.Timestamp(formation_end), "pattern_type": "vcp"})
     for ticker in other_tickers:
-        rows.append({"ticker": ticker, "formation_end": pd.Timestamp(formation_end), "pattern_type": "double_top"})
+        rows.append({"ticker": ticker, "formation_end": pd.Timestamp(formation_end),
+                     "breakout_date": pd.Timestamp(formation_end), "pattern_type": "double_top"})
     return pd.DataFrame(rows)
 
 
