@@ -35,6 +35,13 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.anchors import AnchorConfig, discover_anchors
 from src.foundation.market_common.models import Timeframe
 from src.signals.volume_profile.compute import build_profile
+from src.signals.volume_profile.config import VolumeProfileConfig
+
+# Validate the configuration production actually stores (row scale and
+# volume measure from VolumeProfileConfig), not build_profile's own
+# TradingView-style defaults.
+_PROD = VolumeProfileConfig()
+PROFILE_KW = dict(row_scale=_PROD.row_scale, volume_measure=_PROD.volume_measure)
 
 DEFAULT_TICKERS = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "JPM", "BAC", "XOM", "CVX",
@@ -100,13 +107,13 @@ def _rows_for_ticker(ticker: str, hourly: pd.DataFrame, daily: pd.DataFrame) -> 
             if not np.isfinite(a) or a <= 0:
                 continue
 
-            ref = build_profile(h, anchor_date, row_count=100)
-            est = build_profile(d, anchor_date, row_count=100)
-            naive = build_profile(hlc3_daily.loc[:as_of], anchor_date, row_count=100)
+            ref = build_profile(h, anchor_date, row_count=100, **PROFILE_KW)
+            est = build_profile(d, anchor_date, row_count=100, **PROFILE_KW)
+            naive = build_profile(hlc3_daily.loc[:as_of], anchor_date, row_count=100, **PROFILE_KW)
             if ref is None or est is None or naive is None:
                 continue
-            by_rows = {n: build_profile(d, anchor_date, row_count=n) for n in (50, 200)}
-            ref_by_rows = {n: build_profile(h, anchor_date, row_count=n) for n in (50, 200)}
+            by_rows = {n: build_profile(d, anchor_date, row_count=n, **PROFILE_KW) for n in (50, 200)}
+            ref_by_rows = {n: build_profile(h, anchor_date, row_count=n, **PROFILE_KW) for n in (50, 200)}
 
             rows.append({
                 "ticker": ticker, "kind": kind, "anchor_date": anchor_date, "as_of": as_of, "age": age,

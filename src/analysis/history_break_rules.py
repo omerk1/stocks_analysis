@@ -74,7 +74,10 @@ def load_bars(conn, tickers: list[str] | None) -> pd.DataFrame:
 # ---------------------------------------------------------------- anchors
 
 def anchor_distances(bars: pd.DataFrame) -> pd.DataFrame:
-    config = AnchorConfig()
+    # True all-time extremes, as measured for Done #62 -- the regime reach
+    # rule added later (AnchorConfig.regime_reach_factor) would drop exactly
+    # the far anchors this measurement is about.
+    config = AnchorConfig(regime_reach_factor=None)
     rows = []
     for ticker, g in bars.groupby("ticker", sort=False):
         g = g.set_index("date")
