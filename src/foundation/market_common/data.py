@@ -54,6 +54,9 @@ _INTRADAY_ATR_PERIOD = 14
 # error events like AMC's 2021 short squeeze -- a soft flag surfacing
 # those for review is correct, not a false positive).
 _INTRADAY_RANGE_ATR_RATIO = 3.0
+# Share of a ticker's bars with a wide intraday range above which a single
+# summary WARNING is logged (the 99th percentile across tickers is ~7%).
+_INTRADAY_RANGE_WARN_SHARE = 0.10
 
 # 0.5% -- matches sr_lines' own long-standing default (SRConfig.
 # corruption_warning_threshold). Not a config field here since this
@@ -146,7 +149,9 @@ def validate_bars(
         2023-01-24 bar) that the close-based check above can't see, since
         the close ends up looking perfectly normal. Same soft treatment:
         flagged, not dropped -- a single unusually volatile-but-real
-        trading day shouldn't get silently deleted from history.
+        trading day shouldn't get silently deleted from history. Logged
+        per bar at DEBUG only (it's ~1.5% of all bars -- earnings days);
+        a per-ticker WARNING fires only above _INTRADAY_RANGE_WARN_SHARE.
 
     Defensive: if `bars` carries a `source` column (e.g. a hand-built or
     multi-source frame passed in directly rather than via `load_bars`),
@@ -195,10 +200,22 @@ def validate_bars(
         logger.warning("Dropped %d row(s) with invalid OHLC values for %s", dropped, ticker)
     for d in suspicious_dates:
         logger.warning("Suspicious day-over-day close jump for %s on %s (ratio outside [1/3, 3])", ticker, d)
+    # Wide-range bars are routine -- 1.5% of all bars across the universe,
+    # ~4 a year per stock, i.e. roughly earnings days (measured 2026-09-29)
+    # -- so each one goes to DEBUG (the dates are in the returned report
+    # either way) and a WARNING only fires when a ticker has an unusually
+    # large share of them, which is what would point at bad data.
     for d in suspicious_intraday_range_dates:
-        logger.warning(
+        logger.debug(
             "Suspicious intraday range for %s on %s (high-low > %.1fx prior ATR(%d))",
             ticker, d, _INTRADAY_RANGE_ATR_RATIO, _INTRADAY_ATR_PERIOD,
+        )
+    if len(clean) and len(suspicious_intraday_range_dates) / len(clean) > _INTRADAY_RANGE_WARN_SHARE:
+        logger.warning(
+            "%s: %d of %d bars (%.1f%%) have an intraday range > %.1fx prior ATR(%d) -- unusually many",
+            ticker, len(suspicious_intraday_range_dates), len(clean),
+            100 * len(suspicious_intraday_range_dates) / len(clean),
+            _INTRADAY_RANGE_ATR_RATIO, _INTRADAY_ATR_PERIOD,
         )
 
     drop_rate = dropped / rows_loaded if rows_loaded else 0.0
