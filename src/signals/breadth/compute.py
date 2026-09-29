@@ -63,35 +63,53 @@ def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> p
 
 def _load_shares_outstanding(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
     """Bulk-load `shares_outstanding` for every ticker in `tickers` (one
-    query, not one per ticker, same discipline as `_load_closes`) --
-    source hardcoded to yfinance, the only source with real historical
-    share-count data (see `yfinance_client.get_shares_outstanding`'s
-    docstring; Polygon's equivalent isn't authorized on this project's
-    plan)."""
+    query, not one per ticker, same discipline as `_load_closes`).
+
+    Two sources hold real share-count history: SEC EDGAR (back to ~2009-2011,
+    `bulk_sec_shares_ingest.py`) and yfinance (mostly from ~2015-2017). Per
+    ticker, SEC is used whenever it has any rows, yfinance otherwise -- one
+    source per ticker, never interleaved, so a ticker's series never jumps
+    between two sources' filing-date conventions. The SEC ingest only
+    stores a company whose counts agree with yfinance's where they overlap,
+    so preferring it trades nothing but depth."""
     if not tickers:
         return pd.DataFrame(columns=["ticker", "date", "shares_outstanding"])
-    placeholders = ",".join("?" for _ in tickers)
-    query = (
-        f"SELECT ticker, date, shares_outstanding FROM shares_outstanding "
-        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, date"
+    return _prefer_source(
+        conn, "shares_outstanding", "date", ["shares_outstanding"], tickers, [db.SEC_EDGAR, db.YFINANCE]
     )
-    return pd.read_sql_query(query, conn, params=[db.YFINANCE, *tickers], parse_dates=["date"])
 
 
 def _load_splits(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
     """Bulk-load the local `splits` cache for every ticker in `tickers`
-    (one query, not one per ticker) -- source hardcoded to Polygon, the
-    only wired-up splits source (matches `db.read_splits`'s own default).
-    Never a live Polygon call: this reads the cache `bulk_splits_ingest.py`
-    already backfilled, exactly what it was built for."""
+    (one query, not one per ticker). Per ticker, Polygon rows are used if
+    there are any, yfinance's otherwise (`bulk_splits_ingest.py --source
+    yfinance`; both sources store the same columns). Never a live call:
+    this reads the cache `bulk_splits_ingest.py` already backfilled."""
     if not tickers:
         return pd.DataFrame(columns=["ticker", "execution_date", "split_from", "split_to", "ratio"])
-    placeholders = ",".join("?" for _ in tickers)
-    query = (
-        f"SELECT ticker, execution_date, split_from, split_to, ratio FROM splits "
-        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, execution_date"
+    return _prefer_source(
+        conn, "splits", "execution_date", ["split_from", "split_to", "ratio"], tickers, [db.POLYGON, db.YFINANCE]
     )
-    return pd.read_sql_query(query, conn, params=[db.POLYGON, *tickers], parse_dates=["execution_date"])
+
+
+def _prefer_source(
+    conn: sqlite3.Connection, table: str, date_col: str, value_cols: list[str],
+    tickers: list[str], sources: list[str],
+) -> pd.DataFrame:
+    """Rows of `table` for `tickers`, keeping for each ticker only the
+    first source in `sources` (priority order) that has any rows for it."""
+    placeholders = ",".join("?" for _ in tickers)
+    source_placeholders = ",".join("?" for _ in sources)
+    query = (
+        f"SELECT ticker, source, {date_col}, {', '.join(value_cols)} FROM {table} "
+        f"WHERE source IN ({source_placeholders}) AND ticker IN ({placeholders}) ORDER BY ticker, {date_col}"
+    )
+    df = pd.read_sql_query(query, conn, params=[*sources, *tickers], parse_dates=[date_col])
+    if df.empty:
+        return df.drop(columns="source")
+    rank = df["source"].map({source: i for i, source in enumerate(sources)})
+    best = rank.groupby(df["ticker"]).transform("min")
+    return df[rank == best].drop(columns="source").reset_index(drop=True)
 
 
 def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:

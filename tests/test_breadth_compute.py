@@ -256,6 +256,42 @@ def test_cap_weighted_applies_the_local_splits_cache_to_the_cumulative_ratio(con
     assert with_split["n_advancing"].iloc[5] == without_split["n_advancing"].iloc[5] == pytest.approx(1500)
 
 
+def test_cap_weighted_prefers_sec_edgar_shares_over_yfinance_per_ticker(conn):
+    # AAA has both sources (SEC must win); BBB has yfinance only (must
+    # still be weighted, not dropped). Day 2: AAA close=11, BBB close=18.
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    db.upsert_bars(conn, "bars_1d", "BBB", db.YFINANCE, _bars([19, 18, 17, 16, 15, 14, 13, 12, 11, 10]))
+    db.upsert_shares_outstanding(
+        conn, "AAA", db.SEC_EDGAR, pd.Series([300], index=[_DATES[0]], name="shares_outstanding")
+    )
+    _shares(conn, "AAA", 100)
+    _shares(conn, "BBB", 50)
+    membership = pd.DataFrame({"ticker": ["AAA", "BBB"], "start_date": [_DATES[0]] * 2, "end_date": [None, None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+
+    assert result["n_advancing"].iloc[1] == pytest.approx(11 * 300)
+    assert result["n_declining"].iloc[1] == pytest.approx(18 * 50)
+
+
+def test_cap_weighted_uses_yfinance_splits_when_polygon_has_none(conn):
+    # Same 2-for-1 split as the Polygon test above, registered under
+    # yfinance only (the only splits source actually backfilled today).
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    _shares(conn, "AAA", 100)
+    db.upsert_splits(
+        conn, "AAA", db.YFINANCE,
+        pd.DataFrame({"execution_date": [_DATES[4]], "split_from": [1.0], "split_to": [2.0], "ratio": [2.0]}),
+    )
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [_DATES[0]], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+
+    assert result["n_advancing"].iloc[1] == pytest.approx(2200)
+
+
 def test_advance_decline_line_is_a_cumulative_sum_of_net_advances():
     breadth = pd.DataFrame({"net_advances": [1, -2, 3, 0]}, index=pd.bdate_range("2020-01-01", periods=4))
 
