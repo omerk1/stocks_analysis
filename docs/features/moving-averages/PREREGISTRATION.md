@@ -4865,6 +4865,41 @@ convention as M5/§7.5/M6.5.
 ER-tercile, only the 12 primary counted toward `N_tests`); `FINDINGS.md` (2 entries:
 the SMA20/SMA50 vol-tercile plateau, and the ER-tercile-2 all-lookback plateau).
 
+### Re-run with a direction-matched null (2026-09-29 addendum, pre-registered before running)
+
+**Module / track:** M6.4, Track B — a re-run of the 24 cells already declared above
+with a corrected null, not a new hypothesis. Adds nothing to `N_tests`; the 12 primary
+rows keep their existing `counted_in_n_tests=True` status and the re-run's numbers
+supersede the 2026-09-24 ones in the whole-grid FDR pass.
+
+**Why (found in the 2026-09-28 code review, `CODE_REVIEW_2026-09-28.md` finding C1):**
+the empirical side of every stratum above is rising runs only, but
+`stats/survival.py::gbm_null_survival` pooled rising *and* falling runs from the
+simulated paths. With the panel's pooled drift (`mu` = +0.00059/day) the null's own
+rising runs are longer than its falling runs, so the pooled null sits below the
+rising-only null by more than the envelope half-width at SMA20/SMA50. A pure random
+walk with positive drift, sampled rising-only and compared against the pooled null,
+would have been reported as "persistence exceeds the null". `gbm_null_survival` now
+takes `direction=` and `stratum_result` passes its own direction through.
+
+**Hypothesis:** unchanged from the entry above.
+
+**Kill criterion:** unchanged — a stratum departs iff its empirical 21-day survival
+sits outside the 90% simulation envelope of the *direction-matched* GBM null at that
+horizon; module killed iff no primary stratum departs.
+
+**Control tier:** the GBM null simulation, unchanged except that simulated runs are
+now filtered to the same sign as the empirical stratum. `mu`, per-tercile `sigma`,
+2,000 paths × 1,500 days, 100 replicate groups, and the seed formula are identical
+to the 2026-09-24 run. The open `sigma` calibration caveat above still stands and is
+not addressed by this re-run.
+
+**Procedure:** (1) re-run all 24 strata with the old pooled null (`direction=None`)
+and confirm the 2026-09-24 numbers reproduce; (2) re-run all 24 with the
+direction-matched null; (3) append 24 new rows to `EXPERIMENTS.csv` dated 2026-09-29
+(the 2026-09-24 rows are kept, marked superseded in `notes`), re-run the whole-grid
+FDR pass, and update `FINDINGS.md`/`STATUS.md`/`REPORT.md` with dated addenda.
+
 ## M14 — Integration with existing detectors (2026-09-25)
 
 **Module / track:** M14, Track B (DESIGN.md lines ~977-979). Batch 4 module
