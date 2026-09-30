@@ -36,6 +36,9 @@ class Gap:
     zone_top: float
     zone_bottom: float
     size_atr: float
+    # Lifecycle fields below (status, max_fill_pct, milestone dates,
+    # in_reach) are as of the last bar the detecting run saw -- current
+    # state, not history. For a past date use relevance.gap_states.
     status: GapStatus = GapStatus.OPEN
     max_fill_pct: float = 0.0
     first_touch_date: str | None = None

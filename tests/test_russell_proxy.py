@@ -29,7 +29,7 @@ def _add_stock(conn, ticker, close, shares, share_date="2019-01-15", type_="CS",
         {"open": close, "high": close, "low": close, "close": close, "volume": 1000, "is_partial": 0},
         index=pd.DatetimeIndex(days, name="timestamp"),
     )
-    db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE, bars)
+    db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, bars)
     if shares is not None:
         db.upsert_shares_outstanding(
             conn, ticker, db.SEC_EDGAR, pd.Series([shares], index=[pd.Timestamp(share_date)], name="shares_outstanding")

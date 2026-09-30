@@ -63,11 +63,9 @@ def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> p
 
 def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     """Bulk market cap per (ticker, date) for `tickers` -- long format:
-    ticker, date, market_cap. `prices` is the caller's *already-loaded*
-    `_load_closes` result (not re-queried here -- `compute_breadth` loads
-    it once for the whole run; re-fetching the same close prices a second
-    time just for this would double the `bars_1d` read on every cap-
-    weighted run for no reason). Two more bulk queries (shares
+    ticker, date, market_cap. `prices` is the caller's `_load_closes`
+    result for `market_cap.PRICE_SOURCE` (split-only closes); the signal
+    prices are reused when they already come from that source. Two more bulk queries (shares
     outstanding, splits), then `market_cap.reconcile_market_cap` (a pure,
     no-DB-access function) is looped per ticker in Python to do the actual
     split-reconciliation -- not `market_cap.historical_market_cap`, which
@@ -213,7 +211,13 @@ def compute_breadth(
     members = merged[in_interval].copy()
 
     if config.weighting == "cap":
-        market_caps = _load_market_caps(conn, prices, tickers)
+        # Weights come from split-only closes, not `config.price_source`'s
+        # (dividend-adjusted) closes -- see `market_cap.PRICE_SOURCE`.
+        cap_prices = (
+            prices if config.price_source == market_cap.PRICE_SOURCE
+            else _load_closes(conn, tickers, market_cap.PRICE_SOURCE)
+        )
+        market_caps = _load_market_caps(conn, cap_prices, tickers)
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")

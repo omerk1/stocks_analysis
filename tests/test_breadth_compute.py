@@ -144,6 +144,10 @@ def test_unknown_weighting_raises(conn):
 
 
 def _shares(conn, ticker: str, value: float) -> None:
+    # Cap weights read split-only closes; mirror the signal bars there.
+    bars = db.read_bars(conn, "bars_1d", ticker=ticker, source=db.YFINANCE)
+    if not bars.empty:
+        db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, bars)
     db.upsert_shares_outstanding(
         conn, ticker, db.YFINANCE, pd.Series([value], index=[_DATES[0]], name="shares_outstanding")
     )
@@ -298,3 +302,19 @@ def test_advance_decline_line_is_a_cumulative_sum_of_net_advances():
     result = advance_decline_line(breadth)
 
     assert list(result) == [1, -1, 2, 2]
+
+
+def test_cap_weights_use_split_only_closes_not_the_dividend_adjusted_signal_closes(conn):
+    # Signal bars (dividend-adjusted) say AAA is cheap; its split-only closes
+    # are 3x higher. The weight must follow the split-only price.
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE_SPLIT_ONLY, _bars([30, 33, 36, 39, 42, 45, 48, 51, 54, 57]))
+    db.upsert_shares_outstanding(
+        conn, "AAA", db.YFINANCE, pd.Series([100], index=[_DATES[0]], name="shares_outstanding")
+    )
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [_DATES[0]], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+
+    assert result["n_advancing"].iloc[1] == pytest.approx(33 * 100)

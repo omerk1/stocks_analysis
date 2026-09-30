@@ -361,31 +361,12 @@ date. Both sit inside the 2010–2021 window; the holdout stays locked.
 
 ## 9. Corrections and caveats to IDEAS.md
 
-| inbox statement | what the evidence supports | corrected statement |
-|---|---|---|
-| §2 F2: "SMA20 slope persistence (M6.4)" listed as a feature alongside the Tier-2 cell | M6.4 is killed: 0 of 12 strata depart from a direction-matched null | Drop it as evidence; slope-run length stays only as a null-prior candidate (§2.3). |
-| §2 F3: "`extension_x_slope` (M6.2 Finding 1) is a candidate interaction" | Real at C2 and reversal-robust, but fails FDR (p=0.0254) and the 2026-09-18 Track A surface found no gradient across deciles — a lone pixel | Let a tree find extension × slope; do not hand-build it as a v1 interaction. |
-| §2 F4: "MACD adds information beyond the MA set at its control (Tier 3) but fails the whole-grid FDR pass" | Correct as written; add that the incremental IC's lower CI edge is +0.00002 and no reversal control was run | Keep the sentence; add "marginal, untested against `mom_1_0`". |
-| §2 F8: "VCP alone is the strongest single event in the MA study" | Wrong: the flag used the future breakout. As-of-safe, +0.85% [−0.10%, +1.88%] on 402 events | Drop VCP as evidence; per-pattern features must each beat B4 on an as-of-safe flag. |
-| §2 closing bullet: "The MA family is close to one signal … give the model a few representatives per lookback cluster" | Correct; the cluster count is 10 at cosine ≥0.95 and the axis is effective lookback, not indicator type; `slope_log_21_sma_200` is an outlier cluster | Add the cluster count and that M16 excluded thresholded rules (`above_*`, crossover events). |
-| §2b "Sparse events … golden/death cross … Fired-today flag, days since the event" | M3: crossover events add nothing over state (16 cells span zero) | Encode crossover *state* and its age; drop the event flag as a primary feature. |
-| §3 "LRP made quantitative: distance in ATR to the nearest resistance above and support below, pooled across every level source (S/R lines, fib levels, AVWAPs, gap edges, round numbers, prior 52-week high/low)" | M5 and §7.5: an MA is not a level; the 52-week *high* is momentum re-encoded (M18); the 52-week *low* is a real feature but as distance, not as a level | Exclude MAs from the level pool. Keep the 52-week low as its own feature. The remaining level sources (S/R lines, fibs, AVWAP, gaps) are untested by this study and must each beat B4. |
-| §3 "Time-since features: days since the 52-week high, since the last gap, since the last MA cross" | Days since MA cross = state age; M1's state-age buckets failed the plateau rule, and M6.4's slope runs match a random walk | Drop "since the last MA cross". |
-| §3 "Per-date cross-sectional ranks of most features … the MA study's only Tier-2 survivor is a percentile feature, which is evidence that ranks travel better" | The evidence is one cell; M4's decile spreads are also per-date ranks and stayed Tier 3 | Weaken to "the Tier-2 cell is a rank feature; rank transforms are cheap and consistent with the study's construction, not proven superior". |
-| §3 "Classic factor controls: 1–5-day reversal, 12-1 momentum, size. If the model can't beat them, nothing else matters" | Correct and under-stated: these are exactly C2 + `rev_tercile`, and the study shows they remove 60–100% of gross MA effects | Promote to §4 constraints as B2/B3 (this document §3); add `dist_pct_sma_50` tercile as B4. |
-| §3 "Volatility regime … vol-of-vol"; "Compression: ATR percentile, Bollinger-width percentile, NR7" | M7: compression predicts the size of the move, not forward vol; Bollinger width ≈ ribbon width (DESIGN Appendix E) | Keep one compression feature (`ribbon_width_pctile` or Bollinger-width percentile, not both); drop the expectation that it predicts realised vol. |
-| §3 "SPX's own trend state (reuse the MA features on the index)" | M13: index-level regime slices of `above_sma_200` show no interaction and cut effective N to 786–1,195 dates | Include as a gate only; expect nothing; report the regime count as effective N (DESIGN §6.4). |
-| §4 "The MA study's single Tier-2 effect is about 0.25% over 21 days" | Correct (−0.248%) | No change. Add: the 90% CI is [−0.354%, −0.153%] and the cell's cost hurdle is 0.77%/yr against a ×12-annualised near edge of −1.83%/yr. |
-| §5 stage 1 "F2–F5 … cross-sectional ranks" | F5 `rs_rank` is the momentum baseline, not a stage-1 alpha feature (DESIGN §4.3: "this is the momentum control, and it is load-bearing") | Move `rs_rank`/`mom_12_1` into stage 0's baselines explicitly. |
-| §7 "SEC XBRL … best candidate" | The SEC EDGAR bulk company-facts ingest has landed on `main` (commits 8915910 and a35b57f, 2026-09-27) | Update the data-gap table once coverage against the PIT S&P 500 universe (delisted included) is measured; until then M12's cell stays a control, not a feature. |
-| §8 "Confidence intervals via the MA study's block bootstrap" | Correct; add the gate: `MIN_BLOCKS × block_length` dates, and that the study's p-values were Wald approximations because draws were discarded | Archive draws; report `n_dates` per fold; state the block length per horizon. |
-| §11 "Event alert: a known strong event fires (VCP reclaim, extreme-slope entry)" | The VCP reclaim is a null; the extreme-slope tail is 40% of the panel | No event in the study is alert-grade. Extreme slope is a ranking feature. |
-| §12 "Half the families aren't sequences … trailing summaries … exactly what the MA study validated" | The study validated that trailing summaries carry *weak* signal after controls; it did not compare them against a sequence model | Keep trees-first on effective-N and diagnosability grounds; drop "validated" in favour of "the study's effect sizes are what a sequence model has to beat". |
+All applied to `IDEAS.md` in place (2026-09-29 and 2026-09-30), with one deliberate
+exception: this section proposed excluding MAs from the LRP level pool. The user kept
+MAs as a **null-prior** level source instead (`IDEAS.md` §6, `LRP.md` §1.1), tested as a
+group like every other null, so the M5/§7.5 evidence decides rather than a hand exclusion.
 
-**Not in the inbox, worth adding:** (1) the universe must be point-in-time membership,
-not `sp500_full_coverage_tickers` (§5, §7); (2) `sector` is not PIT (§2.4); (3) the
-2022+ holdout is the first rate-hiking regime in the data (IDEAS F10 notes the fed funds
-rate, not the consequence for the holdout read); (4) the SMA200 anomaly (§6) argues
-against giving SMA200 any privileged role; (5) `pattern_matches` is current-state-only,
-so any pattern feature history must be regenerated as-of each date for the model, not read from
-the table (`docs/backlog.md`, chart-pattern entry).
+The five "not in the inbox" items this section also listed are in place too: point-in-time
+universe (`IDEAS.md` §6), non-PIT sector (F9), the 2022+ holdout as the first hiking regime
+(F10), no privileged SMA200 (§2), and regenerating pattern history as of each date rather
+than reading `pattern_matches` (`LRP.md` §4).
