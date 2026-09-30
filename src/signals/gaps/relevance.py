@@ -29,7 +29,10 @@ possible instead of re-running detection per date:
 
 `gap_states` therefore takes gaps detected once on the full history and
 returns each one's state on each requested date, using only bars up to
-that date. Tested equal to `detect(as_of=...)` for status and fill.
+that date. Tested equal to `detect(as_of=...)` for status and fill. The
+gaps can come straight from a stored backfill via `store.read_gaps`
+(e.g. `gap_states(bars, store.read_gaps(conn, "AAPL", "daily"),
+["2024-06-28"], GapConfig())`), which skips re-detection.
 """
 
 from __future__ import annotations
