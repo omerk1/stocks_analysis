@@ -45,3 +45,10 @@ class GapConfig:
     # as sr_lines/fibonacci/avwap/divergences' own reaction/outcome
     # windows. Starting point, not validated.
     reaction_window_bars: int = 10
+
+    # A gap is "in reach" on a date when its midpoint is within this factor
+    # of that date's close, either direction -- the same test and value as
+    # anchors (AnchorConfig.regime_reach_factor). Out-of-reach gaps keep
+    # their lifecycle status but consumers (LRP features, charts) ignore
+    # them. See relevance.py.
+    reach_factor: float = 2.0

@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS gaps (
     n_approaches INTEGER, volume_ratio_at_creation REAL,
     reaction_atr_after_close REAL, bars_to_reaction_peak INTEGER,
     related_id TEXT, run_id TEXT,
+    distance_x REAL, in_reach INTEGER,
     UNIQUE (ticker, timeframe, kind, created_at, direction)
 );
 """
@@ -36,14 +37,16 @@ INSERT INTO gaps
      first_touch_date, soft_closed_date, closed_date,
      bars_to_first_touch, bars_to_soft_closed, bars_to_closed,
      n_approaches, volume_ratio_at_creation,
-     reaction_atr_after_close, bars_to_reaction_peak, related_id, run_id)
+     reaction_atr_after_close, bars_to_reaction_peak, related_id, run_id,
+     distance_x, in_reach)
 VALUES
     (:id, :ticker, :timeframe, :kind, :direction, :created_at,
      :zone_top, :zone_bottom, :size_atr, :status, :max_fill_pct,
      :first_touch_date, :soft_closed_date, :closed_date,
      :bars_to_first_touch, :bars_to_soft_closed, :bars_to_closed,
      :n_approaches, :volume_ratio_at_creation,
-     :reaction_atr_after_close, :bars_to_reaction_peak, :related_id, :run_id)
+     :reaction_atr_after_close, :bars_to_reaction_peak, :related_id, :run_id,
+     :distance_x, :in_reach)
 ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
     status = excluded.status,
     max_fill_pct = excluded.max_fill_pct,
@@ -56,6 +59,8 @@ ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
     n_approaches = excluded.n_approaches,
     reaction_atr_after_close = excluded.reaction_atr_after_close,
     bars_to_reaction_peak = excluded.bars_to_reaction_peak,
+    distance_x = excluded.distance_x,
+    in_reach = excluded.in_reach,
     run_id = excluded.run_id
     -- volume_ratio_at_creation deliberately excluded, same reasoning as
     -- zone_top/zone_bottom/size_atr above it: fully deterministic from the
@@ -64,8 +69,18 @@ ON CONFLICT (ticker, timeframe, kind, created_at, direction) DO UPDATE SET
 """
 
 
+# Columns added after the table first shipped -- existing databases get
+# them via ALTER TABLE (pure additions, NULL until the next run refreshes
+# each row), same approach as avwap.store's std-band columns.
+_ADDED_COLUMNS = {"distance_x": "REAL", "in_reach": "INTEGER"}
+
+
 def create_gaps_table(conn: sqlite3.Connection) -> None:
     conn.execute(_GAPS_SCHEMA)
+    have = {row[1] for row in conn.execute("PRAGMA table_info(gaps)")}
+    for name, sql_type in _ADDED_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE gaps ADD COLUMN {name} {sql_type}")
     conn.commit()
 
 
