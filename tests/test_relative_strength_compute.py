@@ -246,3 +246,71 @@ def test_sector_vs_market_empty_when_no_sector_etf_data(conn):
 
     result = compute_sector_vs_market(conn, _config())
     assert result.empty
+
+
+def _six_week_frame(closes):
+    dates = pd.bdate_range("2020-01-06", periods=len(closes))
+    return pd.DataFrame(
+        {
+            "timestamp": dates, "open": closes, "high": [c + 0.5 for c in closes],
+            "low": [c - 0.5 for c in closes], "close": closes, "volume": [1000] * len(closes),
+            "is_partial": [0] * len(closes),
+        }
+    ).set_index("timestamp")
+
+
+def _mansfield_series(conn, aaa_closes):
+    db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _six_week_frame([100.0] * len(aaa_closes)))
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _six_week_frame(aaa_closes))
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [pd.Timestamp("2020-01-06")], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+    result = compute_stock_vs_market(conn, "test_idx", _config(mansfield_period=2))
+    return result.set_index("date")["rs_mansfield"].sort_index()
+
+
+def test_mansfield_on_a_day_ignores_closes_after_that_day(conn):
+    # Point-in-time: weekly bars are labelled by their week's *Monday* but
+    # hold that week's *Friday* close. Forward-filling from the label date
+    # used to hand Mon-Thu an oscillator value computed from a close up to
+    # four sessions in their future. Perturb every close from a Wednesday
+    # onward; nothing dated before the cut may move.
+    base = [10 + 0.5 * i for i in range(30)]
+    cut = pd.Timestamp("2020-01-29")  # Wednesday of week 4
+    before = _mansfield_series(conn, base)
+
+    shocked = [c * (3.0 if d >= cut else 1.0) for c, d in zip(base, pd.bdate_range("2020-01-06", periods=30))]
+    after = _mansfield_series(conn, shocked)
+
+    pre_cut = before.index < cut
+    pd.testing.assert_series_equal(before[pre_cut], after[pre_cut], check_names=False)
+    # And the shock genuinely reaches the oscillator once the shocked
+    # week has completed -- otherwise the assertion above is vacuous.
+    assert not before[~pre_cut].dropna().equals(after[~pre_cut].dropna())
+
+
+def test_mansfield_daily_view_carries_the_previous_completed_week(conn):
+    # A week's value becomes visible on the first trading day *after* that
+    # week (same "completed" rule `resample._resample` applies at the live
+    # edge, so history matches what a same-day run would have shown), and
+    # the week containing the cut-over carries the prior week unchanged.
+    series = _mansfield_series(conn, [10 + 0.5 * i for i in range(30)]).dropna()
+    weeks = series.groupby(series.index.to_period("W-SUN"))
+    per_week = weeks.first()
+    assert (weeks.nunique() == 1).all()
+    assert per_week.index.min() >= pd.Period("2020-01-20", freq="W-SUN")  # period=2 -> first value needs 2 full weeks
+    assert per_week.nunique() > 1
+
+
+def test_rs_weighted_return_is_exposed_and_matches_hand_computation(conn):
+    db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _bars([100.0] * 10))
+    aaa = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28]
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars(aaa))
+    membership = pd.DataFrame({"ticker": ["AAA"], "start_date": [_DATES[0]], "end_date": [None]})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    result = compute_stock_vs_market(conn, "test_idx", _config()).set_index("date")
+
+    # windows (2, 3), weights (0.5, 0.5): NaN until the longest window has history
+    assert result["rs_weighted_return"].iloc[:3].isna().all()
+    expected = 0.5 * (16 / 12 - 1) + 0.5 * (16 / 10 - 1)
+    assert result.loc[_DATES[3], "rs_weighted_return"] == pytest.approx(expected)

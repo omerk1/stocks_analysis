@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sqlite3
 
+import numpy as np
 import pandas as pd
 
 from src.foundation.data_processing import db
@@ -31,8 +32,8 @@ from src.foundation.data_processing import resample as resample_mod
 from src.foundation.market_common import indicators
 from src.signals.relative_strength.config import SECTOR_ETF_MAP, RelativeStrengthConfig
 
-_RESULT_COLUMNS = ["ticker", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_rating"]
-_SECTOR_RESULT_COLUMNS = ["sector", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_rating"]
+_RESULT_COLUMNS = ["ticker", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_weighted_return", "rs_rating"]
+_SECTOR_RESULT_COLUMNS = ["sector", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_weighted_return", "rs_rating"]
 
 
 def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> pd.DataFrame:
@@ -122,11 +123,12 @@ def _weekly_mansfield(
 ) -> pd.Series:
     """Mansfield oscillator on WEEKLY closes -- the textbook definition (a
     52-*week* SMA of a weekly RS ratio line, ~1 year), unlike rs_ratio/
-    rs_rating below which stay on daily bars. Indexed by each week's start
-    date; callers reindex/forward-fill this onto their own daily date
-    index in `_rs_frame` -- each trading day carries the most recently
-    *completed* week's value, updating once a week, standard for a
-    weekly-computed oscillator plotted against a daily timeline.
+    rs_rating below which stay on daily bars. Indexed by each week's
+    nominal *start* date (the resample's label -- see `resample._resample`)
+    even though its value is only known at that week's last close;
+    `_completed_weeks_as_of_daily` is the one place that turns it into a
+    daily series, precisely so that label never gets mistaken for an
+    as-of date.
     """
     weekly_ratio = indicators.ratio(target_weekly_close, benchmark_weekly_close)
     if weekly_ratio.empty:
@@ -138,6 +140,28 @@ def _weekly_mansfield(
         # trading week (e.g. just added to index_membership).
         return _EMPTY_CLOSE.rename(None)
     return indicators.mansfield_rs(weekly_ratio, period)
+
+
+def _completed_weeks_as_of_daily(weekly: pd.Series, daily_index: pd.DatetimeIndex) -> pd.Series:
+    """Daily view of a weekly-dated series, point-in-time: each trading day
+    carries the most recently *completed* week's value, i.e. a week's value
+    first appears on the first bar strictly after that week's calendar
+    end (Sunday) and is carried forward until the next week completes.
+    That is the same "completed" rule `resample._resample` applies at the
+    live edge, so history here matches what a same-day run would have
+    shown. NaN until the first completed week.
+
+    Not a plain reindex-ffill from the weekly label: the label is the
+    week's *Monday* but the value embeds that week's *Friday* close, so
+    forward-filling from the label handed Mon-Thu an oscillator computed
+    from a close up to four sessions in their future (fixed 2026-09-30;
+    regression test `test_mansfield_on_a_day_ignores_closes_after_that_day`).
+    """
+    if weekly.empty:
+        return pd.Series(np.nan, index=daily_index, dtype="float64")
+    completed = weekly.copy()
+    completed.index = weekly.index.to_period("W-SUN").end_time
+    return completed.sort_index().reindex(daily_index, method="ffill")
 
 
 def _ibd_weighted_return(
@@ -165,16 +189,19 @@ def _rs_frame(
 ) -> pd.DataFrame | None:
     """Ratio + Mansfield + IBD-weighted-return for one (target, benchmark)
     pair -- `rs_rating` itself isn't filled in here since it's a cross-
-    sectional percentile computed once across the whole result set by the
-    caller, not per-pair. `weekly_mansfield` is `_weekly_mansfield`'s
-    output (weekly-dated); forward-filled here onto `rs_ratio`'s daily
-    dates, so a week with no new bar yet still carries last week's value
-    rather than going NaN.
+    sectional percentile of `rs_weighted_return` computed once across the
+    whole result set by the caller, not per-pair. `rs_weighted_return` is
+    kept in the output alongside the rank it feeds: the rank is ordinal,
+    so a leader's score can fall a long way while its rating sits at the
+    top -- the score is what shows that. `weekly_mansfield` is
+    `_weekly_mansfield`'s output (weekly-dated); aligned onto `rs_ratio`'s
+    daily dates by `_completed_weeks_as_of_daily`, so a week with no new
+    bar yet still carries last week's value rather than going NaN.
     """
     rs_ratio = indicators.ratio(close, benchmark_close)
     if rs_ratio.empty:
         return None
-    rs_mansfield = weekly_mansfield.reindex(rs_ratio.index, method="ffill")
+    rs_mansfield = _completed_weeks_as_of_daily(weekly_mansfield, rs_ratio.index)
     weighted_return = _ibd_weighted_return(
         close, config.rs_rating_windows, config.rs_rating_weights
     ).reindex(rs_ratio.index)
@@ -185,7 +212,7 @@ def _rs_frame(
             "benchmark": benchmark_ticker,
             "rs_ratio": rs_ratio.to_numpy(),
             "rs_mansfield": rs_mansfield.to_numpy(),
-            "weighted_return": weighted_return.to_numpy(),
+            "rs_weighted_return": weighted_return.to_numpy(),
         }
     )
 
@@ -271,7 +298,7 @@ def compute_stock_vs_market(
     if result.empty:
         return pd.DataFrame()
 
-    result["rs_rating"] = result.groupby("date")["weighted_return"].transform(
+    result["rs_rating"] = result.groupby("date")["rs_weighted_return"].transform(
         indicators.percentile_rank
     )
 
@@ -339,7 +366,7 @@ def compute_stock_vs_sector(
     if result.empty:
         return pd.DataFrame()
 
-    result["rs_rating"] = result.groupby(["date", "sector"])["weighted_return"].transform(
+    result["rs_rating"] = result.groupby(["date", "sector"])["rs_weighted_return"].transform(
         indicators.percentile_rank
     )
 
@@ -391,7 +418,7 @@ def compute_sector_vs_market(
         return pd.DataFrame()
 
     combined = pd.concat(frames, ignore_index=True)
-    combined["rs_rating"] = combined.groupby("date")["weighted_return"].transform(
+    combined["rs_rating"] = combined.groupby("date")["rs_weighted_return"].transform(
         indicators.percentile_rank
     )
 
