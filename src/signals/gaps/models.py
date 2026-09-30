@@ -69,6 +69,12 @@ class Gap:
     volume_ratio_at_creation: float | None = None
     reaction_atr_after_close: float | None = None
     bars_to_reaction_peak: int | None = None
+    # Relevance against the last close (relevance.apply_snapshot_relevance):
+    # how many times away the gap's midpoint is, and whether that's within
+    # GapConfig.reach_factor. A lifecycle fact (status) and a relevance
+    # fact are kept apart -- an out-of-reach gap can still be "open".
+    distance_x: float | None = None
+    in_reach: bool | None = None
     run_id: str | None = None
 
     def to_dict(self) -> dict:

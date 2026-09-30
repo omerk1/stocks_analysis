@@ -19,7 +19,7 @@ from datetime import date
 
 import pandas as pd
 
-from src.signals.gaps import lifecycle
+from src.signals.gaps import lifecycle, relevance
 from src.signals.gaps.config import GapConfig
 from src.signals.gaps.models import Direction, Gap, GapKind, Timeframe
 from src.foundation.market_common import data as data_mod
@@ -126,4 +126,5 @@ def detect(
 
     gaps = detect_gaps(bars, ticker, timeframe, config)
     gaps = lifecycle.apply_lifecycle(bars, gaps, config)
+    gaps = relevance.apply_snapshot_relevance(bars, gaps, config)
     return gaps, report, None
