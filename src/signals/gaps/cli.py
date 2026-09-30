@@ -22,7 +22,7 @@ import json
 from src.foundation.data_processing import db
 from src.signals.gaps import store
 from src.signals.gaps.config import GapConfig
-from src.signals.gaps.detect import detect
+from src.signals.gaps.detect import detect_on_bars
 from src.signals.gaps.models import Gap, Timeframe
 from src.signals.gaps.plotting import render_gap_chart
 from src.foundation.market_common import data as data_mod
@@ -50,7 +50,8 @@ def run_for_ticker(
     detection actually ran (even if it found zero gaps) -- a run that
     legitimately found nothing is still a completed run, distinct from one
     skipped outright for too little data."""
-    gaps, report, skip_reason = detect(raw_conn, ticker, timeframe, config, as_of=as_of)
+    bars, report = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+    gaps, skip_reason = detect_on_bars(bars, ticker, timeframe, config)
     if skip_reason is not None:
         return [], skip_reason
 
@@ -61,10 +62,13 @@ def run_for_ticker(
     for gap in gaps:
         gap.run_id = run_id
     store.upsert_gaps(derived_conn, gaps, run_id)
-    store.prune_gaps(derived_conn, ticker, timeframe, gaps, through=as_of)
+    # Prune only up to the last bar detection actually saw -- not as_of: a
+    # weekly run drops the week containing as_of as unfinished, but that
+    # week's Monday label is still <= as_of, so pruning "through as_of"
+    # would delete its real, stored gap.
+    store.prune_gaps(derived_conn, ticker, timeframe, gaps, through=bars.index[-1].isoformat())
 
     if plot_path:
-        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
         fig = render_gap_chart(bars, gaps, ticker=ticker, timeframe=timeframe)
         fig.write_html(plot_path)
 
