@@ -208,3 +208,44 @@ def test_read_gaps_rejects_stored_zones_that_no_longer_match_the_bars(raw_conn):
     with pytest.raises(store.StaleGapsError):
         store.read_gaps(derived, "RW", "daily", bars=readjusted)
     assert len(store.stale_gap_ids(store.read_gaps(derived, "RW", "daily"), readjusted)) == len(detected)
+
+
+def test_rerun_after_a_bar_readjustment_refreshes_zones_and_keeps_ids(raw_conn):
+    from src.foundation.market_common import data as data_mod
+    from src.signals.gaps.cli import run_for_ticker
+    derived = derived_db.get_connection(":memory:")
+    derived_db.create_runs_table(derived)
+    store.create_gaps_table(derived)
+
+    run_for_ticker(raw_conn, derived, "RW", Timeframe.DAILY, CFG, as_of=None)
+    ids_before = dict(derived.execute("SELECT created_at || kind || direction, id FROM gaps").fetchall())
+
+    # re-ingest the same ticker with every price rescaled (a dividend re-adjustment)
+    readj = _random_walk_bars()
+    readj[["open", "high", "low", "close"]] *= 0.999
+    raw_db.upsert_bars(raw_conn, "bars_1d", "RW", raw_db.YFINANCE, readj)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    with pytest.raises(store.StaleGapsError):
+        store.read_gaps(derived, "RW", "daily", bars=bars)
+
+    run_for_ticker(raw_conn, derived, "RW", Timeframe.DAILY, CFG, as_of=None)
+    assert len(store.read_gaps(derived, "RW", "daily", bars=bars)) > 0         # zones match the new bars
+    ids_after = dict(derived.execute("SELECT created_at || kind || direction, id FROM gaps").fetchall())
+    assert {k: ids_after[k] for k in ids_before if k in ids_after} == {k: v for k, v in ids_before.items() if k in ids_after}
+
+
+def test_prune_removes_vanished_gaps_but_not_ones_after_an_as_of():
+    derived = derived_db.get_connection(":memory:")
+    store.create_gaps_table(derived)
+    early, gone, late = _gap(10, 11, "2020-01-02"), _gap(12, 13, "2020-02-03"), _gap(14, 15, "2021-05-03")
+    store.upsert_gaps(derived, [early, gone, late], run_id="r1")
+
+    # an as_of-2020-12 rerun still finds `early` but not `gone`, and can't see `late`
+    removed = store.prune_gaps(derived, "X", "daily", [early], through="2020-12-31")
+    left = {r[0] for r in derived.execute("SELECT created_at FROM gaps")}
+    assert removed == 1
+    assert left == {pd.Timestamp("2020-01-02").isoformat(), pd.Timestamp("2021-05-03").isoformat()}
+
+    # a full-history rerun that finds only `late` removes `early` too
+    store.prune_gaps(derived, "X", "daily", [late])
+    assert {r[0] for r in derived.execute("SELECT created_at FROM gaps")} == {pd.Timestamp("2021-05-03").isoformat()}

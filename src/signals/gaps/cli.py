@@ -61,6 +61,7 @@ def run_for_ticker(
     for gap in gaps:
         gap.run_id = run_id
     store.upsert_gaps(derived_conn, gaps, run_id)
+    store.prune_gaps(derived_conn, ticker, timeframe, gaps, through=as_of)
 
     if plot_path:
         bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
