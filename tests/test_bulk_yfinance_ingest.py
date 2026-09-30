@@ -129,7 +129,7 @@ def test_resumable_skips_already_succeeded_tickers(mock_download, conn):
     backfill_yfinance_daily(conn, "2024-01-01", "2024-01-01", batch_size=50, as_of=pd.Timestamp("2024-02-01"))
 
     mock_download.assert_called_once_with(
-        ["MSFT"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker"
+        ["MSFT"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker", auto_adjust=True
     )
 
 
@@ -150,7 +150,7 @@ def test_distinct_job_types_do_not_share_resumability(mock_download, conn):
 
     mock_download.assert_called_once_with(
         ["AAPL", "MSFT"], start="2010-01-01", end="2010-01-05",
-        threads=True, progress=False, group_by="ticker",
+        threads=True, progress=False, group_by="ticker", auto_adjust=True,
     )
     statuses = dict(
         conn.execute(
@@ -171,7 +171,7 @@ def test_tickers_param_restricts_scope_instead_of_reading_reference_table(mock_d
     )
 
     mock_download.assert_called_once_with(
-        ["AAPL"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker"
+        ["AAPL"], start="2024-01-01", end="2024-01-02", threads=True, progress=False, group_by="ticker", auto_adjust=True
     )
     assert db.read_bars(conn, "bars_1d", ticker="MSFT", source=db.YFINANCE).empty
 
@@ -240,3 +240,26 @@ def test_end_date_is_shifted_to_be_inclusive(mock_download, conn):
 
     _, kwargs = mock_download.call_args
     assert kwargs["end"] == "2024-03-11"
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_split_only_requests_unadjusted_closes_and_stores_them_under_their_own_source(mock_download, conn):
+    mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0, "MSFT": 200.0}, ["2024-01-01"])
+
+    backfill_yfinance_daily(
+        conn, "2024-01-01", "2024-01-01", as_of=pd.Timestamp("2024-02-01"),
+        job_type="yfinance_daily_split_only", split_only=True,
+    )
+
+    assert mock_download.call_args.kwargs["auto_adjust"] is False
+    assert len(db.read_bars(conn, "bars_1d", ticker="AAPL", source=db.YFINANCE_SPLIT_ONLY)) == 1
+    assert db.read_bars(conn, "bars_1d", ticker="AAPL", source=db.YFINANCE).empty
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_default_run_keeps_fully_adjusted_closes(mock_download, conn):
+    mock_download.return_value = _multi_ticker_frame({"AAPL": 100.0, "MSFT": 200.0}, ["2024-01-01"])
+
+    backfill_yfinance_daily(conn, "2024-01-01", "2024-01-01", as_of=pd.Timestamp("2024-02-01"))
+
+    assert mock_download.call_args.kwargs["auto_adjust"] is True

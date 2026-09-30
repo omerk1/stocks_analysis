@@ -13,6 +13,10 @@ TABLES = ("bars_1d", "bars_1w", "bars_1mo", "bars_1h")
 POLYGON = "polygon"
 YFINANCE = "yfinance"
 SEC_EDGAR = "sec_edgar"
+# yfinance closes adjusted for splits only (`auto_adjust=False`), stored as their
+# own `bars_1d` source for market caps: the default YFINANCE bars are also
+# dividend/spin-off adjusted, which understates historical market caps.
+YFINANCE_SPLIT_ONLY = "yfinance_split_only"
 FRED = "fred"
 
 BAR_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "is_partial"]

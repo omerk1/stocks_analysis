@@ -13,15 +13,19 @@ from src.foundation.utils.config_loader import load_config
 JOB_TYPE = "yfinance_daily"
 
 
-def _fetch_batch(tickers: list[str], start: str, end: str) -> pd.DataFrame:
+def _fetch_batch(tickers: list[str], start: str, end: str, split_only: bool = False) -> pd.DataFrame:
     # yfinance's `end` is exclusive (confirmed directly against the real API --
     # see yfinance_client.py's _fetch for the same fix), unlike Polygon's
     # inclusive end. Shifted by one day here so callers of this module get the
     # same inclusive-end semantics as bulk_polygon_ingest.py.
     end_inclusive = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     yfinance_symbols = [to_yfinance_symbol(t) for t in tickers]
+    # auto_adjust=True (yfinance's default) also adjusts for dividends and
+    # spin-offs; False leaves `Close` adjusted for splits only (verified on
+    # KO 2012-04-30: 38.16 split-only vs 24.46 fully adjusted).
     return yf.download(
-        yfinance_symbols, start=start, end=end_inclusive, threads=True, progress=False, group_by="ticker"
+        yfinance_symbols, start=start, end=end_inclusive, threads=True, progress=False, group_by="ticker",
+        auto_adjust=not split_only,
     )
 
 
@@ -45,6 +49,7 @@ def backfill_yfinance_daily(
     retry_backoff_seconds: float = 5.0,
     job_type: str = JOB_TYPE,
     tickers: list[str] | None = None,
+    split_only: bool = False,
 ) -> None:
     """Bulk-ingest daily bars for `tickers` (default: every ticker in the
     reference table) from yfinance, batched (yf.download has no official
@@ -68,7 +73,12 @@ def backfill_yfinance_daily(
     reading the full reference table -- e.g. for a scoped test run, or a
     manual retry of a specific subset. Without it, behavior is unchanged:
     every `type="CS"` ticker in the reference table (active and delisted).
+
+    `split_only` stores closes adjusted for splits only, under
+    `db.YFINANCE_SPLIT_ONLY` -- the price series market caps are built from
+    (see `market_cap.PRICE_SOURCE`). Use a distinct `job_type` for it.
     """
+    source = db.YFINANCE_SPLIT_ONLY if split_only else db.YFINANCE
     as_of = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp(date.today())
 
     if tickers is not None:
@@ -86,7 +96,7 @@ def backfill_yfinance_daily(
     for i in range(0, len(pending), batch_size):
         batch = pending[i : i + batch_size]
         ok, result, error = attempt_with_limited_retries(
-            lambda b=batch: _fetch_batch(b, start, end), backoff_seconds=retry_backoff_seconds
+            lambda b=batch: _fetch_batch(b, start, end, split_only), backoff_seconds=retry_backoff_seconds
         )
         if not ok:
             for ticker in batch:
@@ -111,7 +121,7 @@ def backfill_yfinance_daily(
                 ticker_bars.index.normalize() >= as_of.normalize()
             ).astype(int)
 
-            db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE, ticker_bars)
+            db.upsert_bars(conn, "bars_1d", ticker, source, ticker_bars)
             db.record_job_result(conn, job_type, ticker, "success")
 
         print(f"batch of {len(batch)} starting {batch[0]}: processed")
@@ -139,6 +149,15 @@ def main():
         help="Comma-separated ticker list to restrict this run to (default: every "
         "CS ticker in the reference table, active and delisted)",
     )
+    parser.add_argument(
+        "--split-only", action="store_true",
+        help=f"Store split-only-adjusted closes under source {db.YFINANCE_SPLIT_ONLY!r} (for market caps); "
+        "pair it with its own --job-type",
+    )
+    parser.add_argument(
+        "--tickers-with-source",
+        help="Restrict the run to tickers that already have bars_1d rows under this source (e.g. 'yfinance')",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -149,9 +168,13 @@ def main():
     db.create_tables(conn)
 
     tickers = args.tickers.split(",") if args.tickers else None
+    if args.tickers_with_source:
+        tickers = [r[0] for r in conn.execute(
+            "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (args.tickers_with_source,)
+        )]
     backfill_yfinance_daily(
         conn, args.start, args.end, batch_size=args.batch_size,
-        job_type=args.job_type, tickers=tickers,
+        job_type=args.job_type, tickers=tickers, split_only=args.split_only,
     )
 
     conn.close()
