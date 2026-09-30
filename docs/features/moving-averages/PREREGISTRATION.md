@@ -5947,3 +5947,94 @@ Tier-3 entry with the wrong-sign caveat), `STATUS.md`, `REPORT.md`,
 feature; if anything it belongs with the short-term-reversal block.
 
 ---
+
+## M21 — Confirmed break through the MA as an entry signal (2026-09-30)
+
+**Module / track:** M21, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M21 section. Written and committed before running. The mirror of M20 on the
+same cached placebo panel (U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The
+one pre-run look is the feasibility count at the end (event counts and overlap shares, no
+outcome column).
+
+**Promoted from:** the question raised after M20 — M20 covered the *bounce* only. M5 counted
+the break as its `slice_through` outcome; M12's "reclaim" event compared high- vs low-volume
+reclaims against each other, never against a matched control; M3's crossovers are MA-vs-MA.
+No ledger cell measures the forward return from the day a price-through-MA break confirms.
+
+**Definitions (frozen):**
+- **Touch:** `features/touch.py`, unchanged. Side s = the side price came from.
+- **Confirmed break at row c:** the first row in t+1 … t+K (K=5) with price ≥ R (R=1.0 ATR) on
+  the **opposite** side (`−s·dist_atr[c] ≥ R`), provided that from the first close on the
+  opposite side (row x, first row in t+1 … c with `−s·dist_atr > 0`) through c there is no
+  close back on the original side (`s·dist_atr > 0`) — once through, it stays through until R.
+  Dithering on the original side *before* the first cross is allowed (the touch band is
+  symmetric). A close ≥ R on the original side first is M20's confirmed bounce and ends the
+  touch's resolution — no break. `features/respect.py::break_confirmation_positions`;
+  `break_flags` sets `break_<ma>_above` (came from below) / `break_<ma>_below` (came from
+  above) True on row c only. Known on row c (the panel is already lagged).
+- **Entry / outcome, MAs, horizons, controls, tiers:** exactly M20's — `fwd_ret_h`, h ∈ {5, 10,
+  21, 63}, from row c; SMA20/EMA21/SMA50/SMA200 with M19's neighbour groups; generic-move
+  placebo `generic_move_<focal ma>_<direction>` **reused unchanged** (a break above *is* an
+  up-move now above the MA, so it maps to `from_above`'s generic flag; a break below to
+  `from_below`'s); base controls = rows that are none of break / generic / neighbour break;
+  kill criterion evaluated on C2 + `rev_tercile`, C1 and 3-column C2 as the waterfall.
+- **Hypothesised sign:** **positive** after a break above (breakout continuation), **negative**
+  after a break below (breakdown continuation; §7.10 borrow caveat applies).
+
+**Statistic per cell (MA × direction × horizon):** `DiD = delta_break − delta_generic`, each a
+matched delta vs the same base controls, shared date blocks
+(`block_bootstrap_delta_diff`), block length max(10, 2h), 500 draws, 90% CI. `delta_break`
+also gets its own CI (the tradeable quantity; cost attaches to it). Synthetic-neighbour arm
+reported descriptively only, with the overlap share — feasibility puts it at 83–96%, so it is
+near zero by construction, same reasoning as M20.
+
+**Grid (`N_tests` contribution): 32 primary cells**, counted statistic = the C2+rev DiD.
+**128 sensitivity cells** (K ∈ {4, 6}, R ∈ {0.75, 1.25}, one at a time), not counted.
+
+**Kill criterion:** identical to M20's six gates, with M21's directions and signs — a cell is
+confirmed iff `delta_break`'s C2+rev CI excludes zero in the hypothesised direction; the DiD's
+does too; adjacent horizons agree in sign; ≥2 of the other 3 MAs agree at that direction and
+horizon; all 4 K/R perturbations keep the DiD's sign and ≥3 keep its CI off zero; and the cell
+clears the effective-N floor (200 events / 30 dates / 30 tickers / ≥30 contributing dates at
+C2+rev). Module killed iff no cell is confirmed. `decisive_test_status`: `passed` /
+`failed` (gate 1 passed, any of 2–5 failed) / `never_tested`. Tier from §9.2's table alone.
+
+**Cost / shape:** as M20 — `signals_per_year` = break events per ticker-year (feasibility:
+0.5–2.2), hurdle = that × 10 bps, compared against `delta_break` at the point and both CI
+ends, ×252/h linear; hit rate (raw and C1/C2+rev delta), win/loss ratio, skew of the break
+rows' `fwd_ret_h`, descriptive only.
+
+**Look-ahead:** `break_*` columns are added by `modules/bounce_entry.py::prepare`, already in
+`tests/test_moving_averages_leakage.py`'s module list (re-run with the break flags present:
+passes). `break_flags` reuses `touch_positions`; the confirmation dating is the same
+row-c convention M19's targeted test covers.
+
+**Argue against it before running:** (a) a break above after approaching from below is a
+reclaim by a name that was recently below its MA — `rev_tercile` and the generic-move arm are
+expected to absorb it, and M12's reclaim populations showed nothing against each other;
+(b) a break that confirms at exactly R is, like M20's bounce, a fresh ≥1-ATR move — M20 found
+that population tilts to *reversal*, so a wrong-sign result is the live alternative here too;
+(c) the generic arm is not extension-matched (M20's caveat); (d) close-only bars; (e) the
+breakdown side inherits the survivorship cap (§7.3) — a negative `delta_break` after a break
+below is biased *toward zero* by missing delisted names, so a null there is weaker evidence
+than a null on the break-above side.
+
+**Feasibility count (run 2026-09-30 before freezing, `break_entry_run.py --feasibility`; no
+outcome read).**
+
+| MA | dir | break rows | dates / tickers | generic-move rows | neighbour-break rows | overlap |
+|---|---|---|---|---|---|---|
+| sma20 | above | 10,598 | 2,117 / 405 | 242,993 | 16,659 | 83% |
+| sma20 | below | 9,653 | 1,914 / 405 | 143,663 | 15,184 | 85% |
+| ema21 | above | 8,259 | 1,916 / 405 | 237,460 | 10,841 | 96% |
+| ema21 | below | 7,684 | 1,725 / 405 | 131,026 | 10,775 | 95% |
+| sma50 | above | 6,148 | 1,837 / 405 | 276,560 | 9,288 | 86% |
+| sma50 | below | 5,768 | 1,575 / 405 | 135,249 | 8,993 | 86% |
+| sma200 | above | 2,444 | 1,156 / 405 | 319,074 | 5,225 | 85% |
+| sma200 | below | 2,302 | 936 / 401 | 95,434 | 5,042 | 86% |
+
+Every cell clears the §6.9 floor on raw counts; break∩generic is 0 by construction. Breaks
+are more frequent than M20's bounces at every MA (the touch band resolves through more often
+than it holds — M5's `P(slice_through)` was 32%, `P(hold)` 43%, but a bounce also has to
+avoid closing through, which many holds don't). Full table:
+`output/moving_averages/m21_break_entry_feasibility.csv` (gitignored).

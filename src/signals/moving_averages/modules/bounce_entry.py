@@ -62,6 +62,25 @@ DIRECTIONS = (FROM_ABOVE, FROM_BELOW)
 # Hypothesised sign of the forward return: continuation of the bounce.
 HYPOTHESISED_SIGN = {FROM_ABOVE: 1, FROM_BELOW: -1}
 
+# Two event types share every piece of machinery below (M20 bounce, M21
+# break -- PREREGISTRATION.md 2026-09-30). Per event: its direction labels,
+# which generic-move placebo direction each maps to (the move that a
+# bounce/break of that direction *is*: an up-move now above the MA for a
+# from-above bounce and for a break above), and the hypothesised sign
+# (continuation).
+EVENT_SPECS = {
+    "bounce": {
+        "directions": (FROM_ABOVE, FROM_BELOW),
+        "generic": {FROM_ABOVE: FROM_ABOVE, FROM_BELOW: FROM_BELOW},
+        "sign": {FROM_ABOVE: 1, FROM_BELOW: -1},
+    },
+    "break": {
+        "directions": (respect.BREAK_ABOVE, respect.BREAK_BELOW),
+        "generic": {respect.BREAK_ABOVE: FROM_ABOVE, respect.BREAK_BELOW: FROM_BELOW},
+        "sign": {respect.BREAK_ABOVE: 1, respect.BREAK_BELOW: -1},
+    },
+}
+
 MIN_EVENTS = 200
 MIN_DATES = 30
 MIN_TICKERS = 30
@@ -84,6 +103,10 @@ def fwd_col(horizon: int) -> str:
 
 def bounce_col(ma_col: str, direction: str) -> str:
     return f"bounce_{ma_col}_{direction}"
+
+
+def event_col(event: str, ma_col: str, direction: str) -> str:
+    return f"{event}_{ma_col}_{direction}"
 
 
 def generic_col(ma_col: str, direction: str) -> str:
@@ -150,12 +173,14 @@ def add_event_flags(panel: pd.DataFrame, params: dict = PRIMARY_PARAMS, groups: 
     generic-move flags for the focal columns. Existing flag columns are
     replaced so a sensitivity variant can be layered on. Returns a new frame.
     """
-    working = panel.drop(columns=[c for c in panel.columns if c.startswith(("bounce_", "generic_move_"))])
+    working = panel.drop(columns=[c for c in panel.columns if c.startswith(("bounce_", "break_", "generic_move_"))])
     pieces = [working]
     focal_cols = {dist_atr_column(spec["family"], spec["focal"]) for spec in groups.values()}
     for col in configured_dist_atr_columns(working, groups):
         pieces.append(respect.bounce_flags(working, col, confirm_window=params["confirm_window"],
                                            confirm_distance=params["confirm_distance"]))
+        pieces.append(respect.break_flags(working, col, confirm_window=params["confirm_window"],
+                                          confirm_distance=params["confirm_distance"]))
         if col in focal_cols and "atr_14" in working.columns and "close" in working.columns:
             pieces.append(generic_move_flags(working, col, params))
     return pd.concat(pieces, axis=1)
@@ -175,19 +200,20 @@ def _bootstrap_or_nan(fn, *args, **kwargs) -> dict:
                 "point_a": float("nan"), "point_b": float("nan"), "n_dates_a": 0, "n_dates_b": 0}
 
 
-def _arm_panels(panel: pd.DataFrame, group_name: str, direction: str, groups: dict = GROUPS):
-    """Row populations for one (group, direction): focal bounce flag,
-    generic-move flag, pooled neighbour bounce flag, and the base controls
+def _arm_panels(panel: pd.DataFrame, group_name: str, direction: str, groups: dict = GROUPS, event: str = "bounce"):
+    """Row populations for one (event, group, direction): focal event flag,
+    generic-move flag, pooled neighbour event flag, and the base controls
     (rows that are none of the three). Each arm's test panel is base
     controls plus that arm's events."""
     spec = groups[group_name]
+    generic_direction = EVENT_SPECS[event]["generic"][direction]
     focal_ma = dist_atr_column(spec["family"], spec["focal"]).removeprefix("dist_atr_")
-    focal = panel[bounce_col(focal_ma, direction)].fillna(False).astype(bool)
-    generic = panel[generic_col(focal_ma, direction)].fillna(False).astype(bool)
+    focal = panel[event_col(event, focal_ma, direction)].fillna(False).astype(bool)
+    generic = panel[generic_col(focal_ma, generic_direction)].fillna(False).astype(bool)
     synth = np.zeros(len(panel), dtype=bool)
     for nb in spec["neighbors"]:
         nb_ma = dist_atr_column(spec["family"], nb).removeprefix("dist_atr_")
-        synth |= panel[bounce_col(nb_ma, direction)].fillna(False).astype(bool).to_numpy()
+        synth |= panel[event_col(event, nb_ma, direction)].fillna(False).astype(bool).to_numpy()
     synth = pd.Series(synth, index=panel.index)
     base = ~(focal | generic | synth)
     return focal, generic, synth, base
@@ -197,19 +223,19 @@ def did_cell(
     panel: pd.DataFrame, group_name: str, direction: str, horizon: int, label: dict,
     tiers: dict = CONTROL_TIERS, n_boot: int = N_BOOT, ci: float = 0.90, seed: int = 0,
     panel_years: float | None = None, panel_tickers: int | None = None,
-    with_synth: bool = True,
+    with_synth: bool = True, event: str = "bounce",
 ) -> dict:
-    """One (group, direction, horizon) cell. `panel` must already carry the
-    event flags for the params in play plus the context columns."""
+    """One (event, group, direction, horizon) cell. `panel` must already
+    carry the event flags for the params in play plus the context columns."""
     value_col = fwd_col(horizon)
-    focal, generic, synth, base = _arm_panels(panel, group_name, direction)
+    focal, generic, synth, base = _arm_panels(panel, group_name, direction, event=event)
     primary_cols = list(tiers[PRIMARY_TIER])
     block_length = block_length_for(horizon)
 
     needed = ["ticker", "date", value_col, *C2_MATCH_COLS_WITH_REVERSAL]
     events = panel.loc[focal, needed].dropna(subset=[value_col])
     row = {
-        **label, "group": group_name, "direction": direction, "horizon": horizon,
+        **label, "event": event, "group": group_name, "direction": direction, "horizon": horizon,
         "n_events": len(events), "n_dates": events["date"].nunique(), "n_tickers": events["ticker"].nunique(),
         "n_generic": int((generic & panel[value_col].notna()).sum()),
         "n_synth": int((synth & panel[value_col].notna()).sum()),
@@ -251,7 +277,7 @@ def did_cell(
         row["did_synth_ci_high"] = synth_boot["ci_high"]
         row["delta_synth_c2_rev"] = synth_boot["point_b"]
 
-    sign = HYPOTHESISED_SIGN[direction]
+    sign = EVENT_SPECS[event]["sign"][direction]
     did_low, did_high = row[f"did_{PRIMARY_TIER}_ci_low"], row[f"did_{PRIMARY_TIER}_ci_high"]
     row["below_threshold"] = bool(
         row["n_events"] < MIN_EVENTS or row["n_dates"] < MIN_DATES or row["n_tickers"] < MIN_TICKERS
@@ -295,35 +321,38 @@ def did_cell(
     return row
 
 
-def primary_cell_table(panel: pd.DataFrame, **kwargs) -> pd.DataFrame:
+def primary_cell_table(panel: pd.DataFrame, event: str = "bounce", **kwargs) -> pd.DataFrame:
     """All 32 primary cells: 4 groups x 2 directions x 4 horizons, on the
     primary K/R. `panel` must be `prepare()`'d."""
     years = (panel["date"].max() - panel["date"].min()).days / 365.25
     n_tickers = panel["ticker"].nunique()
     rows = []
     for group_name in GROUP_ORDER:
-        for direction in DIRECTIONS:
+        for direction in EVENT_SPECS[event]["directions"]:
             for horizon in HORIZONS:
                 rows.append(did_cell(panel, group_name, direction, horizon, {"variant": "primary"},
-                                     panel_years=years, panel_tickers=n_tickers, **kwargs))
+                                     panel_years=years, panel_tickers=n_tickers, event=event, **kwargs))
     return pd.DataFrame(rows)
 
 
-def sensitivity_cell_table(context_panel: pd.DataFrame, variants: dict = SENSITIVITY_VARIANTS, **kwargs) -> pd.DataFrame:
+def sensitivity_cell_table(
+    context_panel: pd.DataFrame, variants: dict = SENSITIVITY_VARIANTS, event: str = "bounce", **kwargs,
+) -> pd.DataFrame:
     """4 one-at-a-time K/R perturbations x 32 cells, primary tier only, no
     synthetic arm. `context_panel` is `add_context(...)`'s output."""
     rows = []
     for variant_name, params in variants.items():
         panel = add_event_flags(context_panel, params)
         for group_name in GROUP_ORDER:
-            for direction in DIRECTIONS:
+            for direction in EVENT_SPECS[event]["directions"]:
                 for horizon in HORIZONS:
                     rows.append(did_cell(panel, group_name, direction, horizon, {"variant": variant_name},
-                                         tiers={PRIMARY_TIER: CONTROL_TIERS[PRIMARY_TIER]}, with_synth=False, **kwargs))
+                                         tiers={PRIMARY_TIER: CONTROL_TIERS[PRIMARY_TIER]}, with_synth=False,
+                                         event=event, **kwargs))
     return pd.DataFrame(rows)
 
 
-def evaluate_kill_criterion(primary: pd.DataFrame, sensitivity: pd.DataFrame) -> dict:
+def evaluate_kill_criterion(primary: pd.DataFrame, sensitivity: pd.DataFrame, event: str = "bounce") -> dict:
     """PREREGISTRATION.md's M20 kill criterion. A cell is confirmed iff (1)
     the focal delta's C2+rev CI excludes zero in the hypothesised direction,
     (2) the DiD vs the generic move does too, (3) term-structure plateau:
@@ -335,7 +364,7 @@ def evaluate_kill_criterion(primary: pd.DataFrame, sensitivity: pd.DataFrame) ->
     did_col, low_col, high_col = f"did_{PRIMARY_TIER}", f"did_{PRIMARY_TIER}_ci_low", f"did_{PRIMARY_TIER}_ci_high"
     cells = []
     for _, cell in primary.iterrows():
-        sign = HYPOTHESISED_SIGN[cell["direction"]]
+        sign = EVENT_SPECS[event]["sign"][cell["direction"]]
         gate_focal = bool(cell["focal_ci_excludes_zero"]) and bool(cell["focal_hypothesised_direction"])
         gate_did = bool(cell["did_ci_excludes_zero"]) and bool(cell["did_hypothesised_direction"])
         same = primary[(primary["group"] == cell["group"]) & (primary["direction"] == cell["direction"])]
@@ -353,7 +382,7 @@ def evaluate_kill_criterion(primary: pd.DataFrame, sensitivity: pd.DataFrame) ->
                       & (np.sign(variants[did_col]) == np.sign(cell[did_col]))).sum()) if len(variants) else 0
         sens_pass = same_sign and n_excl >= SENSITIVITY_MIN_CI_EXCLUDING and len(variants) == len(SENSITIVITY_VARIANTS)
         cells.append({
-            "group": cell["group"], "direction": cell["direction"], "horizon": int(cell["horizon"]),
+            "event": event, "group": cell["group"], "direction": cell["direction"], "horizon": int(cell["horizon"]),
             "delta_focal": cell[f"delta_focal_{PRIMARY_TIER}"], "did": cell[did_col],
             "did_ci_low": cell[low_col], "did_ci_high": cell[high_col],
             "below_threshold": bool(cell["below_threshold"]),

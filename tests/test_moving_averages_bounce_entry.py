@@ -144,3 +144,59 @@ def test_kill_criterion_confirms_only_with_every_gate():
     # Focal gate fails (focal CI spans zero) -> killed even if the DiD clears.
     verdict = be.evaluate_kill_criterion(_cells(dids, focal_ok=False), sens)
     assert verdict["module_killed"]
+
+
+# ---- M21: confirmed break (features/respect.py::break_confirmation_positions / break_flags) ----
+
+from src.signals.moving_averages.features.respect import BREAK_ABOVE, BREAK_BELOW, break_confirmation_positions, break_flags  # noqa: E402
+
+
+def test_break_above_confirms_when_price_crosses_and_stays_through_to_r():
+    # from below: away, touch at 3 (-0.2), then +0.1, +0.6, +1.1 -> break above confirmed at 6.
+    values = [np.nan, -1.5, -1.4, -0.2, 0.1, 0.6, 1.1, 1.3, 0.4]
+    out = break_confirmation_positions(pd.Series(values))
+    assert out["direction_sign"].tolist() == [-1.0]
+    assert out["confirm_pos"].tolist() == [6]
+
+
+def test_break_is_not_confirmed_if_price_closes_back_on_the_original_side_after_crossing():
+    values = [np.nan, -1.5, -1.4, -0.2, 0.1, -0.1, 1.1, 1.3, 0.4]   # crossed at 4, back below at 5
+    assert break_confirmation_positions(pd.Series(values))["confirm_pos"].tolist() == [-1]
+
+
+def test_break_allows_lingering_on_the_original_side_before_the_first_cross():
+    values = [np.nan, -1.5, -1.4, -0.2, -0.1, -0.15, 0.3, 1.2, 0.4]  # dithers below, crosses at 6, R at 7
+    assert break_confirmation_positions(pd.Series(values))["confirm_pos"].tolist() == [7]
+
+
+def test_a_confirmed_bounce_ends_the_touch_with_no_break():
+    values = [np.nan, -1.5, -1.4, -0.2, -1.1, 0.5, 1.2, 1.3, 0.4]    # bounces to -1.1 first
+    assert break_confirmation_positions(pd.Series(values))["confirm_pos"].tolist() == [-1]
+
+
+def test_break_outside_k_is_not_confirmed():
+    values = [np.nan, -1.5, -1.4, -0.2, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0, 1.1]
+    assert break_confirmation_positions(pd.Series(values), confirm_window=5)["confirm_pos"].tolist() == [-1]
+    assert break_confirmation_positions(pd.Series(values), confirm_window=6)["confirm_pos"].tolist() == [9]
+
+
+def test_break_below_mirrors():
+    values = [np.nan, 1.5, 1.4, 0.2, -0.1, -0.6, -1.1, -1.3, -0.4]
+    out = break_confirmation_positions(pd.Series(values))
+    assert out["direction_sign"].tolist() == [1.0] and out["confirm_pos"].tolist() == [6]
+    flags = break_flags(_frame(values), COL)
+    assert bool(flags[f"break_sma_50_{BREAK_BELOW}"].iloc[6])
+    assert not flags[f"break_sma_50_{BREAK_BELOW}"].iloc[1:6].astype(bool).any()
+    assert not flags[f"break_sma_50_{BREAK_ABOVE}"].iloc[1:].astype(bool).any()
+
+
+def test_break_event_cells_use_the_matching_generic_direction_and_sign():
+    panel = be.prepare(_synthetic_panel(seed=3))
+    assert f"break_sma_50_{BREAK_ABOVE}" in panel.columns
+    focal = panel[f"break_sma_50_{BREAK_ABOVE}"].fillna(False).astype(bool)
+    assert focal.sum() > 200
+    panel.loc[focal, be.fwd_col(5)] += 0.05
+    cell = be.did_cell(panel, "sma50", BREAK_ABOVE, 5, {"variant": "t"}, n_boot=150, event="break")
+    assert cell["event"] == "break" and cell["did_c2_rev"] > 0.03 and cell["did_hypothesised_direction"]
+    focal_b, generic_b, _, _ = be._arm_panels(panel, "sma50", BREAK_ABOVE, event="break")
+    assert generic_b.equals(panel["generic_move_sma_50_from_above"].fillna(False).astype(bool))

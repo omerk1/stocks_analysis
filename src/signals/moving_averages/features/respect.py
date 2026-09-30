@@ -181,3 +181,86 @@ def bounce_flags(
         f"bounce_{ma_col}_from_below": pd.array(below, dtype="boolean"),
     }, index=panel.index)
     return out.mask(np.repeat((~defined)[:, None], out.shape[1], axis=1))
+
+
+BREAK_ABOVE = "above"   # came from below, broke above the MA
+BREAK_BELOW = "below"   # came from above, broke below the MA
+
+
+def break_confirmation_positions(
+    dist_atr: pd.Series,
+    confirm_window: int = CONFIRM_WINDOW,
+    confirm_distance: float = CONFIRM_DISTANCE,
+    away_threshold: float = touch.AWAY_THRESHOLD,
+    touch_threshold: float = touch.TOUCH_THRESHOLD,
+    max_days_to_touch: int = touch.MAX_DAYS_TO_TOUCH,
+) -> pd.DataFrame:
+    """M21 (PREREGISTRATION.md 2026-09-30): the mirror of
+    `confirmation_positions`. A touch at row t arriving from side s is a
+    *confirmed break* at the first row c in t+1 .. t+K where price is
+    >= R ATR on the OPPOSITE side (`-s * dist_atr[c] >= R`), provided that
+    from the first close on the opposite side (row x, the first row in
+    t+1 .. c with `-s * dist_atr > 0`) through c there is no close back on
+    the original side (`s * dist_atr > 0`): once through, it stays through
+    until R is reached. A close >= R on the ORIGINAL side before that (a
+    confirmed bounce) ends the touch's resolution -- no break. Returns one
+    row per touch: `touch_pos`, `direction_sign` (+1 = came from above ->
+    break below; -1 = came from below -> break above), `confirm_pos` (-1
+    if no break confirmed within K).
+    """
+    positions, signs = touch.touch_positions(dist_atr, away_threshold, touch_threshold, max_days_to_touch)
+    values = dist_atr.to_numpy(dtype=float)
+    n = len(values)
+    confirm_pos = np.full(len(positions), -1, dtype=int)
+    if len(positions) == 0:
+        return pd.DataFrame({"touch_pos": positions, "direction_sign": signs, "confirm_pos": confirm_pos})
+
+    crossed = np.zeros(len(positions), dtype=bool)   # has closed on the opposite side at least once
+    alive = np.ones(len(positions), dtype=bool)      # not yet resolved as bounce/broken chain/undefined
+    for j in range(1, confirm_window + 1):
+        idx = positions + j
+        in_range = idx < n
+        signed = np.full(len(positions), np.nan)      # s * dist: >0 original side, <0 opposite side
+        signed[in_range] = signs[in_range] * values[idx[in_range]]
+        defined = ~np.isnan(signed)
+        alive &= defined
+        bounced = alive & (signed >= confirm_distance)
+        alive &= ~bounced
+        back_on_original = alive & crossed & (signed > 0)
+        alive &= ~back_on_original
+        crossed |= alive & (signed < 0)
+        confirms = alive & crossed & (-signed >= confirm_distance) & (confirm_pos < 0)
+        confirm_pos[confirms] = idx[confirms]
+        alive &= ~confirms
+    return pd.DataFrame({"touch_pos": positions, "direction_sign": signs, "confirm_pos": confirm_pos})
+
+
+def break_flags(
+    panel: pd.DataFrame,
+    dist_atr_col: str,
+    ticker_col: str = "ticker",
+    confirm_window: int = CONFIRM_WINDOW,
+    confirm_distance: float = CONFIRM_DISTANCE,
+) -> pd.DataFrame:
+    """`break_<ma>_above` (came from below, confirmed break above) /
+    `break_<ma>_below`, True on the confirmation row only, NaN where
+    `dist_atr` is NaN. Same shape and dating as `bounce_flags`.
+    """
+    ma_col = dist_atr_col.removeprefix("dist_atr_")
+    above = np.zeros(len(panel), dtype=bool)
+    below = np.zeros(len(panel), dtype=bool)
+    positions = np.arange(len(panel))
+    for _, idx in panel.groupby(ticker_col, sort=False).indices.items():
+        series = panel[dist_atr_col].iloc[idx].reset_index(drop=True)
+        confirmations = break_confirmation_positions(series, confirm_window, confirm_distance)
+        confirmed = confirmations[confirmations["confirm_pos"] >= 0]
+        rows = positions[idx]
+        # came from below (sign -1) -> broke above; came from above (+1) -> broke below
+        above[rows[confirmed.loc[confirmed["direction_sign"] < 0, "confirm_pos"].to_numpy()]] = True
+        below[rows[confirmed.loc[confirmed["direction_sign"] > 0, "confirm_pos"].to_numpy()]] = True
+    defined = panel[dist_atr_col].notna().to_numpy()
+    out = pd.DataFrame({
+        f"break_{ma_col}_{BREAK_ABOVE}": pd.array(above, dtype="boolean"),
+        f"break_{ma_col}_{BREAK_BELOW}": pd.array(below, dtype="boolean"),
+    }, index=panel.index)
+    return out.mask(np.repeat((~defined)[:, None], out.shape[1], axis=1))

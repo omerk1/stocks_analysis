@@ -1033,6 +1033,31 @@ between near-identical MAs; forward returns from coincident dates do not).
 left is small and dies at 63 days. The from-below (short) side is subject to §7.10's borrow
 caveat regardless of what it shows.
 
+### M21 — Confirmed break through the MA as an entry signal (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** The mirror of M20, added the same day because M20's
+scope was the bounce only. Price approaches the MA from below, touches it, and instead of
+being rejected closes through and is ≥1 ATR *above* within 5 days without closing back below
+(and the mirror: a breakdown from above). M5 counted this as the `slice_through` outcome; M12
+used the related "reclaim" (first day back above the MA) but only compared high-volume against
+low-volume reclaims; M3 tested MA-versus-MA crosses. No cell in the ledger measures the forward
+return from the day a price-through-MA break confirms, against a matched control.
+
+**Hypothesis:** the confirmed break predicts continuation over the next 5/10/21/63 days —
+positive after a break above, negative after a break below — beyond date + C2 + `rev_tercile`
+matching and beyond a same-size move that did not involve the MA (M20's generic-move arm,
+reused unchanged: for a break above, an up-move now above the MA with no recent touch).
+
+**Method:** identical to M20 (`modules/bounce_entry.py` parameterised by event type;
+`features/respect.py::break_flags`). Same grid (4 MAs × 2 directions × 4 horizons), same
+kill criterion, same K/R sensitivity, same secondary synthetic-neighbour arm.
+
+**Prior:** the same as M20's, with one twist. A break above an MA after approaching from below
+is, mechanically, a reclaim by a name that was recently below its MA, so `rev_tercile` and the
+generic-move arm should absorb most of it. If anything survives it should be the breakdown
+side, where M1/M2/M4 found the weak-state buckets carry the study's few real (and
+survivorship-capped) negative effects.
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).

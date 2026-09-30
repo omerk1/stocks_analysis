@@ -25,14 +25,14 @@ from src.signals.moving_averages.modules import bounce_entry as be
 from src.signals.moving_averages.respect_history_run import OUTPUT_DIR, load_panel
 
 
-def feasibility(panel: pd.DataFrame) -> pd.DataFrame:
+def feasibility(panel: pd.DataFrame, event: str = "bounce") -> pd.DataFrame:
     rows = []
     for group in be.GROUP_ORDER:
-        for direction in be.DIRECTIONS:
-            focal, generic, synth, base = be._arm_panels(panel, group, direction)
+        for direction in be.EVENT_SPECS[event]["directions"]:
+            focal, generic, synth, base = be._arm_panels(panel, group, direction, event=event)
             ev = panel[focal]
             rows.append({
-                "group": group, "direction": direction,
+                "event": event, "group": group, "direction": direction,
                 "n_focal": int(focal.sum()), "focal_dates": int(ev["date"].nunique()), "focal_tickers": int(ev["ticker"].nunique()),
                 "n_generic": int(generic.sum()), "n_synth": int(synth.sum()), "n_base": int(base.sum()),
                 "focal_also_synth_share": float((focal & synth).sum() / focal.sum()) if focal.sum() else float("nan"),
@@ -42,12 +42,18 @@ def feasibility(panel: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def main() -> None:
+# Output-file prefix per event type: M20 is the bounce, M21 the break
+# (`break_entry_run.py` calls `main("break")`).
+PREFIX = {"bounce": "m20_bounce_entry", "break": "m21_break_entry"}
+
+
+def main(event: str = "bounce") -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--feasibility", action="store_true")
     parser.add_argument("--n-boot", type=int, default=be.N_BOOT)
     args = parser.parse_args()
     t0 = time.time()
+    prefix = PREFIX[event]
 
     panel = load_panel()
     print(f"panel: {panel.shape}, {panel['ticker'].nunique()} tickers, "
@@ -58,30 +64,30 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.feasibility:
-        table = feasibility(prepared)
-        table.to_csv(OUTPUT_DIR / "m20_bounce_entry_feasibility.csv", index=False)
+        table = feasibility(prepared, event)
+        table.to_csv(OUTPUT_DIR / f"{prefix}_feasibility.csv", index=False)
         with pd.option_context("display.width", 250, "display.max_columns", 40):
             print(table.to_string(index=False))
         return
 
-    primary = be.primary_cell_table(prepared, n_boot=args.n_boot)
-    primary.to_csv(OUTPUT_DIR / "m20_bounce_entry_primary.csv", index=False)
+    primary = be.primary_cell_table(prepared, event=event, n_boot=args.n_boot)
+    primary.to_csv(OUTPUT_DIR / f"{prefix}_primary.csv", index=False)
     print(f"primary cells done, t={time.time()-t0:.0f}s", flush=True)
 
-    sensitivity = be.sensitivity_cell_table(context, n_boot=args.n_boot)
-    sensitivity.to_csv(OUTPUT_DIR / "m20_bounce_entry_sensitivity.csv", index=False)
+    sensitivity = be.sensitivity_cell_table(context, event=event, n_boot=args.n_boot)
+    sensitivity.to_csv(OUTPUT_DIR / f"{prefix}_sensitivity.csv", index=False)
     print(f"sensitivity cells done, t={time.time()-t0:.0f}s", flush=True)
 
-    verdict = be.evaluate_kill_criterion(primary, sensitivity)
-    verdict["cells"].to_csv(OUTPUT_DIR / "m20_bounce_entry_kill.csv", index=False)
+    verdict = be.evaluate_kill_criterion(primary, sensitivity, event=event)
+    verdict["cells"].to_csv(OUTPUT_DIR / f"{prefix}_kill.csv", index=False)
 
     show = ["group", "direction", "horizon", "n_events", "n_dates", "below_threshold", "delta_focal_c1", "delta_focal_c2",
             "delta_focal_c2_rev", "delta_focal_ci_low", "delta_focal_ci_high", "delta_generic_c2_rev",
             "did_c2_rev", "did_c2_rev_ci_low", "did_c2_rev_ci_high", "did_synth", "focal_also_synth_share"]
     with pd.option_context("display.width", 300, "display.max_columns", 60, "display.float_format", "{:.5f}".format):
-        print("\n=== M20 primary cells ===")
+        print(f"\n=== {prefix} primary cells ===")
         print(primary[show].to_string(index=False))
-        print("\n=== M20 kill criterion ===")
+        print(f"\n=== {prefix} kill criterion ===")
         print(verdict["cells"].to_string(index=False))
     print(f"\nmodule_killed={verdict['module_killed']} (confirmed cells: {verdict['n_confirmed']}/{verdict['n_cells']})")
     print(f"total time {time.time()-t0:.0f}s", flush=True)
