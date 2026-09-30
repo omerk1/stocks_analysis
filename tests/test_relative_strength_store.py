@@ -16,7 +16,7 @@ def derived_conn():
 
 def _rs(dates, tickers=("AAPL",), benchmark="SPY", rs_ratio=1.0) -> pd.DataFrame:
     rows = [
-        {"ticker": t, "date": d, "benchmark": benchmark, "rs_ratio": rs_ratio, "rs_mansfield": 5.0, "rs_rating": 80.0}
+        {"ticker": t, "date": d, "benchmark": benchmark, "rs_ratio": rs_ratio, "rs_mansfield": 5.0, "rs_weighted_return": 0.12, "rs_rating": 80.0}
         for t in tickers
         for d in dates
     ]
@@ -25,7 +25,7 @@ def _rs(dates, tickers=("AAPL",), benchmark="SPY", rs_ratio=1.0) -> pd.DataFrame
 
 def _sector_rs(dates, sectors=("Technology",), benchmark="SPY", rs_ratio=1.0) -> pd.DataFrame:
     rows = [
-        {"sector": s, "date": d, "benchmark": benchmark, "rs_ratio": rs_ratio, "rs_mansfield": 5.0, "rs_rating": 80.0}
+        {"sector": s, "date": d, "benchmark": benchmark, "rs_ratio": rs_ratio, "rs_mansfield": 5.0, "rs_weighted_return": 0.12, "rs_rating": 80.0}
         for s in sectors
         for d in dates
     ]
@@ -140,3 +140,23 @@ def test_upsert_sector_relative_strength_raises_on_missing_expected_columns(deri
 
     with pytest.raises(ValueError, match="rs_rating"):
         store.upsert_sector_relative_strength(derived_conn, incomplete, run_id="run-1")
+
+
+def test_create_tables_adds_rs_weighted_return_to_a_pre_existing_table():
+    # Databases created before the column shipped get it via ALTER TABLE,
+    # NULL until the next run refreshes each row.
+    connection = derived_db.get_connection(":memory:")
+    derived_db.create_runs_table(connection)
+    for table, key in (("relative_strength", "ticker TEXT NOT NULL, date TEXT NOT NULL, comparison TEXT NOT NULL"),
+                       ("sector_relative_strength", "sector TEXT NOT NULL, date TEXT NOT NULL")):
+        connection.execute(
+            f"CREATE TABLE {table} ({key}, benchmark TEXT, rs_ratio REAL, rs_mansfield REAL, rs_rating REAL, run_id TEXT)"
+        )
+    store.create_relative_strength_tables(connection)
+    for table in ("relative_strength", "sector_relative_strength"):
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        assert "rs_weighted_return" in columns
+    store.upsert_relative_strength(connection, "vs_market", _rs([pd.Timestamp("2024-01-02")]), "run-1")
+    read = store.read_relative_strength(connection, "AAPL")
+    assert read["rs_weighted_return"].tolist() == [0.12]
+    connection.close()

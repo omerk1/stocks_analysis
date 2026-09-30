@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS relative_strength (
     benchmark TEXT,
     rs_ratio REAL,
     rs_mansfield REAL,
+    rs_weighted_return REAL,
     rs_rating REAL,
     run_id TEXT,
     PRIMARY KEY (ticker, date, comparison)
@@ -39,18 +40,29 @@ CREATE TABLE IF NOT EXISTS sector_relative_strength (
     benchmark TEXT,
     rs_ratio REAL,
     rs_mansfield REAL,
+    rs_weighted_return REAL,
     rs_rating REAL,
     run_id TEXT,
     PRIMARY KEY (sector, date)
 );
 """
 
-_COLUMNS = ["benchmark", "rs_ratio", "rs_mansfield", "rs_rating"]
+_COLUMNS = ["benchmark", "rs_ratio", "rs_mansfield", "rs_weighted_return", "rs_rating"]
+
+# Columns added after the tables first shipped -- existing databases get
+# them via ALTER TABLE (pure additions, NULL until the next run refreshes
+# each row), same approach as gaps.store / avwap.store.
+_ADDED_COLUMNS = {"rs_weighted_return": "REAL"}
 
 
 def create_relative_strength_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_RELATIVE_STRENGTH_SCHEMA)
     conn.execute(_SECTOR_RELATIVE_STRENGTH_SCHEMA)
+    for table in ("relative_strength", "sector_relative_strength"):
+        have = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, sql_type in _ADDED_COLUMNS.items():
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
     conn.commit()
 
 
@@ -61,7 +73,7 @@ def upsert_relative_strength(
     ("vs_market" or "vs_sector"), keyed by `(ticker, date, comparison)`.
     `rs` is whatever `compute.compute_stock_vs_market`/
     `compute_stock_vs_sector` returns: columns ticker, date, benchmark,
-    rs_ratio, rs_mansfield, rs_rating.
+    rs_ratio, rs_mansfield, rs_weighted_return, rs_rating.
     """
     if rs.empty:
         return
@@ -82,8 +94,8 @@ def upsert_relative_strength(
     conn.executemany(
         """
         INSERT OR REPLACE INTO relative_strength
-            (ticker, date, comparison, benchmark, rs_ratio, rs_mansfield, rs_rating, run_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (ticker, date, comparison, benchmark, rs_ratio, rs_mansfield, rs_weighted_return, rs_rating, run_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -105,7 +117,7 @@ def upsert_sector_relative_strength(conn: sqlite3.Connection, rs: pd.DataFrame, 
     """Insert/overwrite rows in `sector_relative_strength`, keyed by
     `(sector, date)`. `rs` is whatever `compute.compute_sector_vs_market`
     returns: columns sector, date, benchmark, rs_ratio, rs_mansfield,
-    rs_rating.
+    rs_weighted_return, rs_rating.
     """
     if rs.empty:
         return
@@ -125,8 +137,8 @@ def upsert_sector_relative_strength(conn: sqlite3.Connection, rs: pd.DataFrame, 
     conn.executemany(
         """
         INSERT OR REPLACE INTO sector_relative_strength
-            (sector, date, benchmark, rs_ratio, rs_mansfield, rs_rating, run_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (sector, date, benchmark, rs_ratio, rs_mansfield, rs_weighted_return, rs_rating, run_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )

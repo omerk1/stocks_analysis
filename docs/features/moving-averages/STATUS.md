@@ -82,6 +82,16 @@ explanation over a level-specific one. Never audited. Don't privilege SMA200 fea
   the scanner re-run as of each date.
 - **Missing infrastructure**: a 2022+ holdout check, U2/U3 universes, point-in-time market
   cap (M12), an earnings-date table.
+- **`relative_strength` point-in-time check (asked for by the M2 pre-registration before
+  trusting `rs_rating` inside the lagged pipeline) — done 2026-09-30.** `rs_rating` is
+  clean: trailing shifted-close returns, ranked within the same date against the
+  point-in-time index roster, then lagged by its one consumer (`stack_minervini`).
+  `rs_mansfield` was not: the weekly oscillator was forward-filled from the weekly
+  bar's *Monday* label although it embeds that week's *Friday* close, handing Mon–Thu a
+  value up to four sessions ahead. Fixed the same day (each day now carries the last
+  *completed* week, regression test in `tests/test_relative_strength_compute.py`). No
+  study cell consumes `rs_mansfield`, so nothing in `EXPERIMENTS.csv` is affected. The
+  raw `rs_weighted_return` score is now stored next to the rank it feeds.
 
 ## Study-level termination
 
