@@ -56,8 +56,8 @@ level-distance features below (§3, "LRP made quantitative").
 |---|---|---|---|
 | F1 | Raw OHLCV time series | `market_common.data` (load/validate) | Must be normalised (log returns, ranges in ATR units, relative volume), otherwise the model learns each ticker's price *level*. Raw series imply a sequence model (see §5). |
 | F2 | Main MAs as TS, slopes | `moving_averages/features/` panel (`slope.py`, `ribbon.py`, `state.py`, `crossover.py`) | Slope set: signed `slope_log_k` (so rising vs falling is built in); its cross-sectional percentile (`slope_pctile_21_sma_50` is the study's Tier 2, and it's the *extremes in both directions* that matter); acceleration (change in slope); agreement across MAs (ribbon, M6.6 state 0–5); `dist_from_52w_low` (M18). Null-prior candidates kept cheap: a slope-sign flag and its run length (M1's state-age cells failed the plateau rule; M6.4 found slope runs last as long as a drifting random walk's). `slope_log_k` only (MA invariant 7). |
-| F3 | Price distance from MAs (% / ATR) | `features/distance.py` | Already built. `extension_x_slope` (M6.2 Finding 1): real at its control and reversal-robust, but fails FDR and is a lone pixel on the distance × slope surface. Let a tree find the interaction; don't hand-build it for v1. |
-| F4 | RSI, MACD, ATR, ADR… | `market_common.indicators`, `feature_engineering/`, `moving_averages/features/oscillators.py` (M17) | M17 (final): MACD adds information beyond the MA set at its control (Tier 3) but **fails the whole-grid FDR pass** (p=0.115). RSI/stochastics inconclusive; RSI flips sign when price is near its MA, a hint of an interaction worth letting a tree find. MACD's incremental IC barely excludes zero and was never tested against `mom_1_0` (marginal). For MACD, include both lines *and* the histogram and let feature importance decide. ATR is needed anyway (barrier units). |
+| F3 | Price distance from MAs (% / ATR) | `features/distance.py` | Already built; in the model. `extension_x_slope` (M6.2 Finding 1, weak prior): both of its inputs are in the model, so a tree can learn the interaction itself. A hand-built interaction column is an optional extra, not needed for v1. |
+| F4 | RSI, MACD, ATR, ADR… | `market_common.indicators`, `feature_engineering/`, `moving_averages/features/oscillators.py` (M17) | M17 (final): MACD adds information beyond the MA set at its control (Tier 3) but **fails the whole-grid FDR pass** (p=0.115). RSI/stochastics inconclusive; RSI flips sign when price is near its MA, a hint of an interaction worth letting a tree find. MACD is in the model with a weak prior: both lines *and* the histogram, and the ablation decides. (Its study evidence is thin: incremental IC barely above zero, never tested against `mom_1_0`.) ATR is needed anyway (barrier units). |
 | F5 | Relative strength | `signals/relative_strength` (`rs_rank`) | Also the momentum **baseline** (see §6). |
 | F6 | Divergences, gaps, FVGs, fibs, AVWAP, AVP | `divergences`, `gaps` (FVGs included), `fibonacci`, `avwap` (now with volume-weighted std bands, #109). **AVP now built:** `signals/volume_profile` (#110), with shared anchor discovery in `market_common`. | Event/level objects, not series. They need converting to per-date features (§3). Check that each one is `as_of`-safe when computed across the full panel. |
 | F7 | S/R lines (duration, relevance, strength) | `sr_lines` (has scoring and lifecycle) | Same conversion to per-date features. |
@@ -74,8 +74,10 @@ list: `ma_study_insights.md`. The points that shape this inbox:
 - **The MA family is close to one signal.** M16: all 23 MA rules form one cluster at
   cosine ≥0.80, about 10 clusters (by effective lookback) at ≥0.95. Pick a few
   representatives per lookback cluster. `slope_log_21_sma_200` is an outlier cluster, and
-  M16 excluded thresholded rules (`above_*`, crossover events). No lookback is special
-  (§7.5 placebo, and the unresolved SMA200 anomalies), so SMA200 gets no privileged role.
+  M16 excluded thresholded rules (`above_*`, crossover events). SMA200 features are in
+  the model like every other lookback. They just aren't treated as special (e.g. no
+  hand-coded "the 200-day" level or flag), since no lookback was special in the study
+  (§7.5 placebo, and the unresolved SMA200 anomalies).
 - **Recurring confounds: momentum/vol matching and short-term reversal.** M6.2's touch
   cell died to the reversal control; `dist_from_52w_high` died to momentum matching.
   Extension killed the pooled pattern cell (M14). Every family's ablation baseline should
@@ -106,7 +108,13 @@ MAs (M10), and RSI/%K next to `dist_z_sma_20` (M17, corr 0.86).
 Full list: `ma_study_insights.md` §2.3.
 
 A null prior never becomes evidence by being in the model. Only the harness's ablation
-result counts. `ma_study_insights.md` §2.3 carries the same split.
+result counts. **Priors order the tests; they never keep a feature out.** Every weak and
+null feature gets its out-of-sample chance.
+
+**Near-copies** (the same signal twice, e.g. three distance normalisations at one
+lookback, 0.94–0.98 correlated) stay out of the default set, because they split
+feature-importance credit and add almost no information. One explicit ablation adds them
+all back; if that shows a gain, they go in. `ma_study_insights.md` §2.3 carries the same split.
 
 **"Least resistance path" (LRP):** the term doesn't appear anywhere in the repo's docs or
 code yet. It needs a written definition before it can be a feature or a target.
@@ -161,9 +169,10 @@ zero). So encode crossovers as state plus state age (`features/crossover.py` /
 **Volatility and volume**
 - Volatility regime: realised vol, its percentile against the ticker's own history, and
   vol-of-vol.
-- Compression: **one** of ribbon width percentile or Bollinger-width percentile (they're
-  near-duplicates), plus ATR percentile and NR7. M7: compression predicts the *size* of
-  the forward move (a weak prior), not forward realised vol. The VCP detector already
+- Compression: ribbon width percentile (weak prior, M7), plus Bollinger-width percentile,
+  ATR percentile and NR7 (null priors). All in the model. Ribbon and Bollinger width are
+  highly correlated but not identical, so both go in and the ablation decides. M7:
+  compression predicts the *size* of the forward move, not forward realised vol. The VCP detector already
   exists; it's an untested compression candidate (M14 is a null once as-of-safe).
   Compression changes barrier probabilities directly, because a squeeze reaches a far
   barrier more easily.
@@ -191,8 +200,9 @@ zero). So encode crossovers as state plus state age (`features/crossover.py` /
   and isn't on the list. Equal- and cap-weighted S&P 500 breadth are both stored; cap
   weights use SEC share counts and split-only prices (#116, #133). Use 2011 onward.
 - SPX's own trend state (reuse the MA features on the index), yield curve, HY credit
-  spread. As gates only, and expect little: M13 found no regime interaction and regime
-  slices cut effective N to 786–1,195 dates. Report the number of regimes as effective N.
+  spread. In the model as regime inputs that other features can interact with (null
+  prior: M13 found no regime interaction). Report the number of regimes as effective N,
+  since regime slices cut it to 786–1,195 dates.
 
 **Calendar and events**
 - Day of week, turn of month, options-expiry week.
