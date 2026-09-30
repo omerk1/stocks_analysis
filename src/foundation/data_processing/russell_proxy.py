@@ -16,7 +16,13 @@ Approximations, all deliberate:
   Russell ranks a *company* (all share classes); this ranks each ticker.
 - **Eligibility**: `tickers.type = 'CS'`, a close on or within 5 days before the rank
   day, a share count filed on or before it, and a rank-day close >= $1 (Russell's
-  own price floor). No float, domicile or IPO-seasoning rules.
+  own price floor, applied to the split-reconciled price the stock actually
+  traded at). No float, domicile or IPO-seasoning rules.
+- **Dividend adjustment (known bias, not fixed here):** yfinance closes in
+  `bars_1d` are dividend- (and spin-off-) adjusted as well as split-adjusted,
+  and `reconcile_market_cap` only undoes splits. Historical caps of dividend
+  payers come out too low (KO 2012-04-30: stored $24.46 vs ~$38 split-adjusted;
+  T: $9.24 vs ~$33), which pushes them down the ranking. See `docs/backlog.md`.
 - **Survivorship**: only tickers with price bars can be ranked, and delisted
   history before 2024 isn't on this plan (`docs/backlog.md`, survivorship-free
   price history). So each year's ranking misses companies that later delisted, and
@@ -95,7 +101,6 @@ def rank_day_caps(conn: sqlite3.Connection, days: list[pd.Timestamp]) -> pd.Data
     filed by then (or priced under `MIN_PRICE`) are left out."""
     columns = ["rank_day", "ticker", "close", "market_cap"]
     closes = _load_rank_day_closes(conn, days)
-    closes = closes[closes["close"] >= MIN_PRICE]
     if closes.empty:
         return pd.DataFrame(columns=columns)
     tickers = sorted(closes["ticker"].unique())
@@ -113,12 +118,16 @@ def rank_day_caps(conn: sqlite3.Connection, days: list[pd.Timestamp]) -> pd.Data
         # actual bar date, so each close is matched to shares filed by then.
         prices = pd.Series(group["close"].to_numpy(), index=pd.DatetimeIndex(group["date"], name="date"))
         cap = market_cap.reconcile_market_cap(prices, ticker_shares, splits_by_ticker.get(ticker))
-        values = cap["market_cap"].reindex(pd.DatetimeIndex(group["date"])).to_numpy()
-        frames.append(group.assign(market_cap=values))
+        cap = cap.reindex(pd.DatetimeIndex(group["date"]))
+        # The price floor applies to what the stock actually traded at: the
+        # stored close is split-adjusted, so a stock with large later forward
+        # splits (NVDA 2012: stored $0.30) must be scaled back up first.
+        traded = group["close"].to_numpy() * cap["cumulative_split_ratio"].to_numpy()
+        frames.append(group.assign(market_cap=cap["market_cap"].to_numpy(), traded_close=traded))
     if not frames:
         return pd.DataFrame(columns=columns)
     caps = pd.concat(frames, ignore_index=True)
-    caps = caps[caps["market_cap"].notna() & (caps["market_cap"] > 0)]
+    caps = caps[caps["market_cap"].notna() & (caps["market_cap"] > 0) & (caps["traded_close"] >= MIN_PRICE)]
     return caps[columns].reset_index(drop=True)
 
 
