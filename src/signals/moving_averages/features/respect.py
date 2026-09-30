@@ -148,3 +148,36 @@ def respect_counts(
         resistance[positions[idx]] = counts[RESISTANCE].to_numpy(dtype=np.float32)
 
     return pd.DataFrame({support_col: support, resistance_col: resistance}, index=panel.index)
+
+
+def bounce_flags(
+    panel: pd.DataFrame,
+    dist_atr_col: str,
+    ticker_col: str = "ticker",
+    confirm_window: int = CONFIRM_WINDOW,
+    confirm_distance: float = CONFIRM_DISTANCE,
+) -> pd.DataFrame:
+    """M20 (PREREGISTRATION.md 2026-09-30): the confirmed reversal itself as
+    an *event flag* -- `bounce_<ma>_from_above` / `bounce_<ma>_from_below`,
+    True on the confirmation row c of a touch (see `confirmation_positions`),
+    False elsewhere, NaN where `dist_atr` is NaN. Index-aligned with `panel`.
+    The flag is dated by the confirmation row, so it is known on the
+    tradeable day it marks, same as the respect counts above.
+    """
+    ma_col = dist_atr_col.removeprefix("dist_atr_")
+    above = np.zeros(len(panel), dtype=bool)
+    below = np.zeros(len(panel), dtype=bool)
+    positions = np.arange(len(panel))
+    for _, idx in panel.groupby(ticker_col, sort=False).indices.items():
+        series = panel[dist_atr_col].iloc[idx].reset_index(drop=True)
+        confirmations = confirmation_positions(series, confirm_window, confirm_distance)
+        confirmed = confirmations[confirmations["confirm_pos"] >= 0]
+        rows = positions[idx]
+        above[rows[confirmed.loc[confirmed["direction_sign"] > 0, "confirm_pos"].to_numpy()]] = True
+        below[rows[confirmed.loc[confirmed["direction_sign"] < 0, "confirm_pos"].to_numpy()]] = True
+    defined = panel[dist_atr_col].notna().to_numpy()
+    out = pd.DataFrame({
+        f"bounce_{ma_col}_from_above": pd.array(above, dtype="boolean"),
+        f"bounce_{ma_col}_from_below": pd.array(below, dtype="boolean"),
+    }, index=panel.index)
+    return out.mask(np.repeat((~defined)[:, None], out.shape[1], axis=1))

@@ -1003,6 +1003,36 @@ stock" lift as the real one and the difference will span zero. The interesting n
 either way is the *within-arm* lift, which is a descriptive read on whether respect history
 is a usable strength input for level features downstream (`docs/modeling/IDEAS.md` §3).
 
+### M20 — Confirmed bounce as an entry signal (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule, immediately
+after M19, to answer the question M19 turned out not to ask. M5 used the bounce as an
+*outcome*; M19 used the confirmed bounce as a *past feature* of the next touch. Nobody
+measured the forward return from the day the bounce confirms: price touches the MA from
+above on day d, is back ≥1 ATR above it within 5 days without closing through — is that, on
+the day it becomes knowable, a signal for the next X days?
+
+**Hypothesis:** the confirmed bounce (M19's `features/respect.py::confirmation_positions`,
+K=5, R=1.0 ATR) predicts continuation over the next 5/10/21/63 trading days — positive after a
+support bounce, negative after a resistance rejection — beyond what date + C2 + `rev_tercile`
+matching explains, **and beyond a same-size move that did not involve the MA.**
+
+**The control that matters:** "up ≥1 ATR in ≤5 days" is a short-term move whether or not an
+MA was touched. The primary placebo is therefore a **generic-move arm**: rows on the same
+side of the focal MA whose lagged close moved ≥R ATR over some j ≤ K prior rows and whose
+focal-MA |dist_atr| stayed above the touch band for the previous K+1 rows (no touch was
+possible). Statistic = `delta_bounce − delta_generic`, each a date + C2 + `rev_tercile`
+matched delta against the same base-control rows, shared date blocks
+(`stats/inference.py::block_bootstrap_delta_diff`). The §7.5 synthetic neighbours are
+reported as a secondary arm with the overlap share — a bounce off SMA47 confirms on the same
+day as a bounce off SMA50 most of the time, so that DiD is near zero by construction and
+carries no verdict (M5's synthetic control worked because hold rates differ mechanically
+between near-identical MAs; forward returns from coincident dates do not).
+
+**Prior:** the generic-move arm absorbs most of the bounce's forward return; whatever is
+left is small and dies at 63 days. The from-below (short) side is subject to §7.10's borrow
+caveat regardless of what it shows.
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).

@@ -30,6 +30,7 @@ from src.signals.moving_averages.features.panel import apply_lag, assemble_panel
 from src.signals.moving_averages.features.respect import SUPPORT, respect_column, respect_counts
 from src.signals.moving_averages.modules import (
     baseline_state,
+    bounce_entry,
     context_conditioning,
     cross_sectional,
     crossover_state,
@@ -70,7 +71,7 @@ PATTERNS = pd.DataFrame({
 })
 
 SINGLE_ARG_MODULES = [
-    baseline_state, crossover_state, distance_from_ma, high_low_52w, kernel_horse_race, nonlinearity_probe,
+    baseline_state, bounce_entry, crossover_state, distance_from_ma, high_low_52w, kernel_horse_race, nonlinearity_probe,
     placebo_levels, regime_conditional_lookback, respect_history, ribbon_compression, ribbon_slope_agreement,
     slope_conditioner,
     slope_magnitude, slope_persistence, slope_vs_momentum, sma_dropoff, touch_bounce, volume_liquidity,

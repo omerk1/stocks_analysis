@@ -5749,3 +5749,128 @@ new open item), `REPORT.md`. Downstream: respect history is **not** a usable str
 for MA levels (`docs/modeling/ma_study_insights.md` §1.3).
 
 ---
+
+## M20 — Confirmed bounce as an entry signal (2026-09-30)
+
+**Module / track:** M20, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M20 section. Written and committed before running. Same panel as M19 (the
+cached placebo panel, U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The one
+pre-run look is the feasibility count at the end of this entry (event counts and overlap
+shares, no outcome column).
+
+**Promoted from:** the question M19 did not ask, raised after M19's result. M5 treated the
+bounce as an outcome; M19 treated the confirmed bounce as a past feature of the *next* touch.
+Neither measured the forward return from the confirmation day itself — the practitioner's
+entry: "touched the 50-day, bounced, is that a buy?"
+
+**Definitions (frozen; the event is M19's confirmed reversal, unchanged):**
+- **Touch:** `features/touch.py`, unchanged (away ≥1 ATR, then |dist_atr| ≤ 0.25 within 10d).
+- **Confirmed bounce at row c:** first row in t+1 … t+K (K=5) with `s·dist_atr ≥ R` (R=1.0 ATR),
+  no close through the MA on t+1 … c. `features/respect.py::bounce_flags` sets
+  `bounce_<ma>_<direction>` True on row c only. Known on row c (the panel is already lagged).
+- **Entry / outcome:** the event row is c; outcome `fwd_ret_h = close[c+h]/close[c] − 1`,
+  h ∈ {5, 10, 21, 63} (`labels/forward_returns.py`). Raw return; date matching (C1) removes
+  the market, as everywhere in this study.
+- **Directions:** `from_above` (support bounce, hypothesised **positive** forward return) and
+  `from_below` (resistance rejection, hypothesised **negative** — a short-side claim, §7.10
+  borrow caveat applies whatever it shows). Scored separately.
+- **MAs:** SMA20, EMA21, SMA50, SMA200 with M19's neighbour groups.
+- **Generic-move placebo (primary control arm), `generic_move_<focal ma>_<direction>`:** on
+  row c the one-bar-lagged close moved ≥R ATR (`atr_14`, lagged) in the bounce's direction
+  over some j ≤ K prior rows; price sits on the bounce's side of the focal MA now
+  (`dist_atr > 0` for `from_above`, `< 0` for `from_below`); and the focal MA's |dist_atr|
+  stayed > 0.25 over the previous K+1 rows, so no touch — hence no bounce — was possible.
+  `modules/bounce_entry.py::generic_move_flags`. This is the "same-size move, no MA" control
+  the question needs: a bounce is a ≥1-ATR-in-≤5-days move by construction.
+- **Base controls:** rows that are none of focal bounce / generic move / neighbour bounce.
+
+**Statistic per cell (MA × direction × horizon):**
+
+    DiD = delta_bounce − delta_generic
+    delta_bounce  = matched mean fwd_ret_h, bounce rows vs base controls
+    delta_generic = matched mean fwd_ret_h, generic-move rows vs base controls
+
+both matched on date + the control tier's columns (`stats/controls.py::stratum_deltas`),
+resampled with shared date blocks (`block_bootstrap_delta_diff`), block length
+max(10, 2h) (DESIGN §6.2), 500 draws, 90% CI. `delta_bounce` also gets its own CI — it is the
+tradeable quantity and the cost annotation attaches to it.
+
+**Synthetic-neighbour arm — secondary, descriptive, no verdict.** A bounce off SMA47/53 is
+also reported (`did_synth`, `delta_synth`) together with the share of focal bounce rows that
+are simultaneously a neighbour bounce row. The feasibility count puts that overlap at
+74–92%, so this DiD is near zero by construction: near-identical MAs confirm on the same day
+and the forward returns are the same rows. M5's synthetic control worked because *hold
+rates* differ mechanically between adjacent MAs; forward returns from coincident dates do
+not. Recorded here before running so it cannot be read as "the MA is not special" after the
+fact — it is uninformative either way.
+
+**Control tier and why:** the kill criterion is evaluated on C2 + `rev_tercile` (date ×
+`mom_tercile` × `vol_tercile` × `sector` × prior-21d-return tercile), as in M19, with C1 and
+3-column C2 as the waterfall. The event populations here are much less sparse than M19's
+(thousands of bounce rows and 100k+ generic rows against ~1M base controls, not high-vs-low
+within touches), so the thin-strata problem M19 recorded should not bite; the contributing-
+date counts are reported per cell so that can be checked, not assumed.
+
+**Grid (`N_tests` contribution): 32 primary cells** — 4 MAs × 2 directions × 4 horizons; the
+counted statistic is the C2+rev DiD. **128 sensitivity cells** (4 one-at-a-time ±25%
+perturbations of K and R: K ∈ {4, 6}, R ∈ {0.75, 1.25}; L does not apply) are robustness
+re-runs, not counted.
+
+**Kill criterion (per cell, then module).** A cell is **confirmed** iff all of:
+1. `delta_bounce`'s C2+rev CI excludes zero **in the hypothesised direction** (+ for
+   `from_above`, − for `from_below`);
+2. the DiD vs the generic move's C2+rev CI excludes zero in the same direction — the bounce
+   beats a same-size move that did not involve the MA;
+3. **term-structure plateau (§5.1):** every adjacent horizon's DiD has the same sign;
+4. **MA plateau (§6.7):** ≥2 of the other 3 MAs same-signed at that direction and horizon;
+5. **sensitivity:** all 4 K/R perturbations keep the DiD's sign and ≥3 of 4 keep its CI off
+   zero;
+6. not below the effective-N floor (200 bounce events / 30 dates / 30 tickers, and ≥30 dates
+   contributing a matched bounce contrast at C2+rev).
+
+**Module killed** iff no cell is confirmed. A `delta_bounce` that excludes zero while the DiD
+spans zero is the expected shape of "it's the move, not the MA" and is logged as such, not
+as a finding about the MA. `decisive_test_status`: `passed` for a confirmed cell, `failed`
+for a cell that passes gate 1 but fails any of 2–5, `never_tested` otherwise. Tier from
+§9.2's table alone (DESIGN §9.2, 2026-09-10 rule).
+
+**Cost (invariant #8):** signal = "confirmed bounce off the real MA", one round trip per
+event. `signals_per_year` = bounce events / ticker-years (feasibility: 0.3–1.8 per ticker-
+year); hurdle = that × 10 bps (U1); compared against `delta_bounce`'s C2+rev point and both
+CI ends, linearly annualised ×252/h.
+
+**Distribution shape (invariant #10), descriptive only:** hit rate (raw and C1/C2+rev delta
+vs base controls via `stats/shape.py::hit_rate_deltas`), win/loss magnitude ratio and skew of
+the bounce rows' `fwd_ret_h`, per cell.
+
+**Look-ahead:** `modules/bounce_entry.py` is in `tests/test_moving_averages_leakage.py`'s
+module list; `bounce_*` and `generic_move_*` are non-label columns and must not move when
+bars from the cut onward are perturbed. `bounce_flags` reuses `confirmation_positions`,
+whose confirmation-dating is directly tested (M19).
+
+**Argue against it before running:** (a) the generic-move arm is the whole question — if
+`delta_bounce` clears and the DiD does not, the "signal" is short-term momentum, and that is
+the expected outcome; (b) a bounce that confirms at exactly R has, mechanically, just risen
+R ATR into a possibly-extended position, and M4/M6.2 found extension is *negative* for
+21d return — a negative `delta_bounce` at 21d is a live alternative and would not be a
+finding about support either; (c) the generic arm's rows sit at various distances from the
+MA while bounce rows sit ~R ATR from it, so extension is not perfectly matched — noted, not
+fixed in this slice; (d) close-only touches (M5's caveat); (e) at 63d, block length 126 with
+~2,700 dates leaves ~21 blocks — adequate, but the 63d CIs will be the widest.
+
+**Feasibility count (run 2026-09-30 before freezing, `bounce_entry_run.py --feasibility`;
+no outcome read).**
+
+| MA | dir | bounce rows | dates / tickers | generic-move rows | neighbour-bounce rows | overlap bounce∩neighbour |
+|---|---|---|---|---|---|---|
+| sma20 | ↑ | 7,376 | 2,033 / 405 | 242,993 | 12,489 | 77% |
+| sma20 | ↓ | 4,858 | 1,494 / 405 | 143,663 | 7,800 | 79% |
+| ema21 | ↑ | 8,642 | 2,107 / 405 | 237,460 | 13,496 | 89% |
+| ema21 | ↓ | 5,198 | 1,518 / 405 | 131,026 | 7,561 | 92% |
+| sma50 | ↑ | 5,274 | 1,776 / 405 | 276,560 | 8,700 | 79% |
+| sma50 | ↓ | 3,459 | 1,368 / 405 | 135,249 | 5,608 | 81% |
+| sma200 | ↑ | 2,365 | 1,129 / 402 | 319,074 | 5,828 | 74% |
+| sma200 | ↓ | 1,674 | 910 / 394 | 95,434 | 4,092 | 78% |
+
+Every cell clears the §6.9 floor on raw counts; bounce∩generic is 0 by construction. Full
+table: `output/moving_averages/m20_bounce_entry_feasibility.csv` (gitignored).
