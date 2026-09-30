@@ -6038,3 +6038,73 @@ are more frequent than M20's bounces at every MA (the touch band resolves throug
 than it holds — M5's `P(slice_through)` was 32%, `P(hold)` 43%, but a bounce also has to
 avoid closing through, which many holds don't). Full table:
 `output/moving_averages/m21_break_entry_feasibility.csv` (gitignored).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`break_entry_run.py`, 34 minutes, holdout untouched). Outputs under
+`output/moving_averages/m21_break_entry_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed. 0 of 32 cells confirmed.** A confirmed break through SMA20/EMA21/SMA50/SMA200,
+up or down, carries no forward-return information at 5–63 days beyond a same-size move that did
+not involve the MA. Only 1 of 32 DiD CIs excludes zero, fewer than the ~3 the null predicts at
+90%. The break arm's own C2+rev delta runs from −0.36% to +0.37% and excludes zero in just two
+cells, one of them with the wrong sign.
+
+| MA | dir | h | break delta C2+rev [90% CI] | generic delta | DiD [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | above | 21 | −0.07% [−0.19, +0.03] | −0.07% | −0.00% [−0.13, +0.13] |
+| sma20 | below | 21 | +0.01% [−0.19, +0.18] | −0.07% | +0.08% [−0.12, +0.26] |
+| ema21 | above | 21 | −0.09% [−0.26, +0.08] | −0.09% | −0.00% [−0.16, +0.17] |
+| ema21 | below | 21 | −0.01% [−0.20, +0.13] | +0.03% | −0.04% [−0.24, +0.14] |
+| sma50 | above | 21 | +0.01% [−0.16, +0.19] | −0.13% | +0.14% [−0.06, +0.34] |
+| sma50 | below | 21 | −0.11% [−0.30, +0.10] | +0.09% | −0.20% [−0.47, +0.04] |
+| **sma50** | **below** | **63** | **−0.36% [−0.66, −0.02]** | +0.15% | **−0.50% [−0.90, −0.10]** |
+| sma200 | above | 21 | −0.04% [−0.40, +0.33] | −0.08% | +0.04% [−0.29, +0.40] |
+| sma200 | below | 21 | −0.12% [−0.46, +0.26] | +0.15% | −0.27% [−0.66, +0.11] |
+| sma200 | below | 63 | +0.37% [+0.00, +0.73] | +0.17% | +0.20% [−0.34, +0.82] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `break_entry_*`.) Effective N is healthy everywhere: 2,248–10,560
+break events, 753–1,775 contributing dates at C2+rev.
+
+**What the raw means say.** A break above looks like any up-move: SMA50/21d break 1.30%, generic
+up-move 0.90%, base 1.77%. A break below looks like any down-move: break 2.06%, generic 2.40%, base
+1.47%. Both "up 1 ATR" and "down 1 ATR" populations sit on the wrong side of base in the raw
+means (short-term reversal), and the break arm tracks the generic arm rather than departing from
+it in the direction of continuation. The C1 → C2+rev waterfall on the break arm shrinks toward
+zero at every MA — the same `rev_tercile` absorption M20 showed.
+
+**The one CI-off-zero cell, `sma50/below/63d`, argued against:**
+- Right sign (a breakdown through SMA50 is followed by weaker 63d returns than a same-size down
+  move elsewhere), and it passes four of the five gates: break arm −0.36% [−0.66, −0.02]; DiD
+  −0.50% [−0.90, −0.10]; 5/10/21d also negative; SMA20 and EMA21 negative at 63d (both span zero).
+- **Fails gate 5 (sensitivity).** All four K/R variants keep the sign (−0.31% to −0.39%), but only
+  R=0.75 keeps the CI off zero. The effect is plausibly real in sign but not robust in size.
+- **Appears only after matching.** Raw means go the other way (break 5.22% vs base 4.47% at 63d);
+  C1 on the break arm is +0.32%. The negative number is a C2+rev residual.
+- Fails cost at the near CI edge (−0.07%/yr vs a 0.12% hurdle), and it is a short: §7.10's borrow
+  caveat applies. Survivorship biases a breakdown delta toward zero, so the true value could be
+  more negative, which cuts in its favour; noted, not credited.
+- Whole-grid FDR at N=187: rank 18, p=0.038 vs threshold 0.0096. Fails.
+- Tier 3 by §9.2's table (CI excludes zero at the authoritative tier, mechanism plausible:
+  breakdown continuation on a watched MA). `decisive_test_status=failed`.
+
+`sma200/below/63d`: break arm alone +0.37% (wrong sign), DiD vs the generic down-move spans zero.
+Mean reversion after any down move, not an SMA200 effect. Tier 4.
+
+**Synthetic-neighbour arm:** DiDs −0.35% to +0.18%, 83–96% overlap, uninformative by construction
+as recorded before running.
+
+**Read for the question that motivated this module ("broke through the MA — follow it?"):** no.
+Breakouts above an MA behave like any 1-ATR up-move, and breakdowns like any 1-ATR down-move.
+The single breakdown cell that points the right way is at one MA, one horizon, fragile to K and
+R, and invisible before 5-way matching.
+
+**Argue against this result:** (a) close-only bars, no intraday breaks; (b) the confirmation
+requires ≥1 ATR through within 5 days, which excludes slow grinding breaks — a different event;
+(c) the generic arm is not extension-matched (M20's caveat); (d) the breakdown side is the one
+§7.3's survivorship ceiling hits, so a null there is weaker evidence than a null on breaks above.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 155 → 187), `FINDINGS.md` (one Tier-3
+entry), `STATUS.md`, `REPORT.md`, `docs/modeling/ma_study_insights.md`.
+
+---
