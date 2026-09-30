@@ -305,6 +305,9 @@ before it (ablation), not by being on the list.
 
 ## 8. Validation harness (build before any model)
 
+**Full design: `VALIDATION_HARNESS.md`** (2026-09-30). The list below is the original
+sketch it grew from.
+
 - **Walk-forward, date-grouped:** all tickers on a date go to the same fold. Run both
   expanding and sliding windows, since a gap between the two is itself a regime-drift
   signal.
