@@ -81,6 +81,24 @@ def test_rank_day_caps_undoes_split_adjustment_before_multiplying_by_raw_shares(
     assert caps["market_cap"].iloc[0] == pytest.approx(20_000)
 
 
+def test_price_floor_uses_the_traded_price_not_the_split_adjusted_one(conn):
+    # Stored close $0.30 after a later 40-for-1 split: really traded at $12.
+    _add_stock(conn, "NVX", 0.30, 1_000)
+    db.upsert_splits(conn, "NVX", db.YFINANCE, pd.DataFrame(
+        {"execution_date": [pd.Timestamp("2021-07-20")], "split_from": [1.0], "split_to": [40.0], "ratio": [40.0]}
+    ))
+    # Stored close $2 after a later 1-for-10 reverse split: really traded at $0.20.
+    _add_stock(conn, "REV", 2.0, 1_000_000)
+    db.upsert_splits(conn, "REV", db.YFINANCE, pd.DataFrame(
+        {"execution_date": [pd.Timestamp("2020-03-02")], "split_from": [10.0], "split_to": [1.0], "ratio": [0.1]}
+    ))
+
+    caps = rp.rank_day_caps(conn, [rp.rank_day(2019)])
+
+    assert list(caps["ticker"]) == ["NVX"]
+    assert caps["market_cap"].iloc[0] == pytest.approx(12_000)
+
+
 def test_rank_year_splits_large_and_small_caps_and_drops_the_rest(small_counts):
     caps = pd.DataFrame({"ticker": list("ABCDE"), "close": 1.0, "market_cap": [50, 40, 30, 20, 10]})
 
