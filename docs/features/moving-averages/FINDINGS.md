@@ -131,6 +131,70 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 - **Tier 3**: with a reversal control the CI spans zero (−3.33pp [−8.18, +1.25]), so this
   is close to a dead end.
 
+### M19 `respect_history_sma50_from_below_hold` — repeated resistance, lower hold rate
+
+- **Hypothesis**: the next-touch hold rate rises with the count of prior same-side confirmed
+  reversals (≥2 vs 0, trailing 126d), more at the real SMA50 than at SMA47/53. The result is
+  the opposite sign.
+- **Result**: real-minus-synthetic DiD −13.7pp [−22.2, −6.6] at C2+rev; focal arm −13.9pp
+  [−19.9, −8.2], synthetic −0.2pp. C1: +0.9pp, spans zero. Raw hold rates 29.6% vs 28.3%.
+- **Effective N**: 111 contributing focal dates; 249 of 11,934 focal events sit in the 115
+  strata that carry the estimate, 27% of them a 1-vs-1 contrast.
+- **Cost**: mechanism read, not annotated (M5 convention).
+- **FDR**: misses (rank 4, p=0.0038 vs 0.0033 at N=123).
+- **Tier 3**: CI excludes zero at the authoritative tier, but a 10× amplification that C1 and
+  the raw means do not show is a thin-strata artifact until proven otherwise. Kill
+  criterion failed (wrong sign). Sensitivity: 5 of 6 perturbations keep the CI off zero.
+- **Would change**: a coarser matched estimate (date + rev_tercile) or a regression control
+  that uses all 12k events and still finds the sign.
+
+### M19 `respect_history_ema21_from_above_fwd21` — respected EMA21, higher 21d return
+
+- **Hypothesis**: secondary outcome of M19 — 21d return after a from-above touch of EMA21
+  rises with respect history, more than at EMA19/23.
+- **Result**: DiD +0.42% [+0.06%, +0.77%] at C2+rev; focal arm +0.40% [+0.02%, +0.80%]. C1:
+  −0.05%. Raw focal means fall with respect (1.65% → 1.49%). Hit-rate delta +3.4pp, win/loss
+  1.08, skew −0.24.
+- **Effective N**: 501 contributing focal dates; 1,588 of 20,112 focal events in 684 strata.
+- **Cost**: +4.8%/yr [+0.2%, +9.6%] vs a 0.16% hurdle (1.6 signals per ticker-year), clears.
+- **FDR**: fails (p≈0.05).
+- **Tier 3**: only at the finest tier, secondary outcome, cannot confirm the module. The
+  from-below sibling's focal arm is +0.78% [+0.22%, +1.37%] but its DiD spans zero.
+- **Would change**: the same sign at C1 on the full event set.
+
+### M20 `bounce_entry_sma20_from_below_h21` — rejection at SMA20, then higher returns
+
+- **Hypothesis**: a confirmed rejection at SMA20 from below (touch, then ≥1 ATR back down
+  within 5 days, no close through) predicts a *negative* 21d return, beyond a same-size down
+  move that did not involve the MA. The result has the opposite sign.
+- **Result**: DiD vs the generic down-move +0.36% [+0.11%, +0.59%] at C2+rev; bounce arm
+  +0.30% [+0.11%, +0.50%]. Raw 21d means: rejection 2.67%, generic down-move 2.24%, base 1.48%.
+  Hit rate 63.7%, win/loss 1.28, skew +0.59.
+- **Effective N**: 4,816 events, 1,176 contributing dates.
+- **Cost**: +3.5%/yr [+1.4%, +6.0%] vs a 0.10% hurdle — as a *long* after a *rejection*.
+- **FDR**: fails (rank 10, p=0.015 vs 0.0065 at N=155).
+- **Tier 3**: CI excludes zero and short-term mean reversion is a plausible mechanism, but
+  only 1 of the 3 other MAs agrees, and it is one of 4 CIs off zero among 32 cells — the
+  count the null predicts at 90%. Not a resistance finding; if anything a reversal one.
+- **Would change**: the same sign at EMA21/SMA50 (they read −0.02% and −0.22%).
+
+### M21 `break_entry_sma50_below_h63` — breakdown through SMA50, weaker 63d return
+
+- **Hypothesis**: a confirmed break below SMA50 (came from above, touched, then ≥1 ATR below
+  within 5 days, no close back above once through) predicts a negative 63d return beyond a
+  same-size down move that did not involve the MA.
+- **Result**: DiD −0.50% [−0.90%, −0.10%] at C2+rev; break arm −0.36% [−0.66%, −0.02%]. C1 on
+  the break arm: +0.32%. Raw 63d means: break 5.22%, generic down-move 6.37%, base 4.47%.
+- **Effective N**: 5,674 events, 1,261 contributing dates.
+- **Cost**: −1.43%/yr [−2.64%, −0.07%] vs a 0.12% hurdle; fails at the near edge. A short:
+  borrow caveat (DESIGN §7.10).
+- **FDR**: fails (rank 18, p=0.038 vs 0.0096 at N=187).
+- **Tier 3**: CI excludes zero in the hypothesised direction, 5/10/21d agree in sign, SMA20 and
+  EMA21 agree in sign at 63d. Fails the pre-registered sensitivity gate: all four K/R variants
+  keep the sign, only R=0.75 keeps the CI off zero. The only CI off zero among 32 cells.
+- **Would change**: the same sign and a CI off zero at SMA20 or EMA21, or once a
+  point-in-time universe with delisted names exists (survivorship biases this toward zero).
+
 ### M6.3 `slope_pctile_21` at SMA20 and SMA200
 
 - **SMA20**: −0.117% [−0.229%, −0.006%]. Fails cost (near edge −0.08% vs a 1.34%

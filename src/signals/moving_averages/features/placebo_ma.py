@@ -48,16 +48,16 @@ def dist_atr_column(family: str, lookback: int) -> str:
     return f"dist_atr_{ma.ma_column_name(family, lookback)}"
 
 
-def _lookbacks_by_family() -> dict[str, tuple[int, ...]]:
+def _lookbacks_by_family(groups: dict = GROUPS) -> dict[str, tuple[int, ...]]:
     out: dict[str, set[int]] = {}
-    for spec in GROUPS.values():
+    for spec in groups.values():
         family = spec["family"]
         out.setdefault(family, set()).add(spec["focal"])
         out[family].update(spec["neighbors"])
     return {family: tuple(sorted(lookbacks)) for family, lookbacks in out.items()}
 
 
-def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
+def _build_ticker_features(clean: pd.DataFrame, ticker: str, groups: dict = GROUPS) -> pd.DataFrame:
     """Raw (un-lagged) `dist_pct` for every group's focal+neighbor lookback,
     for one already-validated ticker frame -- same "known as of that day's
     close" convention as `features/panel.py::_build_ticker_features`; the
@@ -68,7 +68,7 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     frame["ticker"] = ticker
     frame["atr_14"] = indicators.atr(frame, ATR_PERIOD)
 
-    for family, lookbacks in _lookbacks_by_family().items():
+    for family, lookbacks in _lookbacks_by_family(groups).items():
         for lookback in lookbacks:
             ma_series = ma.compute_ma(frame["close"], family, lookback)
             frame[dist_pct_column(family, lookback)] = distance.dist_pct(frame["close"], ma_series)
@@ -80,6 +80,10 @@ def _build_ticker_features(clean: pd.DataFrame, ticker: str) -> pd.DataFrame:
     # recomputed with different parameters.
     frame["mom_12_1"] = context.mom_12_1(frame["close"])
     frame["realized_vol_63"] = context.realized_vol_63(frame["close"])
+    # Prior-21-day return, the `rev_tercile` input every reversal-robustness
+    # check in this study matches on (added for M19, 2026-09-30 -- the
+    # main panel has always carried it, this ad hoc panel didn't).
+    frame["mom_1_0"] = context.mom_1_0(frame["close"])
 
     return frame.reset_index().rename(columns={"timestamp": "date"})
 
@@ -89,10 +93,12 @@ def build_placebo_panel(
     tickers: list[str],
     start: str | pd.Timestamp | None = None,
     end: str | pd.Timestamp | None = None,
+    groups: dict = GROUPS,
 ) -> pd.DataFrame:
     """One row per (ticker, date): `dist_pct_{sma,ema}_{lookback}` for
-    every focal + neighbor lookback in `GROUPS`, plus `mom_12_1`/
-    `realized_vol_63`/`sector` (the same C2 match inputs M1/M4/M11 use) --
+    every focal + neighbor lookback in `groups` (default: §7.5/M5's
+    `GROUPS`; M19 passes its own superset), plus `mom_12_1`/
+    `realized_vol_63`/`mom_1_0`/`sector` (the same C2 match inputs M1/M4/M11 use) --
     already one-bar-lagged via `features/panel.py::apply_lag`, so it's
     ready to pair with a forward return with no extra lag bookkeeping.
 
@@ -109,7 +115,7 @@ def build_placebo_panel(
         clean, _ = validate_bars(bars, ticker)
         if clean.empty:
             continue
-        frames.append(_build_ticker_features(clean, ticker))
+        frames.append(_build_ticker_features(clean, ticker, groups))
 
     if not frames:
         return pd.DataFrame()

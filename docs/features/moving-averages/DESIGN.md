@@ -968,6 +968,96 @@ same construction as M11, generalized from an MA-distance column to a single-col
 with no (family, lookback) grid. See PREREGISTRATION.md for the full grid/kill-criterion
 statement.
 
+### M19 — MA respect history (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule after the
+study closed, like M18. M5 (touch/bounce) found the *first* touch of a real MA holds no
+better than a synthetic neighbour's (§7.5 placebo). M6.2 found a rising MA holds no better
+than a falling one once short-term reversal is matched out. Neither asked whether *respect
+persists per ticker-MA*: does an MA that has recently acted as support (or resistance) —
+touch, then a confirmed reversal — keep acting that way on the next touch, more than an
+unwatched MA does? That is the practitioner's actual claim ("this stock respects its
+50-day"), and it is a per-name, path-dependent claim, not a level-vs-trend claim.
+
+**Hypothesis:** the next-touch hold rate rises with the count of same-side confirmed
+reversals in the trailing 126 days (≥2 vs 0), and that rise is larger at the real MA than
+at its statistically near-identical, unwatched neighbours.
+
+**Definitions (frozen in PREREGISTRATION.md):** touch event = M5's (`features/touch.py`).
+Confirmed reversal = within K=5 days of the touch, price is back ≥ R=1.0 ATR away on the
+original side with no close through the MA in between; **known only on its confirmation
+day** — the feature (`features/respect.py`) is dated by confirmation, never by touch.
+Respect history at day s = count of such confirmations, same side, dated in (s−L, s],
+L=126. Outcome = M5's `hold_flag` of the next touch, and `fwd_ret_21` from it.
+
+**Method:** a real-minus-synthetic difference-in-differences. Each arm's high-minus-low
+respect delta is date + C2 + `rev_tercile` matched (the 4-column control that killed M6.2's
+touch×slope cell); the §7.5 neighbours carry their **own** respect history computed
+identically, so a generic "stocks that bounced keep bouncing" effect (vol, mean reversion)
+is present in both arms and cancels. Only a level-specific persistence survives.
+`stats/inference.py::block_bootstrap_delta_diff`, shared date blocks. Plateau across MAs and
+one-at-a-time ±25% perturbations of K, R, L are part of the kill criterion.
+
+**Prior:** the second §7.5 outcome, again — the synthetic arm will show the same "bouncy
+stock" lift as the real one and the difference will span zero. The interesting number
+either way is the *within-arm* lift, which is a descriptive read on whether respect history
+is a usable strength input for level features downstream (`docs/modeling/IDEAS.md` §3).
+
+### M20 — Confirmed bounce as an entry signal (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule, immediately
+after M19, to answer the question M19 turned out not to ask. M5 used the bounce as an
+*outcome*; M19 used the confirmed bounce as a *past feature* of the next touch. Nobody
+measured the forward return from the day the bounce confirms: price touches the MA from
+above on day d, is back ≥1 ATR above it within 5 days without closing through — is that, on
+the day it becomes knowable, a signal for the next X days?
+
+**Hypothesis:** the confirmed bounce (M19's `features/respect.py::confirmation_positions`,
+K=5, R=1.0 ATR) predicts continuation over the next 5/10/21/63 trading days — positive after a
+support bounce, negative after a resistance rejection — beyond what date + C2 + `rev_tercile`
+matching explains, **and beyond a same-size move that did not involve the MA.**
+
+**The control that matters:** "up ≥1 ATR in ≤5 days" is a short-term move whether or not an
+MA was touched. The primary placebo is therefore a **generic-move arm**: rows on the same
+side of the focal MA whose lagged close moved ≥R ATR over some j ≤ K prior rows and whose
+focal-MA |dist_atr| stayed above the touch band for the previous K+1 rows (no touch was
+possible). Statistic = `delta_bounce − delta_generic`, each a date + C2 + `rev_tercile`
+matched delta against the same base-control rows, shared date blocks
+(`stats/inference.py::block_bootstrap_delta_diff`). The §7.5 synthetic neighbours are
+reported as a secondary arm with the overlap share — a bounce off SMA47 confirms on the same
+day as a bounce off SMA50 most of the time, so that DiD is near zero by construction and
+carries no verdict (M5's synthetic control worked because hold rates differ mechanically
+between near-identical MAs; forward returns from coincident dates do not).
+
+**Prior:** the generic-move arm absorbs most of the bounce's forward return; whatever is
+left is small and dies at 63 days. The from-below (short) side is subject to §7.10's borrow
+caveat regardless of what it shows.
+
+### M21 — Confirmed break through the MA as an entry signal (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** The mirror of M20, added the same day because M20's
+scope was the bounce only. Price approaches the MA from below, touches it, and instead of
+being rejected closes through and is ≥1 ATR *above* within 5 days without closing back below
+(and the mirror: a breakdown from above). M5 counted this as the `slice_through` outcome; M12
+used the related "reclaim" (first day back above the MA) but only compared high-volume against
+low-volume reclaims; M3 tested MA-versus-MA crosses. No cell in the ledger measures the forward
+return from the day a price-through-MA break confirms, against a matched control.
+
+**Hypothesis:** the confirmed break predicts continuation over the next 5/10/21/63 days —
+positive after a break above, negative after a break below — beyond date + C2 + `rev_tercile`
+matching and beyond a same-size move that did not involve the MA (M20's generic-move arm,
+reused unchanged: for a break above, an up-move now above the MA with no recent touch).
+
+**Method:** identical to M20 (`modules/bounce_entry.py` parameterised by event type;
+`features/respect.py::break_flags`). Same grid (4 MAs × 2 directions × 4 horizons), same
+kill criterion, same K/R sensitivity, same secondary synthetic-neighbour arm.
+
+**Prior:** the same as M20's, with one twist. A break above an MA after approaching from below
+is, mechanically, a reclaim by a name that was recently below its MA, so `rev_tercile` and the
+generic-move arm should absorb most of it. If anything survives it should be the breakdown
+side, where M1/M2/M4 found the weak-state buckets carry the study's few real (and
+survivorship-capped) negative effects.
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).

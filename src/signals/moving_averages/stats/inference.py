@@ -258,6 +258,62 @@ def block_bootstrap_group_diff(
     return _summarize_draws(boot_draws, point_estimate, len(all_dates), ci)
 
 
+def block_bootstrap_delta_diff(
+    panel_a: pd.DataFrame,
+    panel_b: pd.DataFrame,
+    group_col: str,
+    value_col: str,
+    match_cols: list[str],
+    date_col: str = "date",
+    block_length: int = 42,
+    n_boot: int = 500,
+    ci: float = 0.90,
+    seed: int = 0,
+) -> dict:
+    """Block-bootstrap CI on (delta_a - delta_b): the *same* boolean
+    grouping's C2-style matched-control delta on two *different* row
+    populations that share a date axis -- M19's real-minus-synthetic
+    difference-in-differences (PREREGISTRATION.md 2026-09-30): the
+    respect-history effect on hold rate among touches of the real MA
+    (`panel_a`) minus the same effect among touches of its unwatched
+    synthetic neighbours (`panel_b`).
+
+    The complement of `block_bootstrap_group_diff` (two groupings, one
+    population). Same correlated-draws requirement: both populations live
+    on the same dates, so each draw's single set of date-block weights is
+    applied to both sides and the difference is taken within the draw.
+    Also returns each side's own point estimate and contributing-date
+    count, so the caller can report the two arms alongside their
+    difference without recomputing them.
+    """
+    strata_cols = [date_col, *match_cols]
+    a = stratum_deltas(panel_a, group_col, value_col, strata_cols)
+    b = stratum_deltas(panel_b, group_col, value_col, strata_cols)
+
+    all_dates = np.array(sorted(set(a[date_col]).union(b[date_col])))
+    point_a = a["delta"].mean() if len(a) else float("nan")
+    point_b = b["delta"].mean() if len(b) else float("nan")
+    arms = {
+        "point_a": point_a, "n_dates_a": int(a[date_col].nunique()),
+        "point_b": point_b, "n_dates_b": int(b[date_col].nunique()),
+    }
+    if len(all_dates) == 0 or len(a) == 0 or len(b) == 0:
+        return {**_summarize_draws(np.array([]), point_a - point_b, len(all_dates), ci), **arms}
+    _validate_block_length(len(all_dates), block_length)
+    date_index = {d: i for i, d in enumerate(all_dates)}
+
+    a_idx, a_vals = a[date_col].map(date_index).to_numpy(), a["delta"].to_numpy()
+    b_idx, b_vals = b[date_col].map(date_index).to_numpy(), b["delta"].to_numpy()
+
+    rng = np.random.default_rng(seed)
+    boot_draws = np.empty(n_boot)
+    for i in range(n_boot):
+        weight = _block_weights(all_dates, block_length, rng)
+        boot_draws[i] = _weighted_mean(a_vals, weight[a_idx]) - _weighted_mean(b_vals, weight[b_idx])
+
+    return {**_summarize_draws(boot_draws, point_a - point_b, len(all_dates), ci), **arms}
+
+
 def block_bootstrap_spread_diff(
     panel: pd.DataFrame,
     focal_decile_col: str,

@@ -5510,3 +5510,601 @@ slightly stronger. The mechanical reading (VCP reclaims sit less often in the ex
 tail) stands; the *interpretation* does not: M14's VCP cell is now Tier 4 (its 2026-09-29
 result above), so this is an overlap check between one Tier-2 cell and a null, not
 "two genuinely distinct mechanisms". No `N_tests` footprint, as before.
+
+---
+
+## M19 — MA respect history (2026-09-30)
+
+**Module / track:** M19, Track B. Post-termination module under DESIGN §1.5's porous-scope
+rule; DESIGN.md has a matching M19 section (added the same day). Written and committed before
+the analysis runs. No Track A screen preceded it: every definition below was fixed by the
+task before any data was looked at, the machinery already exists (M5's touch events, §7.5's
+synthetic neighbours, M6.2's 4-column reversal-matched C2), and an outcome peek would have
+defeated the pre-registration. The one pre-run look is the **feasibility count** at the end
+of this entry, which reads event counts and strata coverage only — no `hold_flag`, no
+`fwd_ret_21`.
+
+**Promoted from:** the gap M5 and M6.2 left, not an `EXPLORATION_LOG.md` line. M5
+(`touch_bounce_*`, 6 cells, all killed) tested the *first* touch of a real MA against a
+synthetic neighbour. M6.2 (`slope_cond_touch_x_slope_*`) tested rising vs falling at the
+touch, and its one surviving cell died to `rev_tercile`. Neither tested whether *respect
+persists per ticker-MA* — the practitioner's actual claim ("this name respects its 50-day").
+
+**Question:** does an MA that has recently acted as support (or resistance) — a touch
+followed by a confirmed reversal — keep acting that way on the next touch, better than an
+unwatched MA does?
+
+**Definitions (frozen):**
+- **Touch event:** `features/touch.py` unchanged — away ≥ 1.0 ATR, then `|dist_atr| ≤ 0.25`
+  within 10 trading days; first touch per away-run; direction `from_above` (support test) /
+  `from_below` (resistance test) from the sign at the end of the away run. All `dist_atr`
+  columns are already one-bar-lagged (`features/panel.py::apply_lag`, applied centrally in
+  `features/placebo_ma.py::build_placebo_panel`); a row is the state on its tradeable day.
+- **Confirmed reversal** of a touch at row t arriving from side s (+1 above, −1 below): the
+  first row c in t+1 … t+K, **K = 5**, with `s·dist_atr[c] ≥ R`, **R = 1.0** ATR, and no row in
+  t+1 … c with `s·dist_atr < 0` (a close through the MA). The touch row itself is outside the
+  through-check: the touch band is symmetric, so a touch landing a hair past the line is still
+  "at the level" by M5's own definition. A touch that does not confirm within K contributes
+  nothing (it is not a negative). **Known only at row c.** `features/respect.py::
+  confirmation_positions`.
+- **Respect history** at row s, per side: the number of confirmations of this ticker's MA
+  whose confirmation row c satisfies s − L < c ≤ s, **L = 126** trading days. Dated by
+  confirmation row, never by touch row. NaN where `dist_atr` is NaN and for the first L−1
+  defined rows (partial window). Same-side: a `from_above` touch is conditioned on
+  `respect_support_<ma>`, a `from_below` touch on `respect_resistance_<ma>`. Either-side
+  counts are not tested (deferred). `features/respect.py::respect_counts`.
+- **Conditioning contrast:** `high_respect` = count ≥ 2 vs count = 0. Touches with exactly 1
+  prior confirmation are excluded from the contrast (reported descriptively only).
+- **Outcomes:** (primary) M5's `hold_flag` of the touch — `dist_atr` at t+5 back ≥ 0.5 ATR on
+  the original side; (secondary) `fwd_ret_21` from the touch row (`labels/forward_returns.py`).
+- **MAs:** SMA20, EMA21, SMA50, SMA200, each with §7.5's unwatched neighbours — SMA200 vs
+  {187, 193, 207, 213}, SMA50 vs {47, 53}, EMA21 vs {19, 23}, and **new** SMA20 vs {18, 22}
+  (same ±2-day offset as EMA21's neighbours; SMA21 would collide in name with EMA21).
+  `features/placebo_ma.py::GROUPS` is unchanged so §7.5/M5's grids don't silently widen;
+  `modules/respect_history.py::GROUPS` is the superset, and `build_placebo_panel` takes it as
+  a `groups` argument. The placebo panel also now carries `mom_1_0` (for `rev_tercile`).
+- **Directions:** `from_above` and `from_below`, scored separately, never pooled.
+
+**Statistic per cell (real-minus-synthetic difference-in-differences):**
+
+    DiD = [P(hold | ≥2, real MA) − P(hold | 0, real MA)] − [P(hold | ≥2, neighbours) − P(hold | 0, neighbours)]
+
+Each arm's delta is `stats/controls.py::stratum_deltas` matched on date + the control tier's
+columns and averaged across strata; the two arms are resampled with **shared** date blocks
+(`stats/inference.py::block_bootstrap_delta_diff`, new; the same correlated-draws logic as
+`block_bootstrap_spread_diff`), block length 10 (M5/M6.2's sparse-event convention), 500
+draws, 90% CI. The neighbours carry their **own** respect history computed identically on
+their own `dist_atr`, so a generic "stocks that bounced keep bouncing" effect (volatility,
+mean reversion, trendiness) appears in both arms and cancels; only a level-specific
+persistence survives.
+
+**Control tier and why:** the kill criterion is evaluated on **C2 + `rev_tercile`** (date ×
+`mom_tercile` × `vol_tercile` × `sector` × prior-21-day-return tercile) — the 4-column match
+that killed M6.2's touch×slope cell, because a touch with two recent confirmed bounces is,
+mechanically, a touch on a name that has recently mean-reverted, and short-term reversal is
+exactly the confound `rev_tercile` exists for. C1 (date only) and 3-column C2 are reported
+alongside as the shrinkage waterfall. Within each arm the focal arm's own C2+rev delta is
+also reported with a CI — it is the tradeable quantity the cost annotation attaches to.
+
+**Grid (`N_tests` contribution): 16 primary cells** — 4 MAs × 2 directions × 2 outcomes
+(`hold_flag`, `fwd_ret_21`). The kill criterion is evaluated on the 8 `hold_flag` cells; the 8
+`fwd_ret_21` cells are logged, counted and cost-annotated but cannot confirm the module on
+their own. **48 sensitivity cells** (below) are robustness checks on the 8 hold cells and are
+not counted.
+
+**Kill criterion (per cell, then module):** a hold cell is **confirmed** iff all of
+1. its C2+rev DiD 90% CI excludes zero **and** the point estimate is positive (the
+   hypothesised direction);
+2. **plateau across MAs:** at least 2 of the other 3 MAs in the same direction have a
+   same-signed DiD point estimate (a lone bright pixel is noise, DESIGN §6.7);
+3. **sensitivity, one-at-a-time ±25% of K, R, L** — K ∈ {4, 6}, R ∈ {0.75, 1.25}, L ∈ {95,
+   158}, six re-runs of the cell at the C2+rev tier: all six keep the sign, and at least 5 of 6
+   keep the CI excluding zero;
+4. and it is not below the effective-N floor (below).
+
+**Module killed** iff no hold cell is confirmed. Equivalently, as stated in the task: killed
+if the real-minus-synthetic difference spans zero at every MA, or clears zero only at one MA
+with the neighbours disagreeing, or fails at ±25% of K, R, L. A CI that excludes zero
+*negatively* (real MA's respect effect *smaller* than the neighbours') does not confirm; it
+is logged and tiered like any other cell. Per DESIGN §9.2's 2026-09-10 rule this is a verdict
+on the construction, not a tier: `decisive_test_status` = `passed` for a confirmed cell,
+`failed` for one whose CI excludes zero but fails gate 2 or 3, `never_tested` otherwise; the
+tier comes from §9.2's table alone.
+
+**Effective N and the §6.9 floor:** per cell, `n_events`/`n_dates`/`n_tickers` are the focal
+high-respect population, plus the number of dates contributing a matched focal contrast at
+the C2+rev tier (`delta_focal_c2_rev_n_dates`). A cell is **below threshold** — greyed, its
+number not interpreted, and it cannot confirm — if any of those is under 200 events / 30
+dates / 30 tickers. The feasibility count below says SMA200's 4-column cells sit at exactly
+this floor; that is recorded here, before running, so a "no effect at SMA200" is read as
+"underpowered at SMA200", not as a null.
+
+**Cost annotation (invariant #8), `fwd_ret_21` cells only:** the tradeable signal is "touch
+of the real MA with ≥ 2 recent same-side confirmed bounces", one round trip per event.
+`signals_per_year` = focal high-respect events / (panel ticker-years); hurdle = that × 10 bps
+(U1, DESIGN §6.10); compared against the focal arm's own C2+rev delta on `fwd_ret_21`,
+linearly annualised ×12, at the point and at both CI ends (`stats/costs.py`). The hold-rate
+cells are a mechanism read with no cost gate, M5's convention.
+
+**Distribution shape (invariant #10), descriptive only:** on the focal high-respect
+`fwd_ret_21`: hit rate (raw, and its C1/C2 delta vs focal low-respect via
+`stats/shape.py::hit_rate_deltas`), win/loss magnitude ratio, skew. No CI, no kill role, no
+`N_tests` contribution. For the hold cells the raw hold rates by arm × respect bucket
+(0 / 1 / ≥2) are reported as the descriptive companion.
+
+**Look-ahead (invariant #2):** `modules/respect_history.py` is added to
+`tests/test_moving_averages_leakage.py`'s module list (bars perturbed from the cut onward
+must leave every respect column at or before the cut unchanged), plus a targeted test that a
+planted confirmation appears in the feature only from its confirmation row and that removing
+the reversal after the touch leaves the pre-confirmation rows untouched.
+
+**Universe / window:** U1 as M5 — S&P 500 constituents as of 2021-12-31 with full 2010-2021
+coverage (405 tickers), bars 2010-01-01 → 2021-12-31. Holdout untouched. Same survivorship
+caveat as every module (`STATUS.md` open items).
+
+**Argue against it before running:** (a) the DiD can span zero because both arms carry a
+real "bouncy name" lift — that is the intended null, and the within-arm deltas are the
+descriptive answer to whether respect history is a usable strength input; (b) the
+neighbours sit at nearly the same price as the focal MA, so a confirmed bounce off SMA50 is
+often also a confirmed bounce off SMA47/53 — this design tests "the watched level
+specifically", not "some MA-ish region", exactly §7.5/M5's own scope limit; (c) close-only
+touches, no intraday wick (M5's caveat); (d) `hold_flag` at t+5 and the confirmation rule (≥ 1
+ATR by t+5) are correlated definitions, which is why the *history* is same-ticker-past and the
+outcome is the *next* touch's — a prior confirmation dated ≤ s cannot be the current touch's
+own, and a confirmation at exactly row s is impossible (row s is a touch, |dist| ≤ 0.25 < R).
+
+**Downstream if it survives:** the strength input for MA levels in the level-feature pool
+(`docs/modeling/IDEAS.md` §3, "LRP made quantitative"; the task referred to a
+`docs/modeling/LRP.md` §1.1 that does not exist in the repo).
+
+**Feasibility count (run 2026-09-30 before freezing, `respect_history_run.py --feasibility`;
+no outcome column read).** Focal events by respect bucket (0 / 1 / ≥2) and dates
+contributing a matched focal high-vs-low contrast per tier:
+
+| MA | direction | focal 0 / 1 / ≥2 | ≥2 dates / tickers | C1 dates | C2 dates | C2+rev dates |
+|---|---|---|---|---|---|---|
+| sma20 | from_above | 14,113 / 10,442 / 6,424 | 2,096 / 404 | 1,975 | 628 | 461 |
+| sma20 | from_below | 15,349 / 8,041 / 3,117 | 1,439 / 386 | 1,369 | 373 | 289 |
+| ema21 | from_above | 12,748 / 11,064 / 8,347 | 2,268 / 404 | 2,087 | 683 | 503 |
+| ema21 | from_below | 14,653 / 8,235 / 3,647 | 1,519 / 400 | 1,410 | 436 | 339 |
+| sma50 | from_above | 10,120 / 5,618 / 2,489 | 1,395 / 386 | 1,266 | 236 | 177 |
+| sma50 | from_below | 10,741 / 4,119 / 1,433 | 947 / 327 | 873 | 173 | 111 |
+| sma200 | from_above | 5,171 / 1,734 / 614 | 491 / 241 | 405 | 55 | 36 |
+| sma200 | from_below | 5,088 / 1,630 / 504 | 406 / 207 | 357 | 49 | 30 |
+
+Synthetic arms are 2–4× larger (pooled neighbours). Read before running: SMA20/EMA21 are
+well-powered at every tier; SMA50 is adequate; SMA200 is at the 30-date floor at C2+rev and
+its 4-column result is expected to be underpowered — recorded here so it cannot be re-framed
+after the fact. Full table: `output/moving_averages/m19_respect_history_feasibility.csv`
+(gitignored, reproducible).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`respect_history_run.py`, 405 tickers, 2010-01-04 → 2021-12-31,
+holdout untouched; 21 minutes). Outputs under `output/moving_averages/m19_respect_history_
+{primary,sensitivity,kill}.csv`, gitignored, reproducible.
+
+**Module killed. 0 of 8 hold cells confirmed.** Seven of the eight real-minus-synthetic
+DiDs on `hold_flag` span zero at C2+rev, and the raw hold rates by respect bucket are flat in
+*both* arms — e.g. SMA20 from above, focal 35.2% / 35.7% / 36.3% for 0 / 1 / ≥2 prior
+confirmed bounces, neighbours 35.4% / 35.2% / 36.1%. Respect history does not predict the
+next touch's hold rate at the real MA, and it does not predict it at the unwatched neighbour
+either — so there is not even a generic "bouncy name keeps bouncing" effect for the synthetic
+arm to cancel. The within-arm focal deltas at C2+rev are −1.8pp, −2.1pp, −1.2pp, −0.1pp, −0.6pp
+(SMA20 ↑↓, EMA21 ↑↓, SMA50 ↑), all spanning zero.
+
+| MA | dir | outcome | n focal ≥2 | focal dates (C2+rev) | DiD C1 | DiD C2 | DiD C2+rev [90% CI] |
+|---|---|---|---|---|---|---|---|
+| sma20 | ↑ | hold | 6,177 | 461 | +1.40pp | +2.37pp | +0.23pp [−3.15, +3.55] |
+| sma20 | ↓ | hold | 3,016 | 289 | −0.66pp | −2.12pp | −2.47pp [−5.91, +0.56] |
+| ema21 | ↑ | hold | 7,999 | 503 | −0.50pp | −1.36pp | −0.74pp [−3.41, +2.24] |
+| ema21 | ↓ | hold | 3,550 | 339 | −1.28pp | +0.12pp | −0.05pp [−2.39, +2.71] |
+| sma50 | ↑ | hold | 2,439 | 177 | +1.47pp | +0.02pp | −0.27pp [−5.46, +5.07] |
+| **sma50** | **↓** | **hold** | 1,398 | **111** | +0.90pp | −6.52pp | **−13.74pp [−22.19, −6.56]** |
+| sma200 | ↑ | hold | 613 | 36 | +0.95pp | −3.37pp | −2.33pp [−14.70, +10.93] |
+| sma200 | ↓ | hold | 501 | 30 | −3.99pp | −13.39pp | −5.10pp [−13.45, +3.20] |
+| sma20 | ↑ | fwd21 | 6,150 | 460 | −0.00% | −0.06% | +0.11% [−0.30, +0.57] |
+| sma20 | ↓ | fwd21 | 2,964 | 281 | −0.39% | +0.43% | +0.04% [−0.64, +0.67] |
+| **ema21** | **↑** | **fwd21** | 7,959 | 501 | −0.05% | +0.17% | **+0.42% [+0.06, +0.77]** |
+| ema21 | ↓ | fwd21 | 3,492 | 335 | −0.02% | +0.19% | +0.47% [−0.02, +1.01] |
+| sma50 | ↑ | fwd21 | 2,422 | 176 | +0.12% | +0.22% | +0.70% [−0.03, +1.34] |
+| sma50 | ↓ | fwd21 | 1,383 | 108 | +0.03% | −0.47% | −0.28% [−1.53, +0.84] |
+| sma200 | ↑ | fwd21 | 608 | 36 | −0.22% | +0.61% | +0.44% [−0.88, +1.84] |
+| sma200 | ↓ | fwd21 | 498 | 29 | +0.08% | +0.08% | +0.31% [−1.10, +1.90] — below threshold |
+
+SMA200 behaved as the feasibility count predicted: 30–36 contributing focal dates, CIs
+±10pp, one cell under the floor. Uninformative, not null.
+
+**The two cells whose CI excludes zero are both artifacts of the matching tier, not of the
+market — argued here, not glossed.** Both appear only at C2+rev, grow monotonically as the
+strata thin (C1 → C2 → C2+rev), and are absent from the raw bucket means:
+- **`sma50/from_below/hold`, −13.7pp.** Wrong sign for the hypothesis (kill gate 1 fails; gates
+  2 and 3 pass — 3/3 other MAs negative in this direction, 5/6 perturbations keep the CI off
+  zero, R=1.25 spans it). Diagnostic (2026-09-30): at C2+rev only **249 of 11,934** focal events
+  (118 high, 131 low) fall in the 115 strata that contain both groups, and 27% of those strata
+  are a single high event against a single low event (stratum delta ±1). The C1 read on 6,738
+  events is −0.7pp and spans zero; the raw hold rates are 29.6% (0 bounces) vs 28.3% (≥2). A
+  tenfold amplification under matching that the raw means and C1 do not show is selection
+  into thin strata. Whole-grid FDR: rank 4 of 123, p=0.0038 vs threshold 0.0033 at q=0.10 —
+  fails. Tier 3 by §9.2's table (CI excludes zero at the authoritative tier), logged with the
+  caveat, `decisive_test_status=failed`.
+- **`ema21/from_above/fwd21`, +0.42% [+0.06, +0.77].** Secondary outcome, cannot confirm the
+  module. Focal arm +0.40% [+0.02, +0.80], clears its 0.16%/yr cost hurdle at both ends
+  (+4.8%/yr [+0.2, +9.6]); hit-rate delta +3.4pp at C2+rev; win/loss 1.08, skew −0.24. But the
+  C1 DiD is −0.05% and the raw focal means *fall* with respect (1.65% → 1.63% → 1.49%); the
+  effect exists only in the 1,588 of 20,112 events inside 684 five-way strata. From-below
+  sibling: focal +0.78% [+0.22, +1.37], DiD spans zero (neighbours +0.31%). Wald p≈0.05;
+  fails FDR by a wide margin. Tier 3 by the table, pending nothing — logged as is.
+
+**Method lesson, recorded for `STATUS.md`'s open items:** on sparse event populations,
+exact five-way matching retains 1–8% of the events, and §9.2's "stronger control tier is
+authoritative" rule assumes the stronger tier is powered. M6.2's touch cell had the same
+shape (307 → 196 contributing dates). Any future event-based cell should report the share of
+events inside contributing strata next to the C2+rev delta, and treat a C2+rev estimate that
+C1 and the raw means contradict as a matching artifact until shown otherwise.
+
+**Logged:** `EXPERIMENTS.csv` (16 rows, all counted; `N_tests` 107 → 123), `FINDINGS.md`
+(the two Tier-3 cells, with the caveats), `STATUS.md` (module row, FDR pass re-run at N=123,
+new open item), `REPORT.md`. Downstream: respect history is **not** a usable strength input
+for MA levels (`docs/modeling/ma_study_insights.md` §1.3).
+
+---
+
+## M20 — Confirmed bounce as an entry signal (2026-09-30)
+
+**Module / track:** M20, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M20 section. Written and committed before running. Same panel as M19 (the
+cached placebo panel, U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The one
+pre-run look is the feasibility count at the end of this entry (event counts and overlap
+shares, no outcome column).
+
+**Promoted from:** the question M19 did not ask, raised after M19's result. M5 treated the
+bounce as an outcome; M19 treated the confirmed bounce as a past feature of the *next* touch.
+Neither measured the forward return from the confirmation day itself — the practitioner's
+entry: "touched the 50-day, bounced, is that a buy?"
+
+**Definitions (frozen; the event is M19's confirmed reversal, unchanged):**
+- **Touch:** `features/touch.py`, unchanged (away ≥1 ATR, then |dist_atr| ≤ 0.25 within 10d).
+- **Confirmed bounce at row c:** first row in t+1 … t+K (K=5) with `s·dist_atr ≥ R` (R=1.0 ATR),
+  no close through the MA on t+1 … c. `features/respect.py::bounce_flags` sets
+  `bounce_<ma>_<direction>` True on row c only. Known on row c (the panel is already lagged).
+- **Entry / outcome:** the event row is c; outcome `fwd_ret_h = close[c+h]/close[c] − 1`,
+  h ∈ {5, 10, 21, 63} (`labels/forward_returns.py`). Raw return; date matching (C1) removes
+  the market, as everywhere in this study.
+- **Directions:** `from_above` (support bounce, hypothesised **positive** forward return) and
+  `from_below` (resistance rejection, hypothesised **negative** — a short-side claim, §7.10
+  borrow caveat applies whatever it shows). Scored separately.
+- **MAs:** SMA20, EMA21, SMA50, SMA200 with M19's neighbour groups.
+- **Generic-move placebo (primary control arm), `generic_move_<focal ma>_<direction>`:** on
+  row c the one-bar-lagged close moved ≥R ATR (`atr_14`, lagged) in the bounce's direction
+  over some j ≤ K prior rows; price sits on the bounce's side of the focal MA now
+  (`dist_atr > 0` for `from_above`, `< 0` for `from_below`); and the focal MA's |dist_atr|
+  stayed > 0.25 over the previous K+1 rows, so no touch — hence no bounce — was possible.
+  `modules/bounce_entry.py::generic_move_flags`. This is the "same-size move, no MA" control
+  the question needs: a bounce is a ≥1-ATR-in-≤5-days move by construction.
+- **Base controls:** rows that are none of focal bounce / generic move / neighbour bounce.
+
+**Statistic per cell (MA × direction × horizon):**
+
+    DiD = delta_bounce − delta_generic
+    delta_bounce  = matched mean fwd_ret_h, bounce rows vs base controls
+    delta_generic = matched mean fwd_ret_h, generic-move rows vs base controls
+
+both matched on date + the control tier's columns (`stats/controls.py::stratum_deltas`),
+resampled with shared date blocks (`block_bootstrap_delta_diff`), block length
+max(10, 2h) (DESIGN §6.2), 500 draws, 90% CI. `delta_bounce` also gets its own CI — it is the
+tradeable quantity and the cost annotation attaches to it.
+
+**Synthetic-neighbour arm — secondary, descriptive, no verdict.** A bounce off SMA47/53 is
+also reported (`did_synth`, `delta_synth`) together with the share of focal bounce rows that
+are simultaneously a neighbour bounce row. The feasibility count puts that overlap at
+74–92%, so this DiD is near zero by construction: near-identical MAs confirm on the same day
+and the forward returns are the same rows. M5's synthetic control worked because *hold
+rates* differ mechanically between adjacent MAs; forward returns from coincident dates do
+not. Recorded here before running so it cannot be read as "the MA is not special" after the
+fact — it is uninformative either way.
+
+**Control tier and why:** the kill criterion is evaluated on C2 + `rev_tercile` (date ×
+`mom_tercile` × `vol_tercile` × `sector` × prior-21d-return tercile), as in M19, with C1 and
+3-column C2 as the waterfall. The event populations here are much less sparse than M19's
+(thousands of bounce rows and 100k+ generic rows against ~1M base controls, not high-vs-low
+within touches), so the thin-strata problem M19 recorded should not bite; the contributing-
+date counts are reported per cell so that can be checked, not assumed.
+
+**Grid (`N_tests` contribution): 32 primary cells** — 4 MAs × 2 directions × 4 horizons; the
+counted statistic is the C2+rev DiD. **128 sensitivity cells** (4 one-at-a-time ±25%
+perturbations of K and R: K ∈ {4, 6}, R ∈ {0.75, 1.25}; L does not apply) are robustness
+re-runs, not counted.
+
+**Kill criterion (per cell, then module).** A cell is **confirmed** iff all of:
+1. `delta_bounce`'s C2+rev CI excludes zero **in the hypothesised direction** (+ for
+   `from_above`, − for `from_below`);
+2. the DiD vs the generic move's C2+rev CI excludes zero in the same direction — the bounce
+   beats a same-size move that did not involve the MA;
+3. **term-structure plateau (§5.1):** every adjacent horizon's DiD has the same sign;
+4. **MA plateau (§6.7):** ≥2 of the other 3 MAs same-signed at that direction and horizon;
+5. **sensitivity:** all 4 K/R perturbations keep the DiD's sign and ≥3 of 4 keep its CI off
+   zero;
+6. not below the effective-N floor (200 bounce events / 30 dates / 30 tickers, and ≥30 dates
+   contributing a matched bounce contrast at C2+rev).
+
+**Module killed** iff no cell is confirmed. A `delta_bounce` that excludes zero while the DiD
+spans zero is the expected shape of "it's the move, not the MA" and is logged as such, not
+as a finding about the MA. `decisive_test_status`: `passed` for a confirmed cell, `failed`
+for a cell that passes gate 1 but fails any of 2–5, `never_tested` otherwise. Tier from
+§9.2's table alone (DESIGN §9.2, 2026-09-10 rule).
+
+**Cost (invariant #8):** signal = "confirmed bounce off the real MA", one round trip per
+event. `signals_per_year` = bounce events / ticker-years (feasibility: 0.3–1.8 per ticker-
+year); hurdle = that × 10 bps (U1); compared against `delta_bounce`'s C2+rev point and both
+CI ends, linearly annualised ×252/h.
+
+**Distribution shape (invariant #10), descriptive only:** hit rate (raw and C1/C2+rev delta
+vs base controls via `stats/shape.py::hit_rate_deltas`), win/loss magnitude ratio and skew of
+the bounce rows' `fwd_ret_h`, per cell.
+
+**Look-ahead:** `modules/bounce_entry.py` is in `tests/test_moving_averages_leakage.py`'s
+module list; `bounce_*` and `generic_move_*` are non-label columns and must not move when
+bars from the cut onward are perturbed. `bounce_flags` reuses `confirmation_positions`,
+whose confirmation-dating is directly tested (M19).
+
+**Argue against it before running:** (a) the generic-move arm is the whole question — if
+`delta_bounce` clears and the DiD does not, the "signal" is short-term momentum, and that is
+the expected outcome; (b) a bounce that confirms at exactly R has, mechanically, just risen
+R ATR into a possibly-extended position, and M4/M6.2 found extension is *negative* for
+21d return — a negative `delta_bounce` at 21d is a live alternative and would not be a
+finding about support either; (c) the generic arm's rows sit at various distances from the
+MA while bounce rows sit ~R ATR from it, so extension is not perfectly matched — noted, not
+fixed in this slice; (d) close-only touches (M5's caveat); (e) at 63d, block length 126 with
+~2,700 dates leaves ~21 blocks — adequate, but the 63d CIs will be the widest.
+
+**Feasibility count (run 2026-09-30 before freezing, `bounce_entry_run.py --feasibility`;
+no outcome read).**
+
+| MA | dir | bounce rows | dates / tickers | generic-move rows | neighbour-bounce rows | overlap bounce∩neighbour |
+|---|---|---|---|---|---|---|
+| sma20 | ↑ | 7,376 | 2,033 / 405 | 242,993 | 12,489 | 77% |
+| sma20 | ↓ | 4,858 | 1,494 / 405 | 143,663 | 7,800 | 79% |
+| ema21 | ↑ | 8,642 | 2,107 / 405 | 237,460 | 13,496 | 89% |
+| ema21 | ↓ | 5,198 | 1,518 / 405 | 131,026 | 7,561 | 92% |
+| sma50 | ↑ | 5,274 | 1,776 / 405 | 276,560 | 8,700 | 79% |
+| sma50 | ↓ | 3,459 | 1,368 / 405 | 135,249 | 5,608 | 81% |
+| sma200 | ↑ | 2,365 | 1,129 / 402 | 319,074 | 5,828 | 74% |
+| sma200 | ↓ | 1,674 | 910 / 394 | 95,434 | 4,092 | 78% |
+
+Every cell clears the §6.9 floor on raw counts; bounce∩generic is 0 by construction. Full
+table: `output/moving_averages/m20_bounce_entry_feasibility.csv` (gitignored).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`bounce_entry_run.py`, 27 minutes, holdout untouched). Outputs under
+`output/moving_averages/m20_bounce_entry_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed. 0 of 32 cells confirmed, and the null is in the hypothesised direction
+specifically:** the bounce arm's own C2+rev delta never excludes zero on the positive side
+after a support bounce, nor on the negative side after a resistance rejection, at any MA or
+horizon. Where it does move it moves the *other* way:
+
+| MA | dir | h | bounce delta C2+rev [90% CI] | generic-move delta | DiD [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | ↑ | 5 | +0.02% [−0.05, +0.11] | −0.01% | +0.03% [−0.06, +0.11] |
+| sma20 | ↑ | 21 | −0.08% [−0.21, +0.07] | −0.07% | −0.00% [−0.16, +0.15] |
+| sma20 | ↑ | 63 | −0.34% [−0.64, −0.03] | −0.02% | −0.32% [−0.64, −0.03] |
+| sma20 | ↓ | 21 | +0.30% [+0.11, +0.50] | −0.06% | **+0.36% [+0.11, +0.59]** |
+| ema21 | ↑ | 21 | −0.07% [−0.25, +0.09] | −0.09% | +0.02% [−0.16, +0.20] |
+| ema21 | ↓ | 21 | +0.01% [−0.22, +0.24] | +0.03% | −0.02% [−0.30, +0.24] |
+| sma50 | ↑ | 21 | −0.09% [−0.27, +0.10] | −0.13% | +0.04% [−0.19, +0.23] |
+| sma50 | ↓ | 10 | −0.11% [−0.30, +0.03] | +0.09% | −0.20% [−0.37, −0.00] |
+| sma200 | ↑ | 21 | −0.17% [−0.43, +0.09] | −0.08% | −0.09% [−0.39, +0.23] |
+| sma200 | ↑ | 63 | −0.53% [−1.09, −0.02] | −0.04% | −0.49% [−1.01, −0.03] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `bounce_entry_*`.) Effective N is healthy everywhere:
+1,674–8,642 bounce events, 728–1,780 contributing dates at C2+rev — the thin-strata problem
+M19 recorded did not recur, as this entry expected.
+
+**What the raw means say, before any matching.** After a from-above bounce the 21d mean
+return is *below* the base rate at every MA (SMA20: bounce 0.98%, generic up-move 0.99%, base
+1.73%), and the generic-move arm sits right on top of the bounce arm. "Up ≥1 ATR in ≤5 days"
+underperforms whether or not an MA was touched; the C1 → C2 → C2+rev waterfall on the bounce
+arm (−0.24% → −0.22% → −0.08% at SMA20/21d) shows `rev_tercile` absorbing most of it. That is
+short-term reversal, DESIGN's pre-registered alternative (b) — the bounce leaves price
+freshly extended — not support. After a from-below rejection the mirror holds: bounce 2.67%,
+generic down-move 2.24%, base 1.48% at SMA20/21d — price that just fell rises more, and the
+rejection at resistance rises *most*.
+
+**Four of 32 DiD CIs exclude zero — the expected false-positive count at 90% under the
+null — and none survives the pre-registered gates:**
+- `sma20/↓/21d` +0.36% [+0.11, +0.59]: **opposite sign** (a resistance rejection is followed
+  by more upside than a generic down-move, i.e. mean reversion, not continuation). Term
+  structure agrees, 3/4 sensitivity CIs off zero, but only 1 of the 3 other MAs agrees. The
+  strongest of the four; Tier 3 by §9.2's table (CI excludes zero, mean-reversion mechanism is
+  plausible), fails FDR (p≈0.015). Bounce arm clears cost at both ends (+3.5%/yr [+1.4, +6.0])
+  as a *long* after a *rejection* — noted, not promoted.
+- `sma20/↑/63d` −0.32% and `sma200/↑/63d` −0.49%: opposite sign, only 1/4 and 2/4 sensitivity
+  CIs off zero. Tier 4.
+- `sma50/↓/10d` −0.20% [−0.37, −0.00003]: the only right-sign cell. Bounce arm spans zero
+  (−0.11% [−0.30, +0.03]) so gate 1 fails; 1/4 sensitivity CIs off zero. Tier 4.
+
+**Synthetic-neighbour arm:** DiDs −0.6% to +0.1%, 74–92% of bounce rows coincide with a
+neighbour bounce — uninformative by construction, exactly as recorded above before running.
+
+**Read for the question that motivated this module ("touched the MA, bounced — buy?"):**
+no. On this universe and window, a confirmed bounce off SMA20/EMA21/SMA50/SMA200 carries no
+forward-return information at 5–63 days beyond a same-size move anywhere, and the small
+signal that exists points the other way (reversal of the bounce, not continuation). The
+resistance-rejection short is worse: it is followed by *higher* returns.
+
+**Argue against this result:** (a) close-only touches and confirmations — an intraday-wick
+bounce could differ (M5's standing caveat); (b) R fixes the bounce size at 1 ATR; a larger
+R selects stronger bounces, and R=1.25 did not change the picture (sensitivity table);
+(c) the generic arm is not extension-matched (recorded above) — but the bounce arm's own
+delta is already null/wrong-signed before the DiD, so a better placebo could not rescue it;
+(d) survivorship (U1) flatters everything equally here, both arms.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 123 → 155), `FINDINGS.md` (one
+Tier-3 entry with the wrong-sign caveat), `STATUS.md`, `REPORT.md`,
+`docs/modeling/ma_study_insights.md`. Downstream: "bounced off the MA" is not an entry
+feature; if anything it belongs with the short-term-reversal block.
+
+---
+
+## M21 — Confirmed break through the MA as an entry signal (2026-09-30)
+
+**Module / track:** M21, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M21 section. Written and committed before running. The mirror of M20 on the
+same cached placebo panel (U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The
+one pre-run look is the feasibility count at the end (event counts and overlap shares, no
+outcome column).
+
+**Promoted from:** the question raised after M20 — M20 covered the *bounce* only. M5 counted
+the break as its `slice_through` outcome; M12's "reclaim" event compared high- vs low-volume
+reclaims against each other, never against a matched control; M3's crossovers are MA-vs-MA.
+No ledger cell measures the forward return from the day a price-through-MA break confirms.
+
+**Definitions (frozen):**
+- **Touch:** `features/touch.py`, unchanged. Side s = the side price came from.
+- **Confirmed break at row c:** the first row in t+1 … t+K (K=5) with price ≥ R (R=1.0 ATR) on
+  the **opposite** side (`−s·dist_atr[c] ≥ R`), provided that from the first close on the
+  opposite side (row x, first row in t+1 … c with `−s·dist_atr > 0`) through c there is no
+  close back on the original side (`s·dist_atr > 0`) — once through, it stays through until R.
+  Dithering on the original side *before* the first cross is allowed (the touch band is
+  symmetric). A close ≥ R on the original side first is M20's confirmed bounce and ends the
+  touch's resolution — no break. `features/respect.py::break_confirmation_positions`;
+  `break_flags` sets `break_<ma>_above` (came from below) / `break_<ma>_below` (came from
+  above) True on row c only. Known on row c (the panel is already lagged).
+- **Entry / outcome, MAs, horizons, controls, tiers:** exactly M20's — `fwd_ret_h`, h ∈ {5, 10,
+  21, 63}, from row c; SMA20/EMA21/SMA50/SMA200 with M19's neighbour groups; generic-move
+  placebo `generic_move_<focal ma>_<direction>` **reused unchanged** (a break above *is* an
+  up-move now above the MA, so it maps to `from_above`'s generic flag; a break below to
+  `from_below`'s); base controls = rows that are none of break / generic / neighbour break;
+  kill criterion evaluated on C2 + `rev_tercile`, C1 and 3-column C2 as the waterfall.
+- **Hypothesised sign:** **positive** after a break above (breakout continuation), **negative**
+  after a break below (breakdown continuation; §7.10 borrow caveat applies).
+
+**Statistic per cell (MA × direction × horizon):** `DiD = delta_break − delta_generic`, each a
+matched delta vs the same base controls, shared date blocks
+(`block_bootstrap_delta_diff`), block length max(10, 2h), 500 draws, 90% CI. `delta_break`
+also gets its own CI (the tradeable quantity; cost attaches to it). Synthetic-neighbour arm
+reported descriptively only, with the overlap share — feasibility puts it at 83–96%, so it is
+near zero by construction, same reasoning as M20.
+
+**Grid (`N_tests` contribution): 32 primary cells**, counted statistic = the C2+rev DiD.
+**128 sensitivity cells** (K ∈ {4, 6}, R ∈ {0.75, 1.25}, one at a time), not counted.
+
+**Kill criterion:** identical to M20's six gates, with M21's directions and signs — a cell is
+confirmed iff `delta_break`'s C2+rev CI excludes zero in the hypothesised direction; the DiD's
+does too; adjacent horizons agree in sign; ≥2 of the other 3 MAs agree at that direction and
+horizon; all 4 K/R perturbations keep the DiD's sign and ≥3 keep its CI off zero; and the cell
+clears the effective-N floor (200 events / 30 dates / 30 tickers / ≥30 contributing dates at
+C2+rev). Module killed iff no cell is confirmed. `decisive_test_status`: `passed` /
+`failed` (gate 1 passed, any of 2–5 failed) / `never_tested`. Tier from §9.2's table alone.
+
+**Cost / shape:** as M20 — `signals_per_year` = break events per ticker-year (feasibility:
+0.5–2.2), hurdle = that × 10 bps, compared against `delta_break` at the point and both CI
+ends, ×252/h linear; hit rate (raw and C1/C2+rev delta), win/loss ratio, skew of the break
+rows' `fwd_ret_h`, descriptive only.
+
+**Look-ahead:** `break_*` columns are added by `modules/bounce_entry.py::prepare`, already in
+`tests/test_moving_averages_leakage.py`'s module list (re-run with the break flags present:
+passes). `break_flags` reuses `touch_positions`; the confirmation dating is the same
+row-c convention M19's targeted test covers.
+
+**Argue against it before running:** (a) a break above after approaching from below is a
+reclaim by a name that was recently below its MA — `rev_tercile` and the generic-move arm are
+expected to absorb it, and M12's reclaim populations showed nothing against each other;
+(b) a break that confirms at exactly R is, like M20's bounce, a fresh ≥1-ATR move — M20 found
+that population tilts to *reversal*, so a wrong-sign result is the live alternative here too;
+(c) the generic arm is not extension-matched (M20's caveat); (d) close-only bars; (e) the
+breakdown side inherits the survivorship cap (§7.3) — a negative `delta_break` after a break
+below is biased *toward zero* by missing delisted names, so a null there is weaker evidence
+than a null on the break-above side.
+
+**Feasibility count (run 2026-09-30 before freezing, `break_entry_run.py --feasibility`; no
+outcome read).**
+
+| MA | dir | break rows | dates / tickers | generic-move rows | neighbour-break rows | overlap |
+|---|---|---|---|---|---|---|
+| sma20 | above | 10,598 | 2,117 / 405 | 242,993 | 16,659 | 83% |
+| sma20 | below | 9,653 | 1,914 / 405 | 143,663 | 15,184 | 85% |
+| ema21 | above | 8,259 | 1,916 / 405 | 237,460 | 10,841 | 96% |
+| ema21 | below | 7,684 | 1,725 / 405 | 131,026 | 10,775 | 95% |
+| sma50 | above | 6,148 | 1,837 / 405 | 276,560 | 9,288 | 86% |
+| sma50 | below | 5,768 | 1,575 / 405 | 135,249 | 8,993 | 86% |
+| sma200 | above | 2,444 | 1,156 / 405 | 319,074 | 5,225 | 85% |
+| sma200 | below | 2,302 | 936 / 401 | 95,434 | 5,042 | 86% |
+
+Every cell clears the §6.9 floor on raw counts; break∩generic is 0 by construction. Breaks
+are more frequent than M20's bounces at every MA (the touch band resolves through more often
+than it holds — M5's `P(slice_through)` was 32%, `P(hold)` 43%, but a bounce also has to
+avoid closing through, which many holds don't). Full table:
+`output/moving_averages/m21_break_entry_feasibility.csv` (gitignored).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`break_entry_run.py`, 34 minutes, holdout untouched). Outputs under
+`output/moving_averages/m21_break_entry_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed. 0 of 32 cells confirmed.** A confirmed break through SMA20/EMA21/SMA50/SMA200,
+up or down, carries no forward-return information at 5–63 days beyond a same-size move that did
+not involve the MA. Only 1 of 32 DiD CIs excludes zero, fewer than the ~3 the null predicts at
+90%. The break arm's own C2+rev delta runs from −0.36% to +0.37% and excludes zero in just two
+cells, one of them with the wrong sign.
+
+| MA | dir | h | break delta C2+rev [90% CI] | generic delta | DiD [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | above | 21 | −0.07% [−0.19, +0.03] | −0.07% | −0.00% [−0.13, +0.13] |
+| sma20 | below | 21 | +0.01% [−0.19, +0.18] | −0.07% | +0.08% [−0.12, +0.26] |
+| ema21 | above | 21 | −0.09% [−0.26, +0.08] | −0.09% | −0.00% [−0.16, +0.17] |
+| ema21 | below | 21 | −0.01% [−0.20, +0.13] | +0.03% | −0.04% [−0.24, +0.14] |
+| sma50 | above | 21 | +0.01% [−0.16, +0.19] | −0.13% | +0.14% [−0.06, +0.34] |
+| sma50 | below | 21 | −0.11% [−0.30, +0.10] | +0.09% | −0.20% [−0.47, +0.04] |
+| **sma50** | **below** | **63** | **−0.36% [−0.66, −0.02]** | +0.15% | **−0.50% [−0.90, −0.10]** |
+| sma200 | above | 21 | −0.04% [−0.40, +0.33] | −0.08% | +0.04% [−0.29, +0.40] |
+| sma200 | below | 21 | −0.12% [−0.46, +0.26] | +0.15% | −0.27% [−0.66, +0.11] |
+| sma200 | below | 63 | +0.37% [+0.00, +0.73] | +0.17% | +0.20% [−0.34, +0.82] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `break_entry_*`.) Effective N is healthy everywhere: 2,248–10,560
+break events, 753–1,775 contributing dates at C2+rev.
+
+**What the raw means say.** A break above looks like any up-move: SMA50/21d break 1.30%, generic
+up-move 0.90%, base 1.77%. A break below looks like any down-move: break 2.06%, generic 2.40%, base
+1.47%. Both "up 1 ATR" and "down 1 ATR" populations sit on the wrong side of base in the raw
+means (short-term reversal), and the break arm tracks the generic arm rather than departing from
+it in the direction of continuation. The C1 → C2+rev waterfall on the break arm shrinks toward
+zero at every MA — the same `rev_tercile` absorption M20 showed.
+
+**The one CI-off-zero cell, `sma50/below/63d`, argued against:**
+- Right sign (a breakdown through SMA50 is followed by weaker 63d returns than a same-size down
+  move elsewhere), and it passes four of the five gates: break arm −0.36% [−0.66, −0.02]; DiD
+  −0.50% [−0.90, −0.10]; 5/10/21d also negative; SMA20 and EMA21 negative at 63d (both span zero).
+- **Fails gate 5 (sensitivity).** All four K/R variants keep the sign (−0.31% to −0.39%), but only
+  R=0.75 keeps the CI off zero. The effect is plausibly real in sign but not robust in size.
+- **Appears only after matching.** Raw means go the other way (break 5.22% vs base 4.47% at 63d);
+  C1 on the break arm is +0.32%. The negative number is a C2+rev residual.
+- Fails cost at the near CI edge (−0.07%/yr vs a 0.12% hurdle), and it is a short: §7.10's borrow
+  caveat applies. Survivorship biases a breakdown delta toward zero, so the true value could be
+  more negative, which cuts in its favour; noted, not credited.
+- Whole-grid FDR at N=187: rank 18, p=0.038 vs threshold 0.0096. Fails.
+- Tier 3 by §9.2's table (CI excludes zero at the authoritative tier, mechanism plausible:
+  breakdown continuation on a watched MA). `decisive_test_status=failed`.
+
+`sma200/below/63d`: break arm alone +0.37% (wrong sign), DiD vs the generic down-move spans zero.
+Mean reversion after any down move, not an SMA200 effect. Tier 4.
+
+**Synthetic-neighbour arm:** DiDs −0.35% to +0.18%, 83–96% overlap, uninformative by construction
+as recorded before running.
+
+**Read for the question that motivated this module ("broke through the MA — follow it?"):** no.
+Breakouts above an MA behave like any 1-ATR up-move, and breakdowns like any 1-ATR down-move.
+The single breakdown cell that points the right way is at one MA, one horizon, fragile to K and
+R, and invisible before 5-way matching.
+
+**Argue against this result:** (a) close-only bars, no intraday breaks; (b) the confirmation
+requires ≥1 ATR through within 5 days, which excludes slow grinding breaks — a different event;
+(c) the generic arm is not extension-matched (M20's caveat); (d) the breakdown side is the one
+§7.3's survivorship ceiling hits, so a null there is weaker evidence than a null on breaks above.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 155 → 187), `FINDINGS.md` (one Tier-3
+entry), `STATUS.md`, `REPORT.md`, `docs/modeling/ma_study_insights.md`.
+
+---
