@@ -54,7 +54,18 @@ _NAME_NOISE = {
     "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC",
     "NV", "SA", "AG", "LLC", "LP", "HOLDINGS", "HOLDING", "HLDGS", "GROUP", "THE", "NEW",
     "COM", "STK", "CL", "CLASS", "A", "B", "C", "ORD", "SHS", "SHARES", "COMMON", "STOCK",
-    "DE", "MD", "OH", "IN", "VGB", "EURO", "PUBLIC", "ORDINARY", "TRUST",
+    "DE", "MD", "OH", "IN", "VGB", "EURO", "PUBLIC", "ORDINARY", "TRUST", "CP", "OF", "AND",
+}
+
+# Abbreviations Polygon's historical names use where SEC spells words out
+# ("DEVELOPERS DIVERSIFIED RLTY CP" vs "Developers Diversified Realty Corp").
+_NAME_ABBREVIATIONS = {
+    "RLTY": "REALTY", "INTL": "INTERNATIONAL", "SYS": "SYSTEMS", "MKT": "MARKET",
+    "MKTS": "MARKETS", "RES": "RESOURCES", "NAT": "NATURAL", "NATL": "NATIONAL",
+    "MTN": "MOUNTAIN", "SERVS": "SERVICES", "SVCS": "SERVICES", "IND": "INDUSTRIES",
+    "INDS": "INDUSTRIES", "COS": "COMPANIES", "FINL": "FINANCIAL", "MGMT": "MANAGEMENT",
+    "COMMUN": "COMMUNICATIONS", "COMMUNS": "COMMUNICATIONS", "TECH": "TECHNOLOGY",
+    "TECHS": "TECHNOLOGIES", "PPTYS": "PROPERTIES", "PROPS": "PROPERTIES",
 }
 PRICE_SOURCE = db.YFINANCE
 CALENDAR_TICKER = "SPY"
@@ -141,11 +152,12 @@ def resolve(
 
 def normalize_name(name: str | None) -> frozenset[str]:
     """Identity tokens of a company name: upper-cased, parentheticals and
-    punctuation dropped, legal-form/share-class words removed."""
+    punctuation dropped, common abbreviations expanded, legal-form/share-class
+    words removed."""
     if not name:
         return frozenset()
     text = re.sub(r"\([^)]*\)", " ", name.upper()).replace("&", " AND ")
-    tokens = re.split(r"[^A-Z0-9]+", text)
+    tokens = (_NAME_ABBREVIATIONS.get(t, t) for t in re.split(r"[^A-Z0-9]+", text))
     return frozenset(t for t in tokens if t and t not in _NAME_NOISE)
 
 

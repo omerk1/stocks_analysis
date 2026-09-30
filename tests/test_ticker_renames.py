@@ -137,6 +137,11 @@ def test_breadth_counts_a_renamed_member_once_under_its_new_symbol(conn):
     ("L-3 COMMUNICATIONS HLDGS INC", ["JETBLUE AIRWAYS CORP"], False),
     ("LEVEL 3 COMMUNICATIONS INC NEW", ["EXPEDITORS INTERNATIONAL OF WASHINGTON INC"], False),
     ("Anything", [], False),
+    # Abbreviations in Polygon's historical names.
+    ("DEVELOPERS DIVERSIFIED RLTY CP", ["SITE Centers Corp.", "DEVELOPERS DIVERSIFIED REALTY CORP"], True),
+    ("WHOLE FOODS MKT INC", ["WHOLE FOODS MARKET INC"], True),
+    ("NOVELLUS SYS INC", ["NOVELLUS SYSTEMS INC"], True),
+    ("Interpublic Group Cos", ["INTERPUBLIC GROUP OF COMPANIES, INC."], True),
 ])
 def test_names_match_accepts_renames_and_rejects_wrong_ciks(old, sec_names, expected):
     assert tr.names_match(old, sec_names) is expected
