@@ -1,3 +1,6 @@
+import json
+import zipfile
+
 import pandas as pd
 import pytest
 
@@ -36,6 +39,17 @@ class FakePolygon:
         return self.listings.get(ticker)
 
 
+def _submissions(tmp_path, companies):
+    """A tiny stand-in for SEC's submissions.zip: {cik: (name, [former names])}."""
+    path = tmp_path / "submissions.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        for cik, (name, former) in companies.items():
+            zf.writestr(f"CIK{cik:010d}.json", json.dumps(
+                {"cik": str(cik), "name": name, "formerNames": [{"name": n, "from": "", "to": ""} for n in former]}
+            ))
+    return path
+
+
 def _members(conn, rows):
     db.replace_index_membership(conn, "sp500", pd.DataFrame(rows, columns=["ticker", "start_date", "end_date"]))
 
@@ -54,7 +68,8 @@ def test_resolve_matches_same_cik_with_covering_history(conn):
     _bars(conn, "SPY")
     _bars(conn, "NEW")
 
-    row = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {"name": "Old Co", "cik": "0000000042"}, {42: ["NEW"]})
+    row = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {"name": "Old Co", "cik": "0000000042"}, {42: ["NEW"]},
+                     {42: ["New Co", "Old Co"]})
 
     assert row["status"] == "matched" and row["new_ticker"] == "NEW" and row["coverage"] == pytest.approx(1.0)
 
@@ -65,10 +80,12 @@ def test_resolve_rejects_partial_history_and_other_outcomes(conn):
     _bars(conn, "A1")
     _bars(conn, "A2")
 
-    low = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {"name": "x", "cik": "1"}, {1: ["PART"]})
-    amb = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {"name": "x", "cik": "2"}, {2: ["A1", "A2"]})
-    none = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {"name": "x", "cik": "3"}, {3: ["NOBARS"]})
-    missing = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", None, {})
+    names = {1: ["Xylo Corp"], 2: ["Xylo Corp"], 3: ["Xylo Corp"]}
+    listing = {"name": "Xylo Corp"}
+    low = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {**listing, "cik": "1"}, {1: ["PART"]}, names)
+    amb = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {**listing, "cik": "2"}, {2: ["A1", "A2"]}, names)
+    none = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", {**listing, "cik": "3"}, {3: ["NOBARS"]}, names)
+    missing = tr.resolve(conn, "OLD", "2015-01-01", "2015-03-31", None, {}, names)
 
     assert low["status"] == "low_coverage"
     assert amb["status"] == "ambiguous"
@@ -76,14 +93,15 @@ def test_resolve_rejects_partial_history_and_other_outcomes(conn):
     assert missing["status"] == "no_listing"
 
 
-def test_run_looks_up_inside_membership_and_skips_decided_tickers(conn):
+def test_run_looks_up_inside_membership_and_skips_decided_tickers(conn, tmp_path):
     _bars(conn, "SPY")
     _bars(conn, "NEW")
     _members(conn, [("OLD", "2015-01-01", "2015-03-31")])
     client = FakePolygon({"OLD": {"name": "Old Co", "cik": "42"}})
+    zip_path = _submissions(tmp_path, {42: ("New Co", ["Old Co"])})
 
-    tr.run(conn, client, {"NEW": 42}, ["sp500"], "2009-01-01")
-    tr.run(conn, client, {"NEW": 42}, ["sp500"], "2009-01-01")
+    tr.run(conn, client, {"NEW": 42}, zip_path, ["sp500"], "2009-01-01")
+    tr.run(conn, client, {"NEW": 42}, zip_path, ["sp500"], "2009-01-01")
 
     assert len(client.calls) == 1
     assert "2015-01-01" < client.calls[0][1] < "2015-03-31"
@@ -106,3 +124,51 @@ def test_breadth_counts_a_renamed_member_once_under_its_new_symbol(conn):
 
     assert (result["n_with_data"] == 1).all()
     assert result["n_advancing"].iloc[1] == 1
+
+
+@pytest.mark.parametrize("old, sec_names, expected", [
+    # Real renames: the old name is a former SEC name of the CIK.
+    ("FACEBOOK INC CL A COM STK (DE)", ["Meta Platforms, Inc.", "FACEBOOK INC"], True),
+    ("AMERISOURCEBERGEN CORP", ["Cencora, Inc.", "AMERISOURCEBERGEN CORP"], True),
+    ("DowDuPont Inc.", ["DuPont de Nemours, Inc.", "DowDuPont Inc."], True),
+    ("The Bank Of New York Mellon Corp", ["Bank of New York Mellon Corp"], True),
+    # Polygon's wrong CIKs, seen on real data 2026-09-30.
+    ("MONSTER WORLDWIDE INC", ["MORGAN STANLEY", "MORGAN STANLEY DEAN WITTER & CO"], False),
+    ("L-3 COMMUNICATIONS HLDGS INC", ["JETBLUE AIRWAYS CORP"], False),
+    ("LEVEL 3 COMMUNICATIONS INC NEW", ["EXPEDITORS INTERNATIONAL OF WASHINGTON INC"], False),
+    ("Anything", [], False),
+])
+def test_names_match_accepts_renames_and_rejects_wrong_ciks(old, sec_names, expected):
+    assert tr.names_match(old, sec_names) is expected
+
+
+def test_a_wrong_polygon_cik_is_rejected_as_name_mismatch(conn):
+    _bars(conn, "SPY")
+    _bars(conn, "MS")
+    row = tr.resolve(conn, "MWW", "2015-01-01", "2015-03-31", {"name": "MONSTER WORLDWIDE INC", "cik": "895421"},
+                     {895421: ["MS"]}, {895421: ["MORGAN STANLEY"]})
+    assert row["status"] == "name_mismatch" and "new_ticker" not in row
+
+
+def test_redecision_reuses_stored_polygon_listings(conn, tmp_path):
+    _bars(conn, "SPY")
+    _bars(conn, "NEW")
+    _members(conn, [("OLD", "2015-01-01", "2015-03-31")])
+    # First run stored a (wrong) match from before the name check existed.
+    db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "new_ticker": "NEW", "status": "matched",
+                                   "cik": 42, "old_name": "Old Co"})
+    client = FakePolygon({})
+    zip_path = _submissions(tmp_path, {42: ("Unrelated Industries", [])})
+
+    tr.run(conn, client, {"NEW": 42}, zip_path, ["sp500"], "2009-01-01", refresh=True)
+
+    assert client.calls == []
+    assert tr.price_ticker_map(conn) == {}
+    status = db.read_ticker_renames(conn, matched_only=False).set_index("old_ticker").loc["OLD", "status"]
+    assert status == "name_mismatch"
+
+
+def test_load_company_names_reads_current_and_former_names(tmp_path):
+    zip_path = _submissions(tmp_path, {1326801: ("Meta Platforms, Inc.", ["FACEBOOK INC"])})
+    names = tr.load_company_names(zip_path, {1326801, 7})
+    assert names == {1326801: ["Meta Platforms, Inc.", "FACEBOOK INC"], 7: []}

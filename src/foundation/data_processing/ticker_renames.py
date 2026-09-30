@@ -8,12 +8,18 @@ and silently drop out of every point-in-time universe.
 
 A mapping is accepted only when it's the same company, checked, not guessed:
 1. Polygon: which company traded under the old symbol on a date inside its
-   membership (`PolygonClient.ticker_as_of`) -- its CIK. The date guards against
-   reused symbols.
-2. SEC `company_tickers.json` (`data/raw/sec/`): today's symbols for that CIK.
-3. Exactly one of them has `bars_1d` history, and that history covers at least
+   membership (`PolygonClient.ticker_as_of`) -- its name and CIK. The date guards
+   against reused symbols.
+2. **Name check.** Polygon's CIK is wrong for some old delisted symbols (it gave
+   Monster Worldwide Morgan Stanley's CIK, L-3 JetBlue's, Level 3 Expeditors'),
+   so the old name must match the CIK's current or a **former** name in SEC's
+   `submissions.zip` (`data/raw/sec/`). Former names are what let real renames
+   through (Facebook, Inc. is a former name of Meta's CIK).
+3. SEC `company_tickers.json`: today's symbols for that CIK.
+4. Exactly one of them has `bars_1d` history, and that history covers at least
    `MIN_COVERAGE` of the old symbol's membership trading days (clipped to
-   `--since`), measured against SPY's trading days.
+   `--since`), measured against SPY's trading days. Coverage alone proves nothing
+   about identity -- a wrong company has prices too -- which is why step 2 exists.
 
 Everything else is stored with its reason (`status`) and left unmapped: a merger
 that created a new CIK (MYL -> VTRS), a real delisting, an ambiguous share class.
@@ -26,7 +32,10 @@ study deliberately does not, to stay reproducible).
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sqlite3
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -38,6 +47,15 @@ from src.foundation.data_processing.polygon_client import PolygonClient
 from src.foundation.utils.config_loader import load_config
 
 MIN_COVERAGE = 0.9
+NAME_MATCH = 0.6  # token Jaccard between normalised names
+
+# Words that carry no identity: legal forms, share-class and listing noise.
+_NAME_NOISE = {
+    "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC",
+    "NV", "SA", "AG", "LLC", "LP", "HOLDINGS", "HOLDING", "HLDGS", "GROUP", "THE", "NEW",
+    "COM", "STK", "CL", "CLASS", "A", "B", "C", "ORD", "SHS", "SHARES", "COMMON", "STOCK",
+    "DE", "MD", "OH", "IN", "VGB", "EURO", "PUBLIC", "ORDINARY", "TRUST",
+}
 PRICE_SOURCE = db.YFINANCE
 CALENDAR_TICKER = "SPY"
 
@@ -94,9 +112,10 @@ def tickers_by_cik(cik_map: dict[str, int]) -> dict[int, list[str]]:
 
 def resolve(
     conn: sqlite3.Connection, old_ticker: str, start: str, end: str,
-    listing: dict | None, by_cik: dict[int, list[str]],
+    listing: dict | None, by_cik: dict[int, list[str]], company_names: dict[int, list[str]],
 ) -> dict:
-    """Decide one old ticker, given Polygon's as-of `listing` for it."""
+    """Decide one old ticker, given Polygon's as-of `listing` for it and the
+    SEC current/former names per CIK."""
     row = {"old_ticker": old_ticker, "lookup_date": lookup_date(start, end)}
     if listing is None:
         return {**row, "status": "no_listing"}
@@ -105,6 +124,9 @@ def resolve(
         return {**row, "status": "no_cik"}
     cik = int(listing["cik"])
     row["cik"] = cik
+    sec_names = company_names.get(cik, [])
+    if not names_match(listing.get("name"), sec_names):
+        return {**row, "status": "name_mismatch", "detail": "; ".join(sec_names[:4]) or "CIK not in submissions.zip"}
     current = [t for t in by_cik.get(cik, []) if t != old_ticker]
     scored = {t: coverage(conn, t, start, end) for t in current}
     priced = {t: c for t, c in scored.items() if c > 0}
@@ -117,25 +139,90 @@ def resolve(
     return {**row, "status": "matched" if cov >= MIN_COVERAGE else "low_coverage"}
 
 
+def normalize_name(name: str | None) -> frozenset[str]:
+    """Identity tokens of a company name: upper-cased, parentheticals and
+    punctuation dropped, legal-form/share-class words removed."""
+    if not name:
+        return frozenset()
+    text = re.sub(r"\([^)]*\)", " ", name.upper()).replace("&", " AND ")
+    tokens = re.split(r"[^A-Z0-9]+", text)
+    return frozenset(t for t in tokens if t and t not in _NAME_NOISE)
+
+
+def names_match(old_name: str | None, candidates: list[str]) -> bool:
+    """True if `old_name` matches any of `candidates` (a CIK's current and
+    former names) by token Jaccard >= NAME_MATCH."""
+    old = normalize_name(old_name)
+    if not old:
+        return False
+    for name in candidates:
+        other = normalize_name(name)
+        if other and len(old & other) / len(old | other) >= NAME_MATCH:
+            return True
+    return False
+
+
+def load_company_names(submissions_zip: str | Path, ciks: set[int]) -> dict[int, list[str]]:
+    """Current plus former names for each CIK in `ciks`, from SEC's bulk
+    `submissions.zip` (one `CIK##########.json` per filer, with `name` and
+    `formerNames`). A CIK missing from the archive maps to []."""
+    result: dict[int, list[str]] = {}
+    with zipfile.ZipFile(submissions_zip) as zf:
+        available = set(zf.namelist())
+        for cik in ciks:
+            member = f"CIK{cik:010d}.json"
+            if member not in available:
+                result[cik] = []
+                continue
+            data = json.loads(zf.read(member))
+            names = [data.get("name")] + [f.get("name") for f in data.get("formerNames") or []]
+            result[cik] = [n for n in names if n]
+    return result
+
+
 def price_ticker_map(conn: sqlite3.Connection) -> dict[str, str]:
     """old symbol -> symbol its prices live under, for matched renames only."""
     renames = db.read_ticker_renames(conn)
     return dict(zip(renames["old_ticker"], renames["new_ticker"]))
 
 
+def _stored_listings(conn: sqlite3.Connection) -> dict[str, dict | None]:
+    """Polygon answers already recorded in `ticker_renames`, so a re-decision
+    doesn't repeat an hour of rate-limited lookups. `no_listing` rows map to None."""
+    table = db.read_ticker_renames(conn, matched_only=False)
+    listings: dict[str, dict | None] = {}
+    for row in table.itertuples(index=False):
+        if row.status == "no_listing":
+            listings[row.old_ticker] = None
+        elif pd.notna(row.old_name) or pd.notna(row.cik):
+            cik = None if pd.isna(row.cik) else str(int(row.cik))
+            listings[row.old_ticker] = {"name": row.old_name, "cik": cik}
+    return listings
+
+
 def run(
     conn: sqlite3.Connection, client: PolygonClient, cik_map: dict[str, int],
-    indices: list[str], since: str, refresh: bool = False,
+    submissions_zip: str | Path, indices: list[str], since: str,
+    refresh: bool = False, relookup: bool = False,
 ) -> pd.DataFrame:
-    """Look up every candidate not already decided (all of them with
-    `refresh`), store each outcome, and return the full table."""
+    """Decide every candidate not already decided (all of them with `refresh`),
+    store each outcome, and return the full table. Polygon is only called for
+    tickers with no stored listing, or for all of them with `relookup`."""
     by_cik = tickers_by_cik(cik_map)
+    stored = {} if relookup else _stored_listings(conn)
     done = set() if refresh else set(db.read_ticker_renames(conn, matched_only=False)["old_ticker"])
     todo = candidates(conn, indices, since)
     todo = todo[~todo["ticker"].isin(done)]
+    listings = {
+        row.ticker: stored[row.ticker] if row.ticker in stored
+        else client.ticker_as_of(row.ticker, lookup_date(row.start_date, row.end_date))
+        for row in todo.itertuples(index=False)
+    }
+    ciks = {int(v["cik"]) for v in listings.values() if v and v.get("cik")}
+    company_names = load_company_names(submissions_zip, ciks)
     for row in todo.itertuples(index=False):
-        listing = client.ticker_as_of(row.ticker, lookup_date(row.start_date, row.end_date))
-        outcome = resolve(conn, row.ticker, row.start_date, row.end_date, listing, by_cik)
+        listing = listings[row.ticker]
+        outcome = resolve(conn, row.ticker, row.start_date, row.end_date, listing, by_cik, company_names)
         db.upsert_ticker_rename(conn, outcome)
         print(f"{row.ticker}: {outcome['status']} {outcome.get('new_ticker') or ''}")
     return db.read_ticker_renames(conn, matched_only=False)
@@ -146,14 +233,24 @@ def main():
     parser.add_argument("--indices", default="sp500,nasdaq100")
     parser.add_argument("--since", default="2009-01-01", help="Only members with membership after this date")
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in the table")
+    parser.add_argument("--relookup", action="store_true",
+                        help="Ask Polygon again instead of reusing stored listings (slow: 5 requests/min)")
     args = parser.parse_args()
 
     load_dotenv()
     config = load_config()
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
-    cik_map = sec.load_cik_map(Path(config.data_paths.raw) / "sec" / "company_tickers.json")
-    table = run(conn, PolygonClient(), cik_map, args.indices.split(","), args.since, args.refresh)
+    sec_dir = Path(config.data_paths.raw) / "sec"
+    submissions = sec_dir / "submissions.zip"
+    if not submissions.exists():
+        raise SystemExit(
+            f"Missing {submissions} -- download it by hand from sec.gov's EDGAR bulk data page. "
+            "Renames aren't decided without the former-name check."
+        )
+    cik_map = sec.load_cik_map(sec_dir / "company_tickers.json")
+    table = run(conn, PolygonClient(), cik_map, submissions, args.indices.split(","), args.since,
+                args.refresh, args.relookup)
     print(table["status"].value_counts().to_string())
     conn.close()
 
