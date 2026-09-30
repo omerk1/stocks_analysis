@@ -4,9 +4,9 @@ Kept-current scoreboard. Per-cell numbers live in `EXPERIMENTS.csv`, frozen hypo
 text in `PREREGISTRATION.md`, Tier 1–3 write-ups in `FINDINGS.md`, narrative in
 `REPORT.md`.
 
-**State (2026-09-29):** complete. All of DESIGN's modules (M1–M18, §7.5) ran and were
+**State (2026-09-30):** complete. All of DESIGN's modules (M1–M19, §7.5) ran and were
 tiered. **One Tier-2 result** (`slope_pctile_21_sma_50`), zero Tier 1. The whole-grid FDR
-pass keeps **2 of 107** tests at q=0.10 and q=0.05.
+pass keeps **2 of 123** tests at q=0.10 and q=0.05.
 
 ## Modules run
 
@@ -35,27 +35,29 @@ pass keeps **2 of 107** tests at q=0.10 and q=0.05.
 | M16 | rules as linear filters | 23 MA rules form 1 cluster at cosine ≥0.80, 10 at ≥0.95, ordered by effective lookback. Track A. | — |
 | M17 | MACD / RSI / stochastics | MACD histogram incremental IC +0.0089 [+0.00002, +0.0187], fails FDR. RSI and %K span zero. | 3 / 4 |
 | M18 | 52-week range | Near-52w-low: +0.96% at 63d (fails cost), +2.50% [+1.10, +4.02] at 126d (clears). Near-52w-high: spans zero. | 3 / 4 |
+| M19 | MA respect history (touch → confirmed reversal → next touch) | Killed, 0 of 8 hold cells. Raw hold rates flat across 0/1/≥2 prior bounces in both arms. Two C2+rev-only CIs off zero (SMA50↓ hold −13.7pp on 249 of 11,934 events, wrong sign; EMA21↑ fwd21 +0.42%) are thin-strata reads, absent at C1. | 4 / 3 |
 | §7.5 | watched level vs placebo lookback | SMA200/SMA50 show no effect; EMA21 matches its unwatched neighbours. | 4 |
 
 ## Whole-grid FDR pass
 
 Benjamini–Hochberg over every counted cell (`counted_in_n_tests`), deduplicated to
-N=107. p-values are Wald back-outs of each cell's 90% block-bootstrap CI
+N=123 (re-run 2026-09-30 with M19's 16 cells). p-values are Wald back-outs of each cell's 90% block-bootstrap CI
 (`p_value_from_ci`). M6.4's rows are held at p=1, because their logged interval is a null
 envelope, not a CI. Reproduce with `python -m src.signals.moving_averages.whole_grid_fdr_run`.
 
 | rank | cell | p | threshold (q=0.10) | survives |
 |---|---|---|---|---|
-| 1 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.0000017 | 0.00093 | yes (also q=0.05) |
-| 2 | M6.3 `slope_magnitude_humped_test_sma50` | 0.000050 | 0.00187 | yes (also q=0.05) |
-| 3 | M12 `reclaim_durability_dollar_volume_sma50` | 0.0035 | 0.0028 | no |
-| 4 | M18 `dist_from_52w_low_h126` | 0.0047 | 0.0037 | no |
-| 5 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0047 | no |
-| 6 | M1 `above_sma_20` | 0.0090 | 0.0056 | no |
-| 7 | M2 `stack_fully_bearish_h21` | 0.0119 | 0.0065 | no |
+| 1 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.0000017 | 0.00081 | yes (also q=0.05) |
+| 2 | M6.3 `slope_magnitude_humped_test_sma50` | 0.000050 | 0.00163 | yes (also q=0.05) |
+| 3 | M12 `reclaim_durability_dollar_volume_sma50` | 0.0035 | 0.0024 | no |
+| 4 | M19 `respect_history_sma50_from_below_hold` | 0.0038 | 0.0033 | no |
+| 5 | M18 `dist_from_52w_low_h126` | 0.0047 | 0.0041 | no |
+| 6 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0049 | no |
+| 7 | M1 `above_sma_20` | 0.0090 | 0.0057 | no |
+| 8 | M2 `stack_fully_bearish_h21` | 0.0119 | 0.0065 | no |
 
-Ranks 3–7 miss by a factor of 1.2–1.8, so their FDR status depends on how many tests
-the grid holds. The two survivors clear by 37× or more.
+Ranks 3–8 miss by a factor of 1.1–1.8, so their FDR status depends on how many tests
+the grid holds. The two survivors clear by 33× or more.
 p-values below about 0.004 are extrapolations of a 500-draw bootstrap.
 
 ## Cross-module SMA200 watch
@@ -82,9 +84,14 @@ explanation over a level-specific one. Never audited. Don't privilege SMA200 fea
   the scanner re-run as of each date.
 - **Missing infrastructure**: a 2022+ holdout check, U2/U3 universes, point-in-time market
   cap (M12), an earnings-date table.
+- **Exact five-way matching on sparse events is underpowered and can mislead.** M19's C2+rev
+  cells kept 1–8% of their events (M6.2's touch cell had the same shape); both of M19's
+  CI-off-zero cells vanish at C1 and in the raw means. DESIGN §9.2's "stronger tier is
+  authoritative" rule assumes the stronger tier is powered. Any future event-based cell
+  should report the share of events inside contributing strata next to its C2+rev delta.
 
 ## Study-level termination
 
 The termination condition was met on 2026-09-17: DESIGN §12's minimal core (M1, M2, M4,
 M5, M6.2, M11, §7.5) plus the whole-grid FDR pass. The remaining modules ran afterwards
-under DESIGN §1.5's porous-scope rule. Nothing is queued.
+under DESIGN §1.5's porous-scope rule, M19 (2026-09-30) the last. Nothing is queued.

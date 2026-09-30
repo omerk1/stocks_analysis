@@ -5677,3 +5677,75 @@ well-powered at every tier; SMA50 is adequate; SMA200 is at the 30-date floor at
 its 4-column result is expected to be underpowered — recorded here so it cannot be re-framed
 after the fact. Full table: `output/moving_averages/m19_respect_history_feasibility.csv`
 (gitignored, reproducible).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`respect_history_run.py`, 405 tickers, 2010-01-04 → 2021-12-31,
+holdout untouched; 21 minutes). Outputs under `output/moving_averages/m19_respect_history_
+{primary,sensitivity,kill}.csv`, gitignored, reproducible.
+
+**Module killed. 0 of 8 hold cells confirmed.** Seven of the eight real-minus-synthetic
+DiDs on `hold_flag` span zero at C2+rev, and the raw hold rates by respect bucket are flat in
+*both* arms — e.g. SMA20 from above, focal 35.2% / 35.7% / 36.3% for 0 / 1 / ≥2 prior
+confirmed bounces, neighbours 35.4% / 35.2% / 36.1%. Respect history does not predict the
+next touch's hold rate at the real MA, and it does not predict it at the unwatched neighbour
+either — so there is not even a generic "bouncy name keeps bouncing" effect for the synthetic
+arm to cancel. The within-arm focal deltas at C2+rev are −1.8pp, −2.1pp, −1.2pp, −0.1pp, −0.6pp
+(SMA20 ↑↓, EMA21 ↑↓, SMA50 ↑), all spanning zero.
+
+| MA | dir | outcome | n focal ≥2 | focal dates (C2+rev) | DiD C1 | DiD C2 | DiD C2+rev [90% CI] |
+|---|---|---|---|---|---|---|---|
+| sma20 | ↑ | hold | 6,177 | 461 | +1.40pp | +2.37pp | +0.23pp [−3.15, +3.55] |
+| sma20 | ↓ | hold | 3,016 | 289 | −0.66pp | −2.12pp | −2.47pp [−5.91, +0.56] |
+| ema21 | ↑ | hold | 7,999 | 503 | −0.50pp | −1.36pp | −0.74pp [−3.41, +2.24] |
+| ema21 | ↓ | hold | 3,550 | 339 | −1.28pp | +0.12pp | −0.05pp [−2.39, +2.71] |
+| sma50 | ↑ | hold | 2,439 | 177 | +1.47pp | +0.02pp | −0.27pp [−5.46, +5.07] |
+| **sma50** | **↓** | **hold** | 1,398 | **111** | +0.90pp | −6.52pp | **−13.74pp [−22.19, −6.56]** |
+| sma200 | ↑ | hold | 613 | 36 | +0.95pp | −3.37pp | −2.33pp [−14.70, +10.93] |
+| sma200 | ↓ | hold | 501 | 30 | −3.99pp | −13.39pp | −5.10pp [−13.45, +3.20] |
+| sma20 | ↑ | fwd21 | 6,150 | 460 | −0.00% | −0.06% | +0.11% [−0.30, +0.57] |
+| sma20 | ↓ | fwd21 | 2,964 | 281 | −0.39% | +0.43% | +0.04% [−0.64, +0.67] |
+| **ema21** | **↑** | **fwd21** | 7,959 | 501 | −0.05% | +0.17% | **+0.42% [+0.06, +0.77]** |
+| ema21 | ↓ | fwd21 | 3,492 | 335 | −0.02% | +0.19% | +0.47% [−0.02, +1.01] |
+| sma50 | ↑ | fwd21 | 2,422 | 176 | +0.12% | +0.22% | +0.70% [−0.03, +1.34] |
+| sma50 | ↓ | fwd21 | 1,383 | 108 | +0.03% | −0.47% | −0.28% [−1.53, +0.84] |
+| sma200 | ↑ | fwd21 | 608 | 36 | −0.22% | +0.61% | +0.44% [−0.88, +1.84] |
+| sma200 | ↓ | fwd21 | 498 | 29 | +0.08% | +0.08% | +0.31% [−1.10, +1.90] — below threshold |
+
+SMA200 behaved as the feasibility count predicted: 30–36 contributing focal dates, CIs
+±10pp, one cell under the floor. Uninformative, not null.
+
+**The two cells whose CI excludes zero are both artifacts of the matching tier, not of the
+market — argued here, not glossed.** Both appear only at C2+rev, grow monotonically as the
+strata thin (C1 → C2 → C2+rev), and are absent from the raw bucket means:
+- **`sma50/from_below/hold`, −13.7pp.** Wrong sign for the hypothesis (kill gate 1 fails; gates
+  2 and 3 pass — 3/3 other MAs negative in this direction, 5/6 perturbations keep the CI off
+  zero, R=1.25 spans it). Diagnostic (2026-09-30): at C2+rev only **249 of 11,934** focal events
+  (118 high, 131 low) fall in the 115 strata that contain both groups, and 27% of those strata
+  are a single high event against a single low event (stratum delta ±1). The C1 read on 6,738
+  events is −0.7pp and spans zero; the raw hold rates are 29.6% (0 bounces) vs 28.3% (≥2). A
+  tenfold amplification under matching that the raw means and C1 do not show is selection
+  into thin strata. Whole-grid FDR: rank 4 of 123, p=0.0038 vs threshold 0.0033 at q=0.10 —
+  fails. Tier 3 by §9.2's table (CI excludes zero at the authoritative tier), logged with the
+  caveat, `decisive_test_status=failed`.
+- **`ema21/from_above/fwd21`, +0.42% [+0.06, +0.77].** Secondary outcome, cannot confirm the
+  module. Focal arm +0.40% [+0.02, +0.80], clears its 0.16%/yr cost hurdle at both ends
+  (+4.8%/yr [+0.2, +9.6]); hit-rate delta +3.4pp at C2+rev; win/loss 1.08, skew −0.24. But the
+  C1 DiD is −0.05% and the raw focal means *fall* with respect (1.65% → 1.63% → 1.49%); the
+  effect exists only in the 1,588 of 20,112 events inside 684 five-way strata. From-below
+  sibling: focal +0.78% [+0.22, +1.37], DiD spans zero (neighbours +0.31%). Wald p≈0.05;
+  fails FDR by a wide margin. Tier 3 by the table, pending nothing — logged as is.
+
+**Method lesson, recorded for `STATUS.md`'s open items:** on sparse event populations,
+exact five-way matching retains 1–8% of the events, and §9.2's "stronger control tier is
+authoritative" rule assumes the stronger tier is powered. M6.2's touch cell had the same
+shape (307 → 196 contributing dates). Any future event-based cell should report the share of
+events inside contributing strata next to the C2+rev delta, and treat a C2+rev estimate that
+C1 and the raw means contradict as a matching artifact until shown otherwise.
+
+**Logged:** `EXPERIMENTS.csv` (16 rows, all counted; `N_tests` 107 → 123), `FINDINGS.md`
+(the two Tier-3 cells, with the caveats), `STATUS.md` (module row, FDR pass re-run at N=123,
+new open item), `REPORT.md`. Downstream: respect history is **not** a usable strength input
+for MA levels (`docs/modeling/ma_study_insights.md` §1.3).
+
+---

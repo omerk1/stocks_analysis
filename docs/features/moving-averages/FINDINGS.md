@@ -131,6 +131,37 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 - **Tier 3**: with a reversal control the CI spans zero (−3.33pp [−8.18, +1.25]), so this
   is close to a dead end.
 
+### M19 `respect_history_sma50_from_below_hold` — repeated resistance, lower hold rate
+
+- **Hypothesis**: the next-touch hold rate rises with the count of prior same-side confirmed
+  reversals (≥2 vs 0, trailing 126d), more at the real SMA50 than at SMA47/53. The result is
+  the opposite sign.
+- **Result**: real-minus-synthetic DiD −13.7pp [−22.2, −6.6] at C2+rev; focal arm −13.9pp
+  [−19.9, −8.2], synthetic −0.2pp. C1: +0.9pp, spans zero. Raw hold rates 29.6% vs 28.3%.
+- **Effective N**: 111 contributing focal dates; 249 of 11,934 focal events sit in the 115
+  strata that carry the estimate, 27% of them a 1-vs-1 contrast.
+- **Cost**: mechanism read, not annotated (M5 convention).
+- **FDR**: misses (rank 4, p=0.0038 vs 0.0033 at N=123).
+- **Tier 3**: CI excludes zero at the authoritative tier, but a 10× amplification that C1 and
+  the raw means do not show is a thin-strata artifact until proven otherwise. Kill
+  criterion failed (wrong sign). Sensitivity: 5 of 6 perturbations keep the CI off zero.
+- **Would change**: a coarser matched estimate (date + rev_tercile) or a regression control
+  that uses all 12k events and still finds the sign.
+
+### M19 `respect_history_ema21_from_above_fwd21` — respected EMA21, higher 21d return
+
+- **Hypothesis**: secondary outcome of M19 — 21d return after a from-above touch of EMA21
+  rises with respect history, more than at EMA19/23.
+- **Result**: DiD +0.42% [+0.06%, +0.77%] at C2+rev; focal arm +0.40% [+0.02%, +0.80%]. C1:
+  −0.05%. Raw focal means fall with respect (1.65% → 1.49%). Hit-rate delta +3.4pp, win/loss
+  1.08, skew −0.24.
+- **Effective N**: 501 contributing focal dates; 1,588 of 20,112 focal events in 684 strata.
+- **Cost**: +4.8%/yr [+0.2%, +9.6%] vs a 0.16% hurdle (1.6 signals per ticker-year), clears.
+- **FDR**: fails (p≈0.05).
+- **Tier 3**: only at the finest tier, secondary outcome, cannot confirm the module. The
+  from-below sibling's focal arm is +0.78% [+0.22%, +1.37%] but its DiD spans zero.
+- **Would change**: the same sign at C1 on the full event set.
+
 ### M6.3 `slope_pctile_21` at SMA20 and SMA200
 
 - **SMA20**: −0.117% [−0.229%, −0.006%]. Fails cost (near edge −0.08% vs a 1.34%
