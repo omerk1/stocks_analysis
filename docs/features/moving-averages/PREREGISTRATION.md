@@ -5874,3 +5874,76 @@ no outcome read).**
 
 Every cell clears the §6.9 floor on raw counts; bounce∩generic is 0 by construction. Full
 table: `output/moving_averages/m20_bounce_entry_feasibility.csv` (gitignored).
+
+### Result (2026-09-30)
+
+Ran as pre-registered (`bounce_entry_run.py`, 27 minutes, holdout untouched). Outputs under
+`output/moving_averages/m20_bounce_entry_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed. 0 of 32 cells confirmed, and the null is in the hypothesised direction
+specifically:** the bounce arm's own C2+rev delta never excludes zero on the positive side
+after a support bounce, nor on the negative side after a resistance rejection, at any MA or
+horizon. Where it does move it moves the *other* way:
+
+| MA | dir | h | bounce delta C2+rev [90% CI] | generic-move delta | DiD [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | ↑ | 5 | +0.02% [−0.05, +0.11] | −0.01% | +0.03% [−0.06, +0.11] |
+| sma20 | ↑ | 21 | −0.08% [−0.21, +0.07] | −0.07% | −0.00% [−0.16, +0.15] |
+| sma20 | ↑ | 63 | −0.34% [−0.64, −0.03] | −0.02% | −0.32% [−0.64, −0.03] |
+| sma20 | ↓ | 21 | +0.30% [+0.11, +0.50] | −0.06% | **+0.36% [+0.11, +0.59]** |
+| ema21 | ↑ | 21 | −0.07% [−0.25, +0.09] | −0.09% | +0.02% [−0.16, +0.20] |
+| ema21 | ↓ | 21 | +0.01% [−0.22, +0.24] | +0.03% | −0.02% [−0.30, +0.24] |
+| sma50 | ↑ | 21 | −0.09% [−0.27, +0.10] | −0.13% | +0.04% [−0.19, +0.23] |
+| sma50 | ↓ | 10 | −0.11% [−0.30, +0.03] | +0.09% | −0.20% [−0.37, −0.00] |
+| sma200 | ↑ | 21 | −0.17% [−0.43, +0.09] | −0.08% | −0.09% [−0.39, +0.23] |
+| sma200 | ↑ | 63 | −0.53% [−1.09, −0.02] | −0.04% | −0.49% [−1.01, −0.03] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `bounce_entry_*`.) Effective N is healthy everywhere:
+1,674–8,642 bounce events, 728–1,780 contributing dates at C2+rev — the thin-strata problem
+M19 recorded did not recur, as this entry expected.
+
+**What the raw means say, before any matching.** After a from-above bounce the 21d mean
+return is *below* the base rate at every MA (SMA20: bounce 0.98%, generic up-move 0.99%, base
+1.73%), and the generic-move arm sits right on top of the bounce arm. "Up ≥1 ATR in ≤5 days"
+underperforms whether or not an MA was touched; the C1 → C2 → C2+rev waterfall on the bounce
+arm (−0.24% → −0.22% → −0.08% at SMA20/21d) shows `rev_tercile` absorbing most of it. That is
+short-term reversal, DESIGN's pre-registered alternative (b) — the bounce leaves price
+freshly extended — not support. After a from-below rejection the mirror holds: bounce 2.67%,
+generic down-move 2.24%, base 1.48% at SMA20/21d — price that just fell rises more, and the
+rejection at resistance rises *most*.
+
+**Four of 32 DiD CIs exclude zero — the expected false-positive count at 90% under the
+null — and none survives the pre-registered gates:**
+- `sma20/↓/21d` +0.36% [+0.11, +0.59]: **opposite sign** (a resistance rejection is followed
+  by more upside than a generic down-move, i.e. mean reversion, not continuation). Term
+  structure agrees, 3/4 sensitivity CIs off zero, but only 1 of the 3 other MAs agrees. The
+  strongest of the four; Tier 3 by §9.2's table (CI excludes zero, mean-reversion mechanism is
+  plausible), fails FDR (p≈0.015). Bounce arm clears cost at both ends (+3.5%/yr [+1.4, +6.0])
+  as a *long* after a *rejection* — noted, not promoted.
+- `sma20/↑/63d` −0.32% and `sma200/↑/63d` −0.49%: opposite sign, only 1/4 and 2/4 sensitivity
+  CIs off zero. Tier 4.
+- `sma50/↓/10d` −0.20% [−0.37, −0.00003]: the only right-sign cell. Bounce arm spans zero
+  (−0.11% [−0.30, +0.03]) so gate 1 fails; 1/4 sensitivity CIs off zero. Tier 4.
+
+**Synthetic-neighbour arm:** DiDs −0.6% to +0.1%, 74–92% of bounce rows coincide with a
+neighbour bounce — uninformative by construction, exactly as recorded above before running.
+
+**Read for the question that motivated this module ("touched the MA, bounced — buy?"):**
+no. On this universe and window, a confirmed bounce off SMA20/EMA21/SMA50/SMA200 carries no
+forward-return information at 5–63 days beyond a same-size move anywhere, and the small
+signal that exists points the other way (reversal of the bounce, not continuation). The
+resistance-rejection short is worse: it is followed by *higher* returns.
+
+**Argue against this result:** (a) close-only touches and confirmations — an intraday-wick
+bounce could differ (M5's standing caveat); (b) R fixes the bounce size at 1 ATR; a larger
+R selects stronger bounces, and R=1.25 did not change the picture (sensitivity table);
+(c) the generic arm is not extension-matched (recorded above) — but the bounce arm's own
+delta is already null/wrong-signed before the DiD, so a better placebo could not rescue it;
+(d) survivorship (U1) flatters everything equally here, both arms.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 123 → 155), `FINDINGS.md` (one
+Tier-3 entry with the wrong-sign caveat), `STATUS.md`, `REPORT.md`,
+`docs/modeling/ma_study_insights.md`. Downstream: "bounced off the MA" is not an entry
+feature; if anything it belongs with the short-term-reversal block.
+
+---

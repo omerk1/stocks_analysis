@@ -77,7 +77,7 @@ and −0.67% at C2, where the CI spans zero, so the entire effect was momentum.
 
 ## 4. Whole-grid FDR
 
-N = 123 deduplicated tests (M19 added 16 on 2026-09-30). Benjamini–Hochberg is applied to Wald p-values backed out of
+N = 155 deduplicated tests (M19 and M20 added 48 on 2026-09-30). Benjamini–Hochberg is applied to Wald p-values backed out of
 each cell's CI. M6.4's cells are held at p=1, because their logged interval is a null
 envelope. The full ranked table is in `STATUS.md`, and the pass is reproducible from the
 ledger.
@@ -87,7 +87,7 @@ ledger.
 | M6.6 ribbon agreement, 21d drawdown | +0.65pp (+0.44, +0.89) | 0.0000017 | yes |
 | M6.3 extreme vs flat SMA50 slope | 0.25% (0.15, 0.35) per 21d | 0.00005 | yes |
 
-The next six cells (M12, M19 SMA50↓ hold, M18@126d, M7, M1 SMA20, M2) miss by a factor of 1.1–1.8, so
+The next six cells (M12, M19 SMA50↓ hold, M18@126d, M7, M1 SMA20, M2) miss by a factor of 1.5–2.3, so
 their status depends on grid size. p-values below about 0.004 are normal-tail
 extrapolations of a 500-draw bootstrap.
 
@@ -119,6 +119,7 @@ extrapolations of a 500-draw bootstrap.
 | M17 oscillators | MACD marginal (+0.009 IC), RSI and %K span zero | 3 / 4 |
 | M18 52-week range | near-low +2.50% at 126d, clears cost; near-high spans zero | 3 / 4 |
 | M19 respect history | killed, 0 of 8; hold rates flat across prior bounces at real and synthetic MAs; two C2+rev-only CIs are thin-strata reads | 4 / 3 |
+| M20 bounce as entry | killed, 0 of 32; a confirmed bounce's forward return matches a same-size move without the MA, and tilts to reversal, not continuation | 4 / 3 |
 | §7.5 placebo | no lookback is special | 4 |
 
 ## 6. Suggestive (Tier 3)
@@ -139,8 +140,10 @@ are in `FINDINGS.md`.
 Every Tier-4 cell is in `EXPERIMENTS.csv` with its number and effective N. The ones worth
 remembering before trying again:
 - **Support/resistance at MAs (M5, §7.5), and its persistence per name (M19).** A first
-  touch holds no better than at an unwatched neighbour, and an MA that held twice recently
-  does not hold better next time. Revisit only with intraday touches; the study used closes.
+  touch holds no better than at an unwatched neighbour, an MA that held twice recently
+  does not hold better next time, and a confirmed bounce is not an entry (M20: its forward
+  return is that of any ≥1 ATR move, and tilts to reversal). Revisit only with intraday
+  touches; the study used closes.
 - **Crossovers (M3), kernel choice (M8), weekly sampling (M10), regime-chosen lookbacks
   (M9).** Revisit only with a genuinely new construction.
 - **Proximity to the 52-week high (M18).** It is momentum.

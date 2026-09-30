@@ -162,6 +162,22 @@ items: U1 has no delisted history, which flatters weak-state buckets.
   from-below sibling's focal arm is +0.78% [+0.22%, +1.37%] but its DiD spans zero.
 - **Would change**: the same sign at C1 on the full event set.
 
+### M20 `bounce_entry_sma20_from_below_h21` — rejection at SMA20, then higher returns
+
+- **Hypothesis**: a confirmed rejection at SMA20 from below (touch, then ≥1 ATR back down
+  within 5 days, no close through) predicts a *negative* 21d return, beyond a same-size down
+  move that did not involve the MA. The result has the opposite sign.
+- **Result**: DiD vs the generic down-move +0.36% [+0.11%, +0.59%] at C2+rev; bounce arm
+  +0.30% [+0.11%, +0.50%]. Raw 21d means: rejection 2.67%, generic down-move 2.24%, base 1.48%.
+  Hit rate 63.7%, win/loss 1.28, skew +0.59.
+- **Effective N**: 4,816 events, 1,176 contributing dates.
+- **Cost**: +3.5%/yr [+1.4%, +6.0%] vs a 0.10% hurdle — as a *long* after a *rejection*.
+- **FDR**: fails (rank 10, p=0.015 vs 0.0065 at N=155).
+- **Tier 3**: CI excludes zero and short-term mean reversion is a plausible mechanism, but
+  only 1 of the 3 other MAs agrees, and it is one of 4 CIs off zero among 32 cells — the
+  count the null predicts at 90%. Not a resistance finding; if anything a reversal one.
+- **Would change**: the same sign at EMA21/SMA50 (they read −0.02% and −0.22%).
+
 ### M6.3 `slope_pctile_21` at SMA20 and SMA200
 
 - **SMA20**: −0.117% [−0.229%, −0.006%]. Fails cost (near edge −0.08% vs a 1.34%
