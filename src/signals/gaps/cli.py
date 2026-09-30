@@ -7,6 +7,10 @@ at the end. No fetch_jobs-based resumability (see sr_lines/cli.py for that
 heavier pattern, used for the very different problem of a multi-hour bulk
 ingest job) -- a gap detection pass over one ticker is fast enough that a
 plain loop is the right amount of machinery.
+
+What it stores is each gap's state as of the run (or `--as-of`), not a
+history. For backtests over past dates, read it back with
+`store.read_gaps` and use `relevance.gap_states`.
 """
 
 from __future__ import annotations

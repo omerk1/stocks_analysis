@@ -171,3 +171,40 @@ def test_no_gaps_before_min_bars_of_history_just_like_an_as_of_run(raw_conn):
     assert relevance.gap_states(bars, full, early, CFG, include_closed=True).empty
     # and from exactly min_bars bars on, it matches again
     assert _assert_matches_as_of_run(raw_conn, "RW", [bars.index[59].strftime("%Y-%m-%d")], CFG) > 0
+
+
+def test_stored_gaps_read_back_give_the_same_point_in_time_states(raw_conn):
+    from src.foundation.market_common import data as data_mod
+    detected, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    derived = derived_db.get_connection(":memory:")
+    store.create_gaps_table(derived)
+    store.upsert_gaps(derived, detected, run_id="r1")
+
+    loaded = store.read_gaps(derived, "RW", "daily")
+    assert len(loaded) == len(detected)
+    # current-state lifecycle fields are deliberately not carried over
+    assert all(g.max_fill_pct == 0.0 and g.status.value == "open" and g.in_reach is None for g in loaded)
+
+    dates = list(bars.index[[80, 200, 350, 599]])
+    cols = ["date", "created_at", "kind", "direction", "zone_bottom", "zone_top", "max_fill_pct", "status", "in_reach"]
+    a = relevance.gap_states(bars, detected, dates, CFG, include_closed=True)[cols]
+    b = relevance.gap_states(bars, loaded, dates, CFG, include_closed=True)[cols]
+    pd.testing.assert_frame_equal(a.sort_values(cols[:4]).reset_index(drop=True),
+                                  b.sort_values(cols[:4]).reset_index(drop=True))
+
+
+def test_read_gaps_rejects_stored_zones_that_no_longer_match_the_bars(raw_conn):
+    from src.foundation.market_common import data as data_mod
+    detected, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    derived = derived_db.get_connection(":memory:")
+    store.create_gaps_table(derived)
+    store.upsert_gaps(derived, detected, run_id="r1")
+
+    assert len(store.read_gaps(derived, "RW", "daily", bars=bars)) == len(detected)  # same data: fine
+    readjusted = bars.copy()
+    readjusted[["open", "high", "low", "close"]] *= 0.999                             # a dividend re-adjustment
+    with pytest.raises(store.StaleGapsError):
+        store.read_gaps(derived, "RW", "daily", bars=readjusted)
+    assert len(store.stale_gap_ids(store.read_gaps(derived, "RW", "daily"), readjusted)) == len(detected)
