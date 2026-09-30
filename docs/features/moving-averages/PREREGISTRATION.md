@@ -1394,6 +1394,20 @@ prior "live unresolved confound" framing.
 
 ---
 
+
+### Re-run without the same-bar close (2026-09-29 addendum, pre-registered before running)
+
+**Why:** the new leakage test (`tests/test_moving_averages_leakage.py`) found that
+`stack_fully_bullish`, `stack_fully_bearish` and Trend Template criteria 1 and 5 compared
+the row's own raw close (day *t*) with MAs lagged to *t−1*. The forward label starts at
+close(*t*), so the price link was a same-bar signal (invariant #2). Fixed by comparing
+against the prior close (`_prior_close`). Everything else is unchanged: same cells, C2
+match set, reversal companion, block length 42, 500 draws, seed 0, kill rule.
+
+**Re-run:** both primary cells (standalone and incremental vs `above_sma_50`), both
+reversal companions, and the 8 ablation coefficients. New dated rows in `EXPERIMENTS.csv`;
+the 2026-09-13/17 rows are marked superseded. Hypothesis and kill criterion unchanged.
+
 ## M5 — Touch / test / bounce behaviour (2026-09-17)
 
 **Module / track:** M5, Track B (DESIGN.md §5). Last of the minimal-core list before

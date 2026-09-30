@@ -38,7 +38,7 @@ own call for the modeling phase.
 | `reclaim_durability_dollar_volume_sma50` (M12) | 3 | C2 delta, top vs bottom dollar-volume tercile among SMA50 reclaims | −0.870% | [−1.381%, −0.402%] | 13,880 / 2,468 | — | no PIT market-cap control; size/illiquidity premium equally plausible | **feature** only if a PIT size control exists; otherwise a **confound proxy** |
 | `dist_from_52w_low_h126` (M18) | 3 | C2 decile spread, `fwd_ret_126` | +2.50% per 126d | [+1.10%, +4.02%] | 1,069,515 / 2,643 | — | survivorship-adjacent (beaten-down bucket), argued by analogy, never tested | **feature** at long horizons; carries §7.3 exposure |
 | `ribbon_direction_magnitude` (M7) | 3 | C2 decile spread on `abs(fwd_ret_21)`, ribbon-width decile 9 vs 0 | −0.247% | [−0.398%, −0.093%] | 175,152 / 2,549 | — | magnitude, not signed return | **target-design evidence** (compression predicts the size of the move, not its direction) + feature for a vol/barrier model |
-| `stack_fully_bearish_h21` (M2) | 3 | incremental C2 diff vs `above_sma_50`; standalone C2 +0.474% [+0.161%, +0.776%] | +1.055% incremental | [+0.419%, +1.740%] | 40,102 / 2,696 | hit 63.85%; W/L 1.32; skew +0.99 | DESIGN §7.3 survivorship cap (bearish bucket, zero delisted history pre-2024) | **feature** (full-stack state) with the survivorship caveat stamped on it |
+| `stack_fully_bearish_h21` (M2) | 3 | incremental C2 diff vs `above_sma_50`; standalone C2 +0.444% [+0.142%, +0.748%] | +1.011% incremental | [+0.359%, +1.682%] | 40,644 / 2,698 | hit 63.9%; skew +1.01 | DESIGN §7.3 survivorship cap (bearish bucket, zero delisted history pre-2024) | **feature** (full-stack state) with the survivorship caveat stamped on it |
 | `above_sma_20` (M1) | 3 | C2 delta | −0.215% | [−0.350%, −0.079%] | 751,406 / 2,744 | — | fails cost (30.4 flips/ticker-yr → 3.04%/yr hurdle) | **baseline** (cheap state feature); not a standalone signal |
 
 M12, M18, M7, M2 and M1 miss FDR by a factor of 1.2–1.6; their FDR status depends on
@@ -123,7 +123,7 @@ columns replace the 68 numeric MA columns in the panel.
 | 5 | `slope_log_63_sma_50` | panel | The one slope window that decorrelates from distance at every lookback (0.18–0.32, sweep). Cheap diversification of the slope cluster. |
 | 6 | `ribbon_agreement_state` (0–5 over {10,20,50,100,200} slope signs) | rebuild as in `modules/ribbon_slope_agreement.py` | M6.6: predicts `fwd_mdd_21` (+0.65pp), pairwise slope correlations 0.28–0.89 so it is not one MA in disguise. A drawdown-side feature. |
 | 7 | `ribbon_width_pctile` | `features/ribbon.py::ribbon_width_pctile` | M7: compression predicts the size of the forward return (−0.25% decile spread on `abs(fwd_ret_21)`). Directly relevant to a barrier target's reach probability. |
-| 8 | `stack_fully_bearish` (price < SMA20 < SMA50 < SMA150 < SMA200) | `modules/stack_minervini.py` construction | M2: +1.06% incremental over `above_sma_50`, hit 63.85%, skew +0.99. Survivorship-capped (§7.3); flag it as such in the feature registry. |
+| 8 | `stack_fully_bearish` (price < SMA20 < SMA50 < SMA150 < SMA200) | `modules/stack_minervini.py` construction | M2: +1.01% incremental over `above_sma_50`, hit 63.9%, skew +1.01. Survivorship-capped (§7.3); flag it as such in the feature registry. |
 | 9 | `dist_from_52w_low` | panel | M18: +0.96% (63d), +2.50% (126d) C2 decile spread, reversal-robust. Matters only at H ≥ 63. |
 | 10 | `macd_histogram` (12,26,9) | `features/oscillators.py::macd_components` | M17: incremental IC +0.0089 over the MA block, correlation −0.25 with `slope_log_21_sma_50`. Marginal; include and let importance decide, as IDEAS F4 already says. |
 | 11 | `dollar_volume` per-date tercile | `features/liquidity.py::dollar_volume` | M12's strongest cell, but only as a **size/liquidity control** until PIT market cap exists (§2.4). |
@@ -227,7 +227,7 @@ Evidence for a path-aware target over a mean-return target:
 | Same restriction, different label, opposite verdicts | M6.6: `fwd_mdd_21` +0.65pp [+0.44, +0.89] vs `fwd_ret_21` −0.21% [−0.62%, +0.18%] | The ribbon signal lives in the *lower barrier* hit probability, not in the terminal return. A mean-return model would drop the feature; a barrier model keeps it. |
 | Magnitude without direction | M7: `abs(fwd_ret_21)` decile spread −0.25% while the signed spread spans zero | Compression changes the *width* of the outcome distribution. Only a target that separates "reaches +U" from "reaches −D" can use it; a signed mean cannot. |
 | Mean and hit rate disagree | M2 `stack_fully_bullish`: mean +0.01% (spans zero), hit-rate delta +1.21pp, skew −0.35 | "Wins slightly more often, loses larger" is invisible to a mean. A calibrated P(hit +U before −D) exposes it. |
-| Fat left tail | M2 `stack_fully_bearish`: hit rate 63.9%, skew +0.99; M2 `stack_fully_bullish`: skew −0.35 on a flat mean | Tails differ between states with similar means. The EV cell in IDEAS §1 must use the full barrier distribution, not P·U − (1−P)·D with a fixed D. |
+| Fat left tail | M2 `stack_fully_bearish`: hit rate 63.9%, skew +1.01; M2 `stack_fully_bullish`: skew −0.35 on a flat mean | Tails differ between states with similar means. The EV cell in IDEAS §1 must use the full barrier distribution, not P·U − (1−P)·D with a fixed D. |
 
 Horizon evidence:
 

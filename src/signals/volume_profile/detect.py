@@ -40,6 +40,7 @@ def build_for(bars: pd.DataFrame, anchor_date: str, config: VolumeProfileConfig)
         bars, anchor_date,
         row_count=config.row_count, row_scale=config.row_scale,
         value_area_pct=config.value_area_pct, volume_distribution=config.volume_distribution,
+        volume_measure=config.volume_measure,
     )
 
 

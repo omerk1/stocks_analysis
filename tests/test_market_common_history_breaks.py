@@ -156,7 +156,8 @@ def _gevo_like():
 
 def test_discover_anchors_ignores_highs_before_history_start():
     bars, split_day = _gevo_like()
-    config = AnchorConfig(min_bars=1, warmup_bars=0)
+    # true all-time extremes, so the early spike is an ath to be excluded
+    config = AnchorConfig(min_bars=1, warmup_bars=0, regime_reach_factor=None)
     full = {a.anchor_date: a.anchor_types for a in discover_anchors(bars, Timeframe.DAILY, config)}
     assert any(AnchorType.ATH in t for d, t in full.items() if pd.Timestamp(d) < split_day)
 

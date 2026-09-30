@@ -201,11 +201,24 @@ def build_panel(
     panel should join them from an already-correct `Timeframe.DAILY`
     panel by date instead, the way M10's own module does.
     """
-    frames = []
+    bars_by_ticker = {}
     for ticker in tickers:
         bars = load_bars(conn, ticker, timeframe, as_of=end, start=start)
-        if bars.empty:
-            continue
+        if not bars.empty:
+            bars_by_ticker[ticker] = bars
+    return assemble_panel(bars_by_ticker, db.read_ticker_sector(conn))
+
+
+def assemble_panel(bars_by_ticker: dict[str, pd.DataFrame], sectors: pd.DataFrame) -> pd.DataFrame:
+    """The DB-free half of `build_panel`: validates each ticker's raw bars
+    (`load_bars` format -- DatetimeIndex, open/high/low/close/volume),
+    builds every feature, applies the one-bar lag, joins `sectors`
+    (`ticker`/`sector` columns) and fixes dtypes. Split out so tests can
+    run the exact production path on synthetic bars
+    (`tests/test_moving_averages_leakage.py`).
+    """
+    frames = []
+    for ticker, bars in bars_by_ticker.items():
         clean, _ = validate_bars(bars, ticker)
         if clean.empty:
             continue
@@ -235,7 +248,6 @@ def build_panel(
 
     panel = apply_lag(panel, columns=feature_cols)
 
-    sectors = db.read_ticker_sector(conn)
     panel = panel.merge(sectors[["ticker", "sector"]], on="ticker", how="left")
     # Nullable string dtype, not plain object -- an object column mixing
     # NaN (missing before the lag/merge) and None (missing sector) round-

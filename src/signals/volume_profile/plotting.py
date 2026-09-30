@@ -68,15 +68,16 @@ def render_volume_profile_chart(
         mids = built.mids
         widths = built.edges[1:] - built.edges[:-1]
         bar_kw = dict(y=mids, width=widths * 0.9, orientation="h")
+        unit = "dollar volume" if config.volume_measure == "dollars" else "volume"
         if config.volume_mode == "up_down":
-            fig.add_trace(go.Bar(x=built.up, marker_color=_UP_COLOR, name="up volume", **bar_kw), row=1, col=2)
-            fig.add_trace(go.Bar(x=built.down, marker_color=_DOWN_COLOR, name="down volume", **bar_kw), row=1, col=2)
+            fig.add_trace(go.Bar(x=built.up, marker_color=_UP_COLOR, name=f"up {unit}", **bar_kw), row=1, col=2)
+            fig.add_trace(go.Bar(x=built.down, marker_color=_DOWN_COLOR, name=f"down {unit}", **bar_kw), row=1, col=2)
         elif config.volume_mode == "delta":
             delta = built.up - built.down
             colors = [_UP_COLOR if d >= 0 else _DOWN_COLOR for d in delta]
-            fig.add_trace(go.Bar(x=delta, marker_color=colors, name="delta volume", **bar_kw), row=1, col=2)
+            fig.add_trace(go.Bar(x=delta, marker_color=colors, name=f"delta {unit}", **bar_kw), row=1, col=2)
         else:
-            fig.add_trace(go.Bar(x=built.total, marker_color=_TOTAL_COLOR, name="volume", **bar_kw), row=1, col=2)
+            fig.add_trace(go.Bar(x=built.total, marker_color=_TOTAL_COLOR, name=unit, **bar_kw), row=1, col=2)
 
         # A DatetimeIndex, not bare Timestamps -- static image export's JSON
         # encoder rejects the latter (HTML export doesn't care).
@@ -96,7 +97,7 @@ def render_volume_profile_chart(
     fig.update_layout(
         title=(
             f"{ticker} anchored volume profile ({getattr(timeframe, 'value', timeframe)}) -- "
-            f"{anchor_label}, {config.row_count} {config.row_scale} rows, "
+            f"{anchor_label}, {config.row_count} {config.row_scale} rows, {config.volume_measure}, "
             f"{config.value_area_pct:.0%} value area"
         ),
         barmode="stack" if config.volume_mode == "up_down" else "relative",

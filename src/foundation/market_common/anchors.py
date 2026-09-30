@@ -40,6 +40,10 @@ class AnchorType(str, Enum):
     WEEK_52_LOW = "52w_low"
     CYCLE_HIGH = "cycle_high"
     CYCLE_LOW = "cycle_low"
+    # The high/low of the current price regime when the true all-time
+    # extreme is out of reach -- see AnchorConfig.regime_reach_factor.
+    REGIME_HIGH = "regime_high"
+    REGIME_LOW = "regime_low"
 
 
 class AnchorStatus(str, Enum):
@@ -55,6 +59,7 @@ CYCLE_ROLES = frozenset({AnchorType.CYCLE_HIGH, AnchorType.CYCLE_LOW})
 # maintained copies that could drift.
 SENIORITY = {
     AnchorType.ATH: 0, AnchorType.ATL: 0,
+    AnchorType.REGIME_HIGH: 0, AnchorType.REGIME_LOW: 0,
     AnchorType.WEEK_52_HIGH: 1, AnchorType.WEEK_52_LOW: 1,
     AnchorType.CYCLE_HIGH: 2, AnchorType.CYCLE_LOW: 2,
 }
@@ -121,6 +126,21 @@ class AnchorConfig:
     # discover_anchors(history_start=...); discover_anchors itself stays pure.
     history_breaks: HistoryBreakConfig = field(default_factory=HistoryBreakConfig)
 
+    # The major high/low anchors are the extremes of the *current price
+    # regime*, not of all history: the high is the highest high since close
+    # was last more than this factor above today's close (the low: lowest
+    # low since close was last more than this factor below it). Relevance
+    # is judged by distance, not age -- a 3.5-year-old ATH that price sits
+    # 15% under stays; AAPL's 1982 low, 6,000x below today, doesn't (its
+    # regime low is 2024's $164). When the regime extreme is the true
+    # all-time one it keeps the ath/atl role, otherwise it's regime_high/
+    # regime_low. Cycle-pivot anchors get the same test (a swing more than
+    # this factor from today's close is dropped before the most recent
+    # max_cycle_anchors are taken). 2 = price within half or double of each anchor (chosen on
+    # AAPL/NVDA/TSLA/META/PYPL/AMC/GEVO/INTC, 2026-09-29). None = true
+    # all-time extremes, whatever the distance (the pre-2026-09 behaviour).
+    regime_reach_factor: float | None = 2.0
+
 
 @dataclass(frozen=True)
 class DiscoveredAnchor:
@@ -129,12 +149,25 @@ class DiscoveredAnchor:
     status: AnchorStatus
 
 
-def _extreme_dates(bars: pd.DataFrame) -> tuple[str, str]:
-    # idxmax/idxmin both return the *first* occurrence of the extreme value,
-    # which is exactly the "ties -> earliest" rule the spec asks for.
-    ath_ts = bars["high"].idxmax()
-    atl_ts = bars["low"].idxmin()
-    return ath_ts.isoformat(), atl_ts.isoformat()
+def _extreme_dates(bars: pd.DataFrame, reach: float | None) -> tuple[tuple[str, AnchorType], tuple[str, AnchorType]]:
+    """((high date, role), (low date, role)) -- the all-time extremes, or
+    the current regime's when `reach` is set (see
+    AnchorConfig.regime_reach_factor). idxmax/idxmin return the *first*
+    occurrence of the extreme, so ties go to the earliest bar."""
+    ath_ts, atl_ts = bars["high"].idxmax(), bars["low"].idxmin()
+    if reach is None:
+        return (ath_ts.isoformat(), AnchorType.ATH), (atl_ts.isoformat(), AnchorType.ATL)
+
+    close = bars["close"]
+    now = close.iloc[-1]
+    far_above = close.index[close > now * reach]
+    far_below = close.index[close < now / reach]
+    highs = bars["high"] if not len(far_above) else bars.loc[bars.index > far_above[-1], "high"]
+    lows = bars["low"] if not len(far_below) else bars.loc[bars.index > far_below[-1], "low"]
+    high_ts, low_ts = highs.idxmax(), lows.idxmin()
+    high_role = AnchorType.ATH if bars["high"].loc[high_ts] >= bars["high"].loc[ath_ts] else AnchorType.REGIME_HIGH
+    low_role = AnchorType.ATL if bars["low"].loc[low_ts] <= bars["low"].loc[atl_ts] else AnchorType.REGIME_LOW
+    return (high_ts.isoformat(), high_role), (low_ts.isoformat(), low_role)
 
 
 def _trailing_extreme_dates(bars: pd.DataFrame, window: int) -> tuple[str, str]:
@@ -157,6 +190,12 @@ def _cycle_pivot_dates(bars: pd.DataFrame, config: AnchorConfig) -> list[tuple[s
     atr_series = indicators.atr(bars, config.cycle_atr_period).iloc[start:]
 
     pivots = detect_pivots(close, threshold_fn=lambda i: config.cycle_scale_mult * atr_series.iloc[i])
+    if config.regime_reach_factor is not None:
+        # Same relevance test as the regime high/low: a swing whose price is
+        # out of reach of today's close (AMC's 2021 peak, 280x above) isn't
+        # a level price can interact with, however recent it ranks.
+        now, reach = float(close.iloc[-1]), config.regime_reach_factor
+        pivots = [p for p in pivots if now / reach <= p.value <= now * reach]
     pivots = sorted(pivots, key=lambda p: p.timestamp, reverse=True)[: config.max_cycle_anchors]
 
     return [
@@ -171,9 +210,9 @@ def _current_role_map(bars: pd.DataFrame, timeframe: Timeframe, config: AnchorCo
     def _add(anchor_date: str, role: AnchorType) -> None:
         role_map.setdefault(anchor_date, set()).add(role)
 
-    ath_date, atl_date = _extreme_dates(bars)
-    _add(ath_date, AnchorType.ATH)
-    _add(atl_date, AnchorType.ATL)
+    (high_date, high_role), (low_date, low_role) = _extreme_dates(bars, config.regime_reach_factor)
+    _add(high_date, high_role)
+    _add(low_date, low_role)
 
     window = config.trailing_window_bars[timeframe.value]
     w52_high_date, w52_low_date = _trailing_extreme_dates(bars, window)

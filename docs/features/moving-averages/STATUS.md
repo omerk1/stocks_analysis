@@ -13,7 +13,7 @@ pass keeps **2 of 107** tests at q=0.10 and q=0.05.
 | module | question | result | tier |
 |---|---|---|---|
 | M1 | above/below SMA20/50/200 | SMA20 −0.215% [−0.350, −0.079], SMA50 −0.183% [−0.341, −0.031]; both fail cost. SMA200 spans zero. State age: plateau failure. | 3 / 3 / 4 |
-| M2 | stack states; Minervini ablation | Fully bearish stack adds +1.06% [+0.42, +1.74] over `above_sma_50`, clears cost, survivorship-capped. Bullish stack adds nothing. Ablation: near-52w-high is the largest (negative) coefficient, uncontrolled. | 3 / 4 |
+| M2 | stack states; Minervini ablation | Fully bearish stack adds +1.01% [+0.36, +1.68] over `above_sma_50`, clears cost, survivorship-capped. Bullish stack adds nothing. Ablation: near-52w-high is the largest (negative) coefficient, uncontrolled. | 3 / 4 |
 | M3 | crossover events vs state | 16 cells, all span zero. | 4 |
 | M4 | distance from MA | SMA20 −0.46% [−0.78, −0.14] (all 3 normalisations, 0.94–0.98 correlated), fails cost. SMA50/200 span zero. | 3 / 4 |
 | M5 | touch / bounce at MA vs synthetic neighbour | 6 cells killed; largest CI edge 0.61pp vs a 2pp floor. | 4 |
@@ -51,10 +51,10 @@ envelope, not a CI. Reproduce with `python -m src.signals.moving_averages.whole_
 | 3 | M12 `reclaim_durability_dollar_volume_sma50` | 0.0035 | 0.0028 | no |
 | 4 | M18 `dist_from_52w_low_h126` | 0.0047 | 0.0037 | no |
 | 5 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0047 | no |
-| 6 | M2 `stack_fully_bearish_h21` | 0.0086 | 0.0056 | no |
-| 7 | M1 `above_sma_20` | 0.0090 | 0.0065 | no |
+| 6 | M1 `above_sma_20` | 0.0090 | 0.0056 | no |
+| 7 | M2 `stack_fully_bearish_h21` | 0.0119 | 0.0065 | no |
 
-Ranks 3–7 miss by a factor of 1.2–1.6, so their FDR status depends on how many tests
+Ranks 3–7 miss by a factor of 1.2–1.8, so their FDR status depends on how many tests
 the grid holds. The two survivors clear by 37× or more.
 p-values below about 0.004 are extrapolations of a 500-draw bootstrap.
 

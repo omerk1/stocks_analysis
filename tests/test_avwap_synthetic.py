@@ -125,8 +125,12 @@ def _config(**overrides) -> AvwapConfig:
     # cycle_scale_mult effectively infinite -- disables cycle-pivot
     # discovery entirely, so tests 6/9 that only care about ath/atl/52w
     # aren't at the mercy of incidental cycle pivots forming in a short
-    # synthetic series.
-    defaults = dict(warmup_bars=0, cycle_scale_mult=1.0e9, trailing_window_bars={"daily": 5, "weekly": 52})
+    # synthetic series. regime_reach_factor=None pins true all-time
+    # extremes: these tests plant lone spikes far from the normal price to
+    # force an ath/atl, which the regime rule would (correctly) treat as out
+    # of reach -- the regime rule has its own tests.
+    defaults = dict(warmup_bars=0, cycle_scale_mult=1.0e9, trailing_window_bars={"daily": 5, "weekly": 52},
+                    regime_reach_factor=None)
     defaults.update(overrides)
     return AvwapConfig(**defaults)
 
