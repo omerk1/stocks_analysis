@@ -72,7 +72,8 @@ def gap_states(
     """Each gap's state on each of `dates` (only gaps created on or before
     the date), computed from bars up to that date only. Long format, one
     row per (date, gap), columns STATE_COLUMNS. `dates` not in the bar
-    index are snapped back to the last bar on or before them.
+    index are snapped back to the last bar on or before them; dates with
+    fewer than `config.min_bars` bars of history get nothing, as in detect().
 
     Fully closed gaps are left out by default -- fill only ever grows, so a
     closed gap never comes back, and consumers like LRP drop them anyway
@@ -84,6 +85,11 @@ def gap_states(
         return pd.DataFrame(columns=STATE_COLUMNS)
     req = idx.searchsorted(pd.DatetimeIndex(pd.to_datetime(list(dates))), side="right") - 1
     positions = np.unique(req[req >= 0])
+    # detect() returns nothing while fewer than config.min_bars bars exist
+    # (as of the date), even though detect_gaps starts at warmup_bars -- so
+    # dates inside a young ticker's first min_bars bars get no gaps here
+    # either, or an IPO would show gaps an as-of run never produced.
+    positions = positions[positions + 1 >= config.min_bars]
     if not len(positions):
         return pd.DataFrame(columns=STATE_COLUMNS)
     closes = bars["close"].to_numpy(dtype=float)

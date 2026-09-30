@@ -83,6 +83,11 @@ def _gap(bottom, top, created, direction=Direction.BULLISH):
                zone_top=top, zone_bottom=bottom, size_atr=1.0)
 
 
+# Hand-built frames are a few bars long, so these tests lift the 150-bar
+# minimum history (it's covered by its own test above).
+SHORT = GapConfig(min_bars=1)
+
+
 def _flat(closes, start="2020-01-01"):
     idx = pd.bdate_range(start, periods=len(closes))
     c = pd.Series(closes, index=idx, dtype="float64")
@@ -93,7 +98,7 @@ def test_in_reach_is_judged_against_that_dates_close():
     bars = _flat([100.0] * 5 + [45.0] * 5 + [60.0] * 5)
     g = _gap(95.0, 105.0, bars.index[0])  # midpoint 100
     # the drop to 45 fills the gap; include_closed keeps it so distance is what's tested
-    s = relevance.gap_states(bars, [g], [bars.index[4], bars.index[9], bars.index[14]], GapConfig(), include_closed=True)
+    s = relevance.gap_states(bars, [g], [bars.index[4], bars.index[9], bars.index[14]], SHORT, include_closed=True)
     assert s["in_reach"].tolist() == [True, False, True]   # 1x, 2.2x, 1.67x
     assert s["distance_x"].round(2).tolist() == [1.0, 2.22, 1.67]
 
@@ -101,7 +106,7 @@ def test_in_reach_is_judged_against_that_dates_close():
 def test_a_gap_is_absent_before_it_exists_and_fills_only_from_later_bars():
     bars = _flat([100.0] * 3 + [110.0] * 3 + [104.0] * 3)   # falls back into a 102-108 bullish gap
     g = _gap(102.0, 108.0, bars.index[3])
-    s = relevance.gap_states(bars, [g], list(bars.index), GapConfig(), include_closed=True)
+    s = relevance.gap_states(bars, [g], list(bars.index), SHORT, include_closed=True)
     assert s["date"].min() == bars.index[3]                   # nothing before creation
     first = s.set_index("date")
     assert first.loc[bars.index[3], "max_fill_pct"] == 0.0     # creation bar itself doesn't fill
@@ -145,8 +150,24 @@ def test_old_gaps_table_gains_the_new_columns():
 def test_closed_gaps_are_left_out_by_default_and_never_come_back():
     bars = _flat([100.0] * 3 + [110.0] * 3 + [101.0] * 2 + [110.0] * 3)   # fully fills a 102-108 gap
     g = _gap(102.0, 108.0, bars.index[3])
-    live = relevance.gap_states(bars, [g], list(bars.index), GapConfig())
-    full = relevance.gap_states(bars, [g], list(bars.index), GapConfig(), include_closed=True)
+    live = relevance.gap_states(bars, [g], list(bars.index), SHORT)
+    full = relevance.gap_states(bars, [g], list(bars.index), SHORT, include_closed=True)
     assert set(full["status"]) >= {"open", "closed"}
     assert "closed" not in set(live["status"])
     assert live["date"].max() < bars.index[6]   # gone from the close onward, even after price leaves
+
+
+def test_no_gaps_before_min_bars_of_history_just_like_an_as_of_run(raw_conn):
+    # CFG: warmup 20, min_bars 60 -- gaps exist from bar ~20 in a full run,
+    # but an as-of run inside the first 60 bars returns nothing.
+    from src.foundation.market_common import data as data_mod
+    full, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    early = [bars.index[30], bars.index[58]]
+    assert any(pd.Timestamp(g.created_at) <= early[0] for g in full)   # gaps do exist that early
+    for d in early:
+        pit, _, reason = detect(raw_conn, "RW", Timeframe.DAILY, CFG, as_of=d)
+        assert pit == [] and reason is not None
+    assert relevance.gap_states(bars, full, early, CFG, include_closed=True).empty
+    # and from exactly min_bars bars on, it matches again
+    assert _assert_matches_as_of_run(raw_conn, "RW", [bars.index[59].strftime("%Y-%m-%d")], CFG) > 0
