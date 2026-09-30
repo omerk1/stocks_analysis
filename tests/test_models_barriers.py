@@ -131,3 +131,29 @@ def test_v1_grid_is_the_designed_45_cells():
     grid = v1_grid()
     assert len(grid) == 45
     assert {c.horizon for c in grid} == {5, 10, 21, 42, 63}
+
+
+def test_a_non_trading_data_end_does_not_make_live_tickers_look_delisted():
+    # data_end on a Saturday: every ticker's last bar is before it, but none ended.
+    bars = pd.concat([_bars(_flat(20), ticker="AAA"), _bars(_flat(20), ticker="BBB")])
+    last = bars["date"].max()
+    saturday = last + pd.Timedelta(days=(5 - last.dayofweek) % 7 or 7)
+    assert saturday.dayofweek == 5
+    labels = barrier_labels(bars, [CELL], data_end=saturday)
+    tail = labels.groupby("ticker").tail(CELL.horizon)
+    assert tail["hit"].isna().all() and not tail["truncated"].any()
+
+
+def test_a_ticker_missing_only_its_last_sessions_is_not_treated_as_delisted():
+    live = _bars(_flat(20), ticker="AAA")
+    gappy = _bars(_flat(18), ticker="BBB")  # last 2 sessions missing, within DELISTING_GAP
+    labels = barrier_labels(pd.concat([live, gappy]), [CELL])
+    assert not labels["truncated"].any()
+
+
+def test_non_iso_date_strings_are_ordered_by_date_not_text():
+    bars = _bars([(100.0, 102.5, 99.8, 102.2)] + _flat(9))
+    as_text = bars.assign(date=bars["date"].dt.strftime("%-m/%-d/%Y")).sample(frac=1, random_state=0)
+    expected = barrier_labels(bars, [CELL]).dropna(subset=["hit"]).reset_index(drop=True)
+    got = barrier_labels(as_text, [CELL]).dropna(subset=["hit"]).reset_index(drop=True)
+    pd.testing.assert_frame_equal(got, expected)

@@ -22,8 +22,8 @@ Rules (fixed by the design, tested in `tests/test_models_barriers.py`):
 - **Incomplete windows**: if bar t+H is past the dataset's `data_end`, the label
   is NaN -- the caller truncates bars at the holdout boundary, so a window that
   would read the holdout never resolves. If instead the *ticker's* history ends
-  before `data_end` (a delisting), the window resolves on its last bar and
-  `truncated` is set.
+  more than `DELISTING_GAP` trading days before the dataset's last trading day
+  (a delisting), the window resolves on its last bar and `truncated` is set.
 
 Every price path is scanned per ticker with numpy (sliding windows), not row by
 row. `ret` is the realised return of the trade in the position's direction.
@@ -41,6 +41,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 from src.foundation.market_common import indicators
 
 ATR_PERIOD = 14
+DELISTING_GAP = 5  # trading days; see `barrier_labels`
 LONG = "long"
 SHORT = "short"
 
@@ -85,15 +86,22 @@ def barrier_labels(
     """
     if side not in (LONG, SHORT):
         raise ValueError(f"side must be {LONG!r} or {SHORT!r}, got {side!r}")
-    frame = bars.sort_values(["ticker", "date"]).reset_index(drop=True)
-    frame["date"] = pd.to_datetime(frame["date"])
+    # Convert before sorting: date strings like "1/9/2020" sort as text.
+    frame = bars.assign(date=pd.to_datetime(bars["date"])).sort_values(["ticker", "date"]).reset_index(drop=True)
     end = pd.Timestamp(data_end) if data_end is not None else frame["date"].max()
     if (frame["date"] > end).any():
         raise ValueError(f"bars contain dates after data_end {end.date()}; truncate them first")
 
+    # A ticker counts as ended (delisted) only if its last bar is more than
+    # DELISTING_GAP trading days before the dataset's last actual trading day --
+    # not merely before `data_end`, which may be a weekend or holiday, and not a
+    # live ticker missing a session or two at the end.
+    calendar = np.sort(frame["date"].unique())
+    delisted_before = calendar[max(len(calendar) - 1 - DELISTING_GAP, 0)]
+
     out = []
     for ticker, group in frame.groupby("ticker", sort=False):
-        ticker_ended_early = group["date"].iloc[-1] < end
+        ticker_ended_early = group["date"].iloc[-1] < delisted_before
         atr = indicators.atr(group, ATR_PERIOD).to_numpy(dtype=float)
         for cell in cells:
             out.append(_ticker_cell(group, atr, cell, side, ticker_ended_early).assign(ticker=ticker))
