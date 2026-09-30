@@ -119,7 +119,30 @@ def upsert_gaps(conn: sqlite3.Connection, gaps: list[Gap], run_id: str) -> None:
         row["id"] = gap.id
         row["run_id"] = run_id
         conn.execute(_UPSERT_SQL, row)
+    for ticker, timeframe in {(g.ticker, g.timeframe.value) for g in gaps}:
+        _relink_fvgs(conn, ticker, timeframe)
     conn.commit()
+
+
+def _relink_fvgs(conn: sqlite3.Connection, ticker: str, timeframe: str) -> None:
+    """Re-derive every FVG's `related_id` from the stored rows, by detection's
+    own rule: an FVG relates to the classic gap created on the same bar in
+    the same direction. Done in SQL after each write rather than trusting
+    the ids detection minted -- an existing classic row keeps its original
+    id on upsert, so a freshly detected FVG would point at an id that was
+    never stored, and a pruned classic gap would leave its FVG pointing at
+    a deleted row."""
+    conn.execute(
+        """
+        UPDATE gaps SET related_id = (
+            SELECT c.id FROM gaps c
+            WHERE c.ticker = gaps.ticker AND c.timeframe = gaps.timeframe AND c.kind = 'classic'
+              AND c.created_at = gaps.created_at AND c.direction = gaps.direction
+        )
+        WHERE kind = 'fvg' AND ticker = ? AND timeframe = ?
+        """,
+        (ticker, timeframe),
+    )
 
 
 def prune_gaps(
@@ -144,6 +167,8 @@ def prune_gaps(
         and (cutoff is None or pd.Timestamp(r[3]) <= cutoff)
     ]
     conn.executemany("DELETE FROM gaps WHERE id = ?", [(i,) for i in doomed])
+    if doomed:
+        _relink_fvgs(conn, ticker, timeframe.value)
     conn.commit()
     return len(doomed)
 

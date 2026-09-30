@@ -118,13 +118,23 @@ def detect(
     """
     timeframe = Timeframe(timeframe)
     bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
+    gaps, skip_reason = detect_on_bars(bars, ticker, timeframe, config)
+    return gaps, report, skip_reason
 
+
+def detect_on_bars(
+    bars: pd.DataFrame, ticker: str, timeframe: Timeframe, config: GapConfig,
+) -> tuple[list[Gap], str | None]:
+    """`detect`'s work on an already loaded, validated frame -- for callers
+    that also need the exact bars detection saw (the CLI prunes stored rows
+    only up to its last bar; for weekly runs that's the last *completed*
+    week, which can be earlier than as_of). Returns (gaps, skip_reason)."""
     if len(bars) < config.min_bars:
         reason = f"only {len(bars)} bars available (< min_bars={config.min_bars})"
         logger.warning("%s/%s: skipping gap detection -- %s", ticker, timeframe.value, reason)
-        return [], report, reason
+        return [], reason
 
     gaps = detect_gaps(bars, ticker, timeframe, config)
     gaps = lifecycle.apply_lifecycle(bars, gaps, config)
     gaps = relevance.apply_snapshot_relevance(bars, gaps, config)
-    return gaps, report, None
+    return gaps, None

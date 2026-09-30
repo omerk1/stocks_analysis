@@ -249,3 +249,49 @@ def test_prune_removes_vanished_gaps_but_not_ones_after_an_as_of():
     # a full-history rerun that finds only `late` removes `early` too
     store.prune_gaps(derived, "X", "daily", [late])
     assert {r[0] for r in derived.execute("SELECT created_at FROM gaps")} == {pd.Timestamp("2021-05-03").isoformat()}
+
+
+def _linked_pair(created, direction=Direction.BULLISH, classic_id="c-fresh", fvg_id="f-fresh"):
+    c = Gap(id=classic_id, ticker="X", timeframe=Timeframe.DAILY, kind=GapKind.CLASSIC, direction=direction,
+            created_at=pd.Timestamp(created).isoformat(), zone_top=11.0, zone_bottom=10.0, size_atr=1.0)
+    f = Gap(id=fvg_id, ticker="X", timeframe=Timeframe.DAILY, kind=GapKind.FVG, direction=direction,
+            created_at=pd.Timestamp(created).isoformat(), zone_top=11.5, zone_bottom=9.5, size_atr=1.5,
+            related_id=classic_id)
+    return c, f
+
+
+def test_fvg_links_point_at_the_stored_classic_row_across_reruns_and_prunes():
+    derived = derived_db.get_connection(":memory:")
+    store.create_gaps_table(derived)
+    c1, f1 = _linked_pair("2020-01-02", classic_id="c-run1", fvg_id="f-run1")
+    store.upsert_gaps(derived, [c1, f1], run_id="r1")
+    link = lambda: derived.execute("SELECT related_id FROM gaps WHERE kind='fvg'").fetchone()[0]
+    assert link() == "c-run1"
+
+    # rerun mints fresh ids; the classic row keeps "c-run1", and the FVG must too
+    c2, f2 = _linked_pair("2020-01-02", classic_id="c-run2", fvg_id="f-run2")
+    store.upsert_gaps(derived, [c2, f2], run_id="r2")
+    assert link() == "c-run1"
+
+    # the classic gap stops qualifying: pruned, and the FVG's link is cleared, not dangling
+    store.prune_gaps(derived, "X", "daily", [f2])
+    assert derived.execute("SELECT COUNT(*) FROM gaps WHERE kind='classic'").fetchone()[0] == 0
+    assert link() is None
+
+
+def test_weekly_as_of_run_does_not_prune_the_unfinished_weeks_stored_gap(raw_conn):
+    from src.signals.gaps.cli import run_for_ticker
+    derived = derived_db.get_connection(":memory:")
+    derived_db.create_runs_table(derived)
+    store.create_gaps_table(derived)
+    weekly_cfg = GapConfig(min_bars=30, warmup_bars=5)
+    run_for_ticker(raw_conn, derived, "RW", Timeframe.WEEKLY, weekly_cfg, as_of=None)
+    stored = [pd.Timestamp(r[0]) for r in derived.execute("SELECT created_at FROM gaps ORDER BY created_at").fetchall()]
+    assert stored
+
+    # as_of mid-week, inside a week that has a stored gap: that week is unfinished as of then
+    target = stored[len(stored) // 2]
+    as_of = (target + pd.Timedelta(days=2)).strftime("%Y-%m-%d")
+    run_for_ticker(raw_conn, derived, "RW", Timeframe.WEEKLY, weekly_cfg, as_of=as_of)
+    after = {pd.Timestamp(r[0]) for r in derived.execute("SELECT created_at FROM gaps").fetchall()}
+    assert target in after
