@@ -18,6 +18,8 @@ panel) -- the same convention M1's `above_sma_k`-based state columns use:
 a row's `dist_atr` is "the state as of that row's tradeable day," already
 lagged centrally, not re-lagged here.
 
+Touch detection itself lives in `touch_positions` (shared with M19's
+`features/respect.py`, added 2026-09-30 -- same detection, different outcome).
 Run detection reuses `features/state.py::state_run_id`/`days_in_run`
 (the same primitives M1's run-length buckets use) rather than a hand-
 rolled shift/cumsum -- called per ticker (`panel.groupby("ticker")`,
@@ -47,31 +49,40 @@ SLICE_THROUGH = "slice_through"
 CHOP = "chop"
 
 
-def _touch_events_one_ticker(
-    frame: pd.DataFrame,
-    dist_atr_col: str,
-    date_col: str,
-    away_threshold: float,
-    touch_threshold: float,
-    max_days_to_touch: int,
-    outcome_horizon: int,
-    resolve_threshold: float,
-) -> pd.DataFrame:
-    """One ticker's rows, already sorted by date. Returns one row per
-    qualifying touch event (empty frame if none). `frame` is not mutated.
+def _empty_events(frame: pd.DataFrame, date_col: str) -> pd.DataFrame:
+    return frame.iloc[0:0][[date_col]].assign(
+        direction=pd.Series(dtype="string"), dist_atr_at_touch=pd.Series(dtype="float64"),
+        dist_atr_at_outcome=pd.Series(dtype="float64"), outcome=pd.Series(dtype="string"),
+        hold_flag=pd.Series(dtype="boolean"),
+    )
+
+
+def touch_positions(
+    dist_atr: pd.Series,
+    away_threshold: float = AWAY_THRESHOLD,
+    touch_threshold: float = TOUCH_THRESHOLD,
+    max_days_to_touch: int = MAX_DAYS_TO_TOUCH,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ex-ante touch detection for ONE ticker's already-lagged, date-sorted
+    `dist_atr` series: returns `(positions, direction_sign)` -- the integer
+    row positions (0-based, into `dist_atr`) of every qualifying first
+    touch, and the sign of `dist_atr` at the end of the preceding "away"
+    run (+1 = came from above / support test, -1 = came from below /
+    resistance test). No outcome is scored here -- this is the shared
+    detection step behind `touch_events` (M5, which scores a 5-day hold
+    outcome) and `features/respect.py` (M19, which scores a K-day
+    confirmed reversal), so the two modules cannot drift apart on what a
+    "touch" is. Touches whose preceding run is left-censored (no away run
+    observed before them) have no defined direction and are dropped.
     """
-    dist_atr = frame[dist_atr_col]
     away = (dist_atr.abs() >= away_threshold).astype("boolean").mask(dist_atr.isna())
     touch = (dist_atr.abs() <= touch_threshold).astype("boolean").mask(dist_atr.isna())
 
     run_id = state.state_run_id(away)
     valid = run_id.notna()
+    empty = (np.array([], dtype=int), np.array([], dtype=float))
     if not valid.any():
-        return frame.iloc[0:0][[date_col]].assign(
-            direction=pd.Series(dtype="string"), dist_atr_at_touch=pd.Series(dtype="float64"),
-            dist_atr_at_outcome=pd.Series(dtype="float64"), outcome=pd.Series(dtype="string"),
-            hold_flag=pd.Series(dtype="boolean"),
-        )
+        return empty
     days = state.days_in_run(away, run_id=run_id)
 
     # Direction: sign of dist_atr at the last row of each "away" (True)
@@ -96,11 +107,7 @@ def _touch_events_one_ticker(
         & valid.to_numpy()
     )
     if not candidate.any():
-        return frame.iloc[0:0][[date_col]].assign(
-            direction=pd.Series(dtype="string"), dist_atr_at_touch=pd.Series(dtype="float64"),
-            dist_atr_at_outcome=pd.Series(dtype="float64"), outcome=pd.Series(dtype="string"),
-            hold_flag=pd.Series(dtype="boolean"),
-        )
+        return empty
 
     # Plain numpy arrays throughout (not the underlying Series' own index) --
     # `run_id`/`days_since_away_end` carry positional (RangeIndex) labels
@@ -124,21 +131,38 @@ def _touch_events_one_ticker(
     # first, left-censored run happens to already be "not away") has no
     # defined direction -- dropped, not guessed.
     has_direction = ~pd.isna(direction_sign)
+    return event_positions[has_direction], np.sign(direction_sign[has_direction].astype(float))
+
+
+def _touch_events_one_ticker(
+    frame: pd.DataFrame,
+    dist_atr_col: str,
+    date_col: str,
+    away_threshold: float,
+    touch_threshold: float,
+    max_days_to_touch: int,
+    outcome_horizon: int,
+    resolve_threshold: float,
+) -> pd.DataFrame:
+    """One ticker's rows, already sorted by date. Returns one row per
+    qualifying touch event (empty frame if none). `frame` is not mutated.
+    """
+    dist_atr = frame[dist_atr_col]
+    event_positions, direction_sign = touch_positions(
+        dist_atr, away_threshold, touch_threshold, max_days_to_touch
+    )
+    if len(event_positions) == 0:
+        return _empty_events(frame, date_col)
 
     outcome_pos = event_positions + outcome_horizon
     n = len(frame)
     in_range = outcome_pos < n
-    keep = has_direction & in_range
-    if not keep.any():
-        return frame.iloc[0:0][[date_col]].assign(
-            direction=pd.Series(dtype="string"), dist_atr_at_touch=pd.Series(dtype="float64"),
-            dist_atr_at_outcome=pd.Series(dtype="float64"), outcome=pd.Series(dtype="string"),
-            hold_flag=pd.Series(dtype="boolean"),
-        )
+    if not in_range.any():
+        return _empty_events(frame, date_col)
 
-    event_positions = event_positions[keep]
-    outcome_pos = outcome_pos[keep]
-    direction_sign = direction_sign[keep]
+    event_positions = event_positions[in_range]
+    outcome_pos = outcome_pos[in_range]
+    direction_sign = direction_sign[in_range]
 
     dist_atr_values = dist_atr.to_numpy()
     dist_atr_at_touch = dist_atr_values[event_positions]

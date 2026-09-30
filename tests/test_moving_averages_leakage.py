@@ -27,6 +27,7 @@ import pytest
 
 from src.foundation.data_processing import resample as resample_mod
 from src.signals.moving_averages.features.panel import apply_lag, assemble_panel
+from src.signals.moving_averages.features.respect import SUPPORT, respect_column, respect_counts
 from src.signals.moving_averages.modules import (
     baseline_state,
     context_conditioning,
@@ -39,6 +40,7 @@ from src.signals.moving_averages.modules import (
     pattern_context,
     placebo_levels,
     regime_conditional_lookback,
+    respect_history,
     ribbon_compression,
     ribbon_slope_agreement,
     slope_conditioner,
@@ -69,7 +71,8 @@ PATTERNS = pd.DataFrame({
 
 SINGLE_ARG_MODULES = [
     baseline_state, crossover_state, distance_from_ma, high_low_52w, kernel_horse_race, nonlinearity_probe,
-    placebo_levels, regime_conditional_lookback, ribbon_compression, ribbon_slope_agreement, slope_conditioner,
+    placebo_levels, regime_conditional_lookback, respect_history, ribbon_compression, ribbon_slope_agreement,
+    slope_conditioner,
     slope_magnitude, slope_persistence, slope_vs_momentum, sma_dropoff, touch_bounce, volume_liquidity,
 ]
 
@@ -222,3 +225,26 @@ def test_detects_a_planted_same_bar_feature(outputs_before_and_after):
     leaks = _leaking_columns(add(before["panel"]), add(after["panel"]))
     assert "same_bar" in leaks
     assert "prior_bar" not in leaks
+
+
+def test_respect_history_confirmation_never_appears_before_its_confirmation_date():
+    """M19's feature (`features/respect.py`) must date a confirmed reversal
+    by the day the reversal *confirmed*, not the day of the touch. Planted
+    path: touch at row 3, back >= 1 ATR away at row 6. The count must be 0
+    on rows 3-5 and 1 from row 6; and perturbing every bar from row 6
+    onward (so the reversal never confirms) must leave rows < 6 unchanged.
+    """
+    values = [np.nan, 1.5, 1.4, 0.2, 0.6, 0.9, 1.1, 1.3, 1.2, 1.4, 1.5, 1.6]
+    dates = pd.bdate_range("2021-01-04", periods=len(values))
+    frame = pd.DataFrame({"ticker": "AAA", "date": dates, "dist_atr_sma_50": values})
+    col = respect_column("sma_50", SUPPORT)
+
+    before = respect_counts(frame, "dist_atr_sma_50", history_window=3)[col]
+    assert before.iloc[3:6].tolist() == [0.0, 0.0, 0.0]
+    assert before.iloc[6] == 1.0
+
+    perturbed = frame.copy()
+    perturbed.loc[6:, "dist_atr_sma_50"] = [0.3, 0.2, 0.1, 0.0, -0.2, -0.5]
+    after = respect_counts(perturbed, "dist_atr_sma_50", history_window=3)[col]
+    pd.testing.assert_series_equal(before.iloc[:6], after.iloc[:6])
+    assert after.iloc[6:].fillna(0).eq(0.0).all()

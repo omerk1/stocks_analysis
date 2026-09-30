@@ -968,6 +968,41 @@ same construction as M11, generalized from an MA-distance column to a single-col
 with no (family, lookback) grid. See PREREGISTRATION.md for the full grid/kill-criterion
 statement.
 
+### M19 — MA respect history (added 2026-09-30, post-termination)
+
+**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule after the
+study closed, like M18. M5 (touch/bounce) found the *first* touch of a real MA holds no
+better than a synthetic neighbour's (§7.5 placebo). M6.2 found a rising MA holds no better
+than a falling one once short-term reversal is matched out. Neither asked whether *respect
+persists per ticker-MA*: does an MA that has recently acted as support (or resistance) —
+touch, then a confirmed reversal — keep acting that way on the next touch, more than an
+unwatched MA does? That is the practitioner's actual claim ("this stock respects its
+50-day"), and it is a per-name, path-dependent claim, not a level-vs-trend claim.
+
+**Hypothesis:** the next-touch hold rate rises with the count of same-side confirmed
+reversals in the trailing 126 days (≥2 vs 0), and that rise is larger at the real MA than
+at its statistically near-identical, unwatched neighbours.
+
+**Definitions (frozen in PREREGISTRATION.md):** touch event = M5's (`features/touch.py`).
+Confirmed reversal = within K=5 days of the touch, price is back ≥ R=1.0 ATR away on the
+original side with no close through the MA in between; **known only on its confirmation
+day** — the feature (`features/respect.py`) is dated by confirmation, never by touch.
+Respect history at day s = count of such confirmations, same side, dated in (s−L, s],
+L=126. Outcome = M5's `hold_flag` of the next touch, and `fwd_ret_21` from it.
+
+**Method:** a real-minus-synthetic difference-in-differences. Each arm's high-minus-low
+respect delta is date + C2 + `rev_tercile` matched (the 4-column control that killed M6.2's
+touch×slope cell); the §7.5 neighbours carry their **own** respect history computed
+identically, so a generic "stocks that bounced keep bouncing" effect (vol, mean reversion)
+is present in both arms and cancels. Only a level-specific persistence survives.
+`stats/inference.py::block_bootstrap_delta_diff`, shared date blocks. Plateau across MAs and
+one-at-a-time ±25% perturbations of K, R, L are part of the kill criterion.
+
+**Prior:** the second §7.5 outcome, again — the synthetic arm will show the same "bouncy
+stock" lift as the real one and the difference will span zero. The interesting number
+either way is the *within-arm* lift, which is a descriptive read on whether respect history
+is a usable strength input for level features downstream (`docs/modeling/IDEAS.md` §3).
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).
