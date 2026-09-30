@@ -163,6 +163,21 @@ class PolygonClient:
         df = pd.DataFrame(rows, columns=["execution_date", "split_from", "split_to", "ratio"])
         return df.sort_values("execution_date").reset_index(drop=True)
 
+    def ticker_as_of(self, ticker: str, as_of: str) -> dict | None:
+        """The company that traded under `ticker` on date `as_of` (name, CIK),
+        or None. The date matters: symbols get reused, and without it Polygon
+        returns the latest holder (NVLS in 2010 is Novellus, not the 2017
+        biotech). One rate-limited request."""
+        self._rate_limiter.wait()
+        rows = list(itertools.islice(
+            self._client.list_tickers(ticker=ticker, date=as_of, market="stocks", limit=5), 5
+        ))
+        rows = [r for r in rows if r.ticker == ticker]
+        if not rows:
+            return None
+        r = rows[0]
+        return {"ticker": r.ticker, "name": getattr(r, "name", None), "cik": getattr(r, "cik", None)}
+
     def list_common_stock_tickers(self, active: bool, page_size: int = 1000) -> pd.DataFrame:
         """Page through Polygon's reference tickers for common stock (type=CS).
 
