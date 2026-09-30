@@ -18,11 +18,10 @@ Approximations, all deliberate:
   day, a share count filed on or before it, and a rank-day close >= $1 (Russell's
   own price floor, applied to the split-reconciled price the stock actually
   traded at). No float, domicile or IPO-seasoning rules.
-- **Dividend adjustment (known bias, not fixed here):** yfinance closes in
-  `bars_1d` are dividend- (and spin-off-) adjusted as well as split-adjusted,
-  and `reconcile_market_cap` only undoes splits. Historical caps of dividend
-  payers come out too low (KO 2012-04-30: stored $24.46 vs ~$38 split-adjusted;
-  T: $9.24 vs ~$33), which pushes them down the ranking. See `docs/backlog.md`.
+- **Prices** are the split-only closes (`market_cap.PRICE_SOURCE`), not the
+  default yfinance bars, which are also dividend-adjusted and would understate
+  dividend payers' caps. Spin-offs are still folded into Yahoo's split-only
+  close (T before 2022 reads ~24% low), a residual bias.
 - **Survivorship**: only tickers with price bars can be ranked, and delisted
   history before 2024 isn't on this plan (`docs/backlog.md`, survivorship-free
   price history). So each year's ranking misses companies that later delisted, and
@@ -52,7 +51,7 @@ TOTAL_COUNT = 3000
 MIN_PRICE = 1.0
 RANK_MONTH_DAY = (4, 30)
 MAX_STALE_DAYS = 5
-PRICE_SOURCE = db.YFINANCE
+PRICE_SOURCE = market_cap.PRICE_SOURCE
 
 
 def rank_day(year: int) -> pd.Timestamp:

@@ -144,6 +144,13 @@ def _bridge_filing_lag(
     return corrected
 
 
+# The close series market caps are built from: adjusted for splits only.
+# `reconcile_market_cap` undoes splits, so a price series that is also
+# dividend-adjusted (the default yfinance bars) would understate every
+# historical cap of a dividend payer (KO 2012: -36%).
+PRICE_SOURCE = db.YFINANCE_SPLIT_ONLY
+
+
 def load_shares_outstanding(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
     """Bulk-load `shares_outstanding` for every ticker in `tickers` (one
     query, not one per ticker).
