@@ -41,11 +41,13 @@ class BreadthConfig:
     weighting: str = "equal"
     # Cap-weighted only: a member whose market cap that date exceeds this
     # many times the date's *median* member cap is treated as having no
-    # weight (excluded that date, counted in a warning), not trusted. No
-    # real index member is 1,000x the median (the largest S&P 500 names
-    # run ~100-150x); a share count mis-scaled by 1e3/1e6 in its filing
-    # is (found 2026-10-01: CB at 338 trillion shares was 99.96% of the
-    # index on 2010-06-30, AJG likewise in 2020). The SEC ingest now drops
-    # those filings at the source; this is the last line of defence for
-    # the next one. None disables the guard.
-    cap_outlier_ratio: float | None = 1000.0
+    # weight (excluded that date, counted in a warning), not trusted. The
+    # largest real S&P 500 member on any date 2009-2026 is ~90x the median
+    # (AAPL, 2023), Nasdaq-100 less; a share count mis-scaled by 1e3 in
+    # its filing puts a mid-cap at ~600x (GRMN 2018-12: $12 trillion) and
+    # a large-cap at 1e6x (CB 2010, AJG 2020: 99.9% of the index). 300x
+    # catches those with >3x headroom above anything real. It cannot
+    # catch a 1e3 error on a *small* member (a $5B cap x 1e3 is ~150x the
+    # median) -- the SEC ingest's `drop_scale_runs` is the real fix at the
+    # source; this is the backstop. None disables it.
+    cap_outlier_ratio: float | None = 300.0
