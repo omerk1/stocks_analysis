@@ -35,6 +35,7 @@ import pandas as pd
 from src.signals.breadth.config import WEIGHTING_CHOICES, BreadthConfig
 from src.foundation.data_processing import db
 from src.foundation.data_processing import market_cap
+from src.foundation.data_processing import ticker_renames
 from src.foundation.market_common import indicators
 
 _GOLDEN_CROSS_FAST = 50
@@ -179,6 +180,9 @@ def compute_breadth(
     if membership.empty:
         return pd.DataFrame()
     membership = membership.copy()
+    # Members whose symbol later changed have their prices under the new one
+    # (ABC -> COR); without this they'd look price-less and drop out.
+    membership = ticker_renames.apply_renames(conn, membership)
     membership["start_date"] = pd.to_datetime(membership["start_date"])
     membership["end_date"] = pd.to_datetime(membership["end_date"])
 
@@ -208,7 +212,9 @@ def compute_breadth(
     in_interval = (merged["date"] >= merged["start_date"]) & (
         merged["end_date"].isna() | (merged["date"] <= merged["end_date"])
     )
-    members = merged[in_interval].copy()
+    # A renamed member can have back-to-back intervals under one symbol that
+    # touch on the rename day; count it once per date.
+    members = merged[in_interval].drop_duplicates(["ticker", "date"]).copy()
 
     if config.weighting == "cap":
         # Weights come from split-only closes, not `config.price_source`'s

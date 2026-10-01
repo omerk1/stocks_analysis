@@ -203,6 +203,30 @@ def get_connection(db_path: str | Path, uri: bool = False) -> sqlite3.Connection
     return sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_SECONDS, uri=uri)
 
 
+# Index members whose price history lives under a later symbol (ABC -> COR,
+# FB -> META): the membership datasets keep the symbol in use at the time,
+# while yfinance serves the whole history under today's symbol. One row per
+# looked-up old ticker, whatever the outcome (`status`), so reruns skip it;
+# only status='matched' rows are used. See `ticker_renames.py`.
+_TICKER_RENAMES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ticker_renames (
+    old_ticker TEXT PRIMARY KEY,
+    new_ticker TEXT,
+    status TEXT NOT NULL,
+    cik INTEGER,
+    old_name TEXT,
+    lookup_date TEXT,
+    coverage REAL,
+    detail TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+# Added after the table first shipped; `create_tables` adds them to an older table.
+_TICKER_RENAMES_WINDOW_COLUMNS = ("valid_from", "valid_to")
+
+
 def create_tables(conn: sqlite3.Connection) -> None:
     for table in TABLES:
         conn.execute(_SCHEMA.format(table=table))
@@ -214,6 +238,11 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_SHARES_OUTSTANDING_SCHEMA)
     conn.execute(_MACRO_SERIES_SCHEMA)
     conn.execute(_SPLITS_SCHEMA)
+    conn.execute(_TICKER_RENAMES_SCHEMA)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
+    for column in _TICKER_RENAMES_WINDOW_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} TEXT")
     conn.commit()
 
 
@@ -764,3 +793,23 @@ def _drop_invalid_ohlc(bars: pd.DataFrame, context: str) -> pd.DataFrame:
     if dropped:
         print(f"WARNING: dropped {dropped} row(s) with invalid OHLC values for {context}")
     return bars[valid]
+
+
+def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace one `ticker_renames` row (keys as in the schema,
+    `updated_at` filled in here)."""
+    cols = ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date", "coverage", "detail",
+            "valid_from", "valid_to"]
+    values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
+    conn.execute(
+        f"INSERT OR REPLACE INTO ticker_renames ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
+        values,
+    )
+    conn.commit()
+
+
+def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> pd.DataFrame:
+    query = "SELECT * FROM ticker_renames"
+    if matched_only:
+        query += " WHERE status = 'matched'"
+    return pd.read_sql_query(query, conn)

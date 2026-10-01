@@ -22,7 +22,7 @@ Where this doc says "per §5", that table is the source.
 |---|---|---|
 | H1 | **Holdout locked.** No row dated after 2021-12-31 is loaded unless `open_holdout=True` is passed explicitly, and that flag is recorded in the trial log. | `dataset.load(...)` raises; test asserts it. |
 | H2 | **One-bar lag.** Features are known at the close of *t*; the position is entered at the **open of t+1**. | Barrier labels start at t+1 (§3); features come through `apply_lag` or the level-snapshot roll-forward (`LRP.md` §4); leakage test (§8). |
-| H3 | **Point-in-time universe.** A row exists only if the ticker was a member on *t* (`db.read_index_membership(as_of=t)`), passes the liquidity floor on trailing data, and passes `history_breaks.training_eligibility`. | `dataset.universe_mask(...)`; the same function is used at training and prediction time (backlog, history-breaks follow-up (b)). |
+| H3 | **Point-in-time universe.** A row exists only if the ticker was a member on *t* (`db.read_index_membership(as_of=t)`, with `ticker_renames.apply_renames` so renamed members keep their prices), passes the liquidity floor on trailing data, and passes `history_breaks.training_eligibility`. | `dataset.universe_mask(...)`; the same function is used at training and prediction time (backlog, history-breaks follow-up (b)). |
 | H4 | **No full-sample statistics.** Every normalisation and rank is trailing or per-date. | Feature registry declares each feature's construction; leakage test perturbs the future (§8). |
 | H5 | **No overlap leakage.** Training rows whose label window reaches into a test fold are purged; an embargo follows each test fold. | `splits.py` (§4), with a test that no train label window intersects a test date. |
 | H6 | **Effective N.** Every metric row carries `n_rows` and `n_dates`; a fold or subgroup under `MIN_BLOCKS × block_length` dates is reported as "not computable", never silently pooled. | `metrics.py` + the existing `InsufficientBlocksError`. |
@@ -239,9 +239,18 @@ tests/test_models_*.py
 ```
 
 Build order, one PR each, each with its own tests:
-1. `labels/barriers.py` + `splits.py` + purge test.
+1. `labels/barriers.py` + `splits.py` + purge test. **Done (#140).**
 2. `dataset.py` (holdout lock, universe mask, liquidity floor) + `metrics.py`
-   + `inference.py`.
+   + `inference.py`. Notes carried from step 1:
+   - **Build labels one horizon at a time** and store them on disk (e.g. a
+     parquet per horizon). All 45 cells in long format for the full universe is
+     roughly 65M rows (~130k per ticker), too much to hold at once.
+   - **Apply `ticker_renames.apply_renames` to membership** before anything
+     else. Without it, the 26 renamed members (FB→META, ABC→COR, …) look
+     price-less and silently drop out of training. It applies each rename only
+     inside its verified window (Done #68).
+   - **Labels are computed from bars truncated at the holdout boundary**
+     (`data_end=2021-12-31`), so windows crossing it come back NaN by design.
 3. `baselines.py` + `learners.py` + `trial_log.py`.
 4. The four gates (§8). Real data is used only after these pass.
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the
