@@ -182,7 +182,7 @@ def compute_breadth(
     membership = membership.copy()
     # Members whose symbol later changed have their prices under the new one
     # (ABC -> COR); without this they'd look price-less and drop out.
-    membership["ticker"] = membership["ticker"].replace(ticker_renames.price_ticker_map(conn))
+    membership = ticker_renames.apply_renames(conn, membership)
     membership["start_date"] = pd.to_datetime(membership["start_date"])
     membership["end_date"] = pd.to_datetime(membership["end_date"])
 

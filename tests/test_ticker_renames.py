@@ -117,7 +117,8 @@ def test_breadth_counts_a_renamed_member_once_under_its_new_symbol(conn):
     _bars(conn, "NEW", days=days, closes=[10, 11, 12, 13, 14, 15, 16, 17, 18, 19])
     # Old symbol's membership ends the day the new one's starts (touching intervals).
     _members(conn, [("OLD", "2020-01-01", "2020-01-08"), ("NEW", "2020-01-08", None)])
-    db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "new_ticker": "NEW", "status": "matched"})
+    db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "new_ticker": "NEW", "status": "matched",
+                                   "valid_from": "2020-01-01", "valid_to": "2020-01-08"})
     config = BreadthConfig(indices=["sp500"], sma_periods=(3,), ema_periods=(), price_source=db.YFINANCE)
 
     result = compute_breadth(conn, "sp500", config)
@@ -161,7 +162,7 @@ def test_redecision_reuses_stored_polygon_listings(conn, tmp_path):
     _members(conn, [("OLD", "2015-01-01", "2015-03-31")])
     # First run stored a (wrong) match from before the name check existed.
     db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "new_ticker": "NEW", "status": "matched",
-                                   "cik": 42, "old_name": "Old Co"})
+                                   "cik": 42, "old_name": "Old Co", "lookup_date": "2015-02-14"})
     client = FakePolygon({})
     zip_path = _submissions(tmp_path, {42: ("Unrelated Industries", [])})
 
@@ -177,3 +178,83 @@ def test_load_company_names_reads_current_and_former_names(tmp_path):
     zip_path = _submissions(tmp_path, {1326801: ("Meta Platforms, Inc.", ["FACEBOOK INC"])})
     names = tr.load_company_names(zip_path, {1326801, 7})
     assert names == {1326801: ["Meta Platforms, Inc.", "FACEBOOK INC"], 7: []}
+
+
+def test_candidates_check_only_the_latest_membership_block(conn):
+    _bars(conn, "SPY")
+    # A reused symbol: one company 2001-2005, another 2012-2016 (plus a touching
+    # Nasdaq-100 interval for the same holder).
+    _members(conn, [("X", "2001-01-02", "2005-06-30"), ("X", "2012-03-01", "2015-12-31")])
+    db.replace_index_membership(conn, "nasdaq100", pd.DataFrame(
+        [("X", "2016-01-01", "2016-09-30")], columns=["ticker", "start_date", "end_date"]))
+
+    row = tr.candidates(conn, ["sp500", "nasdaq100"], "2009-01-01").iloc[0]
+
+    assert (row["valid_from"], row["valid_to"]) == ("2012-03-01", "2016-09-30")
+    # The lookup date falls inside the latest block, never in the 2005-2012 gap.
+    assert "2012-03-01" <= tr.lookup_date(row["start_date"], row["end_date"]) <= "2016-09-30"
+
+
+def test_apply_renames_leaves_an_earlier_block_under_a_reused_symbol_alone(conn):
+    db.upsert_ticker_rename(conn, {"old_ticker": "X", "new_ticker": "Y", "status": "matched",
+                                   "valid_from": "2012-03-01", "valid_to": "2016-09-30"})
+    membership = pd.DataFrame({"ticker": ["X", "X", "Z"],
+                               "start_date": ["2001-01-02", "2012-03-01", "2001-01-02"],
+                               "end_date": ["2005-06-30", "2015-12-31", None]})
+
+    result = tr.apply_renames(conn, membership)
+
+    assert list(result["ticker"]) == ["X", "Y", "Z"]
+
+
+def test_a_rename_without_a_recorded_window_is_not_applied(conn):
+    db.upsert_ticker_rename(conn, {"old_ticker": "X", "new_ticker": "Y", "status": "matched"})
+    membership = pd.DataFrame({"ticker": ["X"], "start_date": ["2015-01-01"], "end_date": [None]})
+    assert list(tr.apply_renames(conn, membership)["ticker"]) == ["X"]
+
+
+class FailingPolygon(FakePolygon):
+    def ticker_as_of(self, ticker, as_of):
+        if ticker == "BBB":
+            raise ConnectionError("rate limited")
+        return super().ticker_as_of(ticker, as_of)
+
+
+def test_an_interrupted_run_keeps_the_decisions_already_made(conn, tmp_path):
+    _bars(conn, "SPY")
+    _bars(conn, "NEW")
+    _members(conn, [("AAA", "2015-01-01", "2015-03-31"), ("BBB", "2015-01-01", "2015-03-31")])
+    client = FailingPolygon({"AAA": {"name": "Old Co", "cik": "42"}})
+    zip_path = _submissions(tmp_path, {42: ("New Co", ["Old Co"])})
+
+    with pytest.raises(ConnectionError):
+        tr.run(conn, client, {"NEW": 42}, zip_path, ["sp500"], "2009-01-01")
+
+    assert tr.price_ticker_map(conn) == {"AAA": "NEW"}
+    stored = db.read_ticker_renames(conn).iloc[0]
+    assert (stored["valid_from"], stored["valid_to"]) == ("2015-01-01", "2015-03-31")
+
+
+def test_a_stored_listing_from_outside_the_window_is_looked_up_again(conn, tmp_path):
+    _bars(conn, "SPY")
+    _bars(conn, "NEW")
+    _members(conn, [("OLD", "2015-01-01", "2015-03-31")])
+    db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "status": "name_mismatch", "cik": 7,
+                                   "old_name": "Someone Else", "lookup_date": "2008-06-30"})
+    client = FakePolygon({"OLD": {"name": "Old Co", "cik": "42"}})
+    zip_path = _submissions(tmp_path, {42: ("New Co", ["Old Co"])})
+
+    tr.run(conn, client, {"NEW": 42}, zip_path, ["sp500"], "2009-01-01", refresh=True)
+
+    assert len(client.calls) == 1
+    assert tr.price_ticker_map(conn) == {"OLD": "NEW"}
+
+
+def test_create_tables_adds_the_window_columns_to_an_older_table():
+    connection = db.get_connection(":memory:")
+    connection.execute("""CREATE TABLE ticker_renames (old_ticker TEXT PRIMARY KEY, new_ticker TEXT,
+        status TEXT NOT NULL, cik INTEGER, old_name TEXT, lookup_date TEXT, coverage REAL, detail TEXT,
+        updated_at TEXT NOT NULL)""")
+    db.create_tables(connection)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(ticker_renames)")}
+    assert {"valid_from", "valid_to"} <= columns

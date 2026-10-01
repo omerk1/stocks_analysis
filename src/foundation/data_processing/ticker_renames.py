@@ -25,8 +25,12 @@ Everything else is stored with its reason (`status`) and left unmapped: a merger
 that created a new CIK (MYL -> VTRS), a real delisting, an ambiguous share class.
 Those are the review list, not guesses.
 
-Consumers apply the map with `price_ticker_map` (breadth does; the completed MA
-study deliberately does not, to stay reproducible).
+Each mapping holds only inside its verified window (`valid_from`/`valid_to`, the
+symbol's latest continuous membership block): an earlier block under the same
+symbol may be another company. Consumers apply it with `apply_renames` on
+membership rows (breadth does; the completed MA study deliberately does not, to
+stay reproducible). Each decision is saved right after its lookup, so an
+interrupted run keeps its progress.
 """
 
 from __future__ import annotations
@@ -72,23 +76,45 @@ CALENDAR_TICKER = "SPY"
 
 
 def candidates(conn: sqlite3.Connection, indices: list[str], since: str) -> pd.DataFrame:
-    """Members of `indices` with membership after `since` and no `bars_1d`
-    rows at all. One row per ticker: its membership window (earliest start,
-    latest end, clipped to `since`)."""
+    """Members of `indices` with no `bars_1d` rows at all, one row per ticker:
+    its **latest** continuous membership block that reaches past `since`.
+
+    A block merges membership intervals (across `indices`) that overlap or
+    touch, so the same holder's S&P 500 and Nasdaq-100 rows form one block. A
+    symbol that left and later came back has separate blocks, and only the
+    latest is checked: an earlier block may belong to a different company
+    (symbols get reused). Columns: `valid_from`/`valid_to` (the block, which is
+    where a verified mapping applies) and `start_date`/`end_date` (the block
+    clipped to [since, today], which is what gets checked)."""
     placeholders = ",".join("?" for _ in indices)
     query = f"""
-        SELECT ticker, MIN(start_date) AS start_date, MAX(COALESCE(end_date, '9999-12-31')) AS end_date
+        SELECT ticker, start_date, COALESCE(end_date, '9999-12-31') AS end_date
         FROM index_membership m
         WHERE index_name IN ({placeholders})
           AND NOT EXISTS (SELECT 1 FROM bars_1d b WHERE b.ticker = m.ticker AND b.source = ?)
-        GROUP BY ticker
-        HAVING MAX(COALESCE(end_date, '9999-12-31')) >= ?
     """
-    df = pd.read_sql_query(query, conn, params=[*indices, PRICE_SOURCE, since])
-    df["start_date"] = df["start_date"].where(df["start_date"] >= since, since)
+    rows = pd.read_sql_query(query, conn, params=[*indices, PRICE_SOURCE])
+    columns = ["ticker", "valid_from", "valid_to", "start_date", "end_date"]
     today = pd.Timestamp.today().strftime("%Y-%m-%d")
-    df["end_date"] = df["end_date"].where(df["end_date"] <= today, today)
-    return df.sort_values("ticker").reset_index(drop=True)
+    out = []
+    for ticker, group in rows.groupby("ticker"):
+        block = _latest_block(group)
+        if block[1] < since:
+            continue
+        out.append((ticker, block[0], block[1], max(block[0], since), min(block[1], today)))
+    return pd.DataFrame(out, columns=columns).sort_values("ticker").reset_index(drop=True)
+
+
+def _latest_block(intervals: pd.DataFrame) -> tuple[str, str]:
+    """(start, end) of the latest run of overlapping or touching intervals."""
+    spans = sorted(zip(intervals["start_date"], intervals["end_date"]))
+    start, end = spans[0]
+    for s, e in spans[1:]:
+        if s <= (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"):
+            end = max(end, e)
+        else:
+            start, end = s, e
+    return start, end
 
 
 def lookup_date(start: str, end: str) -> str:
@@ -124,10 +150,11 @@ def tickers_by_cik(cik_map: dict[str, int]) -> dict[int, list[str]]:
 def resolve(
     conn: sqlite3.Connection, old_ticker: str, start: str, end: str,
     listing: dict | None, by_cik: dict[int, list[str]], company_names: dict[int, list[str]],
+    window: dict | None = None,
 ) -> dict:
     """Decide one old ticker, given Polygon's as-of `listing` for it and the
     SEC current/former names per CIK."""
-    row = {"old_ticker": old_ticker, "lookup_date": lookup_date(start, end)}
+    row = {"old_ticker": old_ticker, "lookup_date": lookup_date(start, end), **(window or {})}
     if listing is None:
         return {**row, "status": "no_listing"}
     row["old_name"] = listing.get("name")
@@ -178,24 +205,35 @@ def load_company_names(submissions_zip: str | Path, ciks: set[int]) -> dict[int,
     """Current plus former names for each CIK in `ciks`, from SEC's bulk
     `submissions.zip` (one `CIK##########.json` per filer, with `name` and
     `formerNames`). A CIK missing from the archive maps to []."""
-    result: dict[int, list[str]] = {}
     with zipfile.ZipFile(submissions_zip) as zf:
         available = set(zf.namelist())
-        for cik in ciks:
-            member = f"CIK{cik:010d}.json"
-            if member not in available:
-                result[cik] = []
-                continue
-            data = json.loads(zf.read(member))
-            names = [data.get("name")] + [f.get("name") for f in data.get("formerNames") or []]
-            result[cik] = [n for n in names if n]
-    return result
+        return {cik: _company_names(zf, available, cik) for cik in ciks}
 
 
 def price_ticker_map(conn: sqlite3.Connection) -> dict[str, str]:
-    """old symbol -> symbol its prices live under, for matched renames only."""
+    """old symbol -> symbol its prices live under, for matched renames only.
+    Ignores the validity window -- use `apply_renames` on membership rows."""
     renames = db.read_ticker_renames(conn)
     return dict(zip(renames["old_ticker"], renames["new_ticker"]))
+
+
+def apply_renames(conn: sqlite3.Connection, membership: pd.DataFrame) -> pd.DataFrame:
+    """`membership` with each renamed symbol replaced by its price symbol, but
+    only on rows whose interval overlaps the verified window [valid_from,
+    valid_to]. Earlier rows under a reused symbol may be a different company
+    and stay as they are."""
+    renames = db.read_ticker_renames(conn)
+    out = membership.copy()
+    if renames.empty or out.empty:
+        return out
+    start = pd.to_datetime(out["start_date"])
+    end = pd.to_datetime(out["end_date"]).fillna(pd.Timestamp.max)
+    for r in renames.itertuples(index=False):
+        if pd.isna(r.valid_from) or pd.isna(r.valid_to):
+            continue  # decided before windows were stored; re-run to record one
+        hit = (out["ticker"] == r.old_ticker) & (start <= pd.Timestamp(r.valid_to)) & (end >= pd.Timestamp(r.valid_from))
+        out.loc[hit, "ticker"] = r.new_ticker
+    return out
 
 
 def _stored_listings(conn: sqlite3.Connection) -> dict[str, dict | None]:
@@ -205,10 +243,10 @@ def _stored_listings(conn: sqlite3.Connection) -> dict[str, dict | None]:
     listings: dict[str, dict | None] = {}
     for row in table.itertuples(index=False):
         if row.status == "no_listing":
-            listings[row.old_ticker] = None
+            listings[row.old_ticker] = {"as_of": row.lookup_date, "missing": True}
         elif pd.notna(row.old_name) or pd.notna(row.cik):
             cik = None if pd.isna(row.cik) else str(int(row.cik))
-            listings[row.old_ticker] = {"name": row.old_name, "cik": cik}
+            listings[row.old_ticker] = {"name": row.old_name, "cik": cik, "as_of": row.lookup_date}
     return listings
 
 
@@ -225,19 +263,37 @@ def run(
     done = set() if refresh else set(db.read_ticker_renames(conn, matched_only=False)["old_ticker"])
     todo = candidates(conn, indices, since)
     todo = todo[~todo["ticker"].isin(done)]
-    listings = {
-        row.ticker: stored[row.ticker] if row.ticker in stored
-        else client.ticker_as_of(row.ticker, lookup_date(row.start_date, row.end_date))
-        for row in todo.itertuples(index=False)
-    }
-    ciks = {int(v["cik"]) for v in listings.values() if v and v.get("cik")}
-    company_names = load_company_names(submissions_zip, ciks)
-    for row in todo.itertuples(index=False):
-        listing = listings[row.ticker]
-        outcome = resolve(conn, row.ticker, row.start_date, row.end_date, listing, by_cik, company_names)
-        db.upsert_ticker_rename(conn, outcome)
-        print(f"{row.ticker}: {outcome['status']} {outcome.get('new_ticker') or ''}")
+    with zipfile.ZipFile(submissions_zip) as zf:
+        available = set(zf.namelist())
+        for row in todo.itertuples(index=False):
+            listing = _listing_for(client, stored.get(row.ticker), row)
+            names = {}
+            if listing and listing.get("cik"):
+                cik = int(listing["cik"])
+                names[cik] = _company_names(zf, available, cik)
+            outcome = resolve(conn, row.ticker, row.start_date, row.end_date, listing, by_cik, names,
+                              window={"valid_from": row.valid_from, "valid_to": row.valid_to})
+            # Saved before the next lookup, so an interrupted run keeps its progress.
+            db.upsert_ticker_rename(conn, outcome)
+            print(f"{row.ticker}: {outcome['status']} {outcome.get('new_ticker') or ''}")
     return db.read_ticker_renames(conn, matched_only=False)
+
+
+def _listing_for(client: PolygonClient, stored: dict | None, row) -> dict | None:
+    """The stored Polygon answer if it was looked up inside this ticker's
+    current window, otherwise a fresh lookup at the window's midpoint."""
+    if stored is not None and stored.get("as_of") and row.start_date <= stored["as_of"] <= row.end_date:
+        return None if stored.get("missing") else stored
+    return client.ticker_as_of(row.ticker, lookup_date(row.start_date, row.end_date))
+
+
+def _company_names(zf: zipfile.ZipFile, available: set[str], cik: int) -> list[str]:
+    member = f"CIK{cik:010d}.json"
+    if member not in available:
+        return []
+    data = json.loads(zf.read(member))
+    names = [data.get("name")] + [f.get("name") for f in data.get("formerNames") or []]
+    return [n for n in names if n]
 
 
 def main():

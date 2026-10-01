@@ -218,9 +218,13 @@ CREATE TABLE IF NOT EXISTS ticker_renames (
     lookup_date TEXT,
     coverage REAL,
     detail TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
     updated_at TEXT NOT NULL
 );
 """
+# Added after the table first shipped; `create_tables` adds them to an older table.
+_TICKER_RENAMES_WINDOW_COLUMNS = ("valid_from", "valid_to")
 
 
 def create_tables(conn: sqlite3.Connection) -> None:
@@ -235,6 +239,10 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_MACRO_SERIES_SCHEMA)
     conn.execute(_SPLITS_SCHEMA)
     conn.execute(_TICKER_RENAMES_SCHEMA)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
+    for column in _TICKER_RENAMES_WINDOW_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} TEXT")
     conn.commit()
 
 
@@ -790,7 +798,8 @@ def _drop_invalid_ohlc(bars: pd.DataFrame, context: str) -> pd.DataFrame:
 def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
     """Insert or replace one `ticker_renames` row (keys as in the schema,
     `updated_at` filled in here)."""
-    cols = ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date", "coverage", "detail"]
+    cols = ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date", "coverage", "detail",
+            "valid_from", "valid_to"]
     values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
     conn.execute(
         f"INSERT OR REPLACE INTO ticker_renames ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
