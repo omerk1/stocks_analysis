@@ -4,9 +4,10 @@ Kept-current scoreboard. Per-cell numbers live in `EXPERIMENTS.csv`, frozen hypo
 text in `PREREGISTRATION.md`, Tier 1–3 write-ups in `FINDINGS.md`, narrative in
 `REPORT.md`.
 
-**State (2026-09-30):** complete. All of DESIGN's modules (M1–M21, §7.5) ran and were
-tiered. **One Tier-2 result** (`slope_pctile_21_sma_50`), zero Tier 1. The whole-grid FDR
-pass keeps **2 of 187** tests at q=0.10 and q=0.05.
+**State (2026-10-01):** complete. All of DESIGN's modules (M1–M22, §7.5) ran and were
+tiered. **Two Tier-2 results** (`slope_pctile_21_sma_50`; M22's `break_retest_sma50_above_h63`,
+wrong-signed vs its hypothesis), zero Tier 1. The whole-grid FDR pass keeps **3 of 219**
+tests at q=0.10 and q=0.05.
 
 ## Modules run
 
@@ -43,23 +44,23 @@ pass keeps **2 of 187** tests at q=0.10 and q=0.05.
 ## Whole-grid FDR pass
 
 Benjamini–Hochberg over every counted cell (`counted_in_n_tests`), deduplicated to
-N=187 (re-run 2026-09-30 with M19's 16, M20's 32 and M21's 32 cells). p-values are Wald back-outs of each cell's 90% block-bootstrap CI
+N=219 (re-run 2026-10-01 with M19–M22's 112 cells). p-values are Wald back-outs of each cell's 90% block-bootstrap CI
 (`p_value_from_ci`). M6.4's rows are held at p=1, because their logged interval is a null
 envelope, not a CI. Reproduce with `python -m src.signals.moving_averages.whole_grid_fdr_run`.
 
 | rank | cell | p | threshold (q=0.10) | survives |
 |---|---|---|---|---|
-| 1 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.0000017 | 0.00053 | yes (also q=0.05) |
-| 2 | M6.3 `slope_magnitude_humped_test_sma50` | 0.000050 | 0.00107 | yes (also q=0.05) |
-| 3 | M12 `reclaim_durability_dollar_volume_sma50` | 0.0035 | 0.0016 | no |
-| 4 | M19 `respect_history_sma50_from_below_hold` | 0.0038 | 0.0021 | no |
-| 5 | M18 `dist_from_52w_low_h126` | 0.0047 | 0.0027 | no |
-| 6 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0032 | no |
-| 7 | M1 `above_sma_20` | 0.0090 | 0.0037 | no |
-| 8 | M2 `stack_fully_bearish_h21` | 0.0119 | 0.0043 | no |
+| 1 | M6.6 `ribbon_agreement_extreme_drawdown` | 0.0000017 | 0.00046 | yes (also q=0.05) |
+| 2 | M6.3 `slope_magnitude_humped_test_sma50` | 0.000050 | 0.00091 | yes (also q=0.05) |
+| 3 | M22 `break_retest_sma50_above_h63` | 0.00033 | 0.00137 | yes (also q=0.05) |
+| 4 | M12 `reclaim_durability_dollar_volume_sma50` | 0.0035 | 0.0018 | no |
+| 5 | M19 `respect_history_sma50_from_below_hold` | 0.0038 | 0.0023 | no |
+| 6 | M18 `dist_from_52w_low_h126` | 0.0047 | 0.0027 | no |
+| 7 | M7 `ribbon_direction_magnitude` | 0.0077 | 0.0032 | no |
+| 8 | M22 `break_retest_ema21_below_h21` | 0.0077 | 0.0037 | no |
 
-Ranks 3–8 miss by a factor of 1.7–2.8, so their FDR status depends on how many tests
-the grid holds. The two survivors clear by 21× or more.
+Ranks 4–8 miss by a factor of 1.7–2.4, so their FDR status depends on how many tests
+the grid holds. M6.6 and M6.3 clear by 18× or more; M22's cell clears by 4× (2× at q=0.05).
 p-values below about 0.004 are extrapolations of a 500-draw bootstrap.
 
 ## Cross-module SMA200 watch
@@ -106,4 +107,5 @@ explanation over a level-specific one. Never audited. Don't privilege SMA200 fea
 
 The termination condition was met on 2026-09-17: DESIGN §12's minimal core (M1, M2, M4,
 M5, M6.2, M11, §7.5) plus the whole-grid FDR pass. The remaining modules ran afterwards
-under DESIGN §1.5's porous-scope rule, M19–M21 (2026-09-30) the last. Nothing is queued.
+under DESIGN §1.5's porous-scope rule, M19–M22 (2026-09-30/10-01) the last. Nothing is queued.
+The natural follow-up is a pre-registered SMA47/53 neighbour check of M22's Tier-2 cell.

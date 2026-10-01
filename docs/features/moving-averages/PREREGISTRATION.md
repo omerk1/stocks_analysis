@@ -6199,3 +6199,81 @@ All cells clear the raw-count floor, but SMA200 has 256 and 306 events. Its cont
 at C2+rev are expected to be low, possibly under the floor; recorded here so an SMA200 null is
 read as underpowered, not as evidence of no effect. Full table:
 `output/moving_averages/m22_break_retest_feasibility.csv` (gitignored).
+
+### Result (2026-10-01)
+
+Ran as pre-registered (`break_retest_run.py`, 35 minutes, holdout untouched). Outputs under
+`output/moving_averages/m22_break_retest_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed as hypothesised: 0 of 32 cells confirmed.** No retest bounce predicts
+*continuation* better than an ordinary bounce off the same MA under all five gates. But one cell
+carries a large, robust effect in the **opposite** direction, and it survives the whole-grid FDR.
+
+| MA | dir | h | retest delta C2+rev [90% CI] | plain-bounce delta | DiD vs plain [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | above | 21 | +0.31% [−0.07, +0.69] | −0.20% | +0.51% [+0.03, +0.99] |
+| ema21 | above | 21 | −0.16% [−0.48, +0.11] | −0.02% | −0.14% [−0.51, +0.21] |
+| sma50 | above | 21 | −0.54% [−1.04, −0.07] | −0.05% | −0.49% [−1.00, +0.07] |
+| **sma50** | **above** | **63** | **−1.84% [−2.35, −1.33]** | +0.24% | **−2.08% [−3.04, −1.14]** |
+| sma200 | above | 63 | −1.61% (CI n/a) | −0.38% | −1.23% [−2.43, +0.07] |
+| sma20 | below | 21 | +0.04% [−0.30, +0.39] | +0.42% | −0.38% [−0.83, +0.04] |
+| **ema21** | **below** | **21** | **−0.63% [−1.05, −0.23]** | +0.13% | **−0.76% [−1.24, −0.30]** |
+| sma50 | below | 21 | +0.29% [−0.37, +0.86] | −0.23% | +0.52% [−0.03, +1.03] |
+| sma200 | below | 21 | +0.15% [−1.02, +1.41] | +0.22% | −0.08% [−1.12, +1.09] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `break_retest_*`.) Seven of 32 DiD CIs exclude zero, against
+~3 expected at 90% under the null. SMA200's cells have 151–179 contributing dates and
+three 63d retest-arm CIs could not be formed (too few 126-row blocks), as the feasibility
+count warned.
+
+**`sma50/above/63d` — a held retest above SMA50 is followed by *weaker* 63d returns.** DiD −2.08%
+[−3.04%, −1.14%]; retest arm −1.84% [−2.35%, −1.33%] vs base controls, against +0.24% for an
+ordinary SMA50 bounce. Wrong sign for the hypothesis, so gate 1 fails and the construction is
+killed. As evidence, the robustness record is the strongest of any cell in M19–M22:
+- all 6 K/R/W perturbations keep the CI off zero (−1.12% to −2.77%);
+- 10d and 21d are also negative (−0.42%, −0.49%);
+- both subperiods agree: 2010–15 −1.99% [−2.85, −1.23], 2016–21 −2.18% [−3.67, −0.61];
+- 500 of 732 retest events (68%) sit in contributing C2+rev strata, so this is not M19's
+  thin-strata artifact;
+- whole-grid FDR at N=219: rank 3, p=0.00033 vs threshold 0.00137 (q=0.10) and 0.00068
+  (q=0.05). **Survives both.**
+
+**Argued against:**
+- **The size appears only with `rev_tercile`.** C1 DiD −0.54% [−1.42, +0.36], C2 −0.63%
+  [−1.44, +0.20], C2+rev −2.08%. Raw means are almost equal (retest 4.20%, plain bounce 4.27%).
+  C1 and the raw means agree in sign, so this does not meet STATUS.md's "contradicted" bar, but
+  the magnitude rests on the 21-day-return match. Plausible reading: a retest within 21 days of a
+  1-ATR break leaves the 21-day return near flat; matched against bounces with the same flat
+  21-day return, the retest names are the ones that ran up and gave it back.
+- **One MA.** At 63d above, SMA200 agrees in sign (−1.23%, spans zero, thin); SMA20 (+0.55%) and
+  EMA21 (+0.41%) disagree. SMA50's lookback neighbours (47/53) were not run, so the lookback
+  plateau is untested.
+- **Found, not predicted.** The pre-registration hypothesised the opposite sign. FDR counts the
+  cell, so the multiplicity is accounted for; the post-hoc framing is not.
+- **Cost:** retest arm −7.4%/yr [−9.4%, −5.3%] linear ×4, vs a 0.02%/yr hurdle at 0.16 events
+  per ticker-year. It clears, but as an avoid-or-short signal on a rare event.
+
+**Tier 2** by DESIGN §9.2's table: survives C2 and FDR at q=0.05; fails holdout and universe
+generality, which this study cannot test (same position as M6.3). `decisive_test_status =
+never_tested` (gate 1 failed on sign, per this entry's own rule). Would change it: SMA47/53
+disagreeing, the holdout disagreeing, or a coarser match removing it.
+
+**`ema21/below/21d` — right sign, fails one gate.** DiD −0.76% [−1.24, −0.30]; retest arm −0.63%
+[−1.05, −0.23]. Passes gates 1, 2, 4 (two of the three other MAs agree in sign) and 5
+(5 of 6 perturbations off zero; R=0.75 spans), both subperiods agree, 69% of events in
+contributing strata. **Fails gate 3**: the 10d DiD is +0.07%. Whole-grid FDR rank 8, p=0.0077 vs
+0.0037: fails. Tier 3, `decisive_test_status = failed`. A short, so §7.10's borrow caveat
+applies.
+
+**Other cells with a CI off zero** (SMA20 above 5/10/21d, SMA50 above 10d, SMA50 below 10d) fail
+the focal gate or sensitivity (1–4 of 6 variants): Tier 4.
+
+**Read for the question that motivated this module ("broke out, retested, held — buy?"):** no.
+Under the study's matching, a held retest is never a better long than an ordinary bounce, and at
+SMA50 it is a markedly worse one over the next quarter.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 187 → 219), `FINDINGS.md` (one Tier-2,
+one Tier-3 entry), `STATUS.md` (headline, FDR table), `REPORT.md`,
+`docs/modeling/ma_study_insights.md`.
+
+---
