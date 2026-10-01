@@ -37,27 +37,6 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 
 ---
 
-### M22 `break_retest_sma50_above_h63` — a held retest above SMA50 underperforms
-
-- **Hypothesis**: after a confirmed break above SMA50, a retest from above within 21 days that
-  holds (confirmed bounce) predicts *better* 63d returns than an ordinary SMA50 bounce. The
-  result is the opposite sign.
-- **Result**: DiD vs ordinary bounces −2.08% [−3.04%, −1.14%] at C2+rev; retest arm −1.84%
-  [−2.35%, −1.33%], ordinary bounce +0.24%. C1 DiD −0.54% [−1.42%, +0.36%]. Raw 63d means:
-  retest 4.20%, ordinary bounce 4.27%, base 4.95%.
-- **Robustness**: all 6 ±25% K/R/W variants keep the CI off zero (−1.12% to −2.77%); 10d and
-  21d also negative; 2010–15 −1.99%, 2016–21 −2.18%, both off zero; 68% of events in
-  contributing strata.
-- **Effective N**: 773 events, 565 dates, 402 contributing dates at C2+rev.
-- **Cost**: −7.4%/yr [−9.4%, −5.3%] vs a 0.02% hurdle (0.16 events per ticker-year). Clears,
-  as an avoid or short signal.
-- **FDR**: survives at q=0.10 and q=0.05 (rank 3 of 219, p=0.00033).
-- **Tier 2**: fails holdout and universe generality, which cannot be tested yet. Caveats: the
-  magnitude appears only once the 21-day return is matched; only SMA200 agrees in sign at 63d
-  (SMA20 and EMA21 do not); found against the pre-registered direction.
-- **Would change**: SMA47/53 disagreeing, the 2022+ holdout disagreeing, or a coarser match
-  (date + `rev_tercile` only) removing it.
-
 ## Tier 3
 
 ### M6.6 `ribbon_agreement_extreme_drawdown` — all-agree slopes, shallower drawdown
@@ -215,6 +194,22 @@ items: U1 has no delisted history, which flatters weak-state buckets.
   keep the sign, only R=0.75 keeps the CI off zero. The only CI off zero among 32 cells.
 - **Would change**: the same sign and a CI off zero at SMA20 or EMA21, or once a
   point-in-time universe with delisted names exists (survivorship biases this toward zero).
+
+### M22 `break_retest_sma50_above_h63` — a held retest above SMA50 underperforms
+
+- **Hypothesis**: after a confirmed break above SMA50, a retest from above within 21 days that
+  holds predicts *better* 63d returns than an ordinary SMA50 bounce. The result is the
+  opposite sign.
+- **Result**: DiD vs ordinary bounces −2.08% [−3.04%, −1.14%] at C2+rev; retest arm −1.84%
+  [−2.35%, −1.33%]. Robust to all six ±25% K/R/W variants and both subperiods.
+- **Effective N**: 773 events, 402 contributing dates at C2+rev.
+- **Cost**: −7.4%/yr [−9.4%, −5.3%] vs a 0.02% hurdle, as an avoid or short signal.
+- **FDR**: survives at q=0.10 and q=0.05 (rank 3 of 219, p=0.00033).
+- **Tier 3** (was Tier 2 for one day). The pre-registered lookback-neighbour addendum failed
+  both rules: SMA47 −0.62% [−1.36%, +0.02%] spans zero, SMA53 −1.02% [−1.60%, −0.41%]; matched on
+  date + `rev_tercile` only, −0.58% [−1.38%, +0.21%]. Same sign everywhere, size not robust, and
+  at every neighbour it appears only once the 21-day return is matched.
+- **Would change**: the 2022+ holdout reproducing it at SMA47–53 with a CI off zero.
 
 ### M22 `break_retest_ema21_below_h21` — held retest below EMA21, weaker 21d return
 

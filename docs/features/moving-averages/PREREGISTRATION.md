@@ -6277,3 +6277,68 @@ one Tier-3 entry), `STATUS.md` (headline, FDR table), `REPORT.md`,
 `docs/modeling/ma_study_insights.md`.
 
 ---
+
+### Lookback-neighbour addendum (pre-registered 2026-10-01, before running)
+
+**Why:** the Result above makes `break_retest_sma50_above_h63` Tier 2 and names what would
+change it: SMA47/53 disagreeing, or a coarser match removing it. DESIGN §6.7: a parameter
+result is only credible if its neighbours agree. M22 dropped the synthetic-neighbour arm
+because M20/M21 showed 74–96% event overlap; for retests the overlap is lower (below), so the
+neighbours can be scored as MAs in their own right.
+
+**Method (frozen):** M22's cell construction unchanged, run with SMA47 and SMA53 as the focal MA:
+each gets its own retest, plain-bounce and generic-move flags computed identically
+(`modules/break_retest.py::neighbour_table`). Direction `above`, horizons 5/10/21/63, full
+C1 → C2 → C2+rev waterfall. Separately, the SMA50 cell is re-run matched on date + `rev_tercile`
+only (`coarse_match_cell`). No parameter, horizon or MA beyond these.
+
+**Decision rules (stated before running):**
+1. **Plateau holds** iff both SMA47 and SMA53 have a negative 63d C2+rev DiD whose 90% CI
+   excludes zero. Otherwise the SMA50 cell is a lone pixel (§6.7) and moves to **Tier 3**, the
+   study's precedent for a CI-excluding cell that fails a plateau (M6.2 `extension_x_slope`).
+2. **Coarse match:** if the SMA50 63d DiD matched on date + `rev_tercile` only has a CI spanning
+   zero, the cell's size depends on the momentum/vol/sector buckets and moves to **Tier 3** as
+   well. A same-sign CI off zero leaves it unchanged.
+3. Tier 2 stands only if both 1 and 2 pass.
+4. Shorter horizons at SMA47/53 are reported, not decisive.
+
+**N_tests:** none added. This re-scores an already-counted cell at its neighbours, the same
+convention as every reversal-robustness addendum (M1, M2, M6.2, M18). Rows are logged with
+`counted_in_n_tests=False`.
+
+**Pre-run count (no outcome read):** retest-above events at SMA47 820 (572 dates, 339 tickers),
+SMA50 794, SMA53 784. Share of each neighbour's retest rows that are also SMA50 retest rows:
+SMA47 50%, SMA53 52%. Half the events are independent of SMA50's, so agreement is evidence,
+not arithmetic.
+
+---
+
+### Result (lookback-neighbour addendum, 2026-10-01)
+
+Ran as pre-registered (`break_retest_run.py --neighbour-check`, 6 minutes). Outputs:
+`output/moving_averages/m22_break_retest_{neighbours,coarse_match}.csv` (gitignored).
+
+| check | 63d DiD [90% CI] | C1 / C2 | rule |
+|---|---|---|---|
+| SMA50 (the Tier-2 cell, for reference) | −2.08% [−3.04, −1.14] | −0.54% / −0.63% | — |
+| SMA47 as focal MA | −0.62% [−1.36, +0.02] | +0.23% / −0.52% | 1: **fails** (spans zero) |
+| SMA53 as focal MA | −1.02% [−1.60, −0.41] | +0.18% / +0.03% | 1: passes |
+| SMA50 matched on date + `rev_tercile` only | −0.58% [−1.38, +0.21] | — | 2: **fails** (spans zero) |
+
+Shorter horizons at the neighbours: SMA47 −0.09% / −0.18% / −0.38% (5/10/21d), SMA53 −0.02% /
++0.03% / +0.05%. Event overlap with SMA50: 50% and 52%.
+
+**Both decision rules fail, so `break_retest_sma50_above_h63` moves from Tier 2 to Tier 3.** The
+sign is the same at every neighbour and under the coarse match, so the direction looks real: a
+held breakout-retest of a ~50-day SMA tends to underperform an ordinary bounce over the next
+quarter. The *size* is not robust. It is 30–50% as large one lookback away, about 28% as large
+under a coarser match, and at both neighbours it only appears once the 21-day return is matched
+(C1 positive). It remains a whole-grid FDR survivor (the counted cell is unchanged), which this
+study now reports separately from tier, as DESIGN §9.2's 2026-09-10 rule already does for kill
+criteria.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows, `counted_in_n_tests=False`; the parent row's tier changed
+2 → 3 in place with a dated note), `FINDINGS.md` (entry moved from Tier 2 to Tier 3), `STATUS.md`,
+`REPORT.md`, `docs/modeling/ma_study_insights.md` (back to one Tier-2 result).
+
+---

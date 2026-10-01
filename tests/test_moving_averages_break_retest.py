@@ -96,3 +96,16 @@ def test_did_cell_recovers_a_retest_only_lift_and_cancels_a_shared_one():
     cell = br.did_cell(shared, "sma50", BREAK_ABOVE, 5, {"variant": "t"}, n_boot=150, with_generic=False)
     assert cell["delta_focal_c2_rev"] > 0.03
     assert cell["did_c2_rev_ci_low"] <= 0 <= cell["did_c2_rev_ci_high"]
+
+
+def test_neighbour_groups_score_their_own_flags():
+    raw = _synthetic_panel(n_tickers=30, n_days=300)
+    for col in ("dist_atr_sma_47", "dist_atr_sma_53"):
+        raw[col] = np.random.default_rng(len(col)).normal(0, 1.0, len(raw))
+    panel = br.add_event_flags(br.be.add_context(raw), groups={**br.NEIGHBOUR_GROUPS, "sma50": br.GROUPS["sma50"]})
+    assert {"retest_sma_47_above", "retest_sma_53_above", "plain_bounce_sma_47_above"} <= set(panel.columns)
+    cell = br.did_cell(panel, "sma47", BREAK_ABOVE, 5, {"variant": "t"}, n_boot=50, groups=br.NEIGHBOUR_GROUPS,
+                       with_generic=False)
+    assert cell["group"] == "sma47"
+    retest47 = panel["retest_sma_47_above"].fillna(False).astype(bool)
+    assert cell["n_events"] == int((retest47 & panel[br.be.fwd_col(5)].notna()).sum())

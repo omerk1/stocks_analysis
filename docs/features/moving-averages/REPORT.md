@@ -15,13 +15,13 @@ write-ups: `FINDINGS.md`.
   21 days, with a 90% CI of [0.15%, 0.35%]. It holds in each tail separately, under a
   reversal control, with large moves excluded, and across seeds. It clears cost at
   20 bps. That is about 3% a year gross: a feature, not a strategy.
-- **A second Tier-2 cell, found against its hypothesis (M22, 2026-10-01).** After a break above
-  SMA50, a retest that holds is followed by 63-day returns 2.08% [1.14%, 3.04%] *below* an
-  ordinary SMA50 bounce. Robust to the confirmation parameters, both subperiods and shorter
-  horizons; survives FDR at q=0.05. The size depends on matching the 21-day return, and only
-  SMA200 agrees in sign, so it needs a lookback-neighbour check before use.
-- **Three of 219 tests survive whole-grid FDR** at both q=0.10 and q=0.05: the two Tier-2
-  cells and M6.6's drawdown cell. The drawdown cell says that when all ribbon slopes agree, the
+- **An FDR survivor that fails its plateau (M22, 2026-10-01).** After a break above SMA50, a
+  held retest is followed by 63-day returns 2.08% below an ordinary SMA50 bounce, and the cell
+  survives FDR at q=0.05. The pre-registered neighbour check cut it to Tier 3: SMA47 spans zero,
+  SMA53 is about half the size, and a coarser match spans zero. The sign is consistent; the
+  size is not.
+- **Three of 219 tests survive whole-grid FDR** at both q=0.10 and q=0.05: the Tier-2 cell,
+  M6.6's drawdown cell, and M22's SMA50 retest cell (Tier 3, see above). The drawdown cell says that when all ribbon slopes agree, the
   next 21 days' drawdown is 0.65pp shallower, but signed return is unchanged.
 - **Several effects are real but weak.** They clear C2 and most clear cost, but miss FDR
   by a factor of 1.2–1.8: low-dollar-volume reclaims (size-confounded), distance above the
@@ -127,7 +127,7 @@ extrapolations of a 500-draw bootstrap.
 | M19 respect history | killed, 0 of 8; hold rates flat across prior bounces at real and synthetic MAs; two C2+rev-only CIs are thin-strata reads | 4 / 3 |
 | M20 bounce as entry | killed, 0 of 32; a confirmed bounce's forward return matches a same-size move without the MA, and tilts to reversal, not continuation | 4 / 3 |
 | M21 break as entry | killed, 0 of 32; a confirmed break through the MA tracks any same-size move; one SMA50 breakdown cell right-signed but fragile | 4 / 3 |
-| **M22 break and retest** | **killed as hypothesised; a held retest above SMA50 underperforms an ordinary bounce by 2.08% at 63d, Tier 2** | **2** / 3 / 4 |
+| M22 break and retest | killed as hypothesised; a held retest above SMA50 underperforms an ordinary bounce by 2.08% at 63d, FDR survivor, Tier 3 after its neighbour check | 3 / 4 |
 | §7.5 placebo | no lookback is special | 4 |
 
 ## 6. Suggestive (Tier 3)
