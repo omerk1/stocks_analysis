@@ -46,6 +46,8 @@ def feasibility(panel: pd.DataFrame) -> pd.DataFrame:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--feasibility", action="store_true")
+    parser.add_argument("--neighbour-check", action="store_true",
+                        help="M22 lookback-neighbour addendum: SMA47/53 cells plus the coarse-match check")
     parser.add_argument("--n-boot", type=int, default=br.N_BOOT)
     args = parser.parse_args()
     t0 = time.time()
@@ -57,6 +59,20 @@ def main() -> None:
     prepared = br.add_event_flags(context, br.PRIMARY_PARAMS)
     print(f"event flags added, t={time.time()-t0:.0f}s", flush=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.neighbour_check:
+        table = br.neighbour_table(context, n_boot=args.n_boot)
+        table.to_csv(OUTPUT_DIR / f"{PREFIX}_neighbours.csv", index=False)
+        coarse = pd.DataFrame([br.coarse_match_cell(prepared, n_boot=args.n_boot)])
+        coarse.to_csv(OUTPUT_DIR / f"{PREFIX}_coarse_match.csv", index=False)
+        show = ["group", "horizon", "n_events", "n_dates", "overlap_with_sma50", "below_threshold", "did_c1", "did_c2",
+                "did_c2_rev", "did_c2_rev_ci_low", "did_c2_rev_ci_high", "delta_focal_c2_rev", "delta_plain_c2_rev",
+                "delta_focal_c2_rev_n_dates"]
+        with pd.option_context("display.width", 300, "display.max_columns", 40, "display.float_format", "{:.5f}".format):
+            print(table[show].to_string(index=False))
+            print(coarse.to_string(index=False))
+        print(f"total time {time.time()-t0:.0f}s", flush=True)
+        return
 
     if args.feasibility:
         table = feasibility(prepared)

@@ -126,11 +126,13 @@ def did_cell(
     panel: pd.DataFrame, group_name: str, direction: str, horizon: int, label: dict,
     tiers: dict = CONTROL_TIERS, n_boot: int = N_BOOT, ci: float = 0.90, seed: int = 0,
     panel_years: float | None = None, panel_tickers: int | None = None, with_generic: bool = True,
+    groups: dict = GROUPS,
 ) -> dict:
     """One (group, direction, horizon) cell. `panel` must carry the event
-    flags for the params in play plus the context columns."""
+    flags for the params in play plus the context columns. `groups` lets
+    the lookback-neighbour addendum score SMA47/53 as their own focal MAs."""
     value_col = be.fwd_col(horizon)
-    retest, plain, generic, base = _arms(panel, group_name, direction)
+    retest, plain, generic, base = _arms(panel, group_name, direction, groups)
     block_length = be.block_length_for(horizon)
     needed = ["ticker", "date", value_col, *C2_MATCH_COLS_WITH_REVERSAL]
     events = panel.loc[retest, needed].dropna(subset=[value_col])
@@ -285,3 +287,49 @@ def evaluate_kill_criterion(primary: pd.DataFrame, sensitivity: pd.DataFrame) ->
     return {"cells": table, "n_cells": len(table),
             "n_confirmed": int(table["confirmed"].sum()) if len(table) else 0,
             "module_killed": bool(not table["confirmed"].any()) if len(table) else True}
+
+
+# Lookback-neighbour addendum (PREREGISTRATION.md M22, 2026-10-01): SMA50's
+# §7.5 neighbours scored as focal MAs with their own retest / plain-bounce /
+# generic flags, so the Tier-2 cell's plateau can be checked.
+NEIGHBOUR_GROUPS = {
+    "sma47": {"family": "sma", "focal": 47, "neighbors": ()},
+    "sma53": {"family": "sma", "focal": 53, "neighbors": ()},
+}
+
+
+def neighbour_table(context_panel: pd.DataFrame, direction: str = respect.BREAK_ABOVE, **kwargs) -> pd.DataFrame:
+    """The M22 cell at SMA47 and SMA53, every horizon, full control
+    waterfall. `context_panel` is `bounce_entry.add_context(...)`'s output.
+    Adds `overlap_with_sma50`: share of this MA's retest rows that are also
+    SMA50 retest rows (high overlap makes agreement partly mechanical)."""
+    panel = add_event_flags(context_panel, PRIMARY_PARAMS, groups={**NEIGHBOUR_GROUPS, "sma50": GROUPS["sma50"]})
+    years = (panel["date"].max() - panel["date"].min()).days / 365.25
+    n_tickers = panel["ticker"].nunique()
+    focal50 = panel[retest_col("sma_50", direction)].fillna(False).astype(bool)
+    rows = []
+    for g in NEIGHBOUR_GROUPS:
+        ma = f"sma_{NEIGHBOUR_GROUPS[g]['focal']}"
+        mine = panel[retest_col(ma, direction)].fillna(False).astype(bool)
+        for h in HORIZONS:
+            row = did_cell(panel, g, direction, h, {"variant": "neighbour"}, groups=NEIGHBOUR_GROUPS,
+                           panel_years=years, panel_tickers=n_tickers, **kwargs)
+            row["overlap_with_sma50"] = float((mine & focal50).sum() / mine.sum()) if mine.sum() else float("nan")
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def coarse_match_cell(prepared: pd.DataFrame, group_name: str = "sma50", direction: str = respect.BREAK_ABOVE,
+                      horizon: int = 63, n_boot: int = N_BOOT, seed: int = 0) -> dict:
+    """The M22 cell matched on date + `rev_tercile` only (no momentum,
+    vol or sector buckets): does the size survive a coarser match?"""
+    value_col = be.fwd_col(horizon)
+    retest, plain, generic, base = _arms(prepared, group_name, direction)
+    needed = ["ticker", "date", value_col, "rev_tercile"]
+    pa = prepared.loc[base | retest, needed].assign(__event=retest[base | retest].to_numpy())
+    pp = prepared.loc[base | plain, needed].assign(__event=plain[base | plain].to_numpy())
+    boot = be._bootstrap_or_nan(block_bootstrap_delta_diff, pa, pp, "__event", value_col, ["rev_tercile"],
+                                block_length=be.block_length_for(horizon), n_boot=n_boot, seed=seed)
+    return {"group": group_name, "direction": direction, "horizon": horizon, "match": "date+rev_tercile",
+            "did": boot["point_estimate"], "did_ci_low": boot["ci_low"], "did_ci_high": boot["ci_high"],
+            "delta_retest": boot["point_a"], "delta_plain": boot["point_b"], "n_dates": boot["n_dates"]}

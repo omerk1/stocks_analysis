@@ -6277,3 +6277,38 @@ one Tier-3 entry), `STATUS.md` (headline, FDR table), `REPORT.md`,
 `docs/modeling/ma_study_insights.md`.
 
 ---
+
+### Lookback-neighbour addendum (pre-registered 2026-10-01, before running)
+
+**Why:** the Result above makes `break_retest_sma50_above_h63` Tier 2 and names what would
+change it: SMA47/53 disagreeing, or a coarser match removing it. DESIGN §6.7: a parameter
+result is only credible if its neighbours agree. M22 dropped the synthetic-neighbour arm
+because M20/M21 showed 74–96% event overlap; for retests the overlap is lower (below), so the
+neighbours can be scored as MAs in their own right.
+
+**Method (frozen):** M22's cell construction unchanged, run with SMA47 and SMA53 as the focal MA:
+each gets its own retest, plain-bounce and generic-move flags computed identically
+(`modules/break_retest.py::neighbour_table`). Direction `above`, horizons 5/10/21/63, full
+C1 → C2 → C2+rev waterfall. Separately, the SMA50 cell is re-run matched on date + `rev_tercile`
+only (`coarse_match_cell`). No parameter, horizon or MA beyond these.
+
+**Decision rules (stated before running):**
+1. **Plateau holds** iff both SMA47 and SMA53 have a negative 63d C2+rev DiD whose 90% CI
+   excludes zero. Otherwise the SMA50 cell is a lone pixel (§6.7) and moves to **Tier 3**, the
+   study's precedent for a CI-excluding cell that fails a plateau (M6.2 `extension_x_slope`).
+2. **Coarse match:** if the SMA50 63d DiD matched on date + `rev_tercile` only has a CI spanning
+   zero, the cell's size depends on the momentum/vol/sector buckets and moves to **Tier 3** as
+   well. A same-sign CI off zero leaves it unchanged.
+3. Tier 2 stands only if both 1 and 2 pass.
+4. Shorter horizons at SMA47/53 are reported, not decisive.
+
+**N_tests:** none added. This re-scores an already-counted cell at its neighbours, the same
+convention as every reversal-robustness addendum (M1, M2, M6.2, M18). Rows are logged with
+`counted_in_n_tests=False`.
+
+**Pre-run count (no outcome read):** retest-above events at SMA47 820 (572 dates, 339 tickers),
+SMA50 794, SMA53 784. Share of each neighbour's retest rows that are also SMA50 retest rows:
+SMA47 50%, SMA53 52%. Half the events are independent of SMA50's, so agreement is evidence,
+not arithmetic.
+
+---
