@@ -171,6 +171,28 @@ def test_a_run_of_mis_scaled_filings_is_dropped_whatever_its_length():
     assert sec.drop_scale_runs(half).tolist() == half.tolist()
 
 
+def test_scale_run_is_judged_against_the_nearest_real_filing_not_the_series_median():
+    # ALK 2011: a leading 1,000x run, then a 2-for-1 split later in the
+    # series. Against the whole-series median the run is only ~290x (the
+    # median is post-split), so a median-based rule keeps it; against the
+    # next real filing it's a clean 1,009x.
+    idx = pd.to_datetime([f"20{y}-{m:02d}-01" for y in (11, 12, 13) for m in (2, 5, 8, 11)])
+    v = [3.583e10, 3.583e10, 3.601e10, 3.551e7, 3.545e7, 3.55e7, 7.1e7, 7.12e7, 7.15e7, 7.2e7, 7.22e7, 7.25e7]
+    kept = sec.drop_scale_runs(pd.Series(v, index=idx))
+    assert kept.tolist() == v[3:]
+
+
+def test_pre_listing_placeholder_counts_are_dropped():
+    # ICE 2013 / LIN 2017 / QRVO 2014 / VTRS 2020: the shell's 1 / 25,000 /
+    # 1,000 / 100 shares on the filings before the real company existed.
+    idx = pd.to_datetime(["2013-08-07", "2013-11-05", "2014-02-14", "2014-05-08", "2014-08-06"])
+    v = [1.0, 1.0, 1.150e8, 1.152e8, 1.155e8]
+    assert sec.drop_scale_runs(pd.Series(v, index=idx)).tolist() == v[2:]
+    # ...but a 1-for-100 reverse split (ratio 0.01, not <0.001) stays.
+    v2 = [1.15e8, 1.16e8, 1.17e6, 1.17e6, 1.18e6]
+    assert sec.drop_scale_runs(pd.Series(v2, index=idx)).tolist() == v2
+
+
 def test_scale_run_filter_keeps_real_reverse_splits_and_dilution():
     idx = pd.to_datetime(["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01", "2021-01-01", "2021-04-01"])
     reverse_split = pd.Series([100.0, 101.0, 1.0, 1.01, 1.02, 1.03], index=idx)      # 1-for-100: not a 1e3/1e6 ratio

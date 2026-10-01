@@ -129,37 +129,53 @@ def drop_isolated_spikes(series: pd.Series, factor: float = 10.0) -> pd.Series:
 
 
 def drop_scale_runs(series: pd.Series) -> pd.Series:
-    """Drop every filing that is ~1,000x or ~1,000,000x off the series'
-    own median -- the XBRL scale-error signature (a value tagged "in
-    thousands"/"in millions" without the scale) -- however many consecutive
-    filings carry it. `drop_isolated_spikes` only catches a *single* bad
-    filing bracketed by two good ones; a filer that mis-tags two or more
-    filings in a row slipped through (CB 2010-05 -> 2010-08 at 338
-    trillion shares, AJG 2020-05 -> 2020-07 at 190 trillion -- found
-    2026-10-01 as one stock being 99.9% of cap-weighted S&P 500 breadth on
-    those dates). The reference level is the median of the largest
-    *cluster* of same-scale filings (sorted values split wherever
+    """Drop filings that can only be wrong, however many in a row:
+
+    - the XBRL scale-error signature -- a value ~1,000x or ~1,000,000x off
+      (a count tagged "in thousands"/"in millions" without the scale).
+      `drop_isolated_spikes` only catches a *single* such filing bracketed
+      by two good ones; a filer that mis-tags two or more in a row slipped
+      through (CB 2010-05 -> 2010-08 at 338 trillion shares, AJG 2020-05 ->
+      2020-07 at 190 trillion -- found 2026-10-01 as one stock being 99.9%
+      of cap-weighted S&P 500 breadth on those dates);
+    - a pre-listing placeholder -- the shell's initial 1 / 100 / 1,000 /
+      25,000 shares reported on the filings before the real company
+      existed (ICE 2013, LIN 2017, QRVO 2014, VTRS 2020): anything under
+      1/1,000 of the nearest real filing.
+
+    Judged per filing against the nearest-in-time filing of the largest
+    *cluster* of same-scale values (sorted values split wherever
     neighbours are >100x apart -- scale errors sit >=1,000x apart, real
-    changes don't), not the plain median, which lands between the scales
-    once the bad filings reach half the series. With no single largest
-    cluster there is no majority scale to trust, so nothing is dropped
-    and the agreement check against yfinance decides the company's fate
-    (its median ratio is then ~1e3/1e6 off and the company is rejected).
-    A real reverse split or dilution is never a clean 1e3/1e6 ratio
-    within the +-20% band, so it's kept (same band `drop_isolated_spikes`
-    uses at the endpoints).
+    changes don't). Nearest in time, not the cluster's median, so a split
+    inside the main cluster doesn't blur the ratio (ALK's 2011 run is a
+    clean 1,009x against its next real filing but only 290x against the
+    series median). With no single largest cluster there is no majority
+    scale to trust, so nothing is dropped and the agreement check against
+    yfinance decides the company's fate (its median ratio is then ~1e3/1e6
+    off and the company is rejected). A real reverse split or dilution is
+    never a clean 1e3/1e6 ratio within the +-20% band, nor a >1,000x
+    drop, so it's kept -- a genuine 1-for-1,000 reverse split is the one
+    case this cannot tell from a glitch, same limitation as
+    `drop_isolated_spikes` at the endpoints.
     """
     if len(series) < 2:
         return series
     v = series.to_numpy(dtype="float64")
-    sorted_v = np.sort(v)
+    order = np.argsort(v)
+    sorted_v = v[order]
     breaks = np.flatnonzero(sorted_v[1:] / sorted_v[:-1] > 100) + 1
-    clusters = np.split(np.arange(len(sorted_v)), breaks)
+    clusters = np.split(order, breaks)  # each: original positions, sorted by value
     sizes = [len(c) for c in clusters]
     if sizes.count(max(sizes)) > 1:
         return series
-    reference = float(np.median(sorted_v[clusters[int(np.argmax(sizes))]]))
-    keep = [not _scale_error(x, reference) for x in v]
+    main = np.zeros(len(v), dtype=bool)
+    main[clusters[int(np.argmax(sizes))]] = True
+    main_pos = np.flatnonzero(main)
+    keep = main.copy()
+    for i in np.flatnonzero(~main):
+        nearest = main_pos[np.argmin(np.abs(main_pos - i))]  # filings are date-ordered
+        ratio = v[i] / v[nearest]
+        keep[i] = not (_scale_error(v[i], v[nearest]) or ratio < 1e-3)
     return series[keep]
 
 
