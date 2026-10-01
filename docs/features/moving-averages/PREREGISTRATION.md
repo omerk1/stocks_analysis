@@ -6312,3 +6312,33 @@ SMA47 50%, SMA53 52%. Half the events are independent of SMA50's, so agreement i
 not arithmetic.
 
 ---
+
+### Result (lookback-neighbour addendum, 2026-10-01)
+
+Ran as pre-registered (`break_retest_run.py --neighbour-check`, 6 minutes). Outputs:
+`output/moving_averages/m22_break_retest_{neighbours,coarse_match}.csv` (gitignored).
+
+| check | 63d DiD [90% CI] | C1 / C2 | rule |
+|---|---|---|---|
+| SMA50 (the Tier-2 cell, for reference) | −2.08% [−3.04, −1.14] | −0.54% / −0.63% | — |
+| SMA47 as focal MA | −0.62% [−1.36, +0.02] | +0.23% / −0.52% | 1: **fails** (spans zero) |
+| SMA53 as focal MA | −1.02% [−1.60, −0.41] | +0.18% / +0.03% | 1: passes |
+| SMA50 matched on date + `rev_tercile` only | −0.58% [−1.38, +0.21] | — | 2: **fails** (spans zero) |
+
+Shorter horizons at the neighbours: SMA47 −0.09% / −0.18% / −0.38% (5/10/21d), SMA53 −0.02% /
++0.03% / +0.05%. Event overlap with SMA50: 50% and 52%.
+
+**Both decision rules fail, so `break_retest_sma50_above_h63` moves from Tier 2 to Tier 3.** The
+sign is the same at every neighbour and under the coarse match, so the direction looks real: a
+held breakout-retest of a ~50-day SMA tends to underperform an ordinary bounce over the next
+quarter. The *size* is not robust. It is 30–50% as large one lookback away, about 28% as large
+under a coarser match, and at both neighbours it only appears once the 21-day return is matched
+(C1 positive). It remains a whole-grid FDR survivor (the counted cell is unchanged), which this
+study now reports separately from tier, as DESIGN §9.2's 2026-09-10 rule already does for kill
+criteria.
+
+**Logged:** `EXPERIMENTS.csv` (3 rows, `counted_in_n_tests=False`; the parent row's tier changed
+2 → 3 in place with a dated note), `FINDINGS.md` (entry moved from Tier 2 to Tier 3), `STATUS.md`,
+`REPORT.md`, `docs/modeling/ma_study_insights.md` (back to one Tier-2 result).
+
+---

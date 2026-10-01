@@ -12,11 +12,10 @@ This document complements the inbox; it does not restate it. Every number traces
 C2-controlled, block-bootstrapped result. Everything under "Track A" is an uncontrolled
 screen and is cited only as feature-selection evidence, never as an effect size.
 
-**The honest headline, before any table:** the study has two Tier-2 effects:
-−0.248% per 21 trading days (`slope_magnitude_humped_test_sma50`), and, added 2026-10-01,
-a held SMA50 breakout-retest underperforming ordinary SMA50 bounces by 2.08% over 63 days
-(`break_retest_sma50_above_h63`, a rare event, 0.16 per ticker-year). Only 3 of 219
-tests survive whole-grid FDR. The largest |rank-IC| in a 348-cell Track A
+**The honest headline, before any table:** the study's single Tier-2 effect is
+−0.248% per 21 trading days (`slope_magnitude_humped_test_sma50`), and only 3 of 219
+tests survive whole-grid FDR. The third survivor (M22's SMA50 breakout-retest, −2.08% at 63d)
+failed its lookback-neighbour check and is Tier 3. The largest |rank-IC| in a 348-cell Track A
 sweep is 0.038. Every "clears cost" verdict rests on a 10 bps round-trip convention and
 a linear ×12 annualisation (`stats/costs.py::annualize`). The other FDR survivor is a
 drawdown read, not a return claim. A model built on
@@ -26,7 +25,7 @@ this feature family is working in a weak-signal regime and should be evaluated a
 
 ## 1. What the study established, at the confidence the evidence supports
 
-### 1.1 Track B — Tier 2 and the strongest Tier-3 cells (FDR survivors at N=219: M6.3, M6.6 and M22's SMA50 retest cell)
+### 1.1 Track B — Tier 2 and the strongest Tier-3 cells (FDR survivors at N=219: M6.3, M6.6, and M22's SMA50 retest cell at Tier 3)
 
 Units: return cells are per-21-trading-day C2 deltas unless the row says otherwise.
 "n_dates" is the effective N the study reports (distinct contributing dates). "Capped
@@ -70,7 +69,7 @@ grid size, not on new evidence.
 | **M19** MA respect history (2026-09-30) | Does an MA that held ≥2 times in the last 126d (touch → confirmed 1-ATR reversal within 5d) hold better on the next touch than one with none, more than its unwatched neighbour does; 4 MAs × 2 directions | Killed, 0 of 8. Raw hold rates by 0/1/≥2 prior bounces are flat in both arms (e.g. SMA20↑ 35.2/35.7/36.3% real, 35.4/35.2/36.1% synthetic). Two C2+rev-only CIs off zero rest on 2–8% of events and vanish at C1. | No "respect count" / "times this level held" strength input for MA levels. Confirmed-bounce history is not a feature; it is also not a generic mean-reversion proxy (the synthetic arm is flat too). |
 | **M20** confirmed bounce as an entry (2026-09-30) | Touch, then ≥1 ATR back within 5d without a close through: is the confirmation day an entry? Forward return at 5/10/21/63d vs a same-size move with no MA touched; 4 MAs × 2 directions | Killed, 0 of 32. Bounce arm never clears zero in the hypothesised direction; from-above bounces run −0.3 to −0.5% at 63d, from-below rejections +0.3% at 21d (reversal). Generic ≥1-ATR moves sit on top of the bounce arm; `rev_tercile` absorbs most of the C1 delta. | No "bounced off the MA" entry flag. If a bounce feature is built at all it belongs in the short-term-reversal block, sign-flipped from the folklore. |
 | **M21** confirmed break through the MA as an entry (2026-09-30) | Touch, then ≥1 ATR on the *opposite* side within 5d with no close back once through: is the confirmation day an entry? Same grid and generic-move control as M20 | Killed, 0 of 32. Breaks above track any 1-ATR up-move, breaks below any 1-ATR down-move. One cell off zero (SMA50 breakdown, 63d, −0.50%) is right-signed but fails K/R sensitivity, appears only after 5-way matching, and fails FDR. | No "broke through the MA" entry flag, either direction. M20 + M21 together: what happens at an MA touch carries no forward information beyond the size of the move that followed. |
-| **M22** break and retest (2026-10-01) | Break through the MA, retest from the new side within 21d, confirmed bounce: better than an ordinary bounce off the same MA? 4 MAs × 2 directions × 4 horizons | Killed as hypothesised, 0 of 32. **SMA50 breakout-retest underperforms ordinary SMA50 bounces by 2.08% at 63d (Tier 2, FDR survivor, wrong sign vs folklore).** Size appears only with `rev_tercile`; only SMA200 agrees in sign. | No retest-as-buy feature. Candidate *negative* feature: `retest_sma_50_above` within the last ~63 days, conditional on a 21-day-return control. Check SMA47/53 before building it. |
+| **M22** break and retest (2026-10-01) | Break through the MA, retest from the new side within 21d, confirmed bounce: better than an ordinary bounce off the same MA? 4 MAs × 2 directions × 4 horizons | Killed as hypothesised, 0 of 32. SMA50 breakout-retest underperforms ordinary SMA50 bounces by 2.08% at 63d (FDR survivor, wrong sign vs folklore), but SMA47 spans zero, SMA53 is half the size, and a coarser match spans zero: Tier 3. | No retest-as-buy feature. A ~50-day breakout-retest flag is at most a weak *negative* candidate, only alongside a 21-day-return control, and only if a model's own validation finds it. Don't hand-build it. |
 | **§7.5** placebo | SMA200 vs {187,193,207,213}; SMA50 vs {47,53}; EMA21 vs {19,23} | focal SMA200/SMA50 C2 CIs span zero; EMA21 real (−0.459%) but indistinguishable from EMA19/23 | Lookback is a trend-length parameter, not a watched level. Give the model a few lookbacks, never "the 200-day" as a special feature. |
 | **M3** crossovers | 10 primary + 6 facet cells, golden/death across 5 pairs | all point estimates within ±0.08%; every CI spans zero | Crossover *events* add nothing over the *state*. Encode `fast > slow` state and its age; drop "days since cross" as a primary feature (IDEAS §2b lists it — keep it only as a cheap alias of state age). |
 | **M8** family horse race | SMA/EMA/WMA/HMA/DEMA/KAMA/VWMA at matched lag | 7 cells cluster at −0.127% to −0.206%; White's Reality Check p=0.193; HMA/KAMA turnover 34–36 flips/ticker-yr vs 15–20 | One family (SMA or EMA) is enough. Fancy kernels add turnover, not signal. |
