@@ -37,6 +37,27 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 
 ---
 
+### M22 `break_retest_sma50_above_h63` — a held retest above SMA50 underperforms
+
+- **Hypothesis**: after a confirmed break above SMA50, a retest from above within 21 days that
+  holds (confirmed bounce) predicts *better* 63d returns than an ordinary SMA50 bounce. The
+  result is the opposite sign.
+- **Result**: DiD vs ordinary bounces −2.08% [−3.04%, −1.14%] at C2+rev; retest arm −1.84%
+  [−2.35%, −1.33%], ordinary bounce +0.24%. C1 DiD −0.54% [−1.42%, +0.36%]. Raw 63d means:
+  retest 4.20%, ordinary bounce 4.27%, base 4.95%.
+- **Robustness**: all 6 ±25% K/R/W variants keep the CI off zero (−1.12% to −2.77%); 10d and
+  21d also negative; 2010–15 −1.99%, 2016–21 −2.18%, both off zero; 68% of events in
+  contributing strata.
+- **Effective N**: 773 events, 565 dates, 402 contributing dates at C2+rev.
+- **Cost**: −7.4%/yr [−9.4%, −5.3%] vs a 0.02% hurdle (0.16 events per ticker-year). Clears,
+  as an avoid or short signal.
+- **FDR**: survives at q=0.10 and q=0.05 (rank 3 of 219, p=0.00033).
+- **Tier 2**: fails holdout and universe generality, which cannot be tested yet. Caveats: the
+  magnitude appears only once the 21-day return is matched; only SMA200 agrees in sign at 63d
+  (SMA20 and EMA21 do not); found against the pre-registered direction.
+- **Would change**: SMA47/53 disagreeing, the 2022+ holdout disagreeing, or a coarser match
+  (date + `rev_tercile` only) removing it.
+
 ## Tier 3
 
 ### M6.6 `ribbon_agreement_extreme_drawdown` — all-agree slopes, shallower drawdown
@@ -194,6 +215,18 @@ items: U1 has no delisted history, which flatters weak-state buckets.
   keep the sign, only R=0.75 keeps the CI off zero. The only CI off zero among 32 cells.
 - **Would change**: the same sign and a CI off zero at SMA20 or EMA21, or once a
   point-in-time universe with delisted names exists (survivorship biases this toward zero).
+
+### M22 `break_retest_ema21_below_h21` — held retest below EMA21, weaker 21d return
+
+- **Hypothesis**: after a confirmed break below EMA21, a retest from below within 21 days that
+  is rejected predicts a more negative 21d return than an ordinary EMA21 rejection.
+- **Result**: DiD −0.76% [−1.24%, −0.30%]; retest arm −0.63% [−1.05%, −0.23%]. Both subperiods
+  agree. 5 of 6 K/R/W variants keep the CI off zero.
+- **Effective N**: 1,157 events, 456 contributing dates at C2+rev.
+- **Cost**: −7.5%/yr [−12.6%, −2.7%] vs a 0.02% hurdle, as a short (borrow caveat, §7.10).
+- **FDR**: fails (rank 8, p=0.0077 vs 0.0037 at N=219).
+- **Tier 3**: right sign, but the 10d DiD is +0.07%, so the term structure is broken (gate 3).
+- **Would change**: a 10d read that agrees.
 
 ### M6.3 `slope_pctile_21` at SMA20 and SMA200
 

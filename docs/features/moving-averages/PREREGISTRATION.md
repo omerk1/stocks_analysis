@@ -6108,3 +6108,172 @@ requires ≥1 ATR through within 5 days, which excludes slow grinding breaks —
 entry), `STATUS.md`, `REPORT.md`, `docs/modeling/ma_study_insights.md`.
 
 ---
+
+## M22 — Break and retest (2026-10-01)
+
+**Module / track:** M22, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M22 section. Written and committed before running. Same cached placebo panel as
+M19–M21 (U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The one pre-run look is
+the feasibility count at the end (event counts, no outcome column).
+
+**Promoted from:** the question raised after M21. M20 (bounce) and M21 (break) were each killed
+on their own. Neither conditioned one on the other, and the practitioner pattern is the sequence.
+
+**Definitions (frozen):**
+- **Touches, breaks, bounces:** `features/touch.py`, `features/respect.py::
+  break_confirmation_positions` (M21) and `confirmation_positions` (M19/M20), all with K=5 days,
+  R=1.0 ATR. Both resolutions are computed on one shared touch list, so "the preceding touch" is
+  exact.
+- **Retest bounce:** touch i such that (a) the immediately preceding touch i−1 resolved as a
+  confirmed break, confirmed at row b; (b) touch i approaches from the side the break ended on;
+  (c) b < touch row ≤ b + W, **W = 21** trading days; (d) touch i resolves as a confirmed bounce,
+  confirmed at row c. Event row = c, known on that row (the panel is lagged).
+  `features/respect.py::retest_positions` / `retest_flags`.
+- **Directions:** `above` = broke above, retested from above, bounced up (hypothesised
+  **positive** forward return); `below` = the mirror (hypothesised **negative**; §7.10 borrow
+  caveat).
+- **Plain bounce (primary comparison arm):** M20's confirmed bounce on the same MA and
+  direction (`from_above` for `above`), minus the retest rows.
+- **Generic move (secondary arm):** M20's `generic_move_<ma>_<direction>`, unchanged.
+- **Base controls:** rows that are none of retest / plain bounce / generic move.
+- **Outcome / MAs / horizons:** `fwd_ret_h` from row c, h ∈ {5, 10, 21, 63};
+  SMA20, EMA21, SMA50, SMA200, daily bars.
+- **No synthetic-neighbour arm.** M20/M21 showed 74–96% of focal events coincide with a
+  neighbour event, which makes that arm uninformative by construction.
+
+**Statistic per cell:** `DiD = delta_retest − delta_plain_bounce`, each a matched delta on
+`fwd_ret_h` vs the same base controls (`stats/controls.py::stratum_deltas`), shared date blocks
+(`block_bootstrap_delta_diff`), block length max(10, 2h), 500 draws, 90% CI. `delta_retest` also
+gets its own CI; it is the tradeable quantity and the cost annotation attaches to it.
+`delta_retest − delta_generic` is reported, not counted.
+
+**Control tier:** C2 + `rev_tercile` decides; C1 and 3-column C2 are the waterfall.
+
+**Grid (`N_tests` contribution): 32 primary cells** (4 MAs × 2 directions × 4 horizons); the
+counted statistic is the C2+rev DiD vs plain bounce. **192 sensitivity cells** (one at a time:
+K ∈ {4, 6}, R ∈ {0.75, 1.25}, W ∈ {16, 26}), not counted.
+
+**Kill criterion (per cell, then module).** A cell is confirmed iff all of:
+1. `delta_retest`'s C2+rev CI excludes zero in the hypothesised direction;
+2. the DiD vs plain bounce's CI excludes zero in the same direction;
+3. every adjacent horizon's DiD has the same sign;
+4. ≥2 of the other 3 MAs have a same-signed DiD at that direction and horizon;
+5. all 6 K/R/W perturbations keep the DiD's sign and ≥5 of 6 keep its CI off zero (M19's rule
+   for six variants);
+6. not below the effective-N floor: 200 retest events, 30 dates, 30 tickers, and ≥30 dates
+   contributing a matched retest contrast at C2+rev.
+
+**Module killed** iff no cell is confirmed. `decisive_test_status`: `passed` for a confirmed
+cell, `failed` for one that passes gate 1 and fails any of 2–5, `never_tested` otherwise. Tier
+from §9.2's table alone.
+
+**Cost / shape:** `signals_per_year` = retest events per ticker-year (feasibility: 0.05–0.33);
+hurdle = that × 10 bps; compared with `delta_retest` at the point and both CI ends, ×252/h
+linear. Hit rate, win/loss ratio and skew of the retest rows' `fwd_ret_h`, descriptive only.
+
+**Look-ahead:** `modules/break_retest.py` is in `tests/test_moving_averages_leakage.py`'s
+module list (passes); the retest flag is dated at the bounce's confirmation row, which comes
+after the break's confirmation row by construction (tested).
+
+**Argue against it before running:** (a) a retest bounce is a plain bounce on a name that has
+just made a ≥1-ATR move through the MA, so it carries more recent momentum than the plain arm;
+`rev_tercile` matches only the 21-day return, so residual momentum could show up as a positive
+DiD that is not about the MA; (b) SMA200 is thin (below); (c) close-only bars; (d) the
+breakdown side inherits §7.3's survivorship ceiling, which biases a negative delta toward zero.
+
+**Feasibility count (run 2026-10-01 before freezing, `break_retest_run.py --feasibility`; no
+outcome read).**
+
+| MA | dir | retest rows | dates / tickers | plain bounces | retest share of bounces | per ticker-year |
+|---|---|---|---|---|---|---|
+| sma20 | above | 1,591 | 921 / 398 | 5,785 | 22% | 0.33 |
+| sma20 | below | 1,354 | 715 / 396 | 3,504 | 28% | 0.28 |
+| ema21 | above | 1,419 | 846 / 394 | 7,223 | 16% | 0.29 |
+| ema21 | below | 1,169 | 624 / 388 | 4,029 | 22% | 0.24 |
+| sma50 | above | 794 | 580 / 356 | 4,480 | 15% | 0.16 |
+| sma50 | below | 763 | 514 / 343 | 2,696 | 22% | 0.16 |
+| sma200 | above | 256 | 222 / 192 | 2,109 | 11% | 0.05 |
+| sma200 | below | 306 | 239 / 224 | 1,368 | 18% | 0.06 |
+
+All cells clear the raw-count floor, but SMA200 has 256 and 306 events. Its contributing dates
+at C2+rev are expected to be low, possibly under the floor; recorded here so an SMA200 null is
+read as underpowered, not as evidence of no effect. Full table:
+`output/moving_averages/m22_break_retest_feasibility.csv` (gitignored).
+
+### Result (2026-10-01)
+
+Ran as pre-registered (`break_retest_run.py`, 35 minutes, holdout untouched). Outputs under
+`output/moving_averages/m22_break_retest_{primary,sensitivity,kill}.csv` (gitignored).
+
+**Module killed as hypothesised: 0 of 32 cells confirmed.** No retest bounce predicts
+*continuation* better than an ordinary bounce off the same MA under all five gates. But one cell
+carries a large, robust effect in the **opposite** direction, and it survives the whole-grid FDR.
+
+| MA | dir | h | retest delta C2+rev [90% CI] | plain-bounce delta | DiD vs plain [90% CI] |
+|---|---|---|---|---|---|
+| sma20 | above | 21 | +0.31% [−0.07, +0.69] | −0.20% | +0.51% [+0.03, +0.99] |
+| ema21 | above | 21 | −0.16% [−0.48, +0.11] | −0.02% | −0.14% [−0.51, +0.21] |
+| sma50 | above | 21 | −0.54% [−1.04, −0.07] | −0.05% | −0.49% [−1.00, +0.07] |
+| **sma50** | **above** | **63** | **−1.84% [−2.35, −1.33]** | +0.24% | **−2.08% [−3.04, −1.14]** |
+| sma200 | above | 63 | −1.61% (CI n/a) | −0.38% | −1.23% [−2.43, +0.07] |
+| sma20 | below | 21 | +0.04% [−0.30, +0.39] | +0.42% | −0.38% [−0.83, +0.04] |
+| **ema21** | **below** | **21** | **−0.63% [−1.05, −0.23]** | +0.13% | **−0.76% [−1.24, −0.30]** |
+| sma50 | below | 21 | +0.29% [−0.37, +0.86] | −0.23% | +0.52% [−0.03, +1.03] |
+| sma200 | below | 21 | +0.15% [−1.02, +1.41] | +0.22% | −0.08% [−1.12, +1.09] |
+
+(Full 32 rows: `EXPERIMENTS.csv`, `break_retest_*`.) Seven of 32 DiD CIs exclude zero, against
+~3 expected at 90% under the null. SMA200's cells have 151–179 contributing dates and
+three 63d retest-arm CIs could not be formed (too few 126-row blocks), as the feasibility
+count warned.
+
+**`sma50/above/63d` — a held retest above SMA50 is followed by *weaker* 63d returns.** DiD −2.08%
+[−3.04%, −1.14%]; retest arm −1.84% [−2.35%, −1.33%] vs base controls, against +0.24% for an
+ordinary SMA50 bounce. Wrong sign for the hypothesis, so gate 1 fails and the construction is
+killed. As evidence, the robustness record is the strongest of any cell in M19–M22:
+- all 6 K/R/W perturbations keep the CI off zero (−1.12% to −2.77%);
+- 10d and 21d are also negative (−0.42%, −0.49%);
+- both subperiods agree: 2010–15 −1.99% [−2.85, −1.23], 2016–21 −2.18% [−3.67, −0.61];
+- 500 of 732 retest events (68%) sit in contributing C2+rev strata, so this is not M19's
+  thin-strata artifact;
+- whole-grid FDR at N=219: rank 3, p=0.00033 vs threshold 0.00137 (q=0.10) and 0.00068
+  (q=0.05). **Survives both.**
+
+**Argued against:**
+- **The size appears only with `rev_tercile`.** C1 DiD −0.54% [−1.42, +0.36], C2 −0.63%
+  [−1.44, +0.20], C2+rev −2.08%. Raw means are almost equal (retest 4.20%, plain bounce 4.27%).
+  C1 and the raw means agree in sign, so this does not meet STATUS.md's "contradicted" bar, but
+  the magnitude rests on the 21-day-return match. Plausible reading: a retest within 21 days of a
+  1-ATR break leaves the 21-day return near flat; matched against bounces with the same flat
+  21-day return, the retest names are the ones that ran up and gave it back.
+- **One MA.** At 63d above, SMA200 agrees in sign (−1.23%, spans zero, thin); SMA20 (+0.55%) and
+  EMA21 (+0.41%) disagree. SMA50's lookback neighbours (47/53) were not run, so the lookback
+  plateau is untested.
+- **Found, not predicted.** The pre-registration hypothesised the opposite sign. FDR counts the
+  cell, so the multiplicity is accounted for; the post-hoc framing is not.
+- **Cost:** retest arm −7.4%/yr [−9.4%, −5.3%] linear ×4, vs a 0.02%/yr hurdle at 0.16 events
+  per ticker-year. It clears, but as an avoid-or-short signal on a rare event.
+
+**Tier 2** by DESIGN §9.2's table: survives C2 and FDR at q=0.05; fails holdout and universe
+generality, which this study cannot test (same position as M6.3). `decisive_test_status =
+never_tested` (gate 1 failed on sign, per this entry's own rule). Would change it: SMA47/53
+disagreeing, the holdout disagreeing, or a coarser match removing it.
+
+**`ema21/below/21d` — right sign, fails one gate.** DiD −0.76% [−1.24, −0.30]; retest arm −0.63%
+[−1.05, −0.23]. Passes gates 1, 2, 4 (two of the three other MAs agree in sign) and 5
+(5 of 6 perturbations off zero; R=0.75 spans), both subperiods agree, 69% of events in
+contributing strata. **Fails gate 3**: the 10d DiD is +0.07%. Whole-grid FDR rank 8, p=0.0077 vs
+0.0037: fails. Tier 3, `decisive_test_status = failed`. A short, so §7.10's borrow caveat
+applies.
+
+**Other cells with a CI off zero** (SMA20 above 5/10/21d, SMA50 above 10d, SMA50 below 10d) fail
+the focal gate or sensitivity (1–4 of 6 variants): Tier 4.
+
+**Read for the question that motivated this module ("broke out, retested, held — buy?"):** no.
+Under the study's matching, a held retest is never a better long than an ordinary bounce, and at
+SMA50 it is a markedly worse one over the next quarter.
+
+**Logged:** `EXPERIMENTS.csv` (32 rows, counted; `N_tests` 187 → 219), `FINDINGS.md` (one Tier-2,
+one Tier-3 entry), `STATUS.md` (headline, FDR table), `REPORT.md`,
+`docs/modeling/ma_study_insights.md`.
+
+---
