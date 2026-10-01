@@ -6108,3 +6108,94 @@ requires ≥1 ATR through within 5 days, which excludes slow grinding breaks —
 entry), `STATUS.md`, `REPORT.md`, `docs/modeling/ma_study_insights.md`.
 
 ---
+
+## M22 — Break and retest (2026-10-01)
+
+**Module / track:** M22, Track B. Post-termination, DESIGN §1.5's porous-scope rule; DESIGN.md
+has a matching M22 section. Written and committed before running. Same cached placebo panel as
+M19–M21 (U1, 405 tickers, 2010-01-04 → 2021-12-31, holdout untouched). The one pre-run look is
+the feasibility count at the end (event counts, no outcome column).
+
+**Promoted from:** the question raised after M21. M20 (bounce) and M21 (break) were each killed
+on their own. Neither conditioned one on the other, and the practitioner pattern is the sequence.
+
+**Definitions (frozen):**
+- **Touches, breaks, bounces:** `features/touch.py`, `features/respect.py::
+  break_confirmation_positions` (M21) and `confirmation_positions` (M19/M20), all with K=5 days,
+  R=1.0 ATR. Both resolutions are computed on one shared touch list, so "the preceding touch" is
+  exact.
+- **Retest bounce:** touch i such that (a) the immediately preceding touch i−1 resolved as a
+  confirmed break, confirmed at row b; (b) touch i approaches from the side the break ended on;
+  (c) b < touch row ≤ b + W, **W = 21** trading days; (d) touch i resolves as a confirmed bounce,
+  confirmed at row c. Event row = c, known on that row (the panel is lagged).
+  `features/respect.py::retest_positions` / `retest_flags`.
+- **Directions:** `above` = broke above, retested from above, bounced up (hypothesised
+  **positive** forward return); `below` = the mirror (hypothesised **negative**; §7.10 borrow
+  caveat).
+- **Plain bounce (primary comparison arm):** M20's confirmed bounce on the same MA and
+  direction (`from_above` for `above`), minus the retest rows.
+- **Generic move (secondary arm):** M20's `generic_move_<ma>_<direction>`, unchanged.
+- **Base controls:** rows that are none of retest / plain bounce / generic move.
+- **Outcome / MAs / horizons:** `fwd_ret_h` from row c, h ∈ {5, 10, 21, 63};
+  SMA20, EMA21, SMA50, SMA200, daily bars.
+- **No synthetic-neighbour arm.** M20/M21 showed 74–96% of focal events coincide with a
+  neighbour event, which makes that arm uninformative by construction.
+
+**Statistic per cell:** `DiD = delta_retest − delta_plain_bounce`, each a matched delta on
+`fwd_ret_h` vs the same base controls (`stats/controls.py::stratum_deltas`), shared date blocks
+(`block_bootstrap_delta_diff`), block length max(10, 2h), 500 draws, 90% CI. `delta_retest` also
+gets its own CI; it is the tradeable quantity and the cost annotation attaches to it.
+`delta_retest − delta_generic` is reported, not counted.
+
+**Control tier:** C2 + `rev_tercile` decides; C1 and 3-column C2 are the waterfall.
+
+**Grid (`N_tests` contribution): 32 primary cells** (4 MAs × 2 directions × 4 horizons); the
+counted statistic is the C2+rev DiD vs plain bounce. **192 sensitivity cells** (one at a time:
+K ∈ {4, 6}, R ∈ {0.75, 1.25}, W ∈ {16, 26}), not counted.
+
+**Kill criterion (per cell, then module).** A cell is confirmed iff all of:
+1. `delta_retest`'s C2+rev CI excludes zero in the hypothesised direction;
+2. the DiD vs plain bounce's CI excludes zero in the same direction;
+3. every adjacent horizon's DiD has the same sign;
+4. ≥2 of the other 3 MAs have a same-signed DiD at that direction and horizon;
+5. all 6 K/R/W perturbations keep the DiD's sign and ≥5 of 6 keep its CI off zero (M19's rule
+   for six variants);
+6. not below the effective-N floor: 200 retest events, 30 dates, 30 tickers, and ≥30 dates
+   contributing a matched retest contrast at C2+rev.
+
+**Module killed** iff no cell is confirmed. `decisive_test_status`: `passed` for a confirmed
+cell, `failed` for one that passes gate 1 and fails any of 2–5, `never_tested` otherwise. Tier
+from §9.2's table alone.
+
+**Cost / shape:** `signals_per_year` = retest events per ticker-year (feasibility: 0.05–0.33);
+hurdle = that × 10 bps; compared with `delta_retest` at the point and both CI ends, ×252/h
+linear. Hit rate, win/loss ratio and skew of the retest rows' `fwd_ret_h`, descriptive only.
+
+**Look-ahead:** `modules/break_retest.py` is in `tests/test_moving_averages_leakage.py`'s
+module list (passes); the retest flag is dated at the bounce's confirmation row, which comes
+after the break's confirmation row by construction (tested).
+
+**Argue against it before running:** (a) a retest bounce is a plain bounce on a name that has
+just made a ≥1-ATR move through the MA, so it carries more recent momentum than the plain arm;
+`rev_tercile` matches only the 21-day return, so residual momentum could show up as a positive
+DiD that is not about the MA; (b) SMA200 is thin (below); (c) close-only bars; (d) the
+breakdown side inherits §7.3's survivorship ceiling, which biases a negative delta toward zero.
+
+**Feasibility count (run 2026-10-01 before freezing, `break_retest_run.py --feasibility`; no
+outcome read).**
+
+| MA | dir | retest rows | dates / tickers | plain bounces | retest share of bounces | per ticker-year |
+|---|---|---|---|---|---|---|
+| sma20 | above | 1,591 | 921 / 398 | 5,785 | 22% | 0.33 |
+| sma20 | below | 1,354 | 715 / 396 | 3,504 | 28% | 0.28 |
+| ema21 | above | 1,419 | 846 / 394 | 7,223 | 16% | 0.29 |
+| ema21 | below | 1,169 | 624 / 388 | 4,029 | 22% | 0.24 |
+| sma50 | above | 794 | 580 / 356 | 4,480 | 15% | 0.16 |
+| sma50 | below | 763 | 514 / 343 | 2,696 | 22% | 0.16 |
+| sma200 | above | 256 | 222 / 192 | 2,109 | 11% | 0.05 |
+| sma200 | below | 306 | 239 / 224 | 1,368 | 18% | 0.06 |
+
+All cells clear the raw-count floor, but SMA200 has 256 and 306 events. Its contributing dates
+at C2+rev are expected to be low, possibly under the floor; recorded here so an SMA200 null is
+read as underpowered, not as evidence of no effect. Full table:
+`output/moving_averages/m22_break_retest_feasibility.csv` (gitignored).

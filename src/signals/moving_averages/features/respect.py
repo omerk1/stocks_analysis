@@ -264,3 +264,84 @@ def break_flags(
         f"break_{ma_col}_{BREAK_BELOW}": pd.array(below, dtype="boolean"),
     }, index=panel.index)
     return out.mask(np.repeat((~defined)[:, None], out.shape[1], axis=1))
+
+
+RETEST_WINDOW = 21   # W: max trading days from the break's confirmation to the retest touch
+
+
+def retest_positions(
+    dist_atr: pd.Series,
+    confirm_window: int = CONFIRM_WINDOW,
+    confirm_distance: float = CONFIRM_DISTANCE,
+    retest_window: int = RETEST_WINDOW,
+) -> pd.DataFrame:
+    """M22 (PREREGISTRATION.md 2026-10-01): break-and-retest. One ticker's
+    already-lagged, date-sorted `dist_atr`. A touch i is a *retest bounce*
+    iff
+      - the immediately preceding touch i-1 resolved as a confirmed BREAK
+        (`break_confirmation_positions`), confirmed at row b;
+      - touch i approaches from the side the break ended on
+        (`sign_i == -sign_{i-1}`: broke above, now coming back down to the
+        MA from above);
+      - b < touch_pos_i <= b + W;
+      - touch i resolves as a confirmed BOUNCE (`confirmation_positions`)
+        on that new side, confirmed at row c.
+    Returns one row per retest bounce: `touch_pos`, `direction_sign` (sign
+    of touch i: +1 = broke above and held above, -1 = broke below and held
+    below), `break_pos` (b), `confirm_pos` (c, the event row). Both
+    resolutions use the same K/R; the two tables share one touch list, so
+    "immediately preceding" is exact.
+    """
+    bounces = confirmation_positions(dist_atr, confirm_window, confirm_distance)
+    breaks = break_confirmation_positions(dist_atr, confirm_window, confirm_distance)
+    empty = pd.DataFrame({"touch_pos": pd.Series(dtype=int), "direction_sign": pd.Series(dtype=float),
+                          "break_pos": pd.Series(dtype=int), "confirm_pos": pd.Series(dtype=int)})
+    if len(bounces) < 2:
+        return empty
+    touch_pos = bounces["touch_pos"].to_numpy()
+    sign = bounces["direction_sign"].to_numpy()
+    bounce_c = bounces["confirm_pos"].to_numpy()
+    break_c = breaks["confirm_pos"].to_numpy()
+    prev_break = np.r_[-1, break_c[:-1]]
+    prev_sign = np.r_[0.0, sign[:-1]]
+    is_retest = (
+        (bounce_c >= 0) & (prev_break >= 0) & (sign == -prev_sign)
+        & (touch_pos > prev_break) & (touch_pos - prev_break <= retest_window)
+    )
+    if not is_retest.any():
+        return empty
+    return pd.DataFrame({
+        "touch_pos": touch_pos[is_retest], "direction_sign": sign[is_retest],
+        "break_pos": prev_break[is_retest], "confirm_pos": bounce_c[is_retest],
+    })
+
+
+def retest_flags(
+    panel: pd.DataFrame,
+    dist_atr_col: str,
+    ticker_col: str = "ticker",
+    confirm_window: int = CONFIRM_WINDOW,
+    confirm_distance: float = CONFIRM_DISTANCE,
+    retest_window: int = RETEST_WINDOW,
+) -> pd.DataFrame:
+    """`retest_<ma>_above` (broke above, retested from above, bounced up) /
+    `retest_<ma>_below` (mirror), True on the retest bounce's confirmation
+    row only, NaN where `dist_atr` is NaN. Same dating as `bounce_flags`:
+    the flag is known on the row it marks.
+    """
+    ma_col = dist_atr_col.removeprefix("dist_atr_")
+    above = np.zeros(len(panel), dtype=bool)
+    below = np.zeros(len(panel), dtype=bool)
+    positions = np.arange(len(panel))
+    for _, idx in panel.groupby(ticker_col, sort=False).indices.items():
+        series = panel[dist_atr_col].iloc[idx].reset_index(drop=True)
+        found = retest_positions(series, confirm_window, confirm_distance, retest_window)
+        rows = positions[idx]
+        above[rows[found.loc[found["direction_sign"] > 0, "confirm_pos"].to_numpy(dtype=int)]] = True
+        below[rows[found.loc[found["direction_sign"] < 0, "confirm_pos"].to_numpy(dtype=int)]] = True
+    defined = panel[dist_atr_col].notna().to_numpy()
+    out = pd.DataFrame({
+        f"retest_{ma_col}_{BREAK_ABOVE}": pd.array(above, dtype="boolean"),
+        f"retest_{ma_col}_{BREAK_BELOW}": pd.array(below, dtype="boolean"),
+    }, index=panel.index)
+    return out.mask(np.repeat((~defined)[:, None], out.shape[1], axis=1))
