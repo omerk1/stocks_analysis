@@ -338,10 +338,10 @@ def test_run_backtest_continues_past_a_ticker_that_raises(conn, monkeypatch, cap
     # crash with ValueError against the pre-fix code before adding this.
     real_load = evaluator.data_mod.load_and_validate
 
-    def flaky_load(conn_, ticker, timeframe):
+    def flaky_load(conn_, ticker, timeframe, **kwargs):
         if ticker == "BAD":
             raise ValueError("simulated data error")
-        return real_load(conn_, ticker, timeframe)
+        return real_load(conn_, ticker, timeframe, **kwargs)
 
     monkeypatch.setattr(evaluator.data_mod, "load_and_validate", flaky_load)
 

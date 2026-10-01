@@ -50,6 +50,7 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.data import load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
 from src.signals.moving_averages.features import context, distance, ma, slope, state
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 ATR_PERIOD = 14
 _NON_FEATURE_COLUMNS = ("ticker", "date", "open", "high", "low", "close", "volume")
@@ -203,7 +204,7 @@ def build_panel(
     """
     bars_by_ticker = {}
     for ticker in tickers:
-        bars = load_bars(conn, ticker, timeframe, as_of=end, start=start)
+        bars = load_bars(conn, ticker, timeframe, as_of=end, start=start, basis=MODULE_PRICE_BASIS["moving_averages"])
         if not bars.empty:
             bars_by_ticker[ticker] = bars
     return assemble_panel(bars_by_ticker, db.read_ticker_sector(conn))

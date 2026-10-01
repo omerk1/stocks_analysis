@@ -233,7 +233,7 @@ def detect(
     weight covering a real gap in the truncation.
     """
     timeframe = Timeframe(timeframe)
-    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
+    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
 
     if len(bars) < config.min_bars:
         reason = f"only {len(bars)} bars available (< min_bars={config.min_bars})"

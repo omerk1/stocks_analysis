@@ -27,6 +27,7 @@ from src.signals.gaps.models import Gap, Timeframe
 from src.signals.gaps.plotting import render_gap_chart
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _timeframes_for(arg: str) -> list[Timeframe]:
@@ -50,7 +51,7 @@ def run_for_ticker(
     detection actually ran (even if it found zero gaps) -- a run that
     legitimately found nothing is still a completed run, distinct from one
     skipped outright for too little data."""
-    bars, report = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+    bars, report = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
     gaps, skip_reason = detect_on_bars(bars, ticker, timeframe, config)
     if skip_reason is not None:
         return [], skip_reason
@@ -102,7 +103,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["gaps"]),)
             ).fetchall()
         ]
     else:

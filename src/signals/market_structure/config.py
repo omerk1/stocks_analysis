@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 @dataclass
@@ -41,6 +42,12 @@ class MarketStructureConfig:
     require_volume_surge: bool = False
     volume_sma_period: int = 50
     breakout_volume_mult: float = 1.4
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["market_structure"]
 
     def to_dict(self) -> dict:
         return dict(self.__dict__)

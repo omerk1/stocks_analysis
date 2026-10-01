@@ -31,6 +31,7 @@ from src.signals.moving_averages.data import (
 )
 from src.signals.moving_averages.features.panel import build_panel, read_panel, write_panel
 from src.signals.moving_averages.synthetic import gate_verdict, run_validation
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "output" / "moving_averages"
 
@@ -76,7 +77,7 @@ def hygiene_report(tickers: list[str]) -> None:
 
     print("\n=== Per-ticker flat-run / large-move scan ===")
     for ticker in tickers:
-        bars = load_bars(conn, ticker, Timeframe.DAILY)
+        bars = load_bars(conn, ticker, Timeframe.DAILY, basis=MODULE_PRICE_BASIS["moving_averages"])
         if bars.empty:
             print(f"{ticker}: no data")
             continue

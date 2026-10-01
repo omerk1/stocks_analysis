@@ -14,6 +14,7 @@ which rebuilds each gap's state from prices up to that date (or run
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pandas as pd
@@ -192,8 +193,10 @@ def read_gaps(
     new dividend -- AAPL moved ~0.1% within a day in 2026-09), stored zones
     no longer line up with current prices. Pass `bars` (the frame you'll
     give `gap_states`) to check every stored zone against the creation
-    bars it came from; a mismatch raises StaleGapsError -- rerun the
-    detection instead.
+    bars it came from, and -- when the bars came from the shared loader
+    and so carry `attrs["price_basis"]` -- that the rows were computed on
+    the same price basis; either mismatch raises StaleGapsError -- rerun
+    the detection instead.
     """
     timeframe = Timeframe(timeframe)
     rows = conn.execute(
@@ -210,6 +213,14 @@ def read_gaps(
         for r in rows
     ]
     if bars is not None:
+        bars_basis = bars.attrs.get("price_basis")
+        if bars_basis is not None:
+            stored = stored_price_bases(conn, ticker, timeframe)
+            if stored and stored != {bars_basis}:
+                raise StaleGapsError(
+                    f"{ticker}/{timeframe.value}: stored gaps are on price basis {sorted(stored)}, the bars are "
+                    f"{bars_basis!r} -- rerun gaps detection (see docs/decisions/price-basis.md)"
+                )
         stale = stale_gap_ids(gaps, bars)
         if stale:
             raise StaleGapsError(
@@ -221,6 +232,22 @@ def read_gaps(
 
 class StaleGapsError(ValueError):
     pass
+
+
+def stored_price_bases(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe | str) -> set[str]:
+    """Price bases the stored rows for (ticker, timeframe) were computed on,
+    from each row's run settings. Runs from before the setting existed
+    loaded the `yfinance` source, i.e. total_return."""
+    timeframe = Timeframe(timeframe)
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT r.config_json FROM gaps g JOIN runs r ON r.run_id = g.run_id "
+            "WHERE g.ticker = ? AND g.timeframe = ?",
+            (ticker, timeframe.value),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return set()  # no `runs` table (a bare test DB): nothing to check against
+    return {json.loads(r[0] or "{}").get("price_basis", "total_return") for r in rows}
 
 
 def stale_gap_ids(gaps: list[Gap], bars: pd.DataFrame, rel_tol: float = 1e-6) -> list[str]:

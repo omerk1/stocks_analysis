@@ -18,10 +18,12 @@ from src.signals.fibonacci.plotting import render_fib_chart
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _all_tickers(conn) -> list[str]:
-    rows = conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (raw_db.YFINANCE,))
+    rows = conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["fibonacci"]),))
     return sorted(r[0] for r in rows.fetchall())
 
 
@@ -69,7 +71,7 @@ def _run_one(raw_conn, derived_conn, ticker, timeframe, config, as_of, plot_path
                 print(f"  --set-id {set_id} not found among this run's selected sets or the stored DB -- no plot written")
                 return True
 
-        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
         fig = render_fib_chart(bars, sets_to_plot)
         fig.write_html(plot_path)
         print(f"  wrote {plot_path}")

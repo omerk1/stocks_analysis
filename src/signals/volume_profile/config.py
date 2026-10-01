@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.foundation.market_common.anchors import AnchorConfig
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 @dataclass
@@ -71,3 +72,9 @@ class VolumeProfileConfig(AnchorConfig):
     # ATR lookback for distance_to_poc_atr -- same default as every other
     # module's atr_period.
     atr_period: int = 14
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["volume_profile"]

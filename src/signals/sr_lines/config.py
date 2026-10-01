@@ -6,6 +6,7 @@ inspection without touching detection code.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 def _default_scoring_weights() -> dict:
@@ -128,6 +129,12 @@ class SRConfig:
         if self.recency_half_life_years is not None:
             return self.recency_half_life_years
         return self.window_years * 0.25
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["sr_lines"]
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)

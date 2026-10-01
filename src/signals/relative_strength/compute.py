@@ -31,6 +31,7 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing import resample as resample_mod
 from src.foundation.market_common import indicators
 from src.signals.relative_strength.config import SECTOR_ETF_MAP, RelativeStrengthConfig
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 _RESULT_COLUMNS = ["ticker", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_weighted_return", "rs_rating"]
 _SECTOR_RESULT_COLUMNS = ["sector", "date", "benchmark", "rs_ratio", "rs_mansfield", "rs_weighted_return", "rs_rating"]
@@ -79,7 +80,7 @@ def _load_daily_ohlcv(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFr
         "SELECT ticker, timestamp, open, high, low, close, volume, is_partial FROM bars_1d "
         f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, timestamp"
     )
-    return pd.read_sql_query(query, conn, params=[db.YFINANCE, *tickers], parse_dates=["timestamp"])
+    return pd.read_sql_query(query, conn, params=[source_for(MODULE_PRICE_BASIS["relative_strength"]), *tickers], parse_dates=["timestamp"])
 
 
 def _bulk_weekly_closes(conn: sqlite3.Connection, tickers: list[str]) -> dict[str, pd.Series]:

@@ -6,6 +6,7 @@ code (same reasoning as sr_lines.config.SRConfig).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 @dataclass
@@ -52,3 +53,9 @@ class GapConfig:
     # their lifecycle status but consumers (LRP features, charts) ignore
     # them. See relevance.py.
     reach_factor: float = 2.0
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["gaps"]

@@ -7,6 +7,7 @@ SRConfig / gaps.config.GapConfig).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 def _default_strength_weights() -> dict:
@@ -77,3 +78,9 @@ class DivergenceConfig:
     # a divergence's thesis is a multi-bar trend reversal, not an
     # immediate single-touch bounce. Starting point, not validated.
     outcome_window_bars: int = 20
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["divergences"]

@@ -39,6 +39,7 @@ from src.signals.market_structure import store
 from src.signals.market_structure.config import MarketStructureConfig, get_preset
 from src.signals.market_structure.detect import track_market_structure
 from src.signals.market_structure.models import Direction, StructureEvent, TrendState
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 DEFAULT_HORIZONS: tuple[int, ...] = (10, 20, 60)
 
@@ -214,7 +215,7 @@ def run_backtest(
     all_outcomes: list[StructureOutcome] = []
     for ticker in tickers:
         try:
-            bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe)
+            bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe, basis=config.price_basis)
             if len(bars) < config.min_bars:
                 continue
             atr = indicators.atr(bars, config.atr_period)
@@ -256,7 +257,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["market_structure"]),)
             ).fetchall()
         ]
     else:

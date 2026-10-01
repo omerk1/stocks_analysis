@@ -18,6 +18,7 @@ from src.signals.divergences.store import create_divergences_table, upsert_diver
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
     )
 
     if plot_path is not None:
-        bars, _ = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
+        bars, _ = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
         series = compute_indicator_series(bars, plot_indicator, config)
         fig = render_divergence_chart(bars, series, divergences, plot_indicator, ticker=ticker)
         fig.write_html(plot_path)
@@ -83,7 +84,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["divergences"]),)
             ).fetchall()
         ]
         total, skipped, failed, unreliable = 0, 0, 0, 0

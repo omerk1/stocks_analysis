@@ -103,7 +103,9 @@ def test_smoke_real_aapl_daily_ticker_detection():
 
     all_roles = {role for a in anchors for role in a.anchor_types}
     assert AnchorType.ATH in all_roles
-    assert AnchorType.ATL in all_roles
+    # Since anchors are judged by price reach (Done #64), AAPL's 1982 all-time low
+    # (~6,000x below today) is replaced by the current regime's low.
+    assert AnchorType.ATL in all_roles or AnchorType.REGIME_LOW in all_roles
 
     for anchor in anchors:
         assert anchor.ticker == "AAPL"

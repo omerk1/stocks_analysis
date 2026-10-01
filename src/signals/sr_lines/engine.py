@@ -27,6 +27,7 @@ from src.signals.sr_lines import pivots as pivots_mod
 from src.signals.sr_lines import scoring as scoring_mod
 from src.signals.sr_lines.config import SRConfig
 from src.signals.sr_lines.models import DetectionResult
+from src.foundation.market_common.price_basis import source_for
 
 
 def detect(
@@ -47,7 +48,7 @@ def detect(
     if bars.empty:
         return DetectionResult(
             ticker=ticker,
-            source=data_mod.REQUIRED_SOURCE,
+            source=source_for(config.price_basis),
             as_of=as_of_str,
             config_snapshot=config.to_dict(),
             data_quality=quality,
@@ -86,7 +87,7 @@ def detect(
 
     return DetectionResult(
         ticker=ticker,
-        source=data_mod.REQUIRED_SOURCE,
+        source=source_for(config.price_basis),
         as_of=as_of_str,
         config_snapshot=config.to_dict(),
         data_quality=quality,

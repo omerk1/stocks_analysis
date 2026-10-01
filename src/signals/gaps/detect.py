@@ -117,7 +117,7 @@ def detect(
     not just that it was).
     """
     timeframe = Timeframe(timeframe)
-    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
+    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
     gaps, skip_reason = detect_on_bars(bars, ticker, timeframe, config)
     return gaps, report, skip_reason
 
