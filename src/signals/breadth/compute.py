@@ -27,6 +27,7 @@ SMA -- never silently a wrong 0.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import numpy as np
@@ -35,6 +36,8 @@ import pandas as pd
 from src.signals.breadth.config import WEIGHTING_CHOICES, BreadthConfig
 from src.foundation.data_processing import db
 from src.foundation.data_processing import market_cap
+
+logger = logging.getLogger(__name__)
 from src.foundation.data_processing import ticker_renames
 from src.foundation.market_common import indicators
 
@@ -111,6 +114,30 @@ def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: l
     if not frames:
         return pd.DataFrame(columns=["ticker", "date", "market_cap"])
     return pd.concat(frames, ignore_index=True)
+
+
+def _drop_cap_outliers(members: pd.DataFrame, ratio: float | None) -> pd.Series:
+    """`members["market_cap"]` with any cap above `ratio` x that date's
+    median member cap set to NaN -- i.e. that member is excluded from that
+    date's weighted aggregates exactly like a member with no cap data yet
+    (see `_weighted_fraction`). Guards cap-weighted breadth against a
+    single mis-scaled share count swallowing the whole index
+    (`BreadthConfig.cap_outlier_ratio`). Logged, never silent.
+    """
+    caps = members["market_cap"]
+    if ratio is None or caps.isna().all():
+        return caps
+    median = caps.groupby(members["date"]).transform("median")
+    outlier = caps > ratio * median
+    if outlier.any():
+        hit = members[outlier]
+        logger.warning(
+            "cap-weighted breadth: excluded %d member-days whose market cap exceeds %gx the date's median "
+            "(%d tickers: %s) -- a mis-scaled share count, not a real weight",
+            int(outlier.sum()), ratio, hit["ticker"].nunique(),
+            ", ".join(sorted(hit["ticker"].unique())[:10]),
+        )
+    return caps.mask(outlier)
 
 
 def _constituent_counts(membership: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.Series:
@@ -227,7 +254,7 @@ def compute_breadth(
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
-        members["weight"] = members["market_cap"]
+        members["weight"] = _drop_cap_outliers(members, config.cap_outlier_ratio)
     else:
         members["weight"] = 1.0
 

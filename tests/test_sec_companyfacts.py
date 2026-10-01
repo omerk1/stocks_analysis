@@ -154,6 +154,32 @@ def test_backfill_keeps_agreeing_companies_and_rejects_scale_or_class_mismatches
     assert db.read_shares_outstanding(conn, "SCALE", db.SEC_EDGAR).empty
 
 
+def test_a_run_of_mis_scaled_filings_is_dropped_whatever_its_length():
+    # CB 2010: consecutive filings tagged without their "in millions"
+    # scale, 1e6x off -- drop_isolated_spikes keeps them (no single
+    # spike), drop_scale_runs removes the whole run. Interior AND trailing
+    # runs, 1e6x and 1e3x.
+    idx = pd.to_datetime([f"20{y}-{m:02d}-01" for y in (20, 21, 22) for m in (1, 4, 7, 10)])
+    v = [336.0, 336.3, 338.6e6, 338.8e6, 338.9e6, 339.1, 339.5, 340.0, 340.2, 340.4, 340.7e3, 341.0e3]
+    series = pd.Series(v, index=idx)
+    assert sec.drop_isolated_spikes(series).tolist() == v  # the old rule alone keeps every bad point
+    kept = sec.drop_scale_runs(sec.drop_isolated_spikes(series))
+    assert kept.tolist() == [336.0, 336.3, 339.1, 339.5, 340.0, 340.2, 340.4]
+    # Half the filings at the wrong scale: no majority to trust, nothing is
+    # dropped here -- the yfinance agreement check rejects such a company.
+    half = pd.Series([336.0, 336.3, 338.6e6, 338.8e6], index=idx[:4])
+    assert sec.drop_scale_runs(half).tolist() == half.tolist()
+
+
+def test_scale_run_filter_keeps_real_reverse_splits_and_dilution():
+    idx = pd.to_datetime(["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01", "2021-01-01", "2021-04-01"])
+    reverse_split = pd.Series([100.0, 101.0, 1.0, 1.01, 1.02, 1.03], index=idx)      # 1-for-100: not a 1e3/1e6 ratio
+    assert sec.drop_scale_runs(reverse_split).tolist() == reverse_split.tolist()
+    dilution = pd.Series([10.0, 30.0, 90.0, 270.0, 810.0, 2430.0], index=idx)         # 3x per filing, 243x end to end
+    assert sec.drop_scale_runs(dilution).tolist() == dilution.tolist()
+    assert sec.drop_scale_runs(pd.Series([5.0], index=idx[:1])).tolist() == [5.0]
+
+
 def test_endpoint_scale_errors_are_dropped_but_a_real_final_reverse_split_is_kept():
     idx = pd.to_datetime(["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01"])
     first_bad = pd.Series([100_000.0, 100.0, 101.0, 102.0], index=idx)      # 1000x at the start

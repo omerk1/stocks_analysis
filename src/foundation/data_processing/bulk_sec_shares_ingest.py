@@ -85,7 +85,7 @@ def _evaluate(conn, zf, cik_map, ticker, active, shared_ciks) -> tuple[str, pd.S
     company = sec.read_company(zf, cik)
     if company is None:
         return "not_in_zip", None
-    counts = sec.drop_isolated_spikes(sec.share_counts(company))
+    counts = sec.drop_scale_runs(sec.drop_isolated_spikes(sec.share_counts(company)))
     if counts.empty:
         return "no_share_facts", None
     reference = db.read_shares_outstanding(conn, ticker, db.YFINANCE)

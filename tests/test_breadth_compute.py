@@ -176,6 +176,32 @@ def test_cap_weighted_pct_above_sma_weights_by_market_cap_not_count(conn):
     assert day3 < 0.01
 
 
+def test_cap_weighted_excludes_a_member_whose_cap_is_a_scale_error(conn, caplog):
+    # Same two tickers as above plus CCC, whose share count is mis-scaled
+    # by 1e6 (the SEC "in millions" signature): its cap would be ~1e6x the
+    # date's median. With the guard it's excluded that date, so the answer
+    # is exactly the two-ticker one; without the guard it would be ~1.0.
+    import logging
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    db.upsert_bars(conn, "bars_1d", "BBB", db.YFINANCE, _bars([19, 18, 17, 16, 15, 14, 13, 12, 11, 10]))
+    db.upsert_bars(conn, "bars_1d", "CCC", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    _shares(conn, "AAA", 100)
+    _shares(conn, "BBB", 10_000)
+    _shares(conn, "CCC", 10_000 * 1_000_000)
+    membership = pd.DataFrame({"ticker": ["AAA", "BBB", "CCC"], "start_date": [_DATES[0]] * 3, "end_date": [None] * 3})
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    with caplog.at_level(logging.WARNING, logger="src.signals.breadth.compute"):
+        guarded = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+    unguarded = compute_breadth(conn, "test_idx", _config(weighting="cap", cap_outlier_ratio=None))
+
+    assert guarded["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+    assert unguarded["pct_above_sma3"].iloc[2] > 0.99
+    assert "CCC" in caplog.text and "excluded" in caplog.text
+    # The guard never touches the ordinary 141x spread between AAA and BBB.
+    assert guarded["n_with_data"].iloc[2] == 3
+
+
 def test_cap_weighted_n_advancing_is_a_market_cap_dollar_sum_not_a_count(conn):
     db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
     db.upsert_bars(conn, "bars_1d", "BBB", db.YFINANCE, _bars([19, 18, 17, 16, 15, 14, 13, 12, 11, 10]))
