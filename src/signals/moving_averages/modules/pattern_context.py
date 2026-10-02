@@ -39,6 +39,7 @@ import pandas as pd
 from src.signals.moving_averages.features import state
 from src.signals.moving_averages.stats.controls import c2_eligible_mask, cross_sectional_bucket
 from src.signals.moving_averages.stats.inference import InsufficientBlocksError, block_bootstrap_delta
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 MIN_EVENTS = 200
 MIN_DATES = 30
@@ -113,7 +114,9 @@ def attach_breakout_dates(
     working = patterns.copy()
     working["breakout_date"] = pd.NaT
     for ticker, group in working.groupby("ticker"):
-        bars, _ = load_and_validate(raw_conn, ticker, "1d", as_of=as_of)
+        # patterns' basis, not the MA study's: breakout_bar/entry_price index into
+        # the bars the patterns scanner read, so these must be the same series.
+        bars, _ = load_and_validate(raw_conn, ticker, "1d", as_of=as_of, basis=MODULE_PRICE_BASIS["patterns"])
         idx = group["breakout_bar"].astype(int).to_numpy()
         in_range = (idx >= 0) & (idx < len(bars))
         dates = pd.Series(pd.NaT, index=group.index, dtype="datetime64[ns]")

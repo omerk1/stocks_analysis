@@ -16,6 +16,7 @@ from src.signals.divergences.detect import compute_indicator_series, detect
 from src.signals.divergences.models import Direction
 from src.signals.divergences.plotting import render_divergence_chart
 from src.signals.divergences.store import create_divergences_table, upsert_divergences
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
@@ -136,7 +137,7 @@ def test_plotting_produces_html_for_aapl(conn, tmp_path):
     divergences, _report, skip_reason = detect(conn, "AAPL", Timeframe.DAILY, config)
     assert skip_reason is None
 
-    bars, _ = data_mod.load_and_validate(conn, "AAPL", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(conn, "AAPL", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["divergences"])
     rsi_series = compute_indicator_series(bars, "rsi", config)
     fig = render_divergence_chart(bars, rsi_series, divergences, "rsi", ticker="AAPL")
 

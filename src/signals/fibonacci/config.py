@@ -6,6 +6,7 @@ fields without touching detection code).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 def _default_weight_components() -> dict:
@@ -73,6 +74,12 @@ class FibConfig:
     # Forward window (bars) for measuring how far price moved away after a
     # touch, ATR-normalized -- mirrors SRConfig.touch_reaction_window_bars.
     touch_reaction_window_bars: int = 10
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["fibonacci"]
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)

@@ -12,6 +12,7 @@ from src.signals.gaps import relevance, store
 from src.signals.gaps.config import GapConfig
 from src.signals.gaps.detect import detect
 from src.signals.gaps.models import Direction, Gap, GapKind
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 REAL_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "raw" / "market_data.sqlite"
 CFG = GapConfig(min_bars=60, warmup_bars=20)
@@ -46,7 +47,7 @@ def _assert_matches_as_of_run(conn, ticker, as_of_dates, config):
     full, _, reason = detect(conn, ticker, Timeframe.DAILY, config)
     assert reason is None
     from src.foundation.market_common import data as data_mod
-    bars, _ = data_mod.load_and_validate(conn, ticker, Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(conn, ticker, Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     states = relevance.gap_states(bars, full, as_of_dates, config, include_closed=True)
     checked = 0
     for as_of in as_of_dates:
@@ -162,7 +163,7 @@ def test_no_gaps_before_min_bars_of_history_just_like_an_as_of_run(raw_conn):
     # but an as-of run inside the first 60 bars returns nothing.
     from src.foundation.market_common import data as data_mod
     full, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
-    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     early = [bars.index[30], bars.index[58]]
     assert any(pd.Timestamp(g.created_at) <= early[0] for g in full)   # gaps do exist that early
     for d in early:
@@ -176,7 +177,7 @@ def test_no_gaps_before_min_bars_of_history_just_like_an_as_of_run(raw_conn):
 def test_stored_gaps_read_back_give_the_same_point_in_time_states(raw_conn):
     from src.foundation.market_common import data as data_mod
     detected, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
-    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     derived = derived_db.get_connection(":memory:")
     store.create_gaps_table(derived)
     store.upsert_gaps(derived, detected, run_id="r1")
@@ -197,7 +198,7 @@ def test_stored_gaps_read_back_give_the_same_point_in_time_states(raw_conn):
 def test_read_gaps_rejects_stored_zones_that_no_longer_match_the_bars(raw_conn):
     from src.foundation.market_common import data as data_mod
     detected, _, _ = detect(raw_conn, "RW", Timeframe.DAILY, CFG)
-    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     derived = derived_db.get_connection(":memory:")
     store.create_gaps_table(derived)
     store.upsert_gaps(derived, detected, run_id="r1")
@@ -224,7 +225,7 @@ def test_rerun_after_a_bar_readjustment_refreshes_zones_and_keeps_ids(raw_conn):
     readj = _random_walk_bars()
     readj[["open", "high", "low", "close"]] *= 0.999
     raw_db.upsert_bars(raw_conn, "bars_1d", "RW", raw_db.YFINANCE, readj)
-    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     with pytest.raises(store.StaleGapsError):
         store.read_gaps(derived, "RW", "daily", bars=bars)
 

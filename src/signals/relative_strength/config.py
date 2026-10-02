@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.foundation.data_processing import db
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _default_indices() -> list[str]:
@@ -57,4 +58,4 @@ class RelativeStrengthConfig:
     mansfield_period: int = 52
     rs_rating_windows: tuple[int, ...] = field(default_factory=_default_rs_rating_windows)
     rs_rating_weights: tuple[float, ...] = field(default_factory=_default_rs_rating_weights)
-    price_source: str = db.YFINANCE
+    price_source: str = source_for(MODULE_PRICE_BASIS["relative_strength"])  # total_return; see market_common.price_basis

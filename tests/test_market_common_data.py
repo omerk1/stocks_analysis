@@ -8,6 +8,7 @@ import pytest
 from src.foundation.data_processing import db
 from src.foundation.market_common.data import load_and_validate, load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import PriceBasis
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
@@ -39,7 +40,7 @@ def test_load_bars_daily_excludes_partial_rows(conn):
         ]),
     )
 
-    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05")
+    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05", basis=PriceBasis.TOTAL_RETURN)
 
     assert len(result) == 1
     assert result.iloc[0]["close"] == 100.5
@@ -55,7 +56,7 @@ def test_load_bars_daily_respects_as_of(conn):
         ]),
     )
 
-    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-02")
+    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-02", basis=PriceBasis.TOTAL_RETURN)
 
     assert list(result.index.strftime("%Y-%m-%d")) == ["2024-01-01", "2024-01-02"]
 
@@ -64,7 +65,7 @@ def test_load_bars_ignores_other_sources(conn):
     db.upsert_bars(conn, "bars_1d", "AAPL", db.YFINANCE, _bars([("2024-01-01", 100.0, 101.0, 99.0, 100.5, 1000, 0)]))
     db.upsert_bars(conn, "bars_1d", "AAPL", db.POLYGON, _bars([("2024-01-01", 999.0, 999.0, 999.0, 999.0, 1, 0)]))
 
-    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05")
+    result = load_bars(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05", basis=PriceBasis.TOTAL_RETURN)
 
     assert len(result) == 1
     assert result.iloc[0]["close"] == 100.5
@@ -88,7 +89,7 @@ def test_load_bars_weekly_resamples_from_daily(conn):
     ]
     db.upsert_bars(conn, "bars_1d", "AAPL", db.YFINANCE, _bars(rows))
 
-    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01")
+    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01", basis=PriceBasis.TOTAL_RETURN)
 
     # Week 1 is closed (fully complete); week 2 (just the one Monday) is
     # not -- only week 1 comes back.
@@ -123,7 +124,7 @@ def test_load_bars_start_window_applies_before_weekly_resample(conn):
     ]
     db.upsert_bars(conn, "bars_1d", "AAPL", db.YFINANCE, _bars(rows))
 
-    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01", start="2024-01-08")
+    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01", start="2024-01-08", basis=PriceBasis.TOTAL_RETURN)
 
     # Week 1 (Monday 2024-01-01) is entirely before `start` -- excluded.
     # Week 2's own real Monday open (111.0) is intact, not distorted.
@@ -258,7 +259,7 @@ def test_validate_bars_flags_real_att_2023_01_24_intraday_spike():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
     conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
-    clean, report = load_and_validate(conn, "T", Timeframe.DAILY, as_of="2023-02-01")
+    clean, report = load_and_validate(conn, "T", Timeframe.DAILY, as_of="2023-02-01", basis=PriceBasis.TOTAL_RETURN)
     conn.close()
 
     bar = clean.loc["2023-01-24"]
@@ -273,7 +274,7 @@ def test_load_and_validate_round_trip(conn):
         _bars([("2024-01-01", 100.0, 101.0, 99.0, 100.5, 1000, 0)]),
     )
 
-    clean, report = load_and_validate(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05")
+    clean, report = load_and_validate(conn, "AAPL", Timeframe.DAILY, as_of="2024-01-05", basis=PriceBasis.TOTAL_RETURN)
 
     assert len(clean) == 1
     assert report.rows_loaded == 1

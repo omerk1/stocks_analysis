@@ -68,7 +68,7 @@ def detect(
     that single upstream cutoff rather than needing separate enforcement
     in swings/levels/lifecycle.
     """
-    bars, quality = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of)
+    bars, quality = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
     tf_str = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
 
     if len(bars) < config.min_bars:

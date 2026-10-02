@@ -24,6 +24,7 @@ from src.signals.volume_profile.config import VolumeProfileConfig
 from src.signals.volume_profile.detect import detect
 from src.signals.volume_profile.models import AnchoredVolumeProfile
 from src.signals.volume_profile.plotting import render_volume_profile_chart
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _timeframes_for(arg: str) -> list[Timeframe]:
@@ -61,7 +62,7 @@ def run_for_ticker(
     store.upsert_profiles(derived_conn, profiles, run_id)
 
     if plot_path:
-        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
         fig = render_volume_profile_chart(
             bars, profiles, ticker=ticker, timeframe=timeframe, config=config, anchor_date=plot_anchor,
         )
@@ -101,7 +102,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["volume_profile"]),)
             ).fetchall()
         ]
     else:

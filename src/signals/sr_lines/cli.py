@@ -26,6 +26,7 @@ from src.signals.sr_lines import store
 from src.signals.sr_lines.config import SRConfig, get_preset
 from src.signals.sr_lines.models import DetectionResult
 from src.signals.sr_lines.plotting import render_review_chart
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _run_for_ticker(
@@ -114,7 +115,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["sr_lines"]),)
             ).fetchall()
         ]
         n_success, n_failed, n_empty = 0, 0, 0
@@ -149,7 +151,7 @@ def main():
     detection_bars, _ = data_mod.load_and_validate(raw_conn, args.ticker, sr_config, end=args.as_of)
 
     if detection_bars.empty:
-        print(f"No data for {args.ticker} (source={data_mod.REQUIRED_SOURCE}) in the requested window.")
+        print(f"No data for {args.ticker} (source={source_for(sr_config.price_basis)}) in the requested window.")
         raw_conn.close()
         derived_conn.close()
         return
@@ -167,7 +169,7 @@ def main():
         # identically, then resample and validate at daily resolution
         # *before* aggregating, same as load_bars itself does.
         raw = db.read_bars(
-            raw_conn, "bars_1d", ticker=args.ticker, source=data_mod.REQUIRED_SOURCE,
+            raw_conn, "bars_1d", ticker=args.ticker, source=source_for(sr_config.price_basis),
             start=detection_bars.index[0].strftime("%Y-%m-%d"),
         )
         if "is_partial" in raw.columns:

@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
 def _default_scoring_weights() -> dict:
@@ -459,6 +460,12 @@ class PatternConfig:
     flag_consolidation_max_range_ratio: float = 1.0
     flag_typical_min_bars: int = 3
     flag_typical_max_bars: int = 20
+
+    # Price series this module computes on -- from the central table in
+    # market_common.price_basis (docs/decisions/price-basis.md); recorded
+    # with every run via the config. Don't override casually: stored results
+    # and the bars they're compared against must share a basis.
+    price_basis: PriceBasis = MODULE_PRICE_BASIS["patterns"]
 
     def to_dict(self) -> dict:
         d = dict(self.__dict__)

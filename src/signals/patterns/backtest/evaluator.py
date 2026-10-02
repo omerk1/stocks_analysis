@@ -59,6 +59,7 @@ from src.signals.patterns import store as pattern_store
 from src.signals.patterns.config import PatternConfig, get_preset
 from src.signals.patterns.models import PatternMatch, PatternStatus, PatternType
 from src.signals.patterns.scanner import scan_bars
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 DEFAULT_HORIZONS: tuple[int, ...] = (10, 20, 60)
 
@@ -391,7 +392,7 @@ def run_backtest(
     all_outcomes: list[PatternOutcome] = []
     for ticker in tickers:
         try:
-            bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe)
+            bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe, basis=config.price_basis)
             if len(bars) < config.min_bars:
                 continue
             matches = scan_bars(bars, ticker, timeframe, config)
@@ -426,7 +427,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["patterns"]),)
             ).fetchall()
         ]
     else:
