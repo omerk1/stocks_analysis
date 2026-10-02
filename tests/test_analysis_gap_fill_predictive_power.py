@@ -302,7 +302,7 @@ def test_build_dataset_end_to_end_synthetic():
         (80.0, 81.0, 79.0, 80.0, 1000.0),      # bar4: post-close, close=80
     ])
     bars_df = bars_df.assign(is_partial=0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE, bars_df)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars_df)
 
     derived_conn = derived_db.get_connection(":memory:")
     derived_db.create_runs_table(derived_conn)
@@ -347,7 +347,7 @@ def test_build_dataset_skips_gap_whose_created_at_predates_loaded_bars():
     raw_db.create_tables(raw_conn)
     bars_df = _bars([(100.0, 100.5, 99.5, 100.0, 1000.0)], start="2021-01-01")
     bars_df = bars_df.assign(is_partial=0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE, bars_df)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars_df)
 
     derived_conn = derived_db.get_connection(":memory:")
     derived_db.create_runs_table(derived_conn)
