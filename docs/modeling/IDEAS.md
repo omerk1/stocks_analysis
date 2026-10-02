@@ -289,7 +289,8 @@ before it (ablation), not by being on the list.
       Open: how level strength is weighted, and whether one strong level outweighs
       several weak ones.
 - [ ] **Earnings dates: missing for now**, logged in `docs/backlog.md`. Source identified:
-      SEC `submissions.zip` (8-K item 2.02 filings), deferred until it's downloaded.
+      SEC `submissions.zip` (8-K item 2.02 filings), downloaded 2026-09-30 into
+      `data/raw/sec/`; the ingest itself is not built yet.
 - [x] **AVP** → built (`signals/volume_profile`, #110).
 
 ---
