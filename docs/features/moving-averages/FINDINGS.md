@@ -195,6 +195,34 @@ items: U1 has no delisted history, which flatters weak-state buckets.
 - **Would change**: the same sign and a CI off zero at SMA20 or EMA21, or once a
   point-in-time universe with delisted names exists (survivorship biases this toward zero).
 
+### M22 `break_retest_sma50_above_h63` — a held retest above SMA50 underperforms
+
+- **Hypothesis**: after a confirmed break above SMA50, a retest from above within 21 days that
+  holds predicts *better* 63d returns than an ordinary SMA50 bounce. The result is the
+  opposite sign.
+- **Result**: DiD vs ordinary bounces −2.08% [−3.04%, −1.14%] at C2+rev; retest arm −1.84%
+  [−2.35%, −1.33%]. Robust to all six ±25% K/R/W variants and both subperiods.
+- **Effective N**: 773 events, 402 contributing dates at C2+rev.
+- **Cost**: −7.4%/yr [−9.4%, −5.3%] vs a 0.02% hurdle, as an avoid or short signal.
+- **FDR**: survives at q=0.10 and q=0.05 (rank 3 of 219, p=0.00033).
+- **Tier 3** (was Tier 2 for one day). The pre-registered lookback-neighbour addendum failed
+  both rules: SMA47 −0.62% [−1.36%, +0.02%] spans zero, SMA53 −1.02% [−1.60%, −0.41%]; matched on
+  date + `rev_tercile` only, −0.58% [−1.38%, +0.21%]. Same sign everywhere, size not robust, and
+  at every neighbour it appears only once the 21-day return is matched.
+- **Would change**: the 2022+ holdout reproducing it at SMA47–53 with a CI off zero.
+
+### M22 `break_retest_ema21_below_h21` — held retest below EMA21, weaker 21d return
+
+- **Hypothesis**: after a confirmed break below EMA21, a retest from below within 21 days that
+  is rejected predicts a more negative 21d return than an ordinary EMA21 rejection.
+- **Result**: DiD −0.76% [−1.24%, −0.30%]; retest arm −0.63% [−1.05%, −0.23%]. Both subperiods
+  agree. 5 of 6 K/R/W variants keep the CI off zero.
+- **Effective N**: 1,157 events, 456 contributing dates at C2+rev.
+- **Cost**: −7.5%/yr [−12.6%, −2.7%] vs a 0.02% hurdle, as a short (borrow caveat, §7.10).
+- **FDR**: fails (rank 8, p=0.0077 vs 0.0037 at N=219).
+- **Tier 3**: right sign, but the 10d DiD is +0.07%, so the term structure is broken (gate 3).
+- **Would change**: a 10d read that agrees.
+
 ### M6.3 `slope_pctile_21` at SMA20 and SMA200
 
 - **SMA20**: −0.117% [−0.229%, −0.006%]. Fails cost (near edge −0.08% vs a 1.34%

@@ -1058,6 +1058,30 @@ generic-move arm should absorb most of it. If anything survives it should be the
 side, where M1/M2/M4 found the weak-state buckets carry the study's few real (and
 survivorship-capped) negative effects.
 
+### M22 — Break and retest (added 2026-10-01, post-termination)
+
+**Not part of the original M1–M17 list.** The classic pattern, asked for after M20/M21: price
+breaks through the MA (M21's confirmed break), comes back to it from the new side within a few
+weeks (the retest), and bounces (M20's confirmed bounce). "Old resistance became support." The
+entry is the retest bounce's confirmation day. No earlier module conditions a bounce on a prior
+break: M19's respect history counts same-side bounces only, and M20 pooled every bounce.
+
+**Hypothesis:** a retest bounce predicts continuation over 5/10/21/63 days (positive after
+breaking above and holding, negative after breaking below and holding) **more than an ordinary
+bounce off the same MA does.** The comparison arm is the question: M20 already showed an
+ordinary bounce carries the return of any same-size move, so the test is whether the prior
+break adds anything.
+
+**Method:** `features/respect.py::retest_positions` (consecutive touches: a confirmed break,
+then a touch from the new side within W=21 days that resolves as a confirmed bounce;
+K=5, R=1.0 for both). Statistic: `delta_retest − delta_plain_bounce`, each date + C2 +
+`rev_tercile` matched against the same base controls, shared date blocks. The M20 generic-move
+DiD is reported alongside, uncounted. Same grid, kill structure and plateau checks as M20/M21,
+plus W in the ±25% sensitivity set.
+
+**Prior:** null, like M20/M21. Requiring break → retest → bounce selects 11–28% of bounces, so
+SMA50 and especially SMA200 will be thin.
+
 ### M7 — Ribbon compression / expansion
 **Hypothesis:** Low MA dispersion (compression) precedes volatility expansion; direction of expansion is *not* predictable from compression alone.
 **Method:** `ribbon_width_pctile` low buckets → forward realised vol, forward |return|, forward signed return. Interact with prior trend direction (this is essentially a quantified VCP / Bollinger-squeeze).
