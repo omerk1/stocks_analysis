@@ -33,6 +33,7 @@ from src.foundation.feature_engineering.price_based_indicators import (
     moving_average,
 )
 from src.foundation.market_common.data import load_bars
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.foundation.market_common.models import Timeframe
 from src.signals.moving_averages.data import (
     LARGE_MOVE_THRESHOLD,
@@ -281,7 +282,7 @@ def test_smoke_hygiene_functions_run_against_real_data():
         pytest.skip(f"real DB not found at {REAL_DB_PATH}")
 
     conn = sqlite3.connect(f"file:{REAL_DB_PATH}?mode=ro", uri=True)
-    bars = load_bars(conn, "AAPL", Timeframe.DAILY)
+    bars = load_bars(conn, "AAPL", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["moving_averages"])
     conn.close()
 
     assert not bars.empty

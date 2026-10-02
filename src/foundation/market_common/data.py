@@ -27,10 +27,10 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing import resample as resample_mod
 from src.foundation.market_common import indicators
 from src.foundation.market_common.models import DataQualityReport, Timeframe
+from src.foundation.market_common.price_basis import PriceBasis, source_for
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_SOURCE = db.YFINANCE
 
 _JUMP_RATIO_LOW = 1 / 3
 _JUMP_RATIO_HIGH = 3.0
@@ -71,9 +71,12 @@ def load_bars(
     timeframe: Timeframe | str,
     as_of: str | pd.Timestamp | None = None,
     *,
+    basis: PriceBasis | str,
     start: str | pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Load bars for `ticker` from `bars_1d`, source=yfinance only, up to
+    """Load bars for `ticker` from `bars_1d` on price `basis` (required --
+    see `market_common.price_basis`; there is deliberately no default, so
+    no caller can load bars without stating which kind), up to
     `as_of` (default: latest available), excluding partial (same-day)
     rows. `start` defaults to `None` (*all* available history) -- unlike
     sr_lines' own `SRConfig`-driven loader, callers here don't need a
@@ -92,13 +95,16 @@ def load_bars(
     and can never drift out of sync with `bars_1d` in the future either.
 
     Returns a DataFrame indexed by a sorted, deduplicated DatetimeIndex
-    with columns open/high/low/close/volume -- raw, pre-validation.
+    with columns open/high/low/close/volume -- raw, pre-validation --
+    with `attrs["price_basis"]` set, so code combining these bars with
+    stored levels can check they're on the same basis.
     """
+    basis = PriceBasis(basis)
     end_ts = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now()
     start_str = pd.Timestamp(start).strftime("%Y-%m-%d") if start is not None else None
 
     raw = db.read_bars(
-        conn, "bars_1d", ticker=ticker, source=REQUIRED_SOURCE,
+        conn, "bars_1d", ticker=ticker, source=source_for(basis),
         start=start_str, end=end_ts.strftime("%Y-%m-%d"),
     )
     if "is_partial" in raw.columns:
@@ -125,6 +131,7 @@ def load_bars(
         weekly_as_of = raw.index.max() if not raw.empty else end_ts
         weekly = resample_mod.to_weekly(raw.assign(is_partial=False), as_of=weekly_as_of)
         raw = weekly[weekly["is_partial"] != True][["open", "high", "low", "close", "volume"]]  # noqa: E712
+    raw.attrs["price_basis"] = basis.value
     return raw
 
 
@@ -244,7 +251,13 @@ def load_and_validate(
     timeframe: Timeframe | str,
     as_of: str | pd.Timestamp | None = None,
     corruption_warning_threshold: float = DEFAULT_CORRUPTION_WARNING_THRESHOLD,
+    *,
+    basis: PriceBasis | str,
 ) -> tuple[pd.DataFrame, DataQualityReport]:
-    """Convenience wrapper: load_bars + validate_bars in one call."""
-    raw = load_bars(conn, ticker, timeframe, as_of=as_of)
-    return validate_bars(raw, ticker, corruption_warning_threshold)
+    """Convenience wrapper: load_bars + validate_bars in one call. `basis`
+    is required, as for `load_bars`, and carried onto the clean frame's
+    `attrs["price_basis"]`."""
+    raw = load_bars(conn, ticker, timeframe, as_of=as_of, basis=basis)
+    clean, report = validate_bars(raw, ticker, corruption_warning_threshold)
+    clean.attrs["price_basis"] = PriceBasis(basis).value
+    return clean, report

@@ -83,7 +83,7 @@ def test_attach_breakout_dates_maps_bar_index_and_verifies_entry_price(monkeypat
     dates = pd.bdate_range("2020-01-01", periods=10)
     bars = pd.DataFrame({"close": np.arange(10, dtype=float) + 100.0}, index=pd.Index(dates, name="timestamp"))
     monkeypatch.setattr(
-        "src.foundation.market_common.data.load_and_validate", lambda conn, ticker, tf, as_of=None: (bars, None)
+        "src.foundation.market_common.data.load_and_validate", lambda conn, ticker, tf, as_of=None, **kw: (bars, None)
     )
     patterns = pd.DataFrame({
         "ticker": ["A", "A", "A"],

@@ -7,6 +7,7 @@ from src.signals.fibonacci import store as store_mod
 from src.signals.fibonacci.config import FibConfig
 from src.signals.fibonacci.engine import detect
 from src.signals.fibonacci.plotting import render_fib_chart
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
@@ -94,7 +95,7 @@ def test_smoke_render_chart_for_real_selected_sets():
     if not result.selected_sets:
         pytest.skip("no fib sets detected for AAPL under default config -- nothing to plot")
 
-    bars, _ = data_mod.load_and_validate(conn, "AAPL", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(conn, "AAPL", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["fibonacci"])
     fig = render_fib_chart(bars, result.selected_sets)
 
     assert len(fig.data) > 0  # candlestick + at least one level/swing trace

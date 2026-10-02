@@ -13,6 +13,7 @@ from src.signals.volume_profile import store
 from src.signals.volume_profile.config import VolumeProfileConfig
 from src.signals.volume_profile.detect import detect, discover_profiles
 from src.signals.volume_profile.plotting import render_volume_profile_chart
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
@@ -139,7 +140,7 @@ def test_discover_profiles_matches_avwap_anchor_dates(raw_conn):
     from src.signals.avwap.anchors import discover_anchor_dates
 
     _seed(raw_conn)
-    bars, _ = data_mod.load_and_validate(raw_conn, "TEST", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "TEST", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["volume_profile"])
     vp = discover_profiles(bars, "TEST", Timeframe.DAILY, VolumeProfileConfig(warmup_bars=0))
     av = discover_anchor_dates(bars, "TEST", Timeframe.DAILY, AvwapConfig(warmup_bars=0))
     assert [(p.anchor_date, p.anchor_types, p.status) for p in vp] == [
@@ -160,7 +161,7 @@ def test_chart_renders_for_every_volume_mode(raw_conn, mode):
 
     config = VolumeProfileConfig(min_bars=1, warmup_bars=0, volume_mode=mode)
     profiles, _, _ = detect(raw_conn, "TEST", Timeframe.DAILY, config)
-    bars, _ = data_mod.load_and_validate(raw_conn, "TEST", Timeframe.DAILY)
+    bars, _ = data_mod.load_and_validate(raw_conn, "TEST", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["volume_profile"])
     fig = render_volume_profile_chart(bars, profiles, "TEST", Timeframe.DAILY, config)
     names = {t.name for t in fig.data}
     assert any(n and n.startswith("POC") for n in names)

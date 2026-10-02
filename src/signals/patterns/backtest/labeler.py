@@ -102,7 +102,7 @@ def main():
         print(f"Warning: {skip_reason}")
         matches = []
 
-    bars, _ = data_mod.load_and_validate(raw_conn, args.ticker, timeframe, as_of=args.end)
+    bars, _ = data_mod.load_and_validate(raw_conn, args.ticker, timeframe, as_of=args.end, basis=config.price_basis)
     fig = render_pattern_chart(bars, matches, ticker=args.ticker, timeframe=timeframe)
     fig.write_html(args.plot)
     print(f"Wrote {args.plot} -- open it and look at [{args.start}, {args.end}].")

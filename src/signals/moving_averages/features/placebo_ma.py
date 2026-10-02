@@ -28,6 +28,7 @@ from src.foundation.market_common.data import load_bars, validate_bars
 from src.foundation.market_common.models import Timeframe
 from src.signals.moving_averages.features import context, distance, ma
 from src.signals.moving_averages.features.panel import ATR_PERIOD, apply_lag
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 # PREREGISTRATION.md §7.5: focal lookback + its statistically
 # near-identical, unwatched neighbors, per group.
@@ -109,7 +110,7 @@ def build_placebo_panel(
     """
     frames = []
     for ticker in tickers:
-        bars = load_bars(conn, ticker, Timeframe.DAILY, as_of=end, start=start)
+        bars = load_bars(conn, ticker, Timeframe.DAILY, as_of=end, start=start, basis=MODULE_PRICE_BASIS["moving_averages"])
         if bars.empty:
             continue
         clean, _ = validate_bars(bars, ticker)

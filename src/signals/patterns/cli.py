@@ -26,6 +26,7 @@ from src.signals.patterns.config import get_preset
 from src.signals.patterns.models import PatternMatch, Timeframe
 from src.signals.patterns.plotting import render_pattern_chart
 from src.signals.patterns.scanner import detect
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _timeframes_for(arg: str) -> list[Timeframe]:
@@ -62,7 +63,7 @@ def run_for_ticker(
     store.upsert_pattern_matches(derived_conn, matches, run_id)
 
     if plot_path:
-        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
         fig = render_pattern_chart(bars, matches, ticker=ticker, timeframe=timeframe)
         fig.write_html(plot_path)
 
@@ -94,7 +95,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["patterns"]),)
             ).fetchall()
         ]
     else:

@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.foundation.data_processing import db
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _default_indices() -> list[str]:
@@ -36,7 +37,7 @@ class BreadthConfig:
     indices: list[str] = field(default_factory=_default_indices)
     sma_periods: tuple[int, ...] = (50, 200)
     ema_periods: tuple[int, ...] = (8, 21)
-    price_source: str = db.YFINANCE
+    price_source: str = source_for(MODULE_PRICE_BASIS["breadth"])  # total_return; see market_common.price_basis
     # See WEIGHTING_CHOICES above.
     weighting: str = "equal"
     # Cap-weighted only: a member whose market cap that date exceeds this

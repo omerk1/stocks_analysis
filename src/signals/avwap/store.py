@@ -2,6 +2,12 @@
 derived-results DB (`data/derived/analysis.sqlite`) -- see
 `market_common.derived_db` for the `runs` table every module (gaps/
 divergences/fibonacci/avwap) shares alongside its own result table.
+
+Rows are a **current-state snapshot as of the run**: values, std bands, POC/value area
+and which anchors are active describe the last bar the run saw, on the module's price
+basis (docs/decisions/price-basis.md). Don't read them for an earlier date -- recompute
+with `as_of` -- and rerun after any change to `bars_1d` (a re-ingest or re-adjustment),
+since stored prices don't follow it.
 """
 
 from __future__ import annotations

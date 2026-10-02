@@ -17,6 +17,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common.models import Timeframe
 from src.signals.moving_averages.features import distance, ma
 from src.signals.moving_averages.features.panel import build_panel
+from src.foundation.market_common.price_basis import PriceBasis
 
 
 @pytest.fixture
@@ -74,7 +75,7 @@ def test_build_panel_weekly_one_bar_lag_is_a_one_week_lag(conn):
     # build_panel's lagged output against.
     from src.foundation.market_common.data import load_bars
 
-    raw_weekly = load_bars(conn, "AAA", Timeframe.WEEKLY)
+    raw_weekly = load_bars(conn, "AAA", Timeframe.WEEKLY, basis=PriceBasis.TOTAL_RETURN)
     raw_sma20 = ma.compute_ma(raw_weekly["close"], "sma", 20)
     raw_above = distance.above(raw_weekly["close"], raw_sma20)
 

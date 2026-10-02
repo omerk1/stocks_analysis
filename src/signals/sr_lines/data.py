@@ -18,9 +18,6 @@ from src.foundation.market_common import data as market_common_data
 from src.foundation.market_common.models import DataQualityReport, Timeframe
 from src.signals.sr_lines.config import SRConfig
 
-REQUIRED_SOURCE = market_common_data.REQUIRED_SOURCE
-
-
 def load_bars(
     conn: sqlite3.Connection,
     ticker: str,
@@ -38,7 +35,7 @@ def load_bars(
     start_ts = end_ts - pd.DateOffset(years=config.window_years)
 
     timeframe = Timeframe.WEEKLY if config.bar_interval == "1w" else Timeframe.DAILY
-    return market_common_data.load_bars(conn, ticker, timeframe, as_of=end_ts, start=start_ts)
+    return market_common_data.load_bars(conn, ticker, timeframe, as_of=end_ts, start=start_ts, basis=config.price_basis)
 
 
 def validate_bars(
@@ -55,4 +52,6 @@ def load_and_validate(
 ) -> tuple[pd.DataFrame, DataQualityReport]:
     """Convenience wrapper: load_bars + validate_bars in one call."""
     raw = load_bars(conn, ticker, config, end=end)
-    return validate_bars(raw, ticker, config)
+    clean, report = validate_bars(raw, ticker, config)
+    clean.attrs["price_basis"] = raw.attrs.get("price_basis")
+    return clean, report

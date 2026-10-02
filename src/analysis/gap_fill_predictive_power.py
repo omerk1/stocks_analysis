@@ -55,6 +55,7 @@ from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.foundation.utils.config_loader import load_config
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 
 DEFAULT_HORIZONS = (5, 10, 20, 60)
 DEFAULT_FILL_THRESHOLD = 50.0
@@ -201,7 +202,9 @@ def build_dataset(
     for _, gap in gaps_df.iterrows():
         key = (gap["ticker"], gap["timeframe"])
         if key not in bars_cache:
-            bars, _report = data_mod.load_and_validate(raw_conn, gap["ticker"], Timeframe(gap["timeframe"]))
+            bars, _report = data_mod.load_and_validate(
+                raw_conn, gap["ticker"], Timeframe(gap["timeframe"]), basis=MODULE_PRICE_BASIS["gaps"],
+            )
             bars_cache[key] = bars
         bars = bars_cache[key]
 

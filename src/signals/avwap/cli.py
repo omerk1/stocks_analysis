@@ -23,6 +23,7 @@ from src.signals.avwap.plotting import render_avwap_chart
 from src.foundation.data_processing import db
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 
 def _timeframes_for(arg: str) -> list[Timeframe]:
@@ -62,7 +63,7 @@ def run_for_ticker(
     store.upsert_anchors(derived_conn, anchors, run_id)
 
     if plot_path:
-        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of)
+        bars, _ = data_mod.load_and_validate(raw_conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
         fig = render_avwap_chart(
             bars, anchors, ticker=ticker, timeframe=timeframe, config=config, include_stale=include_stale,
         )
@@ -102,7 +103,8 @@ def main():
     if args.all:
         tickers = [
             row[0] for row in raw_conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (db.YFINANCE,)
+                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
+                (source_for(MODULE_PRICE_BASIS["avwap"]),)
             ).fetchall()
         ]
     else:
