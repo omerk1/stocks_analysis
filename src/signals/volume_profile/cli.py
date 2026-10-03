@@ -118,6 +118,9 @@ def main():
                     plot_path=args.plot, plot_anchor=args.plot_anchor,
                 )
             except Exception as exc:  # continue-on-error per ticker, as in avwap/cli.py
+                # A failed write leaves its transaction open; without a rollback every
+                # later ticker's write fails too ("database is locked").
+                derived_conn.rollback()
                 n_failed += 1
                 print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
                 continue
