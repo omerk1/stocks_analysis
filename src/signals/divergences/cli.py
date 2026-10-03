@@ -94,6 +94,9 @@ def main():
                 try:
                     n, warn = _run_one(conn, derived_conn, ticker, tf, args.as_of, config, None, args.indicator)
                 except Exception:
+                    # A failed write leaves its transaction open; without a rollback every
+                    # later ticker's write fails too ("database is locked").
+                    derived_conn.rollback()
                     logger.exception("%s/%s: divergence detection failed", ticker, tf.value)
                     print(f"{ticker}/{tf.value}: FAILED (see log)")
                     failed += 1

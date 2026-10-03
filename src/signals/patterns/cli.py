@@ -110,6 +110,9 @@ def main():
                     raw_conn, derived_conn, ticker, timeframe, args.as_of, plot_path=args.plot,
                 )
             except Exception as exc:  # continue-on-error per ticker, as specced
+                # A failed write leaves its transaction open; without a rollback every
+                # later ticker's write fails too ("database is locked").
+                derived_conn.rollback()
                 n_failed += 1
                 print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
                 continue

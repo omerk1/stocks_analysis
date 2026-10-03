@@ -127,6 +127,9 @@ def main():
                     strength_floor=args.strength_floor,
                 )
             except Exception as exc:  # continue-on-error per ticker, as specced
+                # A failed write leaves its transaction open; without a rollback every
+                # later ticker's write fails too ("database is locked").
+                derived_conn.rollback()
                 n_failed += 1
                 print(f"{ticker}: FAILED -- {exc}")
                 continue

@@ -115,6 +115,9 @@ def main():
                 else:
                     n_skipped += 1
             except Exception as exc:
+                # A failed write leaves its transaction open; without a rollback every
+                # later ticker's write fails too ("database is locked").
+                derived_conn.rollback()
                 n_err += 1
                 print(f"{ticker}/{timeframe.value}: ERROR - {exc}")
 
