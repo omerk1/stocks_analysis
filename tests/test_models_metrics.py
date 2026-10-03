@@ -115,3 +115,11 @@ def test_informative_model_beats_uniform_on_every_metric():
     assert good["brier"] < flat["brier"] and good["log_loss"] < flat["log_loss"]
     assert good["ic_mean"] > 0.1
     assert good["top5_hit_rate"] > good["base_rate_up"]
+
+
+def test_reliability_drops_unresolved_rows_and_missing_probabilities():
+    f = pd.DataFrame({"date": pd.to_datetime(["2020-01-02"] * 4),
+                      "p_up": [0.95, 0.95, np.nan, 0.95], "p_down": 0.0, "p_neither": 0.0,
+                      "hit": [1.0, 1.0, 1.0, np.nan]})
+    r = metrics.reliability(f, cls=1)
+    assert r["n_rows"].sum() == 2 and r.loc[9, "observed"] == 1.0

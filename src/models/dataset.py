@@ -146,6 +146,13 @@ def trading_calendar(
     return pd.DatetimeIndex(pd.to_datetime(sorted(dates))).normalize().unique()
 
 
+def _all_index_tickers(conn: sqlite3.Connection) -> list[str]:
+    """Every symbol ever in a stored index, renamed to its price symbol."""
+    members = pd.concat([apply_renames(conn, db.read_index_membership(conn, n)) for n in INDEX_FLAGS],
+                        ignore_index=True)
+    return sorted(members["ticker"].unique())
+
+
 def _read_splits_bulk(conn: sqlite3.Connection, tickers: list[str]) -> dict[str, pd.DataFrame]:
     """yfinance splits (the adjustment both bar bases carry), per ticker."""
     splits = pd.read_sql_query(
@@ -346,8 +353,12 @@ def build_labels(
 
     tickers = sorted(rows["ticker"].unique())
     first = rows["date"].min() - pd.Timedelta(days=BAR_WARMUP_DAYS)
-    # One calendar for every chunk, so "delisted" means the same thing in each.
-    calendar = trading_calendar(conn, tickers, LABEL_BASIS, first, data_end)
+    # One calendar for every chunk and every call, so "delisted" means the same
+    # thing whichever rows are passed: built from every ticker ever in a stored
+    # index, not just these (a slice of early-ended names would otherwise set
+    # its own end and never count as delisted).
+    reference = sorted(set(tickers) | set(_all_index_tickers(conn)))
+    calendar = trading_calendar(conn, reference, LABEL_BASIS, first, data_end)
 
     path = label_path(out_dir, horizon, side)
     path.parent.mkdir(parents=True, exist_ok=True)

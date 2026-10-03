@@ -87,3 +87,13 @@ def test_archive_round_trip(tmp_path):
     back = inference.load_draws(path)
     np.testing.assert_array_equal(back.draws, r.draws)
     assert back.summary() == r.summary()
+
+
+def test_missing_probability_on_a_resolved_row_raises():
+    model, base = _pair()
+    model.loc[3, "p_up"] = np.nan
+    with pytest.raises(ValueError, match="missing probability"):
+        inference.paired_loss_diff(model, base, H)
+    # An unresolved row may carry anything; it's dropped before scoring.
+    model.loc[3, "hit"] = base.loc[3, "hit"] = np.nan
+    assert np.isfinite(inference.paired_loss_diff(model, base, H).point_estimate)

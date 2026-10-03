@@ -251,3 +251,13 @@ def test_delisting_is_detected_when_labeled_in_its_own_chunk(conn, tmp_path):
 def test_build_labels_rejects_a_horizon_outside_the_grid(conn, tmp_path):
     with pytest.raises(ValueError):
         build_labels(conn, _rows(conn), 7, tmp_path)
+
+
+def test_delisting_is_detected_when_only_early_ended_names_are_labeled(conn, tmp_path):
+    # No ticker that traded to the end is in this call; the calendar still comes
+    # from every index member, so GONE resolves as delisted.
+    rows = _rows(conn)
+    build_labels(conn, rows[rows["ticker"] == "GONE"], 21, tmp_path)
+    gone = read_labels(tmp_path, 21)
+    near_end = gone[(gone["date"] > "2020-06-01") & (gone["date"] < gone["date"].max())]
+    assert near_end["truncated"].any() and near_end["hit"].notna().all()

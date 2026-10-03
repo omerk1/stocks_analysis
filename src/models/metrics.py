@@ -83,7 +83,10 @@ LOSSES = {"brier": brier_rows, "log_loss": log_loss_rows}
 def reliability(frame: pd.DataFrame, cls: int = 1, bins: int = RELIABILITY_BINS) -> pd.DataFrame:
     """One-vs-rest reliability for P(cls): equal-width bins on [0, 1], with the
     mean prediction, the observed frequency, n_rows and n_dates per bin. Empty
-    bins are kept (NaN means, zero counts) so tables align across folds."""
+    bins are kept (NaN means, zero counts) so tables align across folds.
+    Rows with an unresolved label or a missing probability are dropped, as in
+    `cell_metrics` -- a NaN label is not a miss."""
+    frame = frame.dropna(subset=["hit", PROB_COLUMNS[cls]])
     p = frame[PROB_COLUMNS[cls]].to_numpy(dtype=float)
     observed = (frame["hit"].to_numpy(dtype=float) == cls).astype(float)
     edges = np.linspace(0.0, 1.0, bins + 1)

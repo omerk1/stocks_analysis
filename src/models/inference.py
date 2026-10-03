@@ -115,6 +115,10 @@ def paired_loss_diff(
     Rows with an unresolved label (NaN `hit`) are dropped from both."""
     fn = LOSSES[loss]
     joined = _paired(model, baseline).dropna(subset=["hit_m"])
+    probs = [f"{c}{s}" for c in PROB_COLUMNS.values() for s in ("_m", "_b")]
+    if joined[probs].isna().any().any():
+        # A NaN loss would add 0 to its date's sum but still count as a row.
+        raise ValueError("model or baseline has a missing probability on a resolved row")
     diff = fn(_side(joined, "_m")) - fn(_side(joined, "_b"))
     by_date = diff.groupby(joined["date"])
     return bootstrap_ratio(by_date.sum(), by_date.size(), block_length(horizon), higher_is_better=False,
