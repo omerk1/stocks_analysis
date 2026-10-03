@@ -9,6 +9,7 @@ locked") until it rolls back -- one collision used to fail the rest of the run.
 import importlib
 import sqlite3
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,8 @@ CLIS = {
     "volume_profile": ("run_for_ticker", ([], None)),
     "patterns": ("run_for_ticker", ([], None)),
     "divergences": ("_run_one", (0, False)),
+    "fibonacci": ("_run_one", True),
+    "sr_lines": ("_run_for_ticker", SimpleNamespace(data_quality=SimpleNamespace(rows_loaded=1), lines=[])),
 }
 
 
