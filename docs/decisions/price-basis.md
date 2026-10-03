@@ -47,13 +47,23 @@ included, in the `runs` table.
 - **Never mix bases within one calculation.** A level and the close or ATR it's compared
   with must come from the same basis. Ratios like `(level − close) / ATR` are the safe way
   to combine one module's levels with another module's features.
+- **Outcomes measured inside a level module are price returns, on `traded`.** The patterns
+  and market-structure backtests and the gap-fill analysis check whether price reached a
+  target, stop or zone, which are levels, so they use the same series as the levels.
+  Switching only their returns to `total_return` would compare levels and prices from two
+  series. The cost is known and small: those returns leave out dividends, about the
+  dividend yield × the horizon (e.g. ~0.5% over a quarter for a 2% yielder). Anything that
+  measures **total** return (the MA study, modeling labels) uses `total_return`.
 - **Stored level tables are tied to the basis and bars of their run.** `gaps.store.read_gaps`
   refuses stored gaps when the bars passed in are on another basis, or when zones no longer
   match the bars. Other level tables have no read-back path; recompute with `as_of`.
 - **Changing a module's basis means:**
   1. update `MODULE_PRICE_BASIS` and this table;
   2. rerun that module's stored results;
-  3. update any real-data tests that pin values.
+  3. run `python -m src.foundation.market_common.basis_cleanup` (dry run, then `--apply`).
+     Most stores only insert or update, so rows only the old prices produced would otherwise
+     stay, on the old basis;
+  4. update any real-data tests that pin values.
 
 ## Updates
 
