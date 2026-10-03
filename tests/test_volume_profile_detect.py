@@ -48,7 +48,7 @@ def _seed(raw_conn, ticker="TEST", n=200, extra_future=0):
         rows[100] = (idx[100].strftime("%Y-%m-%d"), 100.0, 100.5, 1.0, 100.0, 1000.0, 0)
     df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume", "is_partial"])
     df["timestamp"] = pd.to_datetime(df["timestamp"])
-    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE, df.set_index("timestamp"))
+    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE_SPLIT_ONLY, df.set_index("timestamp"))
     return idx
 
 

@@ -18,6 +18,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.analysis.gap_fill_predictive_power import (
     build_dataset,
     compute_signals,
@@ -302,14 +303,14 @@ def test_build_dataset_end_to_end_synthetic():
         (80.0, 81.0, 79.0, 80.0, 1000.0),      # bar4: post-close, close=80
     ])
     bars_df = bars_df.assign(is_partial=0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE, bars_df)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars_df)
 
     derived_conn = derived_db.get_connection(":memory:")
     derived_db.create_runs_table(derived_conn)
     gaps_store.create_gaps_table(derived_conn)
     run_id = derived_db.record_run(
         derived_conn, "gaps", "TEST", "daily", None,
-        json.dumps({"fill_by": "wick"}), 0, False,
+        json.dumps({"fill_by": "wick", "price_basis": MODULE_PRICE_BASIS["gaps"].value}), 0, False,
     )
     gap = Gap(
         id="g1", ticker="TEST", timeframe=Timeframe.DAILY, kind=GapKind.CLASSIC,
@@ -347,13 +348,13 @@ def test_build_dataset_skips_gap_whose_created_at_predates_loaded_bars():
     raw_db.create_tables(raw_conn)
     bars_df = _bars([(100.0, 100.5, 99.5, 100.0, 1000.0)], start="2021-01-01")
     bars_df = bars_df.assign(is_partial=0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE, bars_df)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars_df)
 
     derived_conn = derived_db.get_connection(":memory:")
     derived_db.create_runs_table(derived_conn)
     gaps_store.create_gaps_table(derived_conn)
     run_id = derived_db.record_run(
-        derived_conn, "gaps", "TEST", "daily", None, json.dumps({"fill_by": "wick"}), 0, False,
+        derived_conn, "gaps", "TEST", "daily", None, json.dumps({"fill_by": "wick", "price_basis": MODULE_PRICE_BASIS["gaps"].value}), 0, False,
     )
     gap = Gap(
         id="g1", ticker="TEST", timeframe=Timeframe.DAILY, kind=GapKind.CLASSIC,
@@ -428,3 +429,22 @@ def test_real_aapl_gap_reconstruction_matches_hand_verified_values():
     assert g1.iloc[0]["bars_to_closed_recomputed"] == 30
     assert g2.iloc[0]["peak_fill_pct"] == pytest.approx(100.0)
     assert g2.iloc[0]["bars_to_closed_recomputed"] == 26
+
+
+def test_build_dataset_refuses_gaps_stored_on_another_price_basis():
+    # Gaps from a run before the switch (no price_basis recorded = total_return)
+    # must not be replayed against bars on the gaps module's current basis.
+    raw_conn = raw_db.get_connection(":memory:")
+    raw_db.create_tables(raw_conn)
+    bars_df = _bars([(100.0, 101.0, 99.0, 100.0, 1000.0)] * 5).assign(is_partial=0)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars_df)
+    derived_conn = derived_db.get_connection(":memory:")
+    derived_db.create_runs_table(derived_conn)
+    gaps_store.create_gaps_table(derived_conn)
+    run_id = derived_db.record_run(derived_conn, "gaps", "TEST", "daily", None, json.dumps({"fill_by": "wick"}), 0, False)
+    gap = Gap(id="g1", ticker="TEST", timeframe=Timeframe.DAILY, kind=GapKind.CLASSIC, direction=Direction.BULLISH,
+              created_at=bars_df.index[0].isoformat(), zone_top=100.0, zone_bottom=90.0, size_atr=1.0, run_id=run_id)
+    gaps_store.upsert_gaps(derived_conn, [gap], run_id)
+
+    with pytest.raises(ValueError, match="price basis"):
+        build_dataset(raw_conn, derived_conn, horizons=(2,), fill_threshold=50.0)

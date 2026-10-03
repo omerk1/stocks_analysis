@@ -175,7 +175,7 @@ def raw_conn():
 
 def _seed(raw_conn, ticker, bars, splits):
     rows = bars.assign(is_partial=0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE, rows)
+    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE_SPLIT_ONLY, rows)
     sp = splits.assign(split_from=1.0 / splits["ratio"], split_to=1.0)
     raw_db.upsert_splits(raw_conn, ticker, raw_db.YFINANCE, sp)
 

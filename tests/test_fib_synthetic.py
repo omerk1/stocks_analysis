@@ -279,7 +279,7 @@ def test_more_than_max_sets_qualifying_swings_keeps_only_top_k_by_weight(monkeyp
         {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 1000, "is_partial": 0},
         index=idx,
     )
-    raw_db.upsert_bars(conn, "bars_1d", "TEST", raw_db.YFINANCE, bars)
+    raw_db.upsert_bars(conn, "bars_1d", "TEST", raw_db.YFINANCE_SPLIT_ONLY, bars)
 
     config = FibConfig(max_sets=2, min_bars=50)
     result = detect(conn, "TEST", "daily", config)

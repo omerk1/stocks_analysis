@@ -55,7 +55,7 @@ from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.foundation.utils.config_loader import load_config
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 DEFAULT_HORIZONS = (5, 10, 20, 60)
 DEFAULT_FILL_THRESHOLD = 50.0
@@ -81,6 +81,9 @@ def load_gaps(derived_conn: sqlite3.Connection) -> pd.DataFrame:
         derived_conn,
     )
     df["fill_by"] = df["config_json"].apply(lambda s: json.loads(s)["fill_by"])
+    # The price basis the run computed zones on (runs before the setting
+    # existed were total_return) -- checked against the bars in build_dataset.
+    df["price_basis"] = df["config_json"].apply(lambda s: json.loads(s).get("price_basis", "total_return"))
     return df.drop(columns=["config_json"])
 
 
@@ -194,6 +197,17 @@ def build_dataset(
         gaps_df = gaps_df[gaps_df["ticker"] == ticker_filter]
     if timeframe_filter:
         gaps_df = gaps_df[gaps_df["timeframe"] == timeframe_filter]
+
+    # Stored zones are prices on the basis their run used; replaying them
+    # against bars on another basis gives wrong fills with no error (same
+    # guard as gaps.store.read_gaps).
+    bars_basis = PriceBasis(MODULE_PRICE_BASIS["gaps"]).value
+    mismatched = int((gaps_df["price_basis"] != bars_basis).sum())
+    if mismatched:
+        raise ValueError(
+            f"{mismatched} of {len(gaps_df)} stored gaps were computed on another price basis than "
+            f"the bars ({bars_basis!r}) -- rerun gaps detection first (docs/decisions/price-basis.md)"
+        )
 
     bars_cache: dict[tuple[str, str], pd.DataFrame] = {}
     records = []
