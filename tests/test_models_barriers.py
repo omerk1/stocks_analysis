@@ -157,3 +157,16 @@ def test_non_iso_date_strings_are_ordered_by_date_not_text():
     expected = barrier_labels(bars, [CELL]).dropna(subset=["hit"]).reset_index(drop=True)
     got = barrier_labels(as_text, [CELL]).dropna(subset=["hit"]).reset_index(drop=True)
     pd.testing.assert_frame_equal(got, expected)
+
+
+def test_calendar_lets_a_chunk_of_early_ending_tickers_resolve_as_delisted():
+    # Labeled alone, a ticker that stopped trading looks like the dataset's end:
+    # its last windows are NaN. Given the full calendar, they resolve as truncated.
+    bars = _bars(_flat(3))
+    decision = bars["date"].iloc[WARMUP - 1]
+    alone = _decision(barrier_labels(bars, [CELL]), bars)
+    assert np.isnan(alone["hit"])
+    calendar = pd.bdate_range(bars["date"].iloc[0], periods=len(bars) + 40)
+    full = barrier_labels(bars, [CELL], data_end=calendar[-1], calendar=calendar)
+    row = full[full["date"] == decision].iloc[0]
+    assert row["truncated"] and row["hit"] == 0

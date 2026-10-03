@@ -60,6 +60,11 @@ MODULE_PRICE_BASIS: dict[str, PriceBasis] = {
     "moving_averages": PriceBasis.TOTAL_RETURN,
     "relative_strength": PriceBasis.TOTAL_RETURN,
     "breadth": PriceBasis.TOTAL_RETURN,
+    # modeling harness (src/models/dataset.py): two bases, never mixed in one
+    # calculation -- labels, ATR and the decision close are returns; the
+    # liquidity floor and traded-price checks need the prices that traded
+    "models_labels": PriceBasis.TOTAL_RETURN,
+    "models_universe": PriceBasis.TRADED,
 }
 
 

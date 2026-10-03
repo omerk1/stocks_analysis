@@ -28,7 +28,8 @@ included, in the `runs` table.
 | market caps (`market_cap.PRICE_SOURCE`) | `traded` | Market cap = the price that traded × shares outstanding (Done #67). |
 | moving_averages (the MA study) | `total_return` | Return-based study, finished on this basis. Changing it would reopen its results. |
 | relative_strength, breadth | `total_return` | Built on returns and return-based state. |
-| modeling labels (`src/models/labels`) | the caller's choice | Labels are returns, so `total_return` fits. LRP's level features must use the level modules' basis (`traded`) for the level, close and ATR alike. |
+| modeling labels (`src/models/dataset.py`, `models_labels`) | `total_return` | Labels, ATR and the decision-day close are returns. LRP's level features must use the level modules' basis (`traded`) for the level, close and ATR alike. |
+| modeling universe (`src/models/dataset.py`, `models_universe`) | `traded` | The liquidity floor (close × volume) and the penny/price-floor checks need the prices that traded; dividend adjustment would make the dollar-volume floor stricter in older years. |
 
 ## Why levels are on `traded`
 

@@ -13,6 +13,7 @@ from src.foundation.data_processing import market_cap
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
+from src.models import dataset as models_dataset
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, PriceBasis, basis_for_source, source_for,
 )
@@ -47,6 +48,8 @@ DECLARED = {
     ),
     "relative_strength": lambda: basis_for_source(RelativeStrengthConfig().price_source),
     "breadth": lambda: basis_for_source(BreadthConfig().price_source),
+    "models_labels": lambda: models_dataset.LABEL_BASIS,
+    "models_universe": lambda: models_dataset.UNIVERSE_BASIS,
 }
 
 
@@ -61,7 +64,7 @@ def test_each_module_declares_the_basis_in_the_central_table(module):
 
 def test_levels_and_market_caps_are_traded_returns_are_total_return():
     levels = {"gaps", "avwap", "volume_profile", "sr_lines", "fibonacci", "market_structure", "patterns", "divergences"}
-    assert {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED} == levels | {"market_cap"}
+    assert {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED} == levels | {"market_cap", "models_universe"}
 
 
 @pytest.fixture
