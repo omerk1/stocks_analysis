@@ -72,6 +72,7 @@ import pandas as pd
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing.polygon_client import PolygonClient
+from src.foundation.data_processing.share_counts import drop_scale_runs
 from src.foundation.market_common.indicators import scale_consistent
 
 # How close a shares_outstanding row at/after a known split's execution date
@@ -112,6 +113,13 @@ def _cumulative_split_ratio(dates: pd.Index, events: pd.Series) -> pd.Series:
     for event_date, event_ratio in events.items():
         ratio[dates < event_date] *= event_ratio
     return pd.Series(ratio, index=dates, name="cumulative_split_ratio")
+
+
+def split_factor(dates: pd.Index, splits: pd.DataFrame | None) -> pd.Series:
+    """Per date, the product of the ratios of every split executed after
+    it -- multiply an as-filed share count by this to put it on today's
+    split basis (`share_counts.drop_scale_runs` compares counts there)."""
+    return _cumulative_split_ratio(pd.DatetimeIndex(dates), _split_ratio_events(splits))
 
 
 def _bridge_filing_lag(
@@ -234,6 +242,11 @@ def reconcile_market_cap(
         return pd.DataFrame(columns=columns).rename_axis(prices.index.name or "date")
 
     events = _split_ratio_events(splits)
+    # Scale errors and pre-listing placeholders out first (whatever the
+    # source -- the SEC ingest already drops them, yfinance rows and any
+    # future source get the same treatment here), so neither the as-of
+    # fill nor the filing-lag baseline below is ever a mis-scaled count.
+    shares = drop_scale_runs(shares, split_factor=_cumulative_split_ratio(shares.index, events))
     shares = _bridge_filing_lag(shares, events)
     shares_asof = shares.reindex(prices.index, method="ffill")
     cumulative_ratio = _cumulative_split_ratio(prices.index, events)

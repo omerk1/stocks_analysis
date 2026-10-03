@@ -42,13 +42,21 @@ class BreadthConfig:
     weighting: str = "equal"
     # Cap-weighted only: a member whose market cap that date exceeds this
     # many times the date's *median* member cap is treated as having no
-    # weight (excluded that date, counted in a warning), not trusted. The
-    # largest real S&P 500 member on any date 2009-2026 is ~90x the median
-    # (AAPL, 2023), Nasdaq-100 less; a share count mis-scaled by 1e3 in
-    # its filing puts a mid-cap at ~600x (GRMN 2018-12: $12 trillion) and
-    # a large-cap at 1e6x (CB 2010, AJG 2020: 99.9% of the index). 300x
-    # catches those with >3x headroom above anything real. It cannot
-    # catch a 1e3 error on a *small* member (a $5B cap x 1e3 is ~150x the
-    # median) -- the SEC ingest's `drop_scale_runs` is the real fix at the
-    # source; this is the backstop. None disables it.
+    # weight (excluded, with a warning), not trusted. A backstop: share
+    # counts are already cleaned per ticker in
+    # `market_cap.reconcile_market_cap` (`share_counts.drop_scale_runs`);
+    # this catches what that can't see, e.g. a ticker with a single
+    # mis-scaled count and nothing to compare it with.
+    #
+    # 300 is calibrated for LARGE-CAP indices: the largest real S&P 500
+    # member on any date 2009-2026 is ~90x the median (AAPL, 2023),
+    # Nasdaq-100 less, while a 1e3 scale error puts a mid-cap at ~600x
+    # (GRMN 2018-12: $12 trillion). On a broad index the real mega-caps
+    # are themselves >1,000x the median small-cap, so pass a larger value
+    # or None there (`--cap-outlier-ratio`). None disables the guard.
     cap_outlier_ratio: float | None = 300.0
+    # The guard only runs on dates where at least this many members have a
+    # cap: with a handful of covered members the median is dragged by the
+    # outlier itself (two members: never flagged), and such dates are too
+    # thin for cap weighting to mean much anyway (mid-2009: 13 of 499).
+    cap_outlier_min_members: int = 20

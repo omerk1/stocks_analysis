@@ -46,6 +46,11 @@ def main():
         "--weighting", default="equal", choices=WEIGHTING_CHOICES,
         help="equal: every constituent counts 1x (default). cap: weighted by real historical market cap.",
     )
+    parser.add_argument(
+        "--cap-outlier-ratio", default=None,
+        help="Cap-weighted only: exclude a member whose cap exceeds this many times the date's median "
+             "(default: BreadthConfig's 300, calibrated for large-cap indices). 'none' disables the guard.",
+    )
     parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD; default: latest available data")
     args = parser.parse_args()
@@ -53,6 +58,10 @@ def main():
     raw_conn, derived_conn = derived_db.bootstrap_cli(store.create_breadth_table)
 
     config = BreadthConfig(weighting=args.weighting)
+    if args.cap_outlier_ratio is not None:
+        config.cap_outlier_ratio = (
+            None if args.cap_outlier_ratio.lower() == "none" else float(args.cap_outlier_ratio)
+        )
     index_names = config.indices if args.index == "all" else [args.index]
 
     for index_name in index_names:

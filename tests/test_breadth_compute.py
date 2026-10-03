@@ -192,14 +192,37 @@ def test_cap_weighted_excludes_a_member_whose_cap_is_a_scale_error(conn, caplog)
     db.replace_index_membership(conn, "test_idx", membership)
 
     with caplog.at_level(logging.WARNING, logger="src.signals.breadth.compute"):
-        guarded = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+        guarded = compute_breadth(conn, "test_idx", _config(weighting="cap", cap_outlier_min_members=3))
     unguarded = compute_breadth(conn, "test_idx", _config(weighting="cap", cap_outlier_ratio=None))
+    # Below the coverage floor the guard stays out of it: three covered
+    # members can't give a median the outlier doesn't drag.
+    thin = compute_breadth(conn, "test_idx", _config(weighting="cap"))
+    assert thin["pct_above_sma3"].iloc[2] == pytest.approx(unguarded["pct_above_sma3"].iloc[2])
 
     assert guarded["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
     assert unguarded["pct_above_sma3"].iloc[2] > 0.99
     assert "CCC" in caplog.text and "excluded" in caplog.text
     # The guard never touches the ordinary 141x spread between AAA and BBB.
     assert guarded["n_with_data"].iloc[2] == 3
+
+
+def test_cap_outlier_exclusion_covers_the_whole_episode_not_just_the_flagged_days():
+    # A mis-scaled member whose cap hovers around the threshold: flagged on
+    # days 1 and 3 only, it must be excluded on day 2 as well, and never on
+    # a date outside the episode.
+    from src.signals.breadth.compute import _drop_cap_outliers
+    dates = pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-04"])
+    rows = []
+    for d in dates:
+        rows += [("A", d, 1.0e9), ("B", d, 1.2e9), ("C", d, 1.1e9)]
+    bad = {dates[0]: 1e12, dates[1]: 2e11, dates[2]: 1e12, dates[3]: 1e9}  # flagged, under, flagged, normal
+    rows += [("X", d, bad[d]) for d in dates]
+    members = pd.DataFrame(rows, columns=["ticker", "date", "market_cap"])
+    weight = _drop_cap_outliers(members, ratio=300.0, min_members=4)
+    x = weight[members["ticker"] == "X"].tolist()
+    assert pd.isna(x[0]) and pd.isna(x[1]) and pd.isna(x[2])
+    assert x[3] == 1e9
+    assert weight[members["ticker"] != "X"].notna().all()
 
 
 def test_cap_weighted_n_advancing_is_a_market_cap_dollar_sum_not_a_count(conn):
