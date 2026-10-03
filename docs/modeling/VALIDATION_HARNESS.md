@@ -241,7 +241,7 @@ tests/test_models_*.py
 Build order, one PR each, each with its own tests:
 1. `labels/barriers.py` + `splits.py` + purge test. **Done (#140).**
 2. `dataset.py` (holdout lock, universe mask, liquidity floor) + `metrics.py`
-   + `inference.py`. **Done (#PR).** Choices made there:
+   + `inference.py`. **Done (#152).** Choices made there:
    - **Two price bases** (`docs/decisions/price-basis.md`): labels, ATR and
      the decision close on `total_return`; dollar volume and the traded-price
      checks on `traded`.
