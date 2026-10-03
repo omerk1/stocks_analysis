@@ -13,6 +13,7 @@ from src.foundation.data_processing import market_cap
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
+from src.models import dataset as models_dataset
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, PriceBasis, basis_for_source, source_for,
 )
@@ -47,6 +48,8 @@ DECLARED = {
     ),
     "relative_strength": lambda: basis_for_source(RelativeStrengthConfig().price_source),
     "breadth": lambda: basis_for_source(BreadthConfig().price_source),
+    "models_labels": lambda: models_dataset.LABEL_BASIS,
+    "models_universe": lambda: models_dataset.UNIVERSE_BASIS,
 }
 
 
@@ -59,10 +62,11 @@ def test_each_module_declares_the_basis_in_the_central_table(module):
     assert PriceBasis(DECLARED[module]()) == MODULE_PRICE_BASIS[module]
 
 
-def test_current_assignment_only_market_caps_are_traded():
+def test_current_assignment_only_market_caps_and_the_model_universe_are_traded():
     # Moving the level modules to TRADED is planned (docs/decisions/price-basis.md);
     # until then this pins today's state so a switch is a deliberate edit.
-    assert {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED} == {"market_cap"}
+    traded = {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED}
+    assert traded == {"market_cap", "models_universe"}
 
 
 @pytest.fixture

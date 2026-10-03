@@ -75,6 +75,7 @@ def barrier_labels(
     cells: list[BarrierCell],
     data_end: str | pd.Timestamp | None = None,
     side: str = LONG,
+    calendar: pd.DatetimeIndex | np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Labels for every (ticker, date) in `bars` and every cell, long format
     (`OUTPUT_COLUMNS`).
@@ -83,6 +84,10 @@ def barrier_labels(
     trading day; split/dividend-adjusted prices are fine -- everything here is a
     ratio within one window). `data_end`: the last date the dataset is allowed
     to contain (default: the latest date in `bars`); windows past it are NaN.
+    `calendar`: the whole dataset's trading days, for callers that label
+    tickers in chunks (default: the dates in `bars`) -- a chunk of tickers
+    that all ended early would otherwise measure delisting against its own
+    last date and miss it.
     """
     if side not in (LONG, SHORT):
         raise ValueError(f"side must be {LONG!r} or {SHORT!r}, got {side!r}")
@@ -96,7 +101,10 @@ def barrier_labels(
     # DELISTING_GAP trading days before the dataset's last actual trading day --
     # not merely before `data_end`, which may be a weekend or holiday, and not a
     # live ticker missing a session or two at the end.
-    calendar = np.sort(frame["date"].unique())
+    if calendar is None:
+        calendar = frame["date"].unique()
+    calendar = np.sort(np.asarray(pd.DatetimeIndex(calendar), dtype="datetime64[ns]"))
+    calendar = calendar[calendar <= np.datetime64(end)]
     delisted_before = calendar[max(len(calendar) - 1 - DELISTING_GAP, 0)]
 
     out = []

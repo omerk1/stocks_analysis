@@ -241,16 +241,32 @@ tests/test_models_*.py
 Build order, one PR each, each with its own tests:
 1. `labels/barriers.py` + `splits.py` + purge test. **Done (#140).**
 2. `dataset.py` (holdout lock, universe mask, liquidity floor) + `metrics.py`
-   + `inference.py`. Notes carried from step 1:
-   - **Build labels one horizon at a time** and store them on disk (e.g. a
-     parquet per horizon). All 45 cells in long format for the full universe is
-     roughly 65M rows (~130k per ticker), too much to hold at once.
-   - **Apply `ticker_renames.apply_renames` to membership** before anything
-     else. Without it, the 26 renamed members (FB→META, ABC→COR, …) look
-     price-less and silently drop out of training. It applies each rename only
-     inside its verified window (Done #68).
-   - **Labels are computed from bars truncated at the holdout boundary**
-     (`data_end=2021-12-31`), so windows crossing it come back NaN by design.
+   + `inference.py`. **Done (#PR).** Choices made there:
+   - **Two price bases** (`docs/decisions/price-basis.md`): labels, ATR and
+     the decision close on `total_return`; dollar volume and the traded-price
+     checks on `traded`.
+   - **Labels are cached one horizon at a time**, one parquet per side and
+     horizon (`data/models/labels/<universe>/<side>/h=<H>.parquet` + a JSON
+     manifest). Only member rows are stored, with liquidity and eligibility not
+     applied, so changing a floor doesn't mean relabeling. Bars are cut at
+     2021-12-31, so windows crossing it are NaN.
+   - **Metrics:** three-class Brier and log loss; IC against the ordinal `hit`.
+     EV ranks on ATR / decision close, never the next open. `neither_ret` comes
+     from the training folds.
+   - **Inference:** the bootstrap is row-weighted for losses (the point equals
+     the pooled metric) and date-weighted for per-date statistics. Draws are
+     archived as `.npz` files.
+
+   Notes for step 3, from the 2019–2021 S&P 500 smoke run:
+   - ~10% of member-rows have no bars: 74 names that left by 2026 (AVB, EA,
+     ATVI, SIVB, …) were never ingested. They're flagged `has_bars=False`, not
+     dropped, so the delisted-price fetch fills them in place.
+   - **BBT carries another company's prices.** The symbol was reused after BB&T
+     became TFC (same CIK), and `ticker_renames` only considers price-less
+     symbols, so BBT was never checked (`docs/backlog.md`, survivorship research).
+   - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.
+     Both were large-cap reverse splits around spin-offs, not distress. This
+     feeds the with/without sensitivity in history-breaks follow-up (b).
 3. `baselines.py` + `learners.py` + `trial_log.py`.
 4. The four gates (§8). Real data is used only after these pass.
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the

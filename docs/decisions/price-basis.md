@@ -13,7 +13,7 @@
 | `traded` | `yfinance_split_only` | splits only | anything that places a **price level**, and market caps: the prices that actually traded, on today's share basis (TradingView's default chart) |
 
 That's the target split. **Today the level modules are still on `total_return`** (see
-"Planned" below); only market caps use `traded`.
+"Planned" below); only market caps and the modeling universe filter use `traded`.
 
 Every module computes on exactly one basis, declared in its config (`price_basis`, or
 `price_source` for the older modules) and taken from one central table,
@@ -31,7 +31,8 @@ included, in the `runs` table.
 | market caps (`market_cap.PRICE_SOURCE`) | `traded` | `traded` | Market cap = the price that traded × shares outstanding (Done #67). |
 | moving_averages (the MA study) | `total_return` | `total_return` | Return-based study, finished on this basis. Changing it would reopen its results. |
 | relative_strength, breadth | `total_return` | `total_return` | Built on returns and return-based state. |
-| modeling labels (`src/models/labels`) | the caller's choice | — | Labels are returns, so `total_return` fits. LRP's level features must use the same basis as the levels they measure. |
+| modeling labels (`src/models/dataset.py`, `models_labels`) | `total_return` | `total_return` | Labels, ATR and the decision-day close are returns. LRP's level features must use the same basis as the levels they measure. |
+| modeling universe (`src/models/dataset.py`, `models_universe`) | `traded` | `traded` | The liquidity floor (close × volume) and the penny/price-floor checks need the prices that traded; dividend adjustment would make the dollar-volume floor stricter in older years. |
 
 ## Why levels should move to `traded`
 
