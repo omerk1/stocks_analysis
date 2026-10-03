@@ -73,14 +73,20 @@ def drop_scale_runs(
 
     How it decides:
 
-    1. **Common split basis.** Stored counts are as filed, not
-       split-adjusted, so a company that split 40-for-1 spans 40x for real
-       and a 1,000x error sits only 25x above its post-split level.
-       `split_factor` (per date, the product of the ratios of every split
-       after it -- `market_cap.split_factor`) puts every filing on today's
-       basis first, so real history is smooth and an error stands out by
-       its full factor. None means no splits known: counts are used as
-       filed.
+    1. **The basis on which the real history is flattest.** Stored
+       counts are as filed, not split-adjusted. A forward-splitter (NVDA:
+       4-for-1 then 10-for-1) spans 40x for real as filed, so a 1,000x
+       error sits only 25x above its post-split level and hides; on
+       today's split basis (`split_factor`: per date, the product of the
+       ratios of every split after it -- `market_cap.split_factor`) its
+       history is flat and the error stands out by its full factor. A
+       serial reverse-splitter is the opposite: it re-dilutes after every
+       1-for-20, so as filed it stays flat while "adjusted" it spans ten
+       orders of magnitude for real (TOPS: thirteen reverse splits), and
+       adjusting would turn its genuine early filings into "placeholders".
+       So each series is judged on whichever basis has the smaller median
+       absolute deviation of log10(count) -- a majority measure a minority
+       of bad filings can't move. None means no splits known: as filed.
     2. **Clusters.** Sorted adjusted counts are split wherever neighbours
        are more than `CLUSTER_GAP` apart. One cluster means nothing to do.
     3. **Which cluster is real.** With a `reference` series that overlaps
@@ -93,9 +99,12 @@ def drop_scale_runs(
        cluster, ignoring any whose median is under `MIN_PLAUSIBLE_SHARES`;
        a tie means no majority scale to trust, so nothing is dropped.
     4. **Each filing outside the trusted cluster** is compared, on the
-       split-adjusted basis, with the trusted filing nearest to it in
-       *time*, and dropped if it is a `scale_error` away or under
-       `PLACEHOLDER_RATIO` of it. Anything else outside the cluster is
+       chosen basis, with the nearest trusted filing before it and the
+       nearest after it (by date), and dropped if either comparison is a
+       `scale_error` or under `PLACEHOLDER_RATIO`. Both sides, because a
+       bad run can sit months from its neighbours and the company grow
+       30% in between (SSYS 2013-11: 1.26e-3 of the filing before it,
+       0.96e-3 of the one after). Anything else outside the cluster is
        kept: a real 1-for-150 reverse split is neither.
 
     Limits: without a reference, a bad majority inside the plausible range
@@ -113,7 +122,9 @@ def drop_scale_runs(
         return series
     adjusted = raw.copy()
     if split_factor is not None:
-        adjusted = raw * split_factor.reindex(series.index).fillna(1.0).to_numpy(dtype="float64")
+        candidate = raw * split_factor.reindex(series.index).fillna(1.0).to_numpy(dtype="float64")
+        if _log_spread(candidate[positive]) < _log_spread(raw[positive]):
+            adjusted = candidate
 
     candidates = np.flatnonzero(positive)
     order = candidates[np.argsort(adjusted[candidates], kind="stable")]
@@ -125,17 +136,24 @@ def drop_scale_runs(
     if trusted is None:
         return series
 
-    dates = series.index.to_numpy()
-    trusted = np.sort(trusted)
+    trusted = np.sort(trusted)  # positions; `series` is date-ordered, so these are too
     keep = np.ones(len(raw), dtype=bool)
-    for cluster in clusters:
-        for i in cluster:
-            if i in trusted:
-                continue
-            nearest = trusted[np.argmin(np.abs(dates[trusted] - dates[i]))]
-            ratio = adjusted[i] / adjusted[nearest]
-            keep[i] = not (scale_error(adjusted[i], adjusted[nearest]) or ratio < PLACEHOLDER_RATIO)
+    for i in np.setdiff1d(candidates, trusted):
+        later = np.searchsorted(trusted, i)
+        neighbours = [trusted[j] for j in (later - 1, later) if 0 <= j < len(trusted)]
+        keep[i] = not any(
+            scale_error(adjusted[i], adjusted[n]) or adjusted[i] / adjusted[n] < PLACEHOLDER_RATIO
+            for n in neighbours
+        )
     return series[keep]
+
+
+def _log_spread(values: np.ndarray) -> float:
+    """Median absolute deviation of log10(values): how far a typical count
+    sits from the typical level, in orders of magnitude. Robust to any
+    minority of mis-scaled filings."""
+    logs = np.log10(values)
+    return float(np.median(np.abs(logs - np.median(logs))))
 
 
 def _trusted_cluster(
