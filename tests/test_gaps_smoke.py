@@ -48,7 +48,7 @@ def _seed_flat_series_with_one_gap(raw_conn, ticker="TEST", n_background=30):
     ]
     last = idx[-1] + pd.Timedelta(days=1)
     rows.append((pd.bdate_range(last, periods=1)[0].strftime("%Y-%m-%d"), 110.0, 111.0, 110.0, 110.0, 1000.0, 0))
-    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE, _bars(rows))
+    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE_SPLIT_ONLY, _bars(rows))
 
 
 def test_upsert_gaps_is_idempotent_across_repeated_detection_runs(raw_conn, derived_conn):

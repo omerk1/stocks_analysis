@@ -13,9 +13,9 @@ choice per module, so no calculation ever mixes the two.
   level* (a gap zone, an AVWAP, an S/R line): levels sit where trades
   happened, and history only changes when the stock splits.
 
-Today every module computes on TOTAL_RETURN except market caps; moving the
-price-level modules to TRADED is planned (see the decision record,
-`docs/decisions/price-basis.md`, for the reasoning).
+Price-level modules and market caps compute on TRADED; returns and
+return-based modules on TOTAL_RETURN (reasoning in the decision record,
+`docs/decisions/price-basis.md`).
 `MODULE_PRICE_BASIS` below is the single source of truth: each module's
 config defaults its `price_basis` from it, the shared loader
 (`market_common.data.load_bars`) refuses to load without a basis, and
@@ -42,21 +42,18 @@ SOURCE_BY_BASIS: dict[PriceBasis, str] = {
     PriceBasis.TRADED: db.YFINANCE_SPLIT_ONLY,
 }
 
-# Current assignment. Every module computes on TOTAL_RETURN except market
-# caps (Done #67). Moving the price-level modules to TRADED is the planned
-# next step -- see "Planned" in docs/decisions/price-basis.md; it needs
-# TRADED history extended before 2009 and a rerun of each module's stored
-# results, and is a one-line change per module here.
+# Price-level modules on TRADED (since 2026-10-02), returns on
+# TOTAL_RETURN. See docs/decisions/price-basis.md for each row's reason.
 MODULE_PRICE_BASIS: dict[str, PriceBasis] = {
-    # price levels (planned: TRADED)
-    "gaps": PriceBasis.TOTAL_RETURN,
-    "avwap": PriceBasis.TOTAL_RETURN,
-    "volume_profile": PriceBasis.TOTAL_RETURN,
-    "sr_lines": PriceBasis.TOTAL_RETURN,
-    "fibonacci": PriceBasis.TOTAL_RETURN,
-    "market_structure": PriceBasis.TOTAL_RETURN,
-    "patterns": PriceBasis.TOTAL_RETURN,
-    "divergences": PriceBasis.TOTAL_RETURN,
+    # price levels
+    "gaps": PriceBasis.TRADED,
+    "avwap": PriceBasis.TRADED,
+    "volume_profile": PriceBasis.TRADED,
+    "sr_lines": PriceBasis.TRADED,
+    "fibonacci": PriceBasis.TRADED,
+    "market_structure": PriceBasis.TRADED,
+    "patterns": PriceBasis.TRADED,
+    "divergences": PriceBasis.TRADED,
     # market cap = the price that traded x shares outstanding
     "market_cap": PriceBasis.TRADED,
     # returns and return-based state

@@ -48,7 +48,7 @@ def _seed_series_with_a_clear_high_and_low(raw_conn, ticker="TEST", n=200):
     # at least an ath and atl anchor without depending on cycle-pivot noise
     rows[50] = (idx[50].strftime("%Y-%m-%d"), 100.0, 500.0, 99.5, 100.0, 1000.0, 0)
     rows[100] = (idx[100].strftime("%Y-%m-%d"), 100.0, 100.5, 1.0, 100.0, 1000.0, 0)
-    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE, _bars(rows))
+    raw_db.upsert_bars(raw_conn, "bars_1d", ticker, raw_db.YFINANCE_SPLIT_ONLY, _bars(rows))
 
 
 def test_upsert_anchors_is_idempotent_across_repeated_detection_runs(raw_conn, derived_conn):

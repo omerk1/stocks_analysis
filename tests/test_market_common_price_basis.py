@@ -62,11 +62,9 @@ def test_each_module_declares_the_basis_in_the_central_table(module):
     assert PriceBasis(DECLARED[module]()) == MODULE_PRICE_BASIS[module]
 
 
-def test_current_assignment_only_market_caps_and_the_model_universe_are_traded():
-    # Moving the level modules to TRADED is planned (docs/decisions/price-basis.md);
-    # until then this pins today's state so a switch is a deliberate edit.
-    traded = {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED}
-    assert traded == {"market_cap", "models_universe"}
+def test_levels_and_market_caps_are_traded_returns_are_total_return():
+    levels = {"gaps", "avwap", "volume_profile", "sr_lines", "fibonacci", "market_structure", "patterns", "divergences"}
+    assert {m for m, b in MODULE_PRICE_BASIS.items() if b == PriceBasis.TRADED} == levels | {"market_cap", "models_universe"}
 
 
 @pytest.fixture

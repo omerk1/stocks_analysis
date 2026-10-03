@@ -44,7 +44,7 @@ def conn():
             "is_partial": [0] * len(closes),
         }
     ).set_index("timestamp")
-    db.upsert_bars(connection, "bars_1d", "TST", db.YFINANCE, frame)
+    db.upsert_bars(connection, "bars_1d", "TST", db.YFINANCE_SPLIT_ONLY, frame)
     yield connection, idx
     connection.close()
 
