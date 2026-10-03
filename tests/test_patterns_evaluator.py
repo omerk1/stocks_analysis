@@ -306,7 +306,7 @@ def conn():
     frame = _DOUBLE_TOP_BARS.reset_index().rename(columns={"index": "timestamp"})
     frame["is_partial"] = 0
     frame = frame.set_index("timestamp")
-    db.upsert_bars(connection, "bars_1d", "TST", db.YFINANCE, frame)
+    db.upsert_bars(connection, "bars_1d", "TST", db.YFINANCE_SPLIT_ONLY, frame)
     yield connection
     connection.close()
 

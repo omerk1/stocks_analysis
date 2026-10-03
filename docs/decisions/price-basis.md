@@ -1,6 +1,6 @@
 # Price basis: which price series each module uses
 
-**Decided:** 2026-10-01. **Enforced by:** `src/foundation/market_common/price_basis.py` and
+**Decided:** 2026-10-01; level modules switched to `traded` 2026-10-02. **Enforced by:** `src/foundation/market_common/price_basis.py` and
 `tests/test_market_common_price_basis.py`.
 
 ## The rule
@@ -12,9 +12,6 @@
 | `total_return` | `yfinance` | splits **and** dividends | anything that measures **returns**: the dividend is part of what a holder earned |
 | `traded` | `yfinance_split_only` | splits only | anything that places a **price level**, and market caps: the prices that actually traded, on today's share basis (TradingView's default chart) |
 
-That's the target split. **Today the level modules are still on `total_return`** (see
-"Planned" below); only market caps use `traded`.
-
 Every module computes on exactly one basis, declared in its config (`price_basis`, or
 `price_source` for the older modules) and taken from one central table,
 `MODULE_PRICE_BASIS`. The shared loader (`market_common.data.load_bars` /
@@ -24,16 +21,16 @@ included, in the `runs` table.
 
 ## Module by module
 
-| Module | Basis today | Planned | Why |
-|---|---|---|---|
-| gaps, avwap, volume_profile, sr_lines, fibonacci, market_structure, patterns | `total_return` | **`traded`** | They place price levels, which belong where trades happened. |
-| divergences | `total_return` | **`traded`** | Chart-based price pivots compared with an indicator, as on a chart. |
-| market caps (`market_cap.PRICE_SOURCE`) | `traded` | `traded` | Market cap = the price that traded × shares outstanding (Done #67). |
-| moving_averages (the MA study) | `total_return` | `total_return` | Return-based study, finished on this basis. Changing it would reopen its results. |
-| relative_strength, breadth | `total_return` | `total_return` | Built on returns and return-based state. |
-| modeling labels (`src/models/labels`) | the caller's choice | — | Labels are returns, so `total_return` fits. LRP's level features must use the same basis as the levels they measure. |
+| Module | Basis | Why |
+|---|---|---|
+| gaps, avwap, volume_profile, sr_lines, fibonacci, market_structure, patterns | `traded` | They place price levels, which belong where trades happened. |
+| divergences | `traded` | Chart-based price pivots compared with an indicator, as on a chart. |
+| market caps (`market_cap.PRICE_SOURCE`) | `traded` | Market cap = the price that traded × shares outstanding (Done #67). |
+| moving_averages (the MA study) | `total_return` | Return-based study, finished on this basis. Changing it would reopen its results. |
+| relative_strength, breadth | `total_return` | Built on returns and return-based state. |
+| modeling labels (`src/models/labels`) | the caller's choice | Labels are returns, so `total_return` fits. LRP's level features must use the level modules' basis (`traded`) for the level, close and ATR alike. |
 
-## Why levels should move to `traded`
+## Why levels are on `traded`
 
 - **Dividend adjustment moves old levels away from where they really were**, and the error
   grows with age. KO on 2012-04-30 closed at $38.16 split-only versus $24.46 fully adjusted.
@@ -50,13 +47,23 @@ included, in the `runs` table.
 - **Never mix bases within one calculation.** A level and the close or ATR it's compared
   with must come from the same basis. Ratios like `(level − close) / ATR` are the safe way
   to combine one module's levels with another module's features.
+- **Outcomes measured inside a level module are price returns, on `traded`.** The patterns
+  and market-structure backtests and the gap-fill analysis check whether price reached a
+  target, stop or zone, which are levels, so they use the same series as the levels.
+  Switching only their returns to `total_return` would compare levels and prices from two
+  series. The cost is known and small: those returns leave out dividends, about the
+  dividend yield × the horizon (e.g. ~0.5% over a quarter for a 2% yielder). Anything that
+  measures **total** return (the MA study, modeling labels) uses `total_return`.
 - **Stored level tables are tied to the basis and bars of their run.** `gaps.store.read_gaps`
   refuses stored gaps when the bars passed in are on another basis, or when zones no longer
   match the bars. Other level tables have no read-back path; recompute with `as_of`.
 - **Changing a module's basis means:**
   1. update `MODULE_PRICE_BASIS` and this table;
   2. rerun that module's stored results;
-  3. update any real-data tests that pin values.
+  3. run `python -m src.foundation.market_common.basis_cleanup` (dry run, then `--apply`).
+     Most stores only insert or update, so rows only the old prices produced would otherwise
+     stay, on the old basis;
+  4. update any real-data tests that pin values.
 
 ## Updates
 
@@ -67,20 +74,13 @@ included, in the `runs` table.
 - **Level modules still recompute fully on each run today.** Incremental runs are possible
   on `traded`, but not built.
 
-## Planned: moving the level modules to `traded`
-
-Not done yet, deliberately. The enforcement (the table, the required basis, the guards and
-the tests) went in first with no change to any module's data. The switch:
-
-1. Extend `traded` bars back to each ticker's start; they begin 2009-01-02 today.
-2. Change the eight level-module rows in `MODULE_PRICE_BASIS` to `TRADED`, and update this
-   table.
-3. Rerun those modules' stored results, and update real-data tests that pin values.
-
-Best done before LRP's level features are built, so they start on the right basis.
-
 ## History
 
 Before 2026-10-01, every module read `yfinance` (`total_return`) implicitly, through a fixed
 `REQUIRED_SOURCE` in the shared loader, except market caps, which moved to `traded` in
-Done #67. From 2026-10-01 every module states its basis explicitly; the values didn't change.
+Done #67. From 2026-10-01 every module states its basis explicitly (Done #73, no values
+changed). On 2026-10-02 the eight level modules moved to `traded` (Done #74), after `traded`
+history was extended back to 1970 and checked against `total_return`. The two sources cover
+the same tickers; `traded` has a few extra old days for 84 of 305 sampled tickers. Their
+price ratio changes only on dividends and distributions: spin-offs and special dividends show
+as single steps, e.g. VLO 1997-08-01 and CCO's 2012/2016 special dividends.

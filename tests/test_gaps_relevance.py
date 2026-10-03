@@ -34,7 +34,7 @@ def _random_walk_bars(n=600, seed=3):
 def raw_conn():
     c = raw_db.get_connection(":memory:")
     raw_db.create_tables(c)
-    raw_db.upsert_bars(c, "bars_1d", "RW", raw_db.YFINANCE, _random_walk_bars())
+    raw_db.upsert_bars(c, "bars_1d", "RW", raw_db.YFINANCE_SPLIT_ONLY, _random_walk_bars())
     yield c
     c.close()
 
@@ -224,7 +224,7 @@ def test_rerun_after_a_bar_readjustment_refreshes_zones_and_keeps_ids(raw_conn):
     # re-ingest the same ticker with every price rescaled (a dividend re-adjustment)
     readj = _random_walk_bars()
     readj[["open", "high", "low", "close"]] *= 0.999
-    raw_db.upsert_bars(raw_conn, "bars_1d", "RW", raw_db.YFINANCE, readj)
+    raw_db.upsert_bars(raw_conn, "bars_1d", "RW", raw_db.YFINANCE_SPLIT_ONLY, readj)
     bars, _ = data_mod.load_and_validate(raw_conn, "RW", Timeframe.DAILY, basis=MODULE_PRICE_BASIS["gaps"])
     with pytest.raises(store.StaleGapsError):
         store.read_gaps(derived, "RW", "daily", bars=bars)
