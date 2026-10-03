@@ -27,6 +27,7 @@ SMA -- never silently a wrong 0.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 
 import numpy as np
@@ -37,6 +38,12 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing import market_cap
 from src.foundation.data_processing import ticker_renames
 from src.foundation.market_common import indicators
+
+logger = logging.getLogger(__name__)
+
+# Flagged dates of one member closer together than this are one episode;
+# the days in between are excluded too (see `_drop_cap_outliers`).
+_OUTLIER_EPISODE_GAP = pd.Timedelta(days=90)
 
 _GOLDEN_CROSS_FAST = 50
 _GOLDEN_CROSS_SLOW = 200
@@ -111,6 +118,43 @@ def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: l
     if not frames:
         return pd.DataFrame(columns=["ticker", "date", "market_cap"])
     return pd.concat(frames, ignore_index=True)
+
+
+def _drop_cap_outliers(members: pd.DataFrame, ratio: float | None, min_members: int) -> pd.Series:
+    """`members["market_cap"]` with any cap above `ratio` x that date's
+    median member cap set to NaN -- i.e. that member is excluded from that
+    date's weighted aggregates exactly like a member with no cap data yet
+    (see `_weighted_fraction`). Guards cap-weighted breadth against a
+    single mis-scaled share count swallowing the whole index
+    (`BreadthConfig.cap_outlier_ratio`). Logged, never silent.
+
+    Only dates with at least `min_members` covered members are tested (a
+    thin date's median is dragged by the outlier itself). A member flagged
+    on some dates is excluded across the whole episode -- every date from
+    its first flagged day to its last, flagged days less than
+    `_OUTLIER_EPISODE_GAP` apart being one episode -- so a cap hovering
+    around the threshold doesn't flip in and out of the index day to day.
+    """
+    caps = members["market_cap"]
+    if ratio is None:
+        return caps
+    by_date = caps.groupby(members["date"])
+    outlier = (caps > ratio * by_date.transform("median")) & (by_date.transform("count") >= min_members)
+    if not outlier.any():
+        return caps
+    excluded = outlier.copy()
+    for ticker, days in members.loc[outlier, "date"].groupby(members.loc[outlier, "ticker"]):
+        days = days.sort_values()
+        for _, span in days.groupby((days.diff() > _OUTLIER_EPISODE_GAP).cumsum()):
+            excluded |= (members["ticker"] == ticker) & members["date"].between(span.iloc[0], span.iloc[-1])
+    excluded &= caps.notna()
+    hit = members[excluded]
+    logger.warning(
+        "cap-weighted breadth: excluded %d member-days whose market cap exceeds %gx the date's median "
+        "(%d tickers: %s) -- a mis-scaled share count, not a real weight",
+        int(excluded.sum()), ratio, hit["ticker"].nunique(), ", ".join(sorted(hit["ticker"].unique())[:10]),
+    )
+    return caps.mask(excluded)
 
 
 def _constituent_counts(membership: pd.DataFrame, dates: pd.DatetimeIndex) -> pd.Series:
@@ -227,7 +271,9 @@ def compute_breadth(
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
-        members["weight"] = members["market_cap"]
+        members["weight"] = _drop_cap_outliers(
+            members, config.cap_outlier_ratio, config.cap_outlier_min_members
+        )
     else:
         members["weight"] = 1.0
 

@@ -26,6 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.foundation.data_processing import db
+from src.foundation.data_processing import market_cap
 from src.foundation.data_processing import sec_companyfacts as sec
 from src.foundation.utils.config_loader import load_config
 
@@ -88,10 +89,14 @@ def _evaluate(conn, zf, cik_map, ticker, active, shared_ciks) -> tuple[str, pd.S
     counts = sec.drop_isolated_spikes(sec.share_counts(company))
     if counts.empty:
         return "no_share_facts", None
-    reference = db.read_shares_outstanding(conn, ticker, db.YFINANCE)
-    _, ratio = sec.agreement(
-        counts, pd.Series(reference["shares_outstanding"].to_numpy(), index=pd.to_datetime(reference["date"]))
+    yf = db.read_shares_outstanding(conn, ticker, db.YFINANCE)
+    reference = pd.Series(yf["shares_outstanding"].to_numpy(), index=pd.to_datetime(yf["date"]))
+    counts = sec.drop_scale_runs(
+        counts,
+        split_factor=market_cap.split_factor(counts.index, market_cap.load_splits(conn, [ticker])),
+        reference=reference,
     )
+    _, ratio = sec.agreement(counts, reference)
     if ratio is not None:
         ok = AGREEMENT_BAND[0] <= ratio <= AGREEMENT_BAND[1]
         return ("stored", counts) if ok else ("disagrees_with_yfinance", None)
