@@ -63,6 +63,14 @@ def _encode(value):
     return json.dumps(value, default=str)
 
 
+def git_dirty() -> bool | None:
+    """Uncommitted changes besides the trial log itself (every trial appends
+    to it, so counting it would mark every trial after the first as dirty).
+    None when git can't answer -- unknown, not clean."""
+    status = _git("status", "--porcelain", "--", ":(top)", f":(top,exclude){TRIALS_PATH.as_posix()}")
+    return None if status is None else bool(status)
+
+
 class Trial:
     def __init__(self, experiment_id: str, spec: dict, artifacts_root: Path):
         missing = [f for f in SPEC_FIELDS if f not in spec]
@@ -71,7 +79,7 @@ class Trial:
         self.experiment_id = experiment_id
         self.spec = spec
         self.git_sha = _git("rev-parse", "--short", "HEAD")
-        self.git_dirty = bool(_git("status", "--porcelain"))
+        self.git_dirty = git_dirty()
         now = pd.Timestamp.now("UTC")
         self.date = now.isoformat()
         self.trial_id = f"{now:%Y%m%d-%H%M%S}-{self.git_sha or 'nogit'}-{uuid.uuid4().hex[:6]}"

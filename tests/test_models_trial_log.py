@@ -1,4 +1,5 @@
 import json
+import subprocess
 
 import pytest
 
@@ -61,3 +62,28 @@ def test_appending_to_a_file_with_other_columns_is_refused(tmp_path):
 
 def test_the_committed_log_has_the_current_columns():
     assert list(read_trials().columns) == COLUMNS
+
+
+def _git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+
+def test_git_dirty_ignores_the_trial_log_and_says_unknown_outside_git(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "docs" / "modeling").mkdir(parents=True)
+    (repo / "code.py").write_text("x = 1\n")
+    (repo / "docs" / "modeling" / "TRIALS.csv").write_text("h\n")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init")
+    monkeypatch.chdir(repo / "docs")  # from a subdirectory too
+    assert trial_log.git_dirty() is False
+    (repo / "docs" / "modeling" / "TRIALS.csv").write_text("h\nrow\n")  # a previous trial's row
+    assert trial_log.git_dirty() is False
+    (repo / "code.py").write_text("x = 2\n")
+    assert trial_log.git_dirty() is True
+    outside = tmp_path / "plain"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    assert trial_log.git_dirty() is None
