@@ -176,14 +176,16 @@ def _evaluate_pairs(
 
     Each pair is checked for both forms (config.forms permitting): REGULAR
     (price extends beyond its prior extreme, indicator doesn't) and HIDDEN
-    (price holds inside its prior extreme, indicator over-travels beyond its
-    own). The pivot kind alone fixes `direction` for either form -- HIGH
-    pairs imply BEARISH (down expected), LOW pairs BULLISH -- because a
-    hidden divergence's continuation reading points the same way as a
-    regular one's reversal reading off the same pivot kind. A single pair
-    resolves to at most one form: inside the equality-tolerance band the two
-    price conditions can overlap, but the indicator inequalities are strict
-    opposites, so they disambiguate.
+    (price holds strictly inside its prior extreme, indicator over-travels
+    beyond its own -- strictly: the equality tolerance applies to regular's
+    price side only, see the inline comment at the condition). The pivot
+    kind alone fixes `direction` for either form -- HIGH pairs imply
+    BEARISH (down expected), LOW pairs BULLISH -- because a hidden
+    divergence's continuation reading points the same way as a regular
+    one's reversal reading off the same pivot kind. A single pair resolves
+    to at most one form: the price conditions can overlap just inside the
+    tolerance band, but the indicator inequalities are strict opposites,
+    so they disambiguate.
     """
     results: list[Divergence] = []
     weights = config.strength_weights
@@ -216,17 +218,19 @@ def _evaluate_pairs(
                 continue
             tol = config.extreme_equality_tolerance_atr * atr_at_p2
 
-            price_up = p2.value > p1.value - tol
-            price_down = p2.value < p1.value + tol
-            indicator_up = ip2.value > ip1.value
-            indicator_down = ip2.value < ip1.value
-
+            # Regular keeps the equality-tolerance loosening on its price
+            # side: equal-ish extremes with a weaker indicator is the
+            # classic double-top/-bottom divergence reading. Hidden is
+            # deliberately STRICT on its price side -- if it shared the
+            # loosening, a within-tolerance HIGHER high paired with a
+            # higher indicator high (both series extending in agreement:
+            # no divergence of either form) would be emitted as hidden.
             if kind == PivotKind.HIGH:
-                is_regular = price_up and indicator_down
-                is_hidden = price_down and indicator_up
+                is_regular = p2.value > p1.value - tol and ip2.value < ip1.value
+                is_hidden = p2.value < p1.value and ip2.value > ip1.value
             else:
-                is_regular = price_down and indicator_up
-                is_hidden = price_up and indicator_down
+                is_regular = p2.value < p1.value + tol and ip2.value > ip1.value
+                is_hidden = p2.value > p1.value and ip2.value < ip1.value
 
             if is_regular:
                 form = DivergenceForm.REGULAR

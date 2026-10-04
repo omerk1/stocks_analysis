@@ -106,6 +106,19 @@ class Divergence:
     agreeing_indicators: str | None = None
     run_id: str | None = None
 
+    def __post_init__(self) -> None:
+        # Coerce string-bearing constructors (a Divergence(**db_row) loader
+        # is the natural next consumer) onto real enum members. A plain
+        # string passes every == check against a str-subclass enum, but
+        # hashes differently (Enum hashes by member, not value) -- so it
+        # silently lands in the wrong dict bucket in confluence grouping
+        # -- and breaks `.value` access in plotting/to_dict. No-op for
+        # already-enum arguments.
+        self.timeframe = Timeframe(self.timeframe)
+        self.indicator = IndicatorKind(self.indicator)
+        self.direction = Direction(self.direction)
+        self.form = DivergenceForm(self.form)
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["timeframe"] = self.timeframe.value

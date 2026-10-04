@@ -7,6 +7,8 @@ SRConfig / gaps.config.GapConfig).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+from src.signals.divergences.models import DivergenceForm
 from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 
 
@@ -62,7 +64,9 @@ class DivergenceConfig:
     # this -- too short a span for a divergence claim to mean much.
     min_pivot_span_bars: int = 5
     # Tolerance (x ATR at the second pivot) for judging price "equal or
-    # higher/lower" in bearish/bullish evaluation. 0.0 = strict inequality.
+    # higher/lower" in REGULAR bearish/bullish evaluation -- hidden's price
+    # condition is always strict (see detect._evaluate_pairs for why).
+    # 0.0 = strict inequality everywhere.
     extreme_equality_tolerance_atr: float = 0.0
 
     strength_weights: dict = field(default_factory=_default_strength_weights)
@@ -96,3 +100,16 @@ class DivergenceConfig:
     # with every run via the config. Don't override casually: stored results
     # and the bars they're compared against must share a basis.
     price_basis: PriceBasis = MODULE_PRICE_BASIS["divergences"]
+
+    def __post_init__(self) -> None:
+        # An unknown or empty forms list would otherwise fail SILENTLY --
+        # detect._evaluate_pairs just skips every pair, and a full --all
+        # run prints "0 divergence(s)" everywhere with no hint why. Same
+        # loud-failure stance compute_indicator_series takes on unknown
+        # indicator names.
+        valid = {f.value for f in DivergenceForm}
+        unknown = [f for f in self.forms if f not in valid]
+        if unknown or not self.forms:
+            raise ValueError(
+                f"DivergenceConfig.forms must be a non-empty subset of {sorted(valid)}; got {self.forms!r}"
+            )

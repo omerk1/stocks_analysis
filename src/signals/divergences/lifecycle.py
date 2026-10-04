@@ -26,17 +26,21 @@ def apply_outcome(bars: pd.DataFrame, atr: pd.Series, divergence: Divergence, co
     against that implied direction (the pattern's own "higher low"/"lower
     high" thesis failing outright).
 
-    `p2_price` doubles as both the invalidation threshold and the
-    favorable-move baseline -- it's the same reference point either way:
-    "how far has price moved away from the level that defined this
-    divergence," just read in opposite directions.
+    The two thresholds are deliberately different reference points:
 
-    Works unchanged for HIDDEN divergences (models.DivergenceForm):
-    `direction` is the implied move direction for both forms, and p2 is
-    still the level whose thesis is being tested -- for a hidden bearish
-    row p2 is the lower high, and price closing back above it breaks the
-    lower-high (continuation) thesis exactly as a new higher high breaks a
-    regular bearish row's reversal thesis.
+    - Favorable moves are measured from `p2_price`, the signal level (the
+      pivot whose confirmation completed the divergence), for both forms.
+    - Invalidation is judged against the PAIR'S price extreme --
+      max(p1, p2) for bearish, min for bullish. For a REGULAR row the
+      extreme IS p2 (price extended beyond p1 by definition), so this is
+      the original "new higher high / lower low" behavior unchanged. For
+      a HIDDEN row the extreme is p1: a hidden bearish row's p2 is only
+      the lower high, and price merely poking back above it leaves the
+      structure vs the actual high intact -- invalidating there would
+      make hidden rows "fail" at a systematically inflated rate purely
+      from the tighter threshold, biasing any cross-form outcome
+      comparison. `direction` is the implied move direction for both
+      forms, so everything else reads identically.
     """
     confirmed_ts = pd.Timestamp(divergence.confirmed_at)
     after = bars[bars.index > confirmed_ts]
@@ -53,6 +57,13 @@ def apply_outcome(bars: pd.DataFrame, atr: pd.Series, divergence: Divergence, co
 
     is_bullish = divergence.direction == Direction.BULLISH
     reference_price = divergence.p2_price
+    # Geometry, not the form field, picks the extreme -- identical for
+    # regular rows (where p2 is the extreme) and correct for hidden ones
+    # (where p1 is). See docstring.
+    if is_bullish:
+        invalidation_level = min(divergence.p1_price, divergence.p2_price)
+    else:
+        invalidation_level = max(divergence.p1_price, divergence.p2_price)
 
     max_favorable = 0.0
     bars_to_max: int | None = None
@@ -67,12 +78,12 @@ def apply_outcome(bars: pd.DataFrame, atr: pd.Series, divergence: Divergence, co
         any_valid = True
 
         if is_bullish:
-            if not invalidated and lows[i] < reference_price:
+            if not invalidated and lows[i] < invalidation_level:
                 invalidated = True
                 invalidated_at = idx[i].isoformat()
             favorable = max(0.0, (highs[i] - reference_price) / a)
         else:
-            if not invalidated and highs[i] > reference_price:
+            if not invalidated and highs[i] > invalidation_level:
                 invalidated = True
                 invalidated_at = idx[i].isoformat()
             favorable = max(0.0, (reference_price - lows[i]) / a)

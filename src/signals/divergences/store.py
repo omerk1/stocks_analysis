@@ -14,7 +14,7 @@ _DIVERGENCES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS divergences (
     id TEXT PRIMARY KEY,
     ticker TEXT, timeframe TEXT, indicator TEXT,
-    direction TEXT, form TEXT,
+    direction TEXT, form TEXT DEFAULT 'regular',
     p1_date TEXT, p2_date TEXT,
     p1_price REAL, p2_price REAL,
     i1_value REAL, i2_value REAL,
@@ -86,13 +86,16 @@ def create_divergences_table(conn: sqlite3.Connection) -> None:
 def _migrate_add_columns(conn: sqlite3.Connection) -> None:
     """`form` postdates the original schema (added with hidden-divergence
     detection) -- same pure-addition ALTER TABLE pattern as gaps/avwap's
-    stores. Every pre-existing row is regular by construction (the only
-    form the module could detect when it was written), so backfill is a
-    constant, not a recompute."""
+    stores. DEFAULT 'regular' rather than a one-shot backfill UPDATE: the
+    derived DB is shared across checkouts, so pre-form code can keep
+    inserting rows that omit the column after this migration has already
+    run -- a constant DEFAULT covers both the pre-existing rows (regular
+    by construction: the only form the module could detect when they were
+    written) and any such later inserts, where a backfill UPDATE would
+    only ever repair the former."""
     have = {row[1] for row in conn.execute("PRAGMA table_info(divergences)")}
     if "form" not in have:
-        conn.execute("ALTER TABLE divergences ADD COLUMN form TEXT")
-        conn.execute("UPDATE divergences SET form = 'regular' WHERE form IS NULL")
+        conn.execute("ALTER TABLE divergences ADD COLUMN form TEXT DEFAULT 'regular'")
 
 
 def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], run_id: str) -> None:

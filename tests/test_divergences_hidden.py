@@ -129,18 +129,20 @@ def test_forms_config_gates_each_form_independently():
     assert len(detect_for_indicator(regular_bars, "rsi", regular_rsi, only_regular, "TST", Timeframe.DAILY)) == 1
 
 
-def test_equal_highs_resolve_to_exactly_one_form_via_the_indicator_inequality():
-    # Inside the tolerance band both price conditions hold, so the
-    # indicator side alone decides the form -- and a single pair must never
-    # emit two rows.
+def test_equal_highs_are_regular_with_a_weaker_indicator_and_nothing_with_a_stronger_one():
+    # The tolerance loosening applies to REGULAR's price side only: equal
+    # highs + weaker indicator is the classic double-top divergence
+    # reading. Equal highs + STRONGER indicator is trend agreement, not a
+    # hidden divergence -- hidden requires a strictly lower high, so the
+    # tolerance band never converts agreement into a signal. Either way a
+    # single pair emits at most one row.
     bars = _bars(_EQUAL_HIGH_CLOSES)
     config = _config(extreme_equality_tolerance_atr=1.0)
 
     up = detect_for_indicator(bars, "rsi", _series(_EQ_RSI_UP, bars), config, "TST", Timeframe.DAILY)
     down = detect_for_indicator(bars, "rsi", _series(_EQ_RSI_DOWN, bars), config, "TST", Timeframe.DAILY)
 
-    assert len(up) == 1
-    assert up[0].form == DivergenceForm.HIDDEN
+    assert up == []
     assert len(down) == 1
     assert down[0].form == DivergenceForm.REGULAR
 
@@ -153,6 +155,33 @@ def test_equal_highs_with_zero_tolerance_yield_nothing_in_either_form():
 
     assert detect_for_indicator(bars, "rsi", _series(_EQ_RSI_UP, bars), config, "TST", Timeframe.DAILY) == []
     assert detect_for_indicator(bars, "rsi", _series(_EQ_RSI_DOWN, bars), config, "TST", Timeframe.DAILY) == []
+
+
+def test_unknown_or_empty_forms_config_raises_instead_of_silently_detecting_nothing():
+    with pytest.raises(ValueError, match="forms"):
+        DivergenceConfig(forms=["Hidden"])  # wrong case
+    with pytest.raises(ValueError, match="forms"):
+        DivergenceConfig(forms=["hiden"])  # typo
+    with pytest.raises(ValueError, match="forms"):
+        DivergenceConfig(forms=[])
+
+
+def test_divergence_constructor_coerces_string_enum_fields():
+    # A Divergence(**db_row) loader hands strings to every enum-typed
+    # field; they must land as members (string str-enum equality passes ==
+    # but hashes by value, silently splitting confluence's dict grouping).
+    d = Divergence(
+        id="x", ticker="T", timeframe="daily", indicator="rsi", direction="bearish",
+        p1_date="2020-01-02T00:00:00", p2_date="2020-01-20T00:00:00",
+        p1_price=130.0, p2_price=120.0, i1_value=70.0, i2_value=80.0,
+        strength=0.5, duration_bars=10, price_move_atr=1.0,
+        appeared_at="2020-01-20T00:00:00", confirmed_at="2020-01-22T00:00:00",
+        form="hidden",
+    )
+    assert d.timeframe is Timeframe.DAILY
+    assert d.indicator is IndicatorKind.RSI
+    assert d.direction is Direction.BEARISH
+    assert d.form is DivergenceForm.HIDDEN
 
 
 # ---- confluence: within-form only (monkeypatched detect(), matching
@@ -289,6 +318,17 @@ def test_pre_form_table_is_migrated_and_legacy_rows_backfilled_as_regular():
 
     assert connection.execute(
         "SELECT form FROM divergences WHERE id = 'legacy-1'"
+    ).fetchone() == ("regular",)
+
+    # The DEFAULT also covers a column-omitting insert AFTER migration --
+    # the shared derived DB can still be written by pre-form code from
+    # another checkout, which a one-shot backfill UPDATE would miss.
+    connection.execute(
+        "INSERT INTO divergences (id, ticker, timeframe, indicator, direction, p2_date)"
+        " VALUES ('legacy-2', 'OLD', 'daily', 'rsi', 'bearish', '2020-07-01T00:00:00')"
+    )
+    assert connection.execute(
+        "SELECT form FROM divergences WHERE id = 'legacy-2'"
     ).fetchone() == ("regular",)
 
     # And a post-migration upsert of a hidden row works against the
