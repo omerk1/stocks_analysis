@@ -275,7 +275,7 @@ Build order, one PR each, each with its own tests:
    - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.
      Both were large-cap reverse splits around spin-offs, not distress. This
      feeds the with/without sensitivity in history-breaks follow-up (b).
-3. `baselines.py` + `learners.py` + `trial_log.py`. **Done (#PR).** Choices made
+3. `baselines.py` + `learners.py` + `trial_log.py`. **Done (#157).** Choices made
    there:
    - **Baseline features** come from `features/baseline.py`: the study's definitions,
      computed on bars up to t for the point-in-time universe, and cached as parquet.
