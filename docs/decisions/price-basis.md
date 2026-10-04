@@ -30,6 +30,7 @@ included, in the `runs` table.
 | relative_strength, breadth | `total_return` | Built on returns and return-based state. |
 | modeling labels (`src/models/dataset.py`, `models_labels`) | `total_return` | Labels, ATR and the decision-day close are returns. LRP's level features must use the level modules' basis (`traded`) for the level, close and ATR alike. |
 | modeling universe (`src/models/dataset.py`, `models_universe`) | `traded` | The liquidity floor (close × volume) and the penny/price-floor checks need the prices that traded; dividend adjustment would make the dollar-volume floor stricter in older years. |
+| modeling baseline features (`src/models/features/baseline.py`, `models_features`) | `total_return` | The MA study's factor definitions (momentum, volatility, reversal, extension), on the study's basis. |
 
 ## Why levels are on `traded`
 

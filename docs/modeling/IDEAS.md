@@ -235,9 +235,8 @@ Each feature family has to earn its place through measured improvement over the 
 before it (ablation), not by being on the list.
 
 0. **Validation harness (§8), then labels and baselines.** Barrier surface labels.
-   Baselines B0–B5 (`ma_study_insights.md` §3): base rate, date-demeaned, then
-   momentum (`mom_12_1` / `rs_rank`), vol, sector, reversal, extension, and the Tier-2
-   slope percentile. `rs_rank` is the momentum control, so it lives here, not in stage 1.
+   Baselines (`ma_study_insights.md` §3; the harness uses B0, B2–B4): base rate,
+   then momentum (`mom_12_1` / `rs_rank`), vol, sector, reversal, extension. `rs_rank` is the momentum control, so it lives here, not in stage 1.
 1. **Gradient-boosted trees on cheap panel features:** F2–F4, the volatility and volume
    additions, and cross-sectional ranks. Measure calibration and EV after costs.
 2. **Add the level and structure features:** F6–F8, and LRP as nearest-level distance.
