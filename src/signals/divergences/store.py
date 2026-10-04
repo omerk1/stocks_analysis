@@ -83,19 +83,33 @@ def create_divergences_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Columns that postdate the original schema, in the order they were added
+# -- same pure-addition ALTER TABLE pattern as gaps/avwap's stores. Found
+# the hard way (2026-10-04, first full-universe backfill): the shared
+# derived DB's live table predated the confluence columns (Done #44), so
+# an upsert naming them failed on EVERY ticker while the fresh-table
+# CREATE path -- the only one the tests exercised -- worked. A live table
+# can be arbitrarily old; the migration must cover every post-original
+# column, not just the newest one.
+#
+# Defaults match each column's dataclass contract: confluence_count=1
+# ("always set, never None" -- a solo divergence IS a cluster of one);
+# form='regular' (the only form the module could detect before hidden
+# detection existed). Constant DEFAULTs rather than one-shot backfill
+# UPDATEs, because pre-migration code from another checkout can keep
+# inserting column-omitting rows after this migration has already run.
+_MIGRATED_COLUMNS: dict[str, str] = {
+    "confluence_count": "INTEGER DEFAULT 1",   # Done #44
+    "agreeing_indicators": "TEXT",             # Done #44
+    "form": "TEXT DEFAULT 'regular'",          # hidden-divergence detection
+}
+
+
 def _migrate_add_columns(conn: sqlite3.Connection) -> None:
-    """`form` postdates the original schema (added with hidden-divergence
-    detection) -- same pure-addition ALTER TABLE pattern as gaps/avwap's
-    stores. DEFAULT 'regular' rather than a one-shot backfill UPDATE: the
-    derived DB is shared across checkouts, so pre-form code can keep
-    inserting rows that omit the column after this migration has already
-    run -- a constant DEFAULT covers both the pre-existing rows (regular
-    by construction: the only form the module could detect when they were
-    written) and any such later inserts, where a backfill UPDATE would
-    only ever repair the former."""
     have = {row[1] for row in conn.execute("PRAGMA table_info(divergences)")}
-    if "form" not in have:
-        conn.execute("ALTER TABLE divergences ADD COLUMN form TEXT DEFAULT 'regular'")
+    for name, sql_type in _MIGRATED_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE divergences ADD COLUMN {name} {sql_type}")
 
 
 def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], run_id: str) -> None:

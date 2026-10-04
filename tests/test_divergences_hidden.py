@@ -263,8 +263,11 @@ def test_two_hidden_rows_on_the_same_swing_do_corroborate(conn, monkeypatch):
 # ---- store: form round-trip + additive migration of a pre-form table ----
 
 
-# The divergences schema exactly as it existed before the form column --
-# the migration test's starting point.
+# The OLDEST schema a live table can have: pre-confluence (Done #44) and
+# pre-form. This is what the shared derived DB actually contained when the
+# first full-universe backfill ran (2026-10-04) -- a migration test
+# starting from any newer snapshot silently skips the columns that
+# actually bit.
 _LEGACY_SCHEMA = """
 CREATE TABLE divergences (
     id TEXT PRIMARY KEY,
@@ -278,7 +281,6 @@ CREATE TABLE divergences (
     appeared_at TEXT, confirmed_at TEXT,
     max_favorable_move_atr REAL, bars_to_max_favorable_move INTEGER,
     invalidated INTEGER, invalidated_at TEXT, outcome_computed_through TEXT,
-    confluence_count INTEGER, agreeing_indicators TEXT,
     run_id TEXT,
     UNIQUE (ticker, timeframe, indicator, direction, p2_date)
 );
@@ -317,8 +319,8 @@ def test_pre_form_table_is_migrated_and_legacy_rows_backfilled_as_regular():
     create_divergences_table(connection)
 
     assert connection.execute(
-        "SELECT form FROM divergences WHERE id = 'legacy-1'"
-    ).fetchone() == ("regular",)
+        "SELECT form, confluence_count, agreeing_indicators FROM divergences WHERE id = 'legacy-1'"
+    ).fetchone() == ("regular", 1, None)
 
     # The DEFAULT also covers a column-omitting insert AFTER migration --
     # the shared derived DB can still be written by pre-form code from
