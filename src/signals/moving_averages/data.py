@@ -18,6 +18,8 @@ import sqlite3
 
 import pandas as pd
 
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
+
 # DESIGN.md §3.4: "Returns beyond ±50% in a day flagged and manually reviewed
 # (usually bad data or a corporate action)."
 LARGE_MOVE_THRESHOLD = 0.5
@@ -63,7 +65,7 @@ def sp500_full_coverage_tickers(
     as_of: str,
     coverage_start: str,
     coverage_end: str,
-    source: str = "yfinance",
+    source: str = source_for(MODULE_PRICE_BASIS["moving_averages"]),
 ) -> list[str]:
     """S&P 500 constituents as of `as_of` (point-in-time membership, via
     `index_membership`), restricted to tickers with `bars_1d` coverage
@@ -113,7 +115,8 @@ def delisted_coverage_by_year(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def spot_check_sample(
-    conn: sqlite3.Connection, n: int = 20, seed: int = 42, source: str = "yfinance"
+    conn: sqlite3.Connection, n: int = 20, seed: int = 42,
+    source: str = source_for(MODULE_PRICE_BASIS["moving_averages"]),
 ) -> pd.DataFrame:
     """A reproducible random sample of `n` (ticker, date) bars for manual
     verification against an external chart provider (DESIGN.md §3.4).

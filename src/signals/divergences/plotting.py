@@ -12,7 +12,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from src.signals.divergences.models import Direction, Divergence
+from src.signals.divergences.models import Direction, Divergence, DivergenceForm
 
 # Green/red for bullish/bearish -- same pair sr_lines.plotting already uses
 # for its TOUCH (#2ca02c) / BODY_FAKE (#d62728) markers, kept consistent
@@ -59,14 +59,20 @@ def render_divergence_chart(
     relevant = [d for d in divergences if d.indicator.value == indicator_name]
     for d in relevant:
         color = _DIRECTION_COLORS[d.direction]
+        # Hidden rows draw dashed in the price pane (regular stays solid) --
+        # same color family since direction still carries the implied move;
+        # the dash marks "continuation reading", visible at a glance.
+        hidden = d.form == DivergenceForm.HIDDEN
+        form_label = f"{d.form.value} {d.direction.value}"
         p1_ts, p2_ts = pd.Timestamp(d.p1_date), pd.Timestamp(d.p2_date)
-        hover = f"{d.direction.value} {indicator_name} strength={d.strength:.2f} confirmed_at={d.confirmed_at}"
+        hover = f"{form_label} {indicator_name} strength={d.strength:.2f} confirmed_at={d.confirmed_at}"
 
         fig.add_trace(
             go.Scatter(
                 x=[p1_ts, p2_ts], y=[d.p1_price, d.p2_price], mode="lines+markers",
-                line=dict(color=color, width=2), marker=dict(size=6, color=color),
-                name=f"{d.direction.value} {d.strength:.2f}", legendgroup=d.id,
+                line=dict(color=color, width=2, dash="dash" if hidden else None),
+                marker=dict(size=6, color=color),
+                name=f"{form_label} {d.strength:.2f}", legendgroup=d.id,
                 hovertext=hover, hoverinfo="text",
             ),
             row=1, col=1,

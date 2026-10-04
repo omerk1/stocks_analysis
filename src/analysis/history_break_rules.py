@@ -19,9 +19,9 @@ each point-in-time (uses only what was known at the date it's applied to):
    reviewed ticker's ineligible spans next to the manual cut from the
    History Break Review page.
 
-Nothing is stored in either DB. yfinance bars only (active tickers).
-Note: yfinance closes are also dividend-adjusted, so the "unadjusted"
-close is split-unadjusted only -- close enough for a $1 threshold.
+Nothing is stored in either DB. yfinance bars only (active tickers), on
+the anchors' price basis (`MODULE_PRICE_BASIS["avwap"]`, traded since
+2026-10-02; the original calibration ran on total-return bars).
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 from src.foundation.market_common.anchors import AnchorConfig, discover_anchors
 from src.foundation.market_common.models import Timeframe
@@ -60,11 +62,11 @@ def _connect(path: str) -> sqlite3.Connection:
 
 
 def load_bars(conn, tickers: list[str] | None) -> pd.DataFrame:
-    q = "SELECT ticker, timestamp, open, high, low, close, volume FROM bars_1d WHERE source = 'yfinance'"
-    params: tuple = ()
+    q = "SELECT ticker, timestamp, open, high, low, close, volume FROM bars_1d WHERE source = ?"
+    params: tuple = (source_for(MODULE_PRICE_BASIS["avwap"]),)
     if tickers:
         q += f" AND ticker IN ({','.join('?' for _ in tickers)})"
-        params = tuple(tickers)
+        params += tuple(tickers)
     bars = pd.read_sql_query(q, conn, params=params)
     bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
     bars = bars[(bars["close"] > 0) & (bars["high"] > 0) & (bars["low"] > 0)]

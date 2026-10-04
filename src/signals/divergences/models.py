@@ -10,7 +10,7 @@ from enum import Enum
 
 from src.foundation.market_common.models import Direction, Timeframe
 
-__all__ = ["Direction", "Timeframe", "IndicatorKind", "Divergence"]
+__all__ = ["Direction", "Timeframe", "IndicatorKind", "DivergenceForm", "Divergence"]
 
 
 class IndicatorKind(str, Enum):
@@ -18,6 +18,18 @@ class IndicatorKind(str, Enum):
     MACD_HIST = "macd_hist"
     OBV = "obv"
     VOLUME = "volume"
+
+
+class DivergenceForm(str, Enum):
+    """REGULAR: price extends beyond its prior extreme while the indicator
+    doesn't (reversal-flavored reading). HIDDEN: price holds inside its prior
+    extreme while the indicator over-travels beyond its own (continuation-
+    flavored reading). Either way `direction` stays the *implied move
+    direction* (BEARISH = down expected), so lifecycle outcome tracking reads
+    identically for both forms."""
+
+    REGULAR = "regular"
+    HIDDEN = "hidden"
 
 
 @dataclass
@@ -53,6 +65,11 @@ class Divergence:
     price_move_atr: float
     appeared_at: str
     confirmed_at: str
+    # Defaulted (not required) purely because rows predating the field --
+    # both pickled/hand-built ones in tests and the pre-migration DB rows
+    # store._migrate_add_columns backfills -- are all regular by
+    # construction; detect.py always sets it explicitly.
+    form: DivergenceForm = DivergenceForm.REGULAR
     # None when the indicator's own magnitude at p2's bar couldn't be
     # computed reliably -- see detect.py's scale_consistent guard (the same
     # case that makes the clipped `indicator_gap` component fall back to 0.0).
@@ -89,9 +106,23 @@ class Divergence:
     agreeing_indicators: str | None = None
     run_id: str | None = None
 
+    def __post_init__(self) -> None:
+        # Coerce string-bearing constructors (a Divergence(**db_row) loader
+        # is the natural next consumer) onto real enum members. A plain
+        # string passes every == check against a str-subclass enum, but
+        # hashes differently (Enum hashes by member, not value) -- so it
+        # silently lands in the wrong dict bucket in confluence grouping
+        # -- and breaks `.value` access in plotting/to_dict. No-op for
+        # already-enum arguments.
+        self.timeframe = Timeframe(self.timeframe)
+        self.indicator = IndicatorKind(self.indicator)
+        self.direction = Direction(self.direction)
+        self.form = DivergenceForm(self.form)
+
     def to_dict(self) -> dict:
         d = asdict(self)
         d["timeframe"] = self.timeframe.value
         d["indicator"] = self.indicator.value
         d["direction"] = self.direction.value
+        d["form"] = self.form.value
         return d
