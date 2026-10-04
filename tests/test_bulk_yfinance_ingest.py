@@ -383,3 +383,18 @@ def test_incremental_groups_tickers_by_fetch_window_over_the_default_universe(mo
     starts = [c.kwargs["start"] for c in mock_download.call_args_list]
     assert starts == ["2023-12-23", "2023-12-31", FULL_HISTORY_START]
     assert (report["appended"], report["no_new_data"], report["refetched"]) == (1, 1, 1)
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_finalises_a_partial_last_bar_without_new_days(mock_download, conn):
+    # Friday stored intraday (partial); a Saturday run sees no new day but must store Friday's final bar.
+    _store_split_only(conn, "AAPL", STORED)
+    conn.execute("UPDATE bars_1d SET close = 11.5, is_partial = 1 WHERE ticker = 'AAPL' AND timestamp LIKE '2024-01-10%'")
+    conn.commit()
+    mock_download.return_value = _frame({"AAPL": {"2024-01-09": 11.0, "2024-01-10": 12.0}})
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["AAPL"])
+
+    assert report["no_new_data"] == 1
+    assert _closes(conn, "AAPL") == STORED
+    assert conn.execute("SELECT is_partial FROM bars_1d WHERE ticker = 'AAPL' AND timestamp LIKE '2024-01-10%'").fetchone()[0] == 0

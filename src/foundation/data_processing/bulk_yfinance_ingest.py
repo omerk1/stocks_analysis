@@ -281,9 +281,11 @@ def update_split_only_incremental(
                 if not rel <= CLOSE_REL_TOL:
                     to_refetch[ticker] = f"overlap closes differ (max rel {rel:.3g})"
                     continue
-                last = state[ticker][1]
-                if (bars.index.normalize() > last).any() or bars["is_partial"].any():
-                    db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, bars)
+                # Always store the fetched window: besides new days, it carries the final
+                # values of a bar stored earlier as partial (e.g. a Friday intraday run,
+                # refreshed on Saturday with no new day).
+                db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, bars)
+                if (bars.index.normalize() > state[ticker][1]).any():
                     report["appended"] += 1
                 else:
                     report["no_new_data"] += 1
