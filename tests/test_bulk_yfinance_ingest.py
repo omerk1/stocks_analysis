@@ -5,7 +5,9 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
-from src.foundation.data_processing.bulk_yfinance_ingest import JOB_TYPE, backfill_yfinance_daily
+from src.foundation.data_processing.bulk_yfinance_ingest import (
+    FULL_HISTORY_START, JOB_TYPE, backfill_yfinance_daily, update_split_only_incremental,
+)
 from src.foundation.data_processing.yfinance_client import to_yfinance_symbol
 
 
@@ -263,3 +265,121 @@ def test_default_run_keeps_fully_adjusted_closes(mock_download, conn):
     backfill_yfinance_daily(conn, "2024-01-01", "2024-01-01", as_of=pd.Timestamp("2024-02-01"))
 
     assert mock_download.call_args.kwargs["auto_adjust"] is True
+
+
+# --- incremental split-only updates -----------------------------------------
+
+def _store_split_only(conn, ticker, closes: dict):
+    c = pd.Series(list(closes.values()), index=pd.DatetimeIndex(list(closes)), dtype=float)
+    bars = pd.DataFrame({"open": c, "high": c + 1, "low": c - 1, "close": c, "volume": 1000.0, "is_partial": 0})
+    db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, bars)
+
+
+def _frame(ticker_closes: dict) -> pd.DataFrame:
+    """MultiIndex batch frame like yf.download's: ticker -> {date: close}."""
+    index = pd.DatetimeIndex(sorted({d for closes in ticker_closes.values() for d in closes}))
+    data = {}
+    for ticker, closes in ticker_closes.items():
+        close = pd.Series({pd.Timestamp(d): c for d, c in closes.items()}, dtype=float).reindex(index)
+        data[(ticker, "Open")] = close
+        data[(ticker, "High")] = close + 1
+        data[(ticker, "Low")] = close - 1
+        data[(ticker, "Close")] = close
+        data[(ticker, "Volume")] = close * 0 + 1000
+    return pd.DataFrame(data, index=index)
+
+
+def _closes(conn, ticker):
+    bars = db.read_bars(conn, "bars_1d", ticker=ticker, source=db.YFINANCE_SPLIT_ONLY)
+    return {ts.strftime("%Y-%m-%d"): c for ts, c in bars["close"].items()}
+
+
+AS_OF = pd.Timestamp("2024-01-20")
+STORED = {"2024-01-08": 10.0, "2024-01-09": 11.0, "2024-01-10": 12.0}
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_appends_new_days_when_overlap_matches(mock_download, conn):
+    _store_split_only(conn, "AAPL", STORED)
+    mock_download.return_value = _frame({"AAPL": {"2024-01-09": 11.0, "2024-01-10": 12.0, "2024-01-11": 13.0}})
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["AAPL"])
+
+    assert (report["appended"], report["refetched"], report["failed"]) == (1, 0, 0)
+    mock_download.assert_called_once()
+    assert mock_download.call_args.kwargs["start"] == "2023-12-31"  # last stored bar - overlap
+    assert mock_download.call_args.kwargs["auto_adjust"] is False
+    assert _closes(conn, "AAPL") == {**STORED, "2024-01-11": 13.0}
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_refetches_full_history_when_overlap_changed(mock_download, conn):
+    # A 2-for-1 split since the last fetch halves every earlier split-only close.
+    _store_split_only(conn, "AAPL", STORED)
+    mock_download.side_effect = [
+        _frame({"AAPL": {"2024-01-09": 5.5, "2024-01-10": 6.0, "2024-01-11": 6.5}}),
+        _frame({"AAPL": {"2024-01-08": 5.0, "2024-01-09": 5.5, "2024-01-10": 6.0, "2024-01-11": 6.5}}),
+    ]
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["AAPL"])
+
+    assert (report["refetched"], report["appended"]) == (1, 0)
+    assert "overlap closes differ" in report["refetch_reasons"]["AAPL"]
+    assert mock_download.call_args_list[1].kwargs["start"] == FULL_HISTORY_START
+    assert _closes(conn, "AAPL") == {"2024-01-08": 5.0, "2024-01-09": 5.5, "2024-01-10": 6.0, "2024-01-11": 6.5}
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_refuses_a_refetch_shorter_than_stored_history(mock_download, conn):
+    # Yahoo truncating old history must not delete what's stored.
+    _store_split_only(conn, "AAPL", STORED)
+    mock_download.side_effect = [
+        _frame({"AAPL": {"2024-01-10": 6.0, "2024-01-11": 6.5}}),
+        _frame({"AAPL": {"2024-01-19": 6.0}}),
+    ]
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["AAPL"])
+
+    assert report["failed"] == 1 and "not replaced" in report["failures"]["AAPL"]
+    assert _closes(conn, "AAPL") == STORED
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_full_fetch_for_ticker_without_stored_bars(mock_download, conn):
+    mock_download.return_value = _frame({"MSFT": {"2024-01-10": 20.0, "2024-01-11": 21.0}})
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["MSFT"])
+
+    assert report["refetched"] == 1 and report["refetch_reasons"]["MSFT"] == "no stored bars"
+    mock_download.assert_called_once()
+    assert mock_download.call_args.kwargs["start"] == FULL_HISTORY_START
+    assert _closes(conn, "MSFT") == {"2024-01-10": 20.0, "2024-01-11": 21.0}
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_no_new_data(mock_download, conn):
+    _store_split_only(conn, "AAPL", STORED)
+    mock_download.return_value = _frame({"AAPL": {"2024-01-09": 11.0, "2024-01-10": 12.0}})
+
+    report = update_split_only_incremental(conn, as_of=AS_OF, tickers=["AAPL"])
+
+    assert (report["no_new_data"], report["appended"], report["refetched"]) == (1, 0, 0)
+    assert conn.execute("SELECT status FROM fetch_jobs WHERE key = 'AAPL'").fetchone()[0] == "success"
+
+
+@patch("src.foundation.data_processing.bulk_yfinance_ingest.yf.download")
+def test_incremental_groups_tickers_by_fetch_window_over_the_default_universe(mock_download, conn):
+    # Default universe: tickers with split-only bars plus active CS tickers (MSFT has none -> full fetch).
+    _store_split_only(conn, "AAPL", STORED)
+    _store_split_only(conn, "OLD", {"2024-01-02": 7.0})
+    mock_download.side_effect = [
+        _frame({"OLD": {"2024-01-02": 7.0}}),                        # window from OLD's last bar
+        _frame({"AAPL": {"2024-01-10": 12.0, "2024-01-11": 13.0}}),  # window from AAPL's last bar
+        _frame({"MSFT": {"2024-01-11": 21.0}}),                      # full fetch
+    ]
+
+    report = update_split_only_incremental(conn, as_of=AS_OF)
+
+    starts = [c.kwargs["start"] for c in mock_download.call_args_list]
+    assert starts == ["2023-12-23", "2023-12-31", FULL_HISTORY_START]
+    assert (report["appended"], report["no_new_data"], report["refetched"]) == (1, 1, 1)
