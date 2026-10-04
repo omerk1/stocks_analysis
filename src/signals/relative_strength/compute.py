@@ -67,11 +67,11 @@ _EMPTY_CLOSE = pd.Series(dtype="float64", name="close", index=pd.DatetimeIndex([
 def _load_daily_ohlcv(conn: sqlite3.Connection, tickers: list[str]) -> pd.DataFrame:
     """Bulk-load full daily OHLCV+is_partial `bars_1d` rows for `tickers`
     (one query, not one per ticker) -- feeds `_bulk_weekly_closes`' resample
-    below. Hardcoded to source=yfinance regardless of
-    `RelativeStrengthConfig.price_source`: every weekly consumer in this
-    codebase is yfinance-only (mixing Polygon/yfinance adjustment
-    conventions produces phantom levels, per `market_common/data.py`'s
-    docstring), same reasoning `_bulk_weekly_closes` inherits.
+    below. Reads relative strength's basis from `MODULE_PRICE_BASIS` directly
+    (not `RelativeStrengthConfig.price_source`, which may name another
+    source): every weekly consumer is yfinance-only, since mixing
+    Polygon/yfinance adjustment conventions produces phantom levels (per
+    `market_common/data.py`'s docstring).
     """
     if not tickers:
         return pd.DataFrame(columns=["ticker", "timestamp", "open", "high", "low", "close", "volume", "is_partial"])
