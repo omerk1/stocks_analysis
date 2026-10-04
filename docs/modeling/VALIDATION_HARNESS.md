@@ -7,7 +7,7 @@ every model result depends on it, so it gets built and checked before any real f
 out-of-sample metrics with honest confidence intervals, logging every trial. It
 *enforces* the requirements `ma_study_insights.md` already derived, and doesn't restate
 them:
-- **§3** — baselines B0–B5 the model has to beat.
+- **§3** — the baselines the model has to beat (the harness uses B0, B2–B4; §5).
 - **§4** — the barrier target and horizons.
 - **§5** — the requirements table: purge, embargo, effective N, seeds, plateau,
   synthetic gate, costs.
@@ -118,16 +118,23 @@ New `src/models/splits.py`. Dates are the unit, never rows.
 
 One interface: `fit(X, y, sample_weight) → self`, `predict_proba(X) → P(+1), P(−1), P(0)`.
 
-- **Baselines B0–B5** as defined in `ma_study_insights.md` §3, each a model with a
-  fixed column set:
-  - B0 per-date base rate
-  - B1 date-demeaned
-  - B2 momentum × vol × sector
-  - B3 + reversal
-  - B4 + extension
-  - B5 + the Tier-2 slope percentile
+- **Baselines B0, B2–B4** (`baselines.py`), from `ma_study_insights.md` §3. Each is a
+  model with a fixed column set (`features/baseline.py`, the study's own definitions,
+  as per-date ranks):
+  - B0: the training class frequencies, the same for every row
+  - B2: momentum (`mom_12_1`), volatility (`realized_vol_63`), sector
+  - B3: B2 + reversal (`mom_1_0`)
+  - B4: B3 + extension (`dist_pct_sma_50`)
 
-  B2 in both its matched-stratum and regression forms, once, to confirm they agree.
+  B2–B4 are the v1 learner itself on those columns, so beating B4 means the extra
+  columns carry information. B2 is also run once in its matched-stratum form, to
+  confirm the two agree.
+
+  Dropped 2026-10-03:
+  - **B1 (the date's own outcome rate).** Within-day skill is measured directly by the
+    IC and the top-k excess over that day's mean return (`metrics.py`).
+  - **B5 (the Tier-2 slope percentile).** One fragile cell out of 107 is too weak to be
+    a rung.
 - **v1 learner:** gradient-boosted trees (scikit-learn's `HistGradientBoostingClassifier`, already
   installed; LightGBM-style histogram boosting without a new dependency), one three-class model (+1 / −1 / 0)
   per (H, U, D) cell. That's option (a) of `IDEAS.md` §1,
@@ -227,11 +234,12 @@ src/models/
   dataset.py          H1 holdout lock, H3 universe mask, panel assembly
   labels/barriers.py  §3
   splits.py           §4
-  baselines.py        B0–B5
+  baselines.py        B0, B2–B4 (+ B2's stratum form)
   learners.py         gradient-boosting wrapper, calibration, monotonicity check
   metrics.py          §6 metrics, n_dates gate
   inference.py        draws-returning bootstrap wrapper over moving_averages/stats
   trial_log.py        TRIALS.csv + data/models/<trial_id>/
+  features/baseline.py  the baselines' factor columns
   features/registry.py
   synthetic.py        §8 gate 1
   cli.py              run-trial, run-gates
@@ -267,7 +275,25 @@ Build order, one PR each, each with its own tests:
    - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.
      Both were large-cap reverse splits around spin-offs, not distress. This
      feeds the with/without sensitivity in history-breaks follow-up (b).
-3. `baselines.py` + `learners.py` + `trial_log.py`.
+3. `baselines.py` + `learners.py` + `trial_log.py`. **Done (#157).** Choices made
+   there:
+   - **Baseline features** come from `features/baseline.py`: the study's definitions,
+     computed on bars up to t for the point-in-time universe, and cached as parquet.
+     The MA panel isn't reused: it is lagged one row, and it only covers the 405
+     tickers that survived to 2021.
+   - **The learner** is three-class `HistGradientBoostingClassifier` with fixed v1
+     defaults (`BoostingConfig`). Isotonic calibration (one class against the rest,
+     renormalised) is fitted on inner-fold out-of-sample predictions. Inner test rows
+     whose label window reaches the outer test year are purged as well.
+   - **Seeds:** `max_features=0.8` makes seeds matter only with 5 or more columns. B2
+     and B3 are deterministic, so their seed spread is a true 0.
+   - **Trial log:** `trial(...)` writes a `TRIALS.csv` row on exit, whether the trial
+     ends `ok`, `abandoned` or `failed`. A spec missing a design field (e.g.
+     `open_holdout`) is refused before the trial runs.
+
+   Smoke run (S&P 500 2010–2021, no fit): the B2–B4 columns are complete on 99.3% of
+   eligible rows. 187 rows have a split-only bar but no total-return bar (and so no
+   label), and FISV has no sector.
 4. The four gates (§8). Real data is used only after these pass.
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the
    harness end to end.

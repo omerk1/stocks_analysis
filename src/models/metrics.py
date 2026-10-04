@@ -16,10 +16,12 @@ Metrics:
   with its own n_rows and n_dates.
 - **Per-date Spearman IC** of P(+1) against the realised `hit` (ordinal -1/0/+1).
 - **Top-k per day by EV**, realised hit rate and realised return after 10 and
-  25 bps round trip. EV ranks on decision-time quantities only: ATR over the
-  decision close, never the entry price (the next open isn't known when the
-  ranking is made), and `neither_ret`, the mean return of "neither" rows,
-  which the caller estimates on training rows -- never on the rows scored here.
+  25 bps round trip, plus its excess over that day's mean return (within-day
+  skill; the IC is the other within-day measure). EV ranks on decision-time
+  quantities only: ATR over the decision close, never the entry price (the
+  next open isn't known when the ranking is made), and `neither_ret`, the
+  mean return of "neither" rows, which the caller estimates on training rows
+  -- never on the rows scored here.
 
 Every row carries `n_rows` and `n_dates`. A group with fewer than
 `MIN_BLOCKS x 2H` dates is `not_computable`: counts kept, metrics NaN, never
@@ -131,7 +133,10 @@ def top_k_daily(frame: pd.DataFrame, cell: BarrierCell, neither_ret: float, k: i
                 costs_bps: tuple[int, ...] = COSTS_BPS) -> pd.DataFrame:
     """Each day, the `k` rows with the highest EV (ties broken by ticker; a day
     with fewer rows takes them all). Per date: n_picked, hit_rate (share hitting
-    +1), ret (mean realised return, gross) and ret_net_<c>bps per cost level."""
+    +1), ret (mean realised return, gross), ret_net_<c>bps per cost level, and
+    excess: ret minus that day's mean return over every row scored -- the
+    within-day skill, with the market's own move on the day removed."""
+    day_mean = frame.groupby("date")["ret"].mean()
     picks = frame.assign(ev=expected_value(frame, cell, neither_ret)).dropna(subset=["ev"])
     picks = picks.sort_values(["date", "ev", "ticker"], ascending=[True, False, True])
     picks = picks.groupby("date", sort=True).head(k)
@@ -143,6 +148,7 @@ def top_k_daily(frame: pd.DataFrame, cell: BarrierCell, neither_ret: float, k: i
     })
     for c in costs_bps:
         out[f"ret_net_{c}bps"] = out["ret"] - c / 1e4
+    out["excess"] = out["ret"] - day_mean.reindex(out.index)
     return out
 
 
@@ -183,6 +189,7 @@ def cell_metrics(
                 daily = top_k_daily(g, cell, neither_ret, k, costs_bps)
                 row[f"top{k}_hit_rate"] = float(daily["hit_rate"].mean())
                 row[f"top{k}_ret"] = float(daily["ret"].mean())
+                row[f"top{k}_excess"] = float(daily["excess"].mean())
                 for c in costs_bps:
                     row[f"top{k}_ret_net_{c}bps"] = float(daily[f"ret_net_{c}bps"].mean())
                 row[f"top{k}_short_days"] = int((daily["n_picked"] < k).sum())

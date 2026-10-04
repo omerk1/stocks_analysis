@@ -65,6 +65,9 @@ MODULE_PRICE_BASIS: dict[str, PriceBasis] = {
     # liquidity floor and traded-price checks need the prices that traded
     "models_labels": PriceBasis.TOTAL_RETURN,
     "models_universe": PriceBasis.TRADED,
+    # the baselines' factor columns (src/models/features/baseline.py): the MA
+    # study's definitions, on the study's basis
+    "models_features": PriceBasis.TOTAL_RETURN,
 }
 
 

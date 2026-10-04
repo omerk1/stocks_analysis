@@ -209,6 +209,10 @@ for exactly this comparison).
 | B4 extension-augmented | B3 + `dist_pct_sma_50` tercile | Killed M14's pooled cell. Any pattern/level feature must beat this one. |
 | B5 single-best-study-feature | B4 + `slope_pctile_21_sma_50` (both tails) | The Tier-2 cell as a model. A many-family model that cannot beat one column is not adding information. |
 
+The harness implements B0 and B2–B4 (`VALIDATION_HARNESS.md` §5, 2026-10-03). B1's job is
+done by within-day metrics (IC, top-k excess over the day's mean), and B5 was dropped as
+too fragile to be a rung.
+
 Why per-date matching and not just a factor column: the study's C2 is a *stratum* match
 (`stats/controls.py::stratum_deltas`), so a stratum with only events or only controls
 contributes nothing and row loss is real — M1 lost 38–52% of rows at 3 match columns and

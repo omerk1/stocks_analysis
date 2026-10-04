@@ -14,6 +14,7 @@ from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.models import dataset as models_dataset
+from src.models.features import baseline as models_baseline_features
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, PriceBasis, basis_for_source, source_for,
 )
@@ -50,6 +51,7 @@ DECLARED = {
     "breadth": lambda: basis_for_source(BreadthConfig().price_source),
     "models_labels": lambda: models_dataset.LABEL_BASIS,
     "models_universe": lambda: models_dataset.UNIVERSE_BASIS,
+    "models_features": lambda: models_baseline_features.FEATURE_BASIS,
 }
 
 

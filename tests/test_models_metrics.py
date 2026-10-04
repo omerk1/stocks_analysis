@@ -123,3 +123,14 @@ def test_reliability_drops_unresolved_rows_and_missing_probabilities():
                       "hit": [1.0, 1.0, 1.0, np.nan]})
     r = metrics.reliability(f, cls=1)
     assert r["n_rows"].sum() == 2 and r.loc[9, "observed"] == 1.0
+
+
+def test_top_k_excess_removes_the_days_own_move():
+    f = _frame(n_dates=2, names=4)
+    f["p_up"] = [0.6, 0.3, 0.2, 0.1] * 2
+    f["p_down"] = 0.2
+    f["p_neither"] = 1 - f["p_up"] - f["p_down"]
+    f["ret"] = [0.05, 0.03, 0.02, 0.0] + [0.15, 0.13, 0.12, 0.10]  # day 2: everything +10%
+    daily = metrics.top_k_daily(f, CELL, neither_ret=0.0, k=1)
+    np.testing.assert_allclose(daily["ret"], [0.05, 0.15])
+    np.testing.assert_allclose(daily["excess"], [0.025, 0.025])  # same pick quality both days
