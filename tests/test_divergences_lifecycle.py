@@ -16,11 +16,13 @@ def _bars(rows: list[tuple], start: str = "2020-01-01") -> pd.DataFrame:
     return df[["open", "high", "low", "close"]]
 
 
-def _divergence(direction: Direction, p2_price: float, confirmed_at: str) -> Divergence:
+def _divergence(
+    direction: Direction, p2_price: float, confirmed_at: str, p1_price: float = 100.0
+) -> Divergence:
     return Divergence(
         id="d1", ticker="TEST", timeframe=Timeframe.DAILY, indicator=IndicatorKind.RSI,
         direction=direction, p1_date="2020-01-01", p2_date=confirmed_at,
-        p1_price=100.0, p2_price=p2_price, i1_value=30.0, i2_value=40.0, strength=0.5,
+        p1_price=p1_price, p2_price=p2_price, i1_value=30.0, i2_value=40.0, strength=0.5,
         duration_bars=10, price_move_atr=2.0, appeared_at=confirmed_at, confirmed_at=confirmed_at,
     )
 
@@ -89,6 +91,40 @@ def test_bearish_invalidated_when_price_makes_a_new_higher_high():
 
     assert divergence.invalidated is True
     assert divergence.invalidated_at == bars.index[0].isoformat()
+
+
+def test_hidden_bearish_geometry_not_invalidated_between_p2_and_the_pair_extreme():
+    # Hidden-bearish geometry: p1=130 is the pattern's actual extreme,
+    # p2=120 only the lower high. A poke to 124 sits above p2 but below
+    # p1 -- the structure vs the extreme is intact, so NOT invalidated
+    # (judging at p2 would fail hidden rows at a systematically inflated
+    # rate vs regular ones, whose p2 IS the extreme). The favorable move
+    # is still measured from p2, the signal level: (120 - 112) / 2 = 4.0.
+    dates = pd.date_range("2020-01-11", periods=2, freq="D")
+    rows = [(124.0, 118.0, 122.0), (119.0, 112.0, 113.0)]
+    bars = _bars(rows, start=dates[0].isoformat())
+    atr = pd.Series(2.0, index=bars.index)
+    divergence = _divergence(Direction.BEARISH, p2_price=120.0, confirmed_at="2020-01-10", p1_price=130.0)
+    config = DivergenceConfig(outcome_window_bars=10)
+
+    apply_outcome(bars, atr, divergence, config)
+
+    assert divergence.invalidated is False
+    assert divergence.max_favorable_move_atr == 4.0
+
+
+def test_hidden_bearish_geometry_invalidated_only_beyond_the_pair_extreme():
+    dates = pd.date_range("2020-01-11", periods=2, freq="D")
+    rows = [(126.0, 120.0, 124.0), (131.0, 125.0, 128.0)]  # bar1 high=131 > p1=130
+    bars = _bars(rows, start=dates[0].isoformat())
+    atr = pd.Series(2.0, index=bars.index)
+    divergence = _divergence(Direction.BEARISH, p2_price=120.0, confirmed_at="2020-01-10", p1_price=130.0)
+    config = DivergenceConfig(outcome_window_bars=10)
+
+    apply_outcome(bars, atr, divergence, config)
+
+    assert divergence.invalidated is True
+    assert divergence.invalidated_at == bars.index[1].isoformat()
 
 
 def test_no_bars_after_confirmed_at_leaves_outcome_unresolved():

@@ -67,6 +67,10 @@ def main():
         "--indicator", default="rsi", choices=["rsi", "macd_hist", "obv"],
         help="Which indicator's divergences to draw (--plot only; default rsi)",
     )
+    parser.add_argument(
+        "--forms", default="both", choices=["regular", "hidden", "both"],
+        help="Which divergence forms to detect and store (default both)",
+    )
     args = parser.parse_args()
 
     if not args.all and not args.ticker:
@@ -77,6 +81,8 @@ def main():
     conn, derived_conn = derived_db.bootstrap_cli(create_divergences_table)
 
     config = DivergenceConfig()
+    if args.forms != "both":
+        config.forms = [args.forms]
     timeframes = (
         [Timeframe.DAILY, Timeframe.WEEKLY] if args.timeframe == "both" else [Timeframe(args.timeframe)]
     )

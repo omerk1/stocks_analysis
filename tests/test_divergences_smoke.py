@@ -13,7 +13,7 @@ import pytest
 from src.foundation.data_processing import db
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.detect import compute_indicator_series, detect
-from src.signals.divergences.models import Direction
+from src.signals.divergences.models import Direction, DivergenceForm
 from src.signals.divergences.plotting import render_divergence_chart
 from src.signals.divergences.store import create_divergences_table, upsert_divergences
 from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
@@ -58,7 +58,16 @@ def test_aapl_daily_detection_runs_without_crashing_and_looks_sane(conn):
         assert pd.Timestamp(d.p1_date) < pd.Timestamp(d.p2_date)
         assert pd.Timestamp(d.p2_date) <= pd.Timestamp(d.appeared_at)
         assert pd.Timestamp(d.confirmed_at) >= pd.Timestamp(d.appeared_at)
-        if d.direction == Direction.BEARISH:
+        # The indicator inequality flips between forms: regular = indicator
+        # refuses to follow price's extension; hidden = indicator
+        # over-travels while price holds. (Price-side inequalities aren't
+        # asserted here: extreme_equality_tolerance_atr makes them
+        # tolerance-banded, not strict.)
+        if d.form == DivergenceForm.REGULAR:
+            expect_indicator_down = d.direction == Direction.BEARISH
+        else:
+            expect_indicator_down = d.direction == Direction.BULLISH
+        if expect_indicator_down:
             assert d.i2_value < d.i1_value
         else:
             assert d.i2_value > d.i1_value
