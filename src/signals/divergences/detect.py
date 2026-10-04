@@ -25,7 +25,7 @@ import pandas as pd
 
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.lifecycle import apply_outcome
-from src.signals.divergences.models import Direction, Divergence, IndicatorKind, Timeframe
+from src.signals.divergences.models import Direction, Divergence, DivergenceForm, IndicatorKind, Timeframe
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import indicators
 from src.foundation.market_common.models import DataQualityReport, Pivot, PivotKind
@@ -173,6 +173,17 @@ def _evaluate_pairs(
     in a row" is normally read on a chart even though detect_pivots' own
     output alternates HIGH/LOW/HIGH/... Chained triples (k,k+1) and
     (k+1,k+2) both qualifying produce two separate rows, never merged.
+
+    Each pair is checked for both forms (config.forms permitting): REGULAR
+    (price extends beyond its prior extreme, indicator doesn't) and HIDDEN
+    (price holds inside its prior extreme, indicator over-travels beyond its
+    own). The pivot kind alone fixes `direction` for either form -- HIGH
+    pairs imply BEARISH (down expected), LOW pairs BULLISH -- because a
+    hidden divergence's continuation reading points the same way as a
+    regular one's reversal reading off the same pivot kind. A single pair
+    resolves to at most one form: inside the equality-tolerance band the two
+    price conditions can overlap, but the indicator inequalities are strict
+    opposites, so they disambiguate.
     """
     results: list[Divergence] = []
     weights = config.strength_weights
@@ -205,14 +216,25 @@ def _evaluate_pairs(
                 continue
             tol = config.extreme_equality_tolerance_atr * atr_at_p2
 
-            if kind == PivotKind.HIGH:
-                price_cond = p2.value > p1.value - tol
-                indicator_cond = ip2.value < ip1.value
-            else:
-                price_cond = p2.value < p1.value + tol
-                indicator_cond = ip2.value > ip1.value
+            price_up = p2.value > p1.value - tol
+            price_down = p2.value < p1.value + tol
+            indicator_up = ip2.value > ip1.value
+            indicator_down = ip2.value < ip1.value
 
-            if not (price_cond and indicator_cond):
+            if kind == PivotKind.HIGH:
+                is_regular = price_up and indicator_down
+                is_hidden = price_down and indicator_up
+            else:
+                is_regular = price_down and indicator_up
+                is_hidden = price_up and indicator_down
+
+            if is_regular:
+                form = DivergenceForm.REGULAR
+            elif is_hidden:
+                form = DivergenceForm.HIDDEN
+            else:
+                continue
+            if form.value not in config.forms:
                 continue
 
             mag = magnitude_at(p2.bar_index)
@@ -246,6 +268,7 @@ def _evaluate_pairs(
                     timeframe=Timeframe(timeframe),
                     indicator=IndicatorKind(indicator_name),
                     direction=direction,
+                    form=form,
                     p1_date=p1.timestamp,
                     p2_date=p2.timestamp,
                     p1_price=p1.value,
@@ -377,8 +400,13 @@ def _apply_confluence(divergences: list[Divergence], bars: pd.DataFrame, pairing
     `confluence_count`/`agreeing_indicators` in place; `strength` is
     deliberately untouched (see its field docstring in models.py).
 
-    Clustering is a simple bar-index-proximity walk within each `direction`
-    group (direction already segregates HIGH/LOW pivots) -- sort by p2 bar
+    Clustering is a simple bar-index-proximity walk within each
+    `(direction, form)` group (direction already segregates HIGH/LOW
+    pivots; form keeps a regular and a hidden row off the same swing from
+    corroborating each other -- "price broke out while this indicator
+    lagged" and "price held back while that indicator over-traveled" are
+    structurally different claims about the same bars, not two witnesses to
+    one claim, even though both imply the same direction) -- sort by p2 bar
     index, start a new cluster whenever the gap to the previous member
     exceeds `pairing_window`. Deliberately not `_pair_pivots`'s 1:1
     claim-matching: that pairs exactly two distinct lists, whereas this
@@ -390,12 +418,12 @@ def _apply_confluence(divergences: list[Divergence], bars: pd.DataFrame, pairing
     warmup offsets (see `_warmup_for`) can land their price pivots a few
     bars apart for what is, chartwise, the same swing.
     """
-    by_direction: dict[Direction, list[tuple[int, Divergence]]] = {}
+    by_group: dict[tuple[Direction, DivergenceForm], list[tuple[int, Divergence]]] = {}
     for d in divergences:
         bar_index = bars.index.get_loc(pd.Timestamp(d.p2_date))
-        by_direction.setdefault(d.direction, []).append((bar_index, d))
+        by_group.setdefault((d.direction, d.form), []).append((bar_index, d))
 
-    for group in by_direction.values():
+    for group in by_group.values():
         group.sort(key=lambda pair: pair[0])
         cluster: list[Divergence] = []
         prev_index: int | None = None

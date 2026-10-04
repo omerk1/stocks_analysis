@@ -18,12 +18,24 @@ def _default_indicators() -> list[str]:
     return ["rsi", "macd_hist", "obv"]
 
 
+def _default_forms() -> list[str]:
+    return ["regular", "hidden"]
+
+
 @dataclass
 class DivergenceConfig:
     # Which indicators to evaluate. "volume" is a valid value (log(volume),
     # 5-bar smoothed) but off by default -- volume divergence is a noisier,
     # less-established signal than RSI/MACD-hist/OBV.
     indicators: list[str] = field(default_factory=_default_indicators)
+    # Which divergence forms to evaluate (see models.DivergenceForm):
+    # "regular" (price extends beyond its prior extreme, indicator doesn't)
+    # and/or "hidden" (price holds inside its prior extreme, indicator
+    # over-travels beyond its own). A single consecutive pivot pair can
+    # qualify as at most ONE form regardless of this list -- the two forms'
+    # indicator inequalities are strict opposites -- so narrowing it only
+    # filters rows, never changes what a kept row would contain.
+    forms: list[str] = field(default_factory=_default_forms)
     rsi_period: int = 14
     macd_params: tuple[int, int, int] = (12, 26, 9)  # fast, slow, signal
     # Not called out separately in indicators/macd_params above, but needed

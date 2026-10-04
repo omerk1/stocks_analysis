@@ -30,6 +30,13 @@ def apply_outcome(bars: pd.DataFrame, atr: pd.Series, divergence: Divergence, co
     favorable-move baseline -- it's the same reference point either way:
     "how far has price moved away from the level that defined this
     divergence," just read in opposite directions.
+
+    Works unchanged for HIDDEN divergences (models.DivergenceForm):
+    `direction` is the implied move direction for both forms, and p2 is
+    still the level whose thesis is being tested -- for a hidden bearish
+    row p2 is the lower high, and price closing back above it breaks the
+    lower-high (continuation) thesis exactly as a new higher high breaks a
+    regular bearish row's reversal thesis.
     """
     confirmed_ts = pd.Timestamp(divergence.confirmed_at)
     after = bars[bars.index > confirmed_ts]

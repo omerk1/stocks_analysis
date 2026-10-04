@@ -14,7 +14,7 @@ _DIVERGENCES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS divergences (
     id TEXT PRIMARY KEY,
     ticker TEXT, timeframe TEXT, indicator TEXT,
-    direction TEXT,
+    direction TEXT, form TEXT,
     p1_date TEXT, p2_date TEXT,
     p1_price REAL, p2_price REAL,
     i1_value REAL, i2_value REAL,
@@ -31,20 +31,26 @@ CREATE TABLE IF NOT EXISTS divergences (
 
 _UPSERT_SQL = """
 INSERT INTO divergences
-    (id, ticker, timeframe, indicator, direction, p1_date, p2_date,
+    (id, ticker, timeframe, indicator, direction, form, p1_date, p2_date,
      p1_price, p2_price, i1_value, i2_value, strength,
      duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at,
      max_favorable_move_atr, bars_to_max_favorable_move,
      invalidated, invalidated_at, outcome_computed_through,
      confluence_count, agreeing_indicators, run_id)
 VALUES
-    (:id, :ticker, :timeframe, :indicator, :direction, :p1_date, :p2_date,
+    (:id, :ticker, :timeframe, :indicator, :direction, :form, :p1_date, :p2_date,
      :p1_price, :p2_price, :i1_value, :i2_value, :strength,
      :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at,
      :max_favorable_move_atr, :bars_to_max_favorable_move,
      :invalidated, :invalidated_at, :outcome_computed_through,
      :confluence_count, :agreeing_indicators, :run_id)
 ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
+    -- form is NOT in the natural key: a given (indicator, direction,
+    -- p2_date) corresponds to one consecutive price-pivot pair per run,
+    -- and a pair resolves to at most one form (see detect._evaluate_pairs).
+    -- It IS mutable here: an extreme_equality_tolerance_atr config change
+    -- can legitimately flip which form a near-equal-extremes pair reads as.
+    form = excluded.form,
     strength = excluded.strength,
     i1_value = excluded.i1_value,
     i2_value = excluded.i2_value,
@@ -73,7 +79,20 @@ ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
 
 def create_divergences_table(conn: sqlite3.Connection) -> None:
     conn.execute(_DIVERGENCES_SCHEMA)
+    _migrate_add_columns(conn)
     conn.commit()
+
+
+def _migrate_add_columns(conn: sqlite3.Connection) -> None:
+    """`form` postdates the original schema (added with hidden-divergence
+    detection) -- same pure-addition ALTER TABLE pattern as gaps/avwap's
+    stores. Every pre-existing row is regular by construction (the only
+    form the module could detect when it was written), so backfill is a
+    constant, not a recompute."""
+    have = {row[1] for row in conn.execute("PRAGMA table_info(divergences)")}
+    if "form" not in have:
+        conn.execute("ALTER TABLE divergences ADD COLUMN form TEXT")
+        conn.execute("UPDATE divergences SET form = 'regular' WHERE form IS NULL")
 
 
 def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], run_id: str) -> None:
