@@ -17,6 +17,10 @@ SEC_EDGAR = "sec_edgar"
 # own `bars_1d` source for market caps: the default YFINANCE bars are also
 # dividend/spin-off adjusted, which understates historical market caps.
 YFINANCE_SPLIT_ONLY = "yfinance_split_only"
+# Delisted index members yfinance can't serve, from Tiingo, on the same two
+# bases: splits + dividends, and splits only (`bulk_tiingo_ingest.py`).
+TIINGO = "tiingo"
+TIINGO_SPLIT_ONLY = "tiingo_split_only"
 FRED = "fred"
 
 BAR_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume", "is_partial"]
@@ -226,6 +230,29 @@ CREATE TABLE IF NOT EXISTS ticker_renames (
 # Added after the table first shipped; `create_tables` adds them to an older table.
 _TICKER_RENAMES_WINDOW_COLUMNS = ("valid_from", "valid_to")
 
+# One row per index member checked against Tiingo (`bulk_tiingo_ingest.py`),
+# whatever the outcome (`status`), so reruns skip it. Bars are stored only for
+# status='stored'; every other status is the review list. `ref_name` is the
+# membership-era company name the Tiingo listing was checked against.
+_TIINGO_LISTINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tiingo_listings (
+    ticker TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    ref_name TEXT,
+    tiingo_name TEXT,
+    tiingo_start TEXT,
+    tiingo_end TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    coverage REAL,
+    n_bars INTEGER,
+    detail TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+_TIINGO_LISTINGS_COLUMNS = ["ticker", "status", "ref_name", "tiingo_name", "tiingo_start", "tiingo_end",
+                            "valid_from", "valid_to", "coverage", "n_bars", "detail"]
+
 
 def create_tables(conn: sqlite3.Connection) -> None:
     for table in TABLES:
@@ -239,6 +266,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_MACRO_SERIES_SCHEMA)
     conn.execute(_SPLITS_SCHEMA)
     conn.execute(_TICKER_RENAMES_SCHEMA)
+    conn.execute(_TIINGO_LISTINGS_SCHEMA)
     existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
     for column in _TICKER_RENAMES_WINDOW_COLUMNS:
         if column not in existing:
@@ -813,3 +841,19 @@ def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> 
     if matched_only:
         query += " WHERE status = 'matched'"
     return pd.read_sql_query(query, conn)
+
+
+def upsert_tiingo_listing(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace one `tiingo_listings` row (keys as in the schema,
+    `updated_at` filled in here)."""
+    cols = _TIINGO_LISTINGS_COLUMNS
+    values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
+    conn.execute(
+        f"INSERT OR REPLACE INTO tiingo_listings ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
+        values,
+    )
+    conn.commit()
+
+
+def read_tiingo_listings(conn: sqlite3.Connection) -> pd.DataFrame:
+    return pd.read_sql_query("SELECT * FROM tiingo_listings ORDER BY ticker", conn)
