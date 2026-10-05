@@ -49,6 +49,8 @@ def _title(text: str, rel: Path) -> str:
 
 def load_documents(root: Path = DOCS_ROOT) -> list[Document]:
     """Every .md/.csv under `root`, one `Document` each, sorted by path."""
+    if not root.is_dir():  # a relative root from the wrong cwd would otherwise load nothing
+        raise FileNotFoundError(f"{root} is not a directory (run from the repo root?)")
     docs = []
     for path in sorted(p for p in root.rglob("*") if p.suffix in EXTENSIONS):
         rel = Path(root.name) / path.relative_to(root)  # e.g. docs/modeling/LRP.md

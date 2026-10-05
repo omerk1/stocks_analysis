@@ -1,3 +1,5 @@
+import pytest
+
 from src.llm.research_docs.load import load_documents
 
 
@@ -26,3 +28,8 @@ def test_one_document_per_file_with_metadata(tmp_path):
     }
     assert csv.text == "a,b\n1,2\n"  # raw text, no splitting
     assert csv.id_ == "docs/features/moving-averages/EXPERIMENTS.csv"
+
+
+def test_missing_root_raises_instead_of_loading_nothing(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        load_documents(tmp_path / "docs")
