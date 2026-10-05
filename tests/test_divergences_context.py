@@ -164,6 +164,36 @@ def test_pit_confluence_counts_distinct_indicators_not_rows():
     assert counts.tolist() == [1, 1]
 
 
+def test_pit_confluence_skips_dates_missing_from_the_bar_calendar():
+    # A re-ingest can drop a stored p2_date from the calendar; such rows
+    # stay solo (count 1) instead of raising -- same skip stance as
+    # compute_context_for_ticker.
+    bar_index = pd.bdate_range("2020-01-01", periods=60)
+    events = pd.DataFrame(
+        [
+            _conf_event(0, bar_index, "rsi", 20),
+            _conf_event(1, bar_index, "macd_hist", 21),
+        ]
+    )
+    events.loc[1, "p2_date"] = "1999-01-04T00:00:00"  # off-calendar
+
+    counts = pit_confluence(events, bar_index, pairing_window=3)
+
+    assert counts.tolist() == [1, 1]
+
+
+def test_pit_confluence_rejects_multi_ticker_input():
+    bar_index = pd.bdate_range("2020-01-01", periods=60)
+    events = pd.DataFrame(
+        [
+            {**_conf_event(0, bar_index, "rsi", 20), "ticker": "AAPL"},
+            {**_conf_event(1, bar_index, "macd_hist", 21), "ticker": "MSFT"},
+        ]
+    )
+    with pytest.raises(ValueError, match="one ticker"):
+        pit_confluence(events, bar_index, pairing_window=3)
+
+
 def test_pit_confluence_empty_frame_returns_empty():
     bar_index = pd.bdate_range("2020-01-01", periods=10)
     counts = pit_confluence(pd.DataFrame(columns=["indicator", "direction", "form", "p2_date"]), bar_index)

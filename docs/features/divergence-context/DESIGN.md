@@ -79,6 +79,13 @@ the final feature set." Ratios (leg speeds, normalization candidates) are derive
 analysis time from these components rather than stored. Derived features must preserve
 input missingness (repo invariant #9).
 
+**Holdout boundary of this table, explicitly:** `divergence_context` spans full
+history, like `divergences` itself — the scalars are point-in-time by construction
+(windows end at p2, past bars only), so post-2021 rows leak nothing *into* dev-window
+analysis. The lock applies at read time: every study query filters
+`confirmed_at <= 2021-12-31`. Rows past that date exist for eventual production use
+and are out of bounds for any study analysis until the holdout is explicitly opened.
+
 ## Step 0 — prevalence (Track A, this PR)
 
 Dev window only. Three questions, in `src/analysis/divergence_context_step0.py`:

@@ -31,7 +31,6 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from src.foundation.data_processing import db  # noqa: F401  (re-exported for callers/tests)
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
@@ -197,13 +196,27 @@ def pit_confluence(
     a cluster when the gap to the previous member exceeds
     `pairing_window`; every member gets the cluster's distinct-indicator
     count. Returns an int Series aligned to `events.index`.
+
+    One ticker/timeframe at a time -- bar positions only mean anything
+    against that ticker's own calendar, so mixed input would silently
+    cluster unrelated tickers' rows into one "swing". Rows whose p2_date
+    is no longer on the bar calendar (a price re-ingest changed it since
+    detection) can't be positioned and stay solo (count 1) -- the same
+    skip stance compute_context_for_ticker takes.
     """
+    for col in ("ticker", "timeframe"):
+        if col in events.columns and events[col].nunique() > 1:
+            raise ValueError(
+                f"pit_confluence clusters one ticker/timeframe at a time; got multiple {col}s"
+            )
     counts = pd.Series(1, index=events.index, dtype=int)
     if events.empty:
         return counts
-    pos = events["p2_date"].map(lambda d: bar_index.get_loc(pd.Timestamp(d)))
+    locs = bar_index.get_indexer(pd.DatetimeIndex(pd.to_datetime(events["p2_date"])))
+    pos = pd.Series(locs, index=events.index)
+    located = events.loc[pos[pos >= 0].index]
 
-    for _, group in events.groupby(["direction", "form"]):
+    for _, group in located.groupby(["direction", "form"]):
         ordered = pos.loc[group.index].sort_values()
         cluster: list = []
         prev_pos: int | None = None
@@ -245,6 +258,11 @@ def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
             derived_conn,
             params=[ticker],
         )
+        # The write path sits INSIDE the per-ticker guard too: a single
+        # bad row must mean one skipped ticker (rolled back, counted,
+        # logged), never an aborted backfill with the remaining tickers
+        # unprocessed. A committed runs row for a failed ticker is
+        # acceptable (same stance as cli.py's --all loop).
         try:
             bars, report = data_mod.load_and_validate(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis
@@ -254,21 +272,21 @@ def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
                 continue
             atr = indicators.atr(bars, config.atr_period)
             rows = compute_context_for_ticker(bars, events, atr)
+            run_id = derived_db.record_run(
+                derived_conn, "divergence_context", ticker, "daily", None,
+                json.dumps({"impulse_lookback_bars": IMPULSE_LOOKBACK_BARS}),
+                report.rows_dropped, report.unreliable,
+            )
+            for row in rows:
+                row["run_id"] = run_id
+                derived_conn.execute(_UPSERT_SQL, row)
+            derived_conn.commit()
         except Exception:
             derived_conn.rollback()
             logger.exception("%s: context computation failed", ticker)
             skipped += len(events)
             continue
 
-        run_id = derived_db.record_run(
-            derived_conn, "divergence_context", ticker, "daily", None,
-            json.dumps({"impulse_lookback_bars": IMPULSE_LOOKBACK_BARS}),
-            report.rows_dropped, report.unreliable,
-        )
-        for row in rows:
-            row["run_id"] = run_id
-            derived_conn.execute(_UPSERT_SQL, row)
-        derived_conn.commit()
         written += len(rows)
         skipped += len(events) - len(rows)
         processed += 1

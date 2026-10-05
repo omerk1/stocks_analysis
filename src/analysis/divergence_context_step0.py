@@ -35,6 +35,9 @@ from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
 from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
+
+INDEX_NAMES = ["sp500", "nasdaq100"]
 
 DEV_END = "2021-12-31"
 OUTCOME_END = "2021-11-30"  # 20-bar outcome window must not cross the holdout
@@ -60,11 +63,51 @@ def _load_dev_events(derived_conn) -> pd.DataFrame:
     return events
 
 
+def _apply_renames_local(conn, membership: pd.DataFrame) -> pd.DataFrame:
+    """Line-for-line mirror of ticker_renames.apply_renames (see
+    _attach_pit_membership's docstring for why it isn't imported): each
+    renamed symbol becomes its price symbol, only on rows whose interval
+    overlaps the rename's verified [valid_from, valid_to] window."""
+    renames = db.read_ticker_renames(conn)
+    out = membership.copy()
+    if renames.empty or out.empty:
+        return out
+    start = pd.to_datetime(out["start_date"])
+    end = pd.to_datetime(out["end_date"]).fillna(pd.Timestamp.max)
+    for r in renames.itertuples(index=False):
+        if pd.isna(r.valid_from) or pd.isna(r.valid_to):
+            continue
+        hit = (
+            (out["ticker"] == r.old_ticker)
+            & (start <= pd.Timestamp(r.valid_to))
+            & (end >= pd.Timestamp(r.valid_from))
+        )
+        out.loc[hit, "ticker"] = r.new_ticker
+    return out
+
+
 def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
     """True where the event's ticker was an S&P 500 or Nasdaq-100 member on
-    its own p2 date (point-in-time intervals, delisted members included)."""
-    intervals = pd.read_sql_query(
-        "SELECT ticker, start_date, end_date FROM index_membership", raw_conn
+    its own p2 date (point-in-time intervals, delisted members included).
+
+    Intervals go through the rename mapping FIRST, same as every
+    established membership consumer (src/models/dataset.py's
+    membership_rows, relative_strength, breadth): divergences store
+    events under the current price symbol (META), membership holds the
+    historical one (FB) -- without the mapping, every renamed member's
+    events silently read as non-members.
+
+    `_apply_renames_local` mirrors ticker_renames.apply_renames exactly;
+    importing the real one drags polygon_client in at module import,
+    which not every environment's `polygon` package satisfies (flagged
+    as a discussion item: that import should be lazy in ticker_renames).
+    """
+    intervals = pd.concat(
+        [
+            _apply_renames_local(raw_conn, db.read_index_membership(raw_conn, name))
+            for name in INDEX_NAMES
+        ],
+        ignore_index=True,
     )
     intervals["start"] = pd.to_datetime(intervals["start_date"])
     intervals["end"] = pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max)
@@ -125,14 +168,19 @@ def report_cells(events: pd.DataFrame) -> None:
 def report_outcomes(events: pd.DataFrame) -> None:
     print(f"\n== descriptive outcome tabulation (confirmed <= {OUTCOME_END}; BARE RATES, not findings) ==")
     sub = events[events["confirmed_at"] <= OUTCOME_END + "T23:59:59"].copy()
-    sub = sub[sub["outcome_computed_through"].notna()]
-    shaped = (
-        (sub["interpeak_retrace_frac"] >= SHAPE_RETRACE_FRAC)
-        & (sub["leg2_bars"] >= SHAPE_LEG2_BARS)
-    )
+    # Rate and n must share one denominator: rows with a walked outcome
+    # window AND a non-null invalidated flag.
+    sub = sub[sub["outcome_computed_through"].notna() & sub["invalidated"].notna()]
+    # Three-way split, not two: a deep retrace with a fast (< SHAPE_LEG2_BARS)
+    # rebuild is NOT "extension/no reset" -- lumping it there contaminated
+    # the contrast this tabulation previews.
+    defined = sub["interpeak_retrace_frac"].notna()
+    deep = sub["interpeak_retrace_frac"] >= SHAPE_RETRACE_FRAC
+    rebuilt = sub["leg2_bars"] >= SHAPE_LEG2_BARS
     sub["shape"] = pd.Series(pd.NA, index=sub.index, dtype="object")
-    sub.loc[sub["interpeak_retrace_frac"].notna(), "shape"] = "extension"
-    sub.loc[shaped.fillna(False), "shape"] = "pullback+rebuild"
+    sub.loc[defined & ~deep, "shape"] = "extension"
+    sub.loc[defined & deep & rebuilt, "shape"] = "pullback+rebuild"
+    sub.loc[defined & deep & ~rebuilt, "shape"] = "deep-fast"
     for (cell, shape), grp in sub.groupby(["cell", "shape"], dropna=True):
         inval = grp["invalidated"].mean()
         mfe = grp["max_favorable_move_atr"].median()
@@ -153,9 +201,13 @@ def report_entanglement(raw_conn, derived_conn, n_tickers: int, seed: int = 42) 
     random.seed(seed)
     sample = random.sample(tickers, min(n_tickers, len(tickers)))
 
+    # Filter on p2_date, NOT confirmed_at: the question is whether a
+    # divergence exists off this swing at all, and a pair near DEV_END
+    # whose divergence only confirms weeks later would otherwise count as
+    # shaped-without-divergence, biasing the rate down at the boundary.
     stored = pd.read_sql_query(
         "SELECT ticker, p2_date, direction, form FROM divergences "
-        "WHERE timeframe='daily' AND direction='bearish' AND form='regular' AND confirmed_at <= ?",
+        "WHERE timeframe='daily' AND direction='bearish' AND form='regular' AND p2_date <= ?",
         derived_conn, params=[DEV_END + "T23:59:59"],
     )
     stored_by_ticker = {t: set(pd.to_datetime(g["p2_date"])) for t, g in stored.groupby("ticker")}
@@ -180,19 +232,30 @@ def report_entanglement(raw_conn, derived_conn, n_tickers: int, seed: int = 42) 
         )
         highs = [p for p in pivots if p.kind == PivotKind.HIGH]
         div_dates = stored_by_ticker.get(ticker, set())
+        close_full = bars["close"]
         for k in range(len(highs) - 1):
             p1, p2 = highs[k], highs[k + 1]
             if p2.bar_index - p1.bar_index < config.min_pivot_span_bars:
                 continue
             if p2.value <= p1.value:  # regular-bearish price geometry only
                 continue
-            between = close_s.iloc[p1.bar_index : p2.bar_index + 1]
-            impulse_start = max(0, p1.bar_index - 63)
-            impulse = p1.value - close_s.iloc[impulse_start : p1.bar_index + 1].min()
+            # Positions in the FULL bars frame (pivot bar_index is in the
+            # warmup-sliced space), so the impulse window and the
+            # insufficient-lookback rule match context.py's exactly: with
+            # fewer than IMPULSE_LOOKBACK_BARS before p1 the shape is
+            # UNDEFINED and the pair is excluded -- never a quietly
+            # shorter window, same NaN discipline as the stored scalars
+            # (which Q1's denominator relies on).
+            full1 = p1.bar_index + warm
+            full2 = p2.bar_index + warm
+            if full1 < IMPULSE_LOOKBACK_BARS:
+                continue
+            between = close_full.iloc[full1 : full2 + 1]
+            impulse = p1.value - close_full.iloc[full1 - IMPULSE_LOOKBACK_BARS : full1 + 1].min()
             if impulse <= 0:
                 continue
             retrace_frac = (p1.value - between.min()) / impulse
-            leg2_bars = (p2.bar_index - p1.bar_index) - int(between.to_numpy().argmin())
+            leg2_bars = (full2 - full1) - int(between.to_numpy().argmin())
             if retrace_frac < SHAPE_RETRACE_FRAC or leg2_bars < SHAPE_LEG2_BARS:
                 continue
             shaped_pairs += 1
