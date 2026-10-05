@@ -26,7 +26,9 @@ available on that date -- the detector must be point-in-time safe):
   the filing-dated counts, not their execution date) (from `shares_outstanding`,
   coverage from ~2015 only).
 
-Only yfinance `bars_1d` is used: it covers the 5,322 active tickers with
+Only yfinance `bars_1d` is used, on the anchors' price basis
+(`MODULE_PRICE_BASIS["avwap"]`, traded since 2026-10-02; the original
+calibration ran on total-return bars): it covers the 5,322 active tickers with
 full history; delisted tickers only have Polygon's ~2 years. So this
 describes active tickers only.
 """
@@ -39,6 +41,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
 RAW_DB_PATH = "data/raw/market_data.sqlite"
 
@@ -54,11 +58,11 @@ def _connect(path: str) -> sqlite3.Connection:
 
 
 def load_bars(conn, tickers: list[str] | None) -> pd.DataFrame:
-    query = "SELECT ticker, timestamp, close, volume FROM bars_1d WHERE source = 'yfinance'"
-    params: tuple = ()
+    query = "SELECT ticker, timestamp, close, volume FROM bars_1d WHERE source = ?"
+    params: tuple = (source_for(MODULE_PRICE_BASIS["avwap"]),)
     if tickers:
         query += f" AND ticker IN ({','.join('?' for _ in tickers)})"
-        params = tuple(tickers)
+        params += tuple(tickers)
     bars = pd.read_sql_query(query, conn, params=params)
     bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
     bars["ticker"] = bars["ticker"].astype("category")

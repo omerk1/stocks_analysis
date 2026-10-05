@@ -14,7 +14,7 @@ _DIVERGENCES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS divergences (
     id TEXT PRIMARY KEY,
     ticker TEXT, timeframe TEXT, indicator TEXT,
-    direction TEXT,
+    direction TEXT, form TEXT DEFAULT 'regular',
     p1_date TEXT, p2_date TEXT,
     p1_price REAL, p2_price REAL,
     i1_value REAL, i2_value REAL,
@@ -31,20 +31,26 @@ CREATE TABLE IF NOT EXISTS divergences (
 
 _UPSERT_SQL = """
 INSERT INTO divergences
-    (id, ticker, timeframe, indicator, direction, p1_date, p2_date,
+    (id, ticker, timeframe, indicator, direction, form, p1_date, p2_date,
      p1_price, p2_price, i1_value, i2_value, strength,
      duration_bars, price_move_atr, indicator_gap_raw, appeared_at, confirmed_at,
      max_favorable_move_atr, bars_to_max_favorable_move,
      invalidated, invalidated_at, outcome_computed_through,
      confluence_count, agreeing_indicators, run_id)
 VALUES
-    (:id, :ticker, :timeframe, :indicator, :direction, :p1_date, :p2_date,
+    (:id, :ticker, :timeframe, :indicator, :direction, :form, :p1_date, :p2_date,
      :p1_price, :p2_price, :i1_value, :i2_value, :strength,
      :duration_bars, :price_move_atr, :indicator_gap_raw, :appeared_at, :confirmed_at,
      :max_favorable_move_atr, :bars_to_max_favorable_move,
      :invalidated, :invalidated_at, :outcome_computed_through,
      :confluence_count, :agreeing_indicators, :run_id)
 ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
+    -- form is NOT in the natural key: a given (indicator, direction,
+    -- p2_date) corresponds to one consecutive price-pivot pair per run,
+    -- and a pair resolves to at most one form (see detect._evaluate_pairs).
+    -- It IS mutable here: an extreme_equality_tolerance_atr config change
+    -- can legitimately flip which form a near-equal-extremes pair reads as.
+    form = excluded.form,
     strength = excluded.strength,
     i1_value = excluded.i1_value,
     i2_value = excluded.i2_value,
@@ -73,7 +79,46 @@ ON CONFLICT (ticker, timeframe, indicator, direction, p2_date) DO UPDATE SET
 
 def create_divergences_table(conn: sqlite3.Connection) -> None:
     conn.execute(_DIVERGENCES_SCHEMA)
+    _migrate_add_columns(conn)
     conn.commit()
+
+
+# Columns that postdate the original schema, in the order they were added
+# -- same pure-addition ALTER TABLE pattern as gaps/avwap's stores. Found
+# the hard way (2026-10-04, first full-universe backfill): the shared
+# derived DB's live table predated the confluence columns (Done #44), so
+# an upsert naming them failed on EVERY ticker while the fresh-table
+# CREATE path -- the only one the tests exercised -- worked. A live table
+# can be arbitrarily old; the migration must cover every post-original
+# column, not just the newest one.
+#
+# Defaults match each column's dataclass contract: confluence_count=1
+# ("always set, never None" -- a solo divergence IS a cluster of one);
+# form='regular' (the only form the module could detect before hidden
+# detection existed). Constant DEFAULTs rather than one-shot backfill
+# UPDATEs, because pre-migration code from another checkout can keep
+# inserting column-omitting rows after this migration has already run.
+_MIGRATED_COLUMNS: dict[str, str] = {
+    "confluence_count": "INTEGER DEFAULT 1",   # Done #44
+    "agreeing_indicators": "TEXT",             # Done #44
+    "form": "TEXT DEFAULT 'regular'",          # hidden-divergence detection
+}
+
+
+def _migrate_add_columns(conn: sqlite3.Connection) -> None:
+    have = {row[1] for row in conn.execute("PRAGMA table_info(divergences)")}
+    for name, sql_type in _MIGRATED_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE divergences ADD COLUMN {name} {sql_type}")
+    # Contract repair, idempotent, run on every bootstrap: models.py
+    # promises agreeing_indicators is never None (a solo row carries its
+    # own indicator's name), but a column-omitting insert from a pre-#44
+    # checkout gets confluence_count's DEFAULT 1 with NULL here -- a
+    # constant DEFAULT can't reference another column, so the repair has
+    # to be an UPDATE.
+    conn.execute(
+        "UPDATE divergences SET agreeing_indicators = indicator WHERE agreeing_indicators IS NULL"
+    )
 
 
 def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], run_id: str) -> None:

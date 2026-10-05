@@ -87,12 +87,35 @@ def check_listing(listings: pd.DataFrame, symbol: str, start: str, end: str) -> 
 _ADR_NOISE = re.compile(r"\bAMERICAN DEPOSIT[AO]RY (SHARES?|RECEIPTS?)\b|\bADS\b|\bADRS?\b", re.IGNORECASE)
 
 
-def same_company(tiingo_name: str | None, ref_name: str) -> bool:
-    """`ticker_renames.names_match`, after dropping ADR wording, plus one
-    fallback: the identity tokens agree once spaces are ignored ("Avalon Bay
-    Communities" vs "Avalonbay Communities Inc")."""
+# Reviewed by hand (2026-10-05): the same company under a later or misspelled
+# name. Each holds only for this exact Tiingo name, so a symbol Tiingo later
+# hands to someone else fails the check again.
+REVIEWED_SAME_COMPANY = {
+    "K": "Kellanova",  # Kellogg, renamed 2023
+    "JNY": "The Jones Group Inc",  # Jones Apparel Group, renamed 2010
+    "GMCR": "Green Mountain Coffee Roasters Inc",  # renamed Keurig Green Mountain 2014
+    "ODP": "ODP Corporation (The)",  # Office Depot's 2020 holding-company reorg
+    "MYL": "Mylan N.V.",  # Mylan Inc's 2015 inversion, shares exchanged 1:1
+    "SOV": "Santander Holdings USA Inc",  # bars end 2009-01-29, before Santander's takeover
+    "DISCK": "Warner Bros. Discovery Inc - Series C",  # Discovery Series C, renamed 2022
+    "ROH": "ROHM HAAS CO",  # Polygon spells it "ROHM AND HASS"
+    "SIAL": "SigmaAldrich Corp",
+    "SHPG": "Shire PLC ADR",  # Polygon: "Shire pic"
+    "CTRX": "Catamaran Corp USA",
+    "CVC": "Cablevision Systems Corp",
+    "HAR": "Harman International Industries IncDE",
+}
+
+
+def same_company(tiingo_name: str | None, ref_name: str, ticker: str | None = None) -> bool:
+    """`ticker_renames.names_match`, after dropping ADR wording, plus two
+    fallbacks: the identity tokens agree once spaces are ignored ("Avalon Bay
+    Communities" vs "Avalonbay Communities Inc"), or the pair was reviewed by
+    hand (`REVIEWED_SAME_COMPANY`)."""
     if not tiingo_name:
         return False
+    if ticker is not None and REVIEWED_SAME_COMPANY.get(ticker) == tiingo_name:
+        return True
     tiingo_name, ref_name = _ADR_NOISE.sub(" ", tiingo_name), _ADR_NOISE.sub(" ", ref_name)
     if tr.names_match(tiingo_name, [ref_name]):
         return True
@@ -138,7 +161,7 @@ def decide(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFram
     if meta is None:
         return {**row, "status": "not_in_tiingo", "detail": "metadata 404"}
     row["tiingo_name"] = meta.get("name")
-    if not same_company(meta.get("name"), target.ref_name):
+    if not same_company(meta.get("name"), target.ref_name, target.ticker):
         return {**row, "status": "name_mismatch"}
 
     prices = client.daily_prices(symbol, meta.get("startDate") or info["tiingo_start"],

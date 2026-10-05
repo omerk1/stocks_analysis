@@ -219,3 +219,9 @@ def test_retry_status_redecides_only_those_rows(conn):
 
     assert table.loc["AVB", "status"] == "stored"
     assert table.loc["GONE", "status"] == "not_in_tiingo"
+
+
+def test_reviewed_exception_holds_only_for_its_exact_tiingo_name():
+    assert ti.same_company("Kellanova", "Kellogg", "K")
+    assert not ti.same_company("Kellanova Holdings ETF", "Kellogg", "K")
+    assert not ti.same_company("Kellanova", "Kellogg", "OTHER")

@@ -72,7 +72,9 @@ included, in the `runs` table.
 - **`total_return` data must be re-fetched over its full history** on every refresh.
   Appending only new days leaves a seam wherever a dividend fell in between.
 - **`traded` data can be extended with new days.** Re-fetch a ticker's full history only
-  when it has split since the last fetch.
+  when it has split since the last fetch. `bulk_yfinance_ingest --split-only --incremental`
+  does this (Done #81): it re-fetches a few days of overlap, appends when the overlapping
+  closes are unchanged, and re-fetches the full history when they differ.
 - **Level modules still recompute fully on each run today.** Incremental runs are possible
   on `traded`, but not built.
 
