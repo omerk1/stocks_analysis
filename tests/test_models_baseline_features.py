@@ -68,7 +68,7 @@ def conn():
     db.create_tables(c)
     for i, t in enumerate(["AAA", "BBB"]):
         db.upsert_bars(c, "bars_1d", t, db.YFINANCE, _ohlcv(10 + i).assign(is_partial=0))
-    c.execute("INSERT INTO ticker_sector VALUES ('AAA', 'Technology', NULL, 'x'), ('BBB', '', NULL, 'x')")
+    c.execute("INSERT INTO ticker_sector (ticker, sector, industry, updated_at) VALUES ('AAA', 'Technology', NULL, 'x'), ('BBB', '', NULL, 'x')")
     yield c
     c.close()
 

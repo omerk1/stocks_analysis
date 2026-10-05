@@ -81,8 +81,8 @@ Rules:
 - **Gap through a barrier** at the open: the fill is the open price, not the barrier.
   EV uses the actual fill, so a gap down through the stop costs more than D.
 - **Delisting inside the horizon:** the label resolves on the last available bar, and
-  the row is flagged. Until survivorship-free data exists, this almost never fires
-  (backlog).
+  the row is flagged. This fires for the 132 delisted members read from Tiingo
+  (Done #83); the 101 still missing never reach it (backlog).
 - **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {1, 2, 3}, D ∈ {1, 1.5, 2}.
   That's 45 cells, fixed before any fit. 126-day horizons (M18's 52-week family) are a
   separate, later grid, because at H=126 the study had about 10 independent blocks
@@ -268,7 +268,8 @@ Build order, one PR each, each with its own tests:
    Notes for step 3, from the 2019–2021 S&P 500 smoke run:
    - ~10% of member-rows have no bars: 74 names that left by 2026 (AVB, EA,
      ATVI, SIVB, …) were never ingested. They're flagged `has_bars=False`, not
-     dropped, so the delisted-price fetch fills them in place.
+     dropped, so the delisted-price fetch fills them in place (Tiingo, Done #83:
+     S&P 500 member-days with prices 2019–2021 88–92% → 97–98%).
    - **BBT carries another company's prices.** The symbol was reused after BB&T
      became TFC (same CIK), and `ticker_renames` only considers price-less
      symbols, so BBT was never checked (`docs/backlog.md`, survivorship research).
@@ -306,7 +307,7 @@ Build order, one PR each, each with its own tests:
   notification but adds overnight gap noise. The MA study used close-to-close. v1 uses
   the open; one trial at the close checks the sensitivity.
 - **Universe for v1 fits:** S&P 500 only (cleanest point-in-time membership), with
-  R1000/R2000 proxies added once they're stored (PR #129 is built but not stored,
-  pending survivorship-free data).
+  R1000/R2000 proxies added once they're stored (PR #129 is built but not stored;
+  delisted prices exist only for former S&P 500 / Nasdaq-100 members, Done #82).
 - **Sector is not point-in-time** (`ma_study_insights.md` §2.4): used in B2 as-is, with
   the leak documented, until a PIT sector table exists.

@@ -63,8 +63,9 @@ UNIVERSE_FALLBACK = "models_universe" in MODULES_WITH_FALLBACK
 
 # index_membership.index_name -> per-row flag column
 INDEX_FLAGS = {"sp500": "in_sp500", "nasdaq100": "in_ndx100"}
-# Built but not stored yet (PR #129; needs a rerun on traded prices, ideally
-# after the delisted-price fetch). Asking for one is an error, not an empty set.
+# Built but not stored yet (PR #129; needs a rerun on traded prices; delisted
+# prices exist only for former S&P 500 / Nasdaq-100 members, Done #82). Asking
+# for one is an error, not an empty set.
 UNSTORED_INDICES = ("r1000_proxy", "r2000_proxy")
 
 DOLLAR_VOLUME_WINDOW = 20
