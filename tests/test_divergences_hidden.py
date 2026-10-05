@@ -318,20 +318,28 @@ def test_pre_form_table_is_migrated_and_legacy_rows_backfilled_as_regular():
     # bootstrap path goes through).
     create_divergences_table(connection)
 
+    # agreeing_indicators is repaired to the row's own indicator (the
+    # models.py solo-row contract: never None), not left NULL.
     assert connection.execute(
         "SELECT form, confluence_count, agreeing_indicators FROM divergences WHERE id = 'legacy-1'"
-    ).fetchone() == ("regular", 1, None)
+    ).fetchone() == ("regular", 1, "rsi")
 
-    # The DEFAULT also covers a column-omitting insert AFTER migration --
+    # The DEFAULTs also cover a column-omitting insert AFTER migration --
     # the shared derived DB can still be written by pre-form code from
     # another checkout, which a one-shot backfill UPDATE would miss.
     connection.execute(
         "INSERT INTO divergences (id, ticker, timeframe, indicator, direction, p2_date)"
-        " VALUES ('legacy-2', 'OLD', 'daily', 'rsi', 'bearish', '2020-07-01T00:00:00')"
+        " VALUES ('legacy-2', 'OLD', 'daily', 'obv', 'bearish', '2020-07-01T00:00:00')"
     )
     assert connection.execute(
-        "SELECT form FROM divergences WHERE id = 'legacy-2'"
-    ).fetchone() == ("regular",)
+        "SELECT form, confluence_count FROM divergences WHERE id = 'legacy-2'"
+    ).fetchone() == ("regular", 1)
+    # ...and the NULL agreeing_indicators such an insert leaves behind is
+    # repaired by the next bootstrap's idempotent UPDATE.
+    create_divergences_table(connection)
+    assert connection.execute(
+        "SELECT agreeing_indicators FROM divergences WHERE id = 'legacy-2'"
+    ).fetchone() == ("obv",)
 
     # And a post-migration upsert of a hidden row works against the
     # migrated table.

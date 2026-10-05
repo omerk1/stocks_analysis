@@ -110,6 +110,15 @@ def _migrate_add_columns(conn: sqlite3.Connection) -> None:
     for name, sql_type in _MIGRATED_COLUMNS.items():
         if name not in have:
             conn.execute(f"ALTER TABLE divergences ADD COLUMN {name} {sql_type}")
+    # Contract repair, idempotent, run on every bootstrap: models.py
+    # promises agreeing_indicators is never None (a solo row carries its
+    # own indicator's name), but a column-omitting insert from a pre-#44
+    # checkout gets confluence_count's DEFAULT 1 with NULL here -- a
+    # constant DEFAULT can't reference another column, so the repair has
+    # to be an UPDATE.
+    conn.execute(
+        "UPDATE divergences SET agreeing_indicators = indicator WHERE agreeing_indicators IS NULL"
+    )
 
 
 def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], run_id: str) -> None:

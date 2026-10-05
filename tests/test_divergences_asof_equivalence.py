@@ -28,6 +28,23 @@ agree on every pairing whose candidate pivots are all resolved by t.
 The real-ticker test quantifies that boundary effect and FAILS only if a
 mismatch appears for an event meaningfully older than the cutoff (which
 would indicate a real equivalence bug, not boundary noise).
+
+Two scope limits, recorded here so downstream feature work can't miss
+them:
+
+- **Confluence is NOT covered by this guarantee.** `_key` compares event
+  identity/geometry only. Stored backfill rows carry FULL-RUN
+  `confluence_count`/`agreeing_indicators` -- the backfill necessarily
+  runs with as_of=None, and `detect()` computes confluence after the
+  as_of filter precisely because confluence is not truncation-stable. A
+  per-date consumer must re-cluster point-in-time from the stored rows
+  (direction, form, p2_date, confirmed_at suffice) rather than read the
+  stored values as as-of-date facts.
+
+- **Holdout.** Detection is production signal infrastructure and runs
+  over full history, like gaps/sr_lines; the divergence-context STUDY's
+  analyses stay inside the development window (<= 2021-12-31), which is
+  why every real-ticker cutoff below stops there.
 """
 
 from __future__ import annotations
@@ -42,15 +59,20 @@ from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.detect import detect
 from src.signals.divergences.models import Divergence
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 
-REAL_DB_PATH = "data/raw/market_data.sqlite"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REAL_DB_PATH = REPO_ROOT / "data" / "raw" / "market_data.sqlite"
 
 # Older than this many calendar days before the cutoff, pairing can no
 # longer plausibly involve a pivot that was unconfirmed at the cutoff --
-# a mismatch there is a bug, not boundary noise. Generous: pivot
-# confirmation lags are typically a handful of bars (a 2x-ATR price
-# reversal / 1x-rolling-std indicator reversal), nowhere near 90 days.
-STALE_MISMATCH_DAYS = 90
+# a mismatch there is a bug, not boundary noise. A full year, not "a few
+# bars": RSI pivots confirm fast (flat 5-point threshold), but
+# macd_hist/obv confirm against 1x rolling-100-bar std, and in a long
+# low-volatility drift a candidate pivot can sit unconfirmed for months.
+# Observed on current data: zero mismatches of ANY age, so this bound
+# only exists to classify future ones.
+STALE_MISMATCH_DAYS = 365
 
 
 def _key(d: Divergence) -> tuple:
@@ -104,7 +126,12 @@ def test_synthetic_filtered_full_run_matches_true_as_of_at_every_cutoff(syntheti
 
     # Every 5th bar as a cutoff covers: before any divergence, between
     # appearance and confirmation, at confirmation, and long after.
-    for cutoff in idx[::5]:
+    # Starting at idx[6], not idx[0]: below warmup_bars+2 bars,
+    # _warmup_offset's n-2 clamp would give the truncated run a different
+    # slice origin than the full run's, voiding the prefix-stability
+    # premise this test rests on. Production is shielded from that regime
+    # by min_bars=150, which this config disables (min_bars=0).
+    for cutoff in idx[6::5]:
         as_of = cutoff.isoformat()
         asof_divs, _r, s = detect(connection, "TST", Timeframe.DAILY, config, as_of=as_of)
         assert s is None
@@ -126,8 +153,13 @@ def real_conn():
 
 
 def _has_data(connection, ticker: str) -> bool:
+    # Guard on the source detect() will actually load -- the module's own
+    # price basis (traded -> 'yfinance_split_only'), NOT 'yfinance': on a
+    # checkout holding only one of the two, guarding on the wrong source
+    # turns an intended skip into a hard failure (or vice versa).
     row = connection.execute(
-        "SELECT COUNT(*) FROM bars_1d WHERE ticker = ? AND source = 'yfinance'", (ticker,)
+        "SELECT COUNT(*) FROM bars_1d WHERE ticker = ? AND source = ?",
+        (ticker, source_for(MODULE_PRICE_BASIS["divergences"])),
     ).fetchone()
     return row is not None and row[0] > 0
 
