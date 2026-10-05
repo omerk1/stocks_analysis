@@ -33,11 +33,13 @@ from pathlib import Path
 import pandas as pd
 
 from src.foundation.data_processing import db
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK
 from src.models.dataset import check_holdout, read_bars_bulk
 from src.signals.moving_averages.features import context, distance, ma
 
 FEATURE_BASIS = MODULE_PRICE_BASIS["models_features"]
+# Same per-ticker Tiingo fallback as the labels, so a delisted member's rows get features too.
+FEATURE_FALLBACK = "models_features" in MODULES_WITH_FALLBACK
 # mom_12_1 needs 252 bars (~366 calendar days) before its first value.
 FEATURE_WARMUP_DAYS = 400
 
@@ -73,7 +75,8 @@ def build_features(
     (`add_ranks`)."""
     check_holdout(end, open_holdout)
     start, end = pd.Timestamp(start), pd.Timestamp(end)
-    bars = read_bars_bulk(conn, tickers, FEATURE_BASIS, start - pd.Timedelta(days=FEATURE_WARMUP_DAYS), end)
+    bars = read_bars_bulk(conn, tickers, FEATURE_BASIS, start - pd.Timedelta(days=FEATURE_WARMUP_DAYS), end,
+                          fallback=FEATURE_FALLBACK)
     parts = []
     for ticker, g in bars.groupby("ticker", sort=False):
         f = ticker_features(g.set_index("date")["close"])

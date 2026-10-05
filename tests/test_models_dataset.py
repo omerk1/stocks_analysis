@@ -261,3 +261,70 @@ def test_delisting_is_detected_when_only_early_ended_names_are_labeled(conn, tmp
     gone = read_labels(tmp_path, 21)
     near_end = gone[(gone["date"] > "2020-06-01") & (gone["date"] < gone["date"].max())]
     assert near_end["truncated"].any() and near_end["hit"].notna().all()
+
+
+# ---------------------------------------------------------------- Tiingo fallback
+
+def _store_tiingo(conn, ticker, days, close, volume, scale=1.0):
+    close = np.asarray(close, dtype=float) * scale
+    for source, s in ((db.TIINGO_SPLIT_ONLY, 1.0), (db.TIINGO, TR_SCALE)):
+        frame = pd.DataFrame({"open": close * s, "high": close * s * 1.01, "low": close * s * 0.99,
+                              "close": close * s, "volume": volume, "is_partial": 0}, index=days)
+        db.upsert_bars(conn, "bars_1d", ticker, source, frame)
+
+
+def _add_member(conn, ticker, start="2019-01-01", end=None):
+    current = db.read_index_membership(conn, "sp500")[["ticker", "start_date", "end_date"]]
+    rows = pd.concat([current, pd.DataFrame([(ticker, start, end)], columns=current.columns)])
+    db.replace_index_membership(conn, "sp500", rows)
+
+
+def test_a_member_with_only_tiingo_bars_is_in_the_universe_and_labeled(conn, tmp_path):
+    _store_tiingo(conn, "DELIST", DAYS, _walk(6, len(DAYS)), 1_000_000)
+    _add_member(conn, "DELIST")
+
+    mask = universe_mask(conn, "2020-01-01", "2021-06-30")
+    rows = mask[mask["ticker"] == "DELIST"]
+
+    assert rows["has_bars"].all() and rows["eligible"].any()
+    assert mask.attrs["spec"]["price_sources"][db.TIINGO_SPLIT_ONLY] == 1
+
+    path = build_labels(conn, rows[["ticker", "date"]], 21, tmp_path)
+    labels = read_labels(tmp_path, 21)
+    assert set(labels["ticker"]) == {"DELIST"} and labels["hit"].notna().any()
+    assert json_manifest(path)["price_sources"] == {db.TIINGO: 1}
+
+
+def json_manifest(path):
+    import json
+    return json.loads(path.with_suffix(".json").read_text())
+
+
+def test_yfinance_wins_and_sources_are_never_spliced(conn):
+    # Tiingo bars for a yfinance ticker (10x off, extending past its history) are ignored entirely.
+    _store_tiingo(conn, "CCC", DAYS, np.full(len(DAYS), 1.0), 1_000_000, scale=10)
+
+    bars = dataset.read_bars_bulk(conn, ["CCC"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31", fallback=True)
+    yf = dataset.read_bars_bulk(conn, ["CCC"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31")
+
+    pd.testing.assert_frame_equal(bars, yf)
+    assert bars["date"].min() >= pd.Timestamp("2020-03-02")
+
+
+def test_without_fallback_tiingo_bars_are_not_read(conn):
+    _store_tiingo(conn, "DELIST", DAYS, _walk(6, len(DAYS)), 1_000_000)
+
+    assert dataset.read_bars_bulk(conn, ["DELIST"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31").empty
+
+
+def test_tiingo_members_use_tiingo_splits_for_the_traded_close(conn):
+    _store_tiingo(conn, "RSPLIT", DAYS, np.full(len(DAYS), 100.0), 1_000_000)
+    _add_member(conn, "RSPLIT")
+    split = pd.DataFrame({"execution_date": [pd.Timestamp("2021-06-01")], "split_from": [20.0],
+                          "split_to": [1.0], "ratio": [0.05]})
+    db.upsert_splits(conn, "RSPLIT", db.TIINGO, split)
+
+    mask = universe_mask(conn, "2021-01-04", "2021-12-31").set_index(["ticker", "date"])
+
+    assert mask.loc[("RSPLIT", pd.Timestamp("2021-05-28")), "unadjusted_close"] == pytest.approx(5.0)
+    assert mask.loc[("RSPLIT", pd.Timestamp("2021-06-01")), "unadjusted_close"] == pytest.approx(100.0)

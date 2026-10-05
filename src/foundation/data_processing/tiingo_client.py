@@ -113,6 +113,20 @@ def to_bars(prices: pd.DataFrame, split_only: bool) -> pd.DataFrame:
     return bars
 
 
+def to_splits(prices: pd.DataFrame) -> pd.DataFrame:
+    """Tiingo's split factors as `splits` table rows (execution_date,
+    split_from, split_to, ratio), same convention as the yfinance source:
+    ratio 4.0 for a 4-for-1, 0.05 for a 1-for-20. Tiingo also books some
+    spin-offs as a split (T 2022-04-11, 1.324), as yfinance does."""
+    factors = prices.loc[prices["splitFactor"] != 1.0, "splitFactor"].astype(float)
+    return pd.DataFrame({
+        "execution_date": factors.index,
+        "split_from": [1.0 if r >= 1 else 1.0 / r for r in factors],
+        "split_to": [r if r >= 1 else 1.0 for r in factors],
+        "ratio": factors.to_numpy(),
+    })
+
+
 def supported_tickers(url: str = SUPPORTED_TICKERS_URL) -> pd.DataFrame:
     """Tiingo's public ticker list (no key, no request budget): one row per
     listing -- ticker, exchange, assetType, priceCurrency, startDate, endDate.

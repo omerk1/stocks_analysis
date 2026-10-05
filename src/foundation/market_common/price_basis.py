@@ -27,6 +27,7 @@ results.
 
 from __future__ import annotations
 
+import sqlite3
 from enum import Enum
 
 from src.foundation.data_processing import db
@@ -71,13 +72,56 @@ MODULE_PRICE_BASIS: dict[str, PriceBasis] = {
 }
 
 
+# Delisted index members yfinance can't serve have Tiingo bars on the same
+# two bases (`bulk_tiingo_ingest.py`). A module listed here reads them for
+# tickers with no bars on the primary source; every other module reads the
+# primary source only (the completed MA study stays reproducible). The
+# choice is per ticker, never per date: one ticker's series always comes
+# from one vendor.
+FALLBACK_SOURCE_BY_BASIS: dict[PriceBasis, str] = {
+    PriceBasis.TOTAL_RETURN: db.TIINGO,
+    PriceBasis.TRADED: db.TIINGO_SPLIT_ONLY,
+}
+# Splits matching each bar source (`history_breaks` recovers traded prices
+# from them).
+SPLITS_SOURCE_BY_BAR_SOURCE: dict[str, str] = {
+    db.YFINANCE: db.YFINANCE, db.YFINANCE_SPLIT_ONLY: db.YFINANCE,
+    db.TIINGO: db.TIINGO, db.TIINGO_SPLIT_ONLY: db.TIINGO,
+}
+MODULES_WITH_FALLBACK: frozenset[str] = frozenset({"models_labels", "models_universe", "models_features"})
+
+
 def source_for(basis: PriceBasis | str) -> str:
     """The `bars_1d.source` value holding bars on `basis`."""
     return SOURCE_BY_BASIS[PriceBasis(basis)]
 
 
+def sources_for(basis: PriceBasis | str, fallback: bool) -> list[str]:
+    """`bars_1d.source` values to read for `basis`, in priority order."""
+    basis = PriceBasis(basis)
+    return [SOURCE_BY_BASIS[basis], FALLBACK_SOURCE_BY_BASIS[basis]] if fallback else [SOURCE_BY_BASIS[basis]]
+
+
+def ticker_sources(
+    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+) -> dict[str, str]:
+    """ticker -> the one source its `basis` bars are read from: the first of
+    `sources_for(basis, fallback)` holding any bar for it (whatever the
+    dates, so the choice doesn't depend on the window asked for). Tickers
+    with no bars on any of them are left out."""
+    out: dict[str, str] = {}
+    for source in sources_for(basis, fallback):
+        for ticker in tickers:
+            if ticker not in out and conn.execute(
+                "SELECT 1 FROM bars_1d WHERE ticker = ? AND source = ? LIMIT 1", (ticker, source)
+            ).fetchone():
+                out[ticker] = source
+    return out
+
+
 def basis_for_source(source: str) -> PriceBasis:
-    for basis, src in SOURCE_BY_BASIS.items():
-        if src == source:
-            return basis
+    for table in (SOURCE_BY_BASIS, FALLBACK_SOURCE_BY_BASIS):
+        for basis, src in table.items():
+            if src == source:
+                return basis
     raise ValueError(f"bars_1d source {source!r} is not a price basis")

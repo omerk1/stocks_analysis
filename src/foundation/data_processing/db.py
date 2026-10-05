@@ -155,9 +155,14 @@ CREATE TABLE IF NOT EXISTS ticker_sector (
     ticker TEXT PRIMARY KEY,
     sector TEXT,
     industry TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    source TEXT
 );
 """
+# Where a sector came from: yfinance's `.info` (NULL on rows stored before the
+# column existed), or SEC_SIC -- derived from the SEC industry code for
+# delisted members Yahoo has no page for (`sec_sectors.py`).
+SEC_SIC = "sec_sic"
 
 # Macro/meta-financial time series (e.g. FRED's M2SL, DGS10, CPIAUCSL) --
 # same shape as shares_outstanding above with ticker swapped for series_id,
@@ -267,6 +272,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_SPLITS_SCHEMA)
     conn.execute(_TICKER_RENAMES_SCHEMA)
     conn.execute(_TIINGO_LISTINGS_SCHEMA)
+    if "source" not in {row[1] for row in conn.execute("PRAGMA table_info(ticker_sector)")}:
+        conn.execute("ALTER TABLE ticker_sector ADD COLUMN source TEXT")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
     for column in _TICKER_RENAMES_WINDOW_COLUMNS:
         if column not in existing:
@@ -451,22 +458,23 @@ def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) ->
     return pd.read_sql_query(query, conn, params=params)
 
 
-def upsert_ticker_sector(conn: sqlite3.Connection, sectors: pd.DataFrame) -> None:
+def upsert_ticker_sector(conn: sqlite3.Connection, sectors: pd.DataFrame, source: str = YFINANCE) -> None:
     """Insert or replace rows in the `ticker_sector` table.
 
     `sectors` must have columns: ticker, sector, industry. Each ticker is a
     single overwritten row (a current snapshot, not a history), same
-    convention as `upsert_ticker_metadata`.
+    convention as `upsert_ticker_metadata`. `source` records where the
+    sector came from (yfinance, or SEC_SIC).
     """
     if sectors.empty:
         return
 
     now = pd.Timestamp.now("UTC").isoformat()
-    rows = [(row.ticker, row.sector, row.industry, now) for row in sectors.itertuples()]
+    rows = [(row.ticker, row.sector, row.industry, now, source) for row in sectors.itertuples()]
     conn.executemany(
         """
-        INSERT OR REPLACE INTO ticker_sector (ticker, sector, industry, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO ticker_sector (ticker, sector, industry, updated_at, source)
+        VALUES (?, ?, ?, ?, ?)
         """,
         rows,
     )
