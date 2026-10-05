@@ -225,3 +225,30 @@ def test_reviewed_exception_holds_only_for_its_exact_tiingo_name():
     assert ti.same_company("Kellanova", "Kellogg", "K")
     assert not ti.same_company("Kellanova Holdings ETF", "Kellogg", "K")
     assert not ti.same_company("Kellanova", "Kellogg", "OTHER")
+
+
+def test_splits_use_the_yfinance_ratio_convention():
+    from src.foundation.data_processing.tiingo_client import to_splits
+
+    prices = _prices(split_on="2015-02-02", split=4.0)
+    prices.loc[pd.Timestamp("2015-03-02"), "splitFactor"] = 0.05
+
+    splits = to_splits(prices)
+
+    assert list(splits["ratio"]) == [4.0, 0.05]
+    assert list(splits["split_from"]) == [1.0, 20.0] and list(splits["split_to"]) == [4.0, 1.0]
+
+
+def test_backfill_splits_records_tickers_with_no_splits_and_resumes(conn):
+    for ticker in ("SPLIT", "PLAIN"):
+        db.upsert_tiingo_listing(conn, {"ticker": ticker, "status": "stored",
+                                        "tiingo_start": "2015-01-01", "tiingo_end": "2015-03-31"})
+    db.upsert_tiingo_listing(conn, {"ticker": "GONE", "status": "not_in_tiingo"})
+    client = FakeTiingo({}, {"SPLIT": _prices(split_on="2015-02-02"), "PLAIN": _prices()})
+
+    ti.backfill_splits(conn, client)
+    ti.backfill_splits(conn, client)
+
+    assert len(db.read_splits(conn, "SPLIT", db.TIINGO)) == 1
+    assert db.read_splits(conn, "PLAIN", db.TIINGO).empty
+    assert sorted(t for _, t in client.calls) == ["PLAIN", "SPLIT"]

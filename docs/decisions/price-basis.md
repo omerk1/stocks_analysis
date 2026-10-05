@@ -32,6 +32,25 @@ included, in the `runs` table.
 | modeling universe (`src/models/dataset.py`, `models_universe`) | `traded` | The liquidity floor (close × volume) and the penny/price-floor checks need the prices that traded; dividend adjustment would make the dollar-volume floor stricter in older years. |
 | modeling baseline features (`src/models/features/baseline.py`, `models_features`) | `total_return` | The MA study's factor definitions (momentum, volatility, reversal, extension), on the study's basis. |
 
+## Delisted members: Tiingo fallback (2026-10-05)
+
+Index members yfinance can't serve (delisted before it could) have Tiingo bars on the same
+two bases: `tiingo` (total return) and `tiingo_split_only` (traded), plus their splits under
+`splits.source = 'tiingo'` (`bulk_tiingo_ingest.py`, Done #82). A module reads them only if
+it's in `price_basis.MODULES_WITH_FALLBACK`, today the three modeling modules
+(`models_labels`, `models_universe`, `models_features`), so delisted members aren't missing
+from the training set. Everything else, the MA study included, reads yfinance only.
+
+- **One vendor per ticker, never spliced.** A ticker with any yfinance bars on the basis is
+  read from yfinance alone; only a ticker with none is read from Tiingo
+  (`price_basis.ticker_sources`). The choice doesn't depend on the dates asked for.
+- **Splits come from the same vendor as the bars** (`SPLITS_SOURCE_BY_BAR_SOURCE`), since
+  `history_breaks` recovers traded prices from them.
+- **The sources used are recorded:** the universe's `attrs["spec"]["price_sources"]` and the
+  label manifest's `price_sources` count tickers per source.
+- Checked on overlapping tickers: KO and AAPL agree with yfinance to <0.1% on both bases.
+  Where they disagreed (T before its 2022 spin-off) Tiingo was the correct one (backlog).
+
 ## Why levels are on `traded`
 
 - **Dividend adjustment moves old levels away from where they really were**, and the error

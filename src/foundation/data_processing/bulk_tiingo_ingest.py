@@ -38,10 +38,12 @@ from dotenv import load_dotenv
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing import ticker_renames as tr
-from src.foundation.data_processing.tiingo_client import TiingoClient, supported_tickers, to_bars
+from src.foundation.data_processing.tiingo_client import TiingoClient, supported_tickers, to_bars, to_splits
 from src.foundation.utils.config_loader import load_config
 
 MIN_COVERAGE = tr.MIN_COVERAGE
+SPLITS_JOB = "tiingo_splits"
+_NO_PRICES = pd.DataFrame({"splitFactor": pd.Series(dtype=float)})
 
 
 def targets(conn: sqlite3.Connection, since: str) -> pd.DataFrame:
@@ -175,7 +177,30 @@ def decide(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFram
         return {**row, "status": "low_coverage"}
     db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO, total_return)
     db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True))
+    db.upsert_splits(conn, target.ticker, db.TIINGO, to_splits(prices))
+    db.record_job_result(conn, SPLITS_JOB, target.ticker, "success")
     return {**row, "status": "stored"}
+
+
+def backfill_splits(conn: sqlite3.Connection, client: TiingoClient, limit: int | None = None) -> None:
+    """Split history for `stored` listings ingested before splits were kept
+    (one price request each). Resumable through `fetch_jobs` (`SPLITS_JOB`):
+    most tickers have no splits, so the splits table alone can't say which
+    were done. Bars aren't rewritten."""
+    stored = db.read_tiingo_listings(conn)
+    todo = db.pending_keys(conn, SPLITS_JOB, sorted(stored.loc[stored["status"] == "stored", "ticker"]))
+    for ticker in todo[:limit]:
+        row = stored.set_index("ticker").loc[ticker]
+        try:
+            prices = client.daily_prices(tiingo_symbol(ticker), row["tiingo_start"], row["tiingo_end"])
+        except requests.RequestException as e:
+            db.record_job_result(conn, SPLITS_JOB, ticker, "failed", str(e))
+            print(f"{ticker}: request failed, retry later ({e})", flush=True)
+            continue
+        splits = to_splits(prices) if prices is not None and not prices.empty else to_splits(_NO_PRICES)
+        db.upsert_splits(conn, ticker, db.TIINGO, splits)
+        db.record_job_result(conn, SPLITS_JOB, ticker, "success")
+        print(f"{ticker}: {len(splits)} split(s)", flush=True)
 
 
 def run(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFrame, since: str,
@@ -207,6 +232,8 @@ def main():
     parser.add_argument("--since", default="2009-01-01", help="Only members with membership after this date")
     parser.add_argument("--limit", type=int, help="Check at most this many targets (a trial run)")
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in tiingo_listings")
+    parser.add_argument("--backfill-splits", action="store_true",
+                        help="Only fetch split histories for already-stored listings (one request each)")
     parser.add_argument("--retry-status", help="Comma-separated stored statuses to re-decide (e.g. name_mismatch)")
     args = parser.parse_args()
 
@@ -214,6 +241,10 @@ def main():
     config = load_config()
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
+    if args.backfill_splits:
+        backfill_splits(conn, TiingoClient(), args.limit)
+        conn.close()
+        return
     table = run(conn, TiingoClient(), supported_tickers(), args.since, args.refresh, args.limit,
                 args.retry_status.split(",") if args.retry_status else None)
     print(table["status"].value_counts().to_string())

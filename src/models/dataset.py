@@ -20,6 +20,10 @@ Two price bases, on purpose and never mixed within one calculation
 (`docs/decisions/price-basis.md`): labels, ATR and the decision close are
 returns-based (`LABEL_BASIS`, total return); dollar volume and the
 traded-price checks use the prices that actually traded (`UNIVERSE_BASIS`).
+On each basis a ticker is read from yfinance, or from Tiingo if yfinance has
+no bars for it at all (delisted members, `bulk_tiingo_ingest.py`) -- one
+vendor per ticker, never spliced. The sources used are recorded in the
+universe `attrs["spec"]` and the label manifest.
 
 Everything here only reads the databases.
 """
@@ -41,7 +45,9 @@ import pyarrow.parquet as pq
 from src.foundation.data_processing import db
 from src.foundation.data_processing.ticker_renames import apply_renames
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis, source_for
+from src.foundation.market_common.price_basis import (
+    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, source_for, ticker_sources,
+)
 from src.models.labels.barriers import LONG, barrier_labels, v1_grid
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,10 @@ HOLDOUT_END = pd.Timestamp("2021-12-31")
 
 LABEL_BASIS = MODULE_PRICE_BASIS["models_labels"]
 UNIVERSE_BASIS = MODULE_PRICE_BASIS["models_universe"]
+# Delisted members yfinance can't serve are read from Tiingo, per ticker
+# (`price_basis.MODULES_WITH_FALLBACK`).
+LABEL_FALLBACK = "models_labels" in MODULES_WITH_FALLBACK
+UNIVERSE_FALLBACK = "models_universe" in MODULES_WITH_FALLBACK
 
 # index_membership.index_name -> per-row flag column
 INDEX_FLAGS = {"sp500": "in_sp500", "nasdaq100": "in_ndx100"}
@@ -98,51 +108,76 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 # ---------------------------------------------------------------- bars
 
+def resolve_sources(
+    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+) -> dict[str, str]:
+    """ticker -> the `bars_1d.source` its `basis` bars come from. Without
+    `fallback`, every ticker maps to the basis's primary source (no lookup)."""
+    if not fallback:
+        return dict.fromkeys(tickers, source_for(basis))
+    return ticker_sources(conn, tickers, basis, fallback=True)
+
+
+def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    for ticker, source in sources.items():
+        groups.setdefault(source, []).append(ticker)
+    return groups
+
+
 def read_bars_bulk(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str,
-    start: str | pd.Timestamp, end: str | pd.Timestamp,
+    start: str | pd.Timestamp, end: str | pd.Timestamp, fallback: bool = False,
 ) -> pd.DataFrame:
     """Daily bars for many tickers on one price basis, long format (ticker,
     date, open, high, low, close, volume), partial rows dropped. One query per
-    batch of tickers instead of one per ticker."""
+    batch of tickers instead of one per ticker. With `fallback`, a ticker
+    with no yfinance bars is read from Tiingo (`resolve_sources`);
+    `attrs["price_sources"]` counts tickers per source."""
     basis = PriceBasis(basis)
-    if not tickers:
-        return pd.DataFrame(columns=["ticker", "date", "open", "high", "low", "close", "volume"])
+    columns = ["ticker", "date", "open", "high", "low", "close", "volume"]
+    sources = resolve_sources(conn, list(tickers), basis, fallback)
     frames = []
-    for i in range(0, len(tickers), 500):  # SQLite's bound-parameter limit
-        batch = tickers[i:i + 500]
-        frames.append(pd.read_sql_query(
-            "SELECT ticker, timestamp, open, high, low, close, volume FROM bars_1d "
-            f"WHERE source = ? AND is_partial = 0 AND ticker IN ({','.join('?' * len(batch))}) "
-            "AND timestamp >= ? AND timestamp <= ?",
-            conn,
-            params=[source_for(basis), *batch,
-                    pd.Timestamp(start).isoformat(),
-                    (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()],
-        ))
-    bars = pd.concat(frames, ignore_index=True)
-    bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
-    bars = bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"])
-    bars = bars[["ticker", "date", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
+    for source, group in _source_groups(sources).items():
+        for i in range(0, len(group), 500):  # SQLite's bound-parameter limit
+            batch = group[i:i + 500]
+            frames.append(pd.read_sql_query(
+                "SELECT ticker, timestamp, open, high, low, close, volume FROM bars_1d "
+                f"WHERE source = ? AND is_partial = 0 AND ticker IN ({','.join('?' * len(batch))}) "
+                "AND timestamp >= ? AND timestamp <= ?",
+                conn,
+                params=[source, *batch,
+                        pd.Timestamp(start).isoformat(),
+                        (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()],
+            ))
+    if not frames:
+        bars = pd.DataFrame(columns=columns)
+    else:
+        bars = pd.concat(frames, ignore_index=True)
+        bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
+        bars = bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"])
+        bars = bars[columns].reset_index(drop=True)
     bars.attrs["price_basis"] = basis.value
+    bars.attrs["price_sources"] = {s: len(g) for s, g in _source_groups(sources).items()}
     return bars
 
 
 def trading_calendar(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str,
-    start: str | pd.Timestamp, end: str | pd.Timestamp,
+    start: str | pd.Timestamp, end: str | pd.Timestamp, fallback: bool = False,
 ) -> pd.DatetimeIndex:
     """Every date on which any of `tickers` has a bar on `basis` in [start, end]."""
     dates = set()
-    for i in range(0, len(tickers), 500):
-        batch = tickers[i:i + 500]
-        dates.update(pd.read_sql_query(
-            "SELECT DISTINCT timestamp FROM bars_1d "
-            f"WHERE source = ? AND is_partial = 0 AND ticker IN ({','.join('?' * len(batch))}) "
-            "AND timestamp >= ? AND timestamp <= ?",
-            conn, params=[source_for(PriceBasis(basis)), *batch, pd.Timestamp(start).isoformat(),
-                          (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()],
-        )["timestamp"])
+    for source, group in _source_groups(resolve_sources(conn, list(tickers), basis, fallback)).items():
+        for i in range(0, len(group), 500):
+            batch = group[i:i + 500]
+            dates.update(pd.read_sql_query(
+                "SELECT DISTINCT timestamp FROM bars_1d "
+                f"WHERE source = ? AND is_partial = 0 AND ticker IN ({','.join('?' * len(batch))}) "
+                "AND timestamp >= ? AND timestamp <= ?",
+                conn, params=[source, *batch, pd.Timestamp(start).isoformat(),
+                              (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()],
+            )["timestamp"])
     return pd.DatetimeIndex(pd.to_datetime(sorted(dates))).normalize().unique()
 
 
@@ -153,14 +188,18 @@ def _all_index_tickers(conn: sqlite3.Connection) -> list[str]:
     return sorted(members["ticker"].unique())
 
 
-def _read_splits_bulk(conn: sqlite3.Connection, tickers: list[str]) -> dict[str, pd.DataFrame]:
-    """yfinance splits (the adjustment both bar bases carry), per ticker."""
-    splits = pd.read_sql_query(
-        "SELECT ticker, execution_date, ratio FROM splits WHERE source = ?", conn, params=[db.YFINANCE],
-        parse_dates=["execution_date"],
-    )
-    splits = splits[splits["ticker"].isin(tickers)]
-    return {t: g.drop(columns="ticker") for t, g in splits.groupby("ticker")}
+def _read_splits_bulk(conn: sqlite3.Connection, bar_sources: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Per ticker, the splits from the vendor its bars came from (the
+    adjustment those bars carry): yfinance's or Tiingo's."""
+    out = {}
+    for bar_source, group in _source_groups(bar_sources).items():
+        splits = pd.read_sql_query(
+            "SELECT ticker, execution_date, ratio FROM splits WHERE source = ?", conn,
+            params=[SPLITS_SOURCE_BY_BAR_SOURCE[bar_source]], parse_dates=["execution_date"],
+        )
+        splits = splits[splits["ticker"].isin(group)]
+        out.update({t: g.drop(columns="ticker") for t, g in splits.groupby("ticker")})
+    return out
 
 
 # ---------------------------------------------------------------- membership
@@ -258,14 +297,16 @@ def universe_mask(
     intervals = pd.concat([apply_renames(conn, db.read_index_membership(conn, n)) for n in indices],
                           ignore_index=True)
     tickers = sorted(intervals["ticker"].unique())
-    bars = read_bars_bulk(conn, tickers, UNIVERSE_BASIS, start - pd.Timedelta(days=BAR_WARMUP_DAYS), end)
+    bar_sources = resolve_sources(conn, tickers, UNIVERSE_BASIS, UNIVERSE_FALLBACK)
+    bars = read_bars_bulk(conn, tickers, UNIVERSE_BASIS, start - pd.Timedelta(days=BAR_WARMUP_DAYS), end,
+                          fallback=UNIVERSE_FALLBACK)
     calendar = pd.DatetimeIndex(bars.loc[bars["date"].between(start, end), "date"].unique()).sort_values()
 
     members = membership_rows(conn, indices, calendar)
     flags = [INDEX_FLAGS[n] for n in indices]
 
     bars["dollar_volume_20d"] = trailing_dollar_volume(bars)
-    splits = _read_splits_bulk(conn, tickers)
+    splits = _read_splits_bulk(conn, bar_sources)
     elig = []
     for ticker, g in bars.groupby("ticker", sort=False):
         flags_t = training_eligibility(g.set_index("date"), splits.get(ticker), history_config)
@@ -305,6 +346,7 @@ def universe_mask(
         "dollar_volume_window": DOLLAR_VOLUME_WINDOW,
         "history_config": asdict(history_config),
         "universe_basis": UNIVERSE_BASIS.value,
+        "price_sources": bars.attrs["price_sources"],
         "open_holdout": bool(open_holdout),
     }
     return out
@@ -358,7 +400,8 @@ def build_labels(
     # index, not just these (a slice of early-ended names would otherwise set
     # its own end and never count as delisted).
     reference = sorted(set(tickers) | set(_all_index_tickers(conn)))
-    calendar = trading_calendar(conn, reference, LABEL_BASIS, first, data_end)
+    calendar = trading_calendar(conn, reference, LABEL_BASIS, first, data_end, fallback=LABEL_FALLBACK)
+    price_sources: dict[str, int] = {}
 
     path = label_path(out_dir, horizon, side)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +410,9 @@ def build_labels(
     try:
         for i in range(0, len(tickers), chunk_size):
             chunk = tickers[i:i + chunk_size]
-            bars = read_bars_bulk(conn, chunk, LABEL_BASIS, first, data_end)
+            bars = read_bars_bulk(conn, chunk, LABEL_BASIS, first, data_end, fallback=LABEL_FALLBACK)
+            for source, n in bars.attrs["price_sources"].items():
+                price_sources[source] = price_sources.get(source, 0) + n
             if bars.empty:
                 continue
             labels = barrier_labels(bars, cells, data_end=data_end, side=side, calendar=calendar)
@@ -393,7 +438,7 @@ def build_labels(
         "cells": [{"upper": c.upper, "lower": c.lower} for c in cells],
         "data_end": str(pd.Timestamp(data_end).date()),
         "first_row": str(rows["date"].min().date()), "last_row": str(last_row.date()),
-        "label_basis": LABEL_BASIS.value, "open_holdout": bool(open_holdout),
+        "label_basis": LABEL_BASIS.value, "price_sources": price_sources, "open_holdout": bool(open_holdout),
         "n_rows": n_rows, "n_tickers": len(tickers),
         "git_sha": _git_sha(), "created": pd.Timestamp.now("UTC").isoformat(),
     }
