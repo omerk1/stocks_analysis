@@ -48,8 +48,10 @@ Code would live in a new `src/llm/` (or `src/agents/`), separate from `src/signa
 
 ### 4. Search over SEC filings — bigger, later
 
-- `data/raw/sec/submissions.zip` is already downloaded. Needs ingestion, chunking of
-  10-K/8-K text, and careful handling of filing dates.
+- `data/raw/sec/submissions.zip` is already downloaded, but it holds only per-company
+  filing indexes (form type, filing dates, accession numbers), not filing text. It tells us
+  which filings exist and when; the 10-K/8-K text itself still has to be fetched from EDGAR
+  (rate-limited), parsed out of HTML, and chunked. That fetch is most of the work.
 - Useful for **live** alert context ("any 8-K in the last 5 days?"), not for backtests,
   because of the ground rule above.
 
