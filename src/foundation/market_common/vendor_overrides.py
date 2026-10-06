@@ -13,6 +13,9 @@ with Tiingo's splits. Its Tiingo bars must be stored first:
 `python -m src.foundation.data_processing.bulk_tiingo_ingest --store-preferred`
 (rerun with each bar refresh -- they stop at the fetch date).
 
+Adding a ticker here turns off its yfinance entries in `price_disputes.csv`;
+check whether its Tiingo bars need entries of their own.
+
 ticker -> why: the event, its date, and the measured yfinance-vs-Tiingo gap.
 """
 

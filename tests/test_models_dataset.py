@@ -357,14 +357,28 @@ def test_drop_disputed_covers_the_label_window_and_the_atr_tail():
 
     cal = pd.bdate_range("2020-01-01", periods=120)
     labels = pd.DataFrame({"ticker": "AAA", "date": cal})
-    d = cal[60]
-    disputes = (DisputedDay("AAA", str(d.date()), "yfinance", "test"),)
+    disputes = (DisputedDay("AAA", str(cal[60].date()), "yfinance", "test"),)
 
-    kept, n = dataset.drop_disputed(labels, {"AAA": db.YFINANCE}, cal, horizon=10, disputes=disputes)
+    kept, n = dataset.drop_disputed(labels, {"AAA": db.YFINANCE}, labels, horizon=10, disputes=disputes)
 
-    gone = set(labels["date"]) - set(kept["date"])
-    assert min(gone) == cal[50] and max(gone) == cal[60 + dataset.DISPUTE_ATR_TAIL]
+    gone = sorted(set(labels["date"]) - set(kept["date"]))
+    assert gone[0] == cal[50] and gone[-1] == cal[60 + dataset.DISPUTE_ATR_TAIL]
     assert n == 10 + 1 + dataset.DISPUTE_ATR_TAIL
+
+
+def test_drop_disputed_counts_the_tickers_own_bars_not_the_market_calendar():
+    from src.foundation.market_common.price_disputes import DisputedDay
+
+    cal = pd.bdate_range("2020-01-01", periods=120)
+    own = cal.delete(range(40, 55))  # 15 missing sessions before the dispute
+    labels = pd.DataFrame({"ticker": "AAA", "date": own})
+    disputes = (DisputedDay("AAA", str(cal[70].date()), "yfinance", "test"),)
+
+    kept, _ = dataset.drop_disputed(labels, {"AAA": db.YFINANCE}, labels, horizon=10, disputes=disputes)
+
+    first_gone = min(set(labels["date"]) - set(kept["date"]))
+    # 10 of the ticker's own bars before the dispute, not 10 market days
+    assert first_gone == own[list(own).index(cal[70]) - 10]
 
 
 def test_drop_disputed_only_applies_to_the_vendor_with_the_bad_bars():
@@ -374,7 +388,7 @@ def test_drop_disputed_only_applies_to_the_vendor_with_the_bad_bars():
     labels = pd.DataFrame({"ticker": ["AAA"] * 60 + ["BBB"] * 60, "date": list(cal) * 2})
     disputes = (DisputedDay("AAA", str(cal[30].date()), "yfinance", "t"), DisputedDay("BBB", None, "tiingo", "t"))
 
-    kept, n = dataset.drop_disputed(labels, {"AAA": db.TIINGO, "BBB": db.TIINGO_SPLIT_ONLY}, cal, 10, disputes)
+    kept, n = dataset.drop_disputed(labels, {"AAA": db.TIINGO, "BBB": db.TIINGO_SPLIT_ONLY}, labels, 10, disputes)
 
     assert set(kept["ticker"]) == {"AAA"} and len(kept) == 60 and n == 60
 

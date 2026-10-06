@@ -357,35 +357,46 @@ def universe_mask(
 
 # ---------------------------------------------------------------- disputed days
 
-# A fake one-day move distorts ATR(14) (Wilder smoothing) for weeks after it.
-DISPUTE_ATR_TAIL = 2 * ATR_PERIOD
+# A fake one-day move distorts ATR(14) for weeks: Wilder smoothing keeps
+# (13/14)^k of it after k bars, so a +45% day (DHR) still inflates ATR ~25%
+# after 28 bars and ~10% after 42.
+DISPUTE_ATR_TAIL = 3 * ATR_PERIOD
 
 
 def drop_disputed(
-    labels: pd.DataFrame, ticker_sources: dict[str, str], calendar: pd.DatetimeIndex, horizon: int,
+    labels: pd.DataFrame, ticker_sources: dict[str, str], bars: pd.DataFrame, horizon: int,
     disputes: tuple[DisputedDay, ...] | None = None,
 ) -> tuple[pd.DataFrame, int]:
-    """`labels` without the rows a disputed day reaches (`price_disputes`):
-    decision day t is dropped if a disputed day of the vendor its bars came
-    from falls in its label window [t+1, t+H] or in the DISPUTE_ATR_TAIL
-    trading days up to t (the ATR its barriers are sized with). A dispute
-    with no date drops the ticker. Returns (kept rows, number dropped)."""
+    """`labels` without the rows a disputed day reaches (`price_disputes`).
+
+    Positions are counted on each ticker's own bars (`bars`: ticker, date),
+    as the labels are: decision day t is dropped if a disputed day D of the
+    vendor its bars came from is within its next `horizon` bars (the label
+    window) or at most DISPUTE_ATR_TAIL bars before it (the ATR its barriers
+    are sized with) -- D in [t - DISPUTE_ATR_TAIL, t + horizon] in bars. A
+    disputed date the ticker has no bar on counts from the next bar. A
+    dispute with no date drops the ticker. Returns (kept rows, number
+    dropped)."""
     disputes = DISPUTED_DAYS if disputes is None else disputes
     if labels.empty or not disputes:
         return labels, 0
-    cal = np.asarray(pd.DatetimeIndex(calendar).sort_values(), dtype="datetime64[ns]")
-    pos = pd.Series(np.searchsorted(cal, labels["date"].to_numpy(dtype="datetime64[ns]")), index=labels.index)
     drop = pd.Series(False, index=labels.index)
     for d in disputes:
         source = ticker_sources.get(d.ticker)
         if source is None or vendor_of(source) != d.vendor:
             continue
         mine = labels["ticker"] == d.ticker
+        if not mine.any():
+            continue
         if d.date is None:
             drop |= mine
             continue
-        p = int(np.searchsorted(cal, np.datetime64(pd.Timestamp(d.date))))
-        drop |= mine & pos.between(p - horizon, p + DISPUTE_ATR_TAIL)
+        own = np.sort(bars.loc[bars["ticker"] == d.ticker, "date"].to_numpy(dtype="datetime64[ns]"))
+        pos = pd.Series(np.searchsorted(own, labels.loc[mine, "date"].to_numpy(dtype="datetime64[ns]")),
+                        index=labels.index[mine])
+        p = int(np.searchsorted(own, np.datetime64(pd.Timestamp(d.date))))
+        hit = pos.between(p - horizon, p + DISPUTE_ATR_TAIL)
+        drop.loc[hit[hit].index] = True
     return labels[~drop], int(drop.sum())
 
 
@@ -457,7 +468,7 @@ def build_labels(
             labels = labels.merge(bars[["ticker", "date", "close"]].rename(columns={"close": "close_t"}),
                                   on=["ticker", "date"], how="left")
             labels = labels.merge(rows[rows["ticker"].isin(chunk)], on=["ticker", "date"], how="inner")
-            labels, dropped = drop_disputed(labels, bars.attrs["ticker_sources"], calendar, horizon)
+            labels, dropped = drop_disputed(labels, bars.attrs["ticker_sources"], bars, horizon)
             n_disputed += dropped
             for col in labels.columns:
                 if labels[col].dtype == "float64":

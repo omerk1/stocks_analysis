@@ -38,7 +38,9 @@ from dotenv import load_dotenv
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing import ticker_renames as tr
-from src.foundation.data_processing.tiingo_client import TiingoClient, supported_tickers, to_bars, to_splits
+from src.foundation.data_processing.tiingo_client import (
+    TiingoClient, TiingoError, supported_tickers, to_bars, to_splits,
+)
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 from src.foundation.utils.config_loader import load_config
 
@@ -195,6 +197,10 @@ def backfill_splits(conn: sqlite3.Connection, client: TiingoClient, limit: int |
         row = stored.set_index("ticker").loc[ticker]
         try:
             prices = client.daily_prices(tiingo_symbol(ticker), row["tiingo_start"], row["tiingo_end"])
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
         except requests.RequestException as e:
             db.record_job_result(conn, SPLITS_JOB, ticker, "failed", str(e))
             print(f"{ticker}: request failed, retry later ({e})", flush=True)
@@ -214,6 +220,10 @@ def store_preferred(conn: sqlite3.Connection, client: TiingoClient, tickers: lis
     for ticker in tickers if tickers is not None else sorted(PREFER_TIINGO):
         try:
             prices = client.daily_prices(tiingo_symbol(ticker), PREFERRED_START, pd.Timestamp.today().strftime("%Y-%m-%d"))
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
         except requests.RequestException as e:
             print(f"{ticker}: request failed, kept existing bars ({e})", flush=True)
             continue
@@ -241,6 +251,10 @@ def run(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFrame, 
     for target in todo.itertuples(index=False):
         try:
             outcome = decide(conn, client, listings, target, since)
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{target.ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
         except requests.RequestException as e:
             # Not a decision: left unrecorded so the next run retries it.
             print(f"{target.ticker}: request failed, retry later ({e})", flush=True)

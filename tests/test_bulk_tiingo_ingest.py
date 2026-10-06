@@ -283,3 +283,31 @@ def test_a_quota_message_raises_instead_of_parsing_as_data():
 
     with pytest.raises(TiingoError, match="500 symbol"):
         TiingoClient(api_key="x", session=Session()).daily_prices("AAA", "2020-01-01", "2020-12-31")
+
+
+def test_a_quota_error_stops_the_run_instead_of_trying_every_symbol(conn):
+    from src.foundation.data_processing.tiingo_client import TiingoError
+
+    for t in ("AAA", "BBB", "CCC"):
+        _target(conn, t, f"{t} Co")
+    listings = _listings([(t, "NYSE", "Stock", "USD", "2010-01-01", "2015-03-31") for t in ("AAA", "BBB", "CCC")])
+
+    class OverQuota(FakeTiingo):
+        def metadata(self, ticker):
+            self.calls.append(("meta", ticker))
+            raise TiingoError("You have run over your 500 symbol look up for this month.")
+
+    client = OverQuota({}, {})
+    table = ti.run(conn, client, listings, "2009-01-01")
+
+    assert client.calls == [("meta", "AAA")] and table.empty
+
+
+def test_disputes_file_rejects_a_misspelled_vendor(tmp_path):
+    from src.foundation.market_common import price_disputes
+
+    path = tmp_path / "d.csv"
+    path.write_text("ticker,date,vendor,gap,reason\nAAA,2020-01-02,Tiingo,+5%,typo\n")
+
+    with pytest.raises(ValueError, match="vendor"):
+        price_disputes.load(path)
