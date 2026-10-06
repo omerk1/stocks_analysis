@@ -436,7 +436,8 @@ def build_labels(
 
     manifest = {
         "horizon": horizon, "side": side,
-        "cells": [{"upper": c.upper, "lower": c.lower} for c in cells],
+        "cells": [{"upper": c.upper, "lower": c.lower, "upper_atr": c.upper_atr, "lower_atr": c.lower_atr}
+                  for c in cells],
         "data_end": str(pd.Timestamp(data_end).date()),
         "first_row": str(rows["date"].min().date()), "last_row": str(last_row.date()),
         "label_basis": LABEL_BASIS.value, "price_sources": price_sources, "open_holdout": bool(open_holdout),
