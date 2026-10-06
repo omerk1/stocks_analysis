@@ -252,3 +252,62 @@ def test_backfill_splits_records_tickers_with_no_splits_and_resumes(conn):
     assert len(db.read_splits(conn, "SPLIT", db.TIINGO)) == 1
     assert db.read_splits(conn, "PLAIN", db.TIINGO).empty
     assert sorted(t for _, t in client.calls) == ["PLAIN", "SPLIT"]
+
+
+def test_store_preferred_writes_both_bases_and_splits(conn):
+    client = FakeTiingo({}, {"DHR": _prices(split_on="2015-02-02")})
+
+    ti.store_preferred(conn, client, ["DHR", "MISSING"])
+
+    for source in (db.TIINGO, db.TIINGO_SPLIT_ONLY):
+        assert len(db.read_bars(conn, "bars_1d", ticker="DHR", source=source)) == len(_DAYS)
+    assert len(db.read_splits(conn, "DHR", db.TIINGO)) == 1
+    assert db.read_bars(conn, "bars_1d", ticker="MISSING", source=db.TIINGO).empty
+
+
+def test_a_quota_message_raises_instead_of_parsing_as_data():
+    from src.foundation.data_processing.tiingo_client import TiingoClient, TiingoError
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"detail": "You have run over your 500 symbol look up for this month."}
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(TiingoError, match="500 symbol"):
+        TiingoClient(api_key="x", session=Session()).daily_prices("AAA", "2020-01-01", "2020-12-31")
+
+
+def test_a_quota_error_stops_the_run_instead_of_trying_every_symbol(conn):
+    from src.foundation.data_processing.tiingo_client import TiingoError
+
+    for t in ("AAA", "BBB", "CCC"):
+        _target(conn, t, f"{t} Co")
+    listings = _listings([(t, "NYSE", "Stock", "USD", "2010-01-01", "2015-03-31") for t in ("AAA", "BBB", "CCC")])
+
+    class OverQuota(FakeTiingo):
+        def metadata(self, ticker):
+            self.calls.append(("meta", ticker))
+            raise TiingoError("You have run over your 500 symbol look up for this month.")
+
+    client = OverQuota({}, {})
+    table = ti.run(conn, client, listings, "2009-01-01")
+
+    assert client.calls == [("meta", "AAA")] and table.empty
+
+
+def test_disputes_file_rejects_a_misspelled_vendor(tmp_path):
+    from src.foundation.market_common import price_disputes
+
+    path = tmp_path / "d.csv"
+    path.write_text("ticker,date,vendor,gap,reason\nAAA,2020-01-02,Tiingo,+5%,typo\n")
+
+    with pytest.raises(ValueError, match="vendor"):
+        price_disputes.load(path)

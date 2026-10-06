@@ -31,6 +31,7 @@ import sqlite3
 from enum import Enum
 
 from src.foundation.data_processing import db
+from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
 class PriceBasis(str, Enum):
@@ -108,15 +109,34 @@ def ticker_sources(
     """ticker -> the one source its `basis` bars are read from: the first of
     `sources_for(basis, fallback)` holding any bar for it (whatever the
     dates, so the choice doesn't depend on the window asked for). Tickers
-    with no bars on any of them are left out."""
+    with no bars on any of them are left out.
+
+    With `fallback`, a ticker in `vendor_overrides.PREFER_TIINGO` is read
+    from the fallback source instead, and must have bars there: a listed
+    ticker silently read from yfinance would carry the error it's listed for.
+    """
+    basis = PriceBasis(basis)
     out: dict[str, str] = {}
+    if fallback:
+        preferred = [t for t in tickers if t in PREFER_TIINGO]
+        missing = [t for t in preferred if not _has_bars(conn, t, FALLBACK_SOURCE_BY_BASIS[basis])]
+        if missing:
+            raise ValueError(
+                f"{missing} are in vendor_overrides.PREFER_TIINGO but have no {FALLBACK_SOURCE_BY_BASIS[basis]} "
+                "bars; run bulk_tiingo_ingest --store-preferred"
+            )
+        out.update(dict.fromkeys(preferred, FALLBACK_SOURCE_BY_BASIS[basis]))
     for source in sources_for(basis, fallback):
         for ticker in tickers:
-            if ticker not in out and conn.execute(
-                "SELECT 1 FROM bars_1d WHERE ticker = ? AND source = ? LIMIT 1", (ticker, source)
-            ).fetchone():
+            if ticker not in out and _has_bars(conn, ticker, source):
                 out[ticker] = source
     return out
+
+
+def _has_bars(conn: sqlite3.Connection, ticker: str, source: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM bars_1d WHERE ticker = ? AND source = ? LIMIT 1", (ticker, source)
+    ).fetchone() is not None
 
 
 def basis_for_source(source: str) -> PriceBasis:

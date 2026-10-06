@@ -4,7 +4,9 @@ history, `bulk_tiingo_ingest.py`).
 
 Free tier: 50 requests/hour, 1,000/day, 500 distinct symbols/month, personal
 use. Both request limits are paced proactively (`RateLimiter`), so a run
-sleeps rather than collecting 429s.
+sleeps rather than collecting 429s. The monthly symbol cap isn't paced: once
+it's hit, every request for a new symbol raises `TiingoError` until the month
+turns over.
 
 Tiingo serves one listing per symbol: the latest holder. Its public ticker
 list (`supported_tickers`) shows every holder with its date range (EMC: EMC
@@ -37,6 +39,10 @@ _DAILY = RateLimiter(max_calls=1000, period_seconds=86400)
 # On a 429, wait out (part of) the hourly window and retry, a few times.
 _MAX_RATE_LIMITED_WAITS = 6
 RATE_LIMITED_WAIT_SECONDS = 600
+
+
+class TiingoError(requests.RequestException):
+    """Tiingo answered with an error message instead of data (a quota)."""
 
 
 class TiingoClient:
@@ -82,7 +88,12 @@ class TiingoClient:
         if response.status_code == 404:
             return None
         response.raise_for_status()
-        return response.json()
+        body = response.json()
+        # Quota errors come back as 200 with {"detail": ...} instead of data
+        # (e.g. the free tier's 500 distinct symbols per month).
+        if isinstance(body, dict) and set(body) == {"detail"}:
+            raise TiingoError(body["detail"])
+        return body
 
 
 def to_bars(prices: pd.DataFrame, split_only: bool) -> pd.DataFrame:

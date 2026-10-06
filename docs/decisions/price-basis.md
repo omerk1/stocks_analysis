@@ -48,8 +48,11 @@ from the training set. Everything else, the MA study included, reads yfinance on
   `history_breaks` recovers traded prices from them.
 - **The sources used are recorded:** the universe's `attrs["spec"]["price_sources"]` and the
   label manifest's `price_sources` count tickers per source.
-- Checked on overlapping tickers: KO and AAPL agree with yfinance to <0.1% on both bases.
-  Where they disagreed (T before its 2022 spin-off) Tiingo was the correct one (backlog).
+- Checked on overlapping tickers: on ordinary days the vendors agree (KO and AAPL <0.1%).
+  Around corporate actions each has its own errors (Done #86), so the modeling labels also
+  skip reviewed disputed days (`market_common/price_disputes.csv`), and a ticker whose
+  yfinance error can't be masked (T's dividend drift) is read from Tiingo instead
+  (`market_common/vendor_overrides.PREFER_TIINGO`).
 
 ## Why levels are on `traded`
 

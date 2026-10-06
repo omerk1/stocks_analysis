@@ -341,3 +341,88 @@ def test_tiingo_members_use_tiingo_splits_for_the_traded_close(conn):
 
     assert mask.loc[("RSPLIT", pd.Timestamp("2021-05-28")), "unadjusted_close"] == pytest.approx(5.0)
     assert mask.loc[("RSPLIT", pd.Timestamp("2021-06-01")), "unadjusted_close"] == pytest.approx(100.0)
+
+
+def test_a_preferred_ticker_is_read_from_tiingo_on_both_bases(conn, monkeypatch):
+    from src.foundation.market_common import price_basis
+    monkeypatch.setattr(price_basis, "PREFER_TIINGO", {"AAA": "test"})
+    _store_tiingo(conn, "AAA", DAYS, np.full(len(DAYS), 50.0), 1_000_000)
+
+    for basis in (dataset.LABEL_BASIS, dataset.UNIVERSE_BASIS):
+        bars = dataset.read_bars_bulk(conn, ["AAA", "BBB"], basis, "2019-06-01", "2021-12-31", fallback=True)
+        assert bars.loc[bars["ticker"] == "AAA", "close"].round(4).isin([50.0, 50.0 * TR_SCALE]).all()
+        assert bars.attrs["price_sources"][price_basis.FALLBACK_SOURCE_BY_BASIS[basis]] == 1
+    # without the fallback (every other module) the listing is ignored
+    plain = dataset.read_bars_bulk(conn, ["AAA"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31")
+    assert not plain["close"].round(4).eq(50.0 * TR_SCALE).all()
+
+
+def test_a_preferred_ticker_without_tiingo_bars_is_an_error(conn, monkeypatch):
+    from src.foundation.market_common import price_basis
+    monkeypatch.setattr(price_basis, "PREFER_TIINGO", {"AAA": "test"})
+
+    with pytest.raises(ValueError, match="store-preferred"):
+        dataset.read_bars_bulk(conn, ["AAA"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31", fallback=True)
+
+
+def test_drop_disputed_covers_the_label_window_and_the_atr_tail():
+    from src.foundation.market_common.price_disputes import DisputedDay
+
+    cal = pd.bdate_range("2020-01-01", periods=120)
+    labels = pd.DataFrame({"ticker": "AAA", "date": cal})
+    disputes = (DisputedDay("AAA", str(cal[60].date()), "yfinance", "test"),)
+
+    kept, n = dataset.drop_disputed(labels, {"AAA": db.YFINANCE}, labels, horizon=10, disputes=disputes)
+
+    gone = sorted(set(labels["date"]) - set(kept["date"]))
+    assert gone[0] == cal[50] and gone[-1] == cal[60 + dataset.DISPUTE_ATR_TAIL]
+    assert n == 10 + 1 + dataset.DISPUTE_ATR_TAIL
+
+
+def test_drop_disputed_counts_the_tickers_own_bars_not_the_market_calendar():
+    from src.foundation.market_common.price_disputes import DisputedDay
+
+    cal = pd.bdate_range("2020-01-01", periods=120)
+    own = cal.delete(range(40, 55))  # 15 missing sessions before the dispute
+    labels = pd.DataFrame({"ticker": "AAA", "date": own})
+    disputes = (DisputedDay("AAA", str(cal[70].date()), "yfinance", "test"),)
+
+    kept, _ = dataset.drop_disputed(labels, {"AAA": db.YFINANCE}, labels, horizon=10, disputes=disputes)
+
+    first_gone = min(set(labels["date"]) - set(kept["date"]))
+    # 10 of the ticker's own bars before the dispute, not 10 market days
+    assert first_gone == own[list(own).index(cal[70]) - 10]
+
+
+def test_drop_disputed_only_applies_to_the_vendor_with_the_bad_bars():
+    from src.foundation.market_common.price_disputes import DisputedDay
+
+    cal = pd.bdate_range("2020-01-01", periods=60)
+    labels = pd.DataFrame({"ticker": ["AAA"] * 60 + ["BBB"] * 60, "date": list(cal) * 2})
+    disputes = (DisputedDay("AAA", str(cal[30].date()), "yfinance", "t"), DisputedDay("BBB", None, "tiingo", "t"))
+
+    kept, n = dataset.drop_disputed(labels, {"AAA": db.TIINGO, "BBB": db.TIINGO_SPLIT_ONLY}, labels, 10, disputes)
+
+    assert set(kept["ticker"]) == {"AAA"} and len(kept) == 60 and n == 60
+
+
+def test_build_labels_drops_disputed_rows_and_records_them(conn, tmp_path, monkeypatch):
+    from src.foundation.market_common import price_disputes
+    monkeypatch.setattr(dataset, "DISPUTED_DAYS", (price_disputes.DisputedDay("AAA", "2020-03-02", "yfinance", "t"),))
+    rows = universe_mask(conn, "2020-01-01", "2020-06-30")
+    rows = rows[rows["ticker"] == "AAA"][["ticker", "date"]]
+
+    path = build_labels(conn, rows, 21, tmp_path)
+
+    labels = read_labels(tmp_path, 21)
+    assert json_manifest(path)["n_disputed_dropped"] > 0
+    assert not labels["date"].between("2020-02-28", "2020-03-31").any()
+
+
+def test_the_disputes_file_loads_and_names_known_vendors():
+    from src.foundation.market_common import price_disputes
+
+    days = price_disputes.load()
+    assert days and {d.vendor for d in days} <= {price_disputes.YFINANCE, price_disputes.TIINGO}
+    assert all(d.reason for d in days)
+    assert all(d.date is None or pd.Timestamp(d.date) for d in days)

@@ -19,6 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.foundation.data_processing import db
+from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 from src.models import gates
 
 SMOKE_START, SMOKE_CUT, SMOKE_END = "2015-01-02", "2019-06-28", "2021-12-31"
@@ -67,7 +68,9 @@ def _smoke_tickers(conn, n_live: int = 16, n_delisted: int = 4) -> list[str]:
     members = sorted(dataset.apply_renames(conn, db.read_index_membership(conn, "sp500", as_of=SMOKE_CUT))["ticker"])
     sources = dataset.resolve_sources(conn, members, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
     live = [t for t in members if sources.get(t) == db.YFINANCE]
-    delisted = [t for t in members if sources.get(t) == db.TIINGO]
+    # Tiingo-read because yfinance can't serve them -- not the PREFER_TIINGO
+    # tickers, which are live and read from Tiingo by choice.
+    delisted = [t for t in members if sources.get(t) == db.TIINGO and t not in PREFER_TIINGO]
     step = max(len(live) // n_live, 1)
     return live[::step][:n_live] + delisted[:n_delisted]
 
