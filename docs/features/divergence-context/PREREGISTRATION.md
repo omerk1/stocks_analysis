@@ -24,8 +24,15 @@ deterioration is exactly the open question.
 
 - Regular-form, **RSI only** for the primary test (largest single-indicator set; no
   duplicate-swing pooling across indicators — a swing printing on 2 indicators is one
-  piece of evidence, not two events). MACD-hist repeats as a stated robustness pass,
-  not a new hypothesis.
+  piece of evidence, not two events). **MACD-hist repeats as a pre-named same-sign
+  robustness pass**, not a new hypothesis: the speed-normalization mechanism applies
+  to it as much as to RSI, and sign agreement there is the generalization check
+  without doubling N_tests. If the two disagree in sign, that disagreement is itself
+  the result, and any pooled momentum cell is a new, later registration.
+- **OBV is excluded from these cells by mechanism, not oversight**: it cumulates
+  volume flow (participation), not price speed — a calm second leg does not
+  mechanically depress OBV highs, so the normalization-vs-deterioration frame does
+  not apply to its divergences. (Decided 2026-10-06, draft stage.)
 - Hidden forms are **not** in these cells (separate, later pre-registration if
   motivated; their context distribution is structurally different — step-0 note on
   impulse normalization).
@@ -41,7 +48,11 @@ deterioration is exactly the open question.
 - **Extension:** `interpeak_retrace_frac < 0.25`.
 - **Pullback+rebuild:** `interpeak_retrace_frac >= 0.33` and `leg2_bars >= 5`.
 - Deep-fast (retrace ≥ 0.33, rebuild < 5 bars) and the 0.25–0.33 buffer band sit in
-  neither pole: excluded from the primary contrast, reported descriptively.
+  neither pole: excluded from the primary contrast, reported descriptively. The
+  buffer exclusion is deliberate (decided 2026-10-06): boundary-noise events dilute
+  the contrast (attenuation), and nothing is lost study-wide — the continuous tests
+  (c-cells) use every event including the band, and the plateau neighborhood probes
+  the thresholds.
 - **Plateau rule (DESIGN §, inherited):** the contrast must agree in sign at
   neighboring thresholds — retrace ∈ {0.25, 0.33, 0.50} × leg2_bars ∈ {3, 5, 8}. A
   lone bright cell at (0.33, 5) is noise and will be called noise.
@@ -95,8 +106,11 @@ neighbors are robustness checks on these six, not new tests.
 
 A cell is dead if, after BH correction:
 1. the 95% clustered CI of its effect includes 0, **and** the point estimate is below
-   the cost hurdle (round-trip cost × signals-per-year annotated next to every gross
-   number, invariant #8); **or**
+   the cost hurdle — **pre-committed at 20 bps round-trip** (conservative for this
+   universe's mid-cap and delisted tail; one round trip per signal at the 63d
+   horizon), with the 10 bps liquid-core variant annotated alongside every gross
+   number (invariant #8). Decided 2026-10-06: the stricter number is the hurdle so a
+   surviving effect is robust to the cost assumption, not flattered by it; **or**
 2. the plateau check fails — the effect's sign is not stable across the 3×3 threshold
    neighborhood; **or**
 3. the binary and continuous formulations disagree in sign for the same direction.
