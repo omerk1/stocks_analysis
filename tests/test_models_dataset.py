@@ -390,3 +390,12 @@ def test_build_labels_drops_disputed_rows_and_records_them(conn, tmp_path, monke
     labels = read_labels(tmp_path, 21)
     assert json_manifest(path)["n_disputed_dropped"] > 0
     assert not labels["date"].between("2020-02-28", "2020-03-31").any()
+
+
+def test_the_disputes_file_loads_and_names_known_vendors():
+    from src.foundation.market_common import price_disputes
+
+    days = price_disputes.load()
+    assert days and {d.vendor for d in days} <= {price_disputes.YFINANCE, price_disputes.TIINGO}
+    assert all(d.reason for d in days)
+    assert all(d.date is None or pd.Timestamp(d.date) for d in days)

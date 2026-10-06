@@ -11,8 +11,15 @@ their own split and dividend records (backlog: vendor disagreements).
 
 An entry names the vendor whose bars carry the problem; it only matters for
 a ticker read from that vendor (`price_basis.ticker_sources`). When it isn't
-known which vendor is wrong, both are listed. `date=None` disputes the whole
+known which vendor is wrong, the entry names the vendor the ticker is read
+from, so its labels are dropped rather than trusted. `date=None` disputes the whole
 history (the two vendors' series are different securities).
+
+The entries live in `price_disputes.csv` (ticker, date, vendor, gap, reason),
+one row per disputed day; "unverified" in the reason means only that the two
+vendors disagree, not which one is wrong. The comparison covered 355 of the 665
+members so far (Tiingo's free tier allows 500 symbols a month); the rest are
+added when it resumes.
 
 Consumers don't guess a fix: `src/models/dataset.build_labels` drops every
 label whose window, or the ATR window before it, touches a disputed day.
@@ -20,7 +27,9 @@ label whose window, or the ATR window before it, touches a disputed day.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
+from pathlib import Path
 
 YFINANCE = "yfinance"
 TIINGO = "tiingo"
@@ -34,7 +43,15 @@ class DisputedDay:
     reason: str
 
 
-DISPUTED_DAYS: tuple[DisputedDay, ...] = ()
+CSV_PATH = Path(__file__).with_name("price_disputes.csv")
+
+
+def load(path: Path = CSV_PATH) -> tuple[DisputedDay, ...]:
+    with open(path, newline="") as f:
+        return tuple(DisputedDay(r["ticker"], r["date"] or None, r["vendor"], r["reason"]) for r in csv.DictReader(f))
+
+
+DISPUTED_DAYS: tuple[DisputedDay, ...] = load()
 
 
 def vendor_of(source: str) -> str:

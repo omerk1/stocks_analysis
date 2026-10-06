@@ -16,4 +16,9 @@ with Tiingo's splits. Its Tiingo bars must be stored first:
 ticker -> why: the event, its date, and the measured yfinance-vs-Tiingo gap.
 """
 
-PREFER_TIINGO: dict[str, str] = {}
+PREFER_TIINGO: dict[str, str] = {
+    # Before the 2022 WarnerMedia spin-off yfinance mis-scales T's dividends: a
+    # slow drift (2010-2021 total return 2.14x vs 1.71x from T's actual dividends,
+    # which Tiingo matches), with no single bad day that masking could remove.
+    "T": "yfinance total-return drift before the 2022 spin-off (+25% over 2010-2021)",
+}
