@@ -252,3 +252,14 @@ def test_backfill_splits_records_tickers_with_no_splits_and_resumes(conn):
     assert len(db.read_splits(conn, "SPLIT", db.TIINGO)) == 1
     assert db.read_splits(conn, "PLAIN", db.TIINGO).empty
     assert sorted(t for _, t in client.calls) == ["PLAIN", "SPLIT"]
+
+
+def test_store_preferred_writes_both_bases_and_splits(conn):
+    client = FakeTiingo({}, {"DHR": _prices(split_on="2015-02-02")})
+
+    ti.store_preferred(conn, client, ["DHR", "MISSING"])
+
+    for source in (db.TIINGO, db.TIINGO_SPLIT_ONLY):
+        assert len(db.read_bars(conn, "bars_1d", ticker="DHR", source=source)) == len(_DAYS)
+    assert len(db.read_splits(conn, "DHR", db.TIINGO)) == 1
+    assert db.read_bars(conn, "bars_1d", ticker="MISSING", source=db.TIINGO).empty

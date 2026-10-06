@@ -48,7 +48,8 @@ from src.foundation.market_common.history_breaks import HistoryBreakConfig, trai
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, source_for, ticker_sources,
 )
-from src.models.labels.barriers import LONG, barrier_labels, v1_grid
+from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
+from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,7 @@ def read_bars_bulk(
         bars = bars[columns].reset_index(drop=True)
     bars.attrs["price_basis"] = basis.value
     bars.attrs["price_sources"] = {s: len(g) for s, g in _source_groups(sources).items()}
+    bars.attrs["ticker_sources"] = sources
     return bars
 
 
@@ -353,6 +355,40 @@ def universe_mask(
     return out
 
 
+# ---------------------------------------------------------------- disputed days
+
+# A fake one-day move distorts ATR(14) (Wilder smoothing) for weeks after it.
+DISPUTE_ATR_TAIL = 2 * ATR_PERIOD
+
+
+def drop_disputed(
+    labels: pd.DataFrame, ticker_sources: dict[str, str], calendar: pd.DatetimeIndex, horizon: int,
+    disputes: tuple[DisputedDay, ...] | None = None,
+) -> tuple[pd.DataFrame, int]:
+    """`labels` without the rows a disputed day reaches (`price_disputes`):
+    decision day t is dropped if a disputed day of the vendor its bars came
+    from falls in its label window [t+1, t+H] or in the DISPUTE_ATR_TAIL
+    trading days up to t (the ATR its barriers are sized with). A dispute
+    with no date drops the ticker. Returns (kept rows, number dropped)."""
+    disputes = DISPUTED_DAYS if disputes is None else disputes
+    if labels.empty or not disputes:
+        return labels, 0
+    cal = np.asarray(pd.DatetimeIndex(calendar).sort_values(), dtype="datetime64[ns]")
+    pos = pd.Series(np.searchsorted(cal, labels["date"].to_numpy(dtype="datetime64[ns]")), index=labels.index)
+    drop = pd.Series(False, index=labels.index)
+    for d in disputes:
+        source = ticker_sources.get(d.ticker)
+        if source is None or vendor_of(source) != d.vendor:
+            continue
+        mine = labels["ticker"] == d.ticker
+        if d.date is None:
+            drop |= mine
+            continue
+        p = int(np.searchsorted(cal, np.datetime64(pd.Timestamp(d.date))))
+        drop |= mine & pos.between(p - horizon, p + DISPUTE_ATR_TAIL)
+    return labels[~drop], int(drop.sum())
+
+
 # ---------------------------------------------------------------- label cache
 
 def _git_sha() -> str | None:
@@ -403,6 +439,7 @@ def build_labels(
     reference = sorted(set(tickers) | set(_all_index_tickers(conn)))
     calendar = trading_calendar(conn, reference, LABEL_BASIS, first, data_end, fallback=LABEL_FALLBACK)
     price_sources: dict[str, int] = {}
+    n_disputed = 0
 
     path = label_path(out_dir, horizon, side)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -420,6 +457,8 @@ def build_labels(
             labels = labels.merge(bars[["ticker", "date", "close"]].rename(columns={"close": "close_t"}),
                                   on=["ticker", "date"], how="left")
             labels = labels.merge(rows[rows["ticker"].isin(chunk)], on=["ticker", "date"], how="inner")
+            labels, dropped = drop_disputed(labels, bars.attrs["ticker_sources"], calendar, horizon)
+            n_disputed += dropped
             for col in labels.columns:
                 if labels[col].dtype == "float64":
                     labels[col] = labels[col].astype("float32")
@@ -440,7 +479,7 @@ def build_labels(
         "data_end": str(pd.Timestamp(data_end).date()),
         "first_row": str(rows["date"].min().date()), "last_row": str(last_row.date()),
         "label_basis": LABEL_BASIS.value, "price_sources": price_sources, "open_holdout": bool(open_holdout),
-        "n_rows": n_rows, "n_tickers": len(tickers),
+        "n_rows": n_rows, "n_tickers": len(tickers), "n_disputed_dropped": n_disputed,
         "git_sha": _git_sha(), "created": pd.Timestamp.now("UTC").isoformat(),
     }
     path.with_suffix(".json").write_text(json.dumps(manifest, indent=2))
