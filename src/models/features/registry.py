@@ -23,11 +23,12 @@ from typing import Callable
 
 import pandas as pd
 
+from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
 from src.models.features import baseline
-from src.models.labels.barriers import BarrierCell, barrier_labels
+from src.models.labels.barriers import ATR_PERIOD
 
 # Shapes (IDEAS.md §2b) and priors (IDEAS.md §2).
 SHAPES = ("dense", "event", "level_set", "static", "market_wide")
@@ -74,13 +75,12 @@ def _universe(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
 
 
 def _decision(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
-    """ATR over the decision close, as `metrics.expected_value` uses them: ATR
-    from the labeler itself (`atr`), the close of t (`close_t`). The label
-    masks ATR where the window can't resolve; that's the label's business, so
-    the raw ATR is what's checked."""
-    long = bars.reset_index().assign(ticker="_")
-    labels = barrier_labels(long, [BarrierCell(1, 1.0, 1.0)])
-    atr = pd.Series(labels["atr"].to_numpy(), index=bars.index)
+    """ATR over the decision close, as `metrics.expected_value` uses them: the
+    labeler's ATR (same function and period as `labels/barriers.py`) over the
+    close of t. Unmasked: the label cache NaNs `atr` where the label can't
+    resolve (e.g. no bar t+1), which depends on the future; those rows are
+    never scored, but the column itself must not."""
+    atr = indicators.atr(bars, ATR_PERIOD)
     return pd.DataFrame({"atr_pct": atr / bars["close"]}, index=bars.index)
 
 

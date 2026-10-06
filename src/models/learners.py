@@ -26,6 +26,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
 
+from src.models.features.registry import check_columns
 from src.models.metrics import PROB_COLUMNS
 from src.models.splits import Fold, fold_masks, inner_folds
 
@@ -63,9 +64,16 @@ class BoostingConfig:
 
 class BoostedModel:
     """Three-class histogram gradient boosting on `columns`. Pandas categorical
-    columns (sector) are used as categorical splits; NaN is native."""
+    columns (sector) are used as categorical splits; NaN is native.
 
-    def __init__(self, columns: list[str], config: BoostingConfig = BoostingConfig(), seed: int = 0):
+    Every column must be registered (`features/registry.py`), so it has passed
+    the leakage gate; `registered_only=False` is for synthetic data only (the
+    gates' planted features, unit tests)."""
+
+    def __init__(self, columns: list[str], config: BoostingConfig = BoostingConfig(), seed: int = 0,
+                 registered_only: bool = True):
+        if registered_only:
+            check_columns(list(columns))
         self.columns = list(columns)
         self.config = config
         self.seed = seed

@@ -49,7 +49,7 @@ def test_unresolved_labels_are_refused():
 
 def test_boosted_model_recovers_a_planted_signal():
     train, test = _panel(end="2012-12-31", seed=1), _panel(end="2011-12-31", seed=2)
-    boosted = BoostedModel(["x", "noise", "sector"], FAST).fit(train, train["hit"])
+    boosted = BoostedModel(["x", "noise", "sector"], FAST, registered_only=False).fit(train, train["hit"])
     p = boosted.predict_proba(test)
     assert list(p.columns) == ["p_up", "p_down", "p_neither"]
     np.testing.assert_allclose(p.sum(axis=1), 1.0)
@@ -64,7 +64,7 @@ def test_seeds_change_a_wide_fit_and_not_a_narrow_one():
     train["n2"], train["n3"] = rng.uniform(size=len(train)), rng.uniform(size=len(train))
 
     def fit(cols, seed):
-        return BoostedModel(cols, FAST, seed=seed).fit(train, train["hit"]).predict_proba(train)
+        return BoostedModel(cols, FAST, seed=seed, registered_only=False).fit(train, train["hit"]).predict_proba(train)
 
     wide = ["x", "noise", "n2", "n3", "sector"]  # 0.8 x 5 = 4 columns per split: subsampled
     assert not np.allclose(fit(wide, 0), fit(wide, 1))
@@ -136,7 +136,7 @@ def test_fit_predict_purges_training_and_calibration_rows():
 def test_fit_predict_with_the_boosted_learner_beats_b0():
     panel = _panel(names=20)
     fold = walk_forward_folds(test_years=(2016,))[0]
-    model = fit_predict(panel, fold, lambda: BoostedModel(["x", "sector"], FAST))
+    model = fit_predict(panel, fold, lambda: BoostedModel(["x", "sector"], FAST, registered_only=False))
     base = fit_predict(panel, fold, ConstantModel)
     assert _brier(model, model["hit"]) < _brier(base, base["hit"]) - 0.02
 

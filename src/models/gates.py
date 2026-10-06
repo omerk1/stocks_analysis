@@ -18,8 +18,9 @@ pass/fail logic can't drift apart.
 3. `leakage_gate` -- every registered source (`features/registry.py`),
    recomputed after perturbing everything after `cut`: the future path, a
    future split (rescales earlier adjusted prices and volumes, and is added
-   to the splits table) and a future dividend (rescales earlier total-return
-   prices). Nothing dated <= `cut` may move. Two planted canaries -- one
+   to the splits table), a future dividend (rescales earlier total-return
+   prices) and a delisting right after `cut` (later bars removed). Nothing
+   dated <= `cut` may move. Two planted canaries -- one
    reading tomorrow's close, one an adjusted price level -- must be caught.
 4. `purge_gate` -- real `barrier_labels` windows (holidays, delistings) for
    every v1 horizon, both fold schemes with their inner folds, with and
@@ -119,7 +120,7 @@ def planted_and_shuffle_gates(size: GateSize = FULL, config: BoostingConfig = Bo
     neither_ret = float(train_rows["ret"].mean())
 
     def boosted(col):
-        return lambda: BoostedModel([col], config, seed)
+        return lambda: BoostedModel([col], config, seed, registered_only=False)  # synthetic columns
 
     def brier_vs(preds, base):
         return paired_loss_diff(preds, base, spec.horizon, "brier", GATE_N_BOOT, GATE_CI, seed)
@@ -244,7 +245,18 @@ def perturb_dividend(bars, splits, cut, seed=0):
     return out, splits
 
 
-PERTURBATIONS = {"future_path": perturb_path, "future_split": perturb_split, "future_dividend": perturb_dividend}
+def perturb_delisting(bars, splits, cut, seed=0):
+    """Every other ticker delists right after `cut`: its later bars are gone.
+    Catches a column that reads whether a next bar exists."""
+    tickers = sorted(set().union(*(b["ticker"].unique() for b in bars.values())))
+    gone = set(tickers[::2])
+    out = {basis: frame[~(frame["ticker"].isin(gone) & (frame["date"] > cut))].reset_index(drop=True)
+           for basis, frame in bars.items()}
+    return out, splits
+
+
+PERTURBATIONS = {"future_path": perturb_path, "future_split": perturb_split, "future_dividend": perturb_dividend,
+                 "future_delisting": perturb_delisting}
 
 # Canaries: columns that leak on purpose, so the gate is shown to bite.
 CANARY_SOURCES = {
@@ -258,7 +270,7 @@ CANARIES = (
     reg.FeatureSpec("adjusted_close_level", "canary", reg.MODEL, "dense", None, "canary_price_level", 0),
 )
 # Which perturbation each canary must be caught by.
-CANARY_CAUGHT_BY = {"peek_next_close": ("future_path",),
+CANARY_CAUGHT_BY = {"peek_next_close": ("future_path", "future_delisting"),
                     "adjusted_close_level": ("future_split", "future_dividend")}
 
 

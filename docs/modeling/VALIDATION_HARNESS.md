@@ -208,7 +208,8 @@ stays only on an out-of-sample gain over the step before it.
 *t*, not just model inputs: each entry has a `role` (`model`, `universe` for the H3
 filters, `decision` for the EV ranking's ATR %). The leakage gate (§8) runs every
 registered source, so a feature registered later is covered automatically.
-`check_columns` refuses a model column that isn't registered. The baseline columns, the
+`BoostedModel` refuses a column that isn't registered (`check_columns`); only the
+synthetic gates and unit tests opt out. The baseline columns, the
 universe filters and `atr_pct` are registered today. `sector` is registered as static
 (not bar-derived, so the leakage gate can't cover it). Grouping for ablations comes with
 the first new feature family.
@@ -251,7 +252,9 @@ draw in ten.
    - the future price path;
    - a future split: earlier adjusted prices and volumes are rescaled, and the split is
      added to that vendor's splits;
-   - a future dividend: earlier total-return prices are rescaled.
+   - a future dividend: earlier total-return prices are rescaled;
+   - a delisting right after *t*: later bars are removed (catches a column that reads
+     whether a next bar exists).
 
    Every value dated ≤ *t* must be unchanged. A split or dividend after *t* rescales every
    earlier adjusted price, so a column may use price *ratios* from the past, never

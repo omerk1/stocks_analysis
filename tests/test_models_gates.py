@@ -125,6 +125,34 @@ def test_gate_3_catches_an_unsafe_registered_feature():
     assert "future_path_no_leak" not in failed
 
 
+def test_gate_3_catches_atr_masked_by_the_label():
+    """The label cache's `atr` is NaN where bar t+1 is missing -- future
+    information. Registered as a feature, the delisting perturbation catches it."""
+    from src.models.labels.barriers import BarrierCell, barrier_labels
+    bars, splits, cut = gates.synthetic_leakage_inputs()
+
+    def masked_atr(b, s):
+        labels = barrier_labels(b.reset_index().assign(ticker="_"), [BarrierCell(1, 1.0, 1.0)])
+        return pd.DataFrame({"masked_atr": labels["atr"].to_numpy()}, index=b.index)
+
+    unsafe = registry.FeatureSpec("masked_atr", "test", registry.MODEL, "dense", None, "masked", 15)
+    original = registry.SOURCES
+    try:
+        registry.SOURCES = {**original, "masked": registry.Source(registry.PriceBasis.TOTAL_RETURN, masked_atr)}
+        result = gates.leakage_gate(bars, splits, cut, registry=registry.REGISTRY + (unsafe,))
+    finally:
+        registry.SOURCES = original
+    assert result["leaks"]["future_delisting"] == {"masked_atr": result["leaks"]["future_delisting"]["masked_atr"]}
+    assert not result["leaks"]["future_path"]
+
+
+def test_boosted_model_refuses_unregistered_columns():
+    from src.models.learners import BoostedModel
+    with pytest.raises(ValueError, match="unregistered"):
+        BoostedModel(["mom_12_1_rank", "x"])
+    BoostedModel(["mom_12_1_rank", "x"], registered_only=False)
+
+
 def test_gate_4_purge():
     result = gates.purge_gate(n_tickers=12, test_years=gates.QUICK.test_years,
                               first_train_start=gates.QUICK.first_train_start)
