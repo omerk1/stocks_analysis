@@ -1,0 +1,115 @@
+# Divergence-context study — Track B pre-registration
+
+> **STATUS: DRAFT — open for discussion, nothing frozen.** Per the repo's
+> protocol, an entry freezes at the commit immediately preceding its run;
+> until then edits are ordinary review. After a run: addenda only, never
+> silent edits.
+
+## DC-B1 / DC-B2 — does structural context change regular-divergence outcomes?
+
+**Module/track:** divergence-context, Track B. First pre-registered cells.
+**Promoted from:** EXPLORATION_LOG 2026-10-05 step-0 entry — shape prevalence 62–69%
+of regular cells with both context poles populated; 29.2% entanglement (abundant
+no-divergence controls); monotone invalidation ordering across the structure spectrum
+(45.7% / 41.3% / 38.9%, bare rates).
+
+**Hypothesis.** For regular divergences, forward outcomes after events in
+*extension* context (little/no reset before the second pivot) differ from events in
+*pullback+rebuild* context (meaningful retracement then rebuild), beyond what the
+same structures show *without* a divergence. DC-B1 = bearish, DC-B2 = bullish.
+Direction of the difference is deliberately not pre-committed — normalization vs
+deterioration is exactly the open question.
+
+### Event set
+
+- Regular-form, **RSI only** for the primary test (largest single-indicator set; no
+  duplicate-swing pooling across indicators — a swing printing on 2 indicators is one
+  piece of evidence, not two events). MACD-hist repeats as a stated robustness pass,
+  not a new hypothesis.
+- Hidden forms are **not** in these cells (separate, later pre-registration if
+  motivated; their context distribution is structurally different — step-0 note on
+  impulse normalization).
+- Window: p2 dates 2010-01-01..2021-12-31 (the repo's supported development window);
+  1990–2009 as a robustness era split only. Holdout untouched.
+- Universe: PIT S&P 500 + Nasdaq-100 membership at p2 (rename-aware). Delisted
+  members included; delisting-terminal returns realized, never dropped.
+- Events with undefined context scalars (NaN impulse — short pre-p1 history) are
+  excluded and counted in the report.
+
+### Context classification (at event time, from stored scalars)
+
+- **Extension:** `interpeak_retrace_frac < 0.25`.
+- **Pullback+rebuild:** `interpeak_retrace_frac >= 0.33` and `leg2_bars >= 5`.
+- Deep-fast (retrace ≥ 0.33, rebuild < 5 bars) and the 0.25–0.33 buffer band sit in
+  neither pole: excluded from the primary contrast, reported descriptively.
+- **Plateau rule (DESIGN §, inherited):** the contrast must agree in sign at
+  neighboring thresholds — retrace ∈ {0.25, 0.33, 0.50} × leg2_bars ∈ {3, 5, 8}. A
+  lone bright cell at (0.33, 5) is noise and will be called noise.
+
+### Controls (the load-bearing part)
+
+Matched **no-divergence** pivot pairs: consecutive same-kind price-pivot pairs with
+regular geometry (bearish: higher high; bullish: lower low), span ≥ 5 bars, same
+context classification, and **no stored divergence of the tested direction/form
+within ±3 bars of p2** (any indicator). Step 0 measured this pool at ~71% of shaped
+pairs — controls are plentiful.
+
+- Matching: within p2 calendar month, nearest-neighbor on (impulse_gain_pct decile,
+  trailing 63-day realized-vol bucket), up to 3 controls per event, sampled without
+  replacement.
+- Control timing: a control pair's "event time" is its p2 pivot's own price-only
+  `confirmed_at`. Divergence events confirm at max(price, indicator) confirmation, so
+  events enter on average slightly later than controls — a level difference the
+  difference-in-differences absorbs; noted, not "fixed."
+
+### Outcome, effect, inference
+
+- Entry: open of the bar after `confirmed_at` (one-bar lag, repo invariant #2).
+- Primary outcome: 63-trading-day forward log return (delisting-terminal); secondary:
+  21-day. MFE/MAE and invalidation are descriptive context only in these cells.
+- **Effect = difference-in-differences:**
+  `(div_extension − ctrl_extension) − (div_pullback − ctrl_pullback)`.
+  A bare divergence-vs-control difference within one context is reported but is not
+  the registered hypothesis.
+- Inference: date-clustered SEs (cluster = p2 calendar month) with block-bootstrap
+  confirmation, reusing `src/signals/moving_averages/stats/inference.py`. Effective N
+  = distinct p2 dates per cell, reported in every table (invariant #6).
+- Distribution shape (hit rate, win/loss magnitude, skew) reported per cell —
+  descriptive only, no CI, no `N_tests` contribution (invariant #10).
+
+### Registered test grid and multiplicity
+
+| id | direction | outcome | formulation |
+|----|-----------|---------|-------------|
+| DC-B1a | bearish | 63d fwd ret | binary DiD |
+| DC-B1b | bearish | 21d fwd ret | binary DiD |
+| DC-B1c | bearish | 63d fwd ret | continuous: fwd ret ~ divergence × retrace_frac (clustered) |
+| DC-B2a | bullish | 63d fwd ret | binary DiD |
+| DC-B2b | bullish | 21d fwd ret | binary DiD |
+| DC-B2c | bullish | 63d fwd ret | continuous interaction |
+
+**N_tests = 6**, BH-corrected together. MACD-hist robustness, era split, and plateau
+neighbors are robustness checks on these six, not new tests.
+
+### Kill criteria (pre-committed)
+
+A cell is dead if, after BH correction:
+1. the 95% clustered CI of its effect includes 0, **and** the point estimate is below
+   the cost hurdle (round-trip cost × signals-per-year annotated next to every gross
+   number, invariant #8); **or**
+2. the plateau check fails — the effect's sign is not stable across the 3×3 threshold
+   neighborhood; **or**
+3. the binary and continuous formulations disagree in sign for the same direction.
+
+A dead cell is a successful outcome and gets logged like any other
+(`EXPERIMENTS.csv`-style row; file created for this study at first Track-B result).
+
+### Prerequisites before this can run (implementation, separate PR)
+
+1. Control-pair extraction and storage (productionize step 0's Q2 machinery: pairs,
+   context scalars, price-only confirmed_at, no-divergence flag).
+2. Forward-return computation for events and controls (lagged entry,
+   delisting-terminal, dev-window-bounded).
+3. Matching implementation + match-quality report (covariate balance before/after).
+4. The run itself happens only after this file's content is frozen by its final
+   pre-run commit; any later scope change is a dated addendum.
