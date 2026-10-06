@@ -21,6 +21,7 @@ cp .env.example .env   # then fill in the keys below
 | `POLYGON_API_KEY` | ticker universe, reference metadata | 5 requests/min |
 | `FRED_API_KEY` | macro series | yes |
 | `TIINGO_API_KEY` | history of delisted index members | 50 requests/hour |
+| `EODHD_API_KEY` | delisted members Tiingo lacks (not wired up yet) | 20 requests/day |
 
 ## Data
 
