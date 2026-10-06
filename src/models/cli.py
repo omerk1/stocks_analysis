@@ -1,0 +1,133 @@
+"""python -m src.models.cli <command>
+
+Commands:
+  run-gates   The four gates of `docs/modeling/VALIDATION_HARNESS.md` §8 on
+              synthetic data. Exits 1 if any check fails: no harness result
+              is trusted until they pass. `--quick` runs the tests' size;
+              `--smoke-db` also runs the leakage gate on real bars (read-only).
+
+Gate runs are not trials: nothing is written to TRIALS.csv or anywhere else.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import warnings
+from pathlib import Path
+
+import pandas as pd
+
+from src.foundation.data_processing import db
+from src.models import gates
+
+SMOKE_START, SMOKE_CUT, SMOKE_END = "2015-01-02", "2019-06-28", "2021-12-31"
+
+
+def _fmt(result) -> str:
+    return f"{result.point_estimate:+.5f}  CI [{result.ci_low:+.5f}, {result.ci_high:+.5f}]  n_dates={result.n_dates}"
+
+
+def _print_verdict(name: str, verdict: dict[str, bool]) -> bool:
+    ok = all(verdict.values())
+    print(f"  -> {name}: {'PASS' if ok else 'FAIL'}")
+    for check, passed in verdict.items():
+        print(f"       {'ok  ' if passed else 'FAIL'} {check}")
+    return ok
+
+
+def _planted_report(r: dict) -> None:
+    print(f"Gates 1-2: planted effect and label shuffle "
+          f"({r['n_rows']:,} test rows, {r['n_dates']} dates, {gates.GATE_CI:.0%} CIs)")
+    print(f"  oracle Brier gain {r['oracle_gain']:+.5f}, one bar late {r['oracle_stale_gain']:+.5f}")
+    for name, res in r["brier_vs_b0"].items():
+        print(f"  Brier vs B0, {name:8s} {_fmt(res)}")
+    for name, res in r["uplift"].items():
+        print(f"  uplift, {name:8s} {_fmt(res)}  (expected {r['expected_uplift'][name]:+.4f})")
+    for name, res in r["skill"].items():
+        print(f"  unshuffled {name:13s} {_fmt(res)}")
+    print(f"  shuffled Brier vs B0  {_fmt(r['shuffled_brier_vs_b0'])}")
+    for name, res in r["shuffled_skill"].items():
+        print(f"  shuffled {name:15s} {_fmt(res)}")
+
+
+def _leakage_report(title: str, r: dict) -> None:
+    print(f"{title}: {r['n_tickers']} tickers, {r['n_rows_checked']:,} rows <= {r['cut'].date()}, "
+          f"columns {', '.join(r['columns'])}")
+    print(f"  not bar-derived (not covered): {', '.join(r['not_bar_derived']) or '-'}")
+    for name, leaks in r["leaks"].items():
+        print(f"  {name:16s} leaks: {leaks or 'none'}; canaries caught: {r['canaries_caught'][name]}")
+
+
+def _smoke_tickers(conn, n_live: int = 16, n_delisted: int = 4) -> list[str]:
+    """S&P 500 members on the cut date: `n_live` with yfinance bars and
+    `n_delisted` read from Tiingo (delisted members), so the smoke run
+    covers both vendors' bars and splits."""
+    from src.models import dataset
+    members = sorted(dataset.apply_renames(conn, db.read_index_membership(conn, "sp500", as_of=SMOKE_CUT))["ticker"])
+    sources = dataset.resolve_sources(conn, members, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
+    live = [t for t in members if sources.get(t) == db.YFINANCE]
+    delisted = [t for t in members if sources.get(t) == db.TIINGO]
+    step = max(len(live) // n_live, 1)
+    return live[::step][:n_live] + delisted[:n_delisted]
+
+
+def run_gates(quick: bool, smoke_db: Path | None, seed: int) -> int:
+    warnings.filterwarnings("ignore")
+    size = gates.QUICK if quick else gates.FULL
+    passed = []
+
+    r = gates.planted_and_shuffle_gates(size, seed=seed)
+    _planted_report(r)
+    passed.append(_print_verdict("gate 1, planted effect", gates.planted_verdict(r, check_stale_amount=not quick)))
+    if quick:
+        print("       (stale_matches_expected not checked at the quick size; see gates.planted_verdict)")
+    passed.append(_print_verdict("gate 2, label shuffle", gates.shuffle_verdict(r)))
+
+    bars, splits, cut = gates.synthetic_leakage_inputs(seed=seed)
+    r = gates.leakage_gate(bars, splits, cut, seed=seed)
+    _leakage_report("Gate 3: leakage (synthetic bars)", r)
+    passed.append(_print_verdict("gate 3, leakage", gates.leakage_verdict(r)))
+
+    r = gates.purge_gate(seed=seed, test_years=size.test_years, first_train_start=size.first_train_start)
+    print(f"Gate 4: purge, horizons {r['horizons']}, checked {r['checked']}")
+    print(f"  violations: {r['violations']}")
+    passed.append(_print_verdict("gate 4, purge", gates.purge_verdict(r)))
+
+    if smoke_db is not None:
+        conn = db.get_connection(f"file:{smoke_db}?mode=ro", uri=True)  # read-only
+        try:
+            tickers = _smoke_tickers(conn)
+            bars, splits, sources = gates.real_leakage_inputs(conn, tickers, SMOKE_START, SMOKE_END)
+        finally:
+            conn.close()
+        print(f"Smoke: real bars for {', '.join(tickers)}")
+        print(f"  sources: {pd.Series(sources).value_counts().to_dict()}; tickers with splits: {sorted(splits)}")
+        r = gates.leakage_gate(bars, splits, SMOKE_CUT, seed=seed)
+        _leakage_report("Gate 3 smoke: leakage (real bars)", r)
+        verdict = gates.leakage_verdict(r)
+        # Real histories start mid-series and have gaps; the warmup check is for synthetic bars only.
+        verdict.pop("warmups_as_declared")
+        passed.append(_print_verdict("gate 3 smoke, leakage on real bars", verdict))
+
+    ok = all(passed)
+    print(f"\nALL GATES {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m src.models.cli")
+    sub = parser.add_subparsers(dest="command", required=True)
+    gates_cmd = sub.add_parser("run-gates", help="run the four harness gates")
+    gates_cmd.add_argument("--quick", action="store_true", help="the tests' size (minutes, not tens of minutes)")
+    gates_cmd.add_argument("--smoke-db", type=Path, default=None,
+                           help="market-data SQLite path: also run the leakage gate on real bars (read-only)")
+    gates_cmd.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args(argv)
+    if args.command == "run-gates":
+        return run_gates(args.quick, args.smoke_db, args.seed)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
