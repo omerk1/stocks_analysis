@@ -263,3 +263,23 @@ def test_store_preferred_writes_both_bases_and_splits(conn):
         assert len(db.read_bars(conn, "bars_1d", ticker="DHR", source=source)) == len(_DAYS)
     assert len(db.read_splits(conn, "DHR", db.TIINGO)) == 1
     assert db.read_bars(conn, "bars_1d", ticker="MISSING", source=db.TIINGO).empty
+
+
+def test_a_quota_message_raises_instead_of_parsing_as_data():
+    from src.foundation.data_processing.tiingo_client import TiingoClient, TiingoError
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"detail": "You have run over your 500 symbol look up for this month."}
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(TiingoError, match="500 symbol"):
+        TiingoClient(api_key="x", session=Session()).daily_prices("AAA", "2020-01-01", "2020-12-31")
