@@ -27,7 +27,7 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
-from src.models.features import baseline
+from src.models.features import baseline, ma_family
 from src.models.labels.barriers import ATR_PERIOD
 
 # Shapes (IDEAS.md §2b) and priors (IDEAS.md §2).
@@ -84,8 +84,18 @@ def _decision(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
     return pd.DataFrame({"atr_pct": atr / bars["close"]}, index=bars.index)
 
 
+def _ma_family(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
+    return ma_family.ticker_features(bars)
+
+
+def _liquidity(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
+    return ma_family.liquidity_features(bars)
+
+
 SOURCES: dict[str, Source] = {
     "baseline": Source(baseline.FEATURE_BASIS, _baseline),
+    "ma_family": Source(baseline.FEATURE_BASIS, _ma_family),
+    "liquidity": Source(dataset.UNIVERSE_BASIS, _liquidity),
     "universe": Source(dataset.UNIVERSE_BASIS, _universe),
     "decision": Source(dataset.LABEL_BASIS, _decision),
 }
@@ -98,6 +108,22 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("sector", "baseline", MODEL, "static", None, None, 0,
                 note="current-state, not point-in-time (ma_study_insights.md §2.4); delisted members' "
                      "from SEC SIC codes (sec_sectors.py)"),
+    # MA family (ma_study_insights.md §2.2; priors IDEAS.md §2, the last three
+    # assigned when E1 was planned, 2026-10-06).
+    FeatureSpec("slope_log_21_sma_50", "ma", MODEL, "dense", "supported", "ma_family", 71, ranked=True,
+                note="the study's Tier-2 cell is its per-date rank, both tails"),
+    FeatureSpec("ribbon_agreement_state", "ma", MODEL, "dense", "supported", "ma_family", 221),
+    FeatureSpec("dist_z_sma_20", "ma", MODEL, "dense", "weak", "ma_family", 271),
+    FeatureSpec("dist_from_52w_low", "ma", MODEL, "dense", "weak", "ma_family", 252),
+    FeatureSpec("stack_fully_bearish", "ma", MODEL, "dense", "weak", "ma_family", 200,
+                note="survivorship-capped bearish state (ma_study_insights.md §5)"),
+    FeatureSpec("log_dollar_volume_20d", "ma", MODEL, "dense", "weak", "liquidity", 20, ranked=True,
+                note="size/liquidity control until point-in-time market cap exists"),
+    FeatureSpec("macd_hist_pct", "ma", MODEL, "dense", "weak", "ma_family", 34),
+    FeatureSpec("ribbon_width_pctile", "ma", MODEL, "dense", "weak", "ma_family", 451),
+    FeatureSpec("dist_z_sma_200", "ma", MODEL, "dense", "weak", "ma_family", 451),
+    FeatureSpec("slope_log_63_sma_50", "ma", MODEL, "dense", "weak", "ma_family", 113),
+    FeatureSpec("adx_14", "ma", MODEL, "dense", "weak", "ma_family", 29),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
@@ -134,6 +160,18 @@ def model_columns(registry: tuple[FeatureSpec, ...] = REGISTRY) -> set[str]:
     return cols
 
 
+def model_specs(group: str | None = None, priors: tuple[str, ...] | None = None,
+                registry: tuple[FeatureSpec, ...] = REGISTRY) -> list[FeatureSpec]:
+    """Registered model features, optionally one group and/or some priors."""
+    return [s for s in registry if s.role == MODEL and (group is None or s.group == group)
+            and (priors is None or s.prior in priors)]
+
+
+def model_input(spec: FeatureSpec) -> str:
+    """The column a model reads for `spec`: its per-date rank if ranked."""
+    return f"{spec.name}_rank" if spec.ranked else spec.name
+
+
 def check_columns(columns: list[str], registry: tuple[FeatureSpec, ...] = REGISTRY) -> None:
     """Raises if a model would read a column nobody registered (and so nobody
     leakage-tested)."""
@@ -147,10 +185,12 @@ def compute_registered(
     splits: dict[str, pd.DataFrame],
     registry: tuple[FeatureSpec, ...] = REGISTRY,
     sources: dict[str, Source] = SOURCES,
+    rank: bool = True,
 ) -> pd.DataFrame:
     """Every bar-derived registered column for every (ticker, date), plus the
-    per-date ranks of ranked ones (over all tickers passed). `bars` holds one
-    long frame (ticker, date, OHLCV) per basis; `splits` is per ticker."""
+    per-date ranks of ranked ones (over all tickers passed; `rank=False` to
+    rank later over another row set, e.g. the eligible universe). `bars` holds
+    one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker."""
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:
@@ -165,6 +205,6 @@ def compute_registered(
         frame = pd.concat(parts, ignore_index=True)
         out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
     ranked = tuple(s.name for s in specs if s.ranked)
-    if ranked:
+    if ranked and rank:
         out = baseline.add_ranks(out, ranked)
     return out.sort_values(["ticker", "date"], ignore_index=True)

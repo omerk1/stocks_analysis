@@ -237,8 +237,27 @@ registered source, so a feature registered later is covered automatically.
 `BoostedModel` refuses a column that isn't registered (`check_columns`); only the
 synthetic gates and unit tests opt out. The baseline columns, the
 universe filters and `atr_pct` are registered today. `sector` is registered as static
-(not bar-derived, so the leakage gate can't cover it). Grouping for ablations comes with
-the first new feature family.
+(not bar-derived, so the leakage gate can't cover it).
+
+**MA family (E1 step 1, 2026-10-06).** `features/ma_family.py` registers the
+`ma_study_insights.md` §2.2 v1 list as group `ma`, computed on the harness's timing (row t =
+close of t) with the study's own functions, all scale-free:
+- **supported:** `slope_log_21_sma_50` (rank) and `ribbon_agreement_state`;
+- **weak:** `dist_z_sma_20`, `dist_from_52w_low`, `stack_fully_bearish`,
+  `log_dollar_volume_20d` (rank), `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`,
+  `slope_log_63_sma_50` and `adx_14`. The last three priors were assigned when E1 was
+  planned.
+
+Changes from §2.2:
+- the absolute-slope column is dropped (it's for linear models; the learner is a tree);
+- MACD is its histogram over the close (price units fail the leakage gate);
+- dollar volume is a per-date rank, not a tercile;
+- ADX is the level, not the regime bucket.
+
+`features/cache.py` builds one cache of every registered model column for a universe's
+eligible rows, ranked per date over those rows (`python -m src.models.cli build-features`).
+S&P 500 2010–2021: 1,371,246 rows, 642 tickers (112 from Tiingo), no column more than 1.0%
+missing.
 
 ---
 
