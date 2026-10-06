@@ -49,7 +49,7 @@ from the training set. Everything else, the MA study included, reads yfinance on
 - **The sources used are recorded:** the universe's `attrs["spec"]["price_sources"]` and the
   label manifest's `price_sources` count tickers per source.
 - Checked on overlapping tickers: on ordinary days the vendors agree (KO and AAPL <0.1%).
-  Around corporate actions each has its own errors (Done #85), so the modeling labels also
+  Around corporate actions each has its own errors (Done #86), so the modeling labels also
   skip reviewed disputed days (`market_common/price_disputes.csv`), and a ticker whose
   yfinance error can't be masked (T's dividend drift) is read from Tiingo instead
   (`market_common/vendor_overrides.PREFER_TIINGO`).
