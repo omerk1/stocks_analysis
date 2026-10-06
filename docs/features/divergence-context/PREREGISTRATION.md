@@ -33,9 +33,9 @@ deterioration is exactly the open question.
   volume flow (participation), not price speed — a calm second leg does not
   mechanically depress OBV highs, so the normalization-vs-deterioration frame does
   not apply to its divergences. (Decided 2026-10-06, draft stage.)
-- Hidden forms are **not** in these cells (separate, later pre-registration if
-  motivated; their context distribution is structurally different — step-0 note on
-  impulse normalization).
+- Hidden forms are **not** in these cells — see "Hidden forms — planned second
+  experiment" below. (Decided 2026-10-06: separate experiment, own correction,
+  never combined into this one's N_tests.)
 - Window: p2 dates 2010-01-01..2021-12-31 (the repo's supported development window);
   1990–2009 as a robustness era split only. Holdout untouched.
 - Universe: PIT S&P 500 + Nasdaq-100 membership at p2 (rename-aware). Delisted
@@ -117,6 +117,27 @@ A cell is dead if, after BH correction:
 
 A dead cell is a successful outcome and gets logged like any other
 (`EXPERIMENTS.csv`-style row; file created for this study at first Track-B result).
+
+## Hidden forms — planned second experiment (DC-B3/DC-B4, not yet drafted)
+
+Hidden divergence tests the opposite-shaped claim (continuation, not reversal), its
+extension pole is ~20× thinner than its pullback pole (step 0: ~91% of hidden events
+are pullback+rebuild — near-mechanical, since hidden requires price to hold inside
+its prior extreme), and the v0 impulse scalar mismeasures its structure
+(retrace_frac medians > 1: p1 is often not an impulse top for hidden events).
+Combining it into DC-B1/B2 would tax their BH correction to fund a hypothesis known
+to be badly instrumented, so it is its own experiment, gated on two Track-A prep
+looks:
+
+1. **Co-occurrence**: how often do a hidden bullish (at the pullback low) and a
+   regular bearish (at the new high) mark the same structure, and how do outcomes
+   look where the two labels "disagree" — i.e., is hidden independent information or
+   the regular cells' complement?
+2. **Scalar rework**: an impulse measure that fits hidden geometry (normalized to
+   local trend or pivot-to-pivot structure, not a fixed 63-bar window).
+
+DC-B3/B4 get drafted only if those motivate them, with their own N_tests and
+correction. Nothing here constrains DC-B1/B2's run.
 
 ### Prerequisites before this can run (implementation, separate PR)
 
