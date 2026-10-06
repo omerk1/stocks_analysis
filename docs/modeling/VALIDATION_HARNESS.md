@@ -1,6 +1,6 @@
 # Validation harness — design
 
-**Status:** design, 2026-09-30. Nothing built yet. This is the first modeling code, and
+**Status:** design, 2026-09-30. Steps 1–4 built (§9). This is the first modeling code, and
 every model result depends on it, so it gets built and checked before any real fit.
 
 **What it is:** one pipeline that takes a feature panel and a model, and returns
@@ -204,26 +204,81 @@ New `src/models/features/registry.py`. Every feature column declares:
 Ablations run by *group*, in prior order: supported, then weak, then null. A null group
 stays only on an out-of-sample gain over the step before it.
 
+**Built (step 4), minimal.** `registry.py` declares every column decided at the close of
+*t*, not just model inputs: each entry has a `role` (`model`, `universe` for the H3
+filters, `decision` for the EV ranking's ATR %). The leakage gate (§8) runs every
+registered source, so a feature registered later is covered automatically.
+`BoostedModel` refuses a column that isn't registered (`check_columns`); only the
+synthetic gates and unit tests opt out. The baseline columns, the
+universe filters and `atr_pct` are registered today. `sector` is registered as static
+(not bar-derived, so the leakage gate can't cover it). Grouping for ablations comes with
+the first new feature family.
+
 ---
 
 ## 8. Gates that run before any real fit
 
+`python -m src.models.cli run-gates` (`gates.py`, data from `synthetic.py`; the tests in
+`tests/test_models_gates.py` call the same pass/fail functions at a smaller size). Gate
+CIs are 99%, not the 90% used for reporting, so that a gate fails on a bug, not on one
+draw in ten.
+
 1. **Synthetic planted-effect gate** (port of `moving_averages/synthetic.py`, per §5):
-   - On a synthetic panel, plant a feature that raises P(upper first) by a known amount
-     at one cell. The harness must recover it within its CI.
-   - A pure-noise feature must show no gain.
-   - Shifting the planted feature one extra bar must degrade recovery by the expected
-     amount.
-2. **Label-shuffle gate:** permuting labels *within date* must collapse every model to
-   B1. Anything better means leakage through the date structure.
-3. **Leakage test:** extend `tests/test_moving_averages_leakage.py`'s pattern to every
-   registered feature. Perturb all bars after *t*; every feature at *t* must be
-   unchanged.
-4. **Purge test:** no training label window intersects any test date, for every fold
-   scheme and horizon.
+   - Labels are drawn straight from known probabilities, not from simulated prices, so
+     the size of the effect is exact. A per-ticker AR(1) feature `x` raises P(+1) by
+     δ = 0.10 when it's above 0, taking it from P(−1). A market-wide regime moves every
+     ticker's base rates together; no feature sees it. Tickers join late and delist
+     early, as in the point-in-time universe.
+   - Run through the real `fit_predict` (with calibration) on walk-forward folds, and the
+     real paired bootstrap against B0. The Brier gain's CI must contain the exact oracle
+     gain, −δ²/2.
+   - A pure-noise feature with the same persistence must show no gain (its CI's near edge
+     doesn't clear 0).
+   - The feature one bar late must lose the expected share of the gain. With persistence
+     ρ = 0.7, the oracle gain is −2δ²·arcsin(c²/(1+c²))/2π, where c = ρ/√(1−ρ²); that's
+     about a third of the unshifted gain. Its CI must contain that value and lie entirely
+     above the unshifted CI.
+   - The recovered uplift in P(+1) is reported too: δ, and 2δ·arcsin(ρ)/π one bar late.
+2. **Label-shuffle gate:** outcomes are permuted among each date's rows. Each date keeps
+   its outcome mix, but which ticker got which outcome is lost. Within-day skill must
+   vanish: the mean daily IC and the top-5 and top-20 excess over the day's mean have CIs
+   containing 0. The Brier gain over B0 must vanish too. That last check is valid only
+   because no synthetic feature knows the date's regime; on real data a market-wide
+   feature could keep a legitimate gain. The same within-day measures on the unshuffled
+   panel must detect the planted skill, so a pass isn't vacuous. (Replaces "collapse to
+   B1", dropped 2026-10-03.)
+3. **Leakage gate:** every registered source (§7) is recomputed after perturbing
+   everything after *t*:
+   - the future price path;
+   - a future split: earlier adjusted prices and volumes are rescaled, and the split is
+     added to that vendor's splits;
+   - a future dividend: earlier total-return prices are rescaled;
+   - a delisting right after *t*: later bars are removed (catches a column that reads
+     whether a next bar exists).
+
+   Every value dated ≤ *t* must be unchanged. A split or dividend after *t* rescales every
+   earlier adjusted price, so a column may use price *ratios* from the past, never
+   adjusted price *levels*. Two planted canaries (tomorrow's close, an adjusted price
+   level) must be caught, the labels across *t* must move, and each column's first value
+   must sit at its declared warmup. It runs on synthetic bars; a read-only smoke run
+   (`--smoke-db`) repeats it on real bars from both vendors.
+4. **Purge gate:** labels come from the real `barrier_labels` on synthetic bars (with
+   holidays and delistings, so some windows are truncated). For every v1 horizon, both
+   fold schemes and their inner folds, with and without the embargo: no training label
+   window touches its test period. Then `fit_predict` is traced with a recording model.
+   No row it fits on reaches the period it's evaluated on, or the outer test year, and
+   the calibration rows are exactly the inner test years. A canary (the training window
+   without the purge) must touch the test period in every fold.
 
 Any gate failing means no result from the harness is trusted. This is the same rule as
 the MA study's `validate-synth`.
+
+**Not covered by any gate:** a column that is constant over time but differs by data
+vendor. A ticker is read from Tiingo only when yfinance has no bars for it at all, which
+in practice means it was later delisted. Delisted members' sectors also come from SEC SIC
+codes, everyone else's from Yahoo. If Tiingo's bars differ systematically (volume scale,
+gaps), a model could learn "Tiingo-looking" = "will delist". Perturbing the future can't
+show that. It's checked before E1 (`docs/backlog.md`).
 
 ---
 
@@ -241,8 +296,9 @@ src/models/
   trial_log.py        TRIALS.csv + data/models/<trial_id>/
   features/baseline.py  the baselines' factor columns
   features/registry.py
-  synthetic.py        §8 gate 1
-  cli.py              run-trial, run-gates
+  synthetic.py        §8 synthetic data
+  gates.py            §8 gates and their pass/fail checks
+  cli.py              run-gates (run-trial with step 5)
 tests/test_models_*.py
 ```
 
@@ -295,7 +351,39 @@ Build order, one PR each, each with its own tests:
    Smoke run (S&P 500 2010–2021, no fit): the B2–B4 columns are complete on 99.3% of
    eligible rows. 187 rows have a split-only bar but no total-return bar (and so no
    label), and FISV has no sector.
-4. The four gates (§8). Real data is used only after these pass.
+4. The four gates (§8). Real data is used only after these pass. **Done.** Choices
+   made there:
+   - **Planted labels, not planted prices.** Labels drawn from known probabilities make
+     the gate's target an exact number. The labeler's own timing is covered by its tests
+     and by gate 3, which includes the labeler's decision-day ATR.
+   - **Gate runs are not trials.** They write nothing to `TRIALS.csv`, so they don't
+     count toward any experiment's multiple-testing count.
+   - **Full run** (v1 folds, 200 tickers, 341k test rows, 1,985 dates):
+     - planted Brier gain −0.00507 (oracle −0.00500);
+     - one bar late −0.00148 (oracle −0.00163);
+     - noise −0.00026, CI [−0.00061, +0.00005];
+     - planted uplift 0.0997 (δ = 0.10);
+     - after the shuffle: IC +0.0002, top-20 excess −0.0001, both CIs spanning 0. The
+       shuffled Brier gain is −0.00031, CI [−0.00068, +0.00001]: a pass, but only just
+       (with noise's −0.00026, it's the same small, not significant edge for a calibrated
+       boosted model over B0).
+
+     All gates pass, including the read-only smoke run on 20 real S&P 500 tickers (4 of
+     them delisted and read from Tiingo, with real splits from both vendors). About 10
+     minutes.
+   - **Isotonic calibration shrinks a weak, smooth signal.** The one-bar-late feature's
+     expected uplift is 0.049.
+     - Uncalibrated, the boosted model recovers it in full (0.048 at the tests' size).
+     - Calibrated, it's cut to 0.036 at the tests' size (2–4 training years) and 0.043 at
+       the full size. At the tests' size its Brier gain then misses the oracle, so the
+       quick tests skip only that one amount check. At the full size the Brier gain still
+       matches.
+     - The likely cause: the isotonic maps are fitted on inner-fold models trained on
+       fewer years, whose noisier predictions get flattened more, and the map is then
+       applied to the better final model.
+
+     Worth a look before the sliding (3-year) scheme or a weak feature group is judged on
+     real data (e.g. compare uncalibrated, isotonic, and a 1-parameter scaling).
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the
    harness end to end.
 
