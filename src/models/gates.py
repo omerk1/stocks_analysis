@@ -465,7 +465,8 @@ def purge_gate(n_tickers: int = 30, seed: int = 0, test_years: tuple[int, ...] =
             totals[k] = totals.get(k, 0) + v
 
     for h in horizons:
-        labels = barrier_labels(bars, [BarrierCell(h, 2.0, 1.5)])
+        cell = next(c for c in v1_grid() if c.horizon == h and (c.upper, c.lower) == (2.0, 1.5))
+        labels = barrier_labels(bars, [cell])
         labels = labels[["ticker", "date", "hit", "label_end_date", "truncated"]]
         checked["truncated_rows"] += int(labels["truncated"].sum())
         for scheme in (EXPANDING, SLIDING):
