@@ -363,6 +363,15 @@ def _git_sha() -> str | None:
         return None
 
 
+class StaleLabelCacheError(ValueError):
+    """A label cache was built for a different barrier grid than the current `v1_grid`."""
+
+
+def _grid_cells(horizon: int) -> list[dict]:
+    return [{"upper": c.upper, "lower": c.lower, "upper_atr": c.upper_atr, "lower_atr": c.lower_atr}
+            for c in v1_grid() if c.horizon == horizon]
+
+
 def label_path(out_dir: Path, horizon: int, side: str = LONG) -> Path:
     return Path(out_dir) / side / f"h={horizon}.parquet"
 
@@ -436,7 +445,7 @@ def build_labels(
 
     manifest = {
         "horizon": horizon, "side": side,
-        "cells": [{"upper": c.upper, "lower": c.lower} for c in cells],
+        "cells": _grid_cells(horizon),
         "data_end": str(pd.Timestamp(data_end).date()),
         "first_row": str(rows["date"].min().date()), "last_row": str(last_row.date()),
         "label_basis": LABEL_BASIS.value, "price_sources": price_sources, "open_holdout": bool(open_holdout),
@@ -447,15 +456,25 @@ def build_labels(
     return path
 
 
+def _same_cells(stored: list[dict], current: list[dict]) -> bool:
+    keys = ("upper", "lower", "upper_atr", "lower_atr")
+    if len(stored) != len(current):
+        return False
+    return all(all(k in s and abs(s[k] - c[k]) < 1e-9 for k in keys) for s, c in zip(stored, current))
+
+
 def read_labels(
     out_dir: Path, horizon: int, side: str = LONG,
     start: str | pd.Timestamp | None = None, end: str | pd.Timestamp | None = None,
     open_holdout: bool = False,
 ) -> pd.DataFrame:
     """A cached horizon's labels, optionally limited to [start, end]. Refuses a
-    cache built with the holdout open unless the reader opens it too."""
+    cache built with the holdout open unless the reader opens it too, and one
+    built for a different barrier grid (e.g. before the 2026-10-06 rescale)."""
     path = label_path(out_dir, horizon, side)
     manifest = json.loads(path.with_suffix(".json").read_text())
+    if not _same_cells(manifest.get("cells", []), _grid_cells(horizon)):
+        raise StaleLabelCacheError(f"{path} was built for another barrier grid; rebuild it with build_labels")
     if manifest["open_holdout"] and not open_holdout:
         raise HoldoutError(f"{path} was built with the holdout open; pass open_holdout=True to read it")
     end = pd.Timestamp(end) if end is not None else pd.Timestamp(manifest["last_row"])

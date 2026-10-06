@@ -214,6 +214,19 @@ def test_label_cache_round_trip_matches_barrier_labels(conn, tmp_path):
     np.testing.assert_allclose(mine["close_t"], close.reindex(mine["date"]).to_numpy(), rtol=1e-6)
 
 
+def test_a_cache_built_for_another_grid_is_refused(conn, tmp_path):
+    """A cache from before the 2026-10-06 rescale (fixed-ATR cells, U=1) keeps
+    the same column names; its manifest must make it unreadable."""
+    import json
+    build_labels(conn, _rows(conn, "2021-01-04", "2021-06-30"), 21, tmp_path)
+    manifest_path = dataset.label_path(tmp_path, 21).with_suffix(".json")
+    manifest = json.loads(manifest_path.read_text())
+    manifest["cells"] = [{"upper": u, "lower": d} for u in (1.0, 2.0, 3.0) for d in (1.0, 1.5, 2.0)]
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(dataset.StaleLabelCacheError):
+        read_labels(tmp_path, 21)
+
+
 def test_labels_never_read_past_the_holdout(conn, tmp_path):
     build_labels(conn, _rows(conn), 21, tmp_path)
     labels = read_labels(tmp_path, 21)

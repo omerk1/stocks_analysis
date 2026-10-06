@@ -123,9 +123,10 @@ def daily_ic(frame: pd.DataFrame, prob_col: str = "p_up", outcome_col: str = "hi
 
 def expected_value(frame: pd.DataFrame, cell: BarrierCell, neither_ret: float) -> pd.Series:
     """EV of the long trade as a return, from decision-time quantities only:
-    P(+1)*U*A/close - P(-1)*D*A/close + P(0)*neither_ret."""
+    P(+1)*U*A/close - P(-1)*D*A/close + P(0)*neither_ret, with U, D the cell's
+    actual distances (`upper_atr`, `lower_atr`)."""
     a = frame["atr"].to_numpy(dtype=float) / frame["close_t"].to_numpy(dtype=float)
-    ev = frame["p_up"] * cell.upper * a - frame["p_down"] * cell.lower * a + frame["p_neither"] * neither_ret
+    ev = frame["p_up"] * cell.upper_atr * a - frame["p_down"] * cell.lower_atr * a + frame["p_neither"] * neither_ret
     return ev.rename("ev")
 
 
@@ -170,6 +171,7 @@ def cell_metrics(
         n_dates = g["date"].nunique()
         row = {
             "horizon": cell.horizon, "upper": cell.upper, "lower": cell.lower,
+            "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr,
             "n_rows": len(g), "n_dates": n_dates,
             "tie_share": float(g["tie"].mean()) if "tie" in g and len(g) else np.nan,
             "capped_share": float(g["capped"].mean()) if "capped" in g and len(g) else np.nan,

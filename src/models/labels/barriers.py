@@ -2,7 +2,9 @@
 (`docs/modeling/VALIDATION_HARNESS.md` §3).
 
 For a decision at the close of day t, the position is entered at the **open of
-t+1** (`P0`). Barriers sit `U` and `D` ATRs away from `P0`, using ATR(14) as known
+t+1** (`P0`). Barriers sit `U` and `D` ATRs away from `P0` -- in the v1 grid
+scaled by sqrt(H / 21), so a longer horizon gets proportionally wider barriers
+(`BarrierCell.upper_atr`; why: `v1_grid`) -- using ATR(14) as known
 at the close of t (computed here from raw bars, not the MA panel's lagged
 `atr_14`, which is one bar older). The label is which barrier the price reaches
 first within the next `H` bars (t+1 … t+H):
@@ -45,8 +47,11 @@ DELISTING_GAP = 5  # trading days; see `barrier_labels`
 LONG = "long"
 SHORT = "short"
 
+# Barrier widths in the v1 grid are quoted at this horizon and scale with sqrt(H / it).
+REFERENCE_HORIZON = 21
+
 OUTPUT_COLUMNS = [
-    "ticker", "date", "horizon", "upper", "lower", "side",
+    "ticker", "date", "horizon", "upper", "lower", "upper_atr", "lower_atr", "side",
     "entry_price", "atr", "hit", "hit_day", "exit_price", "ret", "tie", "truncated",
     "mfe_atr", "mae_atr", "label_end_date",
 ]
@@ -54,18 +59,40 @@ OUTPUT_COLUMNS = [
 
 @dataclass(frozen=True)
 class BarrierCell:
+    """`upper`/`lower`: the cell's nominal target and stop in ATRs (long: above /
+    below entry; short: mirrored). With `reference_horizon` set, the actual
+    distances are those times sqrt(horizon / reference_horizon)
+    (`upper_atr`, `lower_atr`); without it, they are `upper`/`lower` as-is."""
     horizon: int
-    upper: float  # target distance in ATRs (long: above entry; short: below)
-    lower: float  # stop distance in ATRs (long: below entry; short: above)
+    upper: float
+    lower: float
+    reference_horizon: int | None = None
+
+    @property
+    def scale(self) -> float:
+        return 1.0 if self.reference_horizon is None else float(np.sqrt(self.horizon / self.reference_horizon))
+
+    @property
+    def upper_atr(self) -> float:
+        return self.upper * self.scale
+
+    @property
+    def lower_atr(self) -> float:
+        return self.lower * self.scale
 
 
 def v1_grid() -> list[BarrierCell]:
-    """The design's fixed v1 grid: H {5, 10, 21, 42, 63} x U {1, 2, 3} x D {1, 1.5, 2}.
-    H=5 is a diagnostic only (the tie share is highest there)."""
+    """The design's v1 grid (`VALIDATION_HARNESS.md` §3, revised 2026-10-06 before any
+    fit): H {5, 10, 21, 42, 63} x U {2, 3, 4} x D {1, 1.5, 2}, distances scaled by
+    sqrt(H / 21). Time to reach a barrier grows with the square of its distance, so
+    fixed-ATR barriers made every horizon >= 21 the same few-day question (1/1
+    resolved in ~3.4 days at H=21, 42 and 63 alike); scaled, each horizon resolves
+    in about its first third. U=1 is out: decided by days of noise, and costs eat
+    a 1-ATR target. H=5 is a diagnostic only (scaled barriers are ~0.5 ATR, ties 5%)."""
     return [
-        BarrierCell(h, u, d)
+        BarrierCell(h, u, d, REFERENCE_HORIZON)
         for h in (5, 10, 21, 42, 63)
-        for u in (1.0, 2.0, 3.0)
+        for u in (2.0, 3.0, 4.0)
         for d in (1.0, 1.5, 2.0)
     ]
 
@@ -141,13 +168,13 @@ def _ticker_cell(
     p0 = wo[:, 0]
     a = atr
     if side == LONG:
-        target, stop = p0 + cell.upper * a, p0 - cell.lower * a
+        target, stop = p0 + cell.upper_atr * a, p0 - cell.lower_atr * a
         reach_target = wh >= target[:, None]
         reach_stop = wl <= stop[:, None]
         gap_target = wo >= target[:, None]
         gap_stop = wo <= stop[:, None]
     else:
-        target, stop = p0 - cell.upper * a, p0 + cell.lower * a
+        target, stop = p0 - cell.upper_atr * a, p0 + cell.lower_atr * a
         reach_target = wl <= target[:, None]
         reach_stop = wh >= stop[:, None]
         gap_target = wo <= target[:, None]
@@ -212,6 +239,8 @@ def _ticker_cell(
         "horizon": h,
         "upper": cell.upper,
         "lower": cell.lower,
+        "upper_atr": cell.upper_atr,
+        "lower_atr": cell.lower_atr,
         "side": side,
         "entry_price": masked(p0),
         "atr": masked(a),

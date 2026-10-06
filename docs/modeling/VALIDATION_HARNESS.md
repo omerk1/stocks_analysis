@@ -64,7 +64,9 @@ New `src/models/labels/barriers.py`. It's the triple-barrier labeler `ma_study_i
 §4 found missing; the MA layout's `labels/barriers.py` was never built.
 
 For entry at the **open of t+1**, price `P0`, ATR `A = atr_14(t)` (already lagged),
-upper `P0 + U·A`, lower `P0 − D·A`, horizon `H` trading days (bars t+1 … t+H):
+upper `P0 + U·s·A`, lower `P0 − D·s·A` with `s = √(H/21)` (the grid's barriers are quoted
+at H = 21 and widen with the horizon; see Grid below), horizon `H` trading days
+(bars t+1 … t+H):
 
 | output | meaning |
 |---|---|
@@ -83,10 +85,34 @@ Rules:
 - **Delisting inside the horizon:** the label resolves on the last available bar, and
   the row is flagged. This fires for the 132 delisted members read from Tiingo
   (Done #83); the 101 still missing never reach it (backlog).
-- **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {1, 2, 3}, D ∈ {1, 1.5, 2}.
-  That's 45 cells, fixed before any fit. 126-day horizons (M18's 52-week family) are a
-  separate, later grid, because at H=126 the study had about 10 independent blocks
-  (§4 of the insights doc).
+- **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {2, 3, 4}, D ∈ {1, 1.5, 2},
+  every distance × √(H/21). That's 45 cells, fixed before any fit. 126-day horizons (M18's
+  52-week family) are a separate, later grid, because at H=126 the study had about 10
+  independent blocks (§4 of the insights doc).
+
+  **Revised 2026-10-06, before any fit.** The original grid used U ∈ {1, 2, 3} ATR at
+  every horizon. A label check on eligible S&P 500 point-in-time rows (2010–2021, 1.37M
+  rows, 642 tickers) showed that made the horizon nominal:
+  - The time to reach a barrier grows with the square of its distance, so a fixed 1–3 ATR
+    barrier is reached in days, whatever H is.
+  - 1/1 resolved in 3.4 days on average at H = 21, 42 and 63 alike, 85% within 5 days.
+  - Even 3/1.5 resolved in its first third 85% of the time at H = 63, with 1% "neither".
+
+  Scaled by √(H/21), a cell keeps its shape across horizons. 2/2 is 48/40/12% (target /
+  stop / neither) at H = 10 and 55/36/8% at H = 63, and resolves in about the first third
+  at every H.
+
+  U = 1 is dropped: it's decided by a few days of noise, costs eat a 1-ATR target, and
+  tight 1:1 targets aren't how positions are managed. U = 4 is added, so R/R runs 1:1 to
+  4:1.
+
+  A random-walk check confirmed the labeler itself. On an intraday-simulated walk it named
+  the true first barrier on every row except two same-bar ties, and P(target first)
+  matched D/(U+D) (`test_labels_match_first_passage_on_a_random_walk`).
+
+  `BarrierCell` keeps the nominal U, D (`upper`, `lower`) and the actual distances
+  (`upper_atr`, `lower_atr`); labels and EV use the actual ones. At H = 5 the scaled
+  barriers are ~0.5 ATR and ties reach ~5%, so H = 5 stays diagnostic.
 - **Short side:** the same labeler with the barriers mirrored. It's computed from day
   one as a diagnostic (`IDEAS.md` §6).
 
