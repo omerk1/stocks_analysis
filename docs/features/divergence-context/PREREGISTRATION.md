@@ -1,9 +1,15 @@
 # Divergence-context study — Track B pre-registration
 
-> **STATUS: DRAFT — open for discussion, nothing frozen.** Per the repo's
-> protocol, an entry freezes at the commit immediately preceding its run;
-> until then edits are ordinary review. After a run: addenda only, never
-> silent edits.
+> **STATUS: FROZEN 2026-10-08** — this commit is the final pre-run state of
+> DC-B1/DC-B2. From here on: **dated addenda only, never edits** — a scope
+> change, a new result, or a correction is a separately dated section appended
+> below the entry it concerns. The draft phase's own amendment history (with
+> superseded text preserved verbatim) is in the "Amendment history" section.
+> Run-mechanics discoveries that do not change any registered definition
+> (hypotheses, grid, classification thresholds, matching, outcomes, verdicts,
+> kill criteria) are implementation, not amendments; anything that does change
+> one is an addendum, and the affected cells report under the amended
+> definition with the addendum cited.
 
 ## DC-B1 / DC-B2 — does structural context change regular-divergence outcomes?
 
