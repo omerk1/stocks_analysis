@@ -30,6 +30,7 @@ Everything here only reads the databases.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -409,6 +410,15 @@ def drop_disputed(
     return labels[~drop], int(drop.sum())
 
 
+def disputes_fingerprint(disputes: tuple[DisputedDay, ...] | None = None) -> str:
+    """A short hash of the disputes list (`price_disputes.csv` as loaded), so a
+    label cache records which list dropped its rows and a cache built before
+    the list changed is refused (`read_labels`)."""
+    disputes = DISPUTED_DAYS if disputes is None else disputes
+    text = "\n".join(sorted(f"{d.ticker},{d.date or ''},{d.vendor}" for d in disputes))
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 # ---------------------------------------------------------------- label cache
 
 def _git_sha() -> str | None:
@@ -420,7 +430,8 @@ def _git_sha() -> str | None:
 
 
 class StaleLabelCacheError(ValueError):
-    """A label cache was built for a different barrier grid than the current `v1_grid`."""
+    """A label cache was built for a different barrier grid than the current
+    `v1_grid`, or with a different disputed-days list than the current one."""
 
 
 def _grid_cells(horizon: int) -> list[dict]:
@@ -509,6 +520,7 @@ def build_labels(
         "first_row": str(rows["date"].min().date()), "last_row": str(last_row.date()),
         "label_basis": LABEL_BASIS.value, "price_sources": price_sources, "open_holdout": bool(open_holdout),
         "n_rows": n_rows, "n_tickers": len(tickers), "n_disputed_dropped": n_disputed,
+        "disputes": disputes_fingerprint(),
         "git_sha": _git_sha(), "created": pd.Timestamp.now("UTC").isoformat(),
     }
     path.with_suffix(".json").write_text(json.dumps(manifest, indent=2))
@@ -525,15 +537,19 @@ def _same_cells(stored: list[dict], current: list[dict]) -> bool:
 def read_labels(
     out_dir: Path, horizon: int, side: str = LONG,
     start: str | pd.Timestamp | None = None, end: str | pd.Timestamp | None = None,
-    open_holdout: bool = False,
+    open_holdout: bool = False, cell: tuple[float, float] | None = None,
 ) -> pd.DataFrame:
-    """A cached horizon's labels, optionally limited to [start, end]. Refuses a
-    cache built with the holdout open unless the reader opens it too, and one
-    built for a different barrier grid (e.g. before the 2026-10-06 rescale)."""
+    """A cached horizon's labels, optionally limited to [start, end] and to one
+    (upper, lower) cell (in reference-horizon ATRs, as `BarrierCell`). Refuses a
+    cache built with the holdout open unless the reader opens it too, one
+    built for a different barrier grid (e.g. before the 2026-10-06 rescale),
+    and one built with a different disputes list (a data fix since)."""
     path = label_path(out_dir, horizon, side)
     manifest = json.loads(path.with_suffix(".json").read_text())
     if not _same_cells(manifest.get("cells", []), _grid_cells(horizon)):
         raise StaleLabelCacheError(f"{path} was built for another barrier grid; rebuild it with build_labels")
+    if manifest.get("disputes") != disputes_fingerprint():
+        raise StaleLabelCacheError(f"{path} was built with another price_disputes list; rebuild it with build_labels")
     if manifest["open_holdout"] and not open_holdout:
         raise HoldoutError(f"{path} was built with the holdout open; pass open_holdout=True to read it")
     end = pd.Timestamp(end) if end is not None else pd.Timestamp(manifest["last_row"])
@@ -541,6 +557,8 @@ def read_labels(
     filters = [("date", "<=", end)]
     if start is not None:
         filters.append(("date", ">=", pd.Timestamp(start)))
+    if cell is not None:
+        filters += [("upper", "==", float(cell[0])), ("lower", "==", float(cell[1]))]
     labels = pq.read_table(path, filters=filters).to_pandas()
     labels.attrs["manifest"] = manifest
     return labels.sort_values(["ticker", "date", "upper", "lower"], ignore_index=True)

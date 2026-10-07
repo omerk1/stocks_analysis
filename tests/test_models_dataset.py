@@ -227,6 +227,26 @@ def test_a_cache_built_for_another_grid_is_refused(conn, tmp_path):
         read_labels(tmp_path, 21)
 
 
+def test_a_cache_built_with_another_disputes_list_is_refused(conn, tmp_path, monkeypatch):
+    """Labels built before a data fix adds disputes still hold the rows it
+    drops; the cache must be rebuilt, not read."""
+    from src.foundation.market_common import price_disputes
+    build_labels(conn, _rows(conn, "2021-01-04", "2021-06-30"), 21, tmp_path)
+    read_labels(tmp_path, 21)
+    monkeypatch.setattr(dataset, "DISPUTED_DAYS",
+                        dataset.DISPUTED_DAYS + (price_disputes.DisputedDay("AAA", None, "yfinance", "reused"),))
+    with pytest.raises(dataset.StaleLabelCacheError):
+        read_labels(tmp_path, 21)
+
+
+def test_read_labels_can_take_one_cell(conn, tmp_path):
+    build_labels(conn, _rows(conn, "2021-01-04", "2021-06-30"), 21, tmp_path)
+    one = read_labels(tmp_path, 21, cell=(2, 1.5))
+    every = read_labels(tmp_path, 21)
+    assert set(zip(one["upper"], one["lower"])) == {(2.0, 1.5)}
+    assert len(one) == len(every) // 9
+
+
 def test_labels_never_read_past_the_holdout(conn, tmp_path):
     build_labels(conn, _rows(conn), 21, tmp_path)
     labels = read_labels(tmp_path, 21)

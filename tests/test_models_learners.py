@@ -141,6 +141,17 @@ def test_fit_predict_with_the_boosted_learner_beats_b0():
     assert _brier(model, model["hit"]) < _brier(base, base["hit"]) - 0.02
 
 
+def test_fit_predict_keeps_the_uncalibrated_probabilities_of_the_same_model():
+    panel = _panel(names=20)
+    fold = walk_forward_folds(test_years=(2016,))[0]
+    make = lambda: BoostedModel(["x", "sector"], FAST, registered_only=False)  # noqa: E731
+    out = fit_predict(panel, fold, make, keep_raw=True)
+    raw = fit_predict(panel, fold, make, calibrate=False)
+    np.testing.assert_allclose(out[["raw_p_up", "raw_p_down", "raw_p_neither"]].to_numpy(),
+                               raw[["p_up", "p_down", "p_neither"]].to_numpy())
+    assert not np.allclose(out["p_up"], out["raw_p_up"])
+
+
 def test_monotonicity_violations_are_counted():
     keys = {"ticker": ["A", "B", "C"], "date": pd.to_datetime(["2020-01-02"] * 3)}
     preds = {
