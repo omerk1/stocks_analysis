@@ -63,11 +63,31 @@ Matched **no-divergence** pivot pairs: consecutive same-kind price-pivot pairs w
 regular geometry (bearish: higher high; bullish: lower low), span ≥ 5 bars, same
 context classification, and **no stored divergence of the tested direction/form
 within ±3 bars of p2** (any indicator). Step 0 measured this pool at ~71% of shaped
-pairs — controls are plentiful.
+pairs — the PULLBACK pools are plentiful. **The extension pools are not** (balance
+report, 2026-10-07: 830 bearish / 232 bullish PIT controls vs 1,221 / 328 events):
+an explosive new extreme *without* a divergence is mechanically scarce — the mirror
+of step 0's entanglement finding. Recorded now, pre-freeze: the **bullish/extension
+arm is a pre-identified Inconclusive risk** (74 matched events at the current calibration); if it reads out
+Inconclusive, that was expected at registration, not discovered at readout.
 
-- Matching: within p2 calendar month, nearest-neighbor on (impulse_gain_pct decile,
-  trailing 63-day realized-vol bucket), up to 3 controls per event, sampled without
-  replacement.
+- Matching (amended 2026-10-07/08 to what the build implements and the balance
+  report validated): hard cell = p2 calendar month (within direction × context
+  class); covariates bucketed on POOLED events+controls quantiles **computed per
+  direction × context class** (cross-class pooling makes the retrace caliper
+  vacuous inside the extension class, whose values all sit below pullback-dominated
+  edges) — impulse_gain_pct deciles, realized_vol_63 quintiles,
+  interpeak_retrace_frac quintiles — with a **±1-bin caliper** per covariate
+  (exact-bin cells are brittle at bin edges); within the caliper, nearest by raw
+  impulse distance, retrace then vol as tiebreakers; up to 3 controls per event,
+  without replacement, greedy in a seed-fixed random event order.
+- **Sanctioned exception to the rolling-statistics invariant (#3), stated
+  explicitly:** the quantile edges are a dev-window (full-sample) statistic.
+  Matching is ex-post control construction at analysis time, not a tradable
+  feature — nothing downstream treats a bin as a point-in-time quantity.
+- **interpeak_retrace_frac is the third matching covariate** (amended 2026-10-07):
+  matched on impulse+vol alone it retained SMD −0.37/−0.50 within the pullback
+  class — events sit shallower in the class than their controls, a within-class
+  confound. It is a covariate, not the treatment: treatment is divergence presence.
 - Control timing: a control pair's "event time" is its p2 pivot's own price-only
   `confirmed_at`. Divergence events confirm at max(price, indicator) confirmation, so
   events enter on average slightly later than controls — a level difference the
@@ -78,6 +98,13 @@ pairs — controls are plentiful.
 - Entry: open of the bar after `confirmed_at` (one-bar lag, repo invariant #2).
 - Primary outcome: 63-trading-day forward log return (delisting-terminal); secondary:
   21-day. MFE/MAE and invalidation are descriptive context only in these cells.
+- **Per-horizon confirmation cutoffs (added 2026-10-08):** each horizon includes
+  only entities whose full h-bar window fits inside the dev window — a series
+  ending at the loaded boundary is right-censored and contributes nothing to that
+  horizon, while a series ending *before* the boundary is a delisting whose
+  terminal return is kept and flagged (the two are distinguished explicitly in
+  `forward_returns.py` via its `data_end` parameter; conflating them would smuggle
+  shortened holds into the late-window cells).
 - **Effect = difference-in-differences:**
   `(div_extension − ctrl_extension) − (div_pullback − ctrl_pullback)`.
   A bare divergence-vs-control difference within one context is reported but is not
