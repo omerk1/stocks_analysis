@@ -251,3 +251,45 @@ threshold, outcome, or verdict category changes.
    neighbors the buffer-band and deep-fast events their definitions include).
    Finite neighbors must agree in sign; an incomputable neighbor is absence of
    evidence, not disagreement, and the finite count is reported per cell.
+
+---
+
+## Result (2026-10-09 run — the registered DC-B1/DC-B2 readout)
+
+Executed once, `--unblind --log`, against the frozen text + the 2026-10-09
+addendum; full per-cell record in `EXPERIMENTS.csv` (this run's six rows; the
+CSV's date column carries the machine clock).
+
+**All six cells: `inconclusive_underpowered`.** No cell is Alive; no cell is
+Dead — every 95% clustered CI spans zero AND extends far beyond the ±20 bps
+band (half-widths ≈ 1–4% per 63d trade vs a 0.2% hurdle), so an economically
+meaningful effect is neither demonstrated nor ruled out.
+
+| cell | point | 95% CI | p | arms (ext / pb) | eff. N (dates) |
+|---|---|---|---|---|---|
+| DC-B1a (bear, 63d DiD) | −0.0054 | [−0.0281, +0.0144] | 0.62 | −0.0017 / +0.0037 | 1,246 |
+| DC-B1b (bear, 21d DiD) | +0.0022 | [−0.0096, +0.0134] | 0.71 | +0.0018 / −0.0004 | 1,267 |
+| DC-B1c (bear, 63d b3) | +0.0046 | [−0.0132, +0.0224] | 0.61 | — | 1,573 |
+| DC-B2a (bull, 63d DiD) | +0.0264 | [−0.0078, +0.0717] | 0.19 | +0.0242 / −0.0022 | 672 |
+| DC-B2b (bull, 21d DiD) | −0.0066 | [−0.0330, +0.0280] | 0.67 | −0.0035 / +0.0030 | 686 |
+| DC-B2c (bull, 63d b3) | −0.0161 | [−0.0461, +0.0139] | 0.29 | — | 966 |
+
+Gates: plateau 9/9 finite everywhere, sign-stable except DC-B1b (failed, moot
+under its verdict); formulations agree (opposite DiD/b3 signs) in both
+directions. The pre-identified bullish/extension Inconclusive risk realized
+exactly as registered.
+
+**Descriptive observations — NOT findings, bare and uncorrected:** the sign
+pattern is internally consistent across formulations within each direction and
+opposite between directions (bearish divergence fares relatively better after
+consolidation; bullish relatively better after explosive selloffs — DC-B2a's
+extension arm shows +2.4%/63d vs matched controls on a 0.50 hit rate, 1.32
+win/loss ratio, +1.1 skew: a crash-rebound shape on 134 months). Wide CIs
+contain all of this comfortably.
+
+**Disposition, per the frozen rules:** Inconclusive = stop; no FINDINGS.md
+entries; the cells are eligible for a dated POWER addendum (era pooling
+1990–2009, longer windows, or variance-reduction via the continuous
+formulation only) — which would be a new, separately registered decision, not
+a re-run. The context study's Track-B phase closes here unless such an
+addendum is proposed.
