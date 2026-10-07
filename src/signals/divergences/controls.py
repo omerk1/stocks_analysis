@@ -189,7 +189,11 @@ def flag_divergences(
       (approximation error <= ~1 bar, well inside the +/-3-bar window).
     """
     pairs = pairs.copy()
-    pairs["has_divergence"] = 0
+    # object dtype from the start: assigning None into an int64 column via
+    # .loc rides pandas' deprecated implicit upcast (TypeError on pandas
+    # 3), and build_control_pairs' per-ticker except would then silently
+    # hollow the sampling frame one ticker at a time.
+    pairs["has_divergence"] = pd.Series(0, index=pairs.index, dtype="object")
     pairs["nearest_divergence_bars"] = None
     if pairs.empty:
         return pairs
@@ -235,10 +239,16 @@ def build_control_pairs(
     # get has_divergence = NULL in flag_divergences.
     min_scanned = max(config.warmup_bars, config.std_window)
 
+    # Universe = where DETECTION RAN (the runs table), not where it found
+    # something (the divergences table) -- the latter selects on the
+    # treatment variable: a scanned ticker with zero divergences is
+    # exactly the kind of control-rich name the pool must include, and
+    # that population skews short-history/delisted.
     tickers = [
         r[0]
         for r in derived_conn.execute(
-            "SELECT DISTINCT ticker FROM divergences WHERE timeframe = 'daily' ORDER BY ticker"
+            "SELECT DISTINCT ticker FROM runs"
+            " WHERE module = 'divergences' AND timeframe = 'daily' ORDER BY ticker"
         )
     ]
     written = skipped = processed = 0

@@ -79,7 +79,12 @@ Inconclusive, that was expected at registration, not discovered at readout.
   interpeak_retrace_frac quintiles — with a **±1-bin caliper** per covariate
   (exact-bin cells are brittle at bin edges); within the caliper, nearest by raw
   impulse distance, retrace then vol as tiebreakers; up to 3 controls per event,
-  without replacement, greedy in a seed-fixed random event order.
+  without replacement, assigned in **breadth-first rounds** over a seed-fixed random
+  event order — every event receives its rank-r control before any event receives
+  rank r+1 (amended 2026-10-08: depth-first take-3 let early events empty a scarce
+  cell's caliper and starve later ones, understating matched counts exactly in the
+  thin extension arms; rank-1 assignments are identical, total matched events
+  strictly ≥).
 - **Sanctioned exception to the rolling-statistics invariant (#3), stated
   explicitly:** the quantile edges are a dev-window (full-sample) statistic.
   Matching is ex-post control construction at analysis time, not a tradable
@@ -104,7 +109,11 @@ Inconclusive, that was expected at registration, not discovered at readout.
   horizon, while a series ending *before* the boundary is a delisting whose
   terminal return is kept and flagged (the two are distinguished explicitly in
   `forward_returns.py` via its `data_end` parameter; conflating them would smuggle
-  shortened holds into the late-window cells).
+  shortened holds into the late-window cells). `data_end` is enforced fail-closed —
+  no entry or exit bar past it produces a return regardless of how the caller
+  loaded bars — and the run passes each ticker's delisted status (tickers table)
+  explicitly, with the calendar-tolerance inference only as the no-information
+  fallback (added 2026-10-08).
 - **Effect = difference-in-differences:**
   `(div_extension − ctrl_extension) − (div_pullback − ctrl_pullback)`.
   A bare divergence-vs-control difference within one context is reported but is not
@@ -178,6 +187,23 @@ looks:
 
 DC-B3/B4 get drafted only if those motivate them, with their own N_tests and
 correction. Nothing here constrains DC-B1/B2's run.
+
+## Amendment history (superseded draft text, preserved verbatim)
+
+The draft header makes pre-freeze edits legitimate, but the matching definition was
+executed (covariate-balance runs) between amendments — so per the spirit of the
+repo's no-silent-edit convention, the superseded wording is preserved here rather
+than left to git history:
+
+- **Matching, as first drafted (2026-10-06, superseded 2026-10-07/08):** "Matching:
+  within p2 calendar month, nearest-neighbor on (impulse_gain_pct decile, trailing
+  63-day realized-vol bucket), up to 3 controls per event, sampled without
+  replacement." Superseded by: per-class pooled-quantile bins, the ±1-bin caliper,
+  the retrace third covariate, and breadth-first assignment (each dated inline
+  above, with the balance evidence in PR #179/its follow-up).
+- **Control-pool sizing, as first drafted (2026-10-06):** "Step 0 measured this pool
+  at ~71% of shaped pairs — controls are plentiful." Superseded 2026-10-07: true for
+  the pullback pools only; the extension pools are thin (see the Controls section).
 
 ### Prerequisites before this can run (implementation, separate PR)
 
