@@ -121,5 +121,6 @@ Case C detection (see above). Any model-feature integration before the step-0 ga
 ## Log
 
 - `EXPLORATION_LOG.md` here: every Track A look, one dated line each.
-- Track B, if reached: pre-registration + per-cell logging per the repo's standard
-  protocol (the MA study's file set is the template).
+- `PREREGISTRATION.md` here: Track B entries (DC-B1/DC-B2 drafted 2026-10-06 — see
+  its own status header for draft-vs-frozen semantics). Per-cell result logging per
+  the repo's standard protocol (the MA study's file set is the template).
