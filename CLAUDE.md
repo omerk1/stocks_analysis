@@ -41,7 +41,12 @@ These are silent failure modes. Violating them produces plausible, confident, wr
 State, in this order, before writing analysis code:
 - which module (M0–M17) and which track
 - the hypothesis
-- the **kill criterion** — the pre-committed condition under which you declare it dead
+- the **kill criterion** — the pre-committed condition under which you declare it dead.
+  Dead means the **whole CI sits inside the economic-relevance band** (an effect big
+  enough to matter is affirmatively ruled out); a CI that spans zero but extends past
+  the band is **inconclusive/underpowered** — log it as such, never as dead/no-effect.
+  (Three-verdict rule, 2026-10-07 — reference wording:
+  `docs/features/divergence-context/PREREGISTRATION.md` "Verdicts and kill criteria".)
 - the control tier you are using and why
 
 If you cannot state a kill criterion, the task is not ready to run.
