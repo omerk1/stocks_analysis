@@ -98,14 +98,14 @@ def candidates(conn: sqlite3.Connection, indices: list[str], since: str) -> pd.D
     today = pd.Timestamp.today().strftime("%Y-%m-%d")
     out = []
     for ticker, group in rows.groupby("ticker"):
-        block = _latest_block(group)
+        block = latest_block(group)
         if block[1] < since:
             continue
         out.append((ticker, block[0], block[1], max(block[0], since), min(block[1], today)))
     return pd.DataFrame(out, columns=columns).sort_values("ticker").reset_index(drop=True)
 
 
-def _latest_block(intervals: pd.DataFrame) -> tuple[str, str]:
+def latest_block(intervals: pd.DataFrame) -> tuple[str, str]:
     """(start, end) of the latest run of overlapping or touching intervals."""
     spans = sorted(zip(intervals["start_date"], intervals["end_date"]))
     start, end = spans[0]
@@ -164,7 +164,10 @@ def resolve(
     row["cik"] = cik
     sec_names = company_names.get(cik, [])
     if not names_match(listing.get("name"), sec_names):
-        return {**row, "status": "name_mismatch", "detail": "; ".join(sec_names[:4]) or "CIK not in submissions.zip"}
+        # No SEC names at all: the CIK can't be checked, which isn't the same as wrong.
+        return {**row, "status": "name_mismatch", "cik_verified": 0 if sec_names else None,
+                "detail": "; ".join(sec_names[:4]) or CIK_NOT_IN_SEC}
+    row["cik_verified"] = 1
     current = [t for t in by_cik.get(cik, []) if t != old_ticker]
     scored = {t: coverage(conn, t, start, end) for t in current}
     priced = {t: c for t, c in scored.items() if c > 0}
@@ -207,7 +210,29 @@ def load_company_names(submissions_zip: str | Path, ciks: set[int]) -> dict[int,
     `formerNames`). A CIK missing from the archive maps to []."""
     with zipfile.ZipFile(submissions_zip) as zf:
         available = set(zf.namelist())
-        return {cik: _company_names(zf, available, cik) for cik in ciks}
+        return {cik: company_names(zf, available, cik) for cik in ciks}
+
+
+# Statuses decided after the name check passed: the CIK is the old company's.
+VERIFIED_STATUSES = ("matched", "low_coverage", "ambiguous", "no_current_ticker")
+CIK_NOT_IN_SEC = "CIK not in submissions.zip"
+
+
+def backfill_cik_verified(conn: sqlite3.Connection) -> int:
+    """Derive `cik_verified` for every row with a CIK from its status and
+    detail (the name check itself already ran): 1 if it passed, 0 if the
+    names didn't match, NULL if the CIK had no SEC names to check against.
+    Idempotent. Returns the number of rows whose flag changed."""
+    placeholders = ",".join("?" * len(VERIFIED_STATUSES))
+    flag = f"""CASE WHEN status IN ({placeholders}) THEN 1
+                    WHEN status = 'name_mismatch' AND COALESCE(detail, '') != ? THEN 0 END"""
+    cur = conn.execute(
+        f"""UPDATE ticker_renames SET cik_verified = {flag}
+            WHERE cik IS NOT NULL AND cik_verified IS NOT {flag}""",
+        (*VERIFIED_STATUSES, CIK_NOT_IN_SEC, *VERIFIED_STATUSES, CIK_NOT_IN_SEC),
+    )
+    conn.commit()
+    return cur.rowcount
 
 
 def price_ticker_map(conn: sqlite3.Connection) -> dict[str, str]:
@@ -258,6 +283,7 @@ def run(
     """Decide every candidate not already decided (all of them with `refresh`),
     store each outcome, and return the full table. Polygon is only called for
     tickers with no stored listing, or for all of them with `relookup`."""
+    backfill_cik_verified(conn)
     by_cik = tickers_by_cik(cik_map)
     stored = {} if relookup else _stored_listings(conn)
     done = set() if refresh else set(db.read_ticker_renames(conn, matched_only=False)["old_ticker"])
@@ -270,7 +296,7 @@ def run(
             names = {}
             if listing and listing.get("cik"):
                 cik = int(listing["cik"])
-                names[cik] = _company_names(zf, available, cik)
+                names[cik] = company_names(zf, available, cik)
             outcome = resolve(conn, row.ticker, row.start_date, row.end_date, listing, by_cik, names,
                               window={"valid_from": row.valid_from, "valid_to": row.valid_to})
             # Saved before the next lookup, so an interrupted run keeps its progress.
@@ -287,7 +313,7 @@ def _listing_for(client: PolygonClient, stored: dict | None, row) -> dict | None
     return client.ticker_as_of(row.ticker, lookup_date(row.start_date, row.end_date))
 
 
-def _company_names(zf: zipfile.ZipFile, available: set[str], cik: int) -> list[str]:
+def company_names(zf: zipfile.ZipFile, available: set[str], cik: int) -> list[str]:
     member = f"CIK{cik:010d}.json"
     if member not in available:
         return []
@@ -301,6 +327,8 @@ def main():
     parser.add_argument("--indices", default="sp500,nasdaq100")
     parser.add_argument("--since", default="2009-01-01", help="Only members with membership after this date")
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in the table")
+    parser.add_argument("--backfill-cik-verified", action="store_true",
+                        help="Only set cik_verified on rows decided before the flag existed (no API calls)")
     parser.add_argument("--relookup", action="store_true",
                         help="Ask Polygon again instead of reusing stored listings (slow: 5 requests/min)")
     args = parser.parse_args()
@@ -309,6 +337,10 @@ def main():
     config = load_config()
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
+    if args.backfill_cik_verified:
+        print(f"cik_verified set on {backfill_cik_verified(conn)} rows")
+        conn.close()
+        return
     sec_dir = Path(config.data_paths.raw) / "sec"
     submissions = sec_dir / "submissions.zip"
     if not submissions.exists():
