@@ -1,12 +1,17 @@
 """python -m src.models.cli <command>
 
 Commands:
-  run-gates   The four gates of `docs/modeling/VALIDATION_HARNESS.md` §8 on
-              synthetic data. Exits 1 if any check fails: no harness result
-              is trusted until they pass. `--quick` runs the tests' size;
-              `--smoke-db` also runs the leakage gate on real bars (read-only).
+  run-gates       The four gates of `docs/modeling/VALIDATION_HARNESS.md` §8 on
+                  synthetic data. Exits 1 if any check fails: no harness result
+                  is trusted until they pass. `--quick` runs the tests' size;
+                  `--smoke-db` also runs the leakage gate on real bars (read-only).
+  build-features  The model-feature cache (`features/cache.py`) for a
+                  point-in-time universe, 2010-2021 by default. Reads the
+                  database; writes only the parquet cache under `--out`.
+  vendor-check    Can a model tell Tiingo rows (later-delisted members) from
+                  yfinance rows? (`vendor_check.py`). Read-only.
 
-Gate runs are not trials: nothing is written to TRIALS.csv or anywhere else.
+Gate runs and these commands are not trials: nothing is written to TRIALS.csv.
 """
 
 from __future__ import annotations
@@ -118,6 +123,59 @@ def run_gates(quick: bool, smoke_db: Path | None, seed: int) -> int:
     return 0 if ok else 1
 
 
+def _read_only(db_path: Path):
+    return db.get_connection(f"file:{db_path}?mode=ro", uri=True)
+
+
+def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...]) -> int:
+    from src.models import dataset
+    from src.models.features import cache
+    conn = _read_only(db_path)
+    try:
+        universe = dataset.universe_mask(conn, start, end, indices=indices)
+        path = cache.build_feature_cache(conn, universe, out)
+    finally:
+        conn.close()
+    features = cache.read_feature_cache(out)
+    m = features.attrs["manifest"]
+    print(f"{path}: {m['n_rows']:,} eligible rows, {m['n_tickers']} tickers, {m['start']}..{m['end']}")
+    print(f"  price sources: {m['price_sources']}")
+    worst = sorted(m["missing_share"].items(), key=lambda kv: -kv[1])[:6]
+    print("  most-missing columns: " + ", ".join(f"{c} {v:.1%}" for c, v in worst))
+    return 0
+
+
+def vendor_check(db_path: Path, features_dir: Path) -> int:
+    from src.models import dataset, vendor_check as vc
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    features = cache.read_feature_cache(features_dir)
+    m = features.attrs["manifest"]
+    tickers = sorted(features["ticker"].unique())
+    conn = _read_only(db_path)
+    try:
+        sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
+        bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
+                                      fallback=dataset.LABEL_FALLBACK)
+        # Listing metadata, not prices: no holdout bar is read.
+        listings = db.read_tiingo_listings(conn).set_index("ticker")["tiingo_end"]
+    finally:
+        conn.close()
+    calendar = pd.DatetimeIndex(sorted(bars["date"].unique()))
+    tiingo = [t for t in tickers if sources.get(t) in vc.TIINGO_SOURCES]
+    delisted = pd.to_datetime(listings.reindex(tiingo))
+    if delisted.isna().any():
+        raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
+    r = vc.run(features, bars, sources, calendar, delisted)
+    print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
+          f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
+    print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
+    print("Feature shift (Tiingo far rows vs yfinance, same dates):\n"
+          + r["feature_shift"].to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
+    print("Vendor AUC (ticker-grouped CV, within date): " + ", ".join(f"{k} {v:.3f}" for k, v in r["auc"].items()))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m src.models.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -126,9 +184,22 @@ def main(argv: list[str] | None = None) -> int:
     gates_cmd.add_argument("--smoke-db", type=Path, default=None,
                            help="market-data SQLite path: also run the leakage gate on real bars (read-only)")
     gates_cmd.add_argument("--seed", type=int, default=0)
+    feat = sub.add_parser("build-features", help="build the model-feature cache")
+    feat.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
+    feat.add_argument("--out", type=Path, required=True)
+    feat.add_argument("--start", default="2010-01-01")
+    feat.add_argument("--end", default="2021-12-31")
+    feat.add_argument("--indices", nargs="+", default=["sp500"])
+    vend = sub.add_parser("vendor-check", help="can a model tell Tiingo rows from yfinance rows?")
+    vend.add_argument("--db", type=Path, required=True)
+    vend.add_argument("--features", type=Path, required=True, help="a build-features output directory")
     args = parser.parse_args(argv)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
+    if args.command == "build-features":
+        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
+    if args.command == "vendor-check":
+        return vendor_check(args.db, args.features)
     return 2
 
 

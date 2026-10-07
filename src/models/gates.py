@@ -360,10 +360,14 @@ def leakage_verdict(r: dict) -> dict[str, bool]:
 
 def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     """Synthetic bars on both bases (the same walk; the perturbations make them
-    differ), with one reverse split before the cut so `history_eligible` and
-    `unadjusted_close` have something to undo. Returns (bars, splits, cut)."""
+    differ), rounded to cents like real quotes (exact ties between price moves
+    then occur, and a rescaling breaks them -- a column that compares moves
+    strictly would leak), with one reverse split before the cut so
+    `history_eligible` and `unadjusted_close` have something to undo.
+    Returns (bars, splits, cut)."""
     bars = synthetic_bars(n_tickers, start="2016-01-04", end="2019-12-31", delist_share=0.2, late_share=0.2,
                           seed=seed)
+    bars[_price_cols()] = bars[_price_cols()].round(2)
     cut = pd.Timestamp("2019-03-29")
     ticker = sorted(bars["ticker"].unique())[0]
     when = pd.Timestamp("2018-06-01")
