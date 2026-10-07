@@ -70,14 +70,20 @@ of step 0's entanglement finding. Recorded now, pre-freeze: the **bullish/extens
 arm is a pre-identified Inconclusive risk** (≈90 matchable events); if it reads out
 Inconclusive, that was expected at registration, not discovered at readout.
 
-- Matching (amended 2026-10-07 to what the build implements and the balance report
-  validated): hard cell = p2 calendar month (within direction × context class);
-  covariates bucketed on POOLED events+controls quantiles — impulse_gain_pct
-  deciles, realized_vol_63 quintiles, interpeak_retrace_frac quintiles — with a
-  **±1-bin caliper** per covariate (exact-bin cells are brittle at bin edges);
-  within the caliper, nearest by raw impulse distance, retrace then vol as
-  tiebreakers; up to 3 controls per event, without replacement, greedy in a
-  seed-fixed random event order.
+- Matching (amended 2026-10-07/08 to what the build implements and the balance
+  report validated): hard cell = p2 calendar month (within direction × context
+  class); covariates bucketed on POOLED events+controls quantiles **computed per
+  direction × context class** (cross-class pooling makes the retrace caliper
+  vacuous inside the extension class, whose values all sit below pullback-dominated
+  edges) — impulse_gain_pct deciles, realized_vol_63 quintiles,
+  interpeak_retrace_frac quintiles — with a **±1-bin caliper** per covariate
+  (exact-bin cells are brittle at bin edges); within the caliper, nearest by raw
+  impulse distance, retrace then vol as tiebreakers; up to 3 controls per event,
+  without replacement, greedy in a seed-fixed random event order.
+- **Sanctioned exception to the rolling-statistics invariant (#3), stated
+  explicitly:** the quantile edges are a dev-window (full-sample) statistic.
+  Matching is ex-post control construction at analysis time, not a tradable
+  feature — nothing downstream treats a bin as a point-in-time quantity.
 - **interpeak_retrace_frac is the third matching covariate** (amended 2026-10-07):
   matched on impulse+vol alone it retained SMD −0.37/−0.50 within the pullback
   class — events sit shallower in the class than their controls, a within-class
@@ -92,6 +98,13 @@ Inconclusive, that was expected at registration, not discovered at readout.
 - Entry: open of the bar after `confirmed_at` (one-bar lag, repo invariant #2).
 - Primary outcome: 63-trading-day forward log return (delisting-terminal); secondary:
   21-day. MFE/MAE and invalidation are descriptive context only in these cells.
+- **Per-horizon confirmation cutoffs (added 2026-10-08):** each horizon includes
+  only entities whose full h-bar window fits inside the dev window — a series
+  ending at the loaded boundary is right-censored and contributes nothing to that
+  horizon, while a series ending *before* the boundary is a delisting whose
+  terminal return is kept and flagged (the two are distinguished explicitly in
+  `forward_returns.py` via its `data_end` parameter; conflating them would smuggle
+  shortened holds into the late-window cells).
 - **Effect = difference-in-differences:**
   `(div_extension − ctrl_extension) − (div_pullback − ctrl_pullback)`.
   A bare divergence-vs-control difference within one context is reported but is not

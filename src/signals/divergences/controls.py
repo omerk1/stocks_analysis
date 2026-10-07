@@ -37,9 +37,16 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import compute_context_for_ticker
+
+# Same-package reuse of detection's own price-pivot path (underscore
+#-prefixed, deliberately): the module's "a control is the same swing
+# minus the divergence BY CONSTRUCTION" claim is only true while both
+# sides run literally the same code -- a local re-implementation would
+# have to be kept in sync by hand (detection's warmup resolution already
+# changed once, for the std_window case).
+from src.signals.divergences.detect import _price_pivots_and_atr
 
 logger = logging.getLogger(__name__)
 
@@ -121,13 +128,7 @@ def extract_pairs_for_ticker(
     pair-only columns (span_bars, regular_geometry, price-only
     confirmed_at). Pure over loaded bars, so tests can hand-build input.
     """
-    warm = min(config.warmup_bars, max(len(bars) - 2, 0))
-    close_s = bars["close"].iloc[warm:]
-    atr = indicators.atr(bars, config.atr_period)
-    atr_s = atr.iloc[warm:]
-    pivots = detect_pivots(
-        close_s, threshold_fn=lambda i: config.price_pivot_atr_mult * atr_s.iloc[i]
-    )
+    pivots, _atr_s = _price_pivots_and_atr(bars, config, config.warmup_bars)
 
     rows = []
     for kind, direction in ((PivotKind.HIGH, "bearish"), (PivotKind.LOW, "bullish")):
@@ -163,27 +164,46 @@ def extract_pairs_for_ticker(
 
 
 def flag_divergences(
-    pairs: pd.DataFrame, stored_p2_dates: pd.DatetimeIndex, bar_index: pd.DatetimeIndex
+    pairs: pd.DataFrame,
+    stored_p2_dates: pd.DatetimeIndex,
+    bar_index: pd.DatetimeIndex,
+    min_scanned_pos: int = 0,
 ) -> pd.DataFrame:
     """`has_divergence` / `nearest_divergence_bars` per pair: bar distance
     from the pair's p2 to the nearest stored regular divergence p2 (any
     indicator) OF THE SAME DIRECTION -- callers pass per-direction date
     sets. Distance in BARS on this ticker's own calendar, not calendar
-    days. Pairs or stored dates off the calendar count as no-match."""
+    days.
+
+    Missing information is NULL, never coerced to 0 (repo invariant #9):
+
+    - Pairs whose p2 sits before `min_scanned_pos` + the match window --
+      bars detection never fully scanned (the std-threshold indicators
+      warm up over max(warmup_bars, std_window) bars, pairs only over
+      warmup_bars) -- get has_divergence = NULL: their status is
+      unknowable, and the control filter (has_divergence = 0) excludes
+      them automatically.
+    - Stored p2 dates are located with nearest-calendar-bar mapping, so a
+      post-detection re-ingest that shifts the calendar by a session
+      cannot silently drop a stored divergence out of the comparison
+      (approximation error <= ~1 bar, well inside the +/-3-bar window).
+    """
     pairs = pairs.copy()
     pairs["has_divergence"] = 0
     pairs["nearest_divergence_bars"] = None
-    if pairs.empty or len(stored_p2_dates) == 0:
-        return pairs
-
-    stored_pos = bar_index.get_indexer(stored_p2_dates)
-    stored_pos = np.sort(stored_pos[stored_pos >= 0])
-    if len(stored_pos) == 0:
+    if pairs.empty:
         return pairs
 
     pair_pos = bar_index.get_indexer(pd.DatetimeIndex(pd.to_datetime(pairs["p2_date"])))
+    unknowable = pair_pos < (min_scanned_pos + DIVERGENCE_MATCH_BARS)
+    pairs.loc[unknowable, "has_divergence"] = None
+
+    if len(stored_p2_dates) == 0:
+        return pairs
+    stored_pos = np.sort(bar_index.get_indexer(stored_p2_dates, method="nearest"))
+
     for i, pos in enumerate(pair_pos):
-        if pos < 0:
+        if pos < 0 or unknowable[i]:
             continue
         j = np.searchsorted(stored_pos, pos)
         candidates = []
@@ -203,10 +223,17 @@ def build_control_pairs(
 ) -> tuple[int, int, int]:
     """Extract+store control pairs for every ticker that has stored daily
     divergences (the study's universe is defined by where detection ran).
-    Idempotent: deterministic recompute, upserted by natural key. Returns
-    (rows_written, tickers_processed, tickers_skipped)."""
+    REPLACE-per-ticker semantics (user-approved 2026-10-08): each
+    processed ticker's rows are deleted and rewritten, so pairs from a
+    previous calendar/config can't survive a recompute as stale sampling
+    -frame rows. Returns (rows_written, tickers_processed,
+    tickers_skipped)."""
     config = DivergenceConfig()
     create_control_pairs_table(derived_conn)
+    # Bars before this position were never scanned by ALL detection
+    # indicators (std-threshold ones warm over std_window) -- pairs there
+    # get has_divergence = NULL in flag_divergences.
+    min_scanned = max(config.warmup_bars, config.std_window)
 
     tickers = [
         r[0]
@@ -239,7 +266,7 @@ def build_control_pairs(
                 dates = pd.DatetimeIndex(
                     pd.to_datetime(stored.loc[stored["direction"] == direction, "p2_date"])
                 )
-                flagged.append(flag_divergences(grp, dates, bars.index))
+                flagged.append(flag_divergences(grp, dates, bars.index, min_scanned_pos=min_scanned))
             pairs = pd.concat(flagged, ignore_index=True)
 
             atr = indicators.atr(bars, config.atr_period)
@@ -256,16 +283,22 @@ def build_control_pairs(
 
             run_id = derived_db.record_run(
                 derived_conn, "divergence_control_pairs", ticker, "daily", None,
-                json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS}),
+                json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
+                            "min_scanned_pos": min_scanned}),
                 report.rows_dropped, report.unreliable,
             )
-            for row in merged.to_dict("records"):
-                row["run_id"] = run_id
-                row["leg2_bars"] = None if pd.isna(row.get("leg2_bars")) else int(row["leg2_bars"])
-                for key, value in row.items():
-                    if isinstance(value, float) and np.isnan(value):
-                        row[key] = None
-                derived_conn.execute(_UPSERT_SQL, row)
+            # Replace-per-ticker: stale rows from an earlier calendar or
+            # config must not survive as sampling-frame members.
+            derived_conn.execute(
+                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
+                (ticker,),
+            )
+            merged["run_id"] = run_id
+            merged["leg2_bars"] = [
+                None if pd.isna(v) else int(v) for v in merged["leg2_bars"]
+            ]
+            records = merged.astype(object).where(pd.notna(merged), None).to_dict("records")
+            derived_conn.executemany(_UPSERT_SQL, records)
             derived_conn.commit()
             written += len(merged)
             processed += 1

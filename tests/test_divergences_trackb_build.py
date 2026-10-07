@@ -92,7 +92,9 @@ def test_flag_divergences_uses_bar_distance_on_the_ticker_calendar():
         ]
     )
     stored = pd.DatetimeIndex(
-        [bar_index[22], bar_index[46], pd.Timestamp("1999-01-04")]  # 2 bars; 6 bars; off-calendar
+        # 2 bars away; 6 bars away; off-calendar (maps to the NEAREST bar
+        # -- position 0 here -- instead of silently dropping out).
+        [bar_index[22], bar_index[46], pd.Timestamp("1999-01-04")]
     )
 
     flagged = flag_divergences(pairs, stored, bar_index)
@@ -101,6 +103,25 @@ def test_flag_divergences_uses_bar_distance_on_the_ticker_calendar():
     assert flagged.iloc[0]["nearest_divergence_bars"] == 2
     assert flagged.iloc[1]["has_divergence"] == 0  # 6 bars > DIVERGENCE_MATCH_BARS
     assert flagged.iloc[1]["nearest_divergence_bars"] == 6
+
+
+def test_flag_divergences_marks_never_scanned_window_as_null_not_zero():
+    # Bars before min_scanned_pos were never scanned by every detection
+    # indicator: a pair there has UNKNOWABLE divergence status --
+    # has_divergence must be NULL (excluded by the has_divergence=0
+    # control filter), never coerced to 0.
+    bar_index = pd.bdate_range("2020-01-01", periods=200)
+    pairs = pd.DataFrame(
+        [
+            {"p2_date": bar_index[50].isoformat()},   # inside the never-scanned window
+            {"p2_date": bar_index[150].isoformat()},  # fully scanned
+        ]
+    )
+
+    flagged = flag_divergences(pairs, pd.DatetimeIndex([]), bar_index, min_scanned_pos=100)
+
+    assert pd.isna(flagged.iloc[0]["has_divergence"])
+    assert flagged.iloc[1]["has_divergence"] == 0
 
 
 def test_context_rows_now_carry_realized_vol_63_with_nan_discipline():
@@ -186,6 +207,24 @@ def test_forward_returns_delisting_truncation_and_last_bar_entry():
     # coerces None to NaN in float columns -- test for missing, not None.)
     assert pd.isna(out.iloc[1]["entry_price"])
     assert pd.isna(out.iloc[1]["fwd_log_ret_21"])
+
+
+def test_forward_returns_censoring_at_data_end_is_not_a_delisting():
+    closes = [100.0, 90.0, 80.0, 40.0, 10.0]
+    bars = _bars(closes)
+    confirmed = pd.Series([bars.index[1].isoformat()])
+
+    # Series ends AT the loaded boundary: the unfinished horizon is
+    # censored (None), not a kept terminal return...
+    censored = compute_forward_returns(bars, confirmed, horizons=(21,), data_end=bars.index[-1])
+    assert pd.isna(censored.iloc[0]["fwd_log_ret_21"])
+    # ...while the same series with data running well past its end is a
+    # genuine delisting: terminal return kept and flagged.
+    delisted = compute_forward_returns(
+        bars, confirmed, horizons=(21,), data_end=bars.index[-1] + pd.Timedelta(days=90)
+    )
+    assert delisted.iloc[0]["truncated_21"]
+    assert delisted.iloc[0]["fwd_log_ret_21"] == pytest.approx(np.log(10.0 / bars["open"].iloc[2]))
 
 
 # ---- matching ----

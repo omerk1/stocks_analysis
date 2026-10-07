@@ -1,10 +1,17 @@
 """Event-to-control matching for the Track-B run, exactly as
-pre-registered (PREREGISTRATION.md "Controls"): within p2 calendar month,
-nearest-neighbor on (impulse decile, realized-vol bucket), up to 3
-controls per event, sampled without replacement. Pure functions over
-frames the run script assembles; covariates only -- no outcome column
-ever enters this module, so the balance report can run (and be reviewed)
-before anything is unblinded."""
+pre-registered (PREREGISTRATION.md "Controls", as amended 2026-10-07):
+hard cell = p2 calendar month within direction x context class; a +/-1-bin
+caliper on THREE covariates (impulse deciles, realized-vol quintiles,
+retrace-fraction quintiles), each bucketed on pooled events+controls
+quantiles computed PER (direction, context class) -- cross-class pooling
+would make the retrace caliper vacuous inside the extension class, whose
+retrace values all sit below every pullback-dominated edge; nearest by
+raw impulse distance, retrace then vol as tiebreakers; up to 3 controls
+per event, without replacement, greedy in a seed-fixed random order.
+
+Pure functions over frames the run script assembles; covariates only --
+no outcome column ever enters this module, so the balance report can run
+(and be reviewed) before anything is unblinded."""
 
 from __future__ import annotations
 
@@ -62,39 +69,53 @@ def match_controls(
 ) -> pd.DataFrame:
     """Greedy without-replacement matching. Both frames need columns:
     id, direction, context_class, p2_month (YYYY-MM string),
-    impulse_gain_pct, realized_vol_63 -- bucket columns are derived here
-    from pooled quantiles. Returns a frame (event_id, control_id, rank).
+    impulse_gain_pct, realized_vol_63, interpeak_retrace_frac -- bucket
+    columns are derived here from pooled quantiles computed PER
+    (direction, context class). Returns a frame (event_id, control_id,
+    rank).
 
     Greedy order is randomized by `seed` (events shuffled once), so no
     alphabetic-ticker systematic claims the scarce controls first, and the
     whole match is reproducible from the seed.
+
+    The quantile edges are a dev-window (full-sample) statistic -- a
+    sanctioned, pre-registered exception to the rolling-statistics
+    invariant: matching is ex-post control construction at analysis time,
+    not a tradable feature (PREREGISTRATION "Controls").
     """
     rng = np.random.default_rng(seed)
 
-    imp_edges = quantile_edges(
-        pd.concat([events["impulse_gain_pct"], controls["impulse_gain_pct"]]), N_IMPULSE_BINS
-    )
-    vol_edges = quantile_edges(
-        pd.concat([events["realized_vol_63"], controls["realized_vol_63"]]), N_VOL_BINS
-    )
-    ret_edges = quantile_edges(
-        pd.concat([events["interpeak_retrace_frac"], controls["interpeak_retrace_frac"]]),
-        N_RETRACE_BINS,
-    )
-
+    covariate_bins = {
+        "impulse_gain_pct": ("impulse_bin", N_IMPULSE_BINS),
+        "realized_vol_63": ("vol_bin", N_VOL_BINS),
+        "interpeak_retrace_frac": ("retrace_bin", N_RETRACE_BINS),
+    }
     events = events.copy()
     controls = controls.copy()
-    for frame in (events, controls):
-        frame["impulse_bin"] = assign_bucket(frame["impulse_gain_pct"], imp_edges)
-        frame["vol_bin"] = assign_bucket(frame["realized_vol_63"], vol_edges)
-        frame["retrace_bin"] = assign_bucket(frame["interpeak_retrace_frac"], ret_edges)
+    for cov, (bin_col, _n) in covariate_bins.items():
+        events[bin_col] = np.nan
+        controls[bin_col] = np.nan
+    class_keys = set(
+        map(tuple, pd.concat([events[["direction", "context_class"]],
+                              controls[["direction", "context_class"]]]).drop_duplicates().to_numpy())
+    )
+    for direction, cls in class_keys:
+        ev_mask = (events["direction"] == direction) & (events["context_class"] == cls)
+        ct_mask = (controls["direction"] == direction) & (controls["context_class"] == cls)
+        for cov, (bin_col, n_bins) in covariate_bins.items():
+            edges = quantile_edges(
+                pd.concat([events.loc[ev_mask, cov], controls.loc[ct_mask, cov]]), n_bins
+            )
+            events.loc[ev_mask, bin_col] = assign_bucket(events.loc[ev_mask, cov], edges)
+            controls.loc[ct_mask, bin_col] = assign_bucket(controls.loc[ct_mask, cov], edges)
 
     # Hard cell = (direction, context_class, p2_month); the covariate bins
     # act as a +/-1 CALIPER inside it rather than an exact-cell key --
     # exact bin equality on a fine decile grid is brittle at bin edges (an
     # event can sit one bin away from a control 0.001 apart in raw value
     # and lose it). Within the caliper, nearest by raw impulse distance,
-    # raw vol distance as tiebreaker, id as the final deterministic one.
+    # then raw retrace distance, then raw vol distance, id as the final
+    # deterministic tiebreaker.
     cell_cols = ["direction", "context_class", "p2_month"]
     bin_cols = ["impulse_bin", "vol_bin", "retrace_bin"]
     controls_by_cell: dict[tuple, pd.DataFrame] = {
@@ -149,15 +170,21 @@ BALANCE_COVARIATES = [
 def balance_report(
     events: pd.DataFrame, controls: pd.DataFrame, matches: pd.DataFrame
 ) -> pd.DataFrame:
-    """Per (direction, context_class) x covariate: SMD of events vs the
-    FULL control pool (before) and vs the matched controls (after), plus
-    counts. |SMD| after matching is the match-quality number the run
-    report quotes; covariates only, no outcomes."""
+    """Per (direction, context_class) x covariate: SMD of ALL classified
+    events vs the full control pool (before) and of MATCHED events vs
+    their matched controls (after), plus counts for every denominator.
+    The before side deliberately includes events matching failed to serve
+    -- they skew toward the covariate extremes, and excluding them (an
+    earlier bug) understates pre-match imbalance and flatters the
+    shrinkage. Covariates only, no outcomes."""
     matched_controls = controls[controls["id"].isin(matches["control_id"])]
     matched_events = events[events["id"].isin(matches["event_id"])]
     rows = []
-    for (direction, cls), ev_grp in matched_events.groupby(["direction", "context_class"]):
+    for (direction, cls), ev_all in events.groupby(["direction", "context_class"]):
         pool = controls[(controls["direction"] == direction) & (controls["context_class"] == cls)]
+        m_ev = matched_events[
+            (matched_events["direction"] == direction) & (matched_events["context_class"] == cls)
+        ]
         mctrl = matched_controls[
             (matched_controls["direction"] == direction) & (matched_controls["context_class"] == cls)
         ]
@@ -167,9 +194,10 @@ def balance_report(
                     "direction": direction,
                     "context_class": cls,
                     "covariate": cov,
-                    "smd_before": standardized_mean_difference(ev_grp[cov], pool[cov]),
-                    "smd_after": standardized_mean_difference(ev_grp[cov], mctrl[cov]),
-                    "n_events": len(ev_grp),
+                    "smd_before": standardized_mean_difference(ev_all[cov], pool[cov]),
+                    "smd_after": standardized_mean_difference(m_ev[cov], mctrl[cov]),
+                    "n_events": len(ev_all),
+                    "n_matched_events": len(m_ev),
                     "n_pool": len(pool),
                     "n_matched": len(mctrl),
                 }

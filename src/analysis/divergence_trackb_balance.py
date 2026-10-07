@@ -12,9 +12,11 @@ Assembles the two sides exactly as the eventual run script will:
   stored divergence on the swing (has_divergence = 0), same window,
   membership, and classification.
 
-Then matches per the pre-registration (month cell, +/-1-bin caliper on
-pooled impulse deciles and vol quintiles, <=3:1, without replacement,
-seeded) and prints SMD before/after per direction x context class.
+Then matches per the pre-registration (month cell; +/-1-bin caliper on
+impulse deciles, vol quintiles AND retrace-fraction quintiles, bucketed
+per direction x context class; <=3:1, without replacement, seeded) and
+prints SMD before/after per direction x context class, with
+NaN-covariate exclusions counted explicitly (the prereg requires it).
 
 Usage: python -m src.analysis.divergence_trackb_balance
 """
@@ -116,9 +118,23 @@ def main() -> None:
     print(f"\ncontrol pool (regular geometry, no divergence, PIT, classified): {len(controls)}  by cell:")
     print(controls.groupby(["direction", "context_class"]).size().to_string())
 
+    # Events the matcher cannot serve structurally (NaN covariate) are a
+    # different failure from "no control available in the cell" -- the
+    # pre-registration requires them excluded AND counted.
+    covs = ["impulse_gain_pct", "realized_vol_63", "interpeak_retrace_frac"]
+    unmatchable = events[events[covs].isna().any(axis=1)]
+    matchable = len(events) - len(unmatchable)
+    print(
+        f"\nevents with a NaN matching covariate (structurally unmatchable, excluded): "
+        f"{len(unmatchable)}; matchable: {matchable}"
+    )
+
     matches = match_controls(events, controls, seed=MATCH_SEED)
-    matched_rate = matches["event_id"].nunique() / len(events) if len(events) else float("nan")
-    print(f"\nmatches: {len(matches)} rows; events with >=1 control: {matched_rate:.1%}")
+    matched_rate = matches["event_id"].nunique() / matchable if matchable else float("nan")
+    print(
+        f"matches: {len(matches)} rows; matchable events with >=1 control: {matched_rate:.1%} "
+        f"(denominator = matchable, not total)"
+    )
 
     report = balance_report(events, controls, matches)
     pd.set_option("display.width", 160)
