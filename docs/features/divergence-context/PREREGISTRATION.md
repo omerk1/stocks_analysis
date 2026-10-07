@@ -63,11 +63,25 @@ Matched **no-divergence** pivot pairs: consecutive same-kind price-pivot pairs w
 regular geometry (bearish: higher high; bullish: lower low), span ≥ 5 bars, same
 context classification, and **no stored divergence of the tested direction/form
 within ±3 bars of p2** (any indicator). Step 0 measured this pool at ~71% of shaped
-pairs — controls are plentiful.
+pairs — the PULLBACK pools are plentiful. **The extension pools are not** (balance
+report, 2026-10-07: 830 bearish / 233 bullish PIT controls vs 1,221 / 328 events):
+an explosive new extreme *without* a divergence is mechanically scarce — the mirror
+of step 0's entanglement finding. Recorded now, pre-freeze: the **bullish/extension
+arm is a pre-identified Inconclusive risk** (≈90 matchable events); if it reads out
+Inconclusive, that was expected at registration, not discovered at readout.
 
-- Matching: within p2 calendar month, nearest-neighbor on (impulse_gain_pct decile,
-  trailing 63-day realized-vol bucket), up to 3 controls per event, sampled without
-  replacement.
+- Matching (amended 2026-10-07 to what the build implements and the balance report
+  validated): hard cell = p2 calendar month (within direction × context class);
+  covariates bucketed on POOLED events+controls quantiles — impulse_gain_pct
+  deciles, realized_vol_63 quintiles, interpeak_retrace_frac quintiles — with a
+  **±1-bin caliper** per covariate (exact-bin cells are brittle at bin edges);
+  within the caliper, nearest by raw impulse distance, retrace then vol as
+  tiebreakers; up to 3 controls per event, without replacement, greedy in a
+  seed-fixed random event order.
+- **interpeak_retrace_frac is the third matching covariate** (amended 2026-10-07):
+  matched on impulse+vol alone it retained SMD −0.37/−0.50 within the pullback
+  class — events sit shallower in the class than their controls, a within-class
+  confound. It is a covariate, not the treatment: treatment is divergence presence.
 - Control timing: a control pair's "event time" is its p2 pivot's own price-only
   `confirmed_at`. Divergence events confirm at max(price, indicator) confirmation, so
   events enter on average slightly later than controls — a level difference the

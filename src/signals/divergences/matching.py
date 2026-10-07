@@ -14,6 +14,11 @@ import pandas as pd
 MAX_CONTROLS_PER_EVENT = 3
 N_IMPULSE_BINS = 10
 N_VOL_BINS = 5
+# Third covariate (PREREG amendment 2026-10-07): matched on impulse+vol
+# alone, retrace depth retained SMD -0.37/-0.50 within the pullback class
+# -- events sit shallower in the class than their controls. Quintiles,
+# not deciles: the class bounds already cap its range.
+N_RETRACE_BINS = 5
 
 # Context poles, PREREGISTRATION "Context classification". Everything
 # else (buffer band, deep-fast, NaN scalars) is None = out of the primary
@@ -66,16 +71,23 @@ def match_controls(
     """
     rng = np.random.default_rng(seed)
 
-    pooled_impulse = pd.concat([events["impulse_gain_pct"], controls["impulse_gain_pct"]])
-    pooled_vol = pd.concat([events["realized_vol_63"], controls["realized_vol_63"]])
-    imp_edges = quantile_edges(pooled_impulse, N_IMPULSE_BINS)
-    vol_edges = quantile_edges(pooled_vol, N_VOL_BINS)
+    imp_edges = quantile_edges(
+        pd.concat([events["impulse_gain_pct"], controls["impulse_gain_pct"]]), N_IMPULSE_BINS
+    )
+    vol_edges = quantile_edges(
+        pd.concat([events["realized_vol_63"], controls["realized_vol_63"]]), N_VOL_BINS
+    )
+    ret_edges = quantile_edges(
+        pd.concat([events["interpeak_retrace_frac"], controls["interpeak_retrace_frac"]]),
+        N_RETRACE_BINS,
+    )
 
     events = events.copy()
     controls = controls.copy()
     for frame in (events, controls):
         frame["impulse_bin"] = assign_bucket(frame["impulse_gain_pct"], imp_edges)
         frame["vol_bin"] = assign_bucket(frame["realized_vol_63"], vol_edges)
+        frame["retrace_bin"] = assign_bucket(frame["interpeak_retrace_frac"], ret_edges)
 
     # Hard cell = (direction, context_class, p2_month); the covariate bins
     # act as a +/-1 CALIPER inside it rather than an exact-cell key --
@@ -84,13 +96,14 @@ def match_controls(
     # and lose it). Within the caliper, nearest by raw impulse distance,
     # raw vol distance as tiebreaker, id as the final deterministic one.
     cell_cols = ["direction", "context_class", "p2_month"]
+    bin_cols = ["impulse_bin", "vol_bin", "retrace_bin"]
     controls_by_cell: dict[tuple, pd.DataFrame] = {
-        key: grp for key, grp in controls.dropna(subset=["impulse_bin", "vol_bin"]).groupby(cell_cols)
+        key: grp for key, grp in controls.dropna(subset=bin_cols).groupby(cell_cols)
     }
     used: set = set()
     matches: list[dict] = []
 
-    order = events.dropna(subset=["impulse_bin", "vol_bin"]).index.to_numpy().copy()
+    order = events.dropna(subset=bin_cols).index.to_numpy().copy()
     rng.shuffle(order)
     for idx in order:
         ev = events.loc[idx]
@@ -102,12 +115,14 @@ def match_controls(
             ~pool["id"].isin(used)
             & ((pool["impulse_bin"] - ev["impulse_bin"]).abs() <= 1)
             & ((pool["vol_bin"] - ev["vol_bin"]).abs() <= 1)
+            & ((pool["retrace_bin"] - ev["retrace_bin"]).abs() <= 1)
         ]
         if available.empty:
             continue
         dist = (available["impulse_gain_pct"] - ev["impulse_gain_pct"]).abs()
+        ret_dist = (available["interpeak_retrace_frac"] - ev["interpeak_retrace_frac"]).abs()
         vol_dist = (available["realized_vol_63"] - ev["realized_vol_63"]).abs()
-        ranked = available.assign(_d=dist, _v=vol_dist).sort_values(["_d", "_v", "id"])
+        ranked = available.assign(_d=dist, _r=ret_dist, _v=vol_dist).sort_values(["_d", "_r", "_v", "id"])
         take = ranked.head(max_per_event)
         for rank, ctrl in enumerate(take.itertuples(index=False), start=1):
             used.add(ctrl.id)
