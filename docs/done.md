@@ -13,7 +13,8 @@ references — other entries and the design notes cite them (e.g. "Done
 #22") — so don't renumber on edit, only append new ones at the end.
 
 Each entry carries a topic tag after its number, e.g. `- **#47** [data, breadth] — …`,
-so one area's history is a grep away (`grep '\[.*breadth' docs/done.md`). Tags: `infra`
+so one area's history is a grep away (`grep -E '^- \*\*#[^*]+\*\* \[[^]]*breadth' docs/done.md`;
+a bare `grep breadth` also hits entries that only mention it). Tags: `infra`
 (project setup, storage, locking), `data` (ingestion, coverage, price bases, renames,
 vendors), `macro` (FRED), `signals` (the TA modules besides sr_lines: gaps, divergences,
 fibonacci, avwap, volume profile, market structure, shared `market_common` code),
