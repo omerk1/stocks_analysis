@@ -49,17 +49,20 @@ from src.foundation.utils.config_loader import load_config
 
 
 def candidates(conn: sqlite3.Connection, indices: list[str], since: str) -> pd.DataFrame:
-    """One row per former member with yfinance bars, not in `ticker_renames`:
-    its latest membership block (`valid_from`/`valid_to`) when that ended
-    after `since`. Current members are left out -- a current member's symbol
-    is its own."""
+    """One row per former member with yfinance bars that isn't a matched rename
+    (whose prices live under its new symbol): its latest membership block
+    (`valid_from`/`valid_to`) when that ended after `since`. Current members
+    are left out -- a current member's symbol is its own. Only the latest
+    block is checked; an earlier block of a symbol held by another company
+    since isn't (29 such blocks after 2009 were spot-checked on 2026-10-07:
+    none overlaps another company's bars)."""
     placeholders = ",".join("?" for _ in indices)
     rows = pd.read_sql_query(
         f"""
         SELECT ticker, start_date, COALESCE(end_date, '9999-12-31') AS end_date
         FROM index_membership m
         WHERE index_name IN ({placeholders})
-          AND ticker NOT IN (SELECT old_ticker FROM ticker_renames)
+          AND ticker NOT IN (SELECT old_ticker FROM ticker_renames WHERE status = 'matched')
           AND EXISTS (SELECT 1 FROM bars_1d b WHERE b.ticker = m.ticker AND b.source = ?)
         """,
         conn, params=[*indices, db.YFINANCE],
@@ -82,7 +85,7 @@ def decide(row, listing: dict | None, holder_cik: int | None, names: dict[int, l
            "lookup_date": tr.lookup_date(row.valid_from, row.valid_to), "holder_cik": holder_cik}
     if holder_cik is not None:
         out["holder_name"] = (names.get(holder_cik) or [None])[0]
-    if listing is None:
+    if listing is None or not listing.get("name"):
         return {**out, "status": "no_listing"}
     out["polygon_name"] = listing.get("name")
     if listing.get("cik"):

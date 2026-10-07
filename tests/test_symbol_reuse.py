@@ -34,8 +34,12 @@ def test_candidates_are_former_members_with_bars_not_already_in_renames(conn):
         ("RENAMED", "2010-01-01", "2018-01-01"), ("EARLY", "2000-01-01", "2005-01-01"), ("NOBARS", "2010-01-01", "2019-01-01"),
     ], columns=["ticker", "start_date", "end_date"]))
     db.upsert_ticker_rename(conn, {"old_ticker": "RENAMED", "status": "matched"})
+    _bars(conn, "UNMAPPED")  # a ticker_renames row decided before any bars existed under it
+    db.replace_index_membership(conn, "nasdaq100", pd.DataFrame([("UNMAPPED", "2011-01-01", "2016-01-01")],
+                                                               columns=["ticker", "start_date", "end_date"]))
+    db.upsert_ticker_rename(conn, {"old_ticker": "UNMAPPED", "status": "no_current_ticker"})
 
-    assert list(sr.candidates(conn, ["sp500"], "2009-01-01")["ticker"]) == ["OLD"]
+    assert list(sr.candidates(conn, ["sp500", "nasdaq100"], "2009-01-01")["ticker"]) == ["OLD", "UNMAPPED"]
 
 
 def test_a_symbol_now_held_by_another_company_is_reused():
@@ -77,3 +81,9 @@ def test_same_cik_with_a_misspelled_name_is_for_review_not_reused():
     out = sr.decide(_row("SIG"), {"name": "Signet Jewlers Limited", "cik": "832988"}, 832988, names)
 
     assert out["status"] == "same_cik_name_differs"
+
+
+def test_a_listing_without_a_name_is_for_review_not_reused():
+    out = sr.decide(_row(), {"name": None, "cik": "5"}, 9, {5: ["A"], 9: ["B"]})
+
+    assert out["status"] == "no_listing"
