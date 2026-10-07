@@ -459,6 +459,17 @@ Build order, one PR each, each with its own tests:
      real data (e.g. compare uncalibrated, isotonic, and a 1-parameter scaling).
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the
    harness end to end.
+   - **Registered 2026-10-07** in `docs/modeling/PREREGISTRATION.md`, revised from the
+     §8 draft. It uses B4, cell 2/2 at H = 10/21/42/63, T1 = supported and
+     T2 = + weak, 8 trials and a 10 bps relevance band.
+   - **Runner:** `src/models/ablation.py`. Its CLI commands are `build-labels`,
+     `run-experiment E1` (one `TRIALS.csv` row per trial) and `close-experiment E1`
+     (BH, then the three verdicts).
+   - **Label caches:** a cache now records its disputes list, and `read_labels` refuses
+     a cache built with a different one.
+   - **Run:** after the reused-symbol disputes PR (#184), the feature and label caches
+     are rebuilt from `main`. The feature cache also records its disputes list, since
+     whole-history disputes leave the universe.
 
 ---
 

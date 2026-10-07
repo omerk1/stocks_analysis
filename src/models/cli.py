@@ -11,8 +11,15 @@ Commands:
   vendor-check    Can a model tell Tiingo rows (later-delisted members) from
                   yfinance rows? Same-ticker gate always; delisted-vs-live
                   read-outs with --features (`vendor_check.py`). Read-only.
+  build-labels    The barrier-label cache (`dataset.build_labels`), one file
+                  per horizon, for the same universe. Reads the database;
+                  writes only under `--out`.
+  run-experiment  A pre-registered ablation (`ablation.PREREGISTERED`) on the
+                  feature and label caches: one TRIALS.csv row per trial.
+  close-experiment  BH and the three verdicts over an experiment's logged
+                  trials. Read-only.
 
-Gate runs and these commands are not trials: nothing is written to TRIALS.csv.
+Only run-experiment is a trial: the other commands write nothing to TRIALS.csv.
 """
 
 from __future__ import annotations
@@ -200,6 +207,57 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     return 0 if s["passed"] else 1
 
 
+def build_labels(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
+                 horizons: tuple[int, ...]) -> int:
+    from src.models import dataset
+    warnings.filterwarnings("ignore")
+    conn = _read_only(db_path)
+    try:
+        universe = dataset.universe_mask(conn, start, end, indices=indices)
+        rows = universe.loc[universe["has_bars"], ["ticker", "date"]]
+        for h in horizons:
+            path = dataset.build_labels(conn, rows, h, out)
+            m = dataset.read_labels(out, h).attrs["manifest"]
+            print(f"{path}: {m['n_rows']:,} rows, {m['n_tickers']} tickers, {m['n_disputed_dropped']:,} dropped "
+                  f"for disputed days (disputes {m['disputes']})")
+    finally:
+        conn.close()
+    return 0
+
+
+def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, horizons: tuple[int, ...] | None) -> int:
+    from src.models import ablation, trial_log
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    if trial_log.git_dirty() is not False:
+        # close-experiment voids a trial run from a dirty checkout; fail now, not after hours.
+        raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
+    exp = ablation.PREREGISTERED[experiment_id]
+    unknown = set(horizons or ()) - set(exp.horizons)
+    if unknown:
+        raise SystemExit(f"{experiment_id} has no horizon {sorted(unknown)}; registered: {exp.horizons}")
+    features = cache.read_feature_cache(features_dir)
+    for h in horizons or exp.horizons:
+        for r in ablation.run_horizon(exp, h, features, labels_dir):
+            b = r["brier"]
+            print(f"{experiment_id} {r['step']} H={h}: Brier {b['point_estimate']:+.6f} "
+                  f"[{b['ci_low']:+.6f}, {b['ci_high']:+.6f}], {r['folds_improving']}/{r['n_folds']} years better, "
+                  f"band {r['band']:.6f}  ({r['trial_id']})")
+    return 0
+
+
+def close_experiment(experiment_id: str) -> int:
+    from src.models import ablation, trial_log
+    exp = ablation.PREREGISTERED[experiment_id]
+    table, groups = ablation.close_experiment(exp, trial_log.read_trials())
+    print(f"{experiment_id}: BH q={exp.q} over {exp.n_trials} trials, {exp.ci:.0%} CIs, "
+          f"pass needs >= {exp.min_folds_improving}/{len(exp.test_years)} years and every era better")
+    print(table.to_string(index=False, float_format=lambda v: f"{v:+.6f}"))
+    for step, verdict in groups.items():
+        print(f"  {step}: {verdict}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m src.models.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -220,7 +278,30 @@ def main(argv: list[str] | None = None) -> int:
                       help="a build-features output directory (adds the delisted-vs-live read-outs)")
     vend.add_argument("--start", default="2010-01-01", help="same-ticker window")
     vend.add_argument("--end", default="2021-12-31")
+    lab = sub.add_parser("build-labels", help="build the barrier-label cache")
+    lab.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
+    lab.add_argument("--out", type=Path, default=Path("data/models/labels/sp500"))
+    lab.add_argument("--start", default="2010-01-01")
+    lab.add_argument("--end", default="2021-12-31")
+    lab.add_argument("--indices", nargs="+", default=["sp500"])
+    lab.add_argument("--horizons", nargs="+", type=int, default=[10, 21, 42, 63])
+    run = sub.add_parser("run-experiment", help="run a pre-registered ablation, logging every trial")
+    run.add_argument("experiment")
+    run.add_argument("--features", type=Path, default=Path("data/models/features/sp500"),
+                     help="a build-features output directory")
+    run.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"),
+                     help="a build-labels output directory")
+    run.add_argument("--horizons", nargs="+", type=int, default=None, help="a subset of the registered horizons")
+    close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
+    close.add_argument("experiment")
     args = parser.parse_args(argv)
+    if args.command == "build-labels":
+        return build_labels(args.db, args.out, args.start, args.end, tuple(args.indices), tuple(args.horizons))
+    if args.command == "run-experiment":
+        return run_experiment(args.experiment, args.features, args.labels,
+                              tuple(args.horizons) if args.horizons else None)
+    if args.command == "close-experiment":
+        return close_experiment(args.experiment)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
     if args.command == "build-features":

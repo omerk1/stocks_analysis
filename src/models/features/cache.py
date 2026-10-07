@@ -83,6 +83,8 @@ def build_feature_cache(
         "n_rows": len(out), "n_tickers": int(out["ticker"].nunique()), "price_sources": sources,
         "columns": {s.name: {k: v for k, v in asdict(s).items() if k != "name"} for s in specs},
         "missing_share": {c: float(out[c].isna().mean()) for c in out.columns if c not in ("ticker", "date")},
+        # Whole-history disputes take tickers out of the universe (`dataset.resolve_sources`).
+        "disputes": dataset.disputes_fingerprint(),
         "git_sha": dataset._git_sha(), "created": pd.Timestamp.now("UTC").isoformat(),
     }
     path.with_suffix(".json").write_text(json.dumps(manifest, indent=2, default=str))
