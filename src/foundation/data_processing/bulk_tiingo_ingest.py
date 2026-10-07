@@ -1,4 +1,7 @@
 """python -m src.foundation.data_processing.bulk_tiingo_ingest [--since 2009-01-01] [--limit N] [--refresh]
+                                                             [--retry-status name_mismatch,...]
+python -m src.foundation.data_processing.bulk_tiingo_ingest --backfill-splits   # splits for stored listings
+python -m src.foundation.data_processing.bulk_tiingo_ingest --store-preferred   # vendor_overrides.PREFER_TIINGO
 
 Daily bars from Tiingo for index members that have no prices anywhere else:
 the members `ticker_renames.py` checked and could not map to a current symbol
