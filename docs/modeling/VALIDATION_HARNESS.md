@@ -349,7 +349,7 @@ computed from each; passes when a vendor classifier stays at AUC <= 0.55 and, pe
 the median gap is < 0.05 SD, <= 5% of rows are off by > 0.1 SD and <= 1% are missing on one
 vendor only; non-zero exit otherwise), plus, with `--features`, the delisted-vs-live
 read-outs. Rerun it whenever a model feature is registered. First full run (2026-10-07,
-345 tickers, 21 columns): pass, AUC 0.524, largest median gap 0.011 SD (Done #87, #89).
+345 tickers, 21 columns): pass, AUC 0.524, largest median gap 0.011 SD (Done #87, #91).
 
 ---
 

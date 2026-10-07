@@ -6342,3 +6342,112 @@ criteria.
 `REPORT.md`, `docs/modeling/ma_study_insights.md` (back to one Tier-2 result).
 
 ---
+
+---
+
+## 2026-10-07 — cross-module verdict correction: dead vs. inconclusive (EXPERIMENTS.csv relabel)
+
+**Not a new hypothesis and not a result change — a correction of outcome labels on the
+frozen ledger, recorded here per the study's no-silent-edit convention.** No point
+estimate, CI, tier, N, or cost field was touched; no cell was re-run.
+
+**What was wrong.** A 2026-10-07 read-only audit (triggered while drafting the
+divergence-context study's Track-B pre-registration) confirmed this study's kill
+criteria were written in two styles. About half the modules used the equivalence-style
+rule (`max(|ci_low|,|ci_high|) < floor` — M1's canonical wording, "evaluated on the CI,
+not the point estimate"); the rest used a significance-failure rule ("CI spans zero →
+killed"). The second style conflates two different negative verdicts:
+
+- **demonstrated null** — the entire CI sits inside the pre-registered
+  economic-relevance floor: an effect big enough to matter is affirmatively ruled out;
+- **inconclusive/underpowered** — the CI includes zero but extends beyond the floor:
+  the data couldn't tell.
+
+The trading decisions were right either way (a zero-spanning CI correctly fails the
+cost gate). The damage is epistemic and downstream: DESIGN §9.3's dead-ends register
+filters `outcome == no_effect`, the session-start workflow treats logged cells as "not
+a fresh look", and modeling priors (`docs/modeling/IDEAS.md`) downweight features on
+"can't tell" evidence. Sharpest single case: M22's SMA200 retest cells were
+pre-registered "recorded here so an SMA200 null is read as underpowered, not as
+evidence of no effect" — and then logged `no_effect`; M19 logged the identical
+situation correctly (`inconclusive_wide_ci`).
+
+**The rule applied (three verdicts, not two).** Reference wording:
+`docs/features/divergence-context/PREREGISTRATION.md` "Verdicts and kill criteria"
+(amended 2026-10-07); forward-looking fix for the modeling harness in
+`docs/modeling/LRP.md` §3 (same date). Every dead-type ledger row (`no_effect`,
+`consistent_with_gbm_null`, `killed_no_effect`, `no_effect_ci_spans_zero`,
+`ci_spans_zero`, `module_killed`/`module_killed_ci_spans_zero`, `below_threshold`,
+`no_incremental_info`, `no_detectable_difference_from_kama`, and kin — 175 rows) was
+re-classified against **its own pre-registered floor**: 0.10% return (M1/M2/M6.2's
+standard floor), 0.15% for M3, 2pp for hold-rate cells (M5/M19), 0.02 IC (M11), 0.001
+for vol-valued cells. A row whose CI spans zero and whose larger CI edge exceeds its
+floor is relabeled `outcome = inconclusive_ci_spans_zero_edge_above_floor` (the
+ledger's existing vocabulary, first used for M14's VCP cell on 2026-09-25).
+
+**Mechanism (user-approved 2026-10-07, correction-column option).** A new final CSV
+column `correction_2026_10` carries, on each corrected row only: the date, the original
+outcome (`was:<outcome>`), the floor used, and the row's edge/floor ratio. All other
+fields of corrected rows and *all* fields of untouched rows are byte-identical to the
+pre-correction file (verified mechanically). The relabel is in place so every
+outcome-reading consumer — DESIGN §9.3's `outcome == no_effect` dead-ends filter first
+among them — stops reading underpowered cells as demonstrated nulls without needing
+supersession logic.
+
+**Scope decision (user-approved 2026-10-07): the strict rule.** Every zero-spanning CI
+whose edge exceeds its floor is inconclusive — including 29 rows whose edge is only
+1–2× the floor — rather than only the 88 unambiguous (>2×) cases, to avoid creating an
+undocumented "slightly past the floor still counts as dead" category. The per-row
+edge/floor ratio in `correction_2026_10` keeps near-band rows distinguishable.
+
+**117 rows relabeled** (cell_ids below; the `correction_2026_10` column is the per-row
+record; M2's entry covers two rows, the 2026-09-09 original and the 2026-09-29 re-run):
+
+- **M4** (6): `dist_pct_sma_50_h21`, `dist_pct_sma_200_h21`, `dist_atr_sma_50_h21`, `dist_atr_sma_200_h21`, `dist_z_sma_50_h21`, `dist_z_sma_200_h21`
+- **M1** (1): `above_sma_200`
+- **M11** (2): `dist_pct_sma_200_h21`, `dist_pct_sma_20_h63`
+- **§7.5** (2): `placebo_sma200_h21`, `placebo_sma50_h21`
+- **M2** (2): `stack_fully_bullish_h21_reversal_robustness` (2 rows)
+- **M18** (2): `dist_from_52w_high_h63`, `dist_from_52w_high_h126`
+- **M3** (2): `crossover_sma_50_sma_200_golden_fwd_ret_63_companion`, `crossover_sma_50_sma_200_death_fwd_ret_63_companion`
+- **M6.5** (3): `sma_dropoff_dropoff_vs_background_sma50`, `sma_dropoff_price_vs_background_sma200`, `sma_dropoff_dropoff_vs_background_sma200`
+- **M9** (1): `regime_adaptive_vs_kama`
+- **M14** (3): `pattern_context_reclaim_sma50_as_of_safe`, `pattern_context_reclaim_sma50_as_of_safe_extension_neutralized`, `pattern_context_reclaim_sma50_as_of_safe_reversal_robustness`
+- **M19** (11): `respect_history_sma20_from_above_hold`, `respect_history_sma20_from_below_hold`, `respect_history_sma20_from_above_fwd21`, `respect_history_sma20_from_below_fwd21`, `respect_history_ema21_from_above_hold`, `respect_history_ema21_from_below_hold`, `respect_history_ema21_from_below_fwd21`, `respect_history_sma50_from_above_hold`, `respect_history_sma50_from_above_fwd21`, `respect_history_sma50_from_below_fwd21`, `respect_history_sma200_from_below_fwd21`
+- **M20** (27): `bounce_entry_sma20_from_above_h5`, `bounce_entry_sma20_from_above_h10`, `bounce_entry_sma20_from_above_h21`, `bounce_entry_sma20_from_below_h5`, `bounce_entry_sma20_from_below_h10`, `bounce_entry_sma20_from_below_h63`, `bounce_entry_ema21_from_above_h10`, `bounce_entry_ema21_from_above_h21`, `bounce_entry_ema21_from_above_h63`, `bounce_entry_ema21_from_below_h5`, `bounce_entry_ema21_from_below_h10`, `bounce_entry_ema21_from_below_h21`, `bounce_entry_ema21_from_below_h63`, `bounce_entry_sma50_from_above_h5`, `bounce_entry_sma50_from_above_h10`, `bounce_entry_sma50_from_above_h21`, `bounce_entry_sma50_from_above_h63`, `bounce_entry_sma50_from_below_h5`, `bounce_entry_sma50_from_below_h21`, `bounce_entry_sma50_from_below_h63`, `bounce_entry_sma200_from_above_h5`, `bounce_entry_sma200_from_above_h10`, `bounce_entry_sma200_from_above_h21`, `bounce_entry_sma200_from_below_h5`, `bounce_entry_sma200_from_below_h10`, `bounce_entry_sma200_from_below_h21`, `bounce_entry_sma200_from_below_h63`
+- **M21** (30): `break_entry_sma20_above_h5`, `break_entry_sma20_above_h10`, `break_entry_sma20_above_h21`, `break_entry_sma20_above_h63`, `break_entry_sma20_below_h10`, `break_entry_sma20_below_h21`, `break_entry_sma20_below_h63`, `break_entry_ema21_above_h5`, `break_entry_ema21_above_h10`, `break_entry_ema21_above_h21`, `break_entry_ema21_above_h63`, `break_entry_ema21_below_h5`, `break_entry_ema21_below_h10`, `break_entry_ema21_below_h21`, `break_entry_ema21_below_h63`, `break_entry_sma50_above_h5`, `break_entry_sma50_above_h10`, `break_entry_sma50_above_h21`, `break_entry_sma50_above_h63`, `break_entry_sma50_below_h5`, `break_entry_sma50_below_h10`, `break_entry_sma50_below_h21`, `break_entry_sma200_above_h5`, `break_entry_sma200_above_h10`, `break_entry_sma200_above_h21`, `break_entry_sma200_above_h63`, `break_entry_sma200_below_h5`, `break_entry_sma200_below_h10`, `break_entry_sma200_below_h21`, `break_entry_sma200_below_h63`
+- **M22** (25): `break_retest_sma20_above_h63`, `break_retest_sma20_below_h5`, `break_retest_sma20_below_h10`, `break_retest_sma20_below_h21`, `break_retest_sma20_below_h63`, `break_retest_ema21_above_h5`, `break_retest_ema21_above_h10`, `break_retest_ema21_above_h21`, `break_retest_ema21_above_h63`, `break_retest_ema21_below_h5`, `break_retest_ema21_below_h10`, `break_retest_ema21_below_h63`, `break_retest_sma50_above_h5`, `break_retest_sma50_above_h21`, `break_retest_sma50_below_h5`, `break_retest_sma50_below_h21`, `break_retest_sma50_below_h63`, `break_retest_sma200_above_h5`, `break_retest_sma200_above_h10`, `break_retest_sma200_above_h21`, `break_retest_sma200_above_h63`, `break_retest_sma200_below_h5`, `break_retest_sma200_below_h10`, `break_retest_sma200_below_h21`, `break_retest_sma200_below_h63`
+
+**Left alone, deliberately:**
+
+- **18 defensible nulls** (whole CI inside the floor — the label was earned): M5's six
+  touch/bounce cells, M3's four EMA-pair crossover cells and the SMA50/200 golden
+  fwd_ret_5 companion, M2's `stack_fully_bullish_h21` (both rows), M7's two
+  vol-expansion cells, M9's decisive adaptive-vs-fixed cell, M20's
+  `bounce_entry_ema21_from_above_h5`, M21's `break_entry_sma20_below_h5`.
+- **M6.4's 31 rows** (`consistent_with_gbm_null`): their "CI" is a null simulation
+  envelope, not a confidence interval on an effect size — "consistent with the null
+  envelope" is not a CI statement and the three-verdict rule does not apply to it.
+- **Aggregate/duplicate/no-CI rows** (7): the cross-module FDR summary rows, M10's
+  duplicate-of-M1 rows, M8's Reality-Check module row, M9's persistence-rate row,
+  M1's `run_length_all_lookbacks` (no CI logged).
+- **2 rows flagged but not relabeled** (correction column carries the flag): M11
+  `dist_pct_sma_50_h21` and §7.5 `placebo_ema21_h21` carry dead-type labels while
+  their logged CI *excludes* zero — in both the verdict came from the cell's decisive
+  test elsewhere (M11's 0.02 IC floor; §7.5's neighbor-differenced placebo
+  comparison), so the outcome stands but `no_effect` misdescribes the logged CI.
+  M14's superseded pre-as-of-fix row (also CI-excludes-zero) was checked and needs
+  nothing: it is already marked superseded and was killed on a control, not on a
+  zero-spanning CI.
+
+**Tier is untouched.** Inconclusive and dead cells currently share Tier 4; DESIGN §9.2
+gets a same-date addendum noting the tier now carries both reads and that the
+distinction lives in `outcome`. Summary docs (`REPORT.md`,
+`docs/modeling/ma_study_insights.md`, `docs/modeling/IDEAS.md`) are corrected in a
+separate dated pass.
+
+**What would change this correction:** a per-module floor documented differently from
+the five used above (re-grep the module's own kill-criterion text; the per-row
+`correction_2026_10` names the floor applied), or a power amendment (era pooling,
+longer window) proposed as a new dated entry for any relabeled cell — an inconclusive
+cell may be revisited; a demonstrated null gets no amendment.
