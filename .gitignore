@@ -11,6 +11,7 @@ data/derived/*
 *.parquet
 # Exception: hand-maintained study ledger, not a regenerable data dump
 !docs/features/moving-averages/EXPERIMENTS.csv
+!docs/features/divergence-context/EXPERIMENTS.csv
 !docs/modeling/TRIALS.csv
 !src/foundation/market_common/price_disputes.csv
 
