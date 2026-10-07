@@ -79,7 +79,8 @@ def test_cluster_robust_interaction_recovers_a_planted_slope():
 
     assert res["point_estimate"] == pytest.approx(0.004, rel=0.01)
     assert res["p_value"] < 0.01
-    assert res["n_dates"] == 2
+    assert res["n_months"] == 2  # cluster count; n_event_dates is the invariant-#6 number
+    assert res["n_event_dates"] > 2
 
 
 def test_verdict_mapping_matches_the_frozen_three_way_rules():
