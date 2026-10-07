@@ -236,7 +236,11 @@ New `src/models/features/registry.py`. Every feature column declares:
 - **source function, warmup in bars, and whether it's per-date ranked.**
 
 Ablations run by *group*, in prior order: supported, then weak, then null. A null group
-stays only on an out-of-sample gain over the step before it.
+stays only on an out-of-sample gain over the step before it. Dropping a group is an
+operational decision; the trial's recorded outcome distinguishes a **demonstrated null**
+(the whole CI sits inside the pre-committed minimum-relevant-improvement band) from
+**inconclusive** (the CI spans zero but extends beyond the band — underpowered, not
+evidence of no effect). Rule and dating: `LRP.md` §3 kill criterion, amended 2026-10-07.
 
 **Built (step 4), minimal.** `registry.py` declares every column decided at the close of
 *t*, not just model inputs: each entry has a `role` (`model`, `universe` for the H3
