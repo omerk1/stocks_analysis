@@ -857,28 +857,39 @@ def _drop_invalid_ohlc(bars: pd.DataFrame, context: str) -> pd.DataFrame:
     return bars[valid]
 
 
-def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert or replace one `ticker_renames` row (keys as in the schema,
-    `updated_at` filled in here)."""
-    cols = ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date", "coverage", "detail",
-            "valid_from", "valid_to", "cik_verified"]
+def _upsert_decision(conn: sqlite3.Connection, table: str, cols: list[str], row: dict) -> None:
+    """Insert or replace one row of a per-ticker decision table (`row` keyed
+    by `cols`, missing keys -> NULL), stamping `updated_at`."""
     values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
     conn.execute(
-        f"INSERT OR REPLACE INTO ticker_renames ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
+        f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
         values,
     )
     conn.commit()
 
 
-def verified_cik(conn: sqlite3.Connection, ticker: str) -> int | None:
-    """The CIK `ticker_renames` holds for an old (membership-era) symbol, only
-    if its name check passed; None otherwise. For joining a delisted member to
-    SEC data (share counts, filings): an unverified CIK may be another
-    company's."""
+def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace one `ticker_renames` row (keys as in the schema)."""
+    _upsert_decision(conn, "ticker_renames", ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date",
+                                              "coverage", "detail", "valid_from", "valid_to", "cik_verified"], row)
+
+
+def verified_cik(conn: sqlite3.Connection, ticker: str, on: str | pd.Timestamp) -> int | None:
+    """The CIK `ticker_renames` holds for an old (membership-era) symbol on
+    date `on`, only if its name check passed and `on` is inside the window it
+    was verified for (`valid_from`..`valid_to`, the symbol's latest
+    membership block -- an earlier block may be another company); None
+    otherwise. For joining a delisted member to SEC data (share counts,
+    filings): an unverified CIK may be another company's."""
     row = conn.execute(
-        "SELECT cik FROM ticker_renames WHERE old_ticker = ? AND cik_verified = 1", (ticker,)
+        "SELECT cik, valid_from, valid_to FROM ticker_renames WHERE old_ticker = ? AND cik_verified = 1", (ticker,)
     ).fetchone()
-    return None if row is None or row[0] is None else int(row[0])
+    if row is None or row[0] is None:
+        return None
+    day = _serialize_date(pd.Timestamp(on))
+    if (row[1] and day < row[1]) or (row[2] and day > row[2]):
+        return None
+    return int(row[0])
 
 
 def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> pd.DataFrame:
@@ -889,15 +900,8 @@ def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> 
 
 
 def upsert_tiingo_listing(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert or replace one `tiingo_listings` row (keys as in the schema,
-    `updated_at` filled in here)."""
-    cols = _TIINGO_LISTINGS_COLUMNS
-    values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
-    conn.execute(
-        f"INSERT OR REPLACE INTO tiingo_listings ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
-        values,
-    )
-    conn.commit()
+    """Insert or replace one `tiingo_listings` row (keys as in the schema)."""
+    _upsert_decision(conn, "tiingo_listings", _TIINGO_LISTINGS_COLUMNS, row)
 
 
 def read_tiingo_listings(conn: sqlite3.Connection) -> pd.DataFrame:
@@ -905,14 +909,8 @@ def read_tiingo_listings(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def upsert_symbol_reuse(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert or replace one `symbol_reuse` row (`updated_at` filled in here)."""
-    cols = _SYMBOL_REUSE_COLUMNS
-    values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
-    conn.execute(
-        f"INSERT OR REPLACE INTO symbol_reuse ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
-        values,
-    )
-    conn.commit()
+    """Insert or replace one `symbol_reuse` row (keys as in the schema)."""
+    _upsert_decision(conn, "symbol_reuse", _SYMBOL_REUSE_COLUMNS, row)
 
 
 def read_symbol_reuse(conn: sqlite3.Connection) -> pd.DataFrame:

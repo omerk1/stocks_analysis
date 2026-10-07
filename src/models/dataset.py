@@ -114,10 +114,19 @@ def resolve_sources(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
 ) -> dict[str, str]:
     """ticker -> the `bars_1d.source` its `basis` bars come from. Without
-    `fallback`, every ticker maps to the basis's primary source (no lookup)."""
+    `fallback`, every ticker maps to the basis's primary source (no lookup).
+    With it (the modeling modules), a ticker whose vendor has a whole-history
+    dispute (`price_disputes`, no date: e.g. a reused symbol whose bars are
+    another company's) is left out, so it has no bars at all -- not in the
+    universe, the per-date ranks or the labels."""
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
-    return ticker_sources(conn, tickers, basis, fallback=True)
+    sources = ticker_sources(conn, tickers, basis, fallback=True)
+    return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in _whole_history_disputes()}
+
+
+def _whole_history_disputes() -> set[tuple[str, str]]:
+    return {(d.ticker, d.vendor) for d in DISPUTED_DAYS if d.date is None}
 
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:

@@ -426,3 +426,15 @@ def test_the_disputes_file_loads_and_names_known_vendors():
     assert days and {d.vendor for d in days} <= {price_disputes.YFINANCE, price_disputes.TIINGO}
     assert all(d.reason for d in days)
     assert all(d.date is None or pd.Timestamp(d.date) for d in days)
+
+
+def test_a_whole_history_dispute_removes_the_ticker_from_the_modeling_universe(conn, monkeypatch):
+    from src.foundation.market_common.price_disputes import DisputedDay
+    monkeypatch.setattr(dataset, "DISPUTED_DAYS", (DisputedDay("BBB", None, "yfinance", "reused symbol"),))
+
+    mask = universe_mask(conn, "2020-01-01", "2020-06-30")
+
+    assert not mask.loc[mask["ticker"] == "BBB", "has_bars"].any()
+    assert mask.loc[mask["ticker"] == "AAA", "has_bars"].all()
+    # every other module still reads it
+    assert not dataset.read_bars_bulk(conn, ["BBB"], dataset.LABEL_BASIS, "2020-01-01", "2020-06-30").empty

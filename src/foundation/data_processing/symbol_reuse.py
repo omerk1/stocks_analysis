@@ -23,6 +23,9 @@ decided, not guessed:
 
 A reused symbol only matters if the holder's bars overlap the membership
 window: one reused by a 2020s IPO has no bars in the old member's years.
+`reused` is a name test, so a successor that now files under a new CIK and a
+different name (a holding-company reorganisation, a merger successor) shows
+up as reused too: every row goes through review before it becomes a dispute.
 
 `cik_verified` says whether Polygon's CIK matched the membership-era name
 (as in `ticker_renames`). Each decision is saved as it's made; reruns skip
@@ -67,22 +70,27 @@ def candidates(conn: sqlite3.Connection, indices: list[str], since: str) -> pd.D
         """,
         conn, params=[*indices, db.YFINANCE],
     )
+    today = pd.Timestamp.today().strftime("%Y-%m-%d")
     out = []
     for ticker, group in rows.groupby("ticker"):
         if (group["end_date"] == "9999-12-31").any():
             continue  # a current member
-        start, end = tr._latest_block(group)
+        start, end = tr.latest_block(group)
         if end < since:
             continue
-        out.append((ticker, start, end))
-    return pd.DataFrame(out, columns=["ticker", "valid_from", "valid_to"]).sort_values("ticker", ignore_index=True)
+        # Checked inside [since, today], as `ticker_renames.candidates` does: a
+        # block often starts at the dataset's 1996 floor, before the member used
+        # the symbol, and a midpoint there asks Polygon about the wrong company.
+        out.append((ticker, start, end, max(start, since), min(end, today)))
+    columns = ["ticker", "valid_from", "valid_to", "start_date", "end_date"]
+    return pd.DataFrame(out, columns=columns).sort_values("ticker", ignore_index=True)
 
 
 def decide(row, listing: dict | None, holder_cik: int | None, names: dict[int, list[str]]) -> dict:
     """The outcome for one candidate, given Polygon's as-of `listing`, the
     symbol's current holder CIK, and SEC current/former names per CIK."""
     out = {"ticker": row.ticker, "valid_from": row.valid_from, "valid_to": row.valid_to,
-           "lookup_date": tr.lookup_date(row.valid_from, row.valid_to), "holder_cik": holder_cik}
+           "lookup_date": tr.lookup_date(row.start_date, row.end_date), "holder_cik": holder_cik}
     if holder_cik is not None:
         out["holder_name"] = (names.get(holder_cik) or [None])[0]
     if listing is None or not listing.get("name"):
@@ -103,18 +111,37 @@ def decide(row, listing: dict | None, holder_cik: int | None, names: dict[int, l
     return {**out, "status": "reused"}
 
 
+def _stored_listings(conn: sqlite3.Connection) -> dict[str, dict]:
+    """Polygon answers already in `symbol_reuse`, by ticker, with the date they
+    were asked for -- reused when that date hasn't changed, so re-deciding
+    doesn't repeat ~30 minutes of rate-limited lookups."""
+    stored = {}
+    for r in db.read_symbol_reuse(conn).itertuples(index=False):
+        listing = None
+        if pd.notna(r.polygon_name):
+            listing = {"name": r.polygon_name, "cik": None if pd.isna(r.polygon_cik) else str(int(r.polygon_cik))}
+        stored[r.ticker] = {"as_of": r.lookup_date, "listing": listing}
+    return stored
+
+
 def run(conn: sqlite3.Connection, client: PolygonClient, cik_map: dict[str, int], submissions_zip: str | Path,
-        indices: list[str], since: str, refresh: bool = False) -> pd.DataFrame:
+        indices: list[str], since: str, refresh: bool = False, relookup: bool = False) -> pd.DataFrame:
+    """Decide candidates not decided yet (all with `refresh`), saving each as
+    it's made. Polygon is asked only when no answer is stored for the same
+    lookup date, or for all with `relookup`."""
     todo = candidates(conn, indices, since)
+    stored = {} if relookup else _stored_listings(conn)
     if not refresh:
         todo = todo[~todo["ticker"].isin(set(db.read_symbol_reuse(conn)["ticker"]))]
     with zipfile.ZipFile(submissions_zip) as zf:
         available = set(zf.namelist())
         for row in todo.itertuples(index=False):
-            listing = client.ticker_as_of(row.ticker, tr.lookup_date(row.valid_from, row.valid_to))
+            as_of = tr.lookup_date(row.start_date, row.end_date)
+            known = stored.get(row.ticker)
+            listing = known["listing"] if known and known["as_of"] == as_of else client.ticker_as_of(row.ticker, as_of)
             holder_cik = cik_map.get(row.ticker.replace(".", "-"))
             ciks = {c for c in (holder_cik, int(listing["cik"]) if listing and listing.get("cik") else None) if c}
-            names = {c: tr._company_names(zf, available, c) for c in ciks}
+            names = {c: tr.company_names(zf, available, c) for c in ciks}
             outcome = decide(row, listing, holder_cik, names)
             db.upsert_symbol_reuse(conn, outcome)
             print(f"{row.ticker}: {outcome['status']} ({outcome.get('polygon_name')} -> {outcome.get('holder_name')})",
@@ -127,6 +154,8 @@ def main():
     parser.add_argument("--indices", default="sp500,nasdaq100")
     parser.add_argument("--since", default="2009-01-01", help="Only members whose membership ended after this date")
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in the table")
+    parser.add_argument("--relookup", action="store_true",
+                        help="Ask Polygon again even where a stored answer has the same lookup date (slow: 5/min)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -135,7 +164,7 @@ def main():
     db.create_tables(conn)
     sec_dir = Path(config.data_paths.raw) / "sec"
     table = run(conn, PolygonClient(), sec.load_cik_map(sec_dir / "company_tickers.json"),
-                sec_dir / "submissions.zip", args.indices.split(","), args.since, args.refresh)
+                sec_dir / "submissions.zip", args.indices.split(","), args.since, args.refresh, args.relookup)
     print(table["status"].value_counts().to_string())
     conn.close()
 

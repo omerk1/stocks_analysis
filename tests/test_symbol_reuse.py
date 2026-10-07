@@ -23,7 +23,8 @@ def _bars(conn, ticker):
 
 
 def _row(ticker="BBT"):
-    return pd.Series({"ticker": ticker, "valid_from": "1997-12-04", "valid_to": "2019-12-09"})
+    return pd.Series({"ticker": ticker, "valid_from": "1997-12-04", "valid_to": "2019-12-09",
+                      "start_date": "2009-01-01", "end_date": "2019-12-09"})
 
 
 def test_candidates_are_former_members_with_bars_not_already_in_renames(conn):
@@ -67,9 +68,15 @@ def test_cik_verified_is_set_by_resolve_and_backfilled_from_status(conn):
     db.upsert_ticker_rename(conn, {"old_ticker": "BAD", "status": "name_mismatch", "cik": 2})
     db.upsert_ticker_rename(conn, {"old_ticker": "NONE", "status": "no_listing"})
 
-    assert tr.backfill_cik_verified(conn) == 2
-    assert db.verified_cik(conn, "OK") == 1
-    assert db.verified_cik(conn, "BAD") is None and db.verified_cik(conn, "NONE") is None
+    db.upsert_ticker_rename(conn, {"old_ticker": "UNK", "status": "name_mismatch", "cik": 3,
+                                   "detail": tr.CIK_NOT_IN_SEC, "cik_verified": 0})
+
+    assert tr.backfill_cik_verified(conn) == 3  # OK -> 1, BAD -> 0, UNK 0 -> NULL (unknown, not wrong)
+    assert tr.backfill_cik_verified(conn) == 0  # idempotent
+    flags = dict(conn.execute("SELECT old_ticker, cik_verified FROM ticker_renames").fetchall())
+    assert flags == {"OK": 1, "BAD": 0, "NONE": None, "UNK": None}
+    assert db.verified_cik(conn, "OK", "2015-01-01") == 1
+    assert db.verified_cik(conn, "BAD", "2015-01-01") is None and db.verified_cik(conn, "NONE", "2015-01-01") is None
 
     row = tr.resolve(conn, "YHOO", "2010-01-01", "2015-01-01", {"name": "YAHOO INC", "cik": "316736"}, {},
                      {316736: ["FIELDPOINT PETROLEUM CORP"]})
@@ -87,3 +94,49 @@ def test_a_listing_without_a_name_is_for_review_not_reused():
     out = sr.decide(_row(), {"name": None, "cik": "5"}, 9, {5: ["A"], 9: ["B"]})
 
     assert out["status"] == "no_listing"
+
+
+def test_the_lookup_date_is_inside_the_checked_window_not_the_whole_block(conn):
+    _bars(conn, "BEAM")
+    db.replace_index_membership(conn, "sp500", pd.DataFrame([("BEAM", "1996-01-02", "2014-05-01")],
+                                                            columns=["ticker", "start_date", "end_date"]))
+    row = sr.candidates(conn, ["sp500"], "2009-01-01").iloc[0]
+
+    out = sr.decide(row, None, None, {})
+
+    assert row["valid_from"] == "1996-01-02" and row["start_date"] == "2009-01-01"
+    assert out["lookup_date"] == tr.lookup_date("2009-01-01", "2014-05-01")
+
+
+class _Polygon:
+    def __init__(self):
+        self.calls = []
+
+    def ticker_as_of(self, ticker, as_of):
+        self.calls.append((ticker, as_of))
+        return {"name": "Old Co", "cik": "1"}
+
+
+def test_refresh_reuses_stored_answers_for_the_same_date_and_asks_for_a_new_one(conn, tmp_path):
+    import json, zipfile
+    zip_path = tmp_path / "s.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr(f"CIK{1:010d}.json", json.dumps({"name": "OLD CO", "formerNames": []}))
+    _bars(conn, "OLD")
+    db.replace_index_membership(conn, "sp500", pd.DataFrame([("OLD", "2010-01-01", "2019-12-09")],
+                                                            columns=["ticker", "start_date", "end_date"]))
+    client = _Polygon()
+    sr.run(conn, client, {"OLD": 1}, zip_path, ["sp500"], "2009-01-01")
+    sr.run(conn, client, {"OLD": 1}, zip_path, ["sp500"], "2009-01-01", refresh=True)
+    assert len(client.calls) == 1  # same lookup date: the stored answer is reused
+
+    sr.run(conn, client, {"OLD": 1}, zip_path, ["sp500"], "2012-01-01", refresh=True)
+    assert len(client.calls) == 2  # the window, and so the date, changed
+
+
+def test_verified_cik_holds_only_inside_its_window(conn):
+    db.upsert_ticker_rename(conn, {"old_ticker": "OLD", "status": "no_current_ticker", "cik": 42,
+                                   "cik_verified": 1, "valid_from": "2010-01-01", "valid_to": "2015-12-31"})
+
+    assert db.verified_cik(conn, "OLD", "2012-06-01") == 42
+    assert db.verified_cik(conn, "OLD", "2005-06-01") is None  # an earlier block may be another company
