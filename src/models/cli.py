@@ -166,6 +166,10 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
         if features_dir is not None:
             features = cache.read_feature_cache(features_dir)
             m = features.attrs["manifest"]
+            # The read-outs compare later-delisted (Tiingo-only) members with live ones;
+            # a PREFER_TIINGO ticker is live and read from Tiingo by choice (the
+            # same-ticker gate below covers it).
+            features = features[~features["ticker"].isin(PREFER_TIINGO)]
             tickers = sorted(features["ticker"].unique())
             sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
             bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
