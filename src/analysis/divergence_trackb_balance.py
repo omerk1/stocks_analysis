@@ -57,7 +57,7 @@ def _prepare(frame: pd.DataFrame) -> pd.DataFrame:
 
 def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
     q = """
-    SELECT d.id, d.ticker, d.p2_date, d.direction,
+    SELECT d.id, d.ticker, d.p2_date, d.confirmed_at, d.direction,
            c.impulse_gain_pct, c.interpeak_retrace_frac, c.leg2_bars,
            c.realized_vol_63
     FROM divergences d JOIN divergence_context c ON c.divergence_id = d.id
@@ -71,7 +71,7 @@ def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.Da
 
 def load_controls(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
     q = """
-    SELECT id, ticker, p2_date, direction,
+    SELECT id, ticker, p2_date, confirmed_at, direction,
            impulse_gain_pct, interpeak_retrace_frac, leg2_bars, realized_vol_63
     FROM divergence_control_pairs
     WHERE timeframe = 'daily' AND regular_geometry = 1 AND has_divergence = 0
