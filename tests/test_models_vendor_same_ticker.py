@@ -45,17 +45,40 @@ def test_identical_vendors_pass(conn, paths):
     assert r["auc"] == pytest.approx(0.5, abs=0.05)
 
 
-def test_a_uniform_volume_scale_is_harmless_to_ranked_inputs(conn, paths):
-    # dollar volume reaches the model only as a per-date rank, which a vendor
-    # reporting everyone's volume at ~half doesn't change
-    rng = np.random.default_rng(1)
+def test_a_vendor_wide_volume_scale_fails_though_ranks_agree(conn, paths):
+    # each vendor ranked among its own copies gives equal ranks; in the
+    # dataset Tiingo rows are ranked with yfinance rows, so the raw level counts
     for t, (close, volume) in paths.items():
         _store(conn, t, "yfinance", close, volume)
-        _store(conn, t, "tiingo", close, volume * rng.uniform(0.45, 0.55))
+        _store(conn, t, "tiingo", close, volume * 0.5)
 
     r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
 
-    assert r["passed"]
+    gaps = r["gaps"].set_index("column")
+    assert gaps.loc["log_dollar_volume_20d_rank", "median_gap_sd"] == pytest.approx(0.0, abs=1e-9)
+    assert not r["passed"] and any("log_dollar_volume_20d:" in f for f in r["failures"])
+
+
+def test_a_tell_on_a_minority_of_tickers_fails_on_the_share_rule(conn, paths):
+    rng = np.random.default_rng(3)
+    for i, (t, (close, volume)) in enumerate(paths.items()):
+        _store(conn, t, "yfinance", close, volume)
+        noisy = close * (1 + rng.normal(0, 0.01, len(close))) if i < 2 else close
+        _store(conn, t, "tiingo", noisy, volume)
+
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+
+    assert not r["passed"]
+    assert any("of rows off by" in f for f in r["failures"])
+
+
+def test_a_column_without_spread_is_marked_not_failed():
+    yf = pd.DataFrame({"ticker": ["A", "B"], "date": pd.Timestamp("2020-01-02"), "flat": [1.0, 1.0]})
+
+    gaps = vc.feature_gaps(yf, yf.copy(), ["flat"]).iloc[0]
+
+    assert gaps["no_spread"] and gaps["median_gap_sd"] == 0.0
+    assert vc.gate_failures(vc.feature_gaps(yf, yf.copy(), ["flat"]), 0.5) == []
 
 
 def test_vendor_noise_in_closes_fails(conn, paths):

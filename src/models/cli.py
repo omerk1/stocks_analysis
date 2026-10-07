@@ -148,8 +148,8 @@ def build_features(db_path: Path, out: Path, start: str, end: str, indices: tupl
 
 def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str) -> int:
     """With `features_dir`: the delisted-vs-live read-outs on that feature
-    cache. Always: the same-ticker gate over [start, end] (non-zero exit if it
-    fails)."""
+    cache (descriptive). Always: the same-ticker gate over [start, end] -- the
+    exit code is the gate's, with or without `features_dir`."""
     from src.models import dataset, vendor_check as vc
     from src.models.features import cache
     warnings.filterwarnings("ignore")
@@ -190,9 +190,13 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
         conn.close()
     print(f"Same ticker ({s['n_tickers']} tickers, {start}..{end}; rows {s['n_rows']}):")
     print(s["gaps"].to_string(index=False, float_format=lambda v: f"{v:.4f}"))
-    print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  "
-          f"[pass: AUC <= {vc.SAME_TICKER_MAX_AUC}, every median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD]")
-    print("  PASS" if s["passed"] else "  FAIL: a model input carries the vendor")
+    print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  [pass: AUC <= {vc.SAME_TICKER_MAX_AUC}; "
+          f"per column median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD, <= {vc.SAME_TICKER_MAX_SHARE_OFF:.0%} of rows "
+          f"off by > 0.1 SD, <= {vc.SAME_TICKER_MAX_NAN_MISMATCH:.0%} one-vendor NaN]")
+    spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
+    if spread:
+        print(f"  no spread in the window (gap = share of rows that differ): {spread}")
+    print("  PASS" if s["passed"] else "  FAIL:\n    " + "\n    ".join(s["failures"]))
     return 0 if s["passed"] else 1
 
 

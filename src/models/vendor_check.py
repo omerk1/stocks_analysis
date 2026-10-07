@@ -30,10 +30,15 @@ A fourth read-out, **same ticker** (`same_ticker`), removes that ambiguity:
 live tickers stored on both vendors (Tiingo bars for comparison only; they're
 still read from yfinance everywhere) get every registered feature computed
 twice, once per vendor, on the same dates. Any difference is then the vendor
-alone. It passes when a vendor classifier can't beat `SAME_TICKER_MAX_AUC`
-(within date, ticker-grouped folds) and no model input's median gap reaches
-`SAME_TICKER_MAX_GAP_SD` cross-sectional SDs. First full run (2026-10-07, all 16
-model inputs, 345 tickers): AUC 0.506, largest gap 0.011 SD. Read-only.
+alone. Ranked inputs are compared raw too (each vendor is ranked only among
+its own copies here, which would hide a vendor-wide level shift). It passes
+when a vendor classifier can't beat `SAME_TICKER_MAX_AUC` (within date,
+ticker-grouped folds) and, for every column, the median gap stays under
+`SAME_TICKER_MAX_GAP_SD` cross-sectional SDs, at most
+`SAME_TICKER_MAX_SHARE_OFF` of rows are off by more than 0.1 SD, and at most
+`SAME_TICKER_MAX_NAN_MISMATCH` are missing on one vendor only. First full run (2026-10-07, 345 tickers, the 15
+numeric model inputs plus the 6 ranked ones raw): pass, AUC 0.524, largest median gap
+0.011 SD, at most 3.4% of rows off by > 0.1 SD (adx_14). Read-only.
 """
 
 from __future__ import annotations
@@ -52,6 +57,11 @@ TIINGO_SOURCES = (db.TIINGO, db.TIINGO_SPLIT_ONLY)
 
 SAME_TICKER_MAX_AUC = 0.55
 SAME_TICKER_MAX_GAP_SD = 0.05
+# A tell on a minority of rows leaves the median gap at 0, so the share off
+# matters too. Real data (2026-10-07) peaks at 3.4% (adx_14), from the known
+# corporate-action days (`price_disputes.csv`), and 0.5% NaN mismatch.
+SAME_TICKER_MAX_SHARE_OFF = 0.05
+SAME_TICKER_MAX_NAN_MISMATCH = 0.01
 # Each vendor's bars on each basis, and the splits that go with them.
 VENDOR_SOURCES = {
     "yfinance": {PriceBasis.TOTAL_RETURN: db.YFINANCE, PriceBasis.TRADED: db.YFINANCE_SPLIT_ONLY},
@@ -204,32 +214,56 @@ def feature_gaps(yf: pd.DataFrame, ti: pd.DataFrame, columns: list[str]) -> pd.D
     """Per column, on the (ticker, date) rows both vendors have: the median
     |Tiingo - yfinance| in units of the cross-sectional SD (median over dates
     of the per-date SD of the yfinance values), the share of rows off by more
-    than 0.1 SD, and the share where only one vendor is missing the value."""
+    than 0.1 SD, and the share where only one vendor is missing the value.
+    A column with no spread (constant or empty in the window) has no SD to
+    scale by: it's marked `no_spread` and counts rows that differ at all."""
     j = yf.merge(ti, on=["ticker", "date"], suffixes=("_yf", "_ti"))
     out = []
     for c in columns:
         a, b = j[f"{c}_yf"].astype(float), j[f"{c}_ti"].astype(float)
         both = a.notna() & b.notna()
         sd = a[both].groupby(j.loc[both, "date"]).std().median()
-        gap = (b[both] - a[both]).abs() / sd if sd > 0 else pd.Series(np.nan, index=a[both].index)
-        out.append({"column": c, "median_gap_sd": float(gap.median()), "share_over_0.1sd": float((gap > 0.1).mean()),
-                    "nan_mismatch": float((a.isna() != b.isna()).mean())})
+        diff = (b[both] - a[both]).abs()
+        no_spread = not (sd > 0)
+        gap = (diff > 0).astype(float) if no_spread else diff / sd
+        out.append({"column": c, "median_gap_sd": float(gap.median()) if len(gap) else np.nan,
+                    "share_over_0_1sd": float((gap > 0.1).mean()) if len(gap) else np.nan,
+                    "nan_mismatch": float((a.isna() != b.isna()).mean()), "no_spread": no_spread})
     return pd.DataFrame(out).sort_values("median_gap_sd", ascending=False, ignore_index=True)
+
+
+def gate_failures(gaps: pd.DataFrame, auc: float) -> list[str]:
+    """Why the same-ticker gate fails (empty list = pass)."""
+    out = [] if auc <= SAME_TICKER_MAX_AUC else [f"vendor AUC {auc:.3f} > {SAME_TICKER_MAX_AUC}"]
+    for r in gaps.itertuples(index=False):
+        if not r.median_gap_sd < SAME_TICKER_MAX_GAP_SD:
+            out.append(f"{r.column}: median gap {r.median_gap_sd:.4f} SD")
+        if not r.share_over_0_1sd <= SAME_TICKER_MAX_SHARE_OFF:
+            out.append(f"{r.column}: {r.share_over_0_1sd:.1%} of rows off by > 0.1 SD")
+        if not r.nan_mismatch <= SAME_TICKER_MAX_NAN_MISMATCH:
+            out.append(f"{r.column}: {r.nan_mismatch:.1%} of rows missing on one vendor only")
+    return out
 
 
 def same_ticker(conn, tickers: list[str], start, end, seed: int = 0) -> dict:
     """The same-ticker read-out for `tickers` (stored on both vendors) over
-    [start, end]. `passed` applies SAME_TICKER_MAX_AUC and
-    SAME_TICKER_MAX_GAP_SD to the numeric model inputs (sector is the same
-    value for both vendors of one ticker, so it can't separate them)."""
-    numeric = [registry.model_input(s) for s in registry.model_specs() if s.name != "sector"]
+    [start, end]. Compares the numeric model inputs *and*, for ranked inputs,
+    the raw values: each vendor is ranked only against its own copy of these
+    tickers, so a vendor-wide level shift (every volume at half) leaves the
+    ranks equal here -- yet in the dataset Tiingo-read tickers are ranked
+    together with yfinance-read ones, where that shift would show. Sector is
+    left out (one ticker has the same sector on both vendors)."""
+    if not tickers:
+        raise ValueError("no tickers stored on both vendors")
+    specs = [s for s in registry.model_specs() if s.name != "sector"]
+    columns = [registry.model_input(s) for s in specs] + [s.name for s in specs if s.ranked]
     yf = vendor_features(conn, tickers, "yfinance", start, end)
     ti = vendor_features(conn, tickers, "tiingo", start, end)
-    gaps = feature_gaps(yf, ti, numeric)
+    gaps = feature_gaps(yf, ti, columns)
     rows = pd.concat([yf.assign(tiingo=False), ti.assign(tiingo=True)], ignore_index=True)
-    auc = vendor_auc(rows, numeric, seed=seed)
+    auc = vendor_auc(rows, columns, seed=seed)
+    failures = gate_failures(gaps, auc)
     return {
         "n_tickers": len(tickers), "n_rows": {"yfinance": len(yf), "tiingo": len(ti)},
-        "gaps": gaps, "auc": auc,
-        "passed": bool(auc <= SAME_TICKER_MAX_AUC and (gaps["median_gap_sd"] < SAME_TICKER_MAX_GAP_SD).all()),
+        "gaps": gaps, "auc": auc, "failures": failures, "passed": not failures,
     }

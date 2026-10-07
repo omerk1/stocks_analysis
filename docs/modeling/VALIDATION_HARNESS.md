@@ -340,11 +340,12 @@ in practice means it was later delisted. Delisted members' sectors also come fro
 codes, everyone else's from Yahoo. If Tiingo's bars differ systematically (volume scale,
 gaps), a model could learn "Tiingo-looking" = "will delist". Perturbing the future can't
 show that, so `python -m src.models.cli vendor-check` covers it: a same-ticker gate (live
-tickers stored on both vendors, every model input computed from each; passes when a vendor
-classifier stays at AUC <= 0.55 and every input's median gap is < 0.05 SD, non-zero exit
-otherwise), plus, with `--features`, the delisted-vs-live read-outs. Rerun it whenever a
-model feature is registered. First full run (2026-10-07, 16 inputs, 345 tickers): AUC 0.506,
-largest gap 0.011 SD (Done #87, #89).
+tickers stored on both vendors, every model input, and the raw value behind each ranked one,
+computed from each; passes when a vendor classifier stays at AUC <= 0.55 and, per column,
+the median gap is < 0.05 SD, <= 5% of rows are off by > 0.1 SD and <= 1% are missing on one
+vendor only; non-zero exit otherwise), plus, with `--features`, the delisted-vs-live
+read-outs. Rerun it whenever a model feature is registered. First full run (2026-10-07,
+345 tickers, 21 columns): pass, AUC 0.524, largest median gap 0.011 SD (Done #87, #89).
 
 ---
 
