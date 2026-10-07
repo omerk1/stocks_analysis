@@ -54,19 +54,27 @@ CREATE TABLE IF NOT EXISTS divergence_context (
     leg2_gain_pct REAL,
     leg2_bars INTEGER,
     atr_contraction REAL,
+    realized_vol_63 REAL,
     run_id TEXT
 );
 """
+
+# Columns added after the table first shipped (#164) -- same accumulating
+# additive-migration pattern as store.py's, for the same reason: the live
+# shared table can be any age.
+_MIGRATED_COLUMNS: dict[str, str] = {
+    "realized_vol_63": "REAL",  # Track-B matching covariate (PREREG "Controls")
+}
 
 _UPSERT_SQL = """
 INSERT INTO divergence_context
     (divergence_id, ticker, timeframe, p2_date, confirmed_at,
      impulse_gain_pct, interpeak_retrace_pct, interpeak_retrace_frac,
-     leg2_gain_pct, leg2_bars, atr_contraction, run_id)
+     leg2_gain_pct, leg2_bars, atr_contraction, realized_vol_63, run_id)
 VALUES
     (:divergence_id, :ticker, :timeframe, :p2_date, :confirmed_at,
      :impulse_gain_pct, :interpeak_retrace_pct, :interpeak_retrace_frac,
-     :leg2_gain_pct, :leg2_bars, :atr_contraction, :run_id)
+     :leg2_gain_pct, :leg2_bars, :atr_contraction, :realized_vol_63, :run_id)
 ON CONFLICT (divergence_id) DO UPDATE SET
     impulse_gain_pct = excluded.impulse_gain_pct,
     interpeak_retrace_pct = excluded.interpeak_retrace_pct,
@@ -74,13 +82,28 @@ ON CONFLICT (divergence_id) DO UPDATE SET
     leg2_gain_pct = excluded.leg2_gain_pct,
     leg2_bars = excluded.leg2_bars,
     atr_contraction = excluded.atr_contraction,
+    realized_vol_63 = excluded.realized_vol_63,
     run_id = excluded.run_id
 """
 
 
 def create_context_table(conn: sqlite3.Connection) -> None:
     conn.execute(_CONTEXT_SCHEMA)
+    have = {row[1] for row in conn.execute("PRAGMA table_info(divergence_context)")}
+    for name, sql_type in _MIGRATED_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE divergence_context ADD COLUMN {name} {sql_type}")
     conn.commit()
+
+
+def realized_vol_63(close: pd.Series) -> pd.Series:
+    """Trailing 63-bar std of daily log returns, aligned so position i uses
+    returns through bar i. NaN during warmup (needs the full window --
+    derived features preserve their inputs' missingness). The Track-B
+    matching covariate (PREREGISTRATION "Controls"); lives here so
+    controls.py can share it without an import cycle."""
+    log_ret = np.log(close).diff()
+    return log_ret.rolling(63).std()
 
 
 def _nan_to_none(x) -> float | None:
@@ -101,6 +124,7 @@ def compute_context_for_ticker(
     frames directly.
     """
     close = bars["close"]
+    vol = realized_vol_63(close)
     out: list[dict] = []
 
     for ev in events.itertuples(index=False):
@@ -165,6 +189,7 @@ def compute_context_for_ticker(
         atr_contraction = (
             a2 / a1 if (pd.notna(a1) and a1 > 0 and pd.notna(a2)) else np.nan
         )
+        vol_at_p2 = vol.iloc[i2]
 
         out.append(
             {
@@ -179,6 +204,7 @@ def compute_context_for_ticker(
                 "leg2_gain_pct": _nan_to_none(leg2_gain),
                 "leg2_bars": int(leg2_bars),
                 "atr_contraction": _nan_to_none(atr_contraction),
+                "realized_vol_63": _nan_to_none(vol_at_p2),
             }
         )
 

@@ -1,0 +1,133 @@
+"""Track-B match-quality (balance) report -- PREREGISTRATION.md
+prerequisite 3. COVARIATES ONLY: no outcome column is read anywhere in
+this module, so the matching can be reviewed and tuned before anything is
+unblinded, without multiple-testing consequences.
+
+Assembles the two sides exactly as the eventual run script will:
+
+- Events: RSI regular divergences, p2 in 2010-01-01..2021-12-31, PIT
+  S&P 500 + Nasdaq-100 membership at p2 (rename-aware), context class
+  from the stored scalars (extension / pullback_rebuild poles only).
+- Controls: divergence_control_pairs rows with regular geometry, NO
+  stored divergence on the swing (has_divergence = 0), same window,
+  membership, and classification.
+
+Then matches per the pre-registration (month cell, +/-1-bin caliper on
+pooled impulse deciles and vol quintiles, <=3:1, without replacement,
+seeded) and prints SMD before/after per direction x context class.
+
+Usage: python -m src.analysis.divergence_trackb_balance
+"""
+
+from __future__ import annotations
+
+import argparse
+
+import pandas as pd
+
+from src.foundation.market_common import derived_db
+from src.signals.divergences.matching import (
+    balance_report,
+    classify_context,
+    match_controls,
+)
+from src.analysis.divergence_context_step0 import _apply_renames_local, INDEX_NAMES
+from src.foundation.data_processing import db
+
+DEV_START = "2010-01-01"
+DEV_END = "2021-12-31"
+MATCH_SEED = 20261007
+
+
+def _membership_intervals(raw_conn) -> dict[str, list[tuple]]:
+    intervals = pd.concat(
+        [
+            _apply_renames_local(raw_conn, db.read_index_membership(raw_conn, name))
+            for name in INDEX_NAMES
+        ],
+        ignore_index=True,
+    )
+    intervals["start"] = pd.to_datetime(intervals["start_date"])
+    intervals["end"] = pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max)
+    by_ticker: dict[str, list[tuple]] = {}
+    for row in intervals.itertuples(index=False):
+        by_ticker.setdefault(row.ticker, []).append((row.start, row.end))
+    return by_ticker
+
+
+def _pit_filter(frame: pd.DataFrame, by_ticker: dict) -> pd.DataFrame:
+    p2 = pd.to_datetime(frame["p2_date"])
+    keep = [
+        any(s <= ts <= e for s, e in by_ticker.get(t, ()))
+        for t, ts in zip(frame["ticker"], p2)
+    ]
+    return frame[pd.Series(keep, index=frame.index)]
+
+
+def _prepare(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = frame.copy()
+    frame["context_class"] = [
+        classify_context(r, b)
+        for r, b in zip(frame["interpeak_retrace_frac"], frame["leg2_bars"])
+    ]
+    frame = frame[frame["context_class"].notna()]
+    frame["p2_month"] = pd.to_datetime(frame["p2_date"]).dt.strftime("%Y-%m")
+    return frame
+
+
+def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
+    q = """
+    SELECT d.id, d.ticker, d.p2_date, d.direction,
+           c.impulse_gain_pct, c.interpeak_retrace_frac, c.leg2_bars,
+           c.realized_vol_63
+    FROM divergences d JOIN divergence_context c ON c.divergence_id = d.id
+    WHERE d.timeframe = 'daily' AND d.form = 'regular' AND d.indicator = 'rsi'
+      AND d.p2_date >= ? AND d.p2_date <= ?
+    """
+    events = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
+    by_ticker = membership if membership is not None else _membership_intervals(raw_conn)
+    return _prepare(_pit_filter(events, by_ticker))
+
+
+def load_controls(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
+    q = """
+    SELECT id, ticker, p2_date, direction,
+           impulse_gain_pct, interpeak_retrace_frac, leg2_bars, realized_vol_63
+    FROM divergence_control_pairs
+    WHERE timeframe = 'daily' AND regular_geometry = 1 AND has_divergence = 0
+      AND p2_date >= ? AND p2_date <= ?
+    """
+    controls = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
+    by_ticker = membership if membership is not None else _membership_intervals(raw_conn)
+    return _prepare(_pit_filter(controls, by_ticker))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.parse_args()
+    raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
+
+    membership = _membership_intervals(raw_conn)
+    events = load_events(derived_conn, raw_conn, membership)
+    controls = load_controls(derived_conn, raw_conn, membership)
+
+    print(f"events (RSI regular, PIT, classified): {len(events)}  by cell:")
+    print(events.groupby(["direction", "context_class"]).size().to_string())
+    print(f"\ncontrol pool (regular geometry, no divergence, PIT, classified): {len(controls)}  by cell:")
+    print(controls.groupby(["direction", "context_class"]).size().to_string())
+
+    matches = match_controls(events, controls, seed=MATCH_SEED)
+    matched_rate = matches["event_id"].nunique() / len(events) if len(events) else float("nan")
+    print(f"\nmatches: {len(matches)} rows; events with >=1 control: {matched_rate:.1%}")
+
+    report = balance_report(events, controls, matches)
+    pd.set_option("display.width", 160)
+    print("\nbalance (SMD before = events vs full pool; after = events vs matched):")
+    print(report.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+
+    raw_conn.close()
+    derived_conn.close()
+
+
+if __name__ == "__main__":
+    main()
