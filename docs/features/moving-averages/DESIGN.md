@@ -1240,6 +1240,25 @@ resolution now, with no concrete case to resolve it against, is exactly what thi
 note originally declined to do and that reasoning still holds for that case
 specifically.
 
+**2026-10-07 addendum — Tier 4 carries two distinct reads: demonstrated null and
+inconclusive.** This table's Tier-4 criterion, "no effect beyond control (CI includes
+zero)", conflates two verdicts: a **demonstrated null** (the entire CI sits inside the
+cell's pre-registered economic-relevance floor — an effect big enough to matter is
+affirmatively ruled out) and an **inconclusive/underpowered** cell (the CI includes
+zero but extends beyond the floor — the data couldn't tell). Both remain Tier 4 —
+neither is actionable evidence, and re-tiering finished modules is not warranted — but
+the distinction lives in the ledger's `outcome` column: demonstrated nulls keep
+dead-type outcomes (`no_effect` and kin); underpowered cells carry
+`inconclusive_*` outcomes. 117 historical rows whose zero-spanning CI exceeded their
+own floor were relabeled accordingly, with the original outcome preserved per row in
+`EXPERIMENTS.csv`'s `correction_2026_10` column — see `PREREGISTRATION.md`'s
+2026-10-07 cross-module verdict-correction addendum for the rule, floors, and full
+cell list. Only a demonstrated null earns the do-not-revisit fence; an inconclusive
+cell may be revisited under a dated power amendment (era pooling, longer window).
+Three-verdict reference wording: `docs/features/divergence-context/PREREGISTRATION.md`
+"Verdicts and kill criteria"; the forward-looking modeling-side rule is in
+`docs/modeling/LRP.md` §3.
+
 ### 9.3 Dead-ends register format
 
 For each: hypothesis, why it was plausible, exactly what was run, the number that killed it, effective N, and **the conditions under which it would be worth revisiting**. This section is as valuable as the positive results and takes discipline to write well. It is also the part of the report you will personally re-read most often.
@@ -1251,6 +1270,13 @@ EXPERIMENTS.csv` (one row per tested cell, every tier, not a file reserved for T
 only) rather than a dedicated interim file — assemble this report section by filtering
 that ledger to `outcome == no_effect` when the final report is written, rather than
 looking for a standalone dead-ends file that no longer exists during the study itself.
+**2026-10-07:** after the cross-module verdict correction (§9.2's addendum of the same
+date), this filter is correct again by construction: the 117 underpowered rows that
+previously matched it now carry `inconclusive_*` outcomes and are excluded — what the
+filter returns is demonstrated nulls only. (M6.4's null-envelope rows keep their own
+`consistent_with_gbm_null` outcome and never matched this filter; add them to the
+register deliberately, as before.) Do not "fix" the filter by adding `inconclusive_*`
+outcomes back in.
 
 ---
 
