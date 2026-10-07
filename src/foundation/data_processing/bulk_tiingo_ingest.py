@@ -2,6 +2,7 @@
                                                              [--retry-status name_mismatch,...]
 python -m src.foundation.data_processing.bulk_tiingo_ingest --backfill-splits   # splits for stored listings
 python -m src.foundation.data_processing.bulk_tiingo_ingest --store-preferred   # vendor_overrides.PREFER_TIINGO
+python -m src.foundation.data_processing.bulk_tiingo_ingest --store-tickers A,B # live tickers for the vendor check
 
 Daily bars from Tiingo for index members that have no prices anywhere else:
 the members `ticker_renames.py` checked and could not map to a current symbol
@@ -274,6 +275,9 @@ def main():
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in tiingo_listings")
     parser.add_argument("--store-preferred", action="store_true",
                         help="Only fetch the vendor_overrides.PREFER_TIINGO tickers (one request each)")
+    parser.add_argument("--store-tickers",
+                        help="Comma-separated tickers to store from Tiingo as-is (one request each), e.g. live "
+                             "tickers for `src.models.cli vendor-check`'s same-ticker comparison")
     parser.add_argument("--backfill-splits", action="store_true",
                         help="Only fetch split histories for already-stored listings (one request each)")
     parser.add_argument("--retry-status", help="Comma-separated stored statuses to re-decide (e.g. name_mismatch)")
@@ -283,8 +287,8 @@ def main():
     config = load_config()
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
-    if args.store_preferred:
-        store_preferred(conn, TiingoClient())
+    if args.store_preferred or args.store_tickers:
+        store_preferred(conn, TiingoClient(), args.store_tickers.split(",") if args.store_tickers else None)
         conn.close()
         return
     if args.backfill_splits:

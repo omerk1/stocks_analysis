@@ -343,7 +343,13 @@ vendor. A ticker is read from Tiingo only when yfinance has no bars for it at al
 in practice means it was later delisted. Delisted members' sectors also come from SEC SIC
 codes, everyone else's from Yahoo. If Tiingo's bars differ systematically (volume scale,
 gaps), a model could learn "Tiingo-looking" = "will delist". Perturbing the future can't
-show that. It's checked before E1 (`docs/backlog.md`).
+show that, so `python -m src.models.cli vendor-check` covers it: a same-ticker gate (live
+tickers stored on both vendors, every model input, and the raw value behind each ranked one,
+computed from each; passes when a vendor classifier stays at AUC <= 0.55 and, per column,
+the median gap is < 0.05 SD, <= 5% of rows are off by > 0.1 SD and <= 1% are missing on one
+vendor only; non-zero exit otherwise), plus, with `--features`, the delisted-vs-live
+read-outs. Rerun it whenever a model feature is registered. First full run (2026-10-07,
+345 tickers, 21 columns): pass, AUC 0.524, largest median gap 0.011 SD (Done #87, #91).
 
 ---
 
