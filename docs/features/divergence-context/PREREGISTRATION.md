@@ -220,3 +220,34 @@ than left to git history:
 3. Matching implementation + match-quality report (covariate balance before/after).
 4. The run itself happens only after this file's content is frozen by its final
    pre-run commit; any later scope change is a dated addendum.
+
+---
+
+## Addendum 2026-10-09 — pre-unblinding clarifications (user-approved)
+
+Appended per the frozen header's rule, **before any outcome was computed** (the
+run script's blind gate had not been crossed), prompted by code review of the run
+script (PR #186). Three clarifications of registered definitions; no hypothesis,
+threshold, outcome, or verdict category changes.
+
+1. **Sign convention of the binary-vs-continuous gate.** The frozen kill
+   criterion reads "the binary and continuous formulations disagree in sign."
+   The binary DiD is defined extension-minus-pullback, while the continuous
+   cell's b3 is the per-unit-retrace slope of the divergence effect — so a real
+   context effect produces *opposite* signs in the two formulations by
+   construction. The gate's registered intent is agreement about the underlying
+   effect direction: **the formulations agree iff sign(DiD) × sign(b3) < 0.**
+2. **Cost band for the continuous cells.** The 20 bps hurdle and the Dead band
+   are defined in round-trip return units; b3 is a slope per unit retrace
+   fraction. For DC-B1c/B2c the band applies to **b3 scaled to return units by
+   the inter-pole retrace gap** (median retrace of the pullback pole minus
+   median of the extension pole, pooled events+controls, per direction) — a
+   covariates-only quantity, computed and printable blind.
+3. **Plateau and gate scoping.** The 3×3 plateau is evaluated **at each cell's
+   own horizon**; the binary-vs-continuous gate is direction-level as frozen
+   (the registered grid has no 21d continuous cell). Each plateau neighbor is a
+   full re-classification AND re-matching from the unfiltered event/control
+   frames (reclassifying the frozen-threshold panel would deny widening
+   neighbors the buffer-band and deep-fast events their definitions include).
+   Finite neighbors must agree in sign; an incomputable neighbor is absence of
+   evidence, not disagreement, and the finite count is reported per cell.

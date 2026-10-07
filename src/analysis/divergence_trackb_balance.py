@@ -44,20 +44,29 @@ def _pit_filter(frame: pd.DataFrame, by_ticker: dict) -> pd.DataFrame:
     return frame[pit_member_mask(frame, by_ticker)]
 
 
-def _prepare(frame: pd.DataFrame) -> pd.DataFrame:
+def _prepare(frame: pd.DataFrame, require_class: bool = True) -> pd.DataFrame:
+    """Classify-but-keep by default is NOT an option here: `require_class`
+    filters to the two frozen poles, which the binary/matching path needs.
+    The run script passes require_class=False because the frozen c-cells
+    'use every event including the band' -- dropping band/deep-fast rows
+    before they reach the continuous regression was the bug #186's review
+    caught."""
     frame = frame.copy()
     frame["context_class"] = [
         classify_context(r, b)
         for r, b in zip(frame["interpeak_retrace_frac"], frame["leg2_bars"])
     ]
-    frame = frame[frame["context_class"].notna()]
+    if require_class:
+        frame = frame[frame["context_class"].notna()]
     frame["p2_month"] = pd.to_datetime(frame["p2_date"]).dt.strftime("%Y-%m")
     return frame
 
 
-def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
+def load_events(
+    derived_conn, raw_conn, membership: dict | None = None, require_class: bool = True
+) -> pd.DataFrame:
     q = """
-    SELECT d.id, d.ticker, d.p2_date, d.direction,
+    SELECT d.id, d.ticker, d.p2_date, d.confirmed_at, d.direction,
            c.impulse_gain_pct, c.interpeak_retrace_frac, c.leg2_bars,
            c.realized_vol_63
     FROM divergences d JOIN divergence_context c ON c.divergence_id = d.id
@@ -66,12 +75,14 @@ def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.Da
     """
     events = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
     by_ticker = membership if membership is not None else membership_intervals(raw_conn)
-    return _prepare(_pit_filter(events, by_ticker))
+    return _prepare(_pit_filter(events, by_ticker), require_class=require_class)
 
 
-def load_controls(derived_conn, raw_conn, membership: dict | None = None) -> pd.DataFrame:
+def load_controls(
+    derived_conn, raw_conn, membership: dict | None = None, require_class: bool = True
+) -> pd.DataFrame:
     q = """
-    SELECT id, ticker, p2_date, direction,
+    SELECT id, ticker, p2_date, confirmed_at, direction,
            impulse_gain_pct, interpeak_retrace_frac, leg2_bars, realized_vol_63
     FROM divergence_control_pairs
     WHERE timeframe = 'daily' AND regular_geometry = 1 AND has_divergence = 0
@@ -79,7 +90,7 @@ def load_controls(derived_conn, raw_conn, membership: dict | None = None) -> pd.
     """
     controls = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
     by_ticker = membership if membership is not None else membership_intervals(raw_conn)
-    return _prepare(_pit_filter(controls, by_ticker))
+    return _prepare(_pit_filter(controls, by_ticker), require_class=require_class)
 
 
 def main() -> None:
