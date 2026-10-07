@@ -40,26 +40,50 @@ def compute_forward_returns(
     confirmed_at: pd.Series,
     horizons: tuple[int, ...] = HORIZONS,
     data_end: str | pd.Timestamp | None = None,
+    delisted: bool | None = None,
 ) -> pd.DataFrame:
     """One output row per input confirmation timestamp (index preserved):
-    entry_date, entry_price, and per horizon h: fwd_log_ret_{h} plus
-    truncated_{h}. Entries with no bar after their confirmation (confirmed
-    on the data's last bar) get all-None returns and entry fields.
+    entry_date, entry_price, and per horizon h: fwd_log_ret_{h},
+    truncated_{h} (delisting-shortened, return kept), censored_{h}
+    (window hit the data boundary, return absent). The three missingness
+    cases stay distinguishable: censored (censored=True), corrupt exit
+    bar (flags False, return absent), never entered (everything None).
 
-    `data_end` is the boundary the bars were loaded to (the run passes its
-    as_of). With it set, a series ending at that boundary is CENSORED --
-    unfinished horizons return None -- while a series ending earlier is a
-    delisting whose terminal return is kept and flagged truncated. Without
-    it (data_end=None), every early end is treated as a delisting --
-    only correct when the caller knows the data runs past every horizon."""
+    `data_end` is the study boundary and is enforced FAIL-CLOSED: no
+    entry or exit past it produces anything, however far the caller's
+    loaded bars extend. `delisted` (e.g. from the tickers table's active
+    status) overrides the end-of-series classification; without it a
+    calendar tolerance infers censoring, with documented misclassification
+    at >tolerance halts and boundary-adjacent delistings. Without
+    data_end, every early series end is treated as a delisting -- only
+    correct when the caller knows the data runs past every horizon."""
     opens = bars["open"].to_numpy()
     closes = bars["close"].to_numpy()
     n = len(bars)
-    censored_at_end = False
+
+    # The hard boundary, enforced FAIL-CLOSED: no exit (or entry) bar past
+    # data_end ever produces a return, regardless of how far the caller's
+    # loaded bars extend -- relying on every caller to slice with as_of
+    # would make a holdout read one forgotten argument away. last_legal is
+    # the last bar position whose timestamp is <= data_end.
+    last_legal = n - 1
     if data_end is not None and n > 0:
-        censored_at_end = bars.index[-1] >= pd.Timestamp(data_end) - pd.Timedelta(
+        last_legal = int(bars.index.searchsorted(pd.Timestamp(data_end), side="right")) - 1
+
+    # Is the (legal part of the) series ending because the DATA ends
+    # (censoring) or because the TICKER did (delisting)? An explicit
+    # `delisted` flag from the caller (e.g. the tickers table's active
+    # status) wins; the calendar-tolerance inference is only the
+    # no-information fallback, and misclassifies both a >tolerance halt at
+    # the boundary and a genuine delisting inside the tolerance.
+    if delisted is not None:
+        censored_at_end = not delisted
+    elif data_end is not None and n > 0:
+        censored_at_end = bars.index[min(last_legal, n - 1)] >= pd.Timestamp(data_end) - pd.Timedelta(
             days=CENSOR_TOLERANCE_DAYS
         )
+    else:
+        censored_at_end = False
 
     out: list[dict] = []
     conf_ts = pd.to_datetime(confirmed_at)
@@ -69,7 +93,8 @@ def compute_forward_returns(
         for h in horizons:
             row[f"fwd_log_ret_{h}"] = None
             row[f"truncated_{h}"] = None
-        if pos >= n:
+            row[f"censored_{h}"] = None
+        if pos > last_legal or pos >= n:
             out.append(row)
             continue
         entry_price = opens[pos]
@@ -80,17 +105,27 @@ def compute_forward_returns(
             continue
         for h in horizons:
             exit_pos = pos + h - 1  # entry bar is held bar 1
-            truncated = exit_pos >= n
-            if truncated and censored_at_end:
-                # The window runs into the loaded boundary, not a
-                # delisting: no return for this horizon.
+            short = exit_pos > last_legal
+            if short and (censored_at_end or last_legal < n - 1):
+                # The window runs into the loaded/legal boundary (either
+                # the series is censored at its end, or data_end cut the
+                # loaded bars short): no return, flagged censored --
+                # distinct from both delisting truncation and a bad bar.
+                row[f"censored_{h}"] = True
                 continue
-            if truncated:
-                exit_pos = n - 1
+            if short:
+                exit_pos = last_legal  # delisting: terminal return, kept
             exit_price = closes[exit_pos]
             if np.isfinite(exit_price) and exit_price > 0:
                 row[f"fwd_log_ret_{h}"] = float(np.log(exit_price / entry_price))
-                row[f"truncated_{h}"] = bool(truncated)
+                row[f"truncated_{h}"] = bool(short)
+                row[f"censored_{h}"] = False
+            else:
+                # Corrupt/NaN exit bar: a DATA-QUALITY hole, marked
+                # distinctly (flags set, return absent) so per-horizon
+                # exclusion accounting can tell it from censoring.
+                row[f"truncated_{h}"] = False
+                row[f"censored_{h}"] = False
         out.append(row)
 
     return pd.DataFrame(out, index=confirmed_at.index)

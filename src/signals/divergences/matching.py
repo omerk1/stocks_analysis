@@ -15,8 +15,12 @@ no outcome column ever enters this module, so the balance report can run
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 MAX_CONTROLS_PER_EVENT = 3
 N_IMPULSE_BINS = 10
@@ -103,9 +107,18 @@ def match_controls(
         ev_mask = (events["direction"] == direction) & (events["context_class"] == cls)
         ct_mask = (controls["direction"] == direction) & (controls["context_class"] == cls)
         for cov, (bin_col, n_bins) in covariate_bins.items():
-            edges = quantile_edges(
-                pd.concat([events.loc[ev_mask, cov], controls.loc[ct_mask, cov]]), n_bins
-            )
+            pooled = pd.concat([events.loc[ev_mask, cov], controls.loc[ct_mask, cov]])
+            edges = quantile_edges(pooled, n_bins)
+            # A sparse cell can yield degenerate edges, which would make
+            # the +/-1-bin caliper silently vacuous for this covariate --
+            # degrade LOUDLY so a balance report is never built on a
+            # caliper that didn't apply.
+            if pooled.notna().sum() < 2 * n_bins or np.unique(edges[~np.isnan(edges)]).size < 2:
+                logger.warning(
+                    "matching: caliper on %s is vacuous in cell (%s, %s) -- "
+                    "%d non-NaN pooled values, degenerate quantile edges",
+                    cov, direction, cls, int(pooled.notna().sum()),
+                )
             events.loc[ev_mask, bin_col] = assign_bucket(events.loc[ev_mask, cov], edges)
             controls.loc[ct_mask, bin_col] = assign_bucket(controls.loc[ct_mask, cov], edges)
 
@@ -126,28 +139,38 @@ def match_controls(
 
     order = events.dropna(subset=bin_cols).index.to_numpy().copy()
     rng.shuffle(order)
-    for idx in order:
-        ev = events.loc[idx]
-        key = tuple(ev[c] for c in cell_cols)
-        pool = controls_by_cell.get(key)
-        if pool is None:
-            continue
-        available = pool[
-            ~pool["id"].isin(used)
-            & ((pool["impulse_bin"] - ev["impulse_bin"]).abs() <= 1)
-            & ((pool["vol_bin"] - ev["vol_bin"]).abs() <= 1)
-            & ((pool["retrace_bin"] - ev["retrace_bin"]).abs() <= 1)
-        ]
-        if available.empty:
-            continue
-        dist = (available["impulse_gain_pct"] - ev["impulse_gain_pct"]).abs()
-        ret_dist = (available["interpeak_retrace_frac"] - ev["interpeak_retrace_frac"]).abs()
-        vol_dist = (available["realized_vol_63"] - ev["realized_vol_63"]).abs()
-        ranked = available.assign(_d=dist, _r=ret_dist, _v=vol_dist).sort_values(["_d", "_r", "_v", "id"])
-        take = ranked.head(max_per_event)
-        for rank, ctrl in enumerate(take.itertuples(index=False), start=1):
-            used.add(ctrl.id)
-            matches.append({"event_id": ev["id"], "control_id": ctrl.id, "rank": rank})
+    # BREADTH-FIRST rounds (amended 2026-10-08): every event receives its
+    # rank-r control before any event receives rank r+1. Depth-first
+    # take-3 let an early-shuffled event empty a scarce cell's caliper
+    # and starve later events -- part of the thin extension arms' low
+    # matched counts was match-ORDER artifact, not pool scarcity. Rank-1
+    # matches are identical to depth-first's; total matched events is
+    # strictly >= at the same <=max ratio.
+    for rank in range(1, max_per_event + 1):
+        for idx in order:
+            ev = events.loc[idx]
+            key = tuple(ev[c] for c in cell_cols)
+            pool = controls_by_cell.get(key)
+            if pool is None:
+                continue
+            available = pool[
+                ~pool["id"].isin(used)
+                & ((pool["impulse_bin"] - ev["impulse_bin"]).abs() <= 1)
+                & ((pool["vol_bin"] - ev["vol_bin"]).abs() <= 1)
+                & ((pool["retrace_bin"] - ev["retrace_bin"]).abs() <= 1)
+            ]
+            if available.empty:
+                continue
+            dist = (available["impulse_gain_pct"] - ev["impulse_gain_pct"]).abs()
+            ret_dist = (available["interpeak_retrace_frac"] - ev["interpeak_retrace_frac"]).abs()
+            vol_dist = (available["realized_vol_63"] - ev["realized_vol_63"]).abs()
+            ctrl = (
+                available.assign(_d=dist, _r=ret_dist, _v=vol_dist)
+                .sort_values(["_d", "_r", "_v", "id"])
+                .iloc[0]
+            )
+            used.add(ctrl["id"])
+            matches.append({"event_id": ev["id"], "control_id": ctrl["id"], "rank": rank})
 
     return pd.DataFrame(matches, columns=["event_id", "control_id", "rank"])
 
@@ -160,6 +183,24 @@ def standardized_mean_difference(a: pd.Series, b: pd.Series) -> float:
     if not np.isfinite(pooled_sd) or pooled_sd == 0:
         return float("nan")
     return float((a.mean() - b.mean()) / pooled_sd)
+
+
+def weighted_smd(a: pd.Series, b: pd.Series, b_weights: pd.Series) -> float:
+    """SMD with a weighted control side -- the balance metric must match
+    the analysis weighting: the DiD averages per EVENT, so an event's k
+    controls each carry weight 1/k, and an unweighted pooled mean would
+    let 3-control events dominate 1-control events."""
+    a = a.dropna()
+    mask = b.notna() & b_weights.notna()
+    b, w = b[mask], b_weights[mask]
+    if a.empty or b.empty or w.sum() <= 0:
+        return float("nan")
+    wmean = float(np.average(b, weights=w))
+    wvar = float(np.average((b - wmean) ** 2, weights=w))
+    pooled_sd = np.sqrt((a.var(ddof=1) + wvar) / 2)
+    if not np.isfinite(pooled_sd) or pooled_sd == 0:
+        return float("nan")
+    return float((a.mean() - wmean) / pooled_sd)
 
 
 BALANCE_COVARIATES = [
@@ -176,8 +217,15 @@ def balance_report(
     The before side deliberately includes events matching failed to serve
     -- they skew toward the covariate extremes, and excluding them (an
     earlier bug) understates pre-match imbalance and flatters the
-    shrinkage. Covariates only, no outcomes."""
-    matched_controls = controls[controls["id"].isin(matches["control_id"])]
+    shrinkage. The after side weights each control 1/k of its event, so
+    the metric matches the per-event-weighted estimand the DiD uses.
+    Covariates only, no outcomes."""
+    per_event_k = matches.groupby("event_id").size()
+    weight_by_control = {
+        row.control_id: 1.0 / per_event_k[row.event_id] for row in matches.itertuples(index=False)
+    }
+    matched_controls = controls[controls["id"].isin(matches["control_id"])].copy()
+    matched_controls["_w"] = matched_controls["id"].map(weight_by_control)
     matched_events = events[events["id"].isin(matches["event_id"])]
     rows = []
     for (direction, cls), ev_all in events.groupby(["direction", "context_class"]):
@@ -195,7 +243,7 @@ def balance_report(
                     "context_class": cls,
                     "covariate": cov,
                     "smd_before": standardized_mean_difference(ev_all[cov], pool[cov]),
-                    "smd_after": standardized_mean_difference(m_ev[cov], mctrl[cov]),
+                    "smd_after": weighted_smd(m_ev[cov], mctrl[cov], mctrl["_w"]),
                     "n_events": len(ev_all),
                     "n_matched_events": len(m_ev),
                     "n_pool": len(pool),

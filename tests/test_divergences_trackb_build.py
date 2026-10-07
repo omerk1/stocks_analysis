@@ -215,16 +215,85 @@ def test_forward_returns_censoring_at_data_end_is_not_a_delisting():
     confirmed = pd.Series([bars.index[1].isoformat()])
 
     # Series ends AT the loaded boundary: the unfinished horizon is
-    # censored (None), not a kept terminal return...
+    # censored (None, with the distinct flag), not a kept terminal return...
     censored = compute_forward_returns(bars, confirmed, horizons=(21,), data_end=bars.index[-1])
     assert pd.isna(censored.iloc[0]["fwd_log_ret_21"])
+    assert censored.iloc[0]["censored_21"]
     # ...while the same series with data running well past its end is a
     # genuine delisting: terminal return kept and flagged.
     delisted = compute_forward_returns(
         bars, confirmed, horizons=(21,), data_end=bars.index[-1] + pd.Timedelta(days=90)
     )
     assert delisted.iloc[0]["truncated_21"]
+    assert not delisted.iloc[0]["censored_21"]
     assert delisted.iloc[0]["fwd_log_ret_21"] == pytest.approx(np.log(10.0 / bars["open"].iloc[2]))
+
+
+def test_forward_returns_data_end_is_a_hard_boundary_even_with_longer_bars():
+    # FAIL-CLOSED: bars loaded past data_end must never produce an exit
+    # beyond it -- a full-history load plus a holdout-edge data_end is one
+    # forgotten as_of away from a silent holdout read otherwise.
+    closes = [100.0 + i for i in range(40)]
+    bars = _bars(closes)
+    confirmed = pd.Series([bars.index[10].isoformat()])
+    boundary = bars.index[15]  # data continues 24 bars past it
+
+    out = compute_forward_returns(bars, confirmed, horizons=(21,), data_end=boundary)
+
+    assert pd.isna(out.iloc[0]["fwd_log_ret_21"])  # exit would be past the boundary
+    assert out.iloc[0]["censored_21"]
+    # A horizon that fits inside the boundary still computes normally.
+    short = compute_forward_returns(bars, confirmed, horizons=(3,), data_end=boundary)
+    assert short.iloc[0]["fwd_log_ret_3"] is not None and not short.iloc[0]["censored_3"]
+
+
+def test_forward_returns_explicit_delisted_flag_overrides_the_inference():
+    closes = [100.0, 90.0, 80.0, 40.0, 10.0]
+    bars = _bars(closes)
+    confirmed = pd.Series([bars.index[1].isoformat()])
+    at_boundary = bars.index[-1]
+
+    # Inference says censored (series ends at the boundary), but the
+    # caller KNOWS the ticker delisted: terminal return kept.
+    out = compute_forward_returns(
+        bars, confirmed, horizons=(21,), data_end=at_boundary, delisted=True
+    )
+    assert out.iloc[0]["truncated_21"]
+    assert out.iloc[0]["fwd_log_ret_21"] == pytest.approx(np.log(10.0 / bars["open"].iloc[2]))
+    # And the reverse: a halt >tolerance before the boundary would infer
+    # 'delisted', but the caller knows the ticker is alive: censored.
+    far_boundary = bars.index[-1] + pd.Timedelta(days=30)
+    out2 = compute_forward_returns(
+        bars, confirmed, horizons=(21,), data_end=far_boundary, delisted=False
+    )
+    assert pd.isna(out2.iloc[0]["fwd_log_ret_21"])
+    assert out2.iloc[0]["censored_21"]
+
+
+def test_match_controls_breadth_first_serves_every_event_before_seconds():
+    # Two events whose nearest controls coincide; only two controls in the
+    # cell. Depth-first take-3 would hand both to the first-shuffled event
+    # and starve the other; breadth-first gives each event one.
+    events = _frame(
+        [
+            {"id": "e1", "impulse_gain_pct": 0.50, "realized_vol_63": 0.020},
+            {"id": "e2", "impulse_gain_pct": 0.50, "realized_vol_63": 0.020},
+        ]
+    )
+    # Identical covariates throughout: quantile bins are degenerate (the
+    # loud-warning path) and every row shares bin 0, so the caliper can't
+    # interfere -- this test isolates the ASSIGNMENT ORDER.
+    controls = _frame(
+        [
+            {"id": "c1", "impulse_gain_pct": 0.50, "realized_vol_63": 0.020},
+            {"id": "c2", "impulse_gain_pct": 0.50, "realized_vol_63": 0.020},
+        ]
+    )
+
+    matches = match_controls(events, controls, seed=3)
+
+    assert matches["event_id"].nunique() == 2  # both events matched
+    assert (matches.groupby("event_id").size() == 1).all()
 
 
 # ---- matching ----
