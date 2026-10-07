@@ -12,6 +12,8 @@ import pytest
 
 from src.analysis.divergence_rr_sweep import (
     COST_RT_PRIMARY,
+    add_bins,
+    control_form,
     net_returns,
     variant_names,
     variant_spec,
@@ -113,6 +115,40 @@ def test_same_bar_target_and_stop_resolves_to_stop():
     out = walk_one(bars, trade("bullish", 95.0, 96.0, CONF, bars))
     assert out["res_t1_h21"] == "stop"
     assert out["ret_R_t1_h21"] == pytest.approx(-1.0)
+
+
+def test_same_bar_open_gapped_through_target_decides_target():
+    # barriers.py's same-bar refinement: an open already beyond one barrier
+    # decides that barrier; only a genuinely undecidable bar goes to the stop.
+    bars = make_bars()
+    loc = {c: bars.columns.get_loc(c) for c in ("open", "high", "low", "close")}
+    bars.iloc[CONF + 2, loc["open"]] = 107.0  # gapped above the 1R target 105.5
+    bars.iloc[CONF + 2, loc["high"]] = 108.0
+    bars.iloc[CONF + 2, loc["low"]] = 94.0    # the bar also covers the stop
+    bars.iloc[CONF + 2, loc["close"]] = 100.0
+    out = walk_one(bars, trade("bullish", 95.0, 96.0, CONF, bars))
+    assert out["res_t1_h21"] == "target"
+    assert out["ret_R_t1_h21"] == pytest.approx((107.0 - 100.0) / 5.5)  # fill at the open
+
+
+def test_dur_bin_preserves_na_and_bins_fixed_edges():
+    frame = pd.DataFrame({
+        "dur": [10.0, 30.0, 60.0, np.nan],
+        "form": "regular", "indicator": "rsi", "direction": "bearish",
+        "strength": [0.1, 0.5, 0.9, 0.5],
+        "is_divergence": True,
+    })
+    out = add_bins(frame)
+    assert list(out["dur_bin"][:3]) == [1.0, 2.0, 3.0]
+    assert np.isnan(out["dur_bin"].iloc[3])  # invariant #9: NaN never lands in a bin
+    assert np.isnan(out.loc[3, "strength_t"]) or out.loc[3, "strength_t"] in (1.0, 2.0, 3.0)
+
+
+def test_control_form_preserves_na_geometry():
+    geom = pd.Series([1, 0, None], dtype="object")
+    form = control_form(geom)
+    assert list(form[:2]) == ["regular", "hidden"]
+    assert pd.isna(form.iloc[2])  # invariant #9: NULL geometry is not "hidden"
 
 
 def test_bearish_mirrors():

@@ -14,10 +14,11 @@ positive expectancy where unconditional-return means showed nothing.
 
 Payoffs are recomputed from bars (loaded as_of DEV_END, fail-closed
 `data_end`), never from the stored 20-bar lifecycle fields. Walk
-semantics follow `src/models/labels/barriers.py`: gap-through fills at
-the open, same-bar target+stop tie resolves to the stop, incomplete
-windows censor unless the ticker delisted (then the terminal return is
-kept and flagged — invariant #4).
+semantics follow `src/models/labels/barriers.py`, including its same-bar
+rule: an open already gapped beyond one barrier decides that barrier,
+otherwise a bar covering both resolves to the stop; gap-through fills at
+the open; incomplete windows censor unless the ticker delisted (then the
+terminal return is kept and flagged — invariant #4).
 
 Usage:
   python -m src.analysis.divergence_rr_sweep build    # walk bars, cache per-trade parquet
@@ -105,18 +106,32 @@ def load_events(derived_conn, by_ticker: dict) -> pd.DataFrame:
     SELECT d.id, d.ticker, d.direction, d.form, d.indicator,
            d.p1_price, d.p2_price, d.p2_date, d.confirmed_at,
            d.strength, d.duration_bars,
+           c.divergence_id AS ctx_id,
            c.interpeak_retrace_frac, c.leg2_bars
-    FROM divergences d JOIN divergence_context c ON c.divergence_id = d.id
+    FROM divergences d LEFT JOIN divergence_context c ON c.divergence_id = d.id
     WHERE d.timeframe = 'daily' AND d.p2_date >= ? AND d.p2_date <= ?
     """
+    # LEFT JOIN so an event lacking a context row is counted, not silently
+    # dropped (coverage is 100% today, but a divergences backfill rerun
+    # before the context extraction would otherwise make events vanish).
     ev = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
     ev = ev[pit_member_mask(ev, by_ticker)].copy()
+    ev["ctx_missing"] = ev.pop("ctx_id").isna()
     ev["context_class3"] = [
         classify3(r, b) for r, b in zip(ev["interpeak_retrace_frac"], ev["leg2_bars"])
     ]
     ev["is_divergence"] = True
     ev = ev.rename(columns={"duration_bars": "dur"})
     return ev
+
+
+def control_form(geometry: pd.Series) -> pd.Series:
+    """Hidden-shaped controls are the regular_geometry=0 pairs. A NULL
+    geometry stays NA (invariant #9: a comparison on NA must not silently
+    pick a side) — dropped and counted in build."""
+    return pd.Series(
+        np.where(geometry == 1, "regular", "hidden"), index=geometry.index
+    ).where(geometry.notna())
 
 
 def load_controls(derived_conn, by_ticker: dict) -> pd.DataFrame:
@@ -133,8 +148,8 @@ def load_controls(derived_conn, by_ticker: dict) -> pd.DataFrame:
     ct["context_class3"] = [
         classify3(r, b) for r, b in zip(ct["interpeak_retrace_frac"], ct["leg2_bars"])
     ]
-    # Hidden-shaped controls are the regular_geometry=0 pairs.
-    ct["form"] = np.where(ct["regular_geometry"] == 1, "regular", "hidden")
+    ct["form"] = control_form(ct["regular_geometry"])
+    ct["ctx_missing"] = False
     ct["indicator"] = ""
     ct["strength"] = np.nan
     ct["is_divergence"] = False
@@ -150,9 +165,12 @@ def add_bins(frame: pd.DataFrame) -> pd.DataFrame:
     pattern as the frozen PREREGISTRATION's matching bins). Controls get
     no strength tercile (no indicator)."""
     frame = frame.copy()
-    frame["dur_bin"] = np.where(
-        frame["dur"] <= DUR_EDGES[0], 1, np.where(frame["dur"] <= DUR_EDGES[1], 2, 3)
-    )
+    # NaN duration stays NaN (invariant #9) — a bare comparison would land
+    # it in the top bin; NaN-binned rows are dropped and counted in build.
+    frame["dur_bin"] = pd.Series(
+        np.where(frame["dur"] <= DUR_EDGES[0], 1.0, np.where(frame["dur"] <= DUR_EDGES[1], 2.0, 3.0)),
+        index=frame.index,
+    ).where(frame["dur"].notna())
     frame["strength_t"] = np.nan
     ev = frame["is_divergence"]
     for (_f, _i, _d), grp in frame[ev].groupby(["form", "indicator", "direction"]):
@@ -197,7 +215,8 @@ def walk_ticker(
 
     Semantics (mirroring barriers.py): entry at the open of the first bar
     after confirmed_at (invariant #2); stop/target hits intrabar with
-    gap-through fills at the open; same-bar target+stop tie -> stop; an
+    gap-through fills at the open; on a same-bar target+stop, an open
+    already beyond one barrier decides it, otherwise the tie -> stop; an
     incomplete window censors (no payoff, even if a barrier was hit early
     — keeping early hits biases hit rates near the boundary) unless the
     ticker delisted, in which case the walk resolves on the ticker's own
@@ -263,15 +282,25 @@ def walk_ticker(
     out["entry"] = np.where(ok, entry, np.nan)
     out["atr_c"] = np.where(ok, atr_c, np.nan)
 
-    for v in variants:
-        mult, hold, eps = variant_spec(v)
+    # Everything that depends only on epsilon (3 values, not 10 variants)
+    # is computed once per epsilon and sliced per variant below -- the
+    # stop-reach arrays are the walker's main array work.
+    base_bad = ~ok
+    no_atr = ok & ~(np.isfinite(atr_c) & (atr_c > 0) & np.isfinite(entry) & (entry > 0))
+    per_eps: dict[float, tuple] = {}
+    for eps in {variant_spec(v)[2] for v in variants}:
         stop = extreme + np.where(is_short, 1.0, -1.0) * eps * atr_c
         R = sign * (entry - stop)
-        base_bad = ~ok
-        no_atr = ok & ~(np.isfinite(atr_c) & (atr_c > 0) & np.isfinite(entry) & (entry > 0))
         invalid = ok & ~no_atr & ~(R > 0)
         degen = ok & ~no_atr & (R > 0) & (R < DEGENERATE_R_ATR * atr_c)
         live = ok & ~no_atr & ~invalid & ~degen
+        reach_s_full = np.where(is_short[:, None], th_ >= stop[:, None], tl_ <= stop[:, None])
+        gap_s_full = np.where(is_short[:, None], to_ >= stop[:, None], to_ <= stop[:, None])
+        per_eps[eps] = (stop, R, invalid, degen, live, reach_s_full, gap_s_full)
+
+    for v in variants:
+        mult, hold, eps = variant_spec(v)
+        stop, R, invalid, degen, live, reach_s_full, gap_s_full = per_eps[eps]
 
         # Hits inside the hold window; NaN padding compares False.
         W = slice(0, hold)
@@ -283,8 +312,8 @@ def walk_ticker(
             target = entry + sign * mult * R
             reach_t = np.where(is_short[:, None], tl_[:, W] <= target[:, None], th_[:, W] >= target[:, None])
             gap_t = np.where(is_short[:, None], to_[:, W] <= target[:, None], to_[:, W] >= target[:, None])
-        reach_s = np.where(is_short[:, None], th_[:, W] >= stop[:, None], tl_[:, W] <= stop[:, None])
-        gap_s = np.where(is_short[:, None], to_[:, W] >= stop[:, None], to_[:, W] <= stop[:, None])
+        reach_s = reach_s_full[:, W]
+        gap_s = gap_s_full[:, W]
 
         first_t = np.where(reach_t.any(axis=1), reach_t.argmax(axis=1), hold)
         first_s = np.where(reach_s.any(axis=1), reach_s.argmax(axis=1), hold)
@@ -361,11 +390,17 @@ def build(args) -> None:
     frame = add_bins(pd.concat([ev, ct], ignore_index=True))
     frame["p2_month"] = pd.to_datetime(frame["p2_date"]).dt.strftime("%Y-%m")
     frame["p2_year"] = pd.to_datetime(frame["p2_date"]).dt.year
-    n_nan_ctx = int(frame["context_class3"].isna().sum())
+    n_ctx_missing = int(frame["ctx_missing"].sum())
+    n_nan_ctx = int((frame["context_class3"].isna() & ~frame["ctx_missing"]).sum())
     n_nan_conf = int(frame["confirmed_at"].isna().sum())
-    frame = frame[frame["context_class3"].notna() & frame["confirmed_at"].notna()]
+    n_nan_bin = int((frame["dur_bin"].isna() | frame["form"].isna()).sum())
+    frame = frame[
+        frame["context_class3"].notna() & frame["confirmed_at"].notna()
+        & frame["dur_bin"].notna() & frame["form"].notna()
+    ]
     print(f"PIT events {int(frame['is_divergence'].sum())}, controls {int((~frame['is_divergence']).sum())} "
-          f"(excluded: {n_nan_ctx} NaN-retrace context, {n_nan_conf} missing confirmed_at)")
+          f"(excluded: {n_ctx_missing} missing context row, {n_nan_ctx} NaN-retrace context, "
+          f"{n_nan_conf} missing confirmed_at, {n_nan_bin} NA duration/geometry)")
 
     flags = delisted_flags(raw_conn)
     walked, done = [], 0
@@ -478,8 +513,11 @@ def region_readout(ev_adj: pd.DataFrame) -> pd.DataFrame:
             "ex2020": cov.loc[cov["p2_year"] != 2020, "adj"].mean(),
         }
         era_ok = all(np.isfinite(v) and np.sign(v) == np.sign(head) for v in era.values()) if np.isfinite(head) and head != 0 else False
-        sub = cov.groupby(["strength_t", "dur_bin"])["adj"].agg(["mean"]).join(
-            cov.groupby(["strength_t", "dur_bin"])["p2_date"].nunique().rename("nd")
+        # dropna=False: a NaN-strength sub-population votes too (as its own
+        # sub-cell per duration bin) — excluding it would let a region pass
+        # the neighbor rail on a vote its headline population doesn't share.
+        sub = cov.groupby(["strength_t", "dur_bin"], dropna=False)["adj"].agg(["mean"]).join(
+            cov.groupby(["strength_t", "dur_bin"], dropna=False)["p2_date"].nunique().rename("nd")
         )
         voters = sub[sub["nd"] >= MIN_NEIGHBOR_DATES]
         neigh_ok = bool(len(voters)) and all(np.sign(voters["mean"]) == np.sign(head))
@@ -504,11 +542,15 @@ def drop_disputed(
     trade on a whole-history-disputed ticker (the vendors' series are
     different securities — a corrupt close would print as a monster
     R-multiple), and any trade whose walk window could overlap a per-day
-    disputed bar (entry within [d-100, d+25] calendar days of disputed day
-    d: 63 held bars ahead, ATR window behind). Vendor-blind, so slightly
-    over-broad — fine for exploration, counted either way. (The DC-B1/B2
-    run predates this filter; the repo's full per-window treatment is
-    dataset.build_labels', logged as backlog for the signals modules.)"""
+    disputed bar (entry within [d-100, d+90] calendar days of disputed day
+    d: 63 held bars ahead of entry, and behind it the Wilder-smoothed
+    ATR(14)'s memory of the disputed bar — (13/14)^k decay keeps ~28% of a
+    shock 17 bars later, so the trailing side runs ~62 trading days ≈ 90
+    calendar days, by which point the residual is under 2%). Vendor-blind,
+    so slightly over-broad — fine for exploration, counted either way.
+    (The DC-B1/B2 run predates this filter; the repo's full per-window
+    treatment is dataset.build_labels', logged as backlog for the signals
+    modules.)"""
     whole = {d.ticker for d in disputes if d.date is None}
     keep = ~trades["ticker"].isin(whole)
     n_whole = int((~keep).sum())
@@ -525,7 +567,7 @@ def drop_disputed(
             continue
         e = entry[sel]
         for ts in days:
-            hit.loc[sel] |= (e >= ts - pd.Timedelta(days=100)) & (e <= ts + pd.Timedelta(days=25))
+            hit.loc[sel] |= (e >= ts - pd.Timedelta(days=100)) & (e <= ts + pd.Timedelta(days=90))
     n_window = int(hit.sum())
     return trades[~hit], n_whole, n_window
 
@@ -545,17 +587,23 @@ def report(args) -> None:
         ct[f"res_{PRIMARY}"].value_counts().rename("controls"),
     ], axis=1)
     print(mix.fillna(0).astype(int).to_string())
+    holes_ev = int((ev[f"res_{PRIMARY}"].isin(RESOLVED) & ev[f"ret_R_{PRIMARY}"].isna()).sum())
+    holes_ct = int((ct[f"res_{PRIMARY}"].isin(RESOLVED) & ct[f"ret_R_{PRIMARY}"].isna()).sum())
+    print(f"resolved-but-NaN-return data holes excluded from every mean (primary): "
+          f"{holes_ev} events, {holes_ct} controls")
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     readouts = {}
     for variant in variant_names():
-        for cost, tag in ((COST_RT_PRIMARY, "20bps"), (COST_RT_LIQUID, "10bps")):
-            cm = control_means(ct, variant, cost)
-            ev_adj = adjusted(ev, cm, variant, cost)
-            readouts[(variant, tag)] = ev_adj
-            if variant == PRIMARY and cost == COST_RT_PRIMARY:
-                cells = cell_table(ev_adj, variant)
-                cells.to_csv(CACHE_DIR / "cells_primary.csv", index=False)
+        cm = control_means(ct, variant, COST_RT_PRIMARY)
+        readouts[(variant, "20bps")] = adjusted(ev, cm, variant, COST_RT_PRIMARY)
+    # The 10 bps annotation is printed for the primary variant only, so it
+    # is computed for the primary variant only.
+    readouts[(PRIMARY, "10bps")] = adjusted(
+        ev, control_means(ct, PRIMARY, COST_RT_LIQUID), PRIMARY, COST_RT_LIQUID
+    )
+    cells = cell_table(readouts[(PRIMARY, "20bps")], PRIMARY)
+    cells.to_csv(CACHE_DIR / "cells_primary.csv", index=False)
 
     print(f"\n== KILL-CRITERION READOUT — primary variant {PRIMARY}, eps {EPS_PRIMARY}, 20 bps ==")
     primary_adj = readouts[(PRIMARY, "20bps")]

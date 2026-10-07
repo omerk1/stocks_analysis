@@ -83,20 +83,31 @@ Code: `src/analysis/divergence_rr_sweep.py`; per-trade cache as parquet under gi
 
 ### Result (same date, run after the entry above was committed)
 
+*(Amended same date, pre-merge, after code review — step-0's precedent: the per-day
+price-dispute exclusion window widened from [d−100, d+25] to [d−100, d+90] calendar days
+(Wilder ATR(14) keeps ~28% of a shock 17 bars later, so +25 under-covered the ATR tail),
+and the neighbor vote now includes unbinned-strength sub-cells (dropna=False). Verdict
+unchanged. Superseded figures: 371 window-disputed exclusions; bearish/regular/other
++0.1032 (neighbors 3/4); bullish/regular/pullback +0.0492 (neighbors 6/8). One
+clarification of the entry above, not a change: "tie resolves to the stop" inherits
+barriers.py's full same-bar rule, which the code implements — an open already gapped
+beyond one barrier decides that barrier; only an undecidable bar goes to the stop.)*
+
 - **The sweep is DEAD per the pre-committed kill criterion** — none of the 12
   (direction × form × context) regions clears all four rails at the primary variant
   (2R/63-bar/ε0.25/20 bps). One line, stop; no DC-B5 draft is warranted.
 - Accounting: 88,504 trades walked (33,270 events / 55,234 controls, PIT, dev window);
-  850 excluded for price disputes (479 whole-history tickers, 371 disputed-day windows);
-  primary-variant mix (events): 14,472 stop / 11,696 time / 5,739 target / 852 censored /
-  202 never-entered+invalid+degenerate. Effective N per region 228–1,534 distinct p2 dates
-  (two mechanically empty hidden-extension regions at 4–7, as step 0 predicted).
+  1,010 excluded for price disputes (479 whole-history tickers, 531 disputed-day windows);
+  primary-variant mix (events): 14,449 stop / 11,676 time / 5,731 target / 852 censored /
+  202 never-entered+invalid+degenerate; 0 resolved-but-NaN-return data holes. Effective N
+  per region 228–1,534 distinct p2 dates (two mechanically empty hidden-extension regions
+  at 4–7, as step 0 predicted).
 - Closest non-survivors, named noise per the plateau discipline: **bearish/regular/other**
   adj +0.10 R (619 dates, era-stable, positive across all 10 variants, but neighbor vote
   3/4 — one qualified strength×duration sub-cell disagrees); **bearish/regular/extension**
   adj +0.08 R (365 dates < the 500 floor, 61% control coverage — the thin-extension-pool
-  problem again); **bullish/regular/pullback** adj +0.05 R (985 dates, era-stable,
-  neighbors 6/8). All hidden-form regions ≈ 0 or negative. 10 vs 20 bps moves nothing
+  problem again); **bullish/regular/pullback** adj +0.05 R (982 dates, era-stable,
+  neighbors 5/8). All hidden-form regions ≈ 0 or negative. 10 vs 20 bps moves nothing
   (cost ≈ 0.04 R/trade at typical 5% risk fractions).
 - Argue-against: the bearish positives are "events lose less than controls" — shorting any
   higher-high with a stop above it loses ~0.22–0.28 R net in this 2010–2021 bull window,
