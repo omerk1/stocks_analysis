@@ -102,20 +102,33 @@ pairs — controls are plentiful.
 **N_tests = 6**, BH-corrected together. MACD-hist robustness, era split, and plateau
 neighbors are robustness checks on these six, not new tests.
 
-### Kill criteria (pre-committed)
+### Verdicts and kill criteria (pre-committed)
 
-A cell is dead if, after BH correction:
-1. the 95% clustered CI of its effect includes 0, **and** the point estimate is below
-   the cost hurdle — **pre-committed at 20 bps round-trip** (conservative for this
-   universe's mid-cap and delisted tail; one round trip per signal at the 63d
-   horizon), with the 10 bps liquid-core variant annotated alongside every gross
-   number (invariant #8). Decided 2026-10-06: the stricter number is the hurdle so a
-   surviving effect is robust to the cost assumption, not flattered by it; **or**
-2. the plateau check fails — the effect's sign is not stable across the 3×3 threshold
-   neighborhood; **or**
-3. the binary and continuous formulations disagree in sign for the same direction.
+Three verdicts per cell, not two (amended 2026-10-07, draft stage: "CI includes 0
+and point < hurdle" conflated a demonstrated null with an underpowered cell):
 
-A dead cell is a successful outcome and gets logged like any other
+- **Alive**: BH-corrected 95% clustered CI excludes 0 and the point estimate clears
+  the cost hurdle.
+- **Dead** — a demonstrated economic null, and a successful outcome: the **entire
+  95% CI sits inside the cost-hurdle band (±hurdle)** — an effect big enough to
+  matter is affirmatively ruled out.
+- **Inconclusive**: the CI includes 0 but extends beyond the hurdle band on either
+  side — the cell lacked the power to decide. Operationally also a stop, but logged
+  as *underpowered*, never as dead; a power amendment (era pooling, longer window)
+  may be proposed as a dated addendum, a dead cell gets none.
+
+The cost hurdle is **pre-committed at 20 bps round-trip** (conservative for this
+universe's mid-cap and delisted tail; one round trip per signal at the 63d horizon),
+with the 10 bps liquid-core variant annotated alongside every gross number
+(invariant #8). Decided 2026-10-06: the stricter number is the hurdle so a surviving
+effect is robust to the cost assumption, not flattered by it.
+
+Additionally, a cell cannot be Alive if:
+1. the plateau check fails — the effect's sign is not stable across the 3×3 threshold
+   neighborhood (a lone bright cell demotes to Inconclusive at best); **or**
+2. the binary and continuous formulations disagree in sign for the same direction.
+
+Every cell's verdict — Alive, Dead, or Inconclusive — gets logged the same way
 (`EXPERIMENTS.csv`-style row; file created for this study at first Track-B result).
 
 ## Hidden forms — planned second experiment (DC-B3/DC-B4, not yet drafted)
