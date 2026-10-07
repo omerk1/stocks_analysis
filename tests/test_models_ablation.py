@@ -49,7 +49,8 @@ def _synthetic(n_tickers=60):
     features["sector"] = pd.Categorical(rng.choice(["A", "B"], n))
     features["slope_log_21_sma_50_rank"] = panel["x"].astype("float32")
     features.attrs["manifest"] = {"created": "test", "universe": {"indices": ["sp500"], "floors": {}},
-                                  "start": "2015-01-02", "end": "2021-12-31", "open_holdout": False}
+                                  "start": "2015-01-02", "end": "2021-12-31", "open_holdout": False,
+                                  "disputes": ablation.dataset.disputes_fingerprint()}
     labels = panel[["ticker", "date", *ablation.LABEL_COLS]].copy()
     labels.attrs["manifest"] = {"created": "test", "disputes": "x", "n_disputed_dropped": 0}
     return features, labels
@@ -99,6 +100,10 @@ def test_a_cache_for_another_universe_is_refused():
     features, _ = _synthetic(n_tickers=5)
     features.attrs["manifest"]["universe"]["indices"] = ["sp500", "nasdaq100"]
     with pytest.raises(ValueError, match="indices"):
+        ablation.check_features(_small(PREREGISTERED["E1"]), features)
+    features.attrs["manifest"]["universe"]["indices"] = ["sp500"]
+    features.attrs["manifest"]["disputes"] = "built-before-a-fix"
+    with pytest.raises(ValueError, match="price_disputes"):
         ablation.check_features(_small(PREREGISTERED["E1"]), features)
 
 

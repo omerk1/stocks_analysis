@@ -316,8 +316,8 @@ def check_labels(exp: Experiment, features: pd.DataFrame, frame: pd.DataFrame) -
 
 
 def check_features(exp: Experiment, features: pd.DataFrame) -> None:
-    """Refuses a feature cache built for another universe or a window that
-    doesn't cover the experiment's folds."""
+    """Refuses a feature cache built for another universe, another disputes
+    list, or a window that doesn't cover the experiment's folds."""
     m = features.attrs.get("manifest", {})
     universe = m.get("universe", {})
     problems = []
@@ -325,6 +325,8 @@ def check_features(exp: Experiment, features: pd.DataFrame) -> None:
         problems.append(f"indices {universe.get('indices')} != registered {list(exp.indices)}")
     if m.get("open_holdout", True):
         problems.append("built with the holdout open")
+    if m.get("disputes") != dataset.disputes_fingerprint():
+        problems.append("built with another price_disputes list (rebuild it: disputes change the universe)")
     if pd.Timestamp(m.get("start", "2100-01-01")) > pd.Timestamp(exp.first_train_start):
         problems.append(f"starts {m.get('start')}, after the first training day {exp.first_train_start}")
     if pd.Timestamp(m.get("end", "1900-01-01")) < pd.Timestamp(year=max(exp.test_years), month=12, day=28):

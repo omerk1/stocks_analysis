@@ -50,12 +50,13 @@ requires. T2 vs B4 is reported next to it.
   floor and the history-break eligibility rules (`dataset.universe_mask`). Delisted
   members are read from Tiingo.
 - **Window:** 2010–2021. The holdout stays locked.
-- **Data:** the runner refuses a feature cache built for another universe or window,
+- **Data:** the runner refuses a feature cache built for another universe, window or
+  disputes list,
   and a label cache missing more than 2% of the feature rows in the folds' window
   (disputed days drop 0.4–0.6%).
-  The feature and label caches are rebuilt from `main` once the pending
-  reused-symbol disputes PR lands, before the run. A label cache built with any other
-  disputes list is refused (`read_labels`). `vendor-check`'s same-ticker gate must pass
+  The feature and label caches are rebuilt from `main` after the reused-symbol
+  disputes PR (#184, merged 2026-10-07), before the run. A cache built with any other
+  disputes list is refused. `vendor-check`'s same-ticker gate must pass
   on the registered columns. It passed on 2026-10-07 with AUC 0.524.
 - **Learner:** v1 `BoostingConfig`, fixed, with no tuning: learning rate 0.05,
   200 iterations, 15 leaves, min leaf 1000, L2 1.0, 0.8 of the features per split.

@@ -467,8 +467,9 @@ Build order, one PR each, each with its own tests:
      (BH, then the three verdicts).
    - **Label caches:** a cache now records its disputes list, and `read_labels` refuses
      a cache built with a different one.
-   - **Run:** waits for the pending reused-symbol disputes PR. The feature and label
-     caches are rebuilt after it.
+   - **Run:** after the reused-symbol disputes PR (#184), the feature and label caches
+     are rebuilt from `main`. The feature cache also records its disputes list, since
+     whole-history disputes leave the universe.
 
 ---
 

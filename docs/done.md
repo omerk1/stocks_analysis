@@ -173,8 +173,8 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
     - Secondary readouts: uncalibrated Brier (calibration shrinks weak signals, #84), log loss, IC, top-k after costs.
   - **Runner:** the experiment is defined in code (`PREREGISTERED["E1"]`, literal column lists that a test pins to the registry). Per horizon, each model is fitted once per fold and seed and reused as the next step's reference. Each trial gets a `TRIALS.csv` row with its draws archived; `close-experiment` applies BH and the verdicts. `fit_predict` can also return the same model's uncalibrated probabilities.
   - **Adjusted for the 2026-10-07 data-thread changes:**
-    - The label manifest records a fingerprint of the disputes list, and `read_labels` refuses a cache built with another list. A label cache built before the pending reused-symbol PR (e.g. BBT) can't be used by mistake.
-    - The run waits for that PR. Both caches are then rebuilt from `main`.
+    - The label manifest records a fingerprint of the disputes list, and `read_labels` refuses a cache built with another list. A label cache built before the reused-symbol PR (#184, e.g. BBT) can't be used by mistake.
+    - Both caches are rebuilt from `main` before the run.
     - The registry's prior enum is unchanged (IDEAS §2's null/inconclusive split has no consumer yet).
     - No code filters `EXPERIMENTS.csv` by outcome.
   - **Code review before the PR:** four fixes.
@@ -186,4 +186,5 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
     - A logged row counts only with the registered design. The first such row voids the trial if it ran on a dirty checkout, so a later clean rerun can't replace it.
     - `run-experiment` refuses to start on a dirty checkout. Caches default to the ignored `data/models/`.
     - A label cache missing more than 2% of the feature rows is refused, because the join would otherwise drop rows silently.
+    - After the rebase onto #184 (whole-history disputes now leave the universe), the feature cache records the disputes list too, and the runner refuses a stale one.
   - **Timing:** a full-size fit (1.25M rows) takes about 40 s, about 6 h for the whole experiment. Tests: 11 new.
