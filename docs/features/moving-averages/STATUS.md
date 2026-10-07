@@ -76,6 +76,24 @@ SMA200 misbehaves in four independent places:
 §7.5 finds nothing distinctive in SMA200's neighbourhood, which favours a low-power
 explanation over a level-specific one. Never audited. Don't privilege SMA200 features.
 
+## 2026-10-07 verdict correction — dead vs. inconclusive
+
+117 of the ledger's 179 dead-type rows were relabeled
+`inconclusive_ci_spans_zero_edge_above_floor`: their CI spans zero but extends past the
+cell's own pre-registered floor, so they were underpowered, not demonstrated nulls.
+Original outcomes preserved per row in `EXPERIMENTS.csv`'s new `correction_2026_10`
+column; rule, floors, and full cell list in `PREREGISTRATION.md`'s 2026-10-07
+cross-module addendum; tier semantics in DESIGN §9.2's same-date addendum. **No point
+estimate, CI, tier, or FDR status changed** — the one Tier-2 result, the FDR survivors,
+and every "fails cost" verdict stand as-is. What changes is the fence: only the 18
+demonstrated nulls (M5's touch cells, M3's EMA pairs, M2's bullish stack, M7, M9's
+decisive cell, two M20/M21 h5 cells) and M6.4's envelope keep the do-not-revisit read;
+the module table's "Killed, 0 of N" lines for M19–M22 (89 of the 117), M4's SMA50/200
+cells, M14's three as-of-safe rows, and M18's 52w-high cells now read "inconclusive at
+this power" — revisitable under a dated power amendment, with no obligation to revisit.
+Summary docs (`REPORT.md`, `docs/modeling/ma_study_insights.md`,
+`docs/modeling/IDEAS.md` prior buckets) are corrected in a separate same-dated pass.
+
 ## Open items
 
 - **Universe is survivorship-selected.** U1 is S&P 500 members as of 2021-12-31 with full
