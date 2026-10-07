@@ -400,6 +400,8 @@ Build order, one PR each, each with its own tests:
    - **BBT carries another company's prices.** The symbol was reused after BB&T
      became TFC (same CIK), and `ticker_renames` only considers price-less
      symbols, so BBT was never checked (`docs/backlog.md`, survivorship research).
+     Fixed (Done #92): `symbol_reuse.py` checks former members with bars; BBT and five
+     others are whole-history disputes, so their labels are dropped.
    - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.
      Both were large-cap reverse splits around spin-offs, not distress. This
      feeds the with/without sensitivity in history-breaks follow-up (b).

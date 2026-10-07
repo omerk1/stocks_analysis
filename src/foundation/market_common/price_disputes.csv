@@ -91,3 +91,8 @@ HBI,2015-03-04,tiingo,+9.3%,4-for-1 split booked by Tiingo as a 9% distribution
 RRD,2016-10-03,tiingo,+214.4%,1-for-3 reverse split + double spin-off: Tiingo +214% fake move
 VOD,2014-02-24,tiingo,+12.0%,Verizon Wireless return of value + share consolidation: Tiingo +18% fake move
 CHK,2024-10-04,tiingo,+2570.8%,garbage final bar at the Expand Energy merger
+BBT,,yfinance,whole history,"symbol reused: BB&T (S&P 500 to 2019-12-09, now TFC) -> Beacon Financial; yfinance BBT bars start 2000-06-28, Berkshire Hills' IPO, so they're Beacon's (symbol_reuse.py)"
+KG,,yfinance,whole history,symbol reused: King Pharmaceuticals (S&P 500 to 2010-12-20) -> Kestrel Group; yfinance KG bars start 2008-05 at ~$65 vs King's ~$10 (symbol_reuse.py)
+PARA,,yfinance,whole history,"symbol reused: Paramount Global (S&P 500 2022-2025) -> Banzai International; yfinance PARA closes read 98,000 (Banzai's reverse splits) (symbol_reuse.py)"
+SII,,yfinance,whole history,"symbol reused: Smith International (S&P 500 to 2010-08-27) -> Sprott; yfinance SII bars start 2010-02-22, likely Sprott's; unverified (symbol_reuse.py)"
+VIP,,yfinance,whole history,symbol reused: VimpelCom ADR (Nasdaq-100 2015) -> Vulcan Infrastructure & Power; yfinance VIP 2015 closes ~$300 vs VimpelCom's ~$5; unverified (symbol_reuse.py)
