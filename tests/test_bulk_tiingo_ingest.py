@@ -225,3 +225,89 @@ def test_reviewed_exception_holds_only_for_its_exact_tiingo_name():
     assert ti.same_company("Kellanova", "Kellogg", "K")
     assert not ti.same_company("Kellanova Holdings ETF", "Kellogg", "K")
     assert not ti.same_company("Kellanova", "Kellogg", "OTHER")
+
+
+def test_splits_use_the_yfinance_ratio_convention():
+    from src.foundation.data_processing.tiingo_client import to_splits
+
+    prices = _prices(split_on="2015-02-02", split=4.0)
+    prices.loc[pd.Timestamp("2015-03-02"), "splitFactor"] = 0.05
+
+    splits = to_splits(prices)
+
+    assert list(splits["ratio"]) == [4.0, 0.05]
+    assert list(splits["split_from"]) == [1.0, 20.0] and list(splits["split_to"]) == [4.0, 1.0]
+
+
+def test_backfill_splits_records_tickers_with_no_splits_and_resumes(conn):
+    for ticker in ("SPLIT", "PLAIN"):
+        db.upsert_tiingo_listing(conn, {"ticker": ticker, "status": "stored",
+                                        "tiingo_start": "2015-01-01", "tiingo_end": "2015-03-31"})
+    db.upsert_tiingo_listing(conn, {"ticker": "GONE", "status": "not_in_tiingo"})
+    client = FakeTiingo({}, {"SPLIT": _prices(split_on="2015-02-02"), "PLAIN": _prices()})
+
+    ti.backfill_splits(conn, client)
+    ti.backfill_splits(conn, client)
+
+    assert len(db.read_splits(conn, "SPLIT", db.TIINGO)) == 1
+    assert db.read_splits(conn, "PLAIN", db.TIINGO).empty
+    assert sorted(t for _, t in client.calls) == ["PLAIN", "SPLIT"]
+
+
+def test_store_preferred_writes_both_bases_and_splits(conn):
+    client = FakeTiingo({}, {"DHR": _prices(split_on="2015-02-02")})
+
+    ti.store_preferred(conn, client, ["DHR", "MISSING"])
+
+    for source in (db.TIINGO, db.TIINGO_SPLIT_ONLY):
+        assert len(db.read_bars(conn, "bars_1d", ticker="DHR", source=source)) == len(_DAYS)
+    assert len(db.read_splits(conn, "DHR", db.TIINGO)) == 1
+    assert db.read_bars(conn, "bars_1d", ticker="MISSING", source=db.TIINGO).empty
+
+
+def test_a_quota_message_raises_instead_of_parsing_as_data():
+    from src.foundation.data_processing.tiingo_client import TiingoClient, TiingoError
+
+    class Response:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"detail": "You have run over your 500 symbol look up for this month."}
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(TiingoError, match="500 symbol"):
+        TiingoClient(api_key="x", session=Session()).daily_prices("AAA", "2020-01-01", "2020-12-31")
+
+
+def test_a_quota_error_stops_the_run_instead_of_trying_every_symbol(conn):
+    from src.foundation.data_processing.tiingo_client import TiingoError
+
+    for t in ("AAA", "BBB", "CCC"):
+        _target(conn, t, f"{t} Co")
+    listings = _listings([(t, "NYSE", "Stock", "USD", "2010-01-01", "2015-03-31") for t in ("AAA", "BBB", "CCC")])
+
+    class OverQuota(FakeTiingo):
+        def metadata(self, ticker):
+            self.calls.append(("meta", ticker))
+            raise TiingoError("You have run over your 500 symbol look up for this month.")
+
+    client = OverQuota({}, {})
+    table = ti.run(conn, client, listings, "2009-01-01")
+
+    assert client.calls == [("meta", "AAA")] and table.empty
+
+
+def test_disputes_file_rejects_a_misspelled_vendor(tmp_path):
+    from src.foundation.market_common import price_disputes
+
+    path = tmp_path / "d.csv"
+    path.write_text("ticker,date,vendor,gap,reason\nAAA,2020-01-02,Tiingo,+5%,typo\n")
+
+    with pytest.raises(ValueError, match="vendor"):
+        price_disputes.load(path)

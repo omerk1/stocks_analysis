@@ -26,6 +26,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
 
+from src.models.features.registry import check_columns
 from src.models.metrics import PROB_COLUMNS
 from src.models.splits import Fold, fold_masks, inner_folds
 
@@ -63,9 +64,16 @@ class BoostingConfig:
 
 class BoostedModel:
     """Three-class histogram gradient boosting on `columns`. Pandas categorical
-    columns (sector) are used as categorical splits; NaN is native."""
+    columns (sector) are used as categorical splits; NaN is native.
 
-    def __init__(self, columns: list[str], config: BoostingConfig = BoostingConfig(), seed: int = 0):
+    Every column must be registered (`features/registry.py`), so it has passed
+    the leakage gate; `registered_only=False` is for synthetic data only (the
+    gates' planted features, unit tests)."""
+
+    def __init__(self, columns: list[str], config: BoostingConfig = BoostingConfig(), seed: int = 0,
+                 registered_only: bool = True):
+        if registered_only:
+            check_columns(list(columns))
         self.columns = list(columns)
         self.config = config
         self.seed = seed
@@ -115,6 +123,7 @@ def fit_predict(
     n_inner: int = 2,
     weight_col: str | None = None,
     label_col: str = "hit",
+    keep_raw: bool = False,
 ) -> pd.DataFrame:
     """One outer fold of one cell. `frame` holds the cell's rows (features,
     `label_col`, `date`, `label_end_date`), already restricted to eligible
@@ -127,6 +136,9 @@ def fit_predict(
     those out-of-sample predictions. Inner test rows whose label window
     reaches the outer test period are purged too -- otherwise outer-test
     outcomes would shape the calibration.
+
+    `keep_raw` also returns the final model's uncalibrated probabilities as
+    `raw_p_up`, `raw_p_down`, `raw_p_neither` (same model, no extra fit).
     """
     train, test = fold_masks(frame, fold)
     resolved = frame[label_col].notna().to_numpy()
@@ -153,10 +165,12 @@ def fit_predict(
         calibrator = IsotonicCalibrator().fit(inner_preds[P_COLUMNS], inner_preds[label_col])
 
     model = make_model().fit(frame.loc[train], frame.loc[train, label_col], sample_weight=weights(train))
-    probs = model.predict_proba(frame.loc[test])
-    if calibrator is not None:
-        probs = calibrator.transform(probs)
-    return frame.loc[test, ["ticker", "date", label_col]].join(probs)
+    raw = model.predict_proba(frame.loc[test])
+    probs = calibrator.transform(raw) if calibrator is not None else raw
+    out = frame.loc[test, ["ticker", "date", label_col]].join(probs)
+    if keep_raw:
+        out = out.join(raw.add_prefix("raw_"))
+    return out
 
 
 def monotonicity_violations(preds_by_lower: dict[float, pd.DataFrame], tol: float = 1e-9) -> dict:

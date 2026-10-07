@@ -123,6 +123,9 @@ handles this fine on its own (a grouped-daily call for an old date the plan
 doesn't cover fails 429/NOT_AUTHORIZED like any other out-of-range date, and
 gets flagged like any other failed date) -- it's just not the same as having
 true multi-year survivorship-bias-free history, which would need a paid tier.
+Partly filled since: 132 delisted S&P 500 / Nasdaq-100 members have bars from
+Tiingo's free tier (`bulk_tiingo_ingest.py`, Done #82), read by the modeling
+dataset only (Done #83); 101 remain (`docs/backlog.md`).
 
 ## Weekly/monthly bars are recomputed from full history every fetch
 

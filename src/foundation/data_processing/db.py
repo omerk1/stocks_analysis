@@ -155,9 +155,14 @@ CREATE TABLE IF NOT EXISTS ticker_sector (
     ticker TEXT PRIMARY KEY,
     sector TEXT,
     industry TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    source TEXT
 );
 """
+# Where a sector came from: yfinance's `.info` (NULL on rows stored before the
+# column existed), or SEC_SIC -- derived from the SEC industry code for
+# delisted members Yahoo has no page for (`sec_sectors.py`).
+SEC_SIC = "sec_sic"
 
 # Macro/meta-financial time series (e.g. FRED's M2SL, DGS10, CPIAUCSL) --
 # same shape as shares_outstanding above with ticker swapped for series_id,
@@ -224,11 +229,15 @@ CREATE TABLE IF NOT EXISTS ticker_renames (
     detail TEXT,
     valid_from TEXT,
     valid_to TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    cik_verified INTEGER
 );
 """
 # Added after the table first shipped; `create_tables` adds them to an older table.
-_TICKER_RENAMES_WINDOW_COLUMNS = ("valid_from", "valid_to")
+# `cik_verified`: 1 if the old name matched the CIK's current or former SEC
+# name, 0 if it didn't (Polygon's CIK may be another company's: YHOO's is a
+# petroleum company's), NULL with no CIK. Use `verified_cik`, not `cik`.
+_TICKER_RENAMES_ADDED_COLUMNS = {"valid_from": "TEXT", "valid_to": "TEXT", "cik_verified": "INTEGER"}
 
 # One row per index member checked against Tiingo (`bulk_tiingo_ingest.py`),
 # whatever the outcome (`status`), so reruns skip it. Bars are stored only for
@@ -250,6 +259,27 @@ CREATE TABLE IF NOT EXISTS tiingo_listings (
     updated_at TEXT NOT NULL
 );
 """
+# Former index members whose symbol now belongs to another company (`symbol_reuse.py`):
+# one row per checked ticker, whatever the outcome. `reused` rows mean the
+# yfinance bars under the symbol aren't the member's.
+_SYMBOL_REUSE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS symbol_reuse (
+    ticker TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    polygon_name TEXT,
+    polygon_cik INTEGER,
+    cik_verified INTEGER,
+    holder_cik INTEGER,
+    holder_name TEXT,
+    lookup_date TEXT,
+    valid_from TEXT,
+    valid_to TEXT,
+    updated_at TEXT NOT NULL
+);
+"""
+_SYMBOL_REUSE_COLUMNS = ["ticker", "status", "polygon_name", "polygon_cik", "cik_verified", "holder_cik",
+                         "holder_name", "lookup_date", "valid_from", "valid_to"]
+
 _TIINGO_LISTINGS_COLUMNS = ["ticker", "status", "ref_name", "tiingo_name", "tiingo_start", "tiingo_end",
                             "valid_from", "valid_to", "coverage", "n_bars", "detail"]
 
@@ -267,10 +297,13 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_SPLITS_SCHEMA)
     conn.execute(_TICKER_RENAMES_SCHEMA)
     conn.execute(_TIINGO_LISTINGS_SCHEMA)
+    conn.execute(_SYMBOL_REUSE_SCHEMA)
+    if "source" not in {row[1] for row in conn.execute("PRAGMA table_info(ticker_sector)")}:
+        conn.execute("ALTER TABLE ticker_sector ADD COLUMN source TEXT")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
-    for column in _TICKER_RENAMES_WINDOW_COLUMNS:
+    for column, kind in _TICKER_RENAMES_ADDED_COLUMNS.items():
         if column not in existing:
-            conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} TEXT")
+            conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} {kind}")
     conn.commit()
 
 
@@ -451,22 +484,23 @@ def read_ticker_metadata(conn: sqlite3.Connection, ticker: str | None = None) ->
     return pd.read_sql_query(query, conn, params=params)
 
 
-def upsert_ticker_sector(conn: sqlite3.Connection, sectors: pd.DataFrame) -> None:
+def upsert_ticker_sector(conn: sqlite3.Connection, sectors: pd.DataFrame, source: str = YFINANCE) -> None:
     """Insert or replace rows in the `ticker_sector` table.
 
     `sectors` must have columns: ticker, sector, industry. Each ticker is a
     single overwritten row (a current snapshot, not a history), same
-    convention as `upsert_ticker_metadata`.
+    convention as `upsert_ticker_metadata`. `source` records where the
+    sector came from (yfinance, or SEC_SIC).
     """
     if sectors.empty:
         return
 
     now = pd.Timestamp.now("UTC").isoformat()
-    rows = [(row.ticker, row.sector, row.industry, now) for row in sectors.itertuples()]
+    rows = [(row.ticker, row.sector, row.industry, now, source) for row in sectors.itertuples()]
     conn.executemany(
         """
-        INSERT OR REPLACE INTO ticker_sector (ticker, sector, industry, updated_at)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO ticker_sector (ticker, sector, industry, updated_at, source)
+        VALUES (?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -823,17 +857,39 @@ def _drop_invalid_ohlc(bars: pd.DataFrame, context: str) -> pd.DataFrame:
     return bars[valid]
 
 
-def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert or replace one `ticker_renames` row (keys as in the schema,
-    `updated_at` filled in here)."""
-    cols = ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date", "coverage", "detail",
-            "valid_from", "valid_to"]
+def _upsert_decision(conn: sqlite3.Connection, table: str, cols: list[str], row: dict) -> None:
+    """Insert or replace one row of a per-ticker decision table (`row` keyed
+    by `cols`, missing keys -> NULL), stamping `updated_at`."""
     values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
     conn.execute(
-        f"INSERT OR REPLACE INTO ticker_renames ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
+        f"INSERT OR REPLACE INTO {table} ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
         values,
     )
     conn.commit()
+
+
+def upsert_ticker_rename(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace one `ticker_renames` row (keys as in the schema)."""
+    _upsert_decision(conn, "ticker_renames", ["old_ticker", "new_ticker", "status", "cik", "old_name", "lookup_date",
+                                              "coverage", "detail", "valid_from", "valid_to", "cik_verified"], row)
+
+
+def verified_cik(conn: sqlite3.Connection, ticker: str, on: str | pd.Timestamp) -> int | None:
+    """The CIK `ticker_renames` holds for an old (membership-era) symbol on
+    date `on`, only if its name check passed and `on` is inside the window it
+    was verified for (`valid_from`..`valid_to`, the symbol's latest
+    membership block -- an earlier block may be another company); None
+    otherwise. For joining a delisted member to SEC data (share counts,
+    filings): an unverified CIK may be another company's."""
+    row = conn.execute(
+        "SELECT cik, valid_from, valid_to FROM ticker_renames WHERE old_ticker = ? AND cik_verified = 1", (ticker,)
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    day = _serialize_date(pd.Timestamp(on))
+    if (row[1] and day < row[1]) or (row[2] and day > row[2]):
+        return None
+    return int(row[0])
 
 
 def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> pd.DataFrame:
@@ -844,16 +900,18 @@ def read_ticker_renames(conn: sqlite3.Connection, matched_only: bool = True) -> 
 
 
 def upsert_tiingo_listing(conn: sqlite3.Connection, row: dict) -> None:
-    """Insert or replace one `tiingo_listings` row (keys as in the schema,
-    `updated_at` filled in here)."""
-    cols = _TIINGO_LISTINGS_COLUMNS
-    values = [row.get(c) for c in cols] + [pd.Timestamp.now("UTC").isoformat()]
-    conn.execute(
-        f"INSERT OR REPLACE INTO tiingo_listings ({', '.join(cols)}, updated_at) VALUES ({', '.join('?' * (len(cols) + 1))})",
-        values,
-    )
-    conn.commit()
+    """Insert or replace one `tiingo_listings` row (keys as in the schema)."""
+    _upsert_decision(conn, "tiingo_listings", _TIINGO_LISTINGS_COLUMNS, row)
 
 
 def read_tiingo_listings(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query("SELECT * FROM tiingo_listings ORDER BY ticker", conn)
+
+
+def upsert_symbol_reuse(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace one `symbol_reuse` row (keys as in the schema)."""
+    _upsert_decision(conn, "symbol_reuse", _SYMBOL_REUSE_COLUMNS, row)
+
+
+def read_symbol_reuse(conn: sqlite3.Connection) -> pd.DataFrame:
+    return pd.read_sql_query("SELECT * FROM symbol_reuse ORDER BY ticker", conn)

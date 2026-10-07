@@ -1,0 +1,100 @@
+ticker,date,vendor,gap,reason
+DD,,yfinance,whole history,"DowDuPont merger (2017) and split-up (2019): the vendors' DD series are different securities (110 disagreements, +67% over 2010-2021)"
+EP,,yfinance,whole history,"El Paso: the vendors' EP series diverge throughout (15 disagreements, -92% over 2010-2021)"
+A,2011-10-28,yfinance,-5.4%,"raw closes disagree (yfinance +2.2%, Tiingo +8.0%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+ADP,2010-05-07,yfinance,+3.0%,"raw closes disagree (yfinance +0.4%, Tiingo -2.6%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+ADSK,2014-08-18,yfinance,+6.9%,"raw closes disagree (yfinance +2.1%, Tiingo -4.4%); unverified"
+AEP,2014-08-20,yfinance,+2.2%,"raw closes disagree (yfinance +0.3%, Tiingo -1.8%); unverified"
+AFL,2014-07-29,yfinance,-3.6%,"raw closes disagree (yfinance -0.8%, Tiingo +2.9%); unverified"
+AIV,2020-11-03,yfinance,+30.3%,yfinance +12.7% on the AIR spin-off/special dividend; Tiingo matches raw -16.1% plus the $0.82 dividend
+AMD,2011-10-28,yfinance,-3.8%,"raw closes disagree (yfinance +7.2%, Tiingo +11.4%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+ANF,2014-10-31,yfinance,-13.9%,"raw closes disagree (yfinance -0.2%, Tiingo +15.8%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+APTV,2017-11-17,yfinance,-16.2%,"raw closes disagree (yfinance -0.5%, Tiingo +18.7%); unverified"
+APTV,2017-11-21,yfinance,+19.3%,"raw closes disagree (yfinance -0.1%, Tiingo -16.3%); unverified"
+APTV,2017-12-04,yfinance,-17.1%,"raw closes disagree (yfinance +0.8%, Tiingo +20.2%); unverified"
+ATI,2010-12-17,yfinance,-3.2%,"raw closes disagree (yfinance +6.8%, Tiingo +10.4%); unverified"
+ATI,2014-07-07,yfinance,-9.2%,"raw closes disagree (yfinance -0.2%, Tiingo +9.9%); unverified"
+BAC,2011-10-28,yfinance,-2.4%,"raw closes disagree (yfinance +1.8%, Tiingo +4.3%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+BATRA,2016-05-19,yfinance,+8.4%,"raw closes disagree (yfinance +2.2%, Tiingo -5.7%); unverified"
+BATRK,2016-05-19,yfinance,+8.5%,"raw closes disagree (yfinance +0.8%, Tiingo -7.1%); unverified"
+BF.B,2012-12-10,yfinance,-5.8%,yfinance ignores the $4 special dividend
+BIO,2010-05-07,yfinance,+5.8%,"raw closes disagree (yfinance -0.5%, Tiingo -5.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+BKNG,2010-05-07,yfinance,+5.9%,"raw closes disagree (yfinance -3.3%, Tiingo -8.7%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+BLK,2011-10-28,yfinance,-3.2%,"raw closes disagree (yfinance +0.4%, Tiingo +3.7%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+BNY,2011-10-28,yfinance,-2.8%,"raw closes disagree (yfinance +0.1%, Tiingo +2.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+BWA,2011-10-28,yfinance,-2.2%,"raw closes disagree (yfinance -0.5%, Tiingo +1.8%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+CB,2010-10-15,yfinance,-3.8%,"raw closes disagree (yfinance -0.1%, Tiingo +3.9%); unverified"
+CBOE,2012-12-19,yfinance,-2.5%,yfinance ignores the special dividend
+CCEP,2010-10-04,tiingo,+45.9%,Tiingo books the 2010 restructuring / 2016 merger as a loss; holders were paid (yfinance flat)
+CCEP,2016-05-31,tiingo,+39.1%,Tiingo books the 2010 restructuring / 2016 merger as a loss; holders were paid (yfinance flat)
+CCI,2020-08-03,yfinance,-2.1%,"raw closes disagree (yfinance -3.6%, Tiingo -1.6%); unverified"
+CI,2014-08-04,yfinance,+4.4%,"raw closes disagree (yfinance +1.2%, Tiingo -3.1%); unverified"
+CLF,2011-10-28,yfinance,-2.9%,"raw closes disagree (yfinance +4.8%, Tiingo +7.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+CNC,2011-10-28,yfinance,-2.1%,"raw closes disagree (yfinance +2.2%, Tiingo +4.4%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+CNX,2010-05-06,yfinance,+2.6%,"raw closes disagree (yfinance -4.4%, Tiingo -6.9%); unverified"
+CNX,2014-10-30,yfinance,+9.0%,"raw closes disagree (yfinance -0.4%, Tiingo -8.6%); unverified"
+CNX,2017-11-29,yfinance,+20.0%,CONSOL Coal spin-off: yfinance +18% fake move
+CPRI,2014-10-31,yfinance,-8.9%,"raw closes disagree (yfinance +0.9%, Tiingo +10.7%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+CRM,2011-10-28,yfinance,-2.5%,"raw closes disagree (yfinance +4.3%, Tiingo +7.1%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+DELL,2018-12-24,yfinance,-25.9%,VMware tracking-stock exchange: yfinance -24% fake move
+DELL,2018-12-26,yfinance,-5.4%,"raw closes disagree (yfinance +0.8%, Tiingo +6.5%); unverified"
+DHI,2012-08-02,yfinance,+2.1%,"raw closes disagree (yfinance +1.6%, Tiingo -0.5%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+DHR,2016-07-05,yfinance,+56.9%,Fortive spin-off: yfinance +45% fake move
+DOC,2016-11-01,yfinance,+9.8%,Quality Care Properties spin-off: yfinance fake move
+DPZ,2016-02-26,yfinance,-11.5%,"raw closes disagree (yfinance +1.1%, Tiingo +14.3%); unverified"
+DVN,2012-08-02,yfinance,+3.6%,"raw closes disagree (yfinance -2.9%, Tiingo -6.3%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+EIX,2012-08-02,yfinance,+2.8%,"raw closes disagree (yfinance +0.2%, Tiingo -2.5%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+EL,2011-11-23,yfinance,-4.8%,"raw closes disagree (yfinance -3.0%, Tiingo +1.8%); unverified"
+EL,2012-08-02,yfinance,+2.9%,"raw closes disagree (yfinance -0.0%, Tiingo -2.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+EOG,2012-08-02,yfinance,-2.4%,"raw closes disagree (yfinance -4.3%, Tiingo -1.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+ETR,2014-07-29,yfinance,-2.9%,"raw closes disagree (yfinance -1.8%, Tiingo +1.1%); unverified"
+EXC,2012-08-02,yfinance,+2.3%,"raw closes disagree (yfinance -0.8%, Tiingo -3.0%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+EXPE,2011-12-21,yfinance,-35.9%,TripAdvisor spin-off + 1-for-2 reverse split: vendors disagree by 36%
+FERG,2012-12-05,yfinance,-2.8%,"raw closes agree, adjusted returns differ (yfinance +0.0%, Tiingo +2.9%); unverified"
+FERG,2013-11-29,yfinance,+4.1%,"raw closes disagree (yfinance +0.0%, Tiingo -3.2%); unverified"
+FERG,2013-12-03,yfinance,-3.4%,"raw closes disagree (yfinance +0.0%, Tiingo +3.3%); unverified"
+FERG,2014-10-16,yfinance,+2.0%,"raw closes agree, adjusted returns differ (yfinance +2.0%, Tiingo +0.0%); unverified"
+FERG,2019-10-14,yfinance,+4.2%,"raw closes disagree (yfinance +4.2%, Tiingo +0.0%); unverified"
+FERG,2020-11-25,yfinance,-2.1%,"raw closes disagree (yfinance +0.0%, Tiingo +2.1%); unverified"
+FHN,2010-03-10,tiingo,-7.0%,Tiingo books the quarterly stock dividend as a $1 cash dividend (fake +8-12% day)
+FHN,2010-06-09,tiingo,-8.1%,Tiingo books the quarterly stock dividend as a $1 cash dividend (fake +8-12% day)
+FHN,2010-09-08,tiingo,-8.6%,Tiingo books the quarterly stock dividend as a $1 cash dividend (fake +8-12% day)
+FHN,2010-12-08,tiingo,-8.9%,Tiingo books the quarterly stock dividend as a $1 cash dividend (fake +8-12% day)
+FIX,2011-10-28,yfinance,-2.2%,"raw closes disagree (yfinance -0.4%, Tiingo +1.8%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+FLR,2014-10-31,yfinance,-2.0%,"raw closes disagree (yfinance -0.1%, Tiingo +1.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+FLS,2014-03-28,yfinance,-2.6%,"raw closes agree, adjusted returns differ (yfinance +1.3%, Tiingo +4.0%); unverified"
+FMC,2019-02-22,yfinance,-12.3%,"Livent spin-off: Tiingo books a $12.46 distribution on a flat day, yfinance none; unclear"
+GHC,2013-12-02,yfinance,+2.5%,"raw closes disagree (yfinance +0.0%, Tiingo -3.5%); unverified"
+GHC,2014-08-01,yfinance,+3.9%,"raw closes disagree (yfinance +1.3%, Tiingo -2.5%); unverified"
+GHC,2015-07-01,yfinance,+2.6%,"raw closes disagree (yfinance +6.8%, Tiingo -35.5%); unverified"
+GL,2011-10-28,yfinance,+2.2%,"raw closes disagree (yfinance +1.8%, Tiingo -0.4%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+GLW,2013-10-24,yfinance,-12.4%,"raw closes disagree (yfinance -0.2%, Tiingo +13.9%); unverified"
+GNRC,2012-07-02,yfinance,+3.4%,"raw closes agree, adjusted returns differ (yfinance +15.0%, Tiingo +11.3%); unverified"
+GNW,2014-07-18,yfinance,+2.2%,"raw closes disagree (yfinance +2.2%, Tiingo +0.0%); unverified"
+GRMN,2011-06-13,yfinance,-2.4%,"raw closes agree, adjusted returns differ (yfinance -0.6%, Tiingo +1.8%); unverified"
+GS,2014-07-28,yfinance,+2.4%,"raw closes disagree (yfinance +0.3%, Tiingo -2.0%); unverified"
+JEF,2019-09-27,yfinance,-6.6%,"Spectrum share distribution: Tiingo counts it twice (split factor + dividend), yfinance omits it"
+LBTYA,2015-07-02,yfinance,-5.6%,"LiLAC distribution: Tiingo counts it twice (split factor + dividend), yfinance omits it"
+LBTYK,2015-07-02,yfinance,-6.8%,"LiLAC distribution: Tiingo counts it twice (split factor + dividend), yfinance omits it"
+LILA,2018-01-04,yfinance,+29.1%,"raw closes disagree (yfinance +26.3%, Tiingo -2.2%); unverified"
+MAC,2015-11-09,yfinance,+2.4%,yfinance under-adjusts the $2.68 special dividend
+OXY,2020-03-09,yfinance,-3.1%,yfinance under-adjusts the $0.79 dividend on the crash day
+PNC,2014-08-06,yfinance,+4.0%,"raw closes disagree (yfinance -0.4%, Tiingo -4.3%); unverified"
+PPG,2011-10-28,yfinance,-2.4%,"raw closes disagree (yfinance +0.5%, Tiingo +2.9%) on a date many tickers disagree; likely one vendor's bad day, unverified"
+RTX,2020-04-03,yfinance,-12.3%,Carrier/Otis spin-offs: yfinance -13% fake move
+XRX,2017-01-03,yfinance,+21.7%,Conduent spin-off: yfinance +20% fake move
+ACAS,2009-06-18,tiingo,+32.7%,Tiingo books a 33% distribution that didn't happen
+ACAS,2009-08-10,tiingo,+33.2%,Tiingo books a 33% distribution that didn't happen
+ASML,2012-11-29,tiingo,+24.7%,synthetic share buyback (consolidation + capital repayment) counted twice by Tiingo
+ASML,2012-12-03,tiingo,+19.0%,synthetic share buyback (consolidation + capital repayment) counted twice by Tiingo
+HBI,2015-03-04,tiingo,+9.3%,4-for-1 split booked by Tiingo as a 9% distribution
+RRD,2016-10-03,tiingo,+214.4%,1-for-3 reverse split + double spin-off: Tiingo +214% fake move
+VOD,2014-02-24,tiingo,+12.0%,Verizon Wireless return of value + share consolidation: Tiingo +18% fake move
+CHK,2024-10-04,tiingo,+2570.8%,garbage final bar at the Expand Energy merger
+BBT,,yfinance,whole history,"symbol reused: BB&T (S&P 500 to 2019-12-09, now TFC) -> Beacon Financial; yfinance BBT bars start 2000-06-28, Berkshire Hills' IPO, so they're Beacon's (symbol_reuse.py)"
+KG,,yfinance,whole history,symbol reused: King Pharmaceuticals (S&P 500 to 2010-12-20) -> Kestrel Group; yfinance KG bars start 2008-05 at ~$65 vs King's ~$10 (symbol_reuse.py)
+PARA,,yfinance,whole history,"symbol reused: Paramount Global (S&P 500 2022-2025) -> Banzai International; yfinance PARA closes read 98,000 (Banzai's reverse splits) (symbol_reuse.py)"
+SII,,yfinance,whole history,"symbol reused: Smith International (S&P 500 to 2010-08-27) -> Sprott; yfinance SII bars start 2010-02-22, likely Sprott's; unverified (symbol_reuse.py)"
+VIP,,yfinance,whole history,symbol reused: VimpelCom ADR (Nasdaq-100 2015) -> Vulcan Infrastructure & Power; yfinance VIP 2015 closes ~$300 vs VimpelCom's ~$5; unverified (symbol_reuse.py)
+BBT,,tiingo,whole history,"symbol reused: Tiingo's BBT bars are Beacon Financial's too (2011-06-01 close 21.77 on both vendors), not BB&T's (symbol_reuse.py)"
+EP,,tiingo,whole history,symbol reused: Tiingo's EP bars aren't El Paso's either (2011-06-01 close 0.24; El Paso ~$20) (symbol_reuse.py)

@@ -63,6 +63,19 @@ grid size, not on new evidence.
 
 ### 1.3 Track B — strong nulls: null prior only, never a hand-picked feature
 
+**2026-10-07 qualifier — this table mixes two evidence grades** (ledger correction,
+`EXPERIMENTS.csv` `correction_2026_10`; rule in the MA study's PREREGISTRATION.md
+2026-10-07 addendum). **Demonstrated nulls** (whole CI inside the cell's
+pre-registered floor — an effect that matters is ruled out): M5, §7.5's SMA200/SMA50
+focals, M3's EMA pairs, M8, M10, M9's decisive cell, M2, M7, M6.1. **Inconclusive**
+(CI spans zero but exceeds the floor — underpowered, not ruled out): most M19–M22
+cells, M3's SMA50/200 63d companions, M18 (both horizons), M14 (all three as-of-safe
+cells), M1's `above_sma_200`. M6.4 is an envelope-consistency kill, not a CI. The
+*model implication* column stands either way — nothing here earns more than a null
+prior — but an inconclusive row is "never measured at adequate power", not "measured
+and absent", which matters for how its prior may be revised (IDEAS §2's split
+buckets).
+
 | module | what was killed | the number that kills it | model implication |
 |---|---|---|---|
 | **M5** touch/test/bounce | MAs as support/resistance, real MA vs. unwatched synthetic neighbour, 6 cells | largest CI edge 0.61pp vs a 2pp floor; every CI spans zero; smallest cell 7,257 events / 2,102 dates | No "distance to MA as a level" feature in the LRP sense (IDEAS §3). MA proximity is an extension feature, not a support level. Caveat: close-only touches, no intraday wick. |
@@ -81,7 +94,7 @@ grid size, not on new evidence.
 | **M1** run length; `above_sma_200` | 24 age-bucket cells; SMA200 state | 1 of 24 excludes zero with opposite-signed neighbours; SMA200 CI [−0.42%, +0.005%] | State *age* as a feature failed the plateau rule. SMA200 is the study's recurring anomaly (three independent oddities, never resolved). |
 | **M7** compression → vol expansion | forward realized vol | +0.021% [−0.007%, +0.057%] with vol match | Compression does not predict forward *vol*; it predicts the size of the forward return (`ribbon_direction_magnitude`). |
 | **M17** RSI, stochastics | incremental IC at 21d/63d | all CIs span zero; RSI vs `dist_z_sma_20` corr 0.86 | RSI is nearly `dist_z`. Keep at most one. RSI's sign flips positive near the MA (+0.90%, CI spans zero) — a tree can find this if both are present; not worth hand-building. |
-| **M14** pattern context | reclaim inside a detected pattern, as-of-safe flag | pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%], 402 events | Null. Per-pattern flags stay only as null-prior candidates (§2.3). The earlier +1.83% VCP reading came from a flag that used the future breakout. |
+| **M14** pattern context | reclaim inside a detected pattern, as-of-safe flag | pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%], 402 events | Inconclusive, not null (2026-10-07: CIs span zero but exceed the 0.10% floor; PREREGISTRATION's own read was "inconclusive, not confirmed" for VCP). Per-pattern flags stay only as null-prior candidates (§2.3). The earlier +1.83% VCP reading came from a flag that used the future breakout. |
 | **M6.4** slope persistence | slope-sign run survival vs a direction-matched GBM null | 0 of 12 strata depart | Slope runs last as long as a drifting random walk's. No hazard-model evidence. |
 
 ### 1.4 Track A — screens that inform feature selection (never effect sizes)

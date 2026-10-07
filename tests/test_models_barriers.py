@@ -131,6 +131,49 @@ def test_v1_grid_is_the_designed_45_cells():
     grid = v1_grid()
     assert len(grid) == 45
     assert {c.horizon for c in grid} == {5, 10, 21, 42, 63}
+    assert {c.upper for c in grid} == {2.0, 3.0, 4.0} and {c.lower for c in grid} == {1.0, 1.5, 2.0}
+    by = {(c.horizon, c.upper, c.lower): c for c in grid}
+    assert by[(21, 2.0, 2.0)].upper_atr == 2.0  # quoted at H=21
+    assert by[(63, 2.0, 2.0)].upper_atr == pytest.approx(2.0 * np.sqrt(3))
+    assert by[(10, 3.0, 1.5)].lower_atr == pytest.approx(1.5 * np.sqrt(10 / 21))
+
+
+def test_scaled_cell_labels_like_the_equivalent_unscaled_cell():
+    bars = _bars(_flat(80))
+    scaled = BarrierCell(63, 2.0, 1.0, reference_horizon=21)
+    plain = BarrierCell(63, scaled.upper_atr, scaled.lower_atr)
+    a = barrier_labels(bars, [scaled]).drop(columns=["upper", "lower"])
+    b = barrier_labels(bars, [plain]).drop(columns=["upper", "lower"])
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_labels_match_first_passage_on_a_random_walk():
+    """Arithmetic random walk, 78 intraday steps a day, aggregated to daily OHLC
+    (open = previous close). The labeler must name the barrier the intraday path
+    really reached first, except on same-bar ties (counted as the stop by design),
+    and the target-first share must sit near the driftless theory D / (U + D)."""
+    rng = np.random.default_rng(0)
+    n_t, n_d, steps = 12, 260, 78
+    path = 1000 + np.cumsum(rng.normal(0, 1 / np.sqrt(steps), (n_t, n_d * steps)), axis=1).reshape(n_t, n_d, steps)
+    op = np.concatenate([np.full((n_t, 1), 1000.0), path[:, :-1, -1]], axis=1)
+    days = pd.bdate_range("2015-01-02", periods=n_d)
+    bars = pd.concat([pd.DataFrame({
+        "ticker": f"T{i}", "date": days, "open": op[i], "high": np.maximum(path[i].max(axis=1), op[i]),
+        "low": np.minimum(path[i].min(axis=1), op[i]), "close": path[i, :, -1]}) for i in range(n_t)])
+    cell = BarrierCell(63, 2.0, 1.0)
+    lab = barrier_labels(bars, [cell]).dropna(subset=["hit"])
+    lab = lab[lab["date"] >= days[20]]
+    truth = []
+    for ticker, date, atr in zip(lab["ticker"], lab["date"], lab["atr"]):
+        i, d = int(ticker[1:]), days.get_loc(date)
+        seg, p0 = path[i, d + 1:d + 1 + cell.horizon].ravel(), op[i, d + 1]
+        up, dn = seg >= p0 + cell.upper * atr, seg <= p0 - cell.lower * atr
+        first_up = np.argmax(up) if up.any() else np.inf
+        first_dn = np.argmax(dn) if dn.any() else np.inf
+        truth.append(0 if first_up == first_dn == np.inf else (1 if first_up < first_dn else -1))
+    agree = lab["hit"].to_numpy() == np.array(truth)
+    assert (agree | lab["tie"].to_numpy()).all()
+    assert (lab["hit"] == 1).mean() == pytest.approx(cell.lower / (cell.upper + cell.lower), abs=0.04)
 
 
 def test_a_non_trading_data_end_does_not_make_live_tickers_look_delisted():

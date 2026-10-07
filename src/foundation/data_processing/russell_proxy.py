@@ -22,10 +22,10 @@ Approximations, all deliberate:
   default yfinance bars, which are also dividend-adjusted and would understate
   dividend payers' caps. Spin-offs are still folded into Yahoo's split-only
   close (T before 2022 reads ~24% low), a residual bias.
-- **Survivorship**: only tickers with price bars can be ranked, and delisted
-  history before 2024 isn't on this plan (`docs/backlog.md`, survivorship-free
-  price history). So each year's ranking misses companies that later delisted, and
-  the proxy is survivors-only exactly like every other universe here.
+- **Survivorship**: only tickers with price bars can be ranked, and yfinance
+  has no delisted history. Tiingo bars exist only for former S&P 500 /
+  Nasdaq-100 members (Done #82) and this proxy doesn't read them, so each year's
+  ranking misses companies that later delisted: the proxy is survivors-only.
 
 Stored in `index_membership` as `russell1000_proxy`, `russell2000_proxy` and
 `russell3000_proxy` (the union), full replace per run.

@@ -126,3 +126,13 @@ def test_source_mapping_round_trips():
         assert basis_for_source(source_for(basis)) == basis
     with pytest.raises(ValueError):
         basis_for_source("polygon")
+
+
+def test_fallback_is_opt_in_per_module_and_never_for_the_ma_study():
+    from src.foundation.market_common.price_basis import MODULES_WITH_FALLBACK, sources_for
+
+    assert MODULES_WITH_FALLBACK <= set(MODULE_PRICE_BASIS)
+    assert "moving_averages" not in MODULES_WITH_FALLBACK
+    assert sources_for(PriceBasis.TRADED, fallback=False) == [raw_db.YFINANCE_SPLIT_ONLY]
+    assert sources_for(PriceBasis.TOTAL_RETURN, fallback=True) == [raw_db.YFINANCE, raw_db.TIINGO]
+    assert basis_for_source(raw_db.TIINGO_SPLIT_ONLY) == PriceBasis.TRADED

@@ -87,7 +87,8 @@ list: `ma_study_insights.md`. The points that shape this inbox:
   and loses bigger. That's why the barrier/path target (§1) beats a mean-return target.
 - **Survivorship.** The study universe has no delisted tickers inside 2010–2021, so
   weak-state (bearish-side) results are biased. The model universe should be
-  point-in-time with delisted history (§7).
+  point-in-time with delisted history (§7). Partly done: the modeling dataset reads
+  132 delisted S&P 500/Nasdaq-100 members from Tiingo (Done #82, #83).
 
 **Keeping weak and null MA features (decided 2026-09-29).** Weak signals may still help
 in combination, so the model gets them rather than dropping them. Each feature carries a
@@ -97,10 +98,22 @@ in combination, so the model gets them rather than dropping them. Each feature c
 - **weak:** Tier 3, real at its control but not FDR-surviving. Examples: SMA20
   extension (M4), `dist_from_52w_low` (M18), `stack_fully_bearish` (M2), dollar volume
   (M12), MACD histogram (M17), `ribbon_width` (M7), `extension_x_slope` (M6.2).
-- **null:** tested and not distinguishable from zero, but cheap. Examples: crossover
-  state age (M3), slope-sign run length (M6.4), VCP and other per-pattern flags (M14),
-  `dist_from_52w_high` (M18), state age (M1).
+- **null:** tested and a relevant effect affirmatively ruled out (whole CI inside the
+  study's pre-registered floor), but cheap. Examples: crossover state age (M3's EMA
+  pairs), slope-sign run length (M6.4, a null-envelope kill), MA touch/bounce
+  proximity (M5).
   Enters as a group, and stays only if the group ablation shows an out-of-sample gain.
+- **inconclusive** *(split out of "null" 2026-10-07 — ledger correction,
+  `EXPERIMENTS.csv` `correction_2026_10`)*: tested but underpowered — the CI spans
+  zero yet extends past the floor, so the study measured nothing either way.
+  Examples: VCP and other per-pattern flags (M14), `dist_from_52w_high` (M18), state
+  age (M1), bounce/break/retest entry flags (M19–M22). Ablation treatment identical
+  to null (enters as a group, stays only on an out-of-sample gain); the difference is
+  epistemic: an inconclusive feature's prior may legitimately be revised by a powered
+  look elsewhere, a null's may not, and a harness result on one of these contradicts
+  nothing. (The feature registry's `prior` field still encodes both as `null` — the
+  split lives here and in the ledger; widening the registry enum is a code change to
+  make only when something consumes it.)
 
 Near-copies are not kept, since they're the same signal twice: extra distance
 normalisations at one lookback, `slope_log_5` on EMAs, exotic MA kernels (M8), weekly
@@ -259,8 +272,9 @@ before it (ablation), not by being on the list.
       - Russell: **no membership data**, and point-in-time Russell history isn't freely
         available. Proposal: rebuild it the way Russell does, as the top 1,000 / 3,000
         US common stocks by point-in-time market cap, reconstituted each June, from SEC
-        share counts × price. Until delisted prices exist (§7), that rebuilt universe is
-        survivors-only too.
+        share counts × price. Delisted prices now exist only for former S&P 500 /
+        Nasdaq-100 members (Tiingo, Done #82), so that rebuilt universe is still
+        survivors-only below the large caps (§7).
       - Liquidity floor: a minimum trailing dollar volume, e.g. $20M ADV for the large
         caps. The level is still open, and may need to differ per universe.
 - [x] **Direction → long-only alerts for v1, short side later** (decided 2026-09-29).
@@ -334,6 +348,10 @@ before it (ablation), not by being on the list.
     symbol was later reused (NVLS in 2010 → Novellus, not the 2017 Nivalis). Its CIK
     is in `companyfacts.zip`. Without the `date` parameter it returns the later reuser,
     a silent wrong-company trap.
+  - **Update 2026-10-05:** delisted prices for 132 of these members now come from
+    Tiingo's free tier and the modeling dataset reads them (Done #82, #83: S&P 500
+    member-days with prices 2010–2021 79.5% → 91.6%). 101 remain, mostly cap drops
+    and bankruptcies (`docs/backlog.md`, EODHD). The original finding follows.
   - **But it's moot for now: delisted *price* history is the real blocker.** Only
     38 of the 179 S&P members delisted inside 2010–2021 have any `bars_1d` rows. This is
     already known: MA DESIGN §12 item 6 says delisted bars exist only for 2024–2026
@@ -351,9 +369,9 @@ before it (ablation), not by being on the list.
   before, although `relative_strength` expects SPY. Side effect to know about: signal CLIs'
   `--all` (`SELECT DISTINCT ticker FROM bars_1d`) now include these ETFs too.
 - **Earnings dates:** absent (§3).
-- **Survivorship-free prices: decision pending**, logged in `docs/backlog.md`. Options:
-  pay for a source (Norgate, Sharadar, EODHD, roughly $30–100/month), or state a bias
-  bound next to every reported probability.
+- **Survivorship-free prices: partly filled.** Tiingo's free tier supplies 132 delisted
+  members (Done #82, #83). Still open in `docs/backlog.md`: the 101 Tiingo can't serve
+  (EODHD, one month ~$20), or a bias bound next to every reported probability.
 
 ---
 

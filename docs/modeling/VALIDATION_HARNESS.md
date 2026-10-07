@@ -1,6 +1,6 @@
 # Validation harness — design
 
-**Status:** design, 2026-09-30. Nothing built yet. This is the first modeling code, and
+**Status:** design, 2026-09-30. Steps 1–4 built (§9). This is the first modeling code, and
 every model result depends on it, so it gets built and checked before any real fit.
 
 **What it is:** one pipeline that takes a feature panel and a model, and returns
@@ -64,7 +64,9 @@ New `src/models/labels/barriers.py`. It's the triple-barrier labeler `ma_study_i
 §4 found missing; the MA layout's `labels/barriers.py` was never built.
 
 For entry at the **open of t+1**, price `P0`, ATR `A = atr_14(t)` (already lagged),
-upper `P0 + U·A`, lower `P0 − D·A`, horizon `H` trading days (bars t+1 … t+H):
+upper `P0 + U·s·A`, lower `P0 − D·s·A` with `s = √(H/21)` (the grid's barriers are quoted
+at H = 21 and widen with the horizon; see Grid below), horizon `H` trading days
+(bars t+1 … t+H):
 
 | output | meaning |
 |---|---|
@@ -81,12 +83,44 @@ Rules:
 - **Gap through a barrier** at the open: the fill is the open price, not the barrier.
   EV uses the actual fill, so a gap down through the stop costs more than D.
 - **Delisting inside the horizon:** the label resolves on the last available bar, and
-  the row is flagged. Until survivorship-free data exists, this almost never fires
-  (backlog).
-- **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {1, 2, 3}, D ∈ {1, 1.5, 2}.
-  That's 45 cells, fixed before any fit. 126-day horizons (M18's 52-week family) are a
-  separate, later grid, because at H=126 the study had about 10 independent blocks
-  (§4 of the insights doc).
+  the row is flagged. This fires for the 132 delisted members read from Tiingo
+  (Done #83); the 101 still missing never reach it (backlog).
+- **Disputed price days:** a label is dropped, not resolved, when its ticker's vendor
+  has a reviewed disputed day (`market_common/price_disputes.csv`: a corporate action
+  one vendor gets wrong, or the vendors disagree and it's unknown which is right) in
+  its window or in the 42 bars before it (the ATR its barriers are sized with), counted
+  on the ticker's own bars. The label manifest records how many (`n_disputed_dropped`);
+  0.41–0.61% of eligible S&P 500 rows, 2010–2021 (Done #86). A ticker whose yfinance
+  error masking can't fix (T's dividend drift) is read from Tiingo instead
+  (`market_common/vendor_overrides.PREFER_TIINGO`).
+- **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {2, 3, 4}, D ∈ {1, 1.5, 2},
+  every distance × √(H/21). That's 45 cells, fixed before any fit. 126-day horizons (M18's
+  52-week family) are a separate, later grid, because at H=126 the study had about 10
+  independent blocks (§4 of the insights doc).
+
+  **Revised 2026-10-06, before any fit.** The original grid used U ∈ {1, 2, 3} ATR at
+  every horizon. A label check on eligible S&P 500 point-in-time rows (2010–2021, 1.37M
+  rows, 642 tickers) showed that made the horizon nominal:
+  - The time to reach a barrier grows with the square of its distance, so a fixed 1–3 ATR
+    barrier is reached in days, whatever H is.
+  - 1/1 resolved in 3.4 days on average at H = 21, 42 and 63 alike, 85% within 5 days.
+  - Even 3/1.5 resolved in its first third 85% of the time at H = 63, with 1% "neither".
+
+  Scaled by √(H/21), a cell keeps its shape across horizons. 2/2 is 48/40/12% (target /
+  stop / neither) at H = 10 and 55/36/8% at H = 63, and resolves in about the first third
+  at every H.
+
+  U = 1 is dropped: it's decided by a few days of noise, costs eat a 1-ATR target, and
+  tight 1:1 targets aren't how positions are managed. U = 4 is added, so R/R runs 1:1 to
+  4:1.
+
+  A random-walk check confirmed the labeler itself. On an intraday-simulated walk it named
+  the true first barrier on every row except two same-bar ties, and P(target first)
+  matched D/(U+D) (`test_labels_match_first_passage_on_a_random_walk`).
+
+  `BarrierCell` keeps the nominal U, D (`upper`, `lower`) and the actual distances
+  (`upper_atr`, `lower_atr`); labels and EV use the actual ones. At H = 5 the scaled
+  barriers are ~0.5 ATR and ties reach ~5%, so H = 5 stays diagnostic.
 - **Short side:** the same labeler with the barriers mirrored. It's computed from day
   one as a diagnostic (`IDEAS.md` §6).
 
@@ -202,28 +236,120 @@ New `src/models/features/registry.py`. Every feature column declares:
 - **source function, warmup in bars, and whether it's per-date ranked.**
 
 Ablations run by *group*, in prior order: supported, then weak, then null. A null group
-stays only on an out-of-sample gain over the step before it.
+stays only on an out-of-sample gain over the step before it. Dropping a group is an
+operational decision; the trial's recorded outcome distinguishes a **demonstrated null**
+(the whole CI sits inside the pre-committed minimum-relevant-improvement band) from
+**inconclusive** (the CI spans zero but extends beyond the band — underpowered, not
+evidence of no effect). Rule and dating: `LRP.md` §3 kill criterion, amended 2026-10-07.
+
+**Built (step 4), minimal.** `registry.py` declares every column decided at the close of
+*t*, not just model inputs: each entry has a `role` (`model`, `universe` for the H3
+filters, `decision` for the EV ranking's ATR %). The leakage gate (§8) runs every
+registered source, so a feature registered later is covered automatically.
+`BoostedModel` refuses a column that isn't registered (`check_columns`); only the
+synthetic gates and unit tests opt out. The baseline columns, the
+universe filters and `atr_pct` are registered today. `sector` is registered as static
+(not bar-derived, so the leakage gate can't cover it).
+
+**MA family (E1 step 1, 2026-10-06).** `features/ma_family.py` registers the
+`ma_study_insights.md` §2.2 v1 list as group `ma`, computed on the harness's timing (row t =
+close of t) with the study's own functions, all scale-free:
+- **supported:** `slope_log_21_sma_50` (rank) and `ribbon_agreement_state`;
+- **weak:** `dist_z_sma_20`, `dist_from_52w_low`, `stack_fully_bearish`,
+  `log_dollar_volume_20d` (rank), `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`,
+  `slope_log_63_sma_50` and `adx_14`. The last three priors were assigned when E1 was
+  planned.
+
+Changes from §2.2:
+- the absolute-slope column is dropped (it's for linear models; the learner is a tree);
+- MACD is its histogram over the close (price units fail the leakage gate);
+- dollar volume is a per-date rank, not a tercile;
+- ADX is the level, not the regime bucket.
+
+**Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 × close):
+ADX's "which move is larger", the ribbon's "slope > 0" and the stack's ordering. Quoted
+(cent-rounded) prices tie exactly, and a later split or dividend breaks such ties in
+floating point. A strict comparison would then make the value at *t* depend on corporate
+actions after *t*. The real-bar smoke run caught it on ADX (Tiingo's cent prices; up to 3.9
+ADX points). The gate's synthetic bars are now cent-rounded, so the synthetic gate catches
+this class too.
+
+`features/cache.py` builds one cache of every registered model column for a universe's
+eligible rows, ranked per date over those rows (`python -m src.models.cli build-features`).
+S&P 500 2010–2021: 1,371,246 rows, 642 tickers (112 from Tiingo), no column more than 1.0%
+missing.
 
 ---
 
 ## 8. Gates that run before any real fit
 
+`python -m src.models.cli run-gates` (`gates.py`, data from `synthetic.py`; the tests in
+`tests/test_models_gates.py` call the same pass/fail functions at a smaller size). Gate
+CIs are 99%, not the 90% used for reporting, so that a gate fails on a bug, not on one
+draw in ten.
+
 1. **Synthetic planted-effect gate** (port of `moving_averages/synthetic.py`, per §5):
-   - On a synthetic panel, plant a feature that raises P(upper first) by a known amount
-     at one cell. The harness must recover it within its CI.
-   - A pure-noise feature must show no gain.
-   - Shifting the planted feature one extra bar must degrade recovery by the expected
-     amount.
-2. **Label-shuffle gate:** permuting labels *within date* must collapse every model to
-   B1. Anything better means leakage through the date structure.
-3. **Leakage test:** extend `tests/test_moving_averages_leakage.py`'s pattern to every
-   registered feature. Perturb all bars after *t*; every feature at *t* must be
-   unchanged.
-4. **Purge test:** no training label window intersects any test date, for every fold
-   scheme and horizon.
+   - Labels are drawn straight from known probabilities, not from simulated prices, so
+     the size of the effect is exact. A per-ticker AR(1) feature `x` raises P(+1) by
+     δ = 0.10 when it's above 0, taking it from P(−1). A market-wide regime moves every
+     ticker's base rates together; no feature sees it. Tickers join late and delist
+     early, as in the point-in-time universe.
+   - Run through the real `fit_predict` (with calibration) on walk-forward folds, and the
+     real paired bootstrap against B0. The Brier gain's CI must contain the exact oracle
+     gain, −δ²/2.
+   - A pure-noise feature with the same persistence must show no gain (its CI's near edge
+     doesn't clear 0).
+   - The feature one bar late must lose the expected share of the gain. With persistence
+     ρ = 0.7, the oracle gain is −2δ²·arcsin(c²/(1+c²))/2π, where c = ρ/√(1−ρ²); that's
+     about a third of the unshifted gain. Its CI must contain that value and lie entirely
+     above the unshifted CI.
+   - The recovered uplift in P(+1) is reported too: δ, and 2δ·arcsin(ρ)/π one bar late.
+2. **Label-shuffle gate:** outcomes are permuted among each date's rows. Each date keeps
+   its outcome mix, but which ticker got which outcome is lost. Within-day skill must
+   vanish: the mean daily IC and the top-5 and top-20 excess over the day's mean have CIs
+   containing 0. The Brier gain over B0 must vanish too. That last check is valid only
+   because no synthetic feature knows the date's regime; on real data a market-wide
+   feature could keep a legitimate gain. The same within-day measures on the unshuffled
+   panel must detect the planted skill, so a pass isn't vacuous. (Replaces "collapse to
+   B1", dropped 2026-10-03.)
+3. **Leakage gate:** every registered source (§7) is recomputed after perturbing
+   everything after *t*:
+   - the future price path;
+   - a future split: earlier adjusted prices and volumes are rescaled, and the split is
+     added to that vendor's splits;
+   - a future dividend: earlier total-return prices are rescaled;
+   - a delisting right after *t*: later bars are removed (catches a column that reads
+     whether a next bar exists).
+
+   Every value dated ≤ *t* must be unchanged. A split or dividend after *t* rescales every
+   earlier adjusted price, so a column may use price *ratios* from the past, never
+   adjusted price *levels*. Two planted canaries (tomorrow's close, an adjusted price
+   level) must be caught, the labels across *t* must move, and each column's first value
+   must sit at its declared warmup. It runs on synthetic bars; a read-only smoke run
+   (`--smoke-db`) repeats it on real bars from both vendors.
+4. **Purge gate:** labels come from the real `barrier_labels` on synthetic bars (with
+   holidays and delistings, so some windows are truncated). For every v1 horizon, both
+   fold schemes and their inner folds, with and without the embargo: no training label
+   window touches its test period. Then `fit_predict` is traced with a recording model.
+   No row it fits on reaches the period it's evaluated on, or the outer test year, and
+   the calibration rows are exactly the inner test years. A canary (the training window
+   without the purge) must touch the test period in every fold.
 
 Any gate failing means no result from the harness is trusted. This is the same rule as
 the MA study's `validate-synth`.
+
+**Not covered by any gate:** a column that is constant over time but differs by data
+vendor. A ticker is read from Tiingo only when yfinance has no bars for it at all, which
+in practice means it was later delisted. Delisted members' sectors also come from SEC SIC
+codes, everyone else's from Yahoo. If Tiingo's bars differ systematically (volume scale,
+gaps), a model could learn "Tiingo-looking" = "will delist". Perturbing the future can't
+show that, so `python -m src.models.cli vendor-check` covers it: a same-ticker gate (live
+tickers stored on both vendors, every model input, and the raw value behind each ranked one,
+computed from each; passes when a vendor classifier stays at AUC <= 0.55 and, per column,
+the median gap is < 0.05 SD, <= 5% of rows are off by > 0.1 SD and <= 1% are missing on one
+vendor only; non-zero exit otherwise), plus, with `--features`, the delisted-vs-live
+read-outs. Rerun it whenever a model feature is registered. First full run (2026-10-07,
+345 tickers, 21 columns): pass, AUC 0.524, largest median gap 0.011 SD (Done #87, #91).
 
 ---
 
@@ -241,8 +367,9 @@ src/models/
   trial_log.py        TRIALS.csv + data/models/<trial_id>/
   features/baseline.py  the baselines' factor columns
   features/registry.py
-  synthetic.py        §8 gate 1
-  cli.py              run-trial, run-gates
+  synthetic.py        §8 synthetic data
+  gates.py            §8 gates and their pass/fail checks
+  cli.py              run-gates (run-trial with step 5)
 tests/test_models_*.py
 ```
 
@@ -268,10 +395,13 @@ Build order, one PR each, each with its own tests:
    Notes for step 3, from the 2019–2021 S&P 500 smoke run:
    - ~10% of member-rows have no bars: 74 names that left by 2026 (AVB, EA,
      ATVI, SIVB, …) were never ingested. They're flagged `has_bars=False`, not
-     dropped, so the delisted-price fetch fills them in place.
+     dropped, so the delisted-price fetch fills them in place (Tiingo, Done #83:
+     S&P 500 member-days with prices 2019–2021 88–92% → 97–98%).
    - **BBT carries another company's prices.** The symbol was reused after BB&T
      became TFC (same CIK), and `ticker_renames` only considers price-less
      symbols, so BBT was never checked (`docs/backlog.md`, survivorship research).
+     Fixed (Done #92): `symbol_reuse.py` checks former members with bars; BBT and five
+     others are whole-history disputes, so their labels are dropped.
    - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.
      Both were large-cap reverse splits around spin-offs, not distress. This
      feeds the with/without sensitivity in history-breaks follow-up (b).
@@ -294,9 +424,52 @@ Build order, one PR each, each with its own tests:
    Smoke run (S&P 500 2010–2021, no fit): the B2–B4 columns are complete on 99.3% of
    eligible rows. 187 rows have a split-only bar but no total-return bar (and so no
    label), and FISV has no sector.
-4. The four gates (§8). Real data is used only after these pass.
+4. The four gates (§8). Real data is used only after these pass. **Done.** Choices
+   made there:
+   - **Planted labels, not planted prices.** Labels drawn from known probabilities make
+     the gate's target an exact number. The labeler's own timing is covered by its tests
+     and by gate 3, which includes the labeler's decision-day ATR.
+   - **Gate runs are not trials.** They write nothing to `TRIALS.csv`, so they don't
+     count toward any experiment's multiple-testing count.
+   - **Full run** (v1 folds, 200 tickers, 341k test rows, 1,985 dates):
+     - planted Brier gain −0.00507 (oracle −0.00500);
+     - one bar late −0.00148 (oracle −0.00163);
+     - noise −0.00026, CI [−0.00061, +0.00005];
+     - planted uplift 0.0997 (δ = 0.10);
+     - after the shuffle: IC +0.0002, top-20 excess −0.0001, both CIs spanning 0. The
+       shuffled Brier gain is −0.00031, CI [−0.00068, +0.00001]: a pass, but only just
+       (with noise's −0.00026, it's the same small, not significant edge for a calibrated
+       boosted model over B0).
+
+     All gates pass, including the read-only smoke run on 20 real S&P 500 tickers (4 of
+     them delisted and read from Tiingo, with real splits from both vendors). About 10
+     minutes.
+   - **Isotonic calibration shrinks a weak, smooth signal.** The one-bar-late feature's
+     expected uplift is 0.049.
+     - Uncalibrated, the boosted model recovers it in full (0.048 at the tests' size).
+     - Calibrated, it's cut to 0.036 at the tests' size (2–4 training years) and 0.043 at
+       the full size. At the tests' size its Brier gain then misses the oracle, so the
+       quick tests skip only that one amount check. At the full size the Brier gain still
+       matches.
+     - The likely cause: the isotonic maps are fitted on inner-fold models trained on
+       fewer years, whose noisier predictions get flattened more, and the map is then
+       applied to the better final model.
+
+     Worth a look before the sliding (3-year) scheme or a weak feature group is judged on
+     real data (e.g. compare uncalibrated, isotonic, and a 1-parameter scaling).
 5. First pre-registered experiment: E1 from `ma_study_insights.md` §8, run on the
    harness end to end.
+   - **Registered 2026-10-07** in `docs/modeling/PREREGISTRATION.md`, revised from the
+     §8 draft. It uses B4, cell 2/2 at H = 10/21/42/63, T1 = supported and
+     T2 = + weak, 8 trials and a 10 bps relevance band.
+   - **Runner:** `src/models/ablation.py`. Its CLI commands are `build-labels`,
+     `run-experiment E1` (one `TRIALS.csv` row per trial) and `close-experiment E1`
+     (BH, then the three verdicts).
+   - **Label caches:** a cache now records its disputes list, and `read_labels` refuses
+     a cache built with a different one.
+   - **Run:** after the reused-symbol disputes PR (#184), the feature and label caches
+     are rebuilt from `main`. The feature cache also records its disputes list, since
+     whole-history disputes leave the universe.
 
 ---
 
@@ -306,7 +479,7 @@ Build order, one PR each, each with its own tests:
   notification but adds overnight gap noise. The MA study used close-to-close. v1 uses
   the open; one trial at the close checks the sensitivity.
 - **Universe for v1 fits:** S&P 500 only (cleanest point-in-time membership), with
-  R1000/R2000 proxies added once they're stored (PR #129 is built but not stored,
-  pending survivorship-free data).
+  R1000/R2000 proxies added once they're stored (PR #129 is built but not stored;
+  delisted prices exist only for former S&P 500 / Nasdaq-100 members, Done #82).
 - **Sector is not point-in-time** (`ma_study_insights.md` §2.4): used in B2 as-is, with
   the leak documented, until a PIT sector table exists.

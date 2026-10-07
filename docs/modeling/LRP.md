@@ -143,9 +143,23 @@ Everything here has a null prior until the harness says otherwise.
   Each is a group.
 - **Metric:** out-of-sample Brier improvement per barrier cell, and top-k-per-day
   precision after costs (`IDEAS.md` §11), with date-block bootstrap CIs.
-- **Kill criterion:** a group is dropped if its CI on Brier improvement over the previous
-  step includes zero at every horizon. If **all four** fail, LRP as formulated is dead
-  and gets written up as a null. No reformulating until something passes.
+- **Kill criterion** (amended 2026-10-07 — three verdicts, not two; the earlier
+  "includes zero → written up as a null" conflated a demonstrated null with an
+  underpowered cell; rule mirrors
+  `docs/features/divergence-context/PREREGISTRATION.md` "Verdicts and kill
+  criteria"): a group is **dropped** if its CI on Brier improvement over the
+  previous step includes zero at every horizon — the operational gate is unchanged.
+  The recorded verdict then distinguishes:
+  - **null** — the entire CI sits inside the pre-committed
+    minimum-relevant-improvement band at every horizon (the band is set in the
+    experiment's `PREREGISTRATION.md` entry before the run): an improvement big
+    enough to matter is affirmatively ruled out;
+  - **inconclusive** — the CI includes zero but extends beyond the band at some
+    horizon: the data couldn't tell. Logged as underpowered, never as evidence of
+    no effect.
+  If **all four** groups fail the gate, LRP as formulated stops; it is written up
+  as a null only for groups that meet the band test, and as inconclusive for the
+  rest. No reformulating until something passes either way.
 - **Source weights:** if the model's own use of §2.1 disagrees with §1.2's equal
   `prior_factor`, that's a finding to log. Only the next dated revision of this document
   may change the priors. They're never tuned against test folds.

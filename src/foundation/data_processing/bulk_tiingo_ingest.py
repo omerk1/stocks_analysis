@@ -1,4 +1,8 @@
 """python -m src.foundation.data_processing.bulk_tiingo_ingest [--since 2009-01-01] [--limit N] [--refresh]
+                                                             [--retry-status name_mismatch,...]
+python -m src.foundation.data_processing.bulk_tiingo_ingest --backfill-splits   # splits for stored listings
+python -m src.foundation.data_processing.bulk_tiingo_ingest --store-preferred   # vendor_overrides.PREFER_TIINGO
+python -m src.foundation.data_processing.bulk_tiingo_ingest --store-tickers A,B # live tickers for the vendor check
 
 Daily bars from Tiingo for index members that have no prices anywhere else:
 the members `ticker_renames.py` checked and could not map to a current symbol
@@ -38,10 +42,16 @@ from dotenv import load_dotenv
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing import ticker_renames as tr
-from src.foundation.data_processing.tiingo_client import TiingoClient, supported_tickers, to_bars
+from src.foundation.data_processing.tiingo_client import (
+    TiingoClient, TiingoError, supported_tickers, to_bars, to_splits,
+)
+from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 from src.foundation.utils.config_loader import load_config
 
 MIN_COVERAGE = tr.MIN_COVERAGE
+SPLITS_JOB = "tiingo_splits"
+PREFERRED_START = "1970-01-01"  # Tiingo answers from the listing's first bar
+_NO_PRICES = pd.DataFrame({"splitFactor": pd.Series(dtype=float)})
 
 
 def targets(conn: sqlite3.Connection, since: str) -> pd.DataFrame:
@@ -175,7 +185,59 @@ def decide(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFram
         return {**row, "status": "low_coverage"}
     db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO, total_return)
     db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True))
+    db.upsert_splits(conn, target.ticker, db.TIINGO, to_splits(prices))
+    db.record_job_result(conn, SPLITS_JOB, target.ticker, "success")
     return {**row, "status": "stored"}
+
+
+def backfill_splits(conn: sqlite3.Connection, client: TiingoClient, limit: int | None = None) -> None:
+    """Split history for `stored` listings ingested before splits were kept
+    (one price request each). Resumable through `fetch_jobs` (`SPLITS_JOB`):
+    most tickers have no splits, so the splits table alone can't say which
+    were done. Bars aren't rewritten."""
+    stored = db.read_tiingo_listings(conn)
+    todo = db.pending_keys(conn, SPLITS_JOB, sorted(stored.loc[stored["status"] == "stored", "ticker"]))
+    for ticker in todo[:limit]:
+        row = stored.set_index("ticker").loc[ticker]
+        try:
+            prices = client.daily_prices(tiingo_symbol(ticker), row["tiingo_start"], row["tiingo_end"])
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
+        except requests.RequestException as e:
+            db.record_job_result(conn, SPLITS_JOB, ticker, "failed", str(e))
+            print(f"{ticker}: request failed, retry later ({e})", flush=True)
+            continue
+        splits = to_splits(prices) if prices is not None and not prices.empty else to_splits(_NO_PRICES)
+        db.upsert_splits(conn, ticker, db.TIINGO, splits)
+        db.record_job_result(conn, SPLITS_JOB, ticker, "success")
+        print(f"{ticker}: {len(splits)} split(s)", flush=True)
+
+
+def store_preferred(conn: sqlite3.Connection, client: TiingoClient, tickers: list[str] | None = None) -> None:
+    """Full Tiingo history, both bases plus splits, for the tickers the
+    modeling modules read from Tiingo even though yfinance has them
+    (`vendor_overrides.PREFER_TIINGO`, all of them by default). One request
+    each; rerun with every bar refresh, since stored bars stop at the fetch
+    date. A failed ticker keeps whatever it had and is reported."""
+    for ticker in tickers if tickers is not None else sorted(PREFER_TIINGO):
+        try:
+            prices = client.daily_prices(tiingo_symbol(ticker), PREFERRED_START, pd.Timestamp.today().strftime("%Y-%m-%d"))
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
+        except requests.RequestException as e:
+            print(f"{ticker}: request failed, kept existing bars ({e})", flush=True)
+            continue
+        if prices is None or prices.empty:
+            print(f"{ticker}: no prices from Tiingo, kept existing bars", flush=True)
+            continue
+        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO, to_bars(prices, split_only=False))
+        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True))
+        db.upsert_splits(conn, ticker, db.TIINGO, to_splits(prices))
+        print(f"{ticker}: {len(prices)} bars", flush=True)
 
 
 def run(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFrame, since: str,
@@ -193,6 +255,10 @@ def run(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFrame, 
     for target in todo.itertuples(index=False):
         try:
             outcome = decide(conn, client, listings, target, since)
+        except TiingoError as e:
+            # A quota (e.g. 500 symbols a month): every later request fails too.
+            print(f"{target.ticker}: Tiingo quota reached, stopping ({e})", flush=True)
+            break
         except requests.RequestException as e:
             # Not a decision: left unrecorded so the next run retries it.
             print(f"{target.ticker}: request failed, retry later ({e})", flush=True)
@@ -207,6 +273,13 @@ def main():
     parser.add_argument("--since", default="2009-01-01", help="Only members with membership after this date")
     parser.add_argument("--limit", type=int, help="Check at most this many targets (a trial run)")
     parser.add_argument("--refresh", action="store_true", help="Re-decide tickers already in tiingo_listings")
+    parser.add_argument("--store-preferred", action="store_true",
+                        help="Only fetch the vendor_overrides.PREFER_TIINGO tickers (one request each)")
+    parser.add_argument("--store-tickers",
+                        help="Comma-separated tickers to store from Tiingo as-is (one request each), e.g. live "
+                             "tickers for `src.models.cli vendor-check`'s same-ticker comparison")
+    parser.add_argument("--backfill-splits", action="store_true",
+                        help="Only fetch split histories for already-stored listings (one request each)")
     parser.add_argument("--retry-status", help="Comma-separated stored statuses to re-decide (e.g. name_mismatch)")
     args = parser.parse_args()
 
@@ -214,6 +287,14 @@ def main():
     config = load_config()
     conn = db.get_connection(db.default_db_path(config.data_paths.raw))
     db.create_tables(conn)
+    if args.store_preferred or args.store_tickers:
+        store_preferred(conn, TiingoClient(), args.store_tickers.split(",") if args.store_tickers else None)
+        conn.close()
+        return
+    if args.backfill_splits:
+        backfill_splits(conn, TiingoClient(), args.limit)
+        conn.close()
+        return
     table = run(conn, TiingoClient(), supported_tickers(), args.since, args.refresh, args.limit,
                 args.retry_status.split(",") if args.retry_status else None)
     print(table["status"].value_counts().to_string())
