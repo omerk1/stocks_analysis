@@ -85,6 +85,14 @@ Rules:
 - **Delisting inside the horizon:** the label resolves on the last available bar, and
   the row is flagged. This fires for the 132 delisted members read from Tiingo
   (Done #83); the 101 still missing never reach it (backlog).
+- **Disputed price days:** a label is dropped, not resolved, when its ticker's vendor
+  has a reviewed disputed day (`market_common/price_disputes.csv`: a corporate action
+  one vendor gets wrong, or the vendors disagree and it's unknown which is right) in
+  its window or in the 42 bars before it (the ATR its barriers are sized with), counted
+  on the ticker's own bars. The label manifest records how many (`n_disputed_dropped`);
+  0.41–0.61% of eligible S&P 500 rows, 2010–2021 (Done #86). A ticker whose yfinance
+  error masking can't fix (T's dividend drift) is read from Tiingo instead
+  (`market_common/vendor_overrides.PREFER_TIINGO`).
 - **Grid (v1):** H ∈ {5 (diagnostic), 10, 21, 42, 63}, U ∈ {2, 3, 4}, D ∈ {1, 1.5, 2},
   every distance × √(H/21). That's 45 cells, fixed before any fit. 126-day horizons (M18's
   52-week family) are a separate, later grid, because at H=126 the study had about 10
