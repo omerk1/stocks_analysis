@@ -168,7 +168,7 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
     - Steps: T1 = B4 + supported, judged vs B4; T2 = T1 + weak, judged vs T1.
     - Learner: fixed v1, 3 seeds averaged.
     - Trials: 8, with BH at q = 0.10.
-    - Pass: BH-significant, better in ≥ 5 of 8 test years, and better in both eras (2014–17, 2018–21).
+    - Pass: BH-significant, a point estimate at least the relevance band, better in ≥ 5 of 8 test years, and better in both eras (2014–17, 2018–21).
     - Otherwise: **null** or **inconclusive** by a pre-committed relevance band. The band is the Brier gain whose top-5 pick EV would cover a 10 bps round trip: 9.7e-5 / 4.6e-5 / 2.3e-5 / 1.5e-5 by horizon. This follows the three-verdict rule (Done #88).
     - Secondary readouts: uncalibrated Brier (calibration shrinks weak signals, #84), log loss, IC, top-k after costs.
   - **Runner:** the experiment is defined in code (`PREREGISTERED["E1"]`, literal column lists that a test pins to the registry). Per horizon, each model is fitted once per fold and seed and reused as the next step's reference. Each trial gets a `TRIALS.csv` row with its draws archived; `close-experiment` applies BH and the verdicts. `fit_predict` can also return the same model's uncalibrated probabilities.
@@ -177,4 +177,9 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
     - The run waits for that PR. Both caches are then rebuilt from `main`.
     - The registry's prior enum is unchanged (IDEAS §2's null/inconclusive split has no consumer yet).
     - No code filters `EXPERIMENTS.csv` by outcome.
-  - **Timing:** a full-size fit (1.25M rows) takes about 40 s, about 6 h for the whole experiment. Tests: 8 new.
+  - **Code review before the PR:** four fixes.
+    - Pass now also needs the effect to reach the band; before, a significant but negligible gain could pass.
+    - `close-experiment` counts each trial's first clean, full-size row. Before, a later quick rerun could replace it.
+    - The runner refuses a feature cache built for another universe or window.
+    - The registered T2 vs B4 readout is now computed.
+  - **Timing:** a full-size fit (1.25M rows) takes about 40 s, about 6 h for the whole experiment. Tests: 10 new.

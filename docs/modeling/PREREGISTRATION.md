@@ -50,7 +50,8 @@ requires. T2 vs B4 is reported next to it.
   floor and the history-break eligibility rules (`dataset.universe_mask`). Delisted
   members are read from Tiingo.
 - **Window:** 2010–2021. The holdout stays locked.
-- **Data:** the feature and label caches are rebuilt from `main` once the pending
+- **Data:** the runner refuses a feature cache built for another universe or window.
+  The feature and label caches are rebuilt from `main` once the pending
   reused-symbol disputes PR lands, before the run. A label cache built with any other
   disputes list is refused (`read_labels`). `vendor-check`'s same-ticker gate must pass
   on the registered columns. It passed on 2026-10-07 with AUC 0.524.
@@ -69,13 +70,17 @@ requires. T2 vs B4 is reported next to it.
 
 - **8 trials:** 2 steps × 4 horizons. BH at q = 0.10 across all 8 runs once, at close
   (`close-experiment E1`). A failed or missing trial counts with p = 1.
+- **Which row counts:** each trial is its first `ok` row run from a clean checkout at
+  1,000 draws. A later rerun is counted but never replaces it.
 - **Primary metric:** the pooled Brier difference (step − reference, negative = better)
   on the same rows. It comes with a 90% CI from the date-block bootstrap (block 2H,
   1,000 draws). The bootstrap p is the share of draws ≥ 0, one-sided.
-- **Pass:** a trial passes when all three of these hold:
+- **Pass:** a trial passes when all four of these hold:
   1. it is BH-significant;
-  2. it is better in at least 5 of the 8 test years;
-  3. it is better in both eras, 2014–17 and 2018–21. The eras split the test years;
+  2. its point estimate is at least the relevance band (an improvement too small to
+     matter doesn't pass, however significant);
+  3. it is better in at least 5 of the 8 test years;
+  4. it is better in both eras, 2014–17 and 2018–21. The eras split the test years;
      the harness's 2010–15 / 2016–21 halves would include training-only years.
 - **Not passing:** a trial that doesn't pass is **null** if its CI's improving end
   (the lower edge) stays above −band. Otherwise it is **inconclusive**.

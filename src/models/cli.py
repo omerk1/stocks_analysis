@@ -225,8 +225,7 @@ def build_labels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
     return 0
 
 
-def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, horizons: tuple[int, ...] | None,
-                   n_boot: int) -> int:
+def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, horizons: tuple[int, ...] | None) -> int:
     from src.models import ablation
     from src.models.features import cache
     warnings.filterwarnings("ignore")
@@ -236,7 +235,7 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
         raise SystemExit(f"{experiment_id} has no horizon {sorted(unknown)}; registered: {exp.horizons}")
     features = cache.read_feature_cache(features_dir)
     for h in horizons or exp.horizons:
-        for r in ablation.run_horizon(exp, h, features, labels_dir, n_boot):
+        for r in ablation.run_horizon(exp, h, features, labels_dir):
             b = r["brier"]
             print(f"{experiment_id} {r['step']} H={h}: Brier {b['point_estimate']:+.6f} "
                   f"[{b['ci_low']:+.6f}, {b['ci_high']:+.6f}], {r['folds_improving']}/{r['n_folds']} years better, "
@@ -288,7 +287,6 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--features", type=Path, required=True, help="a build-features output directory")
     run.add_argument("--labels", type=Path, required=True, help="a build-labels output directory")
     run.add_argument("--horizons", nargs="+", type=int, default=None, help="a subset of the registered horizons")
-    run.add_argument("--n-boot", type=int, default=1000)
     close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
     close.add_argument("experiment")
     args = parser.parse_args(argv)
@@ -296,7 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         return build_labels(args.db, args.out, args.start, args.end, tuple(args.indices), tuple(args.horizons))
     if args.command == "run-experiment":
         return run_experiment(args.experiment, args.features, args.labels,
-                              tuple(args.horizons) if args.horizons else None, args.n_boot)
+                              tuple(args.horizons) if args.horizons else None)
     if args.command == "close-experiment":
         return close_experiment(args.experiment)
     if args.command == "run-gates":

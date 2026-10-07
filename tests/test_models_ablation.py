@@ -48,15 +48,16 @@ def _synthetic(n_tickers=60):
         features[c] = rng.uniform(size=n).astype("float32")
     features["sector"] = pd.Categorical(rng.choice(["A", "B"], n))
     features["slope_log_21_sma_50_rank"] = panel["x"].astype("float32")
-    features.attrs["manifest"] = {"created": "test", "universe": {"floors": {}}}
+    features.attrs["manifest"] = {"created": "test", "universe": {"indices": ["sp500"], "floors": {}},
+                                  "start": "2015-01-02", "end": "2021-12-31", "open_holdout": False}
     labels = panel[["ticker", "date", *ablation.LABEL_COLS]].copy()
     labels.attrs["manifest"] = {"created": "test", "disputes": "x", "n_disputed_dropped": 0}
     return features, labels
 
 
 def _small(exp: Experiment) -> Experiment:
-    return replace(exp, horizons=(21,), seeds=(0, 1), test_years=(2019, 2020, 2021),
-                   first_train_start="2015-01-01", eras=((2019,), (2020, 2021)), min_folds_improving=2, config=FAST)
+    return replace(exp, horizons=(21,), seeds=(0, 1), n_boot=200, test_years=(2019, 2020, 2021),
+                   first_train_start="2015-01-02", eras=((2019,), (2020, 2021)), min_folds_improving=2, config=FAST)
 
 
 def test_a_planted_group_passes_and_a_noise_group_does_not(tmp_path, monkeypatch):
@@ -65,7 +66,7 @@ def test_a_planted_group_passes_and_a_noise_group_does_not(tmp_path, monkeypatch
     exp = _small(PREREGISTERED["E1"])
     trials = tmp_path / "TRIALS.csv"
 
-    results = ablation.run_horizon(exp, 21, features, tmp_path, n_boot=200, trials_path=trials,
+    results = ablation.run_horizon(exp, 21, features, tmp_path, trials_path=trials,
                                    artifacts_root=tmp_path / "art")
 
     logged = trial_log.read_trials(trials)
@@ -77,18 +78,28 @@ def test_a_planted_group_passes_and_a_noise_group_does_not(tmp_path, monkeypatch
     assert t1["brier"]["point_estimate"] < t1["band"] * -10
     assert set(t1["brier_by_seed"]) == {0, 1}
     assert (tmp_path / "art" / t1["trial_id"] / "brier.npz").exists()
+    assert "vs_baseline" in t2 and "vs_baseline" not in t1
+    assert t2["vs_baseline"]["brier"]["ci_high"] < 0  # T2 still holds T1's planted gain over B4
 
-    table, groups = ablation.close_experiment(exp, logged)
+    table, groups = ablation.close_experiment(exp, logged, require_clean=False)
     assert groups["T1"] == PASS and groups["T2"] != PASS
     assert table["bh_significant"].tolist()[0]
 
 
-def _trial_row(step, horizon, p, ci_low, band=1e-4, folds=6, eras=(-1e-4, -1e-4)):
-    return {"experiment_id": "E1", "status": "ok", "date": f"2026-10-07T00:00:0{horizon % 10}",
-            "trial_id": f"{step}-{horizon}",
+def test_a_cache_for_another_universe_is_refused():
+    features, _ = _synthetic(n_tickers=5)
+    features.attrs["manifest"]["universe"]["indices"] = ["sp500", "nasdaq100"]
+    with pytest.raises(ValueError, match="indices"):
+        ablation.check_features(_small(PREREGISTERED["E1"]), features)
+
+
+def _trial_row(step, horizon, p, ci_low, band=1e-4, folds=6, eras=(-1e-4, -1e-4), point=None, n_boot=1000,
+               date="2026-10-07T00:00:00", dirty=False):
+    return {"experiment_id": "E1", "status": "ok", "date": date, "git_dirty": dirty,
+            "trial_id": f"{step}-{horizon}-{date}",
             "feature_groups": json.dumps({"step": step}), "cells": json.dumps([{"horizon": horizon}]),
-            "metrics": json.dumps({"brier_p": p, "brier": {"point_estimate": ci_low / 2, "ci_low": ci_low,
-                                                            "ci_high": -ci_low},
+            "metrics": json.dumps({"brier_p": p, "brier": {"point_estimate": ci_low / 2 if point is None else point,
+                                                            "ci_low": ci_low, "ci_high": -ci_low, "n_boot": n_boot},
                                    "band": band, "folds_improving": folds,
                                    "brier_by_era": {"a": eras[0], "b": eras[1]}})}
 
@@ -100,11 +111,26 @@ def test_close_applies_bh_and_the_three_verdicts():
         _trial_row("T1", 21, 0.001, -5e-4, eras=(-1e-4, 2e-5)),     # significant but an era flips
         _trial_row("T1", 42, 0.4, -5e-5),                            # inside the band: null
         _trial_row("T1", 63, 0.4, -5e-4),                            # wide CI: inconclusive
-        *[_trial_row("T2", h, 0.5, -5e-5) for h in (10, 21, 42, 63)],
+        _trial_row("T2", 10, 0.001, -5e-5, point=-3e-5),             # significant but below the band: null
+        *[_trial_row("T2", h, 0.5, -5e-5) for h in (21, 42, 63)],
     ]
     table, groups = ablation.close_experiment(exp, pd.DataFrame(rows))
     assert table["verdict"].tolist() == [PASS, INCONCLUSIVE, NULL, INCONCLUSIVE] + [NULL] * 4
+    assert bool(table["bh_significant"].iloc[4])
     assert groups == {"T1": PASS, "T2": NULL}
+
+
+def test_a_rerun_never_replaces_the_first_valid_trial():
+    exp = PREREGISTERED["E1"]
+    rows = [_trial_row("T1", 10, 0.001, -5e-4),
+            _trial_row("T1", 10, 0.4, -5e-4, date="2026-10-08T00:00:00"),               # later rerun
+            _trial_row("T1", 21, 0.001, -5e-4, n_boot=50),                              # quick look
+            _trial_row("T1", 42, 0.001, -5e-4, dirty=True)]                             # uncommitted code
+    table, _ = ablation.close_experiment(exp, pd.DataFrame(rows))
+    t1 = table[table["step"] == "T1"].set_index("horizon")
+    assert t1.loc[10, "p"] == 0.001 and t1.loc[10, "n_other_rows"] == 1
+    assert t1.loc[[21, 42], "trial_id"].isna().all()
+    assert (t1.loc[[21, 42, 63], "p"] == 1.0).all()
 
 
 def test_a_missing_trial_counts_against_the_experiment():

@@ -22,11 +22,14 @@ and gets one `TRIALS.csv` row:
   the top-k picks' excess return and return after costs.
 
 `close_experiment` runs once, after every trial is logged: BH across the
-pre-registered trial count (a missing or failed trial counts with p = 1),
+pre-registered trial count (a missing or failed trial counts with p = 1; a
+trial is its first `ok` row run from a clean checkout at the registered
+bootstrap size -- later reruns are counted, never substituted),
 then the three-verdict rule (`LRP.md` §3, amended 2026-10-07):
 
-- **pass**: BH-significant, better in at least `min_folds_improving` test
-  years, and better in every era;
+- **pass**: BH-significant, a point estimate at least as large as the
+  relevance band, better in at least `min_folds_improving` test years, and
+  better in every era;
 - otherwise **null** if the CI's improving end stays inside the pre-committed
   relevance band (an improvement as large as the band is ruled out), else
   **inconclusive** (underpowered; never evidence of no effect).
@@ -102,6 +105,7 @@ class Experiment:
     eras: tuple[tuple[int, ...], ...] = ((2014, 2015, 2016, 2017), (2018, 2019, 2020, 2021))
     min_folds_improving: int = 5
     ci: float = 0.90
+    n_boot: int = N_BOOT
     q: float = 0.10
     indices: tuple[str, ...] = ("sp500",)
     config: BoostingConfig = BoostingConfig()
@@ -282,10 +286,43 @@ def trial_spec(exp: Experiment, i: int, horizon: int, features: pd.DataFrame, la
     }
 
 
-def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_dir: Path, n_boot: int = N_BOOT,
+def check_features(exp: Experiment, features: pd.DataFrame) -> None:
+    """Refuses a feature cache built for another universe or a window that
+    doesn't cover the experiment's folds."""
+    m = features.attrs.get("manifest", {})
+    universe = m.get("universe", {})
+    problems = []
+    if list(universe.get("indices", [])) != list(exp.indices):
+        problems.append(f"indices {universe.get('indices')} != registered {list(exp.indices)}")
+    if m.get("open_holdout", True):
+        problems.append("built with the holdout open")
+    if pd.Timestamp(m.get("start", "2100-01-01")) > pd.Timestamp(exp.first_train_start):
+        problems.append(f"starts {m.get('start')}, after the first training day {exp.first_train_start}")
+    if pd.Timestamp(m.get("end", "1900-01-01")) < pd.Timestamp(year=max(exp.test_years), month=12, day=28):
+        problems.append(f"ends {m.get('end')}, before the last test year {max(exp.test_years)}")
+    if problems:
+        raise ValueError(f"feature cache doesn't match {exp.experiment_id}: " + "; ".join(problems))
+
+
+def _vs_baseline(model: pd.DataFrame, base: pd.DataFrame, exp: Experiment, horizon: int,
+                 n_boot: int) -> tuple[dict, BootstrapResult]:
+    """A later step against the baseline itself (reported, no verdict)."""
+    m, b = seed_mean(model), seed_mean(base)
+    result = paired_loss_diff(m, b, horizon, "brier", n_boot, exp.ci)
+    diff, date = _brier_diff(m, b)
+    year = date.dt.year
+    return {"brier": result.summary(),
+            "brier_by_year": {int(y): float(v) for y, v in diff.groupby(year).mean().items()},
+            "brier_by_era": {f"{e[0]}-{e[-1]}": float(diff[year.isin(e)].mean()) for e in exp.eras}}, result
+
+
+def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_dir: Path, n_boot: int | None = None,
                 trials_path: Path = trial_log.TRIALS_PATH, artifacts_root: Path = trial_log.ARTIFACTS_ROOT) -> list[dict]:
     """Every step of `exp` at one horizon, one logged trial each. The
-    reference models' predictions are fitted once and reused."""
+    reference models' predictions are fitted once and reused. `n_boot` other
+    than the registered one is for tests: `close_experiment` ignores its rows."""
+    n_boot = exp.n_boot if n_boot is None else n_boot
+    check_features(exp, features)
     labels = dataset.read_labels(labels_dir, horizon, cell=(exp.upper, exp.lower))
     frame = cell_frame(features, labels)
     folds = walk_forward_folds(exp.test_years, exp.first_train_start)
@@ -304,6 +341,9 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
             ref = predictions(ref_name, ref_columns)
             model = predictions(step.name, step.columns)
             metrics, boots = compare(model, ref, frame, exp, horizon, folds, n_boot)
+            if i > 0:
+                metrics["vs_baseline"], boots["brier_vs_baseline"] = _vs_baseline(
+                    model, predictions(exp.baseline, exp.baseline_columns), exp, horizon, n_boot)
             for name, b in boots.items():
                 archive_draws(b, t.dir, name)
             pd.concat([seed_mean(model).assign(model=step.name), seed_mean(ref).assign(model=ref_name)]
@@ -317,36 +357,46 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
 # ---------------------------------------------------------------- closing
 
 def _verdict(row: dict, exp: Experiment) -> str:
-    if row["bh_significant"] and row["folds_improving"] >= exp.min_folds_improving and row["every_era_better"]:
+    if (row["bh_significant"] and row["point"] <= -row["band"] and row["folds_improving"] >= exp.min_folds_improving
+            and row["every_era_better"]):
         return PASS
     return NULL if row["ci_low"] >= -row["band"] else INCONCLUSIVE
 
 
-def close_experiment(exp: Experiment, trials: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+def close_experiment(exp: Experiment, trials: pd.DataFrame,
+                     require_clean: bool = True) -> tuple[pd.DataFrame, dict[str, str]]:
     """BH and the three verdicts over `trials` (a `trial_log.read_trials`
-    frame). Each (step, horizon) uses its latest `ok` row; one with none
+    frame). Each (step, horizon) is its first `ok` row at the registered
+    bootstrap size, run from a clean checkout (`require_clean`); other rows
+    are counted (`n_other_rows`), never substituted. A trial with no such row
     counts with p = 1 and is inconclusive. Returns the per-trial table and
     each step's group verdict."""
-    mine = trials[(trials["experiment_id"] == exp.experiment_id) & (trials["status"] == trial_log.OK)]
-    latest = {}
+    mine = trials[trials["experiment_id"] == exp.experiment_id]
+    first, others = {}, {}
     for _, t in mine.sort_values("date").iterrows():
-        step = json.loads(t["feature_groups"])["step"]
-        horizon = json.loads(t["cells"])[0]["horizon"]
-        latest[(step, horizon)] = (t["trial_id"], json.loads(t["metrics"]))
+        key = (json.loads(t["feature_groups"])["step"], json.loads(t["cells"])[0]["horizon"])
+        m = json.loads(t["metrics"]) if t["status"] == trial_log.OK else None
+        valid = (m is not None and m["brier"].get("n_boot") == exp.n_boot
+                 and (not require_clean or str(t.get("git_dirty")) == "False"))
+        if valid and key not in first:
+            first[key] = (t["trial_id"], m)
+        else:
+            others[key] = others.get(key, 0) + 1
     rows = []
     for step in exp.steps:
         for h in exp.horizons:
-            trial_id, m = latest.get((step.name, h), (None, None))
+            trial_id, m = first.get((step.name, h), (None, None))
             if m is None:
                 rows.append({"step": step.name, "horizon": h, "trial_id": None, "p": 1.0, "point": np.nan,
                              "ci_low": np.nan, "ci_high": np.nan, "band": np.nan, "folds_improving": 0,
-                             "every_era_better": False})
+                             "every_era_better": False, "n_other_rows": others.get((step.name, h), 0)})
                 continue
             rows.append({"step": step.name, "horizon": h, "trial_id": trial_id, "p": m["brier_p"],
                          "point": m["brier"]["point_estimate"], "ci_low": m["brier"]["ci_low"],
                          "ci_high": m["brier"]["ci_high"], "band": m["band"],
                          "folds_improving": m["folds_improving"],
-                         "every_era_better": all(v < 0 for v in m["brier_by_era"].values())})
+                         "every_era_better": all(v < 0 for v in m["brier_by_era"].values()),
+                         "n_other_rows": others.get((step.name, h), 0)})
     table = pd.DataFrame(rows)
     table["bh_significant"] = benjamini_hochberg(table["p"].to_numpy(), q=exp.q)
     table["verdict"] = [INCONCLUSIVE if r["trial_id"] is None else _verdict(r, exp) for r in table.to_dict("records")]
