@@ -32,8 +32,8 @@ still read from yfinance everywhere) get every registered feature computed
 twice, once per vendor, on the same dates. Any difference is then the vendor
 alone. It passes when a vendor classifier can't beat `SAME_TICKER_MAX_AUC`
 (within date, ticker-grouped folds) and no model input's median gap reaches
-`SAME_TICKER_MAX_GAP_SD` cross-sectional SDs. First run (2026-10-07, 4
-baseline features, 332 tickers): AUC 0.502, largest gap 0.011 SD. Read-only.
+`SAME_TICKER_MAX_GAP_SD` cross-sectional SDs. First full run (2026-10-07, all 16
+model inputs, 345 tickers): AUC 0.506, largest gap 0.011 SD. Read-only.
 """
 
 from __future__ import annotations
