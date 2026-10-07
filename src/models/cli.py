@@ -9,7 +9,8 @@ Commands:
                   point-in-time universe, 2010-2021 by default. Reads the
                   database; writes only the parquet cache under `--out`.
   vendor-check    Can a model tell Tiingo rows (later-delisted members) from
-                  yfinance rows? (`vendor_check.py`). Read-only.
+                  yfinance rows? Same-ticker gate always; delisted-vs-live
+                  read-outs with --features (`vendor_check.py`). Read-only.
 
 Gate runs and these commands are not trials: nothing is written to TRIALS.csv.
 """
@@ -145,35 +146,54 @@ def build_features(db_path: Path, out: Path, start: str, end: str, indices: tupl
     return 0
 
 
-def vendor_check(db_path: Path, features_dir: Path) -> int:
+def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str) -> int:
+    """With `features_dir`: the delisted-vs-live read-outs on that feature
+    cache. Always: the same-ticker gate over [start, end] (non-zero exit if it
+    fails)."""
     from src.models import dataset, vendor_check as vc
     from src.models.features import cache
     warnings.filterwarnings("ignore")
-    features = cache.read_feature_cache(features_dir)
-    m = features.attrs["manifest"]
-    tickers = sorted(features["ticker"].unique())
+    dataset.check_holdout(end)
     conn = _read_only(db_path)
     try:
-        sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
-        bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
-                                      fallback=dataset.LABEL_FALLBACK)
-        # Listing metadata, not prices: no holdout bar is read.
-        listings = db.read_tiingo_listings(conn).set_index("ticker")["tiingo_end"]
+        if features_dir is not None:
+            features = cache.read_feature_cache(features_dir)
+            m = features.attrs["manifest"]
+            tickers = sorted(features["ticker"].unique())
+            sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
+            bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
+                                          fallback=dataset.LABEL_FALLBACK)
+            # Listing metadata, not prices: no holdout bar is read.
+            listings = db.read_tiingo_listings(conn).set_index("ticker")["tiingo_end"]
+            calendar = pd.DatetimeIndex(sorted(bars["date"].unique()))
+            tiingo = [t for t in tickers if sources.get(t) in vc.TIINGO_SOURCES]
+            delisted = pd.to_datetime(listings.reindex(tiingo))
+            if delisted.isna().any():
+                raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
+            r = vc.run(features, bars, sources, calendar, delisted)
+            print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
+                  f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
+            print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
+            print("Feature shift (Tiingo far rows vs yfinance, same dates):\n"
+                  + r["feature_shift"].to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
+            print("Vendor AUC (ticker-grouped CV, within date): " + ", ".join(f"{k} {v:.3f}" for k, v in r["auc"].items()))
+        else:
+            members = pd.concat([dataset.apply_renames(conn, db.read_index_membership(conn, n)) for n in dataset.INDEX_FLAGS])
+            members = members[members["end_date"].isna() | (members["end_date"] >= start)]
+            tickers = sorted(members["ticker"].unique())
+        same = vc.both_vendor_tickers(conn, tickers)
+        if not same:
+            print("Same ticker: no tickers stored on both vendors (bulk_tiingo_ingest --store-tickers)")
+            return 1
+        s = vc.same_ticker(conn, same, start, end)
     finally:
         conn.close()
-    calendar = pd.DatetimeIndex(sorted(bars["date"].unique()))
-    tiingo = [t for t in tickers if sources.get(t) in vc.TIINGO_SOURCES]
-    delisted = pd.to_datetime(listings.reindex(tiingo))
-    if delisted.isna().any():
-        raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
-    r = vc.run(features, bars, sources, calendar, delisted)
-    print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
-          f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
-    print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
-    print("Feature shift (Tiingo far rows vs yfinance, same dates):\n"
-          + r["feature_shift"].to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
-    print("Vendor AUC (ticker-grouped CV, within date): " + ", ".join(f"{k} {v:.3f}" for k, v in r["auc"].items()))
-    return 0
+    print(f"Same ticker ({s['n_tickers']} tickers, {start}..{end}; rows {s['n_rows']}):")
+    print(s["gaps"].to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+    print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  "
+          f"[pass: AUC <= {vc.SAME_TICKER_MAX_AUC}, every median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD]")
+    print("  PASS" if s["passed"] else "  FAIL: a model input carries the vendor")
+    return 0 if s["passed"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -192,14 +212,17 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--indices", nargs="+", default=["sp500"])
     vend = sub.add_parser("vendor-check", help="can a model tell Tiingo rows from yfinance rows?")
     vend.add_argument("--db", type=Path, required=True)
-    vend.add_argument("--features", type=Path, required=True, help="a build-features output directory")
+    vend.add_argument("--features", type=Path, default=None,
+                      help="a build-features output directory (adds the delisted-vs-live read-outs)")
+    vend.add_argument("--start", default="2010-01-01", help="same-ticker window")
+    vend.add_argument("--end", default="2021-12-31")
     args = parser.parse_args(argv)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
     if args.command == "build-features":
         return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
     if args.command == "vendor-check":
-        return vendor_check(args.db, args.features)
+        return vendor_check(args.db, args.features, args.start, args.end)
     return 2
 
 
