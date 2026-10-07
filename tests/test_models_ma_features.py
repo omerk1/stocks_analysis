@@ -57,6 +57,25 @@ def test_scale_free():
     pd.testing.assert_frame_equal(ma_family.ticker_features(bars), ma_family.ticker_features(scaled), rtol=1e-5)
 
 
+def test_adx_is_the_studys_without_ties_and_tie_safe_with_them():
+    from src.signals.moving_averages.features import regime
+    bars = _bars(5)
+    study = regime.average_directional_index(bars["high"], bars["low"], bars["close"])
+    pd.testing.assert_series_equal(ma_family.adx(bars["high"], bars["low"], bars["close"]), study)
+    # Outside days whose high rises exactly as much as the low falls -- an exact
+    # tie in quoted prices. A later rescaling (split/dividend) breaks such ties in
+    # float; the study's strict comparison then flips, ours must not.
+    quoted = (bars * 4).round() / 4
+    for k in range(60, len(quoted), 40):
+        quoted.iloc[k, quoted.columns.get_loc("high")] = quoted["high"].iloc[k - 1] + 0.5
+        quoted.iloc[k, quoted.columns.get_loc("low")] = quoted["low"].iloc[k - 1] - 0.5
+    scaled = quoted / 3
+    ours = [ma_family.adx(q["high"], q["low"], q["close"]) for q in (quoted, scaled)]
+    strict = [regime.average_directional_index(q["high"], q["low"], q["close"]) for q in (quoted, scaled)]
+    assert not np.allclose(strict[0], strict[1], rtol=1e-6, equal_nan=True)  # the case bites
+    np.testing.assert_allclose(ours[0], ours[1], rtol=1e-6, equal_nan=True)
+
+
 def test_ribbon_width_pctile_matches_the_study():
     bars = _bars(3)
     sma = {k: bars["close"].rolling(k).mean() for k in ma_family.RIBBON_WIDTH_LOOKBACKS}
@@ -128,9 +147,9 @@ def test_vendor_check_pieces():
     fp = vc.fingerprints(bars, sources, days)
     assert fp.loc["tiingo", "zero_volume_share"] == 1.0 and fp.loc["yfinance", "zero_volume_share"] == 0.0
     feats = bars[["ticker", "date"]].assign(x=np.random.default_rng(0).normal(size=len(bars)))
-    rows = vc.tag_rows(feats, sources, bars.groupby("ticker")["date"].max())
+    last = days[499] + pd.Timedelta(days=400)  # delisted after its last bar in the window
+    rows = vc.tag_rows(feats, sources, pd.Series({"OLD": last}))
     old = rows[rows["ticker"] == "OLD"]
-    last = old["date"].max()
     # Far = at least FAR_DAYS before the delisted ticker's last bar; every yfinance row is far.
     assert (old["far"] == ((last - old["date"]).dt.days >= vc.FAR_DAYS)).all()
     assert rows.loc[rows["ticker"] == "NEW", "far"].all()
@@ -141,7 +160,25 @@ def test_vendor_auc_is_chance_on_noise_and_high_on_an_artefact():
     rng = np.random.default_rng(0)
     tickers = np.repeat([f"T{i}" for i in range(40)], 300)
     tiingo = np.repeat(np.arange(40) < 10, 300)
-    rows = pd.DataFrame({"ticker": tickers, "tiingo": tiingo, "noise": rng.normal(size=len(tickers))})
+    dates = np.tile(pd.bdate_range("2015-01-02", periods=300), 40)
+    rows = pd.DataFrame({"ticker": tickers, "date": dates, "tiingo": tiingo, "noise": rng.normal(size=len(tickers))})
     assert abs(vc.vendor_auc(rows, ["noise"]) - 0.5) < 0.05
     rows["artefact"] = rows["noise"] + 2.0 * rows["tiingo"]
     assert vc.vendor_auc(rows, ["artefact"]) > 0.8
+
+
+def test_vendor_auc_ignores_what_only_separates_years():
+    """Tiingo rows from early years, yfinance rows from all years, and a feature
+    that only tracks the year: a pooled AUC would be high, the within-date one
+    is chance."""
+    from src.models import vendor_check as vc
+    rng = np.random.default_rng(1)
+    days = pd.bdate_range("2015-01-02", periods=400)
+    parts = []
+    for i in range(40):
+        tiingo = i < 10
+        d = days[:200] if tiingo else days
+        parts.append(pd.DataFrame({"ticker": f"T{i}", "date": d, "tiingo": tiingo}))
+    rows = pd.concat(parts, ignore_index=True)
+    rows["year_drift"] = rows["date"].rank(method="dense").to_numpy() / 400 + rng.normal(0, 0.05, len(rows))
+    assert abs(vc.vendor_auc(rows, ["year_drift"]) - 0.5) < 0.05

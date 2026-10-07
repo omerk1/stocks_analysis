@@ -11,11 +11,15 @@ Three read-outs, from the model-feature cache plus the raw bars:
   missing sessions against the common calendar -- data-quality traits with no
   economic meaning;
 - **feature shift**: per model input, the standardised mean difference between
-  Tiingo rows at least `FAR_DAYS` before the ticker's last bar and yfinance rows
-  on the same dates (far from delisting, so the run-up to it isn't the cause);
-- **classifier**: out-of-sample AUC of a boosted model telling Tiingo rows from
-  yfinance rows, folds grouped by ticker (so it can't memorise names), on all
-  rows and on the far rows, with and without `sector` (sourced differently).
+  Tiingo rows at least `FAR_DAYS` before the ticker's delisting (Tiingo's listing
+  end, `tiingo_listings` -- metadata, not holdout prices) and yfinance rows on
+  the same dates (far from delisting, so the run-up to it isn't the cause);
+- **classifier**: a boosted model telling Tiingo rows from yfinance rows, folds
+  grouped by ticker (so it can't memorise names), scored **within date**: the
+  chance a Tiingo row outranks a yfinance row on the same day. Tiingo rows sit
+  in earlier years, and several inputs drift with the market, so a pooled AUC
+  would partly measure "which year". On all rows and on the far rows, with and
+  without `sector` (sourced differently).
 
 An AUC near 0.5 on far rows means nothing vendor-specific is learnable. A high
 one is not proof of an artefact -- companies that later leave the index can
@@ -28,7 +32,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold
 
 from src.foundation.data_processing import db
@@ -61,12 +64,12 @@ def fingerprints(bars: pd.DataFrame, sources: dict[str, str], calendar: pd.Datet
     })
 
 
-def tag_rows(features: pd.DataFrame, sources: dict[str, str], last_bar: pd.Series) -> pd.DataFrame:
+def tag_rows(features: pd.DataFrame, sources: dict[str, str], delisted: pd.Series) -> pd.DataFrame:
     """Adds `tiingo` (bool) and `far` (Tiingo row >= FAR_DAYS before its
-    ticker's last bar; every yfinance row counts as far)."""
+    ticker's delisting date, `delisted`; every yfinance row counts as far)."""
     out = features.copy()
     out["tiingo"] = out["ticker"].map(sources).isin(TIINGO_SOURCES)
-    days_left = (out["ticker"].map(last_bar) - out["date"]).dt.days
+    days_left = (out["ticker"].map(pd.to_datetime(delisted)) - out["date"]).dt.days
     out["far"] = ~out["tiingo"] | (days_left >= FAR_DAYS)
     return out
 
@@ -88,9 +91,26 @@ def feature_shift(rows: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return pd.DataFrame(out).sort_values("smd", key=np.abs, ascending=False, ignore_index=True)
 
 
+def within_date_auc(scores: np.ndarray, y: np.ndarray, dates: np.ndarray) -> float:
+    """Mean over dates of each date's AUC, weighted by its (Tiingo x yfinance)
+    pair count: P(a Tiingo row outscores a yfinance row on the same date)."""
+    frame = pd.DataFrame({"s": scores, "y": y.astype(bool), "d": dates})
+    frame["r"] = frame.groupby("d")["s"].rank()
+    g = frame.groupby("d")
+    n_pos, n = g["y"].sum(), g.size()
+    n_neg = n - n_pos
+    rank_sum = frame[frame["y"]].groupby("d")["r"].sum().reindex(n.index, fill_value=0.0)
+    pairs = n_pos * n_neg
+    ok = pairs > 0
+    auc = (rank_sum[ok] - n_pos[ok] * (n_pos[ok] + 1) / 2) / pairs[ok]
+    return float((auc * pairs[ok]).sum() / pairs[ok].sum())
+
+
 def vendor_auc(rows: pd.DataFrame, columns: list[str], n_splits: int = 5, seed: int = 0) -> float:
-    """Out-of-sample AUC for telling Tiingo rows from yfinance rows, folds
-    grouped by ticker."""
+    """Out-of-sample, within-date AUC for telling Tiingo rows from yfinance
+    rows, folds grouped by ticker; only dates that have rows of both."""
+    both = rows.groupby("date")["tiingo"].transform(lambda t: t.any() and not t.all())
+    rows = rows[both]
     x, y, groups = rows[columns], rows["tiingo"].to_numpy(), rows["ticker"].to_numpy()
     scores = np.full(len(rows), np.nan)
     for train, test in GroupKFold(n_splits=n_splits).split(x, y, groups):
@@ -99,15 +119,17 @@ def vendor_auc(rows: pd.DataFrame, columns: list[str], n_splits: int = 5, seed: 
                                                random_state=seed)
         model.fit(x.iloc[train], y[train])
         scores[test] = model.predict_proba(x.iloc[test])[:, 1]
-    return float(roc_auc_score(y, scores))
+    return within_date_auc(scores, y, rows["date"].to_numpy())
 
 
-def run(features: pd.DataFrame, bars: pd.DataFrame, sources: dict[str, str], calendar: pd.DatetimeIndex) -> dict:
+def run(features: pd.DataFrame, bars: pd.DataFrame, sources: dict[str, str], calendar: pd.DatetimeIndex,
+        delisted: pd.Series) -> dict:
     """`features`: the model-feature cache; `bars`: the label-basis bars of
-    the same tickers (for fingerprints and each ticker's last bar)."""
+    the same tickers (for the fingerprints); `delisted`: ticker -> delisting
+    date for the Tiingo tickers (Tiingo's listing end)."""
     inputs = [registry.model_input(s) for s in registry.model_specs()]
     numeric = [c for c in inputs if c != "sector"]
-    rows = tag_rows(features, sources, bars.groupby("ticker")["date"].max())
+    rows = tag_rows(features, sources, delisted)
     far = rows[rows["far"]]
     return {
         "n_rows": len(rows), "n_tiingo_rows": int(rows["tiingo"].sum()), "n_tiingo_far_rows": int(far["tiingo"].sum()),

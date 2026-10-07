@@ -157,16 +157,22 @@ def vendor_check(db_path: Path, features_dir: Path) -> int:
         sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
         bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
                                       fallback=dataset.LABEL_FALLBACK)
+        # Listing metadata, not prices: no holdout bar is read.
+        listings = db.read_tiingo_listings(conn).set_index("ticker")["tiingo_end"]
     finally:
         conn.close()
     calendar = pd.DatetimeIndex(sorted(bars["date"].unique()))
-    r = vc.run(features, bars, sources, calendar)
+    tiingo = [t for t in tickers if sources.get(t) in vc.TIINGO_SOURCES]
+    delisted = pd.to_datetime(listings.reindex(tiingo))
+    if delisted.isna().any():
+        raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
+    r = vc.run(features, bars, sources, calendar, delisted)
     print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
           f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
     print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
     print("Feature shift (Tiingo far rows vs yfinance, same dates):\n"
           + r["feature_shift"].to_string(index=False, float_format=lambda v: f"{v:+.3f}"))
-    print("Vendor AUC (ticker-grouped CV): " + ", ".join(f"{k} {v:.3f}" for k, v in r["auc"].items()))
+    print("Vendor AUC (ticker-grouped CV, within date): " + ", ".join(f"{k} {v:.3f}" for k, v in r["auc"].items()))
     return 0
 
 

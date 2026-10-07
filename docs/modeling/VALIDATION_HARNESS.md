@@ -254,6 +254,14 @@ Changes from §2.2:
 - dollar volume is a per-date rank, not a tercile;
 - ADX is the level, not the regime bucket.
 
+**Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 × close):
+ADX's "which move is larger", the ribbon's "slope > 0" and the stack's ordering. Quoted
+(cent-rounded) prices tie exactly, and a later split or dividend breaks such ties in
+floating point. A strict comparison would then make the value at *t* depend on corporate
+actions after *t*. The real-bar smoke run caught it on ADX (Tiingo's cent prices; up to 3.9
+ADX points). The gate's synthetic bars are now cent-rounded, so the synthetic gate catches
+this class too.
+
 `features/cache.py` builds one cache of every registered model column for a universe's
 eligible rows, ranked per date over those rows (`python -m src.models.cli build-features`).
 S&P 500 2010–2021: 1,371,246 rows, 642 tickers (112 from Tiingo), no column more than 1.0%
