@@ -86,6 +86,15 @@ def test_a_planted_group_passes_and_a_noise_group_does_not(tmp_path, monkeypatch
     assert table["bh_significant"].tolist()[0]
 
 
+def test_a_label_cache_missing_rows_is_refused():
+    exp = _small(PREREGISTERED["E1"])
+    features, labels = _synthetic(n_tickers=10)
+    assert ablation.check_labels(exp, features, ablation.cell_frame(features, labels)) == 0
+    later = labels[labels["date"] >= "2016-01-01"]  # built with a later start
+    with pytest.raises(ValueError, match="no label"):
+        ablation.check_labels(exp, features, ablation.cell_frame(features, later))
+
+
 def test_a_cache_for_another_universe_is_refused():
     features, _ = _synthetic(n_tickers=5)
     features.attrs["manifest"]["universe"]["indices"] = ["sp500", "nasdaq100"]
@@ -94,10 +103,11 @@ def test_a_cache_for_another_universe_is_refused():
 
 
 def _trial_row(step, horizon, p, ci_low, band=1e-4, folds=6, eras=(-1e-4, -1e-4), point=None, n_boot=1000,
-               date="2026-10-07T00:00:00", dirty=False):
+               date="2026-10-07T00:00:00", dirty=False, **design_changes):
+    exp = PREREGISTERED["E1"]
+    spec = {**ablation.design(exp, [s.name for s in exp.steps].index(step), horizon), **design_changes}
     return {"experiment_id": "E1", "status": "ok", "date": date, "git_dirty": dirty,
-            "trial_id": f"{step}-{horizon}-{date}",
-            "feature_groups": json.dumps({"step": step}), "cells": json.dumps([{"horizon": horizon}]),
+            "trial_id": f"{step}-{horizon}-{date}", **{f: json.dumps(v) for f, v in spec.items()},
             "metrics": json.dumps({"brier_p": p, "brier": {"point_estimate": ci_low / 2 if point is None else point,
                                                             "ci_low": ci_low, "ci_high": -ci_low, "n_boot": n_boot},
                                    "band": band, "folds_improving": folds,
@@ -125,11 +135,13 @@ def test_a_rerun_never_replaces_the_first_valid_trial():
     rows = [_trial_row("T1", 10, 0.001, -5e-4),
             _trial_row("T1", 10, 0.4, -5e-4, date="2026-10-08T00:00:00"),               # later rerun
             _trial_row("T1", 21, 0.001, -5e-4, n_boot=50),                              # quick look
-            _trial_row("T1", 42, 0.001, -5e-4, dirty=True)]                             # uncommitted code
+            _trial_row("T1", 42, 0.4, -5e-4, dirty=True),                               # uncommitted code ...
+            _trial_row("T1", 42, 0.001, -5e-4, date="2026-10-08T00:00:00"),             # ... then a clean rerun
+            _trial_row("T1", 63, 0.001, -5e-4, seeds=[0])]                              # not the registered design
     table, _ = ablation.close_experiment(exp, pd.DataFrame(rows))
     t1 = table[table["step"] == "T1"].set_index("horizon")
     assert t1.loc[10, "p"] == 0.001 and t1.loc[10, "n_other_rows"] == 1
-    assert t1.loc[[21, 42], "trial_id"].isna().all()
+    assert t1.loc[[21, 42, 63], "trial_id"].isna().all()
     assert (t1.loc[[21, 42, 63], "p"] == 1.0).all()
 
 

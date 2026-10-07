@@ -50,7 +50,9 @@ requires. T2 vs B4 is reported next to it.
   floor and the history-break eligibility rules (`dataset.universe_mask`). Delisted
   members are read from Tiingo.
 - **Window:** 2010–2021. The holdout stays locked.
-- **Data:** the runner refuses a feature cache built for another universe or window.
+- **Data:** the runner refuses a feature cache built for another universe or window,
+  and a label cache missing more than 2% of the feature rows in the folds' window
+  (disputed days drop 0.4–0.6%).
   The feature and label caches are rebuilt from `main` once the pending
   reused-symbol disputes PR lands, before the run. A label cache built with any other
   disputes list is refused (`read_labels`). `vendor-check`'s same-ticker gate must pass
@@ -70,8 +72,10 @@ requires. T2 vs B4 is reported next to it.
 
 - **8 trials:** 2 steps × 4 horizons. BH at q = 0.10 across all 8 runs once, at close
   (`close-experiment E1`). A failed or missing trial counts with p = 1.
-- **Which row counts:** each trial is its first `ok` row run from a clean checkout at
-  1,000 draws. A later rerun is counted but never replaces it.
+- **Which row counts:** each trial is its first `ok` row with the registered design
+  (columns, cell, folds, seeds, hyperparameters) at 1,000 draws. If that row was run
+  from a dirty checkout, the trial is void (p = 1). A later rerun is counted but never
+  replaces it. `run-experiment` refuses to start on a dirty checkout.
 - **Primary metric:** the pooled Brier difference (step − reference, negative = better)
   on the same rows. It comes with a 90% CI from the date-block bootstrap (block 2H,
   1,000 draws). The bootstrap p is the share of draws ≥ 0, one-sided.

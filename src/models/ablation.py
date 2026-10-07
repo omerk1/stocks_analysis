@@ -61,6 +61,10 @@ INCONCLUSIVE = "inconclusive"
 P_COLS = list(PROB_COLUMNS.values())
 RAW_COLS = [f"raw_{c}" for c in P_COLS]
 LABEL_COLS = ["hit", "ret", "atr", "close_t", "label_end_date"]
+# Feature rows in the folds' window may lack a label only for a disputed day
+# (0.41-0.61% of rows, Done #86); more means the label cache was built for
+# another window or universe.
+MAX_UNLABELLED_SHARE = 0.02
 
 # Relevance band (see `relevance_band`): the mean standard-normal score of the
 # top 5 of ~450 names, and a typical ATR(14) / close for the S&P 500 (median
@@ -263,27 +267,52 @@ def provisional_outcome(metrics: dict, reference: str, n_trials: int) -> str:
 
 # ---------------------------------------------------------------- running
 
-def trial_spec(exp: Experiment, i: int, horizon: int, features: pd.DataFrame, labels: pd.DataFrame) -> dict:
+DESIGN_FIELDS = ("feature_groups", "cells", "fold_scheme", "seeds", "hyperparameters")
+
+
+def design(exp: Experiment, i: int, horizon: int) -> dict:
+    """The parts of a trial's spec fixed by the registration: a logged row
+    counts for the experiment only if these match (`close_experiment`)."""
     step = exp.steps[i]
     ref_name, _ = exp.reference(i)
-    fm, lm = features.attrs.get("manifest", {}), labels.attrs.get("manifest", {})
     cell = exp.cell(horizon)
     return {
         "feature_groups": {"step": step.name, "added": [list(a) for a in step.added], "reference": ref_name,
                            "baseline": exp.baseline, "columns": list(step.columns)},
+        "cells": [{"horizon": horizon, "upper": cell.upper, "lower": cell.lower,
+                   "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr}],
+        "fold_scheme": {"scheme": EXPANDING, "test_years": list(exp.test_years),
+                        "first_train_start": exp.first_train_start, "eras": [list(e) for e in exp.eras],
+                        "calibration": "isotonic, 2 inner folds", "purge": "label window", "embargo_days": 0},
+        "seeds": list(exp.seeds),
+        "hyperparameters": asdict(exp.config),
+    }
+
+
+def trial_spec(exp: Experiment, i: int, horizon: int, features: pd.DataFrame, labels: pd.DataFrame) -> dict:
+    fm, lm = features.attrs.get("manifest", {}), labels.attrs.get("manifest", {})
+    return {
+        **design(exp, i, horizon),
         "universe": {"indices": list(exp.indices), "features_built": fm.get("created"),
                      "labels_built": lm.get("created"), "disputes": lm.get("disputes"),
                      "n_disputed_dropped": lm.get("n_disputed_dropped")},
         "liquidity_floors": fm.get("universe", {}).get("floors"),
-        "cells": [{"horizon": horizon, "upper": cell.upper, "lower": cell.lower,
-                   "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr}],
-        "fold_scheme": {"scheme": EXPANDING, "test_years": list(exp.test_years),
-                        "first_train_start": exp.first_train_start, "calibration": "isotonic, 2 inner folds",
-                        "purge": "label window", "embargo_days": 0},
-        "seeds": list(exp.seeds),
-        "hyperparameters": asdict(exp.config),
         "open_holdout": False,
     }
+
+
+def check_labels(exp: Experiment, features: pd.DataFrame, frame: pd.DataFrame) -> float:
+    """The share of feature rows in the folds' window that found no label.
+    Raises above MAX_UNLABELLED_SHARE: the label cache was built for another
+    window or universe, and the inner join would silently drop rows."""
+    lo, hi = pd.Timestamp(exp.first_train_start), pd.Timestamp(year=max(exp.test_years), month=12, day=31)
+    n_features = int(features["date"].between(lo, hi).sum())
+    n_joined = int(frame["date"].between(lo, hi).sum())
+    share = 1 - n_joined / n_features if n_features else 1.0
+    if share > MAX_UNLABELLED_SHARE:
+        raise ValueError(f"{share:.1%} of feature rows in {lo.date()}..{hi.date()} have no label "
+                         f"(> {MAX_UNLABELLED_SHARE:.0%}); rebuild the label cache for the same universe and window")
+    return share
 
 
 def check_features(exp: Experiment, features: pd.DataFrame) -> None:
@@ -325,6 +354,7 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
     check_features(exp, features)
     labels = dataset.read_labels(labels_dir, horizon, cell=(exp.upper, exp.lower))
     frame = cell_frame(features, labels)
+    unlabelled = check_labels(exp, features, frame)
     folds = walk_forward_folds(exp.test_years, exp.first_train_start)
     preds: dict[str, pd.DataFrame] = {}
 
@@ -341,6 +371,7 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
             ref = predictions(ref_name, ref_columns)
             model = predictions(step.name, step.columns)
             metrics, boots = compare(model, ref, frame, exp, horizon, folds, n_boot)
+            metrics["unlabelled_share"] = unlabelled
             if i > 0:
                 metrics["vs_baseline"], boots["brier_vs_baseline"] = _vs_baseline(
                     model, predictions(exp.baseline, exp.baseline_columns), exp, horizon, n_boot)
@@ -366,20 +397,24 @@ def _verdict(row: dict, exp: Experiment) -> str:
 def close_experiment(exp: Experiment, trials: pd.DataFrame,
                      require_clean: bool = True) -> tuple[pd.DataFrame, dict[str, str]]:
     """BH and the three verdicts over `trials` (a `trial_log.read_trials`
-    frame). Each (step, horizon) is its first `ok` row at the registered
-    bootstrap size, run from a clean checkout (`require_clean`); other rows
-    are counted (`n_other_rows`), never substituted. A trial with no such row
-    counts with p = 1 and is inconclusive. Returns the per-trial table and
-    each step's group verdict."""
+    frame). Each (step, horizon) is its first `ok` row with the registered
+    design (`design`) and bootstrap size. If that row was run from a dirty
+    checkout (`require_clean`), the trial is void, not replaced by a later
+    clean run; other rows are counted (`n_other_rows`), never substituted. A
+    trial with no valid row counts with p = 1 and is inconclusive. Returns the
+    per-trial table and each step's group verdict."""
     mine = trials[trials["experiment_id"] == exp.experiment_id]
+    expected = {(s.name, h): json.loads(json.dumps(design(exp, i, h)))
+                for i, s in enumerate(exp.steps) for h in exp.horizons}
     first, others = {}, {}
     for _, t in mine.sort_values("date").iterrows():
         key = (json.loads(t["feature_groups"])["step"], json.loads(t["cells"])[0]["horizon"])
         m = json.loads(t["metrics"]) if t["status"] == trial_log.OK else None
-        valid = (m is not None and m["brier"].get("n_boot") == exp.n_boot
-                 and (not require_clean or str(t.get("git_dirty")) == "False"))
-        if valid and key not in first:
-            first[key] = (t["trial_id"], m)
+        candidate = (m is not None and key in expected and m["brier"].get("n_boot") == exp.n_boot
+                     and all(json.loads(t[f]) == expected[key][f] for f in DESIGN_FIELDS))
+        if candidate and key not in first:
+            dirty = require_clean and str(t.get("git_dirty")) != "False"
+            first[key] = (None, None) if dirty else (t["trial_id"], m)
         else:
             others[key] = others.get(key, 0) + 1
     rows = []

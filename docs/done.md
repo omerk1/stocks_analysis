@@ -182,4 +182,8 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
     - `close-experiment` counts each trial's first clean, full-size row. Before, a later quick rerun could replace it.
     - The runner refuses a feature cache built for another universe or window.
     - The registered T2 vs B4 readout is now computed.
-  - **Timing:** a full-size fit (1.25M rows) takes about 40 s, about 6 h for the whole experiment. Tests: 10 new.
+  - **Second review:** three more fixes.
+    - A logged row counts only with the registered design. The first such row voids the trial if it ran on a dirty checkout, so a later clean rerun can't replace it.
+    - `run-experiment` refuses to start on a dirty checkout. Caches default to the ignored `data/models/`.
+    - A label cache missing more than 2% of the feature rows is refused, because the join would otherwise drop rows silently.
+  - **Timing:** a full-size fit (1.25M rows) takes about 40 s, about 6 h for the whole experiment. Tests: 11 new.

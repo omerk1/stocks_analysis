@@ -226,9 +226,12 @@ def build_labels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
 
 
 def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, horizons: tuple[int, ...] | None) -> int:
-    from src.models import ablation
+    from src.models import ablation, trial_log
     from src.models.features import cache
     warnings.filterwarnings("ignore")
+    if trial_log.git_dirty() is not False:
+        # close-experiment voids a trial run from a dirty checkout; fail now, not after hours.
+        raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
     exp = ablation.PREREGISTERED[experiment_id]
     unknown = set(horizons or ()) - set(exp.horizons)
     if unknown:
@@ -277,15 +280,17 @@ def main(argv: list[str] | None = None) -> int:
     vend.add_argument("--end", default="2021-12-31")
     lab = sub.add_parser("build-labels", help="build the barrier-label cache")
     lab.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
-    lab.add_argument("--out", type=Path, required=True)
+    lab.add_argument("--out", type=Path, default=Path("data/models/labels/sp500"))
     lab.add_argument("--start", default="2010-01-01")
     lab.add_argument("--end", default="2021-12-31")
     lab.add_argument("--indices", nargs="+", default=["sp500"])
     lab.add_argument("--horizons", nargs="+", type=int, default=[10, 21, 42, 63])
     run = sub.add_parser("run-experiment", help="run a pre-registered ablation, logging every trial")
     run.add_argument("experiment")
-    run.add_argument("--features", type=Path, required=True, help="a build-features output directory")
-    run.add_argument("--labels", type=Path, required=True, help="a build-labels output directory")
+    run.add_argument("--features", type=Path, default=Path("data/models/features/sp500"),
+                     help="a build-features output directory")
+    run.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"),
+                     help="a build-labels output directory")
     run.add_argument("--horizons", nargs="+", type=int, default=None, help="a subset of the registered horizons")
     close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
     close.add_argument("experiment")
