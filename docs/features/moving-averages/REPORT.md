@@ -30,11 +30,19 @@ write-ups: `FINDINGS.md`.
 - **The clearest results are nulls:**
   - MAs are not support or resistance (M5).
   - Watched lookbacks behave like unwatched neighbours (§7.5).
-  - Crossover events add nothing over state (M3).
+  - Crossover events add nothing over state (M3). *(2026-10-07: the four EMA-pair
+    cells are demonstrated nulls; the SMA50/200 63d companions and 12 earlier cells
+    are inconclusive — CIs span zero but exceed the 0.15% floor. "Well-powered null"
+    holds for the pairs, not the whole module; see `EXPERIMENTS.csv`
+    `correction_2026_10`.)*
   - Kernel shape doesn't matter at matched lag (M8).
   - Weekly sampling doesn't matter (M10).
-  - Slope-run persistence matches a drifting random walk (M6.4).
-  - An MA reclaim inside a detected chart pattern, VCP included, shows no effect (M14).
+  - Slope-run persistence matches a drifting random walk (M6.4). *(2026-10-07: a
+    null-envelope consistency result — not a CI that rules an effect size out.)*
+  - An MA reclaim inside a detected chart pattern shows no effect pooled (M14).
+    *(2026-10-07: inconclusive, not null, for VCP — +0.85% [−0.10, +1.88] on 402
+    events spans zero but extends far past the 0.10% floor; the pooled cell is
+    inconclusive too. PREREGISTRATION's own read: "inconclusive, not confirmed".)*
 - **Recurring shape:** most of the gross MA effect is momentum and volatility. Date
   matching and then factor matching remove 60–100% of it (§3).
 - **Universe caveat:** U1 contains no ticker that delisted inside the window. Every
@@ -151,13 +159,18 @@ remembering before trying again:
   touch holds no better than at an unwatched neighbour, an MA that held twice recently
   does not hold better next time, and neither a confirmed bounce (M20) nor a confirmed break
   through (M21) is an entry: both carry the forward return of any ≥1 ATR move. Revisit only
-  with intraday touches; the study used closes.
+  with intraday touches; the study used closes. *(2026-10-07: M5/§7.5 are demonstrated
+  nulls; most M19–M22 cells are relabeled inconclusive — underpowered, not ruled out —
+  see `EXPERIMENTS.csv` `correction_2026_10`.)*
 - **Crossovers (M3), kernel choice (M8), weekly sampling (M10), regime-chosen lookbacks
   (M9).** Revisit only with a genuinely new construction.
 - **Proximity to the 52-week high (M18).** It is momentum.
-- **Slope-run persistence (M6.4).** It matches a drifting random walk.
+- **Slope-run persistence (M6.4).** It matches a drifting random walk. *(2026-10-07:
+  an envelope-consistency kill, not an effect-size CI.)*
 - **Chart-pattern context (M14).** An as-of-safe flag gives nothing. Any rerun must use
-  patterns detected as of each date.
+  patterns detected as of each date. *(2026-10-07: strictly inconclusive, not null —
+  all three as-of-safe CIs span zero but exceed the floor; relabeled in
+  `EXPERIMENTS.csv`.)*
 
 ## 8. Cost
 

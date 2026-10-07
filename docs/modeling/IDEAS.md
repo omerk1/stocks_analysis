@@ -98,10 +98,22 @@ in combination, so the model gets them rather than dropping them. Each feature c
 - **weak:** Tier 3, real at its control but not FDR-surviving. Examples: SMA20
   extension (M4), `dist_from_52w_low` (M18), `stack_fully_bearish` (M2), dollar volume
   (M12), MACD histogram (M17), `ribbon_width` (M7), `extension_x_slope` (M6.2).
-- **null:** tested and not distinguishable from zero, but cheap. Examples: crossover
-  state age (M3), slope-sign run length (M6.4), VCP and other per-pattern flags (M14),
-  `dist_from_52w_high` (M18), state age (M1).
+- **null:** tested and a relevant effect affirmatively ruled out (whole CI inside the
+  study's pre-registered floor), but cheap. Examples: crossover state age (M3's EMA
+  pairs), slope-sign run length (M6.4, a null-envelope kill), MA touch/bounce
+  proximity (M5).
   Enters as a group, and stays only if the group ablation shows an out-of-sample gain.
+- **inconclusive** *(split out of "null" 2026-10-07 — ledger correction,
+  `EXPERIMENTS.csv` `correction_2026_10`)*: tested but underpowered — the CI spans
+  zero yet extends past the floor, so the study measured nothing either way.
+  Examples: VCP and other per-pattern flags (M14), `dist_from_52w_high` (M18), state
+  age (M1), bounce/break/retest entry flags (M19–M22). Ablation treatment identical
+  to null (enters as a group, stays only on an out-of-sample gain); the difference is
+  epistemic: an inconclusive feature's prior may legitimately be revised by a powered
+  look elsewhere, a null's may not, and a harness result on one of these contradicts
+  nothing. (The feature registry's `prior` field still encodes both as `null` — the
+  split lives here and in the ledger; widening the registry enum is a code change to
+  make only when something consumes it.)
 
 Near-copies are not kept, since they're the same signal twice: extra distance
 normalisations at one lookback, `slope_log_5` on EMAs, exotic MA kernels (M8), weekly
