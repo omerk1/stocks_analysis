@@ -36,8 +36,7 @@ from src.foundation.market_common.models import PivotKind, Timeframe
 from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
-
-INDEX_NAMES = ["sp500", "nasdaq100"]
+from src.signals.divergences.study_universe import membership_intervals, pit_member_mask
 
 DEV_END = "2021-12-31"
 OUTCOME_END = "2021-11-30"  # 20-bar outcome window must not cross the holdout
@@ -63,63 +62,12 @@ def _load_dev_events(derived_conn) -> pd.DataFrame:
     return events
 
 
-def _apply_renames_local(conn, membership: pd.DataFrame) -> pd.DataFrame:
-    """Line-for-line mirror of ticker_renames.apply_renames (see
-    _attach_pit_membership's docstring for why it isn't imported): each
-    renamed symbol becomes its price symbol, only on rows whose interval
-    overlaps the rename's verified [valid_from, valid_to] window."""
-    renames = db.read_ticker_renames(conn)
-    out = membership.copy()
-    if renames.empty or out.empty:
-        return out
-    start = pd.to_datetime(out["start_date"])
-    end = pd.to_datetime(out["end_date"]).fillna(pd.Timestamp.max)
-    for r in renames.itertuples(index=False):
-        if pd.isna(r.valid_from) or pd.isna(r.valid_to):
-            continue
-        hit = (
-            (out["ticker"] == r.old_ticker)
-            & (start <= pd.Timestamp(r.valid_to))
-            & (end >= pd.Timestamp(r.valid_from))
-        )
-        out.loc[hit, "ticker"] = r.new_ticker
-    return out
-
-
 def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
-    """True where the event's ticker was an S&P 500 or Nasdaq-100 member on
-    its own p2 date (point-in-time intervals, delisted members included).
-
-    Intervals go through the rename mapping FIRST, same as every
-    established membership consumer (src/models/dataset.py's
-    membership_rows, relative_strength, breadth): divergences store
-    events under the current price symbol (META), membership holds the
-    historical one (FB) -- without the mapping, every renamed member's
-    events silently read as non-members.
-
-    `_apply_renames_local` mirrors ticker_renames.apply_renames exactly;
-    importing the real one drags polygon_client in at module import,
-    which not every environment's `polygon` package satisfies (flagged
-    as a discussion item: that import should be lazy in ticker_renames).
-    """
-    intervals = pd.concat(
-        [
-            _apply_renames_local(raw_conn, db.read_index_membership(raw_conn, name))
-            for name in INDEX_NAMES
-        ],
-        ignore_index=True,
-    )
-    intervals["start"] = pd.to_datetime(intervals["start_date"])
-    intervals["end"] = pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max)
-    by_ticker: dict[str, list[tuple]] = {}
-    for row in intervals.itertuples(index=False):
-        by_ticker.setdefault(row.ticker, []).append((row.start, row.end))
-
-    def member(ev) -> bool:
-        return any(s <= ev.p2_ts <= e for s, e in by_ticker.get(ev.ticker, ()))
-
+    """True where the event's ticker was an S&P 500 or Nasdaq-100 member
+    on its own p2 date -- the shared, rename-aware machinery in
+    `study_universe` (one implementation for every study script)."""
     events = events.copy()
-    events["pit_member"] = [member(ev) for ev in events.itertuples(index=False)]
+    events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
     return events
 
 

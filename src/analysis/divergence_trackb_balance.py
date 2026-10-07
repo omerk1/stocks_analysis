@@ -33,37 +33,15 @@ from src.signals.divergences.matching import (
     classify_context,
     match_controls,
 )
-from src.analysis.divergence_context_step0 import _apply_renames_local, INDEX_NAMES
-from src.foundation.data_processing import db
+from src.signals.divergences.study_universe import membership_intervals, pit_member_mask
 
 DEV_START = "2010-01-01"
 DEV_END = "2021-12-31"
 MATCH_SEED = 20261007
 
 
-def _membership_intervals(raw_conn) -> dict[str, list[tuple]]:
-    intervals = pd.concat(
-        [
-            _apply_renames_local(raw_conn, db.read_index_membership(raw_conn, name))
-            for name in INDEX_NAMES
-        ],
-        ignore_index=True,
-    )
-    intervals["start"] = pd.to_datetime(intervals["start_date"])
-    intervals["end"] = pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max)
-    by_ticker: dict[str, list[tuple]] = {}
-    for row in intervals.itertuples(index=False):
-        by_ticker.setdefault(row.ticker, []).append((row.start, row.end))
-    return by_ticker
-
-
 def _pit_filter(frame: pd.DataFrame, by_ticker: dict) -> pd.DataFrame:
-    p2 = pd.to_datetime(frame["p2_date"])
-    keep = [
-        any(s <= ts <= e for s, e in by_ticker.get(t, ()))
-        for t, ts in zip(frame["ticker"], p2)
-    ]
-    return frame[pd.Series(keep, index=frame.index)]
+    return frame[pit_member_mask(frame, by_ticker)]
 
 
 def _prepare(frame: pd.DataFrame) -> pd.DataFrame:
@@ -87,7 +65,7 @@ def load_events(derived_conn, raw_conn, membership: dict | None = None) -> pd.Da
       AND d.p2_date >= ? AND d.p2_date <= ?
     """
     events = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
-    by_ticker = membership if membership is not None else _membership_intervals(raw_conn)
+    by_ticker = membership if membership is not None else membership_intervals(raw_conn)
     return _prepare(_pit_filter(events, by_ticker))
 
 
@@ -100,7 +78,7 @@ def load_controls(derived_conn, raw_conn, membership: dict | None = None) -> pd.
       AND p2_date >= ? AND p2_date <= ?
     """
     controls = pd.read_sql_query(q, derived_conn, params=[DEV_START, DEV_END + "T23:59:59"])
-    by_ticker = membership if membership is not None else _membership_intervals(raw_conn)
+    by_ticker = membership if membership is not None else membership_intervals(raw_conn)
     return _prepare(_pit_filter(controls, by_ticker))
 
 
@@ -109,7 +87,7 @@ def main() -> None:
     parser.parse_args()
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
 
-    membership = _membership_intervals(raw_conn)
+    membership = membership_intervals(raw_conn)
     events = load_events(derived_conn, raw_conn, membership)
     controls = load_controls(derived_conn, raw_conn, membership)
 
