@@ -64,10 +64,10 @@ regular geometry (bearish: higher high; bullish: lower low), span ≥ 5 bars, sa
 context classification, and **no stored divergence of the tested direction/form
 within ±3 bars of p2** (any indicator). Step 0 measured this pool at ~71% of shaped
 pairs — the PULLBACK pools are plentiful. **The extension pools are not** (balance
-report, 2026-10-07: 830 bearish / 233 bullish PIT controls vs 1,221 / 328 events):
+report, 2026-10-07: 830 bearish / 232 bullish PIT controls vs 1,221 / 328 events):
 an explosive new extreme *without* a divergence is mechanically scarce — the mirror
 of step 0's entanglement finding. Recorded now, pre-freeze: the **bullish/extension
-arm is a pre-identified Inconclusive risk** (≈90 matchable events); if it reads out
+arm is a pre-identified Inconclusive risk** (74 matched events at the current calibration); if it reads out
 Inconclusive, that was expected at registration, not discovered at readout.
 
 - Matching (amended 2026-10-07/08 to what the build implements and the balance
