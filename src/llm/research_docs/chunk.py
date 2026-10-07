@@ -5,7 +5,13 @@ retrieve one at a time.
 Two passes, chosen by file format:
 
 1. **Structure first.** Markdown is split on its headings (`MarkdownNodeParser`), so a
-   chunk never straddles two sections. CSVs are split one row per chunk, each row written
+   chunk never straddles two sections. A section that is still too big and is mostly a
+   top-level list is cut at item boundaries instead of mid-item. Numbered log entries
+   (`done.md`: `- **#47** [data, breadth] — …`) become one piece each, with the number and
+   topic tags in metadata as `entry` and `tags`, so an entry is retrieved and cited whole.
+   Other items (backlog bullets, design-doc lists) are packed back together up to
+   `CHUNK_SIZE`: a bullet usually needs its neighbours for context, so one bullet per
+   chunk would lose meaning without gaining precision. CSVs are split one row per chunk, each row written
    as `column: value` lines (empty cells dropped). A row reads as a self-contained record,
    which embeds far better than a bare comma-separated line whose meaning lives in a
    header the chunk can't see. Identifying columns (`ROW_ID_COLUMNS`) go to metadata.
@@ -33,6 +39,7 @@ from __future__ import annotations
 import argparse
 import csv
 import io
+import re
 import statistics
 
 from llama_index.core import Document
@@ -49,6 +56,8 @@ NOT_EMBEDDED = ["area", "format"]
 # text into its metadata, so every piece of a row the size cap splits still says which
 # experiment it belongs to -- and they become filters for later steps.
 ROW_ID_COLUMNS = ("module", "cell_id", "trial_id", "experiment_id", "tier", "outcome")
+# `- **#47** [data, breadth] — …` (also `- **#16, #17** …`, `#14.5`, untagged entries).
+ENTRY = re.compile(r"- \*\*(#[\d.]+(?:, #[\d.]+)*)\*\*(?: \[([^\]]+)\])?")
 
 
 def _section(node: BaseNode) -> str:
@@ -60,10 +69,48 @@ def _section(node: BaseNode) -> str:
 
 
 def _markdown_sections(docs: list[Document]) -> list[BaseNode]:
-    sections = MarkdownNodeParser().get_nodes_from_documents(docs)
-    for s in sections:
+    pieces = []
+    for s in MarkdownNodeParser().get_nodes_from_documents(docs):
         s.metadata["section"] = _section(s)
-    return sections
+        pieces += _list_items(s) or [s]
+    return pieces
+
+
+def _list_items(section: BaseNode) -> list[TextNode] | None:
+    """Cut a list-heavy section at its top-level items (a `- ` line plus everything under
+    it): numbered entries one piece each, everything else -- including the text before the
+    first item -- packed into pieces of up to `CHUNK_SIZE`. None unless the section is over
+    the size cap and at least half its non-blank lines are list items: a design section
+    with a few bullets in its prose stays whole."""
+    lines = section.get_content().split("\n")
+    starts = [i for i, l in enumerate(lines) if l.startswith("- ")]
+    if not starts or n_tokens(section) <= CHUNK_SIZE:
+        return None
+    in_items = sum(1 for l in lines[starts[0]:] if l.strip())
+    if in_items < sum(1 for l in lines if l.strip()) / 2:
+        return None
+    bounds = [0] + starts + [len(lines)]
+    pieces: list[TextNode] = []
+    packing = False  # is pieces[-1] an open pack that unnumbered items may join?
+    for a, b in zip(bounds, bounds[1:]):
+        text = "\n".join(lines[a:b]).strip()
+        if not text:
+            continue
+        meta = dict(section.metadata)
+        if m := ENTRY.match(text):
+            meta["entry"] = m.group(1)
+            if m.group(2):
+                meta["tags"] = m.group(2)
+            pieces.append(TextNode(text=text, metadata=meta))
+            packing = False
+            continue
+        merged = TextNode(text=f"{pieces[-1].text}\n{text}", metadata=meta) if packing else None
+        if merged is not None and n_tokens(merged) <= CHUNK_SIZE:
+            pieces[-1] = merged
+        else:
+            pieces.append(TextNode(text=text, metadata=meta))
+            packing = True
+    return pieces
 
 
 def _csv_rows(doc: Document) -> list[TextNode]:

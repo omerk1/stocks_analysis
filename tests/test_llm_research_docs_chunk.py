@@ -41,3 +41,35 @@ def test_area_and_format_are_carried_but_not_embedded():
     assert node.metadata["area"] == "ma_study"
     assert "area:" not in embedded and "format:" not in embedded
     assert "section: Top" in embedded
+
+
+def _filler(word, n):
+    return " ".join(f"{word}{i} detail." for i in range(n))
+
+
+def test_numbered_log_entries_are_one_chunk_each_with_entry_and_tags():
+    entries = "\n".join(
+        f"- **#{i}** [data, breadth] — entry {i} {_filler('x', 30)}" for i in range(1, 6))
+    md = _doc("docs/done.md", f"# Done\n\nIntro line.\n\n{entries}\n- **#14.5** — untagged\n", "md")
+    nodes = [n for n in chunk_documents([md]) if "entry" in n.metadata]
+    assert [n.metadata["entry"] for n in nodes] == ["#1", "#2", "#3", "#4", "#5", "#14.5"]
+    assert nodes[0].metadata["tags"] == "data, breadth" and "tags" not in nodes[-1].metadata
+    assert all(n.text.count("- **#") == 1 for n in nodes)  # never two entries in one chunk
+
+
+def test_other_list_items_are_packed_but_never_cut_mid_item():
+    items = "\n".join(f"- item {i}: {_filler('w', 12)}\n  - sub-point <{i}>" for i in range(12))
+    nodes = chunk_documents([_doc("docs/backlog.md", f"# Backlog\n\n## Data\n\n{items}\n", "md")])
+    assert 1 < len(nodes) < 12  # packed, not one per item
+    for n in nodes:
+        assert n_tokens(n) <= CHUNK_SIZE
+        for i in range(12):  # an item and its sub-point land in the same chunk
+            assert (f"- item {i}:" in n.text) == (f"sub-point <{i}>" in n.text)
+
+
+def test_prose_section_with_a_few_bullets_is_not_list_split():
+    prose = "\n\n".join(_filler("p", 25) for _ in range(6))
+    md = _doc("docs/a.md", f"# Design\n\n{prose}\n\n- one bullet\n- two bullet\n", "md")
+    nodes = chunk_documents([md])
+    assert not any("entry" in n.metadata for n in nodes)
+    assert "- one bullet\n- two bullet" in nodes[-1].text  # left to the size cap, untouched
