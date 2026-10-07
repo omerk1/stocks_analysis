@@ -67,7 +67,7 @@ pairs — the PULLBACK pools are plentiful. **The extension pools are not** (bal
 report, 2026-10-07: 830 bearish / 232 bullish PIT controls vs 1,221 / 328 events):
 an explosive new extreme *without* a divergence is mechanically scarce — the mirror
 of step 0's entanglement finding. Recorded now, pre-freeze: the **bullish/extension
-arm is a pre-identified Inconclusive risk** (74 matched events at the current calibration); if it reads out
+arm is a pre-identified Inconclusive risk** (85 matched events at the current calibration); if it reads out
 Inconclusive, that was expected at registration, not discovered at readout.
 
 - Matching (amended 2026-10-07/08 to what the build implements and the balance
