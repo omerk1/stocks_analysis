@@ -53,11 +53,21 @@ HORIZONS = (63, 21)
 PLATEAU_RETRACE = (0.25, 0.33, 0.50)
 PLATEAU_LEG2 = (3, 5, 8)
 
-EXPERIMENTS_CSV = Path("docs/features/divergence-context/EXPERIMENTS.csv")
+# Repo-root anchored: a cwd-relative path would let --log silently write a
+# fresh CSV somewhere else and report success while the study's real log
+# never receives the registered rows.
+EXPERIMENTS_CSV = (
+    Path(__file__).resolve().parents[2] / "docs" / "features" / "divergence-context" / "EXPERIMENTS.csv"
+)
+# shape_basis names what the a/b shape columns hold per row -- DiD rows
+# log matched ARM-DELTA stats (ext, pb), continuous rows log RAW group
+# returns (div, ctrl): same columns, different quantities, so the basis
+# is part of the record (a raw group return is a bare conditional
+# statistic, invariant #5 -- never comparable to the controlled one).
 _CSV_HEADER = (
     "date,cell_id,hypothesis,statistic,point_estimate,ci_low,ci_high,p_value,bh_pass,"
     "arm_extension,arm_pullback,n_event_dates,n_months,n_events,n_controls,"
-    "hit_ext,wl_ext,skew_ext,hit_pb,wl_pb,skew_pb,"
+    "shape_basis,hit_a,wl_a,skew_a,hit_b,wl_b,skew_b,"
     "cost_hurdle,cost_point,cost_verdict,plateau_ok,plateau_finite,formulations_agree,"
     "verdict,notes\n"
 )
@@ -99,7 +109,10 @@ def attach_forward_returns(frame: pd.DataFrame, raw_conn, config: DivergenceConf
     passes delisted=None so the tolerance inference applies -- never a
     forced 'active' (which would censor away delisting-terminal returns,
     the invariant-#4 bias). THE UNBLINDING STEP."""
-    active = dict(raw_conn.execute("SELECT ticker, active FROM tickers").fetchall())
+    info = {
+        t: (a, d)
+        for t, a, d in raw_conn.execute("SELECT ticker, active, delisted_utc FROM tickers")
+    }
     out = []
     for ticker, grp in frame.groupby("ticker"):
         bars, _report = data_mod.load_and_validate(
@@ -110,13 +123,30 @@ def attach_forward_returns(frame: pd.DataFrame, raw_conn, config: DivergenceConf
             for h in HORIZONS:
                 fr[f"fwd_log_ret_{h}"] = None
                 fr[f"censored_{h}"] = None
+                fr[f"truncated_{h}"] = None
         else:
-            delisted = (active[ticker] == 0) if ticker in active else None
+            # WHEN the ticker delisted matters, not just whether: active=0
+            # with a post-DEV_END delisting means the ticker was ALIVE at
+            # the boundary -- its series end there is censoring, and
+            # passing delisted=True would smuggle shortened holds into the
+            # late-window cells as fake terminal returns.
+            if ticker in info:
+                act, dl = info[ticker]
+                if act == 0 and dl is not None and str(dl)[:10] <= DEV_END:
+                    delisted = True
+                elif act == 0 and dl is None:
+                    delisted = None  # dead, timing unknown: tolerance inference
+                else:
+                    delisted = False  # alive at the boundary (or delisted after it)
+            else:
+                delisted = None
             fr = compute_forward_returns(
                 bars, grp["confirmed_at"], horizons=HORIZONS,
                 data_end=DEV_END, delisted=delisted,
             )
-        out.append(grp.join(fr[[c for c in fr.columns if c.startswith(("fwd_", "censored_"))]]))
+        out.append(
+            grp.join(fr[[c for c in fr.columns if c.startswith(("fwd_", "censored_", "truncated_"))]])
+        )
     return pd.concat(out).sort_index()
 
 
@@ -229,30 +259,29 @@ def retrace_pole_gap(ev_all: pd.DataFrame, ct_all: pd.DataFrame) -> dict[str, fl
 
 
 def classify_with(retrace_min: float, leg2_min: int):
-    def _cls(retrace, leg2):
-        if retrace is None or pd.isna(retrace):
-            return None
-        if retrace < 0.25:
-            return "extension"
-        if retrace >= retrace_min and leg2 is not None and not pd.isna(leg2) and leg2 >= leg2_min:
-            return "pullback_rebuild"
-        return None
-
-    return _cls
+    """Thin binding of the ONE canonical classifier
+    (matching.classify_context) to a plateau neighbor's thresholds --
+    never a re-implementation, so the plateau can't silently classify
+    with different pole definitions than the main panel."""
+    return lambda retrace, leg2: classify_context(
+        retrace, leg2, retrace_min=retrace_min, leg2_min=leg2_min
+    )
 
 
-def plateau_signs(
-    ev_all: pd.DataFrame, ct_all: pd.DataFrame, direction: str, horizon: int,
-    seed: int = MATCH_SEED,
-) -> list[float]:
+def plateau_points(
+    ev_all: pd.DataFrame, ct_all: pd.DataFrame, direction: str,
+    horizons: tuple[int, ...] = HORIZONS, seed: int = MATCH_SEED,
+) -> dict[int, list[float]]:
     """Each 3x3 neighbor is a FULL re-classify AND re-match from the
     unfiltered frames (addendum item 3) -- reclassifying the
     frozen-threshold panel would deny widening neighbors the band and
-    deep-fast events their definitions include. Point estimates only:
-    the frozen gate is sign stability."""
+    deep-fast events their definitions include. Classification and
+    matching are horizon-independent, so each neighbor's panel is built
+    ONCE and evaluated at every horizon. Point estimates only: the
+    frozen gate is sign stability."""
     ev_d = ev_all[ev_all["direction"] == direction]
     ct_d = ct_all[ct_all["direction"] == direction]
-    points = []
+    points: dict[int, list[float]] = {h: [] for h in horizons}
     for rmin in PLATEAU_RETRACE:
         for lmin in PLATEAU_LEG2:
             cls = classify_with(rmin, lmin)
@@ -263,20 +292,22 @@ def plateau_signs(
             ct["context_class"] = [cls(a, b) for a, b in zip(ct["interpeak_retrace_frac"], ct["leg2_bars"])]
             ct = ct[ct["context_class"].notna()]
             if ev.empty or ct.empty:
-                points.append(float("nan"))
+                for h in horizons:
+                    points[h].append(float("nan"))
                 continue
             m = match_controls(ev, ct, seed=seed)
             if m.empty:
-                points.append(float("nan"))
+                for h in horizons:
+                    points[h].append(float("nan"))
                 continue
             panel = assemble_panel(ev, ct, m)
-            deltas = per_event_deltas(panel, horizon)
-            ext = deltas.loc[deltas["context_class"] == "extension", "delta"]
-            pb = deltas.loc[deltas["context_class"] == "pullback_rebuild", "delta"]
-            if ext.empty or pb.empty:
-                points.append(float("nan"))
-                continue
-            points.append(float(ext.mean() - pb.mean()))
+            for h in horizons:
+                deltas = per_event_deltas(panel, h)
+                ext = deltas.loc[deltas["context_class"] == "extension", "delta"]
+                pb = deltas.loc[deltas["context_class"] == "pullback_rebuild", "delta"]
+                points[h].append(
+                    float(ext.mean() - pb.mean()) if (len(ext) and len(pb)) else float("nan")
+                )
     return points
 
 
@@ -338,8 +369,10 @@ def main() -> None:
     full = attach_forward_returns(pd.concat([ev_all, ct_all], ignore_index=True), raw_conn, config)
     for h in HORIZONS:
         n_cens = int(full[f"censored_{h}"].fillna(False).astype(bool).sum())
+        n_trunc = int(full[f"truncated_{h}"].fillna(False).astype(bool).sum())
         n_missing = int(full[f"fwd_log_ret_{h}"].isna().sum()) - n_cens
-        print(f"h={h}: censored at boundary {n_cens}; other missing (never-entered/data holes) {n_missing}")
+        print(f"h={h}: censored at boundary {n_cens}; delisting-truncated KEPT {n_trunc}; "
+              f"other missing (never-entered/data holes) {n_missing}")
 
     ev_full = full[full["is_divergence"]]
     ct_full = full[~full["is_divergence"]]
@@ -365,15 +398,23 @@ def main() -> None:
 
     plateau_by = {}
     for direction in ("bearish", "bullish"):
+        pts = plateau_points(ev_full, ct_full, direction, HORIZONS)
         for h in HORIZONS:
-            ok, n_finite = plateau_gate(plateau_signs(ev_full, ct_full, direction, h))
-            plateau_by[(direction, h)] = (ok, n_finite)
+            plateau_by[(direction, h)] = plateau_gate(pts[h])
         a_cell = next(c for c in cells if c["cell_id"].endswith("a") and c["direction"] == direction)
         c_cell = next(c for c in cells if c["cell_id"].endswith("c") and c["direction"] == direction)
         # Addendum item 1: the DiD is extension-minus-pullback while b3 is
         # the per-unit-retrace slope of the divergence effect, so a real
         # effect produces OPPOSITE signs -- agreement means sign product < 0.
-        agree = bool(np.sign(a_cell["point_estimate"]) * np.sign(c_cell["point_estimate"]) < 0)
+        # A NaN or exactly-zero point estimate leaves the gate UNDEFINED --
+        # by the addendum's own principle an incomputable formulation is
+        # absence of evidence, never disagreement, so None here does not
+        # demote (verdict treats None as not-failed; readout prints n/a).
+        sa, sc = a_cell["point_estimate"], c_cell["point_estimate"]
+        if not (np.isfinite(sa) and np.isfinite(sc)) or sa == 0 or sc == 0:
+            agree = None
+        else:
+            agree = bool(np.sign(sa) * np.sign(sc) < 0)
         for c in cells:
             if c["direction"] == direction:
                 c["plateau_ok"], c["plateau_finite"] = plateau_by[(direction, c["horizon"])]
@@ -390,7 +431,8 @@ def main() -> None:
         else:
             c["cost_point"] = c["point_estimate"]
             band = c
-        c["verdict"] = verdict(band, c["bh_pass"], c["plateau_ok"], c["formulations_agree"])
+        gate_agree = c["formulations_agree"] if c["formulations_agree"] is not None else True
+        c["verdict"] = verdict(band, c["bh_pass"], c["plateau_ok"], gate_agree)
 
     print("\n== REGISTERED READOUT (6 cells, one BH correction) ==")
     for c in cells:
@@ -402,7 +444,8 @@ def main() -> None:
         print(f"      n: {c['n_event_dates']} event dates / {c['n_months']} months / "
               f"{c['n_events']} events / {c['n_controls']} control rows; "
               f"plateau={'ok' if c['plateau_ok'] else 'FAIL'}({c['plateau_finite']}/9 finite) "
-              f"agree={'ok' if c['formulations_agree'] else 'FAIL'} -> {c['verdict']}")
+              f"agree={'n/a' if c['formulations_agree'] is None else ('ok' if c['formulations_agree'] else 'FAIL')}"
+              f" -> {c['verdict']}")
         se, sp = c["shape_ext"], c["shape_pb"]
         label = ("ext-arm deltas", "pb-arm deltas") if c["kind"] == "did" else ("event returns", "control returns")
         print(f"      shape {label[0]}: hit={se['hit']:.2f} wl={se['wl']:.2f} skew={se['skew']:.2f}; "
@@ -420,16 +463,18 @@ def main() -> None:
                 se, sp = c["shape_ext"], c["shape_pb"]
                 arm_ext = f"{c['point_a']:.6f}" if c["kind"] == "did" else ""
                 arm_pb = f"{c['point_b']:.6f}" if c["kind"] == "did" else ""
+                basis = "matched_arm_deltas(ext;pb)" if c["kind"] == "did" else "raw_group_returns(div;ctrl)"
+                agree_s = "" if c["formulations_agree"] is None else str(c["formulations_agree"])
                 f.write(
                     f"{today},{c['cell_id']},context-dependent {c['direction']} regular-divergence outcomes,"
                     f"{c['kind']}_h{c['horizon']},{c['point_estimate']:.6f},{c['ci_low']:.6f},{c['ci_high']:.6f},"
                     f"{c['p_value']:.5f},{c['bh_pass']},{arm_ext},{arm_pb},"
                     f"{c['n_event_dates']},{c['n_months']},{c['n_events']},{c['n_controls']},"
-                    f"{se['hit']:.3f},{se['wl']:.3f},{se['skew']:.3f},"
+                    f"{basis},{se['hit']:.3f},{se['wl']:.3f},{se['skew']:.3f},"
                     f"{sp['hit']:.3f},{sp['wl']:.3f},{sp['skew']:.3f},"
                     f"{HURDLE},{c['cost_point']:.6f},"
                     f"{'clears' if abs(c['cost_point']) >= HURDLE else 'fails'},"
-                    f"{c['plateau_ok']},{c['plateau_finite']},{c['formulations_agree']},"
+                    f"{c['plateau_ok']},{c['plateau_finite']},{agree_s},"
                     f"{c['verdict']},frozen 2026-10-08 + addendum 2026-10-09 run\n"
                 )
         print(f"\nlogged {len(cells)} rows -> {EXPERIMENTS_CSV}")

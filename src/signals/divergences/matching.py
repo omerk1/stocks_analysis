@@ -39,12 +39,24 @@ RETRACE_PULLBACK_MIN = 0.33
 LEG2_PULLBACK_MIN = 5
 
 
-def classify_context(retrace_frac, leg2_bars) -> str | None:
+def classify_context(
+    retrace_frac,
+    leg2_bars,
+    retrace_min: float = RETRACE_PULLBACK_MIN,
+    leg2_min: int = LEG2_PULLBACK_MIN,
+) -> str | None:
+    """Frozen poles at the default thresholds; the parameters exist ONLY
+    for the pre-registered plateau neighborhood (which varies the pullback
+    pole's edges while the extension edge stays the frozen
+    RETRACE_EXTENSION_MAX). One classifier for the main panel and every
+    plateau neighbor -- a local re-implementation drifting from this one
+    is exactly how a plateau would silently test different poles than the
+    panel."""
     if retrace_frac is None or pd.isna(retrace_frac):
         return None
     if retrace_frac < RETRACE_EXTENSION_MAX:
         return "extension"
-    if retrace_frac >= RETRACE_PULLBACK_MIN and leg2_bars is not None and not pd.isna(leg2_bars) and leg2_bars >= LEG2_PULLBACK_MIN:
+    if retrace_frac >= retrace_min and leg2_bars is not None and not pd.isna(leg2_bars) and leg2_bars >= leg2_min:
         return "pullback_rebuild"
     return None
 
