@@ -13,6 +13,9 @@ from src.analysis.divergence_trackb_run import (
     assemble_panel,
     classify_with,
     cluster_robust_interaction,
+    per_event_deltas,
+    plateau_gate,
+    shape_stats,
     verdict,
 )
 
@@ -46,6 +49,8 @@ def _panel_rows():
 
 def test_assemble_panel_builds_event_strata():
     events, controls, matches = _panel_rows()
+    events = events.assign(is_divergence=True)
+    controls = controls.assign(is_divergence=False)
     panel = assemble_panel(events, controls, matches)
 
     assert len(panel) == 3
@@ -65,7 +70,8 @@ def test_cluster_robust_interaction_recovers_a_planted_slope():
             d = i % 2
             r = rng.uniform(0, 1)
             y = 0.004 * d * r + rng.normal(0, 1e-6)
-            rows.append({"direction": "bearish", "p2_month": month, "is_divergence": bool(d),
+            rows.append({"id": f"{month}-{i}", "p2_date": f"{month}-{(i % 28) + 1:02d}",
+                         "direction": "bearish", "p2_month": month, "is_divergence": bool(d),
                          "interpeak_retrace_frac": r, "fwd_log_ret_63": y})
     panel = pd.DataFrame(rows)
 
@@ -94,6 +100,40 @@ def test_verdict_mapping_matches_the_frozen_three_way_rules():
     small = {"point_estimate": 0.0008, "ci_low": 0.0003, "ci_high": 0.0013}
     assert max(abs(small["ci_low"]), abs(small["ci_high"])) < HURDLE
     assert verdict(small, bh_pass=True, plateau_ok=True, formulations_agree=True) == "dead_demonstrated_null"
+
+
+def test_plateau_gate_finite_agreement_semantics():
+    # All finite, same sign -> ok; NaN neighbors are absence of evidence.
+    ok, n = plateau_gate([0.01, 0.02, float("nan"), 0.005])
+    assert ok and n == 3
+    # Any sign disagreement among finite neighbors fails.
+    ok, n = plateau_gate([0.01, -0.001, 0.02])
+    assert not ok and n == 3
+    # Nothing computable: fail with zero finite (never a silent pass).
+    ok, n = plateau_gate([float("nan")] * 9)
+    assert not ok and n == 0
+
+
+def test_per_event_deltas_and_shape_stats():
+    panel = pd.DataFrame(
+        [
+            {"match_group": "e1", "is_divergence": True, "context_class": "extension", "fwd_log_ret_63": 0.05},
+            {"match_group": "e1", "is_divergence": False, "context_class": "extension", "fwd_log_ret_63": 0.01},
+            {"match_group": "e1", "is_divergence": False, "context_class": "extension", "fwd_log_ret_63": 0.03},
+            {"match_group": "e2", "is_divergence": True, "context_class": "pullback_rebuild", "fwd_log_ret_63": -0.02},
+            {"match_group": "e2", "is_divergence": False, "context_class": "pullback_rebuild", "fwd_log_ret_63": 0.00},
+        ]
+    )
+    deltas = per_event_deltas(panel, 63)
+
+    by = dict(zip(deltas["match_group"], deltas["delta"]))
+    assert by["e1"] == pytest.approx(0.05 - 0.02)  # event minus MEAN of its controls
+    assert by["e2"] == pytest.approx(-0.02)
+
+    stats = shape_stats(pd.Series([0.03, -0.02, 0.01, -0.01, 0.02]))
+    assert stats["hit"] == pytest.approx(3 / 5)
+    assert stats["wl"] == pytest.approx((0.02) / 0.015)  # mean win / |mean loss|
+    assert np.isfinite(stats["skew"])
 
 
 def test_classify_with_reproduces_the_frozen_poles_at_registered_thresholds():
