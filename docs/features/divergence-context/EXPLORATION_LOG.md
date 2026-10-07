@@ -80,3 +80,36 @@ FINDINGS.md entries, no promotion of any sweep number anywhere.
 
 Code: `src/analysis/divergence_rr_sweep.py`; per-trade cache as parquet under gitignored
 `data/derived/divergence_rr_sweep/` (nothing written to the shared sqlite).
+
+### Result (same date, run after the entry above was committed)
+
+- **The sweep is DEAD per the pre-committed kill criterion** — none of the 12
+  (direction × form × context) regions clears all four rails at the primary variant
+  (2R/63-bar/ε0.25/20 bps). One line, stop; no DC-B5 draft is warranted.
+- Accounting: 88,504 trades walked (33,270 events / 55,234 controls, PIT, dev window);
+  850 excluded for price disputes (479 whole-history tickers, 371 disputed-day windows);
+  primary-variant mix (events): 14,472 stop / 11,696 time / 5,739 target / 852 censored /
+  202 never-entered+invalid+degenerate. Effective N per region 228–1,534 distinct p2 dates
+  (two mechanically empty hidden-extension regions at 4–7, as step 0 predicted).
+- Closest non-survivors, named noise per the plateau discipline: **bearish/regular/other**
+  adj +0.10 R (619 dates, era-stable, positive across all 10 variants, but neighbor vote
+  3/4 — one qualified strength×duration sub-cell disagrees); **bearish/regular/extension**
+  adj +0.08 R (365 dates < the 500 floor, 61% control coverage — the thin-extension-pool
+  problem again); **bullish/regular/pullback** adj +0.05 R (985 dates, era-stable,
+  neighbors 6/8). All hidden-form regions ≈ 0 or negative. 10 vs 20 bps moves nothing
+  (cost ≈ 0.04 R/trade at typical 5% risk fractions).
+- Argue-against: the bearish positives are "events lose less than controls" — shorting any
+  higher-high with a stop above it loses ~0.22–0.28 R net in this 2010–2021 bull window,
+  so the delta rides a deeply negative base rate; with hundreds of cells, era-stable
+  near-misses at this size are exactly what winner's curse manufactures, which is why the
+  neighbor rail exists and why it was allowed to kill them.
+- **Survivorship caveat (found while validating the walk, now in backlog.md under
+  Signals):** the event base and control pairs contain zero delisted tickers — detection
+  ran over yfinance-bars tickers only, and delisted members' bars live under the Tiingo
+  sources. The walker's delisting-terminal machinery is correct but unexercised (0
+  delisted resolutions). First-order, the control deltas absorb the bias (both sides are
+  survivors-only); second-order they don't — divergences cluster near distress, so the
+  missing delistings need not hit events and matched controls alike, and the sign of the
+  residual bias is unknown. The DEAD verdict is what the criterion says on this event
+  base; any future registration (DC-B5 or otherwise) should gate on the delisted
+  backfill (backlog item).
