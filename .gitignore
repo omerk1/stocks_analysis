@@ -4,6 +4,7 @@ data/processed/*
 data/features/*
 data/models/*
 data/derived/*
+data/llm/*
 !data/**/.gitkeep
 *.sqlite
 *.db
