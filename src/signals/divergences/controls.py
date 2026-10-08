@@ -37,7 +37,9 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-from src.signals.divergences.config import DivergenceConfig
+from src.foundation.market_common.price_basis import resolve_sources, source_for
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
+from src.signals.divergences.store import recorded_run_sources
 from src.signals.divergences.context import compute_context_for_ticker
 
 # Same-package reuse of detection's own price-pivot path (underscore
@@ -224,14 +226,14 @@ def flag_divergences(
 
 def build_control_pairs(
     raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int, int]:
     """Extract+store control pairs for every ticker that has stored daily
     divergences (the study's universe is defined by where detection ran).
     REPLACE-per-ticker semantics (user-approved 2026-10-08): each
     processed ticker's rows are deleted and rewritten, so pairs from a
     previous calendar/config can't survive a recompute as stale sampling
     -frame rows. Returns (rows_written, tickers_processed,
-    tickers_skipped)."""
+    tickers_skipped, tickers_unresolved, tickers_vendor_stale)."""
     config = DivergenceConfig()
     create_control_pairs_table(derived_conn)
     # Bars before this position were never scanned by ALL detection
@@ -251,11 +253,38 @@ def build_control_pairs(
             " WHERE module = 'divergences' AND timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    written = skipped = processed = 0
+    # Same per-ticker vendor the detector read (see context.py's note):
+    # control pairs must come from the same bars the events did. An
+    # unresolved ticker's stored pairs are PURGED (leaving them would
+    # quietly convert replace-per-ticker into keep-stale for exactly the
+    # garbage tickers); a vendor-changed ticker is skipped with a warning
+    # until detection rescans it (its has_divergence flags are judged
+    # against the stored events, which are the other vendor's pivots).
+    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
+    recorded = recorded_run_sources(derived_conn, "daily")
+    primary = source_for(config.price_basis)
+    written = skipped = processed = unresolved = vendor_stale = 0
     for ticker in tickers:
+        if ticker not in sources:
+            n_purged = derived_conn.execute(
+                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
+                (ticker,),
+            ).rowcount
+            derived_conn.commit()
+            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
+                           "purged %d stale control pair(s)", ticker, n_purged)
+            unresolved += 1
+            continue
+        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
+            logger.warning("%s: resolved vendor %s differs from the one its events were "
+                           "detected on (%s) -- skipped; rescan detection first",
+                           ticker, sources[ticker], recorded[ticker] or primary)
+            vendor_stale += 1
+            continue
         try:
             bars, report = data_mod.load_and_validate(
-                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis
+                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
+                source=sources[ticker],
             )
             if len(bars) < config.min_bars:
                 skipped += 1
@@ -318,7 +347,7 @@ def build_control_pairs(
             skipped += 1
             continue
 
-    return written, processed, skipped
+    return written, processed, skipped, unresolved, vendor_stale
 
 
 def main() -> None:
@@ -327,8 +356,10 @@ def main() -> None:
     )
     parser.parse_args()
     raw_conn, derived_conn = derived_db.bootstrap_cli(create_control_pairs_table)
-    written, processed, skipped = build_control_pairs(raw_conn, derived_conn)
-    print(f"Done: {processed} ticker(s), {written} pair(s) written, {skipped} skipped.")
+    written, processed, skipped, unresolved, vendor_stale = build_control_pairs(raw_conn, derived_conn)
+    print(f"Done: {processed} ticker(s), {written} pair(s) written, {skipped} skipped, "
+          f"{unresolved} ticker(s) unresolved (stale pairs purged), "
+          f"{vendor_stale} skipped for a vendor change (rescan detection first).")
     raw_conn.close()
     derived_conn.close()
 

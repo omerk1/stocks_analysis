@@ -446,9 +446,13 @@ def detect(
     timeframe: Timeframe | str,
     config: DivergenceConfig,
     as_of: str | pd.Timestamp | date | None = None,
+    source: str | None = None,
 ) -> tuple[list[Divergence], DataQualityReport, str | None]:
     """Load+validate bars for (ticker, timeframe) up to `as_of`, detect
-    divergences, and keep only those confirmed by `as_of`. Returns
+    divergences, and keep only those confirmed by `as_of`. `source` is
+    this ticker's resolved `bars_1d` vendor (`price_basis.resolve_sources`
+    — the fallback that lets delisted members' Tiingo bars be scanned);
+    None keeps the basis's primary source. Returns
     (divergences, quality_report, skip_reason) -- skip_reason is None on
     success, otherwise divergences is [] and quality_report still reflects
     what was loaded (so callers/CLI can report *why* a ticker was skipped).
@@ -467,7 +471,9 @@ def detect(
     confluence only ever reflects what was actually knowable as of `as_of`.
     """
     timeframe = Timeframe(timeframe)
-    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
+    bars, report = data_mod.load_and_validate(
+        conn, ticker, timeframe, as_of=as_of, basis=config.price_basis, source=source
+    )
 
     if len(bars) < config.min_bars:
         reason = f"only {len(bars)} bars available (< min_bars={config.min_bars})"
