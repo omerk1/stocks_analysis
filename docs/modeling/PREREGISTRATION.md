@@ -192,17 +192,39 @@ at H = 10 to 0.577 at H = 63. Every difference above is under 0.15% of that.
 - **Seeds:** the three seeds agree in sign in every trial except T2 at H = 10 and 42,
   both near zero.
 - **IC difference:** spans zero everywhere.
-- **T2 vs B4:** spans zero at every horizon.
-- **Top-5 excess return per day:**
-  - T1 vs B4 is lower at H = 42 (−0.80%, CI excludes zero).
-  - T2 vs T1 is higher at H = 10 (+0.23%), 42 (+1.25%) and 63 (+1.32%), with CIs
-    excluding zero.
-  - These are 8 unregistered looks, and top-k was registered as a readout only, so this
-    is not a finding. A plausible mechanism to test, not a claim: the weak group
-    includes the size rank (`log_dollar_volume_20d_rank`). It may push the EV ranking
-    toward smaller, more volatile names, whose wider ATR inflates EV.
-- **Costs** (invariant #8): one top-5 basket per day, over 21–63 days, at 10 bps round
-  trip. The net returns are in each trial's `metrics.top_k`.
+- **T2 vs B4 (Brier):** spans zero at every horizon.
+- **Log loss difference:** spans zero in 7 of 8 trials. The exception is T2 vs T1 at
+  H = 63: −0.0062 [−0.0117, −0.0012], in T2's favour.
+- **Top-k excess return per day** (over the day's mean return; CIs on the difference):
+
+  | H | top-5, T1 vs B4 | top-5, T2 vs T1 | top-20, T1 vs B4 | top-20, T2 vs T1 |
+  |---|---|---|---|---|
+  | 10 | −0.15% (spans 0) | **+0.23%** | **−0.12%** | **+0.14%** |
+  | 21 | −0.08% (spans 0) | +0.10% (spans 0) | −0.10% (spans 0) | +0.04% (spans 0) |
+  | 42 | **−0.80%** | **+1.25%** | **−0.47%** | **+0.57%** |
+  | 63 | −0.75% (spans 0) | **+1.32%** | **−0.65%** | **+0.73%** |
+
+  Bold = 90% CI excludes zero.
+  - The pattern: the supported pair alone (T1) makes the picks *worse* than B4's. The
+    weak group (T2) more than recovers that.
+  - All of these are descriptive readouts without a verdict or a multiple-testing
+    correction (16 top-k looks plus log loss), so none is a finding.
+  - A plausible mechanism to test, not a claim: the weak group includes the size rank
+    (`log_dollar_volume_20d_rank`). It may push the EV ranking toward smaller, more
+    volatile names, whose wider ATR inflates EV.
+- **Costs** (invariant #8): the mean return per pick, held 10–63 days (by horizon), net
+  of a 10 / 25 bps round trip. One basket per day, so holdings overlap.
+
+  | H | top-5 B4 | top-5 T1 | top-5 T2 | top-20 B4 | top-20 T1 | top-20 T2 |
+  |---|---|---|---|---|---|---|
+  | 10 | +0.14% / −0.01% | −0.01% / −0.16% | +0.22% / +0.07% | +0.15% | +0.03% | +0.17% |
+  | 21 | +0.64% / +0.49% | +0.57% / +0.42% | +0.66% / +0.51% | +0.53% | +0.43% | +0.46% |
+  | 42 | +1.64% / +1.49% | +0.84% / +0.69% | +2.10% / +1.95% | +1.54% | +1.08% | +1.65% |
+  | 63 | +2.88% / +2.73% | +2.13% / +1.98% | +3.44% / +3.29% | +2.46% | +1.81% | +2.54% |
+
+  Top-5 shows net 10 / 25 bps; top-20 shows net 10 bps. These are raw returns, not
+  excess: they include the market's own move over the hold. No CI is computed for
+  T2 vs B4 on top-k.
 
 **Against the result:**
 - **The era pattern is universal.** All 8 trials are worse in 2014–17 and better in

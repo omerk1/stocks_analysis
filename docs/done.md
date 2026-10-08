@@ -221,6 +221,9 @@ Running the real shares_outstanding backfill surfaced a second, genuine bug (not
   - **Secondary readouts (descriptive):**
     - Uncalibrated Brier is worse in all 8 trials.
     - Every trial is worse in 2014–17 and better in 2018–21 (more training data, or a regime change; the sliding scheme would tell).
-    - T2's top-5 excess return beats T1's at H = 10, 42 and 63. That is 8 unregistered looks; the size rank is a suspected mechanism.
+    - On the top-k picks, T1 alone is worse than B4 (top-20 excess CI below zero at H = 10, 42 and 63), and T2 more than recovers it (top-5 and top-20 above T1 at the same horizons). These are descriptive readouts with no multiple-testing correction; the size rank is a suspected mechanism.
+    - Log loss favours T2 over T1 at H = 63 only.
+    - The net-of-cost returns per pick are in the addendum.
+  - **Code review:** the first draft left out the registered log-loss and top-20 readouts and the net-of-cost numbers; added.
   - **Fixed along the way:** `vendor-check --features` crashed on T, which is live but read from Tiingo by choice (`PREFER_TIINGO`). The delisted-vs-live readouts now leave it out, and the same-ticker gate keeps it. Code review caught a first version that dropped T from the gate too.
   - **Logged:** `docs/modeling/TRIALS.csv` (8 rows) and the result addendum in `docs/modeling/PREREGISTRATION.md`. No database writes.
