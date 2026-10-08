@@ -153,3 +153,76 @@ requires. T2 vs B4 is reported next to it.
 - **Trial count:** 8 trials, not 12, because the fixed v1 learner is not tuned.
 - **Top-k:** reported, not a kill condition.
 - **Verdicts:** the three-verdict rule, with a pre-committed band.
+
+### Result (2026-10-08 addendum)
+
+**Verdict: both groups inconclusive.** No trial is BH-significant, and every CI spans
+zero while reaching far past the band. Per the outcomes above, both groups are dropped
+from v1. This is underpowered, not evidence of no effect.
+
+- **Run:** `run-experiment E1` from commit 44a52de (clean), 2026-10-07 22:34 to
+  2026-10-08 09:39. 8 of 8 trials `ok`, none rerun. `close-experiment E1` gave the
+  table below.
+- **Data:** caches rebuilt from `main` after #184.
+  - Features: 1,368,478 eligible rows, 641 tickers (113 read from Tiingo).
+  - Labels: disputes list `62b330fb12d4dd7c`. 23,751 rows dropped for disputed days at
+    H = 10, and 47,601 at H = 63.
+  - Rows without a label in the folds' window: 0.19–0.37%.
+  - Same-ticker vendor gate: pass, AUC 0.519 over 285 tickers (rerun after the T fix below).
+  - All four gates pass on the run's code (main at e08fc82, before the run).
+- **Effective N:** 2,001–2,005 test dates per trial (2014–2021).
+
+| step | H | Brier diff (90% CI) | p | years better | 2014–17 / 2018–21 | band | verdict | trial |
+|---|---|---|---|---|---|---|---|---|
+| T1 vs B4 | 10 | +0.00006 [−0.00045, +0.00054] | 0.57 | 4/8 | +0.00085 / −0.00069 | 9.7e-5 | inconclusive | 20261007-193359-44a52de-ca22ac |
+| T1 vs B4 | 21 | −0.00006 [−0.00071, +0.00063] | 0.45 | 5/8 | +0.00076 / −0.00084 | 4.6e-5 | inconclusive | 20261007-203109-44a52de-eb2fff |
+| T1 vs B4 | 42 | −0.00055 [−0.00156, +0.00044] | 0.19 | 6/8 | +0.00038 / −0.00146 | 2.3e-5 | inconclusive | 20261007-215239-44a52de-ec9946 |
+| T1 vs B4 | 63 | −0.00049 [−0.00219, +0.00128] | 0.32 | 4/8 | +0.00058 / −0.00156 | 1.5e-5 | inconclusive | 20261008-042715-44a52de-e55333 |
+| T2 vs T1 | 10 | −0.00001 [−0.00097, +0.00088] | 0.52 | 5/8 | +0.00036 / −0.00036 | 9.7e-5 | inconclusive | 20261007-200447-44a52de-448e8f |
+| T2 vs T1 | 21 | +0.00059 [−0.00054, +0.00180] | 0.79 | 3/8 | +0.00124 / −0.00003 | 4.6e-5 | inconclusive | 20261007-210044-44a52de-3c03d2 |
+| T2 vs T1 | 42 | +0.00005 [−0.00237, +0.00218] | 0.54 | 4/8 | +0.00132 / −0.00120 | 2.3e-5 | inconclusive | 20261008-002905-44a52de-551caf |
+| T2 vs T1 | 63 | −0.00085 [−0.00434, +0.00218] | 0.39 | 4/8 | +0.00150 / −0.00317 | 1.5e-5 | inconclusive | 20261008-060100-44a52de-e21998 |
+
+Negative = better than the reference. B4's own three-class Brier score runs from 0.602
+at H = 10 to 0.577 at H = 63. Every difference above is under 0.15% of that.
+
+**Secondary readouts** (descriptive, no verdict):
+- **Uncalibrated Brier:** worse than the reference in all 8 trials (+0.0003 to +0.0039,
+  every CI spanning zero). Calibration isn't hiding a gain.
+- **Seeds:** the three seeds agree in sign in every trial except T2 at H = 10 and 42,
+  both near zero.
+- **IC difference:** spans zero everywhere.
+- **T2 vs B4:** spans zero at every horizon.
+- **Top-5 excess return per day:**
+  - T1 vs B4 is lower at H = 42 (−0.80%, CI excludes zero).
+  - T2 vs T1 is higher at H = 10 (+0.23%), 42 (+1.25%) and 63 (+1.32%), with CIs
+    excluding zero.
+  - These are 8 unregistered looks, and top-k was registered as a readout only, so this
+    is not a finding. A plausible mechanism to test, not a claim: the weak group
+    includes the size rank (`log_dollar_volume_20d_rank`). It may push the EV ranking
+    toward smaller, more volatile names, whose wider ATR inflates EV.
+- **Costs** (invariant #8): one top-5 basket per day, over 21–63 days, at 10 bps round
+  trip. The net returns are in each trial's `metrics.top_k`.
+
+**Against the result:**
+- **The era pattern is universal.** All 8 trials are worse in 2014–17 and better in
+  2018–21. Two readings fit:
+  - *More training data.* With expanding folds, the later years train on 7–10 years,
+    against 3–6 for the early ones. Models with more columns may need that much.
+  - *A regime change.* The low-volatility 2014–17 market differs from the 2018–21
+    years, which include 2018 Q4 and 2020.
+
+  The sliding (3-year) scheme would separate the two readings. That is a candidate
+  addendum, not part of this verdict.
+- **Plateau:** no horizon passes, and the neighbouring horizons agree. There is no lone
+  bright cell.
+- **Power:** the CIs are 10–100 times wider than the band. At this band a null is out
+  of reach for any experiment of this size. The band (Brier gain needed to cover 10 bps
+  on the top-5 picks) is generous to the signal, so it is small. The pre-registered
+  rule is applied as written. A future experiment that wants a reachable null needs a
+  larger band or a more powerful metric, set in its own entry before it runs.
+
+**Consequence:** v1 is B4's columns. The MA family is not in the v1 feature set.
+`IDEAS.md` §2's priors are unchanged: an inconclusive result revises nothing. E1b
+(null- and inconclusive-prior features) and a sliding-window look at the era pattern
+are both open, and each needs its own entry before it runs.
