@@ -117,8 +117,8 @@ def cosine(a: list[float], b: list[float]) -> float:
 def stored_vectors(index: VectorStoreIndex) -> dict[str, tuple[BaseNode, list[float]]]:
     """Chunk id -> (chunk, vector), read back from the index, no model involved."""
     store = index.vector_store
-    return {i: (index.docstore.get_node(i), store.get(i))
-            for i in index.index_struct.nodes_dict}
+    return {node_id: (index.docstore.get_node(node_id), store.get(vector_id))
+            for vector_id, node_id in index.index_struct.nodes_dict.items()}
 
 
 def _pick(nodes: list[BaseNode], path: str, meta: dict[str, str], nth: int) -> BaseNode:

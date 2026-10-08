@@ -49,6 +49,7 @@ isort>=5.12.0
 llama-index-core>=0.14
 # Local embeddings (bge-small). Pulls torch; on Intel Macs torch stops at 2.2.2, which
 # breaks transformers 5 / sentence-transformers 4+, hence the upper bounds.
-llama-index-embeddings-huggingface>=0.6
+# index.py overrides its private `_embed`, so stay on the tested 0.8 line.
+llama-index-embeddings-huggingface>=0.8,<0.9
 transformers<4.47
 sentence-transformers<4
