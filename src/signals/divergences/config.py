@@ -9,7 +9,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.signals.divergences.models import DivergenceForm
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
+from src.foundation.market_common.price_basis import (
+    MODULE_PRICE_BASIS,
+    MODULES_WITH_FALLBACK,
+    PriceBasis,
+)
+
+# Whether this module reads delisted members' bars from the fallback vendor
+# (price_basis.MODULES_WITH_FALLBACK). One constant, imported by the CLI and
+# both backfills, so the detection, context and control stores can never
+# disagree about which universe they cover.
+VENDOR_FALLBACK = "divergences" in MODULES_WITH_FALLBACK
 
 
 def _default_strength_weights() -> dict:
