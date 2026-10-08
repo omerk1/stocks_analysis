@@ -31,6 +31,7 @@ import sqlite3
 from enum import Enum
 
 from src.foundation.data_processing import db
+from src.foundation.market_common.price_disputes import DISPUTED_DAYS, vendor_of
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
@@ -89,7 +90,14 @@ SPLITS_SOURCE_BY_BAR_SOURCE: dict[str, str] = {
     db.YFINANCE: db.YFINANCE, db.YFINANCE_SPLIT_ONLY: db.YFINANCE,
     db.TIINGO: db.TIINGO, db.TIINGO_SPLIT_ONLY: db.TIINGO,
 }
-MODULES_WITH_FALLBACK: frozenset[str] = frozenset({"models_labels", "models_universe", "models_features"})
+MODULES_WITH_FALLBACK: frozenset[str] = frozenset({
+    "models_labels", "models_universe", "models_features",
+    # Divergences opted in 2026-10-08 (backlog: the event base was
+    # survivors-only — delisted members' bars exist only on the Tiingo
+    # sources). The other signal modules and breadth/RS stay primary-only
+    # until each one's stored tables are deliberately rerun.
+    "divergences",
+})
 
 
 def source_for(basis: PriceBasis | str) -> str:
@@ -131,6 +139,27 @@ def ticker_sources(
             if ticker not in out and _has_bars(conn, ticker, source):
                 out[ticker] = source
     return out
+
+
+def resolve_sources(
+    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+) -> dict[str, str]:
+    """ticker -> the `bars_1d.source` its `basis` bars come from. Without
+    `fallback`, every ticker maps to the basis's primary source (no lookup).
+    With it (the modules in MODULES_WITH_FALLBACK), a ticker whose vendor has
+    a whole-history dispute (`price_disputes`, no date: e.g. a reused symbol
+    whose bars are another company's) is left out, so it has no bars at
+    all -- not in the universe, the ranks, the labels, or a detector's scan.
+    (Moved here from models.dataset when divergences opted into the
+    fallback -- one policy, not two drifting copies.)"""
+    if not fallback:
+        return dict.fromkeys(tickers, source_for(basis))
+    sources = ticker_sources(conn, tickers, basis, fallback=True)
+    return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in _whole_history_disputes()}
+
+
+def _whole_history_disputes() -> set[tuple[str, str]]:
+    return {(d.ticker, d.vendor) for d in DISPUTED_DAYS if d.date is None}
 
 
 def _has_bars(conn: sqlite3.Connection, ticker: str, source: str) -> bool:

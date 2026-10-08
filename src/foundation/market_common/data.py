@@ -27,7 +27,7 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing import resample as resample_mod
 from src.foundation.market_common import indicators
 from src.foundation.market_common.models import DataQualityReport, Timeframe
-from src.foundation.market_common.price_basis import PriceBasis, source_for
+from src.foundation.market_common.price_basis import PriceBasis, basis_for_source, source_for
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +73,18 @@ def load_bars(
     *,
     basis: PriceBasis | str,
     start: str | pd.Timestamp | None = None,
+    source: str | None = None,
 ) -> pd.DataFrame:
     """Load bars for `ticker` from `bars_1d` on price `basis` (required --
     see `market_common.price_basis`; there is deliberately no default, so
     no caller can load bars without stating which kind), up to
     `as_of` (default: latest available), excluding partial (same-day)
-    rows. `start` defaults to `None` (*all* available history) -- unlike
+    rows. `source` overrides the basis's primary `bars_1d.source` for
+    callers that resolved this ticker's vendor per
+    `price_basis.resolve_sources` (the fallback modules); it must hold the
+    same basis (`basis_for_source` guards), so the override never changes
+    what kind of prices come back, only whose. `start` defaults to
+    `None` (*all* available history) -- unlike
     sr_lines' own `SRConfig`-driven loader, callers here don't need a
     window/lookback; each module's own `min_bars` check decides whether
     the returned history is enough. `start` exists as a keyword-only
@@ -100,11 +106,13 @@ def load_bars(
     stored levels can check they're on the same basis.
     """
     basis = PriceBasis(basis)
+    if source is not None and basis_for_source(source) != basis:
+        raise ValueError(f"bars_1d source {source!r} does not hold {basis.value!r} prices")
     end_ts = pd.Timestamp(as_of) if as_of is not None else pd.Timestamp.now()
     start_str = pd.Timestamp(start).strftime("%Y-%m-%d") if start is not None else None
 
     raw = db.read_bars(
-        conn, "bars_1d", ticker=ticker, source=source_for(basis),
+        conn, "bars_1d", ticker=ticker, source=source if source is not None else source_for(basis),
         start=start_str, end=end_ts.strftime("%Y-%m-%d"),
     )
     if "is_partial" in raw.columns:
@@ -253,11 +261,13 @@ def load_and_validate(
     corruption_warning_threshold: float = DEFAULT_CORRUPTION_WARNING_THRESHOLD,
     *,
     basis: PriceBasis | str,
+    source: str | None = None,
 ) -> tuple[pd.DataFrame, DataQualityReport]:
     """Convenience wrapper: load_bars + validate_bars in one call. `basis`
     is required, as for `load_bars`, and carried onto the clean frame's
-    `attrs["price_basis"]`."""
-    raw = load_bars(conn, ticker, timeframe, as_of=as_of, basis=basis)
+    `attrs["price_basis"]`; `source` as for `load_bars` (a resolved
+    per-ticker vendor on the same basis)."""
+    raw = load_bars(conn, ticker, timeframe, as_of=as_of, basis=basis, source=source)
     clean, report = validate_bars(raw, ticker, corruption_warning_threshold)
     clean.attrs["price_basis"] = PriceBasis(basis).value
     return clean, report

@@ -10,7 +10,8 @@ import argparse
 import json
 import logging
 
-from src.foundation.data_processing import db
+import pandas as pd
+
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.detect import compute_indicator_series, detect
 from src.signals.divergences.plotting import render_divergence_chart
@@ -18,15 +19,39 @@ from src.signals.divergences.store import create_divergences_table, upsert_diver
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
+from src.foundation.market_common.price_basis import (
+    MODULE_PRICE_BASIS,
+    resolve_sources,
+    sources_for,
+)
+from src.signals.divergences.config import VENDOR_FALLBACK as FALLBACK
 
 logger = logging.getLogger(__name__)
 
 
-def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, plot_indicator):
+def resolve_universe(conn) -> tuple[dict[str, str], int]:
+    """The --all universe: every distinct bars_1d ticker on any source this
+    module may read, resolved per ticker (primary vendor preferred,
+    whole-history-disputed tickers excluded — `price_basis.resolve_sources`).
+    Returns (ticker -> source, n_excluded_as_disputed). Before the fallback
+    opt-in this was a single primary-source DISTINCT, which silently limited
+    detection to tickers yfinance serves — the survivors-only event base in
+    the backlog."""
+    basis = MODULE_PRICE_BASIS["divergences"]
+    tickers = sorted({
+        row[0]
+        for s in sources_for(basis, FALLBACK)
+        for row in conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (s,))
+    })
+    resolved = resolve_sources(conn, tickers, basis, FALLBACK)
+    return resolved, len(tickers) - len(resolved)
+
+
+def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, plot_indicator,
+             source=None):
     """Returns (n_divergences, unreliable) on success, or (None, None) if
     this (ticker, timeframe) was skipped for too little data."""
-    divergences, report, skip_reason = detect(conn, ticker, timeframe, config, as_of=as_of)
+    divergences, report, skip_reason = detect(conn, ticker, timeframe, config, as_of=as_of, source=source)
     if skip_reason is not None:
         print(f"{ticker}/{timeframe.value}: skipped -- {skip_reason}")
         return None, None
@@ -47,13 +72,51 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
     )
 
     if plot_path is not None:
-        bars, _ = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
+        bars, _ = data_mod.load_and_validate(
+            conn, ticker, timeframe, as_of=as_of, basis=config.price_basis, source=source
+        )
         series = compute_indicator_series(bars, plot_indicator, config)
         fig = render_divergence_chart(bars, series, divergences, plot_indicator, ticker=ticker)
         fig.write_html(plot_path)
         print(f"Wrote {plot_path}")
 
     return len(divergences), report.unreliable
+
+
+def _print_plan(conn, sources: dict[str, str], n_disputed: int, ran: dict, timeframes) -> None:
+    """The --plan dry run: what the resolved universe looks like and what a
+    --missing-only backfill would actually touch, with the delisted/PIT
+    breakdown that motivated the fallback. Reads only; writes nothing."""
+    from src.signals.divergences.study_universe import membership_intervals
+
+    by_source: dict[str, int] = {}
+    for s in sources.values():
+        by_source[s] = by_source.get(s, 0) + 1
+    print(f"resolved universe: {len(sources)} tickers {by_source}; "
+          f"{n_disputed} excluded for whole-history price disputes")
+
+    delisted = {
+        r[0] for r in conn.execute("SELECT ticker FROM tickers WHERE active = 0")
+    }
+    membership = membership_intervals(conn)
+    dev_lo, dev_hi = pd.Timestamp("2010-01-01"), pd.Timestamp("2021-12-31")
+    for tf in timeframes:
+        todo = sorted(t for t in sources if t not in ran[tf])
+        todo_member = [
+            t for t in todo
+            if any(s <= dev_hi and e >= dev_lo for s, e in membership.get(t, ()))
+        ]
+        todo_member_delisted = [t for t in todo_member if t in delisted]
+        print(f"\n{tf.value}: detection already ran on {len(ran[tf])} tickers; "
+              f"--missing-only would run {len(todo)}")
+        print(f"  of those: {sum(1 for t in todo if t in delisted)} delisted; "
+              f"{len(todo_member)} with S&P 500/NDX membership overlapping 2010-2021, "
+              f"{len(todo_member_delisted)} of them delisted")
+        if todo_member_delisted:
+            sample = ", ".join(todo_member_delisted[:12])
+            more = "" if len(todo_member_delisted) <= 12 else f", ... (+{len(todo_member_delisted) - 12})"
+            print(f"  delisted dev-window members: {sample}{more}")
+    print("\nPLAN ONLY -- nothing was detected or written.")
 
 
 def main():
@@ -71,12 +134,24 @@ def main():
         "--forms", default="both", choices=["regular", "hidden", "both"],
         help="Which divergence forms to detect and store (default both)",
     )
+    parser.add_argument(
+        "--missing-only", action="store_true",
+        help="With --all: only tickers detection never ran on (per the runs table) -- "
+             "the additive backfill mode for tickers the vendor fallback newly serves",
+    )
+    parser.add_argument(
+        "--plan", action="store_true",
+        help="With --all: print the resolved universe and what --missing-only would run, "
+             "then exit without detecting or writing anything",
+    )
     args = parser.parse_args()
 
     if not args.all and not args.ticker:
         parser.error("TICKER is required unless --all is given")
     if args.all and args.plot:
         parser.error("--plot is not supported together with --all")
+    if (args.plan or args.missing_only) and not args.all:
+        parser.error("--plan/--missing-only only make sense with --all")
 
     conn, derived_conn = derived_db.bootstrap_cli(create_divergences_table)
 
@@ -88,17 +163,33 @@ def main():
     )
 
     if args.all:
-        tickers = [
-            row[0] for row in conn.execute(
-                "SELECT DISTINCT ticker FROM bars_1d WHERE source = ?",
-                (source_for(MODULE_PRICE_BASIS["divergences"]),)
-            ).fetchall()
-        ]
-        total, skipped, failed, unreliable = 0, 0, 0, 0
-        for ticker in tickers:
+        sources, n_disputed = resolve_universe(conn)
+        # "Already ran" = the runs table (where detection RAN, not where it
+        # found something -- a scanned ticker with zero divergences must not
+        # be rescanned either, and controls.py builds its pool from runs).
+        ran = {
+            tf: {
+                r[0] for r in derived_conn.execute(
+                    "SELECT DISTINCT ticker FROM runs WHERE module = 'divergences' AND timeframe = ?",
+                    (tf.value,),
+                )
+            }
+            for tf in timeframes
+        }
+        if args.plan:
+            _print_plan(conn, sources, n_disputed, ran, timeframes)
+            conn.close()
+            derived_conn.close()
+            return
+        total, skipped, failed, unreliable, attempted = 0, 0, 0, 0, 0
+        for ticker in sorted(sources):
             for tf in timeframes:
+                if args.missing_only and ticker in ran[tf]:
+                    continue
+                attempted += 1
                 try:
-                    n, warn = _run_one(conn, derived_conn, ticker, tf, args.as_of, config, None, args.indicator)
+                    n, warn = _run_one(conn, derived_conn, ticker, tf, args.as_of, config,
+                                       None, args.indicator, source=sources[ticker])
                 except Exception:
                     # A failed write leaves its transaction open; without a rollback every
                     # later ticker's write fails too ("database is locked").
@@ -114,16 +205,25 @@ def main():
                     if warn:
                         unreliable += 1
         print(
-            f"\nDone: {len(tickers)} ticker(s) x {len(timeframes)} timeframe(s) -- "
-            f"{total} divergence(s) total, {skipped} skipped, {failed} failed, {unreliable} unreliable runs."
+            f"\nDone: {attempted} (ticker x timeframe) run(s) over {len(sources)} resolved ticker(s) -- "
+            f"{total} divergence(s) total, {skipped} skipped, {failed} failed, {unreliable} unreliable runs; "
+            f"{n_disputed} ticker(s) excluded for whole-history price disputes."
         )
     else:
+        resolved = resolve_sources(conn, [args.ticker], MODULE_PRICE_BASIS["divergences"], FALLBACK)
+        if args.ticker not in resolved:
+            print(f"{args.ticker}: not runnable -- whole-history price dispute or no bars "
+                  "on any source this module reads")
+            conn.close()
+            derived_conn.close()
+            return
         plotted = False
         for tf in timeframes:
             want_plot = args.plot is not None and not plotted
             n, _warn = _run_one(
                 conn, derived_conn, args.ticker, tf, args.as_of, config,
                 args.plot if want_plot else None, args.indicator,
+                source=resolved[args.ticker],
             )
             if want_plot and n is not None:
                 plotted = True

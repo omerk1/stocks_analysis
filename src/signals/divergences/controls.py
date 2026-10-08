@@ -37,7 +37,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-from src.signals.divergences.config import DivergenceConfig
+from src.foundation.market_common.price_basis import resolve_sources
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.context import compute_context_for_ticker
 
 # Same-package reuse of detection's own price-pivot path (underscore
@@ -224,14 +225,14 @@ def flag_divergences(
 
 def build_control_pairs(
     raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Extract+store control pairs for every ticker that has stored daily
     divergences (the study's universe is defined by where detection ran).
     REPLACE-per-ticker semantics (user-approved 2026-10-08): each
     processed ticker's rows are deleted and rewritten, so pairs from a
     previous calendar/config can't survive a recompute as stale sampling
     -frame rows. Returns (rows_written, tickers_processed,
-    tickers_skipped)."""
+    tickers_skipped, tickers_unresolved)."""
     config = DivergenceConfig()
     create_control_pairs_table(derived_conn)
     # Bars before this position were never scanned by ALL detection
@@ -251,11 +252,20 @@ def build_control_pairs(
             " WHERE module = 'divergences' AND timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    written = skipped = processed = 0
+    # Same per-ticker vendor the detector read (see context.py's note):
+    # control pairs must come from the same bars the events did; an
+    # unresolved ticker is skipped and counted, never read from the
+    # primary vendor by default.
+    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
+    written = skipped = processed = unresolved = 0
     for ticker in tickers:
+        if ticker not in sources:
+            unresolved += 1
+            continue
         try:
             bars, report = data_mod.load_and_validate(
-                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis
+                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
+                source=sources[ticker],
             )
             if len(bars) < config.min_bars:
                 skipped += 1
@@ -318,7 +328,7 @@ def build_control_pairs(
             skipped += 1
             continue
 
-    return written, processed, skipped
+    return written, processed, skipped, unresolved
 
 
 def main() -> None:
@@ -327,8 +337,9 @@ def main() -> None:
     )
     parser.parse_args()
     raw_conn, derived_conn = derived_db.bootstrap_cli(create_control_pairs_table)
-    written, processed, skipped = build_control_pairs(raw_conn, derived_conn)
-    print(f"Done: {processed} ticker(s), {written} pair(s) written, {skipped} skipped.")
+    written, processed, skipped, unresolved = build_control_pairs(raw_conn, derived_conn)
+    print(f"Done: {processed} ticker(s), {written} pair(s) written, {skipped} skipped, "
+          f"{unresolved} ticker(s) unresolved (disputed/no source).")
     raw_conn.close()
     derived_conn.close()
 

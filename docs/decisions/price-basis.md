@@ -37,9 +37,12 @@ included, in the `runs` table.
 Index members yfinance can't serve (delisted before it could) have Tiingo bars on the same
 two bases: `tiingo` (total return) and `tiingo_split_only` (traded), plus their splits under
 `splits.source = 'tiingo'` (`bulk_tiingo_ingest.py`, Done #82). A module reads them only if
-it's in `price_basis.MODULES_WITH_FALLBACK`, today the three modeling modules
+it's in `price_basis.MODULES_WITH_FALLBACK`: the three modeling modules
 (`models_labels`, `models_universe`, `models_features`), so delisted members aren't missing
-from the training set. Everything else, the MA study included, reads yfinance only.
+from the training set, and since 2026-10-08 `divergences` (its event base was survivors-only
+— the backlog's Signals item; detection, context scalars and control pairs all resolve the
+same per-ticker vendor, and a whole-history-disputed ticker is skipped everywhere).
+Everything else, the MA study included, reads yfinance only.
 
 - **One vendor per ticker, never spliced.** A ticker with any yfinance bars on the basis is
   read from yfinance alone; only a ticker with none is read from Tiingo

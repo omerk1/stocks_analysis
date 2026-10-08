@@ -34,7 +34,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
-from src.signals.divergences.config import DivergenceConfig
+from src.foundation.market_common.price_basis import resolve_sources
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -264,10 +265,13 @@ def pit_confluence(
     return counts
 
 
-def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection) -> tuple[int, int, int]:
+def build_context(
+    raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
+) -> tuple[int, int, int, int]:
     """Compute+store context scalars for every stored daily divergence row.
-    Returns (rows_written, tickers_processed, rows_skipped). Reruns are
-    idempotent (deterministic recompute, upsert by divergence_id)."""
+    Returns (rows_written, tickers_processed, rows_skipped,
+    tickers_unresolved). Reruns are idempotent (deterministic recompute,
+    upsert by divergence_id)."""
     config = DivergenceConfig()
     create_context_table(derived_conn)
 
@@ -277,8 +281,17 @@ def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
             "SELECT DISTINCT ticker FROM divergences WHERE timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    written = skipped = processed = 0
+    # Same per-ticker vendor the detector read (price_basis.resolve_sources):
+    # a ticker whose events came from fallback bars must have its context
+    # computed on those same bars. A ticker that no longer resolves (e.g. a
+    # whole-history dispute added after its events were stored) is skipped
+    # and counted, never silently read from the primary vendor.
+    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
+    written = skipped = processed = unresolved = 0
     for ticker in tickers:
+        if ticker not in sources:
+            unresolved += 1
+            continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",
             derived_conn,
@@ -291,7 +304,8 @@ def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
         # acceptable (same stance as cli.py's --all loop).
         try:
             bars, report = data_mod.load_and_validate(
-                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis
+                raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
+                source=sources[ticker],
             )
             if len(bars) == 0:
                 skipped += len(events)
@@ -317,7 +331,7 @@ def build_context(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
         skipped += len(events) - len(rows)
         processed += 1
 
-    return written, processed, skipped
+    return written, processed, skipped, unresolved
 
 
 def main() -> None:
@@ -327,8 +341,9 @@ def main() -> None:
     parser.parse_args()
 
     raw_conn, derived_conn = derived_db.bootstrap_cli(create_context_table)
-    written, processed, skipped = build_context(raw_conn, derived_conn)
-    print(f"Done: {processed} ticker(s), {written} context row(s) written, {skipped} event(s) skipped.")
+    written, processed, skipped, unresolved = build_context(raw_conn, derived_conn)
+    print(f"Done: {processed} ticker(s), {written} context row(s) written, {skipped} event(s) skipped, "
+          f"{unresolved} ticker(s) unresolved (disputed/no source).")
     raw_conn.close()
     derived_conn.close()
 
