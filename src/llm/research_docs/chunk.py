@@ -44,7 +44,7 @@ import statistics
 
 from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter
-from llama_index.core.schema import BaseNode, MetadataMode, TextNode
+from llama_index.core.schema import BaseNode, MetadataMode, NodeRelationship, TextNode
 from llama_index.core.utils import get_tokenizer
 
 from src.llm.research_docs.load import load_documents
@@ -57,12 +57,14 @@ NOT_EMBEDDED = ["area", "format"]
 # experiment it belongs to -- and they become filters for later steps.
 ROW_ID_COLUMNS = ("module", "cell_id", "trial_id", "experiment_id", "tier", "outcome")
 # `- **#47** [data, breadth] — …` (also `- **#16, #17** …`, `#14.5`, untagged entries).
+# Joins header_path; must never occur in a heading (several headings contain "/").
+HEADER_SEP = "\x1f"
 ENTRY = re.compile(r"- \*\*(#[\d.]+(?:, #[\d.]+)*)\*\*(?: \[([^\]]+)\])?")
 
 
 def _section(node: BaseNode) -> str:
     """Heading trail for a markdown section: its parents' headings plus its own."""
-    parents = [h for h in node.metadata.pop("header_path", "").split("/") if h]
+    parents = [h for h in node.metadata.pop("header_path", "").split(HEADER_SEP) if h]
     first = node.get_content().split("\n", 1)[0]
     own = first.lstrip("#").strip() if first.startswith("#") else ""
     return " > ".join(parents + ([own] if own else []))
@@ -70,7 +72,7 @@ def _section(node: BaseNode) -> str:
 
 def _markdown_sections(docs: list[Document]) -> list[BaseNode]:
     pieces = []
-    for s in MarkdownNodeParser().get_nodes_from_documents(docs):
+    for s in MarkdownNodeParser(header_path_separator=HEADER_SEP).get_nodes_from_documents(docs):
         s.metadata["section"] = _section(s)
         pieces += _list_items(s) or [s]
     return pieces
@@ -90,6 +92,9 @@ def _list_items(section: BaseNode) -> list[TextNode] | None:
     if in_items < sum(1 for l in lines if l.strip()) / 2:
         return None
     bounds = [0] + starts + [len(lines)]
+    # Each piece points at the original file, not at this section: the splitter passes a
+    # piece's SOURCE on to its children, and step 3 refreshes the index per document.
+    source = {NodeRelationship.SOURCE: section.relationships[NodeRelationship.SOURCE]}
     pieces: list[TextNode] = []
     packing = False  # is pieces[-1] an open pack that unnumbered items may join?
     for a, b in zip(bounds, bounds[1:]):
@@ -101,27 +106,32 @@ def _list_items(section: BaseNode) -> list[TextNode] | None:
             meta["entry"] = m.group(1)
             if m.group(2):
                 meta["tags"] = m.group(2)
-            pieces.append(TextNode(text=text, metadata=meta))
+            pieces.append(TextNode(text=text, metadata=meta, relationships=source))
             packing = False
             continue
-        merged = TextNode(text=f"{pieces[-1].text}\n{text}", metadata=meta) if packing else None
+        merged = (TextNode(text=f"{pieces[-1].text}\n{text}", metadata=meta, relationships=source)
+                  if packing else None)
         if merged is not None and n_tokens(merged) <= CHUNK_SIZE:
             pieces[-1] = merged
         else:
-            pieces.append(TextNode(text=text, metadata=meta))
+            pieces.append(TextNode(text=text, metadata=meta, relationships=source))
             packing = True
     return pieces
 
 
 def _csv_rows(doc: Document) -> list[TextNode]:
     rows = []
+    source = {NodeRelationship.SOURCE: doc.as_related_node_info()}
     for i, row in enumerate(csv.DictReader(io.StringIO(doc.text))):
+        if None in row:  # more cells than header columns (an unquoted comma): keep, flagged
+            row["overflow"] = ",".join(row.pop(None))
         filled = {k: v.strip() for k, v in row.items() if v and v.strip()}
         ids = {k: v for k, v in filled.items() if k in ROW_ID_COLUMNS}
         rows.append(TextNode(
             text="\n".join(f"{k}: {v}" for k, v in filled.items() if k not in ids),
             id_=f"{doc.id_}#row{i}",
             metadata={**doc.metadata, "section": f"row {i}", **ids},
+            relationships=source,
         ))
     return rows
 

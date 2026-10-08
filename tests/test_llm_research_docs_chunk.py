@@ -73,3 +73,25 @@ def test_prose_section_with_a_few_bullets_is_not_list_split():
     nodes = chunk_documents([md])
     assert not any("entry" in n.metadata for n in nodes)
     assert "- one bullet\n- two bullet" in nodes[-1].text  # left to the size cap, untouched
+
+
+def test_every_chunk_points_at_its_source_file():
+    entries = "\n".join(f"- **#{i}** [data] — {_filler('x', 60)}" for i in range(1, 5))
+    rows = "module,cell_id,notes\n" + "".join(f"M{i},c{i},{_filler('n', 150)}\n" for i in range(2))
+    docs = [_doc("docs/done.md", f"# Done\n\n{entries}\n", "md"),
+            _doc("docs/E.csv", rows, "csv"),
+            _doc("docs/a.md", f"# A\n\n{_filler('p', 200)}\n", "md")]
+    nodes = chunk_documents(docs)
+    assert {n.ref_doc_id for n in nodes} == {"docs/done.md", "docs/E.csv", "docs/a.md"}
+
+
+def test_a_slash_in_a_heading_does_not_split_the_section_trail():
+    md = _doc("docs/a.md", "# Backtest / Validation Design\n\n## BOS/CHoCH\n\nbody\n", "md")
+    assert chunk_documents([md])[-1].metadata["section"] == "Backtest / Validation Design > BOS/CHoCH"
+
+
+def test_a_csv_row_with_extra_cells_is_kept_not_fatal():
+    rows = "module,cell_id,outcome\nM4,sma20,no_effect,stray, cells\n"
+    (node,) = chunk_documents([_doc("docs/E.csv", rows, "csv")])
+    assert node.text == "overflow: stray, cells"
+    assert node.metadata["outcome"] == "no_effect"
