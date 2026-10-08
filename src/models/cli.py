@@ -166,18 +166,19 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
         if features_dir is not None:
             features = cache.read_feature_cache(features_dir)
             m = features.attrs["manifest"]
-            # The read-outs compare later-delisted (Tiingo-only) members with live ones;
-            # a PREFER_TIINGO ticker is live and read from Tiingo by choice (the
-            # same-ticker gate below covers it).
-            features = features[~features["ticker"].isin(PREFER_TIINGO)]
+            # The gate checks every ticker; the read-outs compare later-delisted
+            # (Tiingo-only) members with live ones, so they leave out a
+            # PREFER_TIINGO ticker -- live, and read from Tiingo by choice.
             tickers = sorted(features["ticker"].unique())
-            sources = dataset.resolve_sources(conn, tickers, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
-            bars = dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, m["start"], m["end"],
+            features = features[~features["ticker"].isin(PREFER_TIINGO)]
+            readout = sorted(features["ticker"].unique())
+            sources = dataset.resolve_sources(conn, readout, dataset.LABEL_BASIS, dataset.LABEL_FALLBACK)
+            bars = dataset.read_bars_bulk(conn, readout, dataset.LABEL_BASIS, m["start"], m["end"],
                                           fallback=dataset.LABEL_FALLBACK)
             # Listing metadata, not prices: no holdout bar is read.
             listings = db.read_tiingo_listings(conn).set_index("ticker")["tiingo_end"]
             calendar = pd.DatetimeIndex(sorted(bars["date"].unique()))
-            tiingo = [t for t in tickers if sources.get(t) in vc.TIINGO_SOURCES]
+            tiingo = [t for t in readout if sources.get(t) in vc.TIINGO_SOURCES]
             delisted = pd.to_datetime(listings.reindex(tiingo))
             if delisted.isna().any():
                 raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
