@@ -10,6 +10,8 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
+from src.foundation.market_common import derived_db
+from src.foundation.market_common import price_basis as pb
 from src.foundation.market_common.data import load_bars
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import (
@@ -17,13 +19,21 @@ from src.foundation.market_common.price_basis import (
     PriceBasis,
     resolve_sources,
 )
-from src.signals.divergences.cli import resolve_universe
+from src.foundation.market_common.price_disputes import DisputedDay
+from src.signals.divergences.cli import PRIMARY_SOURCE, resolve_universe, vendor_changed
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.detect import detect
+from src.signals.divergences.store import (
+    create_divergences_table,
+    purge_ticker,
+    recorded_run_sources,
+)
 
-# A real whole-history yfinance dispute from price_disputes.csv (DowDuPont:
-# the vendors' DD series are different securities). Used read-only.
-DISPUTED = "DD"
+# A synthetic whole-history dispute injected per test (monkeypatching the
+# loaded DISPUTED_DAYS), so these tests don't pin the live
+# price_disputes.csv content -- resolving a real dispute must not break
+# the unit suite.
+DISPUTED = "FAKEDD"
 
 
 @pytest.fixture
@@ -32,6 +42,14 @@ def conn():
     db.create_tables(connection)
     yield connection
     connection.close()
+
+
+@pytest.fixture
+def synthetic_dispute(monkeypatch):
+    monkeypatch.setattr(
+        pb, "DISPUTED_DAYS",
+        (DisputedDay(DISPUTED, None, "yfinance", "synthetic whole-history dispute"),),
+    )
 
 
 def _bars(n: int, close: float, start: str = "2015-01-02") -> pd.DataFrame:
@@ -74,7 +92,7 @@ def test_resolve_sources_prefers_primary_then_falls_back(conn):
     assert flat == dict.fromkeys(["LIVE", "DEAD"], db.YFINANCE_SPLIT_ONLY)
 
 
-def test_resolve_sources_drops_whole_history_disputed(conn):
+def test_resolve_sources_drops_whole_history_disputed(conn, synthetic_dispute):
     db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
     out = resolve_sources(conn, [DISPUTED], PriceBasis.TRADED, fallback=True)
     assert out == {}  # the disputed ticker has no bars at all, nowhere
@@ -85,7 +103,7 @@ def test_divergences_is_a_fallback_module():
     assert VENDOR_FALLBACK is True
 
 
-def test_resolve_universe_spans_both_sources_and_counts_disputed(conn):
+def test_resolve_universe_spans_both_sources_and_counts_disputed(conn, synthetic_dispute):
     db.upsert_bars(conn, "bars_1d", "LIVE", db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
     db.upsert_bars(conn, "bars_1d", "DEAD", db.TIINGO_SPLIT_ONLY, _bars(3, 50.0))
     db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
@@ -93,6 +111,53 @@ def test_resolve_universe_spans_both_sources_and_counts_disputed(conn):
     sources, n_disputed = resolve_universe(conn)
     assert sources == {"LIVE": db.YFINANCE_SPLIT_ONLY, "DEAD": db.TIINGO_SPLIT_ONLY}
     assert n_disputed == 1
+
+
+def test_vendor_changed_legacy_runs_count_as_primary():
+    recorded = {"T": None, "AAPL": db.YFINANCE_SPLIT_ONLY, "DEAD": db.TIINGO_SPLIT_ONLY}
+    # Legacy run (no recorded bar_source) == primary source by construction.
+    assert vendor_changed(recorded, "T", db.TIINGO_SPLIT_ONLY) is True
+    assert vendor_changed(recorded, "AAPL", PRIMARY_SOURCE) is False
+    assert vendor_changed(recorded, "DEAD", db.TIINGO_SPLIT_ONLY) is False
+    assert vendor_changed(recorded, "NEVER_RAN", db.TIINGO_SPLIT_ONLY) is False
+
+
+def test_recorded_run_sources_reads_bar_source_latest_wins():
+    import json
+    derived = db.get_connection(":memory:")
+    derived_db.create_runs_table(derived)
+    derived_db.record_run(derived, "divergences", "LEGACY", "daily", None, "{}", 0, False)
+    derived_db.record_run(derived, "divergences", "SWITCHED", "daily", None,
+                          json.dumps({"bar_source": db.YFINANCE_SPLIT_ONLY}), 0, False)
+    derived_db.record_run(derived, "divergences", "SWITCHED", "daily", None,
+                          json.dumps({"bar_source": db.TIINGO_SPLIT_ONLY}), 0, False)
+    out = recorded_run_sources(derived, "daily")
+    assert out["LEGACY"] is None  # caller substitutes the primary source
+    assert out["SWITCHED"] == db.TIINGO_SPLIT_ONLY  # latest run wins
+    derived.close()
+
+
+def test_purge_ticker_deletes_events_and_context():
+    derived = db.get_connection(":memory:")
+    create_divergences_table(derived)
+    derived.execute(
+        "INSERT INTO divergences (id, ticker, timeframe, indicator, direction, p2_date)"
+        " VALUES ('x1', 'T', 'daily', 'rsi', 'bearish', '2015-01-05')"
+    )
+    derived.execute(
+        "CREATE TABLE divergence_context (divergence_id TEXT PRIMARY KEY, ticker TEXT, timeframe TEXT)"
+    )
+    derived.execute("INSERT INTO divergence_context VALUES ('x1', 'T', 'daily')")
+    n = purge_ticker(derived, "T", "daily")
+    assert n == 1
+    assert derived.execute("SELECT COUNT(*) FROM divergences").fetchone()[0] == 0
+    assert derived.execute("SELECT COUNT(*) FROM divergence_context").fetchone()[0] == 0
+    # ... and a DB without the context table doesn't blow up
+    bare = db.get_connection(":memory:")
+    create_divergences_table(bare)
+    assert purge_ticker(bare, "T", "daily") == 0
+    bare.close()
+    derived.close()
 
 
 def test_detect_reads_a_fallback_only_ticker(conn):

@@ -34,8 +34,9 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import resolve_sources
+from src.foundation.market_common.price_basis import resolve_sources, source_for
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
+from src.signals.divergences.store import recorded_run_sources
 
 logger = logging.getLogger(__name__)
 
@@ -267,11 +268,11 @@ def pit_confluence(
 
 def build_context(
     raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection
-) -> tuple[int, int, int, int]:
+) -> tuple[int, int, int, int, int]:
     """Compute+store context scalars for every stored daily divergence row.
     Returns (rows_written, tickers_processed, rows_skipped,
-    tickers_unresolved). Reruns are idempotent (deterministic recompute,
-    upsert by divergence_id)."""
+    tickers_unresolved, tickers_vendor_stale). Reruns are idempotent
+    (deterministic recompute, upsert by divergence_id)."""
     config = DivergenceConfig()
     create_context_table(derived_conn)
 
@@ -281,16 +282,35 @@ def build_context(
             "SELECT DISTINCT ticker FROM divergences WHERE timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    # Same per-ticker vendor the detector read (price_basis.resolve_sources):
-    # a ticker whose events came from fallback bars must have its context
-    # computed on those same bars. A ticker that no longer resolves (e.g. a
-    # whole-history dispute added after its events were stored) is skipped
-    # and counted, never silently read from the primary vendor.
+    # Same per-ticker vendor the detector read: context scalars must come
+    # from the bars the events were found on. Three cases, none silent:
+    # resolved and matching the recorded detection vendor -> compute;
+    # unresolved (whole-history dispute added after its events were
+    # stored) -> its stored context rows are purged, not left stale;
+    # vendor changed since detection -> SKIP with a warning (computing
+    # this vendor's scalars against the other vendor's pivots would be a
+    # silent cross-vendor mismatch) -- rescan detection first, which
+    # purges and replaces the events.
     sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
-    written = skipped = processed = unresolved = 0
+    recorded = recorded_run_sources(derived_conn, "daily")
+    primary = source_for(config.price_basis)
+    written = skipped = processed = unresolved = vendor_stale = 0
     for ticker in tickers:
         if ticker not in sources:
+            n_purged = derived_conn.execute(
+                "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = 'daily'",
+                (ticker,),
+            ).rowcount
+            derived_conn.commit()
+            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
+                           "purged %d stale context row(s)", ticker, n_purged)
             unresolved += 1
+            continue
+        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
+            logger.warning("%s: resolved vendor %s differs from the one its events were "
+                           "detected on (%s) -- skipped; rescan detection first",
+                           ticker, sources[ticker], recorded[ticker] or primary)
+            vendor_stale += 1
             continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",
@@ -331,7 +351,7 @@ def build_context(
         skipped += len(events) - len(rows)
         processed += 1
 
-    return written, processed, skipped, unresolved
+    return written, processed, skipped, unresolved, vendor_stale
 
 
 def main() -> None:
@@ -341,9 +361,10 @@ def main() -> None:
     parser.parse_args()
 
     raw_conn, derived_conn = derived_db.bootstrap_cli(create_context_table)
-    written, processed, skipped, unresolved = build_context(raw_conn, derived_conn)
+    written, processed, skipped, unresolved, vendor_stale = build_context(raw_conn, derived_conn)
     print(f"Done: {processed} ticker(s), {written} context row(s) written, {skipped} event(s) skipped, "
-          f"{unresolved} ticker(s) unresolved (disputed/no source).")
+          f"{unresolved} ticker(s) unresolved (stale context purged), "
+          f"{vendor_stale} skipped for a vendor change (rescan detection first).")
     raw_conn.close()
     derived_conn.close()
 

@@ -12,21 +12,41 @@ import logging
 
 import pandas as pd
 
-from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.detect import compute_indicator_series, detect
 from src.signals.divergences.plotting import render_divergence_chart
-from src.signals.divergences.store import create_divergences_table, upsert_divergences
+from src.signals.divergences.store import (
+    create_divergences_table,
+    purge_ticker,
+    recorded_run_sources,
+    upsert_divergences,
+)
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS,
     resolve_sources,
+    source_for,
     sources_for,
 )
-from src.signals.divergences.config import VENDOR_FALLBACK as FALLBACK
 
 logger = logging.getLogger(__name__)
+
+PRIMARY_SOURCE = source_for(MODULE_PRICE_BASIS["divergences"])
+
+
+def vendor_changed(recorded: dict, ticker: str, resolved_source: str) -> bool:
+    """True when the ticker HAS prior detection runs and their bars came
+    from a different vendor than today's resolution. A legacy run with no
+    recorded `bar_source` read the primary source by construction (no
+    fallback existed then). Such a ticker's stored events describe pivots
+    on another vendor's prices: it must be re-scanned REPLACE-style (purge
+    first), never upserted — pivots shift between vendors and the upsert's
+    natural key would leave a mixed-vendor event base."""
+    if ticker not in recorded:
+        return False
+    return (recorded[ticker] or PRIMARY_SOURCE) != resolved_source
 
 
 def resolve_universe(conn) -> tuple[dict[str, str], int]:
@@ -38,12 +58,16 @@ def resolve_universe(conn) -> tuple[dict[str, str], int]:
     detection to tickers yfinance serves — the survivors-only event base in
     the backlog."""
     basis = MODULE_PRICE_BASIS["divergences"]
-    tickers = sorted({
-        row[0]
-        for s in sources_for(basis, FALLBACK)
-        for row in conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (s,))
-    })
-    resolved = resolve_sources(conn, tickers, basis, FALLBACK)
+    # Each source's DISTINCT listing is a full index scan of the 4GB file
+    # (minutes) -- do it once and hand the sets to resolve_sources, which
+    # would otherwise probe per ticker (right for small lists, minutes for
+    # the full universe).
+    members = {
+        s: {row[0] for row in conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (s,))}
+        for s in sources_for(basis, VENDOR_FALLBACK)
+    }
+    tickers = sorted(set().union(*members.values()))
+    resolved = resolve_sources(conn, tickers, basis, VENDOR_FALLBACK, members=members)
     return resolved, len(tickers) - len(resolved)
 
 
@@ -58,7 +82,10 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
 
     run_id = derived_db.record_run(
         derived_conn, "divergences", ticker, timeframe.value,
-        str(as_of) if as_of else None, json.dumps(config.__dict__, default=str),
+        str(as_of) if as_of else None,
+        # bar_source makes vendor drift visible: recorded_run_sources reads
+        # it back, and a later resolution change triggers a purge+rescan.
+        json.dumps({**config.__dict__, "bar_source": source}, default=str),
         report.rows_dropped, report.unreliable,
     )
     for divergence in divergences:
@@ -83,11 +110,12 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
     return len(divergences), report.unreliable
 
 
-def _print_plan(conn, sources: dict[str, str], n_disputed: int, ran: dict, timeframes) -> None:
+def _print_plan(conn, sources: dict[str, str], n_disputed: int, recorded: dict, timeframes) -> None:
     """The --plan dry run: what the resolved universe looks like and what a
-    --missing-only backfill would actually touch, with the delisted/PIT
+    --missing-only backfill would actually touch (never-scanned tickers plus
+    vendor-changed ones, which get a purge+rescan), with the delisted/PIT
     breakdown that motivated the fallback. Reads only; writes nothing."""
-    from src.signals.divergences.study_universe import membership_intervals
+    from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals
 
     by_source: dict[str, int] = {}
     for s in sources.values():
@@ -99,19 +127,25 @@ def _print_plan(conn, sources: dict[str, str], n_disputed: int, ran: dict, timef
         r[0] for r in conn.execute("SELECT ticker FROM tickers WHERE active = 0")
     }
     membership = membership_intervals(conn)
-    dev_lo, dev_hi = pd.Timestamp("2010-01-01"), pd.Timestamp("2021-12-31")
+    dev_lo, dev_hi = pd.Timestamp(DEV_START), pd.Timestamp(DEV_END)
     for tf in timeframes:
-        todo = sorted(t for t in sources if t not in ran[tf])
+        never = sorted(t for t in sources if t not in recorded[tf])
+        changed = sorted(
+            t for t in sources if vendor_changed(recorded[tf], t, sources[t])
+        )
+        todo = never + changed
         todo_member = [
             t for t in todo
             if any(s <= dev_hi and e >= dev_lo for s, e in membership.get(t, ()))
         ]
         todo_member_delisted = [t for t in todo_member if t in delisted]
-        print(f"\n{tf.value}: detection already ran on {len(ran[tf])} tickers; "
-              f"--missing-only would run {len(todo)}")
+        print(f"\n{tf.value}: detection already ran on {len(recorded[tf])} tickers; "
+              f"--missing-only would run {len(todo)} "
+              f"({len(never)} never scanned + {len(changed)} vendor-changed purge+rescans"
+              f"{': ' + ', '.join(changed[:6]) if changed else ''})")
         print(f"  of those: {sum(1 for t in todo if t in delisted)} delisted; "
-              f"{len(todo_member)} with S&P 500/NDX membership overlapping 2010-2021, "
-              f"{len(todo_member_delisted)} of them delisted")
+              f"{len(todo_member)} with S&P 500/NDX membership overlapping the dev window "
+              f"({DEV_START}..{DEV_END}), {len(todo_member_delisted)} of them delisted")
         if todo_member_delisted:
             sample = ", ".join(todo_member_delisted[:12])
             more = "" if len(todo_member_delisted) <= 12 else f", ... (+{len(todo_member_delisted) - 12})"
@@ -136,8 +170,9 @@ def main():
     )
     parser.add_argument(
         "--missing-only", action="store_true",
-        help="With --all: only tickers detection never ran on (per the runs table) -- "
-             "the additive backfill mode for tickers the vendor fallback newly serves",
+        help="With --all: only tickers detection never ran on (per the runs table), plus "
+             "tickers whose resolved vendor changed since their last run (purged and "
+             "rescanned) -- the additive backfill mode for the vendor fallback",
     )
     parser.add_argument(
         "--plan", action="store_true",
@@ -167,25 +202,27 @@ def main():
         # "Already ran" = the runs table (where detection RAN, not where it
         # found something -- a scanned ticker with zero divergences must not
         # be rescanned either, and controls.py builds its pool from runs).
-        ran = {
-            tf: {
-                r[0] for r in derived_conn.execute(
-                    "SELECT DISTINCT ticker FROM runs WHERE module = 'divergences' AND timeframe = ?",
-                    (tf.value,),
-                )
-            }
-            for tf in timeframes
-        }
+        # Values carry the recorded bar_source so vendor drift reads as
+        # not-done (vendor_changed).
+        recorded = {tf: recorded_run_sources(derived_conn, tf.value) for tf in timeframes}
         if args.plan:
-            _print_plan(conn, sources, n_disputed, ran, timeframes)
+            _print_plan(conn, sources, n_disputed, recorded, timeframes)
             conn.close()
             derived_conn.close()
             return
-        total, skipped, failed, unreliable, attempted = 0, 0, 0, 0, 0
+        total, skipped, failed, unreliable, attempted, purged = 0, 0, 0, 0, 0, 0
         for ticker in sorted(sources):
             for tf in timeframes:
-                if args.missing_only and ticker in ran[tf]:
+                changed = vendor_changed(recorded[tf], ticker, sources[ticker])
+                if args.missing_only and ticker in recorded[tf] and not changed:
                     continue
+                if changed:
+                    n_old = purge_ticker(derived_conn, ticker, tf.value)
+                    derived_conn.commit()  # self-healing: a later crash still leaves the stale rows gone
+                    purged += 1
+                    print(f"{ticker}/{tf.value}: vendor changed "
+                          f"({recorded[tf][ticker] or PRIMARY_SOURCE} -> {sources[ticker]}); "
+                          f"purged {n_old} stored event(s) before rescan")
                 attempted += 1
                 try:
                     n, warn = _run_one(conn, derived_conn, ticker, tf, args.as_of, config,
@@ -207,18 +244,26 @@ def main():
         print(
             f"\nDone: {attempted} (ticker x timeframe) run(s) over {len(sources)} resolved ticker(s) -- "
             f"{total} divergence(s) total, {skipped} skipped, {failed} failed, {unreliable} unreliable runs; "
+            f"{purged} vendor-change purge+rescan(s); "
             f"{n_disputed} ticker(s) excluded for whole-history price disputes."
         )
     else:
-        resolved = resolve_sources(conn, [args.ticker], MODULE_PRICE_BASIS["divergences"], FALLBACK)
+        resolved = resolve_sources(conn, [args.ticker], MODULE_PRICE_BASIS["divergences"], VENDOR_FALLBACK)
         if args.ticker not in resolved:
             print(f"{args.ticker}: not runnable -- whole-history price dispute or no bars "
                   "on any source this module reads")
             conn.close()
             derived_conn.close()
-            return
+            raise SystemExit(1)  # a refusal, distinguishable from a successful run
         plotted = False
         for tf in timeframes:
+            recorded_tf = recorded_run_sources(derived_conn, tf.value)
+            if vendor_changed(recorded_tf, args.ticker, resolved[args.ticker]):
+                n_old = purge_ticker(derived_conn, args.ticker, tf.value)
+                derived_conn.commit()
+                print(f"{args.ticker}/{tf.value}: vendor changed "
+                      f"({recorded_tf[args.ticker] or PRIMARY_SOURCE} -> {resolved[args.ticker]}); "
+                      f"purged {n_old} stored event(s) before rescan")
             want_plot = args.plot is not None and not plotted
             n, _warn = _run_one(
                 conn, derived_conn, args.ticker, tf, args.as_of, config,

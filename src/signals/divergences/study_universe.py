@@ -21,6 +21,14 @@ from src.foundation.data_processing import db
 
 INDEX_NAMES = ["sp500", "nasdaq100"]
 
+# The study's development window (repo invariant #1: holdout locked after
+# 2021-12-31; the start is the loaded active-ticker support, DESIGN §3.3).
+# One definition for every consumer that reports or filters on the window --
+# it was revised once already (2016 -> 2021) and a buried literal would
+# silently keep the old one.
+DEV_START = "2010-01-01"
+DEV_END = "2021-12-31"
+
 
 def apply_renames_local(conn: sqlite3.Connection, membership: pd.DataFrame) -> pd.DataFrame:
     """Line-for-line mirror of ticker_renames.apply_renames (see module

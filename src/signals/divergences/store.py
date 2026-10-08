@@ -6,6 +6,7 @@ divergences/fibonacci/avwap) shares alongside its own result table.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from src.signals.divergences.models import Divergence
@@ -146,3 +147,50 @@ def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], 
         row["run_id"] = run_id
         conn.execute(_UPSERT_SQL, row)
     conn.commit()
+
+
+def recorded_run_sources(derived_conn: sqlite3.Connection, timeframe: str) -> dict[str, str]:
+    """ticker -> the `bars_1d.source` its LATEST detection run read, from the
+    runs table's config_json (`bar_source`, recorded since the vendor
+    fallback landed). A run predating that record read the primary source by
+    construction (no fallback existed), so a missing key means "legacy
+    primary" and the CALLER substitutes its primary source -- returning it
+    here would require this module to know the basis.
+
+    This is what makes vendor drift visible: a ticker whose resolved source
+    today differs from the one its stored events were detected on must be
+    re-scanned (replace, not upsert -- pivots shift between vendors, and an
+    upsert by natural key would leave a mixed-vendor event base)."""
+    out: dict[str, str] = {}
+    rows = derived_conn.execute(
+        "SELECT ticker, config_json FROM runs"
+        " WHERE module = 'divergences' AND timeframe = ? ORDER BY started_at",
+        (timeframe,),
+    ).fetchall()
+    for ticker, config_json in rows:  # later rows overwrite: latest run wins
+        source = None
+        if config_json and '"bar_source"' in config_json:
+            source = json.loads(config_json).get("bar_source")
+        out[ticker] = source
+    return out
+
+
+def purge_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
+    """Delete a ticker's stored divergences AND their context rows for one
+    timeframe (the control pairs are replace-per-ticker in their own
+    builder). Used when a ticker's resolved vendor changed since its events
+    were stored -- the old rows describe pivots on another vendor's prices
+    and must not survive next to the rescan's. Returns rows deleted from
+    `divergences`. Commits nothing: the caller owns the transaction, so the
+    purge and the rescan's rows land (or roll back) together."""
+    n = derived_conn.execute(
+        "DELETE FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
+    ).rowcount
+    has_context = derived_conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'divergence_context'"
+    ).fetchone()
+    if has_context:
+        derived_conn.execute(
+            "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
+        )
+    return n

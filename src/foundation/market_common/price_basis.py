@@ -113,6 +113,7 @@ def sources_for(basis: PriceBasis | str, fallback: bool) -> list[str]:
 
 def ticker_sources(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+    members: dict[str, set[str]] | None = None,
 ) -> dict[str, str]:
     """ticker -> the one source its `basis` bars are read from: the first of
     `sources_for(basis, fallback)` holding any bar for it (whatever the
@@ -122,27 +123,44 @@ def ticker_sources(
     With `fallback`, a ticker in `vendor_overrides.PREFER_TIINGO` is read
     from the fallback source instead, and must have bars there: a listed
     ticker silently read from yfinance would carry the error it's listed for.
+
+    `members` ({source: its full ticker set}) lets a FULL-UNIVERSE caller
+    that already listed each source's tickers (one DISTINCT scan apiece on
+    the 4GB file) reuse those sets — without it, membership is a per-ticker
+    probe, which is right for the usual few-hundred-ticker list (an early
+    LIMIT 1 hit) but takes minutes for thousands of tickers, since bars_1d's
+    PK is (ticker, timestamp, source) and a source-absent probe walks every
+    bar of the ticker.
     """
     basis = PriceBasis(basis)
+    srcs = sources_for(basis, fallback)
+
+    def has_bars(ticker: str, source: str) -> bool:
+        if members is not None:
+            return ticker in members[source]
+        return _has_bars(conn, ticker, source)
+
     out: dict[str, str] = {}
     if fallback:
+        fb_source = FALLBACK_SOURCE_BY_BASIS[basis]
         preferred = [t for t in tickers if t in PREFER_TIINGO]
-        missing = [t for t in preferred if not _has_bars(conn, t, FALLBACK_SOURCE_BY_BASIS[basis])]
+        missing = [t for t in preferred if not has_bars(t, fb_source)]
         if missing:
             raise ValueError(
-                f"{missing} are in vendor_overrides.PREFER_TIINGO but have no {FALLBACK_SOURCE_BY_BASIS[basis]} "
+                f"{missing} are in vendor_overrides.PREFER_TIINGO but have no {fb_source} "
                 "bars; run bulk_tiingo_ingest --store-preferred"
             )
-        out.update(dict.fromkeys(preferred, FALLBACK_SOURCE_BY_BASIS[basis]))
-    for source in sources_for(basis, fallback):
+        out.update(dict.fromkeys(preferred, fb_source))
+    for source in srcs:
         for ticker in tickers:
-            if ticker not in out and _has_bars(conn, ticker, source):
+            if ticker not in out and has_bars(ticker, source):
                 out[ticker] = source
     return out
 
 
 def resolve_sources(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+    members: dict[str, set[str]] | None = None,
 ) -> dict[str, str]:
     """ticker -> the `bars_1d.source` its `basis` bars come from. Without
     `fallback`, every ticker maps to the basis's primary source (no lookup).
@@ -150,11 +168,13 @@ def resolve_sources(
     a whole-history dispute (`price_disputes`, no date: e.g. a reused symbol
     whose bars are another company's) is left out, so it has no bars at
     all -- not in the universe, the ranks, the labels, or a detector's scan.
+    `members` as in `ticker_sources` (full-universe callers pass the
+    per-source ticker sets they already listed).
     (Moved here from models.dataset when divergences opted into the
     fallback -- one policy, not two drifting copies.)"""
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
-    sources = ticker_sources(conn, tickers, basis, fallback=True)
+    sources = ticker_sources(conn, tickers, basis, fallback=True, members=members)
     return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in _whole_history_disputes()}
 
 
