@@ -168,7 +168,7 @@ from v1. This is underpowered, not evidence of no effect.
   - Labels: disputes list `62b330fb12d4dd7c`. 23,751 rows dropped for disputed days at
     H = 10, and 47,601 at H = 63.
   - Rows without a label in the folds' window: 0.19–0.37%.
-  - Same-ticker vendor gate: pass, AUC 0.519 over 285 tickers, T included (rerun after a vendor-check fix, Done #102).
+  - Same-ticker vendor gate: pass, AUC 0.519 over 285 tickers, T included (rerun after a vendor-check fix, Done #103).
   - All four gates pass on the run's code (main at e08fc82, before the run).
 - **Effective N:** 2,001–2,005 test dates per trial (2014–2021).
 
