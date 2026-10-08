@@ -47,7 +47,8 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing.ticker_renames import apply_renames
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import (
-    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, source_for, ticker_sources,
+    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, resolve_sources,
+    source_for,
 )
 from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
@@ -111,24 +112,9 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 # ---------------------------------------------------------------- bars
 
-def resolve_sources(
-    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
-) -> dict[str, str]:
-    """ticker -> the `bars_1d.source` its `basis` bars come from. Without
-    `fallback`, every ticker maps to the basis's primary source (no lookup).
-    With it (the modeling modules), a ticker whose vendor has a whole-history
-    dispute (`price_disputes`, no date: e.g. a reused symbol whose bars are
-    another company's) is left out, so it has no bars at all -- not in the
-    universe, the per-date ranks or the labels."""
-    if not fallback:
-        return dict.fromkeys(tickers, source_for(basis))
-    sources = ticker_sources(conn, tickers, basis, fallback=True)
-    return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in _whole_history_disputes()}
-
-
-def _whole_history_disputes() -> set[tuple[str, str]]:
-    return {(d.ticker, d.vendor) for d in DISPUTED_DAYS if d.date is None}
-
+# resolve_sources moved to market_common.price_basis when divergences
+# opted into the vendor fallback; imported above so every existing
+# `dataset.resolve_sources` caller keeps working.
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}
