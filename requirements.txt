@@ -47,3 +47,8 @@ isort>=5.12.0
 
 # LLM / RAG (docs/ideation/llm_agentic_workflows.md)
 llama-index-core>=0.14
+# Local embeddings (bge-small). Pulls torch; on Intel Macs torch stops at 2.2.2, which
+# breaks transformers 5 / sentence-transformers 4+, hence the upper bounds.
+llama-index-embeddings-huggingface>=0.6
+transformers<4.47
+sentence-transformers<4
