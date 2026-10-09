@@ -96,7 +96,7 @@ def load_index(embed: BaseEmbedding, persist_dir: Path = PERSIST_DIR) -> VectorS
     """The persisted index. `embed` must be the model it was built with: questions are
     embedded with it, and vectors from two different models aren't comparable."""
     if not persist_dir.is_dir():
-        raise FileNotFoundError(f"{persist_dir} not found: run `index build` first")
+        raise FileNotFoundError(f"{persist_dir} not found (run from the repo root, or `index build` first)")
     storage = StorageContext.from_defaults(persist_dir=str(persist_dir))
     return load_index_from_storage(storage, embed_model=embed)
 
