@@ -48,8 +48,8 @@ from src.foundation.data_processing.ticker_renames import apply_renames
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis,
-)
-from src.foundation.market_common import price_basis
+    resolve_sources,  # universe exclusion: reads price_disputes.DISPUTED_DAYS at call time, like
+)                     # drop_disputed and _disputes_hash below -- one dispute list for all three
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
@@ -112,13 +112,6 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 
 # ---------------------------------------------------------------- bars
-
-# Universe exclusion (`price_basis.resolve_sources`), label dropping
-# (`drop_disputed`) and the label-cache manifest (`_disputes_hash`) all read
-# `price_disputes.DISPUTED_DAYS` through the module at call time -- ONE list,
-# so a patch or a data fix reaches every consumer at once.
-resolve_sources = price_basis.resolve_sources
-
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}

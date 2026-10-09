@@ -226,15 +226,17 @@ def _seed_old_vendor_event(derived):
     derived.commit()
 
 
-def test_vendor_change_with_failed_rescan_keeps_old_events_and_record(conn, derived):
+def test_vendor_change_with_too_short_new_vendor_forgets_the_ticker(conn, derived):
+    """The old vendor's events can't stay (the builders would strip their
+    context and pairs, stranding them), and the new vendor can't support
+    detection: the ticker is forgotten -- same state as any too-short ticker."""
     _seed_old_vendor_event(derived)
     db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(20))  # < min_bars
     n, _ = _run_one(conn, derived, "T", Timeframe.DAILY, None, DivergenceConfig(), None, "rsi",
                     source=db.TIINGO_SPLIT_ONLY, replace_from=PRIMARY_SOURCE)
     assert n is None  # skipped
-    assert derived.execute("SELECT COUNT(*) FROM divergences WHERE id = 'old1'").fetchone()[0] == 1
-    # still recorded on the old vendor -> still flagged, no purge loop
-    assert vendor_changed(recorded_run_sources(derived, "daily"), "T", db.TIINGO_SPLIT_ONLY)
+    assert derived.execute("SELECT COUNT(*) FROM divergences WHERE ticker = 'T'").fetchone()[0] == 0
+    assert "T" not in recorded_run_sources(derived, "daily")  # retried later as never-scanned
 
 
 def test_vendor_change_with_successful_rescan_replaces_events(conn, derived):
@@ -396,19 +398,30 @@ def test_purge_flagged_only_accepts_builder_tables(derived):
         purge_flagged(derived, "divergences", {"T": "unresolved"}, "daily", logging.getLogger("t"))
 
 
-def test_resolve_sources_lists_sources_above_the_threshold(conn, monkeypatch):
+def test_resolve_sources_never_lists_sources_on_its_own(conn, monkeypatch):
+    """Modeling passes ~1,000 mostly-primary tickers: the shared resolver
+    must keep the cheap per-ticker probe unless a caller opts into listing."""
     calls = []
-    real = pb.source_members
+    monkeypatch.setattr(pb, "source_members", lambda *a, **k: calls.append(1) or {})
+    tickers = [f"T{i}" for i in range(2000)]
+    resolve_sources(conn, tickers, PriceBasis.TRADED, fallback=True)
+    assert calls == []
+
+
+def test_builder_sources_lists_sources_only_for_large_builds(conn, derived, monkeypatch):
+    from src.signals.divergences import store
+    calls = []
+    real = store.source_members
 
     def spy(*a, **k):
         calls.append(1)
         return real(*a, **k)
 
-    monkeypatch.setattr(pb, "source_members", spy)
-    monkeypatch.setattr(pb, "MEMBERS_THRESHOLD", 2)
+    monkeypatch.setattr(store, "source_members", spy)
+    monkeypatch.setattr(store, "MEMBERS_THRESHOLD", 2)
     db.upsert_bars(conn, "bars_1d", "A", db.YFINANCE_SPLIT_ONLY, _bars(3, 1.0))
     db.upsert_bars(conn, "bars_1d", "B", db.TIINGO_SPLIT_ONLY, _bars(3, 1.0))
-    small = resolve_sources(conn, ["A", "B"], PriceBasis.TRADED, fallback=True)
-    assert calls == []  # at/below threshold: per-ticker probe
-    big = resolve_sources(conn, ["A", "B", "C"], PriceBasis.TRADED, fallback=True)
+    small, _ = builder_sources(conn, derived, ["A", "B"], PriceBasis.TRADED, True, "daily")
+    assert calls == []
+    big, _ = builder_sources(conn, derived, ["A", "B", "C"], PriceBasis.TRADED, True, "daily")
     assert calls == [1] and big == small  # same answer either way

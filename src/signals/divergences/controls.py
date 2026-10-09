@@ -273,14 +273,14 @@ def build_control_pairs(
                 extract_pairs_for_ticker(bars, config, ticker)
                 if len(bars) >= config.min_bars else pd.DataFrame()
             )
+            # Replace-per-ticker, including a zero-pair outcome: rows from an
+            # earlier calendar, a longer history or another config must not
+            # survive as sampling-frame members. Committed with the new rows.
+            derived_conn.execute(
+                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
+                (ticker,),
+            )
             if pairs.empty:
-                # Replace-per-ticker holds for a zero-pair outcome too: rows
-                # from an earlier, longer history or another config must not
-                # survive as sampling-frame members.
-                derived_conn.execute(
-                    "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
-                    (ticker,),
-                )
                 derived_conn.commit()
                 skipped += 1
                 continue
@@ -316,12 +316,7 @@ def build_control_pairs(
                 json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
                             "min_scanned_pos": min_scanned}),
                 report.rows_dropped, report.unreliable,
-            )
-            # Replace-per-ticker: stale rows from an earlier calendar or
-            # config must not survive as sampling-frame members.
-            derived_conn.execute(
-                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
+                commit=False,  # lands with this ticker's rows, or rolls back with them
             )
             merged["run_id"] = run_id
             merged["leg2_bars"] = [

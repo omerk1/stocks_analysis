@@ -13,7 +13,13 @@ from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS,
     resolve_sources,
     source_for,
+    source_members,
 )
+
+# The divergence builders walk the whole scanned universe (thousands of
+# tickers, ~2-3% of them off the primary vendor): above this many tickers,
+# list each source once instead of probing per ticker.
+MEMBERS_THRESHOLD = 500
 from src.signals.divergences.models import Divergence
 
 # The vendor a legacy run (recorded before `bar_source` existed) read: the
@@ -179,11 +185,11 @@ def recorded_run_sources(
         sql += " AND ticker = ?"
         params += (ticker,)
     rows = derived_conn.execute(sql + " ORDER BY started_at", params).fetchall()
-    for ticker, config_json in rows:  # later rows overwrite: latest run wins
+    for row_ticker, config_json in rows:  # later rows overwrite: latest run wins
         source = None
         if config_json and '"bar_source"' in config_json:
             source = json.loads(config_json).get("bar_source")
-        out[ticker] = source
+        out[row_ticker] = source
     return out
 
 
@@ -285,15 +291,16 @@ def builder_sources(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connecti
     for the context and control-pair builders -- one shared rule so the
     two derived stores can't disagree about which tickers they may compute.
 
-    Resolution strategy (probe vs list each source) is price_basis's.
-    Vendor staleness is judged against `timeframe`'s own runs. A ticker that doesn't resolve (whole-history
+    Large ticker lists (MEMBERS_THRESHOLD) list each source once; small
+    builds keep the per-ticker probe. Vendor staleness is judged against `timeframe`'s own runs. A ticker that doesn't resolve (whole-history
     dispute or no bars) is 'unresolved'; one whose resolved vendor differs
     from the vendor its stored events were detected on is 'vendor_stale'
     (computing on the new vendor against the old vendor's pivots would be a
     silent cross-vendor mismatch). The builders DELETE their own rows for
     both kinds -- keeping them would turn replace-per-ticker into
     keep-stale for exactly the tickers that went wrong -- and skip them."""
-    sources = resolve_sources(raw_conn, tickers, basis, fallback)
+    members = source_members(raw_conn, basis, fallback) if fallback and len(tickers) > MEMBERS_THRESHOLD else None
+    sources = resolve_sources(raw_conn, tickers, basis, fallback, members=members)
     recorded = recorded_run_sources(derived_conn, timeframe)
     flagged: dict[str, str] = {}
     for t in tickers:

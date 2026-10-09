@@ -63,12 +63,21 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
     commits): any failure rolls all three back, so a ticker can never end up
     recorded as scanned on its current vendor without its events (which the
     controls builder would read as "no divergence anywhere"). A skip (too few
-    bars on the new vendor) touches nothing: the ticker stays flagged
-    vendor-stale instead of losing its events and re-purging every run."""
+    bars on the new vendor) forgets the ticker entirely (store.forget_ticker)
+    -- leaving the old vendor's events would strand them without context or
+    pairs, since the builders purge vendor-stale rows."""
     divergences, report, skip_reason = detect(conn, ticker, timeframe, config, as_of=as_of, source=source)
     if skip_reason is not None:
-        note = (f" (vendor change {replace_from} -> {source} NOT applied: old events kept, "
-                "ticker stays vendor-stale)" if replace_from else "")
+        note = ""
+        if replace_from is not None:
+            # The new vendor can't support detection, and the old vendor's
+            # events are no longer this ticker's bars: forget it entirely
+            # (events, context, pairs, runs) -- the same state as any
+            # too-short ticker. A later run retries it as never-scanned.
+            n_old = forget_ticker(derived_conn, ticker, timeframe.value)
+            derived_conn.commit()
+            note = (f" (vendor change {replace_from} -> {source}: new vendor too short; "
+                    f"forgot the ticker, {n_old} old event(s) deleted)")
         print(f"{ticker}/{timeframe.value}: skipped -- {skip_reason}{note}")
         return None, None
 
@@ -233,7 +242,7 @@ def main():
                 n_tf = sum(forget_ticker(derived_conn, ticker, tf.value) for ticker in orphaned[tf])
                 derived_conn.commit()
                 n_orphan_rows += n_tf
-                print(f"{tf.value}: forgot {len(orphaned[tf])} unresolved ticker(s) "
+                print(f"{tf.value} only: forgot {len(orphaned[tf])} unresolved ticker(s) "
                       f"({n_tf} stored event(s) deleted): {', '.join(orphaned[tf])}")
             elif orphaned[tf]:
                 n_with = len(with_events[tf] & set(orphaned[tf]))

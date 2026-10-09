@@ -33,9 +33,6 @@ from enum import Enum
 from src.foundation.data_processing import db
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
-
-# See resolve_sources: list each source once above this many tickers.
-MEMBERS_THRESHOLD = 500
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
@@ -177,16 +174,16 @@ def resolve_sources(
     label dropping and cache manifest read the same name), so a data fix or
     a test patch reaches all of them at once.
 
-    Above MEMBERS_THRESHOLD tickers each source is listed once (`members`, a
-    DISTINCT index scan of the 4GB bars_1d, minutes) instead of probed per
-    ticker (cheap for small lists, minutes for thousands); callers that
-    already hold the listings pass `members`.
+    Membership is probed per ticker unless the caller passes `members`
+    (`source_members`: one DISTINCT scan per source, minutes on the 4GB
+    bars_1d). The probe is cheap for tickers on the primary vendor, so it
+    stays the default -- modeling's ~1,000-ticker calls must not pay
+    full-source scans; only callers resolving thousands of tickers with many
+    off-primary ones (the divergence universe) should opt into listing.
     (Moved here from models.dataset when divergences opted into the
     fallback -- one policy, not two drifting copies.)"""
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
-    if members is None and len(tickers) > MEMBERS_THRESHOLD:
-        members = source_members(conn, basis, fallback=True)
     sources = ticker_sources(conn, tickers, basis, fallback=True, members=members)
     excluded = _whole_history_disputes(price_disputes.DISPUTED_DAYS)
     return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in excluded}

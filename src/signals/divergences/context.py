@@ -320,6 +320,7 @@ def build_context(
                 derived_conn, "divergence_context", ticker, "daily", None,
                 json.dumps({"impulse_lookback_bars": IMPULSE_LOOKBACK_BARS}),
                 report.rows_dropped, report.unreliable,
+                commit=False,  # lands with this ticker's rows, or rolls back with them
             )
             for row in rows:
                 row["run_id"] = run_id
