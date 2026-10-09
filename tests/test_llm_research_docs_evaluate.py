@@ -19,6 +19,7 @@ def test_matches_on_path_phrase_and_metadata():
     assert not matches(node, {"path": "docs/b.md"})
     assert not matches(node, {"path": "docs/a.md", "entry": "#48"})
     assert not matches(node, {"path": "docs/a.md", "contains": "kept"})
+    assert matches(_node(entry="#16, #17"), {"entry": "#17"})
 
 
 def test_first_hit_is_the_rank_of_the_first_matching_node():

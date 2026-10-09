@@ -16,7 +16,8 @@ Metrics, over all questions and per question type:
 - **hit@k**: share of questions with a hit in the top k. hit@1 asks "is the best chunk
   right?"; hit@5 asks "would an LLM shown the top 5 have the answer in front of it?",
   which is what step 6 needs.
-- **MRR** (mean reciprocal rank): the average of 1/rank (0 if no hit in the top 10).
+- **MRR** (mean reciprocal rank): the average of 1/rank (0 if no hit in the top 10,
+  the deepest `KS` cut).
   One number that rewards ranking the answer higher, not only finding it.
 
 With ~20 questions, one question moves hit@k by ~5 points: compare configurations on the
@@ -60,6 +61,9 @@ def matches(node: BaseNode, gold: dict) -> bool:
         if key == "contains":
             if _norm(want) not in _norm(node.get_content()):
                 return False
+        elif key == "entry":  # combined done.md entries carry "#16, #17"
+            if want not in m.get("entry", "").split(", "):
+                return False
         elif m.get(key) != want:
             return False
     return True
@@ -79,12 +83,13 @@ def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
             if not any(matches(n, g) for n in nodes)]
 
 
-def evaluate(index: VectorStoreIndex, questions: list[dict], k: int = max(KS)) -> list[dict]:
+def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
+    """Each question's rank of first hit in the top `max(KS)` and its top chunk."""
     rows = []
     for q in questions:
-        hits = search(index, q["question"], k)
+        hits = search(index, q["question"], max(KS))
         rows.append({**q, "rank": first_hit([h.node for h in hits], q["gold"]),
-                     "top": cite(hits[0].node)})
+                     "top": cite(hits[0].node) if hits else "-"})
     return rows
 
 
@@ -123,7 +128,14 @@ def main() -> None:
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
     from src.llm.research_docs.index import embed_model, load_index
-    print(report(evaluate(load_index(embed_model()), questions)))
+    index = load_index(embed_model())
+    # The index is rebuilt by hand; a gold that only the current docs match would score
+    # as a retrieval miss.
+    stale = check_golds(questions, list(index.docstore.docs.values()))
+    if stale:
+        print("index is older than the docs, rebuild it; these golds match no indexed chunk:",
+              *stale, "", sep="\n")
+    print(report(evaluate(index, questions)))
 
 
 if __name__ == "__main__":
