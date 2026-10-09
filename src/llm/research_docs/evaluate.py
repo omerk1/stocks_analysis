@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
@@ -61,8 +62,9 @@ def matches(node: BaseNode, gold: dict) -> bool:
         if key == "contains":
             if _norm(want) not in _norm(node.get_content()):
                 return False
-        elif key == "entry":  # combined done.md entries carry "#16, #17"
-            if want not in m.get("entry", "").split(", "):
+        elif key == "entry":  # a combined done.md entry "#16, #17" matches either number
+            have = m.get("entry", "")
+            if want != have and want not in have.split(", "):
                 return False
         elif m.get(key) != want:
             return False
@@ -75,6 +77,15 @@ def first_hit(nodes: list[BaseNode], golds: list[dict]) -> int | None:
         if any(matches(n, g) for g in golds):
             return rank
     return None
+
+
+def docs_newer_than(index_file: Path, root: Path) -> list[Path]:
+    """Docs modified after the index was built (by file time, so a git checkout or merge
+    that touches a doc counts too)."""
+    from src.llm.research_docs.load import EXTENSIONS
+
+    built = index_file.stat().st_mtime
+    return sorted(p for p in root.rglob("*") if p.suffix in EXTENSIONS and p.stat().st_mtime > built)
 
 
 def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
@@ -127,14 +138,21 @@ def main() -> None:
         problems = check_golds(questions, chunk_documents(load_documents()))
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
-    from src.llm.research_docs.index import embed_model, load_index
+    from src.llm.research_docs.index import PERSIST_DIR, embed_model, load_index
+    from src.llm.research_docs.load import DOCS_ROOT
     index = load_index(embed_model())
-    # The index is rebuilt by hand; a gold that only the current docs match would score
-    # as a retrieval miss.
-    stale = check_golds(questions, list(index.docstore.docs.values()))
-    if stale:
-        print("index is older than the docs, rebuild it; these golds match no indexed chunk:",
-              *stale, "", sep="\n")
+    # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
+    # retrieval miss, so refuse to score; a doc edited since the build only warns, since
+    # the edit may not touch any question.
+    unmatched = check_golds(questions, list(index.docstore.docs.values()))
+    if unmatched:
+        print("golds that match no indexed chunk (rebuild the index, or fix the gold):",
+              *unmatched, sep="\n", file=sys.stderr)
+        raise SystemExit(1)
+    newer = docs_newer_than(PERSIST_DIR / "docstore.json", DOCS_ROOT)
+    if newer:
+        print(f"warning: {len(newer)} doc(s) changed since the index was built, e.g. {newer[0]};"
+              " rebuild for current numbers", file=sys.stderr)
     print(report(evaluate(index, questions)))
 
 

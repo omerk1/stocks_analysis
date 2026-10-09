@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, first_hit, load_questions, matches, report, scores)
+    check_golds, docs_newer_than, first_hit, load_questions, matches, report, scores)
 from src.llm.research_docs.load import load_documents
 
 
@@ -19,13 +19,31 @@ def test_matches_on_path_phrase_and_metadata():
     assert not matches(node, {"path": "docs/b.md"})
     assert not matches(node, {"path": "docs/a.md", "entry": "#48"})
     assert not matches(node, {"path": "docs/a.md", "contains": "kept"})
-    assert matches(_node(entry="#16, #17"), {"entry": "#17"})
+    combined = _node(entry="#16, #17")
+    assert matches(combined, {"entry": "#17"}) and matches(combined, {"entry": "#16, #17"})
+    assert not matches(combined, {"entry": "#1"})
 
 
 def test_first_hit_is_the_rank_of_the_first_matching_node():
     nodes = [_node(entry="#1"), _node(entry="#2"), _node(entry="#3")]
     assert first_hit(nodes, [{"entry": "#2"}, {"entry": "#3"}]) == 2
     assert first_hit(nodes, [{"entry": "#9"}]) is None
+
+
+def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
+    from src.llm.research_docs import evaluate as ev
+    monkeypatch.setattr(ev, "search", lambda index, question, k: [])
+    rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md"}]}])
+    assert rows[0]["rank"] is None and rows[0]["top"] == "-"
+
+
+def test_docs_newer_than_the_index(tmp_path):
+    import os
+    index_file, old, new = tmp_path / "docstore.json", tmp_path / "old.md", tmp_path / "new.md"
+    for p, t in ((old, 100), (index_file, 200), (new, 300)):
+        p.write_text("x")
+        os.utime(p, (t, t))
+    assert docs_newer_than(index_file, tmp_path) == [new]
 
 
 def test_scores_hit_at_k_and_mrr():
