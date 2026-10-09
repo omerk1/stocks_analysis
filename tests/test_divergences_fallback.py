@@ -11,6 +11,7 @@ import pytest
 
 from src.foundation.data_processing import db
 from src.foundation.market_common import derived_db
+from src.foundation.market_common import price_basis as pb
 from src.foundation.market_common.data import load_bars
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import (
@@ -321,6 +322,8 @@ def test_forget_ticker_drops_events_pairs_and_runs(derived):
         "INSERT INTO divergence_control_pairs (id, ticker, timeframe, direction, p2_date)"
         " VALUES ('p1', 'T', 'daily', 'bearish', '2015-01-05')"
     )
+    for module in ("divergence_context", "divergence_control_pairs"):
+        derived_db.record_run(derived, module, "T", "daily", None, "{}", 0, False)
     assert forget_ticker(derived, "T", "daily") == 1
     derived.commit()
     for table in ("divergences", "divergence_control_pairs", "runs"):
@@ -361,5 +364,51 @@ def test_as_of_never_replaces_a_vendor_changed_ticker(conn, derived, monkeypatch
     db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(400))
     monkeypatch.setattr(cli.derived_db, "bootstrap_cli", lambda _create: (conn, derived))
     monkeypatch.setattr(sys, "argv", ["cli", "T", "--timeframe", "daily", "--as-of", "2015-06-30"])
-    cli.main()  # closes both connections at the end
+    with pytest.raises(SystemExit) as exc:  # a refusal exits non-zero
+        cli.main()
+    assert exc.value.code == 1
     assert "not replaced under --as-of" in capsys.readouterr().out
+
+
+def test_control_builder_replaces_with_nothing_when_a_ticker_yields_no_pairs(conn, derived):
+    """Replace-per-ticker must hold for zero-pair outcomes: a ticker whose
+    history got too short keeps no rows from its earlier, longer history."""
+    import json
+    from src.signals.divergences.controls import build_control_pairs, create_control_pairs_table
+
+    create_control_pairs_table(derived)
+    db.upsert_bars(conn, "bars_1d", "SHORT", db.YFINANCE_SPLIT_ONLY, _walk(30))  # < min_bars
+    derived_db.record_run(derived, "divergences", "SHORT", "daily", None,
+                          json.dumps({"bar_source": db.YFINANCE_SPLIT_ONLY}), 0, False)
+    derived.execute(
+        "INSERT INTO divergence_control_pairs (id, ticker, timeframe, direction, p2_date)"
+        " VALUES ('old', 'SHORT', 'daily', 'bearish', '2010-01-05')"
+    )
+    derived.commit()
+    build_control_pairs(conn, derived)
+    assert derived.execute("SELECT COUNT(*) FROM divergence_control_pairs").fetchone()[0] == 0
+
+
+def test_purge_flagged_only_accepts_builder_tables(derived):
+    import logging
+    from src.signals.divergences.store import purge_flagged
+    with pytest.raises(ValueError):
+        purge_flagged(derived, "divergences", {"T": "unresolved"}, "daily", logging.getLogger("t"))
+
+
+def test_resolve_sources_lists_sources_above_the_threshold(conn, monkeypatch):
+    calls = []
+    real = pb.source_members
+
+    def spy(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(pb, "source_members", spy)
+    monkeypatch.setattr(pb, "MEMBERS_THRESHOLD", 2)
+    db.upsert_bars(conn, "bars_1d", "A", db.YFINANCE_SPLIT_ONLY, _bars(3, 1.0))
+    db.upsert_bars(conn, "bars_1d", "B", db.TIINGO_SPLIT_ONLY, _bars(3, 1.0))
+    small = resolve_sources(conn, ["A", "B"], PriceBasis.TRADED, fallback=True)
+    assert calls == []  # at/below threshold: per-ticker probe
+    big = resolve_sources(conn, ["A", "B", "C"], PriceBasis.TRADED, fallback=True)
+    assert calls == [1] and big == small  # same answer either way

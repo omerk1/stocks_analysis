@@ -33,6 +33,9 @@ from enum import Enum
 from src.foundation.data_processing import db
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
+
+# See resolve_sources: list each source once above this many tickers.
+MEMBERS_THRESHOLD = 500
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
@@ -162,7 +165,6 @@ def ticker_sources(
 def resolve_sources(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
     members: dict[str, set[str]] | None = None,
-    disputes: tuple[DisputedDay, ...] | None = None,
 ) -> dict[str, str]:
     """ticker -> the `bars_1d.source` its `basis` bars come from. Without
     `fallback`, every ticker maps to the basis's primary source (no lookup).
@@ -170,18 +172,23 @@ def resolve_sources(
     a whole-history dispute (`price_disputes`, no date: e.g. a reused symbol
     whose bars are another company's) is left out, so it has no bars at
     all -- not in the universe, the ranks, the labels, or a detector's scan.
-    `members` as in `ticker_sources` (full-universe callers pass the
-    per-source ticker sets they already listed). `disputes` defaults to
-    `price_disputes.DISPUTED_DAYS`, read through the module at call time so
-    patching that one canonical name reaches this policy; a module with its own binding of that list
-    (models.dataset, whose tests patch it) passes it explicitly so exclusion
-    and its cache manifest can never read two different lists.
+    Whole-history disputes come from `price_disputes.DISPUTED_DAYS`, read
+    through the module at call time: ONE list for every consumer (modeling's
+    label dropping and cache manifest read the same name), so a data fix or
+    a test patch reaches all of them at once.
+
+    Above MEMBERS_THRESHOLD tickers each source is listed once (`members`, a
+    DISTINCT index scan of the 4GB bars_1d, minutes) instead of probed per
+    ticker (cheap for small lists, minutes for thousands); callers that
+    already hold the listings pass `members`.
     (Moved here from models.dataset when divergences opted into the
     fallback -- one policy, not two drifting copies.)"""
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
+    if members is None and len(tickers) > MEMBERS_THRESHOLD:
+        members = source_members(conn, basis, fallback=True)
     sources = ticker_sources(conn, tickers, basis, fallback=True, members=members)
-    excluded = _whole_history_disputes(price_disputes.DISPUTED_DAYS if disputes is None else disputes)
+    excluded = _whole_history_disputes(price_disputes.DISPUTED_DAYS)
     return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in excluded}
 
 

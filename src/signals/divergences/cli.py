@@ -217,8 +217,9 @@ def main():
         # Tickers with stored events that no longer resolve: detection never
         # touches them again, so without an explicit purge their events
         # outlive the dispute that disqualified them.
+        with_events = {tf: stored_tickers(derived_conn, tf.value) for tf in timeframes}
         orphaned = {
-            tf: sorted((stored_tickers(derived_conn, tf.value) | set(recorded[tf])) - set(sources))
+            tf: sorted((with_events[tf] | set(recorded[tf])) - set(sources))
             for tf in timeframes
         }
         if args.plan:
@@ -235,11 +236,11 @@ def main():
                 print(f"{tf.value}: forgot {len(orphaned[tf])} unresolved ticker(s) "
                       f"({n_tf} stored event(s) deleted): {', '.join(orphaned[tf])}")
             elif orphaned[tf]:
-                with_events = stored_tickers(derived_conn, tf.value) & set(orphaned[tf])
+                n_with = len(with_events[tf] & set(orphaned[tf]))
                 print(f"{tf.value}: WARNING {len(orphaned[tf])} unresolved ticker(s) still recorded as "
-                      f"scanned ({len(with_events)} with stored events): {', '.join(orphaned[tf][:10])} "
+                      f"scanned ({n_with} with stored events): {', '.join(orphaned[tf][:10])} "
                       "-- pass --purge-unresolved to forget them")
-        total, skipped, failed, unreliable, attempted, replaced = 0, 0, 0, 0, 0, 0
+        total, skipped, failed, unreliable, attempted, replaced, pending = 0, 0, 0, 0, 0, 0, 0
         for ticker in sorted(sources):
             for tf in timeframes:
                 changed = vendor_changed(recorded[tf], ticker, sources[ticker])
@@ -250,7 +251,7 @@ def main():
                     # as-of rescan would then silently drop every later event.
                     print(f"{ticker}/{tf.value}: vendor changed -- not replaced under --as-of "
                           "(run without --as-of to replace its full history)")
-                    skipped += 1
+                    pending += 1
                     continue
                 attempted += 1
                 try:
@@ -277,8 +278,9 @@ def main():
         print(
             f"\nDone: {attempted} (ticker x timeframe) run(s) over {len(sources)} resolved ticker(s) -- "
             f"{total} divergence(s) total, {skipped} skipped, {failed} failed, {unreliable} unreliable runs; "
-            f"{replaced} vendor-change replacement(s); "
-            f"{n_disputed} ticker(s) excluded for whole-history price disputes"
+            f"{replaced} vendor-change replacement(s)"
+            + (f", {pending} still PENDING (refused under --as-of)" if pending else "")
+            + f"; {n_disputed} ticker(s) excluded for whole-history price disputes"
             + (f"; {n_orphan_rows} unresolved-ticker event(s) purged." if args.purge_unresolved else ".")
         )
     else:
@@ -290,12 +292,14 @@ def main():
             derived_conn.close()
             raise SystemExit(1)  # a refusal, distinguishable from a successful run
         plotted = False
+        refused = False
         for tf in timeframes:
             prior = recorded_run_sources(derived_conn, tf.value, ticker=args.ticker)
             changed = vendor_changed(prior, args.ticker, resolved[args.ticker])
             if changed and args.as_of:
                 print(f"{args.ticker}/{tf.value}: vendor changed -- not replaced under --as-of "
                       "(run without --as-of to replace its full history)")
+                refused = True
                 continue
             want_plot = args.plot is not None and not plotted
             n, _warn = _run_one(
@@ -308,6 +312,10 @@ def main():
                 plotted = True
         if args.plot and not plotted:
             print(f"Note: {args.ticker} had no non-skipped timeframe to plot.")
+        if refused:
+            conn.close()
+            derived_conn.close()
+            raise SystemExit(1)  # a refusal, distinguishable from a successful run
 
     conn.close()
     derived_conn.close()

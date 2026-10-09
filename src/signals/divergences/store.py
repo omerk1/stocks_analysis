@@ -13,7 +13,6 @@ from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS,
     resolve_sources,
     source_for,
-    source_members,
 )
 from src.signals.divergences.models import Divergence
 
@@ -230,11 +229,6 @@ def stored_tickers(derived_conn: sqlite3.Connection, timeframe: str) -> set[str]
     }
 
 
-# Below this many tickers the per-ticker bar probe beats listing every
-# source (a DISTINCT index scan of the 4GB bars_1d, minutes each).
-MEMBERS_THRESHOLD = 500
-
-
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
@@ -242,7 +236,9 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def forget_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
-    """`purge_ticker` plus the ticker's divergence `runs` rows: the module forgets it ever scanned the ticker. For tickers
+    """`purge_ticker` plus the ticker's `runs` rows for detection and both
+    derived builders (divergences, divergence_context,
+    divergence_control_pairs): the module forgets it ever scanned the ticker. For tickers
     that no longer resolve (--purge-unresolved): keeping the runs rows would
     leave it "already scanned" with no events -- skipped by --missing-only if
     its dispute is lifted, and fed to the controls builder (whose universe is
@@ -250,23 +246,34 @@ def forget_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str)
     Returns rows deleted from `divergences`."""
     n = purge_ticker(derived_conn, ticker, timeframe)
     derived_conn.execute(
-        "DELETE FROM runs WHERE module = 'divergences' AND ticker = ? AND timeframe = ?", (ticker, timeframe)
+        "DELETE FROM runs WHERE module IN ('divergences', 'divergence_context', 'divergence_control_pairs')"
+        " AND ticker = ? AND timeframe = ?",
+        (ticker, timeframe),
     )
     return n
+
+
+_BUILDER_TABLES = frozenset({"divergence_context", "divergence_control_pairs"})
 
 
 def purge_flagged(derived_conn: sqlite3.Connection, table: str, flagged: dict[str, str],
                   timeframe: str, logger) -> tuple[int, int]:
     """The context/controls builders' shared handling of `builder_sources`'
-    flagged tickers: delete the builder's own rows for each, warn, and
-    return (n_unresolved, n_vendor_stale)."""
+    flagged tickers: delete the builder's own rows for each and return
+    (n_unresolved, n_vendor_stale). Warns only when rows were actually
+    deleted or a ticker is vendor-stale (actionable: rescan detection) --
+    permanently disputed tickers would otherwise log "purged 0" every run
+    and bury the warnings that matter."""
+    if table not in _BUILDER_TABLES:
+        raise ValueError(f"purge_flagged: {table!r} is not a divergence builder table")
     counts = {"unresolved": 0, "vendor_stale": 0}
     for ticker, why in flagged.items():
         n = derived_conn.execute(
             f"DELETE FROM {table} WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
         ).rowcount
-        logger.warning("%s: %s -- purged %d stale %s row(s)%s", ticker, why, n, table,
-                       "; rescan detection first" if why == "vendor_stale" else "")
+        if n or why == "vendor_stale":
+            logger.warning("%s: %s -- purged %d stale %s row(s)%s", ticker, why, n, table,
+                           "; rescan detection first" if why == "vendor_stale" else "")
         counts[why] += 1
     derived_conn.commit()
     return counts["unresolved"], counts["vendor_stale"]
@@ -278,8 +285,7 @@ def builder_sources(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connecti
     for the context and control-pair builders -- one shared rule so the
     two derived stores can't disagree about which tickers they may compute.
 
-    Resolution lists each source once (`members`) only for large ticker
-    lists (MEMBERS_THRESHOLD); small builds keep the cheap per-ticker probe.
+    Resolution strategy (probe vs list each source) is price_basis's.
     Vendor staleness is judged against `timeframe`'s own runs. A ticker that doesn't resolve (whole-history
     dispute or no bars) is 'unresolved'; one whose resolved vendor differs
     from the vendor its stored events were detected on is 'vendor_stale'
@@ -287,9 +293,7 @@ def builder_sources(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connecti
     silent cross-vendor mismatch). The builders DELETE their own rows for
     both kinds -- keeping them would turn replace-per-ticker into
     keep-stale for exactly the tickers that went wrong -- and skip them."""
-    big = fallback and len(tickers) > MEMBERS_THRESHOLD
-    members = source_members(raw_conn, basis, fallback) if big else None
-    sources = resolve_sources(raw_conn, tickers, basis, fallback, members=members)
+    sources = resolve_sources(raw_conn, tickers, basis, fallback)
     recorded = recorded_run_sources(derived_conn, timeframe)
     flagged: dict[str, str] = {}
     for t in tickers:

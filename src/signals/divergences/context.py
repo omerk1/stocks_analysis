@@ -303,7 +303,9 @@ def build_context(
         # bad row must mean one skipped ticker (rolled back, counted,
         # logged), never an aborted backfill with the remaining tickers
         # unprocessed. A committed runs row for a failed ticker is
-        # acceptable (same stance as cli.py's --all loop).
+        # acceptable here (context rows are a deterministic recompute keyed
+        # by divergence_id; nothing reads this module's runs as "done").
+        # Detection differs on purpose: its run row commits with its events.
         try:
             bars, report = data_mod.load_and_validate(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,

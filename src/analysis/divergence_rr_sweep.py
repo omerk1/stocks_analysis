@@ -38,7 +38,8 @@ from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common import indicators
-from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay
+from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_disputes import DisputedDay
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.matching import classify_context
 from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals, pit_member_mask
@@ -534,7 +535,7 @@ def region_readout(ev_adj: pd.DataFrame) -> pd.DataFrame:
 
 
 def drop_disputed(
-    trades: pd.DataFrame, disputes: tuple[DisputedDay, ...] = DISPUTED_DAYS
+    trades: pd.DataFrame, disputes: tuple[DisputedDay, ...] | None = None
 ) -> tuple[pd.DataFrame, int, int]:
     """Exclude trades the price-disputes file says can't be trusted: every
     trade on a whole-history-disputed ticker (the vendors' series are
@@ -549,6 +550,8 @@ def drop_disputed(
     (The DC-B1/B2 run predates this filter; the repo's full per-window
     treatment is dataset.build_labels', logged as backlog for the signals
     modules.)"""
+    if disputes is None:  # the canonical list, read at call time (one knob)
+        disputes = price_disputes.DISPUTED_DAYS
     whole = {d.ticker for d in disputes if d.date is None}
     keep = ~trades["ticker"].isin(whole)
     n_whole = int((~keep).sum())

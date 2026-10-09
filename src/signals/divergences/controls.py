@@ -269,11 +269,19 @@ def build_control_pairs(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
                 source=sources[ticker],
             )
-            if len(bars) < config.min_bars:
-                skipped += 1
-                continue
-            pairs = extract_pairs_for_ticker(bars, config, ticker)
+            pairs = (
+                extract_pairs_for_ticker(bars, config, ticker)
+                if len(bars) >= config.min_bars else pd.DataFrame()
+            )
             if pairs.empty:
+                # Replace-per-ticker holds for a zero-pair outcome too: rows
+                # from an earlier, longer history or another config must not
+                # survive as sampling-frame members.
+                derived_conn.execute(
+                    "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
+                    (ticker,),
+                )
+                derived_conn.commit()
                 skipped += 1
                 continue
 
