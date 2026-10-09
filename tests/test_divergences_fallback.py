@@ -142,7 +142,7 @@ def test_recorded_run_sources_reads_bar_source_latest_wins():
     derived.close()
 
 
-def test_purge_ticker_deletes_events_and_context():
+def test_purge_ticker_deletes_events_context_and_pairs():
     derived = db.get_connection(":memory:")
     create_divergences_table(derived)
     derived.execute(
@@ -153,10 +153,16 @@ def test_purge_ticker_deletes_events_and_context():
         "CREATE TABLE divergence_context (divergence_id TEXT PRIMARY KEY, ticker TEXT, timeframe TEXT)"
     )
     derived.execute("INSERT INTO divergence_context VALUES ('x1', 'T', 'daily')")
+    from src.signals.divergences.controls import create_control_pairs_table
+    create_control_pairs_table(derived)
+    derived.execute(
+        "INSERT INTO divergence_control_pairs (id, ticker, timeframe, direction, p2_date)"
+        " VALUES ('p1', 'T', 'daily', 'bearish', '2015-01-05')"
+    )
     n = purge_ticker(derived, "T", "daily")
     assert n == 1
-    assert derived.execute("SELECT COUNT(*) FROM divergences").fetchone()[0] == 0
-    assert derived.execute("SELECT COUNT(*) FROM divergence_context").fetchone()[0] == 0
+    for table in ("divergences", "divergence_context", "divergence_control_pairs"):
+        assert derived.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
     # ... and a DB without the context table doesn't blow up
     bare = db.get_connection(":memory:")
     create_divergences_table(bare)
@@ -249,7 +255,7 @@ def test_builder_sources_flags_unresolved_and_vendor_stale(conn, derived, synthe
     db.upsert_bars(conn, "bars_1d", "OK", db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
     db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
     db.upsert_bars(conn, "bars_1d", "STALE", db.TIINGO_SPLIT_ONLY, _bars(3, 50.0))
-    for t, src in (("OK", None), (DISPUTED, None), ("STALE", None)):
+    for t in ("OK", DISPUTED, "STALE"):  # legacy runs: no recorded bar_source
         derived_db.record_run(derived, "divergences", t, "daily", None, json.dumps({}), 0, False)
     sources, flagged = builder_sources(
         conn, derived, ["OK", DISPUTED, "STALE"], PriceBasis.TRADED, fallback=True, timeframe="daily"
@@ -320,3 +326,40 @@ def test_forget_ticker_drops_events_pairs_and_runs(derived):
     for table in ("divergences", "divergence_control_pairs", "runs"):
         assert derived.execute(f"SELECT COUNT(*) FROM {table} WHERE ticker = 'T'").fetchone()[0] == 0
     assert "T" not in recorded_run_sources(derived, "daily")  # a later --missing-only rescans it
+
+
+def test_control_builder_runs_past_flagged_and_normal_tickers(conn, derived, synthetic_dispute):
+    """A real multi-ticker build: flagged tickers skipped AND normal tickers
+    processed (an earlier version shadowed the flagged-ticker dict inside the
+    loop and crashed on the second normal ticker -- a test seeding only
+    flagged tickers never entered the loop body)."""
+    import json
+    from src.signals.divergences.controls import build_control_pairs, create_control_pairs_table
+
+    create_control_pairs_table(derived)
+    db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _walk(400, seed=1))
+    for i, t in enumerate(("AAA", "BBB")):
+        db.upsert_bars(conn, "bars_1d", t, db.YFINANCE_SPLIT_ONLY, _walk(400, seed=10 + i))
+    for t in (DISPUTED, "AAA", "BBB"):
+        derived_db.record_run(derived, "divergences", t, "daily", None,
+                              json.dumps({"bar_source": db.YFINANCE_SPLIT_ONLY}), 0, False)
+
+    written, processed, _skipped, unresolved, vendor_stale = build_control_pairs(conn, derived)
+    assert (unresolved, vendor_stale) == (1, 0)
+    assert processed == 2 and written > 0
+    tickers = {r[0] for r in derived.execute("SELECT DISTINCT ticker FROM divergence_control_pairs")}
+    assert tickers == {"AAA", "BBB"}
+
+
+def test_as_of_never_replaces_a_vendor_changed_ticker(conn, derived, monkeypatch, capsys):
+    """A replacement purges the full stored history, so a truncated --as-of
+    rescan must not perform one."""
+    import sys
+    from src.signals.divergences import cli
+
+    _seed_old_vendor_event(derived)
+    db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(400))
+    monkeypatch.setattr(cli.derived_db, "bootstrap_cli", lambda _create: (conn, derived))
+    monkeypatch.setattr(sys, "argv", ["cli", "T", "--timeframe", "daily", "--as-of", "2015-06-30"])
+    cli.main()  # closes both connections at the end
+    assert "not replaced under --as-of" in capsys.readouterr().out

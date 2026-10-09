@@ -50,7 +50,8 @@ from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis,
 )
 from src.foundation.market_common import price_basis
-from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
+from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
 
 logger = logging.getLogger(__name__)
@@ -112,16 +113,11 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 # ---------------------------------------------------------------- bars
 
-def resolve_sources(
-    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
-    members: dict[str, set[str]] | None = None,
-) -> dict[str, str]:
-    """`price_basis.resolve_sources` (the shared policy, moved there when
-    divergences opted into the vendor fallback) with THIS module's
-    DISPUTED_DAYS, read at call time: universe exclusion and the label cache
-    manifest (`_disputes_hash`) must see the same disputes list, including
-    when a test or tool patches it."""
-    return price_basis.resolve_sources(conn, tickers, basis, fallback, members=members, disputes=DISPUTED_DAYS)
+# Universe exclusion (`price_basis.resolve_sources`), label dropping
+# (`drop_disputed`) and the label-cache manifest (`_disputes_hash`) all read
+# `price_disputes.DISPUTED_DAYS` through the module at call time -- ONE list,
+# so a patch or a data fix reaches every consumer at once.
+resolve_sources = price_basis.resolve_sources
 
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
@@ -381,7 +377,7 @@ def drop_disputed(
     disputed date the ticker has no bar on counts from the next bar. A
     dispute with no date drops the ticker. Returns (kept rows, number
     dropped)."""
-    disputes = DISPUTED_DAYS if disputes is None else disputes
+    disputes = price_disputes.DISPUTED_DAYS if disputes is None else disputes
     if labels.empty or not disputes:
         return labels, 0
     drop = pd.Series(False, index=labels.index)
@@ -408,7 +404,7 @@ def disputes_fingerprint(disputes: tuple[DisputedDay, ...] | None = None) -> str
     """A short hash of the disputes list (`price_disputes.csv` as loaded), so a
     label cache records which list dropped its rows and a cache built before
     the list changed is refused (`read_labels`)."""
-    disputes = DISPUTED_DAYS if disputes is None else disputes
+    disputes = price_disputes.DISPUTED_DAYS if disputes is None else disputes
     text = "\n".join(sorted(f"{d.ticker},{d.date or ''},{d.vendor}" for d in disputes))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 

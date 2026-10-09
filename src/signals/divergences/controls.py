@@ -256,13 +256,13 @@ def build_control_pairs(
     # unresolved and vendor-stale tickers get their pairs purged and are
     # skipped -- their has_divergence flags would be judged against another
     # vendor's events, or against events that should not exist.
-    sources, flagged = builder_sources(
+    sources, skip_tickers = builder_sources(
         raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
-    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_control_pairs", flagged, "daily", logger)
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_control_pairs", skip_tickers, "daily", logger)
     written = skipped = processed = 0
     for ticker in tickers:
-        if ticker in flagged:
+        if ticker in skip_tickers:
             continue
         try:
             bars, report = data_mod.load_and_validate(

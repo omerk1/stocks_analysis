@@ -189,22 +189,21 @@ def recorded_run_sources(
 
 
 def purge_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
-    """Delete a ticker's stored divergences AND their context rows for one
-    timeframe (the control pairs are replace-per-ticker in their own
-    builder). Used when a ticker's resolved vendor changed since its events
-    were stored (the old rows describe pivots on another vendor's prices
-    and must not survive next to the rescan's), and by the opt-in
-    --purge-unresolved. Returns rows deleted from `divergences`. Commits
-    nothing itself; the CLI's vendor-change path calls it only after the
-    new vendor's detection succeeded, and the following `record_run`
-    commits the purge together with the new run row."""
+    """Delete a ticker's stored divergences, context rows and control pairs
+    for one timeframe -- everything derived from its bars on the vendor they
+    were read from. Used when a ticker's resolved vendor changed (the old
+    rows describe pivots on another vendor's prices; the control pairs'
+    has_divergence flags were judged against those events, and the controls
+    builder's own replace step never runs for a ticker whose new-vendor
+    history yields no pairs). Returns rows deleted from `divergences`.
+    Commits nothing: the CLI's vendor-change path calls it inside the same
+    transaction as the new run row and events."""
     n = derived_conn.execute(
         "DELETE FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
     ).rowcount
-    if _table_exists(derived_conn, "divergence_context"):
-        derived_conn.execute(
-            "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
-        )
+    for table in ("divergence_context", "divergence_control_pairs"):
+        if _table_exists(derived_conn, table):
+            derived_conn.execute(f"DELETE FROM {table} WHERE ticker = ? AND timeframe = ?", (ticker, timeframe))
     return n
 
 
@@ -243,18 +242,13 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
 
 
 def forget_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
-    """`purge_ticker` plus the ticker's control pairs and its divergence
-    `runs` rows: the module forgets it ever scanned the ticker. For tickers
+    """`purge_ticker` plus the ticker's divergence `runs` rows: the module forgets it ever scanned the ticker. For tickers
     that no longer resolve (--purge-unresolved): keeping the runs rows would
     leave it "already scanned" with no events -- skipped by --missing-only if
     its dispute is lifted, and fed to the controls builder (whose universe is
     the runs table) as a ticker with no divergences anywhere. Commits nothing.
     Returns rows deleted from `divergences`."""
     n = purge_ticker(derived_conn, ticker, timeframe)
-    if _table_exists(derived_conn, "divergence_control_pairs"):
-        derived_conn.execute(
-            "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
-        )
     derived_conn.execute(
         "DELETE FROM runs WHERE module = 'divergences' AND ticker = ? AND timeframe = ?", (ticker, timeframe)
     )

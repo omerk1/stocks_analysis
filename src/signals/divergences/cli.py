@@ -232,16 +232,25 @@ def main():
                 n_tf = sum(forget_ticker(derived_conn, ticker, tf.value) for ticker in orphaned[tf])
                 derived_conn.commit()
                 n_orphan_rows += n_tf
-                print(f"{tf.value}: purged {n_tf} stored event(s) of {len(orphaned[tf])} "
-                      f"unresolved ticker(s): {', '.join(orphaned[tf])}")
+                print(f"{tf.value}: forgot {len(orphaned[tf])} unresolved ticker(s) "
+                      f"({n_tf} stored event(s) deleted): {', '.join(orphaned[tf])}")
             elif orphaned[tf]:
-                print(f"{tf.value}: WARNING {len(orphaned[tf])} unresolved ticker(s) still carry stored "
-                      f"events ({', '.join(orphaned[tf][:10])}) -- pass --purge-unresolved to delete them")
+                with_events = stored_tickers(derived_conn, tf.value) & set(orphaned[tf])
+                print(f"{tf.value}: WARNING {len(orphaned[tf])} unresolved ticker(s) still recorded as "
+                      f"scanned ({len(with_events)} with stored events): {', '.join(orphaned[tf][:10])} "
+                      "-- pass --purge-unresolved to forget them")
         total, skipped, failed, unreliable, attempted, replaced = 0, 0, 0, 0, 0, 0
         for ticker in sorted(sources):
             for tf in timeframes:
                 changed = vendor_changed(recorded[tf], ticker, sources[ticker])
                 if args.missing_only and ticker in recorded[tf] and not changed:
+                    continue
+                if changed and args.as_of:
+                    # A replacement purges the full stored history; a truncated
+                    # as-of rescan would then silently drop every later event.
+                    print(f"{ticker}/{tf.value}: vendor changed -- not replaced under --as-of "
+                          "(run without --as-of to replace its full history)")
+                    skipped += 1
                     continue
                 attempted += 1
                 try:
@@ -284,6 +293,10 @@ def main():
         for tf in timeframes:
             prior = recorded_run_sources(derived_conn, tf.value, ticker=args.ticker)
             changed = vendor_changed(prior, args.ticker, resolved[args.ticker])
+            if changed and args.as_of:
+                print(f"{args.ticker}/{tf.value}: vendor changed -- not replaced under --as-of "
+                      "(run without --as-of to replace its full history)")
+                continue
             want_plot = args.plot is not None and not plotted
             n, _warn = _run_one(
                 conn, derived_conn, args.ticker, tf, args.as_of, config,

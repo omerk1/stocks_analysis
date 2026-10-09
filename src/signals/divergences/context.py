@@ -286,13 +286,13 @@ def build_context(
     # tickers (store.builder_sources) get their context rows purged and are
     # skipped, never computed on a mismatched vendor; a vendor-stale ticker
     # recovers once detection replaces its events.
-    sources, flagged = builder_sources(
+    sources, skip_tickers = builder_sources(
         raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
-    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_context", flagged, "daily", logger)
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_context", skip_tickers, "daily", logger)
     written = skipped = processed = 0
     for ticker in tickers:
-        if ticker in flagged:
+        if ticker in skip_tickers:
             continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",
