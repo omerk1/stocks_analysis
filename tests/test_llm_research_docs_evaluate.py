@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, first_hit, load_questions, matches, report, scores)
+    check_golds, first_hit, load_questions, matches, report, scores, stale_paths)
 from src.llm.research_docs.load import load_documents
 
 
@@ -35,6 +35,15 @@ def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
     monkeypatch.setattr(ev, "search", lambda index, question, k: [])
     rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md"}]}])
     assert rows[0]["rank"] is None and rows[0]["top"] == "-"
+
+
+def test_stale_paths_finds_edited_added_and_deleted_files():
+    def n(path, text):
+        return Document(text=text, metadata={"path": path})
+    indexed = [n("a.md", "x"), n("a.md", "y"), n("b.md", "z"), n("c.md", "w")]
+    assert stale_paths(indexed, list(reversed(indexed))) == []  # order doesn't matter
+    current = [n("a.md", "x"), n("a.md", "y"), n("b.md", "z2"), n("d.md", "v")]
+    assert stale_paths(indexed, current) == ["b.md", "c.md", "d.md"]
 
 
 def test_scores_hit_at_k_and_mrr():

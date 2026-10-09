@@ -3,8 +3,7 @@ from llama_index.core import Document, MockEmbedding
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.index import (
-    build_index, changed_sources, cosine, load_index, similarity_table, stored_vectors,
-    truncated, write_sources)
+    build_index, cosine, load_index, similarity_table, stored_vectors, truncated)
 
 DIM = 8
 
@@ -76,13 +75,3 @@ def test_similarity_table_reads_stored_vectors(tmp_path):
     assert table.count("1.000") == 9
     with pytest.raises(LookupError):
         similarity_table(index, [("x", "docs/E.csv", {"module": "M4"}, 2)])
-
-
-def test_changed_sources_reports_edits_additions_and_deletions(tmp_path):
-    def doc(path, text):
-        return Document(text=text, metadata={"path": path})
-    assert changed_sources([doc("a.md", "x")], tmp_path) is None  # no record yet
-    write_sources([doc("a.md", "x"), doc("b.md", "y"), doc("c.md", "z")], tmp_path)
-    assert changed_sources([doc("a.md", "x"), doc("b.md", "y"), doc("c.md", "z")], tmp_path) == []
-    now = [doc("a.md", "x"), doc("b.md", "y2"), doc("d.md", "w")]
-    assert changed_sources(now, tmp_path) == ["b.md (edited)", "c.md (deleted)", "d.md (added)"]

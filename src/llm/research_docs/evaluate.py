@@ -79,6 +79,18 @@ def first_hit(nodes: list[BaseNode], golds: list[dict]) -> int | None:
     return None
 
 
+def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
+    """Files whose chunks in the index differ from chunking the docs now: a doc edited,
+    added or deleted since the build, or a change to the chunking itself."""
+    def by_path(nodes):
+        out: dict[str, list[str]] = {}
+        for n in nodes:
+            out.setdefault(n.metadata["path"], []).append(n.get_content())
+        return {p: sorted(texts) for p, texts in out.items()}
+    old, new = by_path(indexed), by_path(current)
+    return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
+
+
 def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
     """Golds that match no chunk: a doc was edited or re-chunked under the question."""
     return [f"{q['id']}: {g}" for q in questions for g in q["gold"]
@@ -129,24 +141,24 @@ def main() -> None:
         problems = check_golds(questions, chunk_documents(load_documents()))
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
-    from src.llm.research_docs.index import changed_sources, embed_model, load_index
+    from src.llm.research_docs.chunk import chunk_documents
+    from src.llm.research_docs.index import embed_model, load_index
     from src.llm.research_docs.load import load_documents
     index = load_index(embed_model())
-    # The index is rebuilt by hand. A doc changed since the build only warns (the change
-    # may not touch any question); a gold no indexed chunk matches would score as a
-    # retrieval miss, so the run refuses to score.
-    changed = changed_sources(load_documents())
-    if changed is None:
-        print("warning: index predates source tracking; rebuild it to check it's current",
-              file=sys.stderr)
-    elif changed:
-        print("warning: docs changed since the index was built (rebuild for current numbers):",
-              *changed, sep="\n  ", file=sys.stderr)
-    unmatched = check_golds(questions, list(index.docstore.docs.values()))
+    indexed = list(index.docstore.docs.values())
+    # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
+    # retrieval miss, so refuse to score. Other drift since the build is flagged in the
+    # report itself, so a saved copy can't pass for current numbers.
+    unmatched = check_golds(questions, indexed)
     if unmatched:
         print("golds that match no indexed chunk (rebuild the index, or fix the gold):",
               *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
+    stale = stale_paths(indexed, chunk_documents(load_documents()))
+    if stale:
+        print(f"STALE INDEX: {len(stale)} file(s) chunk differently now than when the index "
+              f"was built ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''}); "
+              "rebuild for current numbers\n")
     print(report(evaluate(index, questions)))
 
 
