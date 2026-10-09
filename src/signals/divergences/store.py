@@ -9,7 +9,12 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 from src.signals.divergences.models import Divergence
+
+# The vendor a legacy run (recorded before `bar_source` existed) read: the
+# primary source, by construction -- no fallback existed then.
+PRIMARY_SOURCE = source_for(MODULE_PRICE_BASIS["divergences"])
 
 _DIVERGENCES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS divergences (
@@ -149,7 +154,9 @@ def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], 
     conn.commit()
 
 
-def recorded_run_sources(derived_conn: sqlite3.Connection, timeframe: str) -> dict[str, str]:
+def recorded_run_sources(
+    derived_conn: sqlite3.Connection, timeframe: str, ticker: str | None = None
+) -> dict[str, str]:
     """ticker -> the `bars_1d.source` its LATEST detection run read, from the
     runs table's config_json (`bar_source`, recorded since the vendor
     fallback landed). A run predating that record read the primary source by
@@ -162,11 +169,12 @@ def recorded_run_sources(derived_conn: sqlite3.Connection, timeframe: str) -> di
     re-scanned (replace, not upsert -- pivots shift between vendors, and an
     upsert by natural key would leave a mixed-vendor event base)."""
     out: dict[str, str] = {}
-    rows = derived_conn.execute(
-        "SELECT ticker, config_json FROM runs"
-        " WHERE module = 'divergences' AND timeframe = ? ORDER BY started_at",
-        (timeframe,),
-    ).fetchall()
+    sql = "SELECT ticker, config_json FROM runs WHERE module = 'divergences' AND timeframe = ?"
+    params: tuple = (timeframe,)
+    if ticker is not None:  # single-ticker callers: don't parse the whole table
+        sql += " AND ticker = ?"
+        params += (ticker,)
+    rows = derived_conn.execute(sql + " ORDER BY started_at", params).fetchall()
     for ticker, config_json in rows:  # later rows overwrite: latest run wins
         source = None
         if config_json and '"bar_source"' in config_json:
@@ -179,10 +187,12 @@ def purge_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) 
     """Delete a ticker's stored divergences AND their context rows for one
     timeframe (the control pairs are replace-per-ticker in their own
     builder). Used when a ticker's resolved vendor changed since its events
-    were stored -- the old rows describe pivots on another vendor's prices
-    and must not survive next to the rescan's. Returns rows deleted from
-    `divergences`. Commits nothing: the caller owns the transaction, so the
-    purge and the rescan's rows land (or roll back) together."""
+    were stored (the old rows describe pivots on another vendor's prices
+    and must not survive next to the rescan's), and by the opt-in
+    --purge-unresolved. Returns rows deleted from `divergences`. Commits
+    nothing itself; the CLI's vendor-change path calls it only after the
+    new vendor's detection succeeded, and the following `record_run`
+    commits the purge together with the new run row."""
     n = derived_conn.execute(
         "DELETE FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
     ).rowcount
@@ -194,3 +204,54 @@ def purge_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) 
             "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
         )
     return n
+
+
+def vendor_changed(recorded: dict, ticker: str, resolved_source: str) -> bool:
+    """True when the ticker HAS prior detection runs and their bars came
+    from a different vendor than today's resolution (a legacy run with no
+    recorded `bar_source` counts as PRIMARY_SOURCE). Such a ticker's stored
+    events describe pivots on another vendor's prices: detection replaces
+    them (never upserts -- pivots shift between vendors and the natural-key
+    upsert would leave a mixed-vendor event base), and the context/controls
+    builders treat it as stale until it has. One definition for the CLI and
+    both builders."""
+    if ticker not in recorded:
+        return False
+    return (recorded[ticker] or PRIMARY_SOURCE) != resolved_source
+
+
+def stored_tickers(derived_conn: sqlite3.Connection, timeframe: str) -> set[str]:
+    """Every ticker with at least one stored divergence on `timeframe`."""
+    return {
+        r[0] for r in derived_conn.execute(
+            "SELECT DISTINCT ticker FROM divergences WHERE timeframe = ?", (timeframe,)
+        )
+    }
+
+
+def builder_sources(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection, tickers: list[str],
+                    basis, fallback: bool) -> tuple[dict[str, str], dict[str, str]]:
+    """(ticker -> resolved source, ticker -> 'unresolved' | 'vendor_stale')
+    for the context and control-pair builders -- one shared rule so the
+    two derived stores can't disagree about which tickers they may compute.
+
+    Resolution uses the full-universe `members` path (the builders walk
+    thousands of tickers). A ticker that doesn't resolve (whole-history
+    dispute or no bars) is 'unresolved'; one whose resolved vendor differs
+    from the vendor its stored events were detected on is 'vendor_stale'
+    (computing on the new vendor against the old vendor's pivots would be a
+    silent cross-vendor mismatch). The builders DELETE their own rows for
+    both kinds -- keeping them would turn replace-per-ticker into
+    keep-stale for exactly the tickers that went wrong -- and skip them."""
+    from src.foundation.market_common.price_basis import resolve_sources, source_members
+
+    members = source_members(raw_conn, basis, fallback) if fallback else None
+    sources = resolve_sources(raw_conn, tickers, basis, fallback, members=members)
+    recorded = recorded_run_sources(derived_conn, "daily")
+    flagged: dict[str, str] = {}
+    for t in tickers:
+        if t not in sources:
+            flagged[t] = "unresolved"
+        elif vendor_changed(recorded, t, sources[t]):
+            flagged[t] = "vendor_stale"
+    return sources, flagged

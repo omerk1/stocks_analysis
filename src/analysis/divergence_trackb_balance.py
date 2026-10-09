@@ -33,10 +33,8 @@ from src.signals.divergences.matching import (
     classify_context,
     match_controls,
 )
-from src.signals.divergences.study_universe import membership_intervals, pit_member_mask
+from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals, pit_member_mask
 
-DEV_START = "2010-01-01"
-DEV_END = "2021-12-31"
 MATCH_SEED = 20261007
 
 

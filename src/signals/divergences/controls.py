@@ -37,9 +37,9 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-from src.foundation.market_common.price_basis import resolve_sources, source_for
+
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import recorded_run_sources
+from src.signals.divergences.store import builder_sources
 from src.signals.divergences.context import compute_context_for_ticker
 
 # Same-package reuse of detection's own price-pivot path (underscore
@@ -253,33 +253,27 @@ def build_control_pairs(
             " WHERE module = 'divergences' AND timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    # Same per-ticker vendor the detector read (see context.py's note):
-    # control pairs must come from the same bars the events did. An
-    # unresolved ticker's stored pairs are PURGED (leaving them would
-    # quietly convert replace-per-ticker into keep-stale for exactly the
-    # garbage tickers); a vendor-changed ticker is skipped with a warning
-    # until detection rescans it (its has_divergence flags are judged
-    # against the stored events, which are the other vendor's pivots).
-    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
-    recorded = recorded_run_sources(derived_conn, "daily")
-    primary = source_for(config.price_basis)
+    # Same per-ticker vendor the detector read (store.builder_sources):
+    # unresolved and vendor-stale tickers get their pairs purged and are
+    # skipped -- their has_divergence flags would be judged against another
+    # vendor's events, or against events that should not exist.
+    sources, flagged = builder_sources(
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK
+    )
     written = skipped = processed = unresolved = vendor_stale = 0
     for ticker in tickers:
-        if ticker not in sources:
+        if ticker in flagged:
             n_purged = derived_conn.execute(
                 "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
                 (ticker,),
             ).rowcount
             derived_conn.commit()
-            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
-                           "purged %d stale control pair(s)", ticker, n_purged)
-            unresolved += 1
-            continue
-        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
-            logger.warning("%s: resolved vendor %s differs from the one its events were "
-                           "detected on (%s) -- skipped; rescan detection first",
-                           ticker, sources[ticker], recorded[ticker] or primary)
-            vendor_stale += 1
+            logger.warning("%s: %s -- purged %d stale control pair(s)%s", ticker, flagged[ticker], n_purged,
+                           "; rescan detection first" if flagged[ticker] == "vendor_stale" else "")
+            if flagged[ticker] == "unresolved":
+                unresolved += 1
+            else:
+                vendor_stale += 1
             continue
         try:
             bars, report = data_mod.load_and_validate(

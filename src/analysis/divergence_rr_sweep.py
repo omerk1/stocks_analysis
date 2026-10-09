@@ -41,10 +41,8 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.matching import classify_context
-from src.signals.divergences.study_universe import membership_intervals, pit_member_mask
+from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals, pit_member_mask
 
-DEV_START = "2010-01-01"
-DEV_END = "2021-12-31"
 DEV_YEARS = 12.0
 
 ATR_PERIOD = 14

@@ -20,13 +20,17 @@ from src.foundation.market_common.price_basis import (
     resolve_sources,
 )
 from src.foundation.market_common.price_disputes import DisputedDay
-from src.signals.divergences.cli import PRIMARY_SOURCE, resolve_universe, vendor_changed
+from src.signals.divergences.cli import _run_one, resolve_universe
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.detect import detect
 from src.signals.divergences.store import (
+    PRIMARY_SOURCE,
+    builder_sources,
     create_divergences_table,
     purge_ticker,
     recorded_run_sources,
+    stored_tickers,
+    vendor_changed,
 )
 
 # A synthetic whole-history dispute injected per test (monkeypatching the
@@ -181,3 +185,99 @@ def test_detect_reads_a_fallback_only_ticker(conn):
     # ...the resolved fallback source has the full history.
     _, report1, skip1 = detect(conn, "DEAD", Timeframe.DAILY, config, source=db.TIINGO_SPLIT_ONLY)
     assert skip1 is None and report1.rows_loaded == n
+
+
+def _walk(n: int, seed: int = 7) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    closes = 100.0 + np.cumsum(rng.normal(0, 1, n))
+    idx = pd.bdate_range("2015-01-02", periods=n)
+    return pd.DataFrame(
+        {"timestamp": idx, "open": closes, "high": closes + 1.0, "low": closes - 1.0,
+         "close": closes, "volume": 1000, "is_partial": 0}
+    ).set_index("timestamp")
+
+
+@pytest.fixture
+def derived():
+    connection = db.get_connection(":memory:")
+    derived_db.create_runs_table(connection)
+    create_divergences_table(connection)
+    yield connection
+    connection.close()
+
+
+def _seed_old_vendor_event(derived):
+    """A ticker detected long ago on the primary vendor (legacy run, no
+    recorded bar_source) with one stored event."""
+    import json
+    derived_db.record_run(derived, "divergences", "T", "daily", None, json.dumps({}), 0, False)
+    derived.execute(
+        "INSERT INTO divergences (id, ticker, timeframe, indicator, direction, p2_date)"
+        " VALUES ('old1', 'T', 'daily', 'rsi', 'bearish', '2000-01-03')"
+    )
+    derived.commit()
+
+
+def test_vendor_change_with_failed_rescan_keeps_old_events_and_record(conn, derived):
+    _seed_old_vendor_event(derived)
+    db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(20))  # < min_bars
+    n, _ = _run_one(conn, derived, "T", Timeframe.DAILY, None, DivergenceConfig(), None, "rsi",
+                    source=db.TIINGO_SPLIT_ONLY, replace_from=PRIMARY_SOURCE)
+    assert n is None  # skipped
+    assert derived.execute("SELECT COUNT(*) FROM divergences WHERE id = 'old1'").fetchone()[0] == 1
+    # still recorded on the old vendor -> still flagged, no purge loop
+    assert vendor_changed(recorded_run_sources(derived, "daily"), "T", db.TIINGO_SPLIT_ONLY)
+
+
+def test_vendor_change_with_successful_rescan_replaces_events(conn, derived):
+    _seed_old_vendor_event(derived)
+    db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(400))
+    n, _ = _run_one(conn, derived, "T", Timeframe.DAILY, None, DivergenceConfig(), None, "rsi",
+                    source=db.TIINGO_SPLIT_ONLY, replace_from=PRIMARY_SOURCE)
+    assert n is not None
+    assert derived.execute("SELECT COUNT(*) FROM divergences WHERE id = 'old1'").fetchone()[0] == 0
+    rec = recorded_run_sources(derived, "daily")
+    assert rec["T"] == db.TIINGO_SPLIT_ONLY
+    assert not vendor_changed(rec, "T", db.TIINGO_SPLIT_ONLY)
+    # single-ticker filter returns only that ticker
+    assert set(recorded_run_sources(derived, "daily", ticker="T")) == {"T"}
+
+
+def test_builder_sources_flags_unresolved_and_vendor_stale(conn, derived, synthetic_dispute):
+    import json
+    db.upsert_bars(conn, "bars_1d", "OK", db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
+    db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
+    db.upsert_bars(conn, "bars_1d", "STALE", db.TIINGO_SPLIT_ONLY, _bars(3, 50.0))
+    for t, src in (("OK", None), (DISPUTED, None), ("STALE", None)):
+        derived_db.record_run(derived, "divergences", t, "daily", None, json.dumps({}), 0, False)
+    sources, flagged = builder_sources(
+        conn, derived, ["OK", DISPUTED, "STALE"], PriceBasis.TRADED, fallback=True
+    )
+    assert flagged == {DISPUTED: "unresolved", "STALE": "vendor_stale"}
+    assert sources["OK"] == db.YFINANCE_SPLIT_ONLY
+
+
+def test_stored_tickers_lists_tickers_with_events(derived):
+    _seed_old_vendor_event(derived)
+    assert stored_tickers(derived, "daily") == {"T"}
+    assert stored_tickers(derived, "weekly") == set()
+
+
+def test_control_builder_purges_pairs_of_flagged_tickers(conn, derived, synthetic_dispute):
+    import json
+    from src.signals.divergences.controls import build_control_pairs, create_control_pairs_table
+
+    create_control_pairs_table(derived)
+    db.upsert_bars(conn, "bars_1d", DISPUTED, db.YFINANCE_SPLIT_ONLY, _bars(3, 100.0))
+    db.upsert_bars(conn, "bars_1d", "STALE", db.TIINGO_SPLIT_ONLY, _bars(3, 50.0))
+    for t in (DISPUTED, "STALE"):
+        derived_db.record_run(derived, "divergences", t, "daily", None, json.dumps({}), 0, False)
+        derived.execute(
+            "INSERT INTO divergence_control_pairs (id, ticker, timeframe, direction, p2_date)"
+            " VALUES (?, ?, 'daily', 'bearish', '2015-01-05')", (f"p-{t}", t),
+        )
+    derived.commit()
+
+    _w, _p, _s, unresolved, vendor_stale = build_control_pairs(conn, derived)
+    assert (unresolved, vendor_stale) == (1, 1)
+    assert derived.execute("SELECT COUNT(*) FROM divergence_control_pairs").fetchone()[0] == 0

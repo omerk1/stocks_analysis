@@ -34,9 +34,9 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import resolve_sources, source_for
+
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import recorded_run_sources
+from src.signals.divergences.store import builder_sources
 
 logger = logging.getLogger(__name__)
 
@@ -283,34 +283,27 @@ def build_context(
         )
     ]
     # Same per-ticker vendor the detector read: context scalars must come
-    # from the bars the events were found on. Three cases, none silent:
-    # resolved and matching the recorded detection vendor -> compute;
-    # unresolved (whole-history dispute added after its events were
-    # stored) -> its stored context rows are purged, not left stale;
-    # vendor changed since detection -> SKIP with a warning (computing
-    # this vendor's scalars against the other vendor's pivots would be a
-    # silent cross-vendor mismatch) -- rescan detection first, which
-    # purges and replaces the events.
-    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
-    recorded = recorded_run_sources(derived_conn, "daily")
-    primary = source_for(config.price_basis)
+    # from the bars the events were found on. Unresolved and vendor-stale
+    # tickers (store.builder_sources) get their context rows purged and are
+    # skipped, never computed on a mismatched vendor; a vendor-stale ticker
+    # recovers once detection replaces its events.
+    sources, flagged = builder_sources(
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK
+    )
     written = skipped = processed = unresolved = vendor_stale = 0
     for ticker in tickers:
-        if ticker not in sources:
+        if ticker in flagged:
             n_purged = derived_conn.execute(
                 "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = 'daily'",
                 (ticker,),
             ).rowcount
             derived_conn.commit()
-            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
-                           "purged %d stale context row(s)", ticker, n_purged)
-            unresolved += 1
-            continue
-        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
-            logger.warning("%s: resolved vendor %s differs from the one its events were "
-                           "detected on (%s) -- skipped; rescan detection first",
-                           ticker, sources[ticker], recorded[ticker] or primary)
-            vendor_stale += 1
+            logger.warning("%s: %s -- purged %d stale context row(s)%s", ticker, flagged[ticker], n_purged,
+                           "; rescan detection first" if flagged[ticker] == "vendor_stale" else "")
+            if flagged[ticker] == "unresolved":
+                unresolved += 1
+            else:
+                vendor_stale += 1
             continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",

@@ -47,9 +47,9 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing.ticker_renames import apply_renames
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import (
-    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, resolve_sources,
-    source_for,
+    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis,
 )
+from src.foundation.market_common import price_basis
 from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
 
@@ -112,9 +112,16 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 # ---------------------------------------------------------------- bars
 
-# resolve_sources moved to market_common.price_basis when divergences
-# opted into the vendor fallback; imported above so every existing
-# `dataset.resolve_sources` caller keeps working.
+def resolve_sources(
+    conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+) -> dict[str, str]:
+    """`price_basis.resolve_sources` (the shared policy, moved there when
+    divergences opted into the vendor fallback) with THIS module's
+    DISPUTED_DAYS, read at call time: universe exclusion and the label cache
+    manifest (`_disputes_hash`) must see the same disputes list, including
+    when a test or tool patches it."""
+    return price_basis.resolve_sources(conn, tickers, basis, fallback, disputes=DISPUTED_DAYS)
+
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}
