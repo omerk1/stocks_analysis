@@ -194,19 +194,20 @@ at H = 10 to 0.577 at H = 63. Every difference above is under 0.15% of that.
 - **IC difference:** spans zero everywhere.
 - **T2 vs B4 (Brier):** spans zero at every horizon.
 - **Log loss difference:** spans zero in 7 of 8 trials. The exception is T2 vs T1 at
-  H = 63: −0.0062 [−0.0117, −0.0012], in T2's favour.
-- **Top-k excess return per day** (over the day's mean return; CIs on the difference):
+  H = 63: −0.0061 [−0.0117, −0.0012], in T2's favour.
+- **Top-k excess return per test date, over the H-day hold** (the basket's H-day forward return minus that date's mean; CIs on the difference):
 
   | H | top-5, T1 vs B4 | top-5, T2 vs T1 | top-20, T1 vs B4 | top-20, T2 vs T1 |
   |---|---|---|---|---|
   | 10 | −0.15% (spans 0) | **+0.23%** | **−0.12%** | **+0.14%** |
-  | 21 | −0.08% (spans 0) | +0.10% (spans 0) | −0.10% (spans 0) | +0.04% (spans 0) |
-  | 42 | **−0.80%** | **+1.25%** | **−0.47%** | **+0.57%** |
+  | 21 | −0.08% (spans 0) | +0.09% (spans 0) | −0.10% (spans 0) | +0.04% (spans 0) |
+  | 42 | **−0.80%** | **+1.25%** | **−0.46%** | **+0.57%** |
   | 63 | −0.75% (spans 0) | **+1.32%** | **−0.65%** | **+0.73%** |
 
   Bold = 90% CI excludes zero.
-  - The pattern: the supported pair alone (T1) makes the picks *worse* than B4's. The
-    weak group (T2) more than recovers that.
+  - The pattern: the supported pair alone (T1) makes the picks *worse* than B4's. Adding the weak group (T2)
+    lifts them back above T1 at H = 10, 42 and 63. There is no CI for T2 vs B4 on top-k, and
+    at H = 21 top-20, T2 is still below B4 (net table), so this is not a T2 > B4 claim.
   - All of these are descriptive readouts without a verdict or a multiple-testing
     correction (16 top-k looks plus log loss), so none is a finding.
   - A plausible mechanism to test, not a claim: the weak group includes the size rank
