@@ -114,13 +114,14 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 def resolve_sources(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str, fallback: bool,
+    members: dict[str, set[str]] | None = None,
 ) -> dict[str, str]:
     """`price_basis.resolve_sources` (the shared policy, moved there when
     divergences opted into the vendor fallback) with THIS module's
     DISPUTED_DAYS, read at call time: universe exclusion and the label cache
     manifest (`_disputes_hash`) must see the same disputes list, including
     when a test or tool patches it."""
-    return price_basis.resolve_sources(conn, tickers, basis, fallback, disputes=DISPUTED_DAYS)
+    return price_basis.resolve_sources(conn, tickers, basis, fallback, members=members, disputes=DISPUTED_DAYS)
 
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:

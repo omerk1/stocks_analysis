@@ -34,9 +34,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
-
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import builder_sources
+from src.signals.divergences.store import builder_sources, purge_flagged
 
 logger = logging.getLogger(__name__)
 
@@ -288,22 +287,12 @@ def build_context(
     # skipped, never computed on a mismatched vendor; a vendor-stale ticker
     # recovers once detection replaces its events.
     sources, flagged = builder_sources(
-        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
-    written = skipped = processed = unresolved = vendor_stale = 0
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_context", flagged, "daily", logger)
+    written = skipped = processed = 0
     for ticker in tickers:
         if ticker in flagged:
-            n_purged = derived_conn.execute(
-                "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
-            ).rowcount
-            derived_conn.commit()
-            logger.warning("%s: %s -- purged %d stale context row(s)%s", ticker, flagged[ticker], n_purged,
-                           "; rescan detection first" if flagged[ticker] == "vendor_stale" else "")
-            if flagged[ticker] == "unresolved":
-                unresolved += 1
-            else:
-                vendor_stale += 1
             continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",

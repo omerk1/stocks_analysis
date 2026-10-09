@@ -18,6 +18,7 @@ from src.signals.divergences.plotting import render_divergence_chart
 from src.signals.divergences.store import (
     PRIMARY_SOURCE,
     create_divergences_table,
+    forget_ticker,
     purge_ticker,
     recorded_run_sources,
     stored_tickers,
@@ -57,14 +58,13 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
 
     `replace_from` (the recorded old vendor) marks a vendor-changed ticker:
     its stored events and context rows are purged — but only AFTER the new
-    vendor's detection succeeded, and in the same transaction as the run
-    row (record_run commits both), so a skip (too few bars on the new
-    vendor) leaves the old rows and the old run record untouched: the ticker
-    stays flagged vendor-stale (context/controls purge their derived rows
-    and skip it) instead of losing its events and re-purging on every run.
-    The one non-atomic window left is an upsert failure after record_run;
-    the --all loop reports it as FAILED, and a single-ticker rerun repairs
-    it (same vendor, plain upsert)."""
+    vendor's detection succeeded. The purge, the run row and the new events
+    are ONE transaction (record_run(commit=False); upsert_divergences
+    commits): any failure rolls all three back, so a ticker can never end up
+    recorded as scanned on its current vendor without its events (which the
+    controls builder would read as "no divergence anywhere"). A skip (too few
+    bars on the new vendor) touches nothing: the ticker stays flagged
+    vendor-stale instead of losing its events and re-purging every run."""
     divergences, report, skip_reason = detect(conn, ticker, timeframe, config, as_of=as_of, source=source)
     if skip_reason is not None:
         note = (f" (vendor change {replace_from} -> {source} NOT applied: old events kept, "
@@ -72,10 +72,7 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
         print(f"{ticker}/{timeframe.value}: skipped -- {skip_reason}{note}")
         return None, None
 
-    if replace_from is not None:
-        n_old = purge_ticker(derived_conn, ticker, timeframe.value)
-        print(f"{ticker}/{timeframe.value}: vendor changed ({replace_from} -> {source}); "
-              f"replacing {n_old} stored event(s)")
+    n_old = purge_ticker(derived_conn, ticker, timeframe.value) if replace_from is not None else 0
 
     run_id = derived_db.record_run(
         derived_conn, "divergences", ticker, timeframe.value,
@@ -84,10 +81,14 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
         # it back, and a later resolution change triggers a rescan that replaces the old events on success.
         json.dumps({**config.__dict__, "bar_source": source}, default=str),
         report.rows_dropped, report.unreliable,
+        commit=False,
     )
     for divergence in divergences:
         divergence.run_id = run_id
-    upsert_divergences(derived_conn, divergences, run_id)
+    upsert_divergences(derived_conn, divergences, run_id)  # commits purge + run row + events together
+    if replace_from is not None:
+        print(f"{ticker}/{timeframe.value}: vendor changed ({replace_from} -> {source}); "
+              f"replaced {n_old} stored event(s)")
 
     warn_note = ", UNRELIABLE" if report.unreliable else ""
     print(
@@ -148,7 +149,7 @@ def _print_plan(conn, sources: dict[str, str], n_disputed: int, recorded: dict, 
             sample = ", ".join(todo_member_delisted[:12])
             more = "" if len(todo_member_delisted) <= 12 else f", ... (+{len(todo_member_delisted) - 12})"
             print(f"  delisted dev-window members: {sample}{more}")
-        print(f"  unresolved tickers still carrying stored events (--purge-unresolved would delete): "
+        print(f"  unresolved tickers with stored events or runs (--purge-unresolved would forget): "
               f"{len(orphaned[tf])}{': ' + ', '.join(orphaned[tf]) if orphaned[tf] else ''}")
     print("\nPLAN ONLY -- nothing was detected or written.")
 
@@ -182,9 +183,10 @@ def main():
     )
     parser.add_argument(
         "--purge-unresolved", action="store_true",
-        help="With --all: DELETE the stored events (and context rows) of tickers that no "
-             "longer resolve (whole-history price dispute or no bars). Off by default -- "
-             "destructive, run it deliberately; --plan lists who it would hit",
+        help="With --all: DELETE everything stored for tickers that no longer resolve "
+             "(whole-history price dispute or no bars): events, context rows, control pairs "
+             "and their divergence runs rows, so a ticker that resolves again later is "
+             "rescanned from scratch. Off by default -- destructive; --plan lists who",
     )
     args = parser.parse_args()
 
@@ -215,7 +217,10 @@ def main():
         # Tickers with stored events that no longer resolve: detection never
         # touches them again, so without an explicit purge their events
         # outlive the dispute that disqualified them.
-        orphaned = {tf: sorted(stored_tickers(derived_conn, tf.value) - set(sources)) for tf in timeframes}
+        orphaned = {
+            tf: sorted((stored_tickers(derived_conn, tf.value) | set(recorded[tf])) - set(sources))
+            for tf in timeframes
+        }
         if args.plan:
             _print_plan(conn, sources, n_disputed, recorded, timeframes, orphaned)
             conn.close()
@@ -224,7 +229,7 @@ def main():
         n_orphan_rows = 0
         for tf in timeframes:
             if orphaned[tf] and args.purge_unresolved:
-                n_tf = sum(purge_ticker(derived_conn, ticker, tf.value) for ticker in orphaned[tf])
+                n_tf = sum(forget_ticker(derived_conn, ticker, tf.value) for ticker in orphaned[tf])
                 derived_conn.commit()
                 n_orphan_rows += n_tf
                 print(f"{tf.value}: purged {n_tf} stored event(s) of {len(orphaned[tf])} "

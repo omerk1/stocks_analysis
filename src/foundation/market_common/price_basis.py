@@ -31,7 +31,8 @@ import sqlite3
 from enum import Enum
 
 from src.foundation.data_processing import db
-from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
+from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
@@ -170,8 +171,9 @@ def resolve_sources(
     whose bars are another company's) is left out, so it has no bars at
     all -- not in the universe, the ranks, the labels, or a detector's scan.
     `members` as in `ticker_sources` (full-universe callers pass the
-    per-source ticker sets they already listed). `disputes` defaults to the
-    loaded price_disputes list; a module with its own binding of that list
+    per-source ticker sets they already listed). `disputes` defaults to
+    `price_disputes.DISPUTED_DAYS`, read through the module at call time so
+    patching that one canonical name reaches this policy; a module with its own binding of that list
     (models.dataset, whose tests patch it) passes it explicitly so exclusion
     and its cache manifest can never read two different lists.
     (Moved here from models.dataset when divergences opted into the
@@ -179,7 +181,7 @@ def resolve_sources(
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
     sources = ticker_sources(conn, tickers, basis, fallback=True, members=members)
-    excluded = _whole_history_disputes(DISPUTED_DAYS if disputes is None else disputes)
+    excluded = _whole_history_disputes(price_disputes.DISPUTED_DAYS if disputes is None else disputes)
     return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in excluded}
 
 

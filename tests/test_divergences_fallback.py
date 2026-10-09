@@ -11,7 +11,6 @@ import pytest
 
 from src.foundation.data_processing import db
 from src.foundation.market_common import derived_db
-from src.foundation.market_common import price_basis as pb
 from src.foundation.market_common.data import load_bars
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import (
@@ -27,6 +26,7 @@ from src.signals.divergences.store import (
     PRIMARY_SOURCE,
     builder_sources,
     create_divergences_table,
+    forget_ticker,
     purge_ticker,
     recorded_run_sources,
     stored_tickers,
@@ -50,8 +50,9 @@ def conn():
 
 @pytest.fixture
 def synthetic_dispute(monkeypatch):
+    from src.foundation.market_common import price_disputes
     monkeypatch.setattr(
-        pb, "DISPUTED_DAYS",
+        price_disputes, "DISPUTED_DAYS",
         (DisputedDay(DISPUTED, None, "yfinance", "synthetic whole-history dispute"),),
     )
 
@@ -251,7 +252,7 @@ def test_builder_sources_flags_unresolved_and_vendor_stale(conn, derived, synthe
     for t, src in (("OK", None), (DISPUTED, None), ("STALE", None)):
         derived_db.record_run(derived, "divergences", t, "daily", None, json.dumps({}), 0, False)
     sources, flagged = builder_sources(
-        conn, derived, ["OK", DISPUTED, "STALE"], PriceBasis.TRADED, fallback=True
+        conn, derived, ["OK", DISPUTED, "STALE"], PriceBasis.TRADED, fallback=True, timeframe="daily"
     )
     assert flagged == {DISPUTED: "unresolved", "STALE": "vendor_stale"}
     assert sources["OK"] == db.YFINANCE_SPLIT_ONLY
@@ -281,3 +282,41 @@ def test_control_builder_purges_pairs_of_flagged_tickers(conn, derived, syntheti
     _w, _p, _s, unresolved, vendor_stale = build_control_pairs(conn, derived)
     assert (unresolved, vendor_stale) == (1, 1)
     assert derived.execute("SELECT COUNT(*) FROM divergence_control_pairs").fetchone()[0] == 0
+
+
+def test_vendor_change_rescan_is_atomic_on_write_failure(conn, derived, monkeypatch):
+    """Purge + run row + new events are one transaction: a failing event
+    write must roll back the purge and the run row too -- otherwise the
+    ticker reads as scanned on its new vendor with no events."""
+    from src.signals.divergences import cli
+
+    _seed_old_vendor_event(derived)
+    db.upsert_bars(conn, "bars_1d", "T", db.TIINGO_SPLIT_ONLY, _walk(400))
+
+    def boom(*_a, **_k):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(cli, "upsert_divergences", boom)
+    with pytest.raises(RuntimeError):
+        _run_one(conn, derived, "T", Timeframe.DAILY, None, DivergenceConfig(), None, "rsi",
+                 source=db.TIINGO_SPLIT_ONLY, replace_from=PRIMARY_SOURCE)
+    derived.rollback()  # what the --all loop does on an exception
+    assert derived.execute("SELECT COUNT(*) FROM divergences WHERE id = 'old1'").fetchone()[0] == 1
+    assert derived.execute("SELECT COUNT(*) FROM runs WHERE ticker = 'T'").fetchone()[0] == 1
+    assert vendor_changed(recorded_run_sources(derived, "daily"), "T", db.TIINGO_SPLIT_ONLY)
+
+
+def test_forget_ticker_drops_events_pairs_and_runs(derived):
+    from src.signals.divergences.controls import create_control_pairs_table
+
+    _seed_old_vendor_event(derived)
+    create_control_pairs_table(derived)
+    derived.execute(
+        "INSERT INTO divergence_control_pairs (id, ticker, timeframe, direction, p2_date)"
+        " VALUES ('p1', 'T', 'daily', 'bearish', '2015-01-05')"
+    )
+    assert forget_ticker(derived, "T", "daily") == 1
+    derived.commit()
+    for table in ("divergences", "divergence_control_pairs", "runs"):
+        assert derived.execute(f"SELECT COUNT(*) FROM {table} WHERE ticker = 'T'").fetchone()[0] == 0
+    assert "T" not in recorded_run_sources(derived, "daily")  # a later --missing-only rescans it

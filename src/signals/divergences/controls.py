@@ -37,9 +37,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import builder_sources
+from src.signals.divergences.store import builder_sources, purge_flagged
 from src.signals.divergences.context import compute_context_for_ticker
 
 # Same-package reuse of detection's own price-pivot path (underscore
@@ -258,22 +257,12 @@ def build_control_pairs(
     # skipped -- their has_divergence flags would be judged against another
     # vendor's events, or against events that should not exist.
     sources, flagged = builder_sources(
-        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
-    written = skipped = processed = unresolved = vendor_stale = 0
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_control_pairs", flagged, "daily", logger)
+    written = skipped = processed = 0
     for ticker in tickers:
         if ticker in flagged:
-            n_purged = derived_conn.execute(
-                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
-            ).rowcount
-            derived_conn.commit()
-            logger.warning("%s: %s -- purged %d stale control pair(s)%s", ticker, flagged[ticker], n_purged,
-                           "; rescan detection first" if flagged[ticker] == "vendor_stale" else "")
-            if flagged[ticker] == "unresolved":
-                unresolved += 1
-            else:
-                vendor_stale += 1
             continue
         try:
             bars, report = data_mod.load_and_validate(
