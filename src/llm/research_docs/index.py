@@ -36,6 +36,8 @@ tokenizer and reports any chunk that gets truncated.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import time
 import warnings
@@ -44,6 +46,7 @@ from pathlib import Path
 
 from llama_index.core import StorageContext, VectorStoreIndex, load_index_from_storage
 from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.core import Document
 from llama_index.core.schema import BaseNode, MetadataMode
 
 from src.llm.research_docs.chunk import chunk_documents
@@ -52,6 +55,7 @@ from src.llm.research_docs.load import load_documents
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 MAX_TOKENS = 512  # bge's limit; tokens past it are dropped without an error
 PERSIST_DIR = Path("data/llm/research_docs_index")
+SOURCES = "sources.json"  # path -> content hash of every doc the index was built from
 
 # Chunks for the similarity demo, as (label, path, metadata filter, n-th match). Two
 # experiment rows of the same module, one of another module, and two unrelated done.md
@@ -90,6 +94,29 @@ def build_index(nodes: list[BaseNode], embed: BaseEmbedding,
     index = VectorStoreIndex(nodes, embed_model=embed, show_progress=True)
     index.storage_context.persist(persist_dir=str(persist_dir))
     return index
+
+
+def fingerprints(docs: list[Document]) -> dict[str, str]:
+    return {d.metadata["path"]: hashlib.sha256(d.text.encode()).hexdigest() for d in docs}
+
+
+def write_sources(docs: list[Document], persist_dir: Path = PERSIST_DIR) -> None:
+    """Record what the index was built from. Call with the docs as loaded at the start of
+    the build, so an edit made while embedding still shows up as a change."""
+    (persist_dir / SOURCES).write_text(json.dumps(fingerprints(docs), indent=1, sort_keys=True))
+
+
+def changed_sources(docs: list[Document], persist_dir: Path = PERSIST_DIR) -> list[str] | None:
+    """Docs edited, added or deleted since the index was built, as `path (what)`; None if
+    the index predates source tracking."""
+    path = persist_dir / SOURCES
+    if not path.is_file():
+        return None
+    built, now = json.loads(path.read_text()), fingerprints(docs)
+    return sorted(
+        [f"{p} (edited)" for p in now if p in built and now[p] != built[p]]
+        + [f"{p} (added)" for p in now.keys() - built.keys()]
+        + [f"{p} (deleted)" for p in built.keys() - now.keys()])
 
 
 def load_index(embed: BaseEmbedding, persist_dir: Path = PERSIST_DIR) -> VectorStoreIndex:
@@ -161,12 +188,14 @@ def main() -> None:
         from llama_index.core import MockEmbedding
         print(similarity_table(load_index(MockEmbedding(embed_dim=1))))
         return
-    nodes = chunk_documents(load_documents())
+    docs = load_documents()
+    nodes = chunk_documents(docs)
     embed = embed_model()
     tokenizer = embed._model.tokenizer
     cut = truncated(nodes, lambda t: len(tokenizer(t)["input_ids"]))
     start = time.perf_counter()
     index = build_index(nodes, embed)
+    write_sources(docs)
     took = time.perf_counter() - start
     dim = len(next(iter(stored_vectors(index).values()))[1])
     print(f"embedded {len(nodes)} chunks with {MODEL_NAME}: {dim}-dim vectors, {took:.0f}s "

@@ -79,15 +79,6 @@ def first_hit(nodes: list[BaseNode], golds: list[dict]) -> int | None:
     return None
 
 
-def docs_newer_than(index_file: Path, root: Path) -> list[Path]:
-    """Docs modified after the index was built (by file time, so a git checkout or merge
-    that touches a doc counts too)."""
-    from src.llm.research_docs.load import EXTENSIONS
-
-    built = index_file.stat().st_mtime
-    return sorted(p for p in root.rglob("*") if p.suffix in EXTENSIONS and p.stat().st_mtime > built)
-
-
 def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
     """Golds that match no chunk: a doc was edited or re-chunked under the question."""
     return [f"{q['id']}: {g}" for q in questions for g in q["gold"]
@@ -138,21 +129,24 @@ def main() -> None:
         problems = check_golds(questions, chunk_documents(load_documents()))
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
-    from src.llm.research_docs.index import PERSIST_DIR, embed_model, load_index
-    from src.llm.research_docs.load import DOCS_ROOT
+    from src.llm.research_docs.index import changed_sources, embed_model, load_index
+    from src.llm.research_docs.load import load_documents
     index = load_index(embed_model())
-    # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
-    # retrieval miss, so refuse to score; a doc edited since the build only warns, since
-    # the edit may not touch any question.
+    # The index is rebuilt by hand. A doc changed since the build only warns (the change
+    # may not touch any question); a gold no indexed chunk matches would score as a
+    # retrieval miss, so the run refuses to score.
+    changed = changed_sources(load_documents())
+    if changed is None:
+        print("warning: index predates source tracking; rebuild it to check it's current",
+              file=sys.stderr)
+    elif changed:
+        print("warning: docs changed since the index was built (rebuild for current numbers):",
+              *changed, sep="\n  ", file=sys.stderr)
     unmatched = check_golds(questions, list(index.docstore.docs.values()))
     if unmatched:
         print("golds that match no indexed chunk (rebuild the index, or fix the gold):",
-              *unmatched, sep="\n", file=sys.stderr)
+              *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
-    newer = docs_newer_than(PERSIST_DIR / "docstore.json", DOCS_ROOT)
-    if newer:
-        print(f"warning: {len(newer)} doc(s) changed since the index was built, e.g. {newer[0]};"
-              " rebuild for current numbers", file=sys.stderr)
     print(report(evaluate(index, questions)))
 
 

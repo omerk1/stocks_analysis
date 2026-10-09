@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, docs_newer_than, first_hit, load_questions, matches, report, scores)
+    check_golds, first_hit, load_questions, matches, report, scores)
 from src.llm.research_docs.load import load_documents
 
 
@@ -35,15 +35,6 @@ def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
     monkeypatch.setattr(ev, "search", lambda index, question, k: [])
     rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md"}]}])
     assert rows[0]["rank"] is None and rows[0]["top"] == "-"
-
-
-def test_docs_newer_than_the_index(tmp_path):
-    import os
-    index_file, old, new = tmp_path / "docstore.json", tmp_path / "old.md", tmp_path / "new.md"
-    for p, t in ((old, 100), (index_file, 200), (new, 300)):
-        p.write_text("x")
-        os.utime(p, (t, t))
-    assert docs_newer_than(index_file, tmp_path) == [new]
 
 
 def test_scores_hit_at_k_and_mrr():
