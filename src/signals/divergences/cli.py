@@ -81,7 +81,7 @@ def _run_one(conn, derived_conn, ticker, timeframe, as_of, config, plot_path, pl
         derived_conn, "divergences", ticker, timeframe.value,
         str(as_of) if as_of else None,
         # bar_source makes vendor drift visible: recorded_run_sources reads
-        # it back, and a later resolution change triggers a purge+rescan.
+        # it back, and a later resolution change triggers a rescan that replaces the old events on success.
         json.dumps({**config.__dict__, "bar_source": source}, default=str),
         report.rows_dropped, report.unreliable,
     )
@@ -111,7 +111,7 @@ def _print_plan(conn, sources: dict[str, str], n_disputed: int, recorded: dict, 
                 orphaned: dict) -> None:
     """The --plan dry run: what the resolved universe looks like and what a
     --missing-only backfill would actually touch (never-scanned tickers plus
-    vendor-changed ones, which get a purge+rescan), with the delisted/PIT
+    vendor-changed ones, which are rescanned and replaced on success), with the delisted/PIT
     breakdown that motivated the fallback. Reads only; writes nothing."""
     from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals
 
