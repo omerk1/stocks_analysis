@@ -123,7 +123,34 @@ b), they go in on a fixed grid instead.
 
 Kept separate from levels:
 - **Divergences:** net active divergence direction, weighted by `strength`, over the
-  last 21 bars; `confluence_count` of the newest one.
+  last 21 bars; confluence of the newest one — **recomputed point-in-time, never the
+  stored column** (see constraints below).
+- **Divergence-feature constraints (added 2026-10-09, from the divergence-context
+  study — full record in `docs/features/divergence-context/`):**
+  1. **Stored `confluence_count`/`agreeing_indicators` are FULL-RUN values** — the
+     backfill runs `as_of=None`, and confluence is deliberately computed after the
+     as_of filter because it is not truncation-stable. A per-date feature reading
+     the stored columns is look-ahead. Use `divergences.context.pit_confluence()`
+     to re-cluster from stored rows at each date (everything needed is stored);
+     the equivalence guarantee (`tests/test_divergences_asof_equivalence.py`)
+     covers event identity/geometry only, explicitly not confluence.
+  2. **Hidden forms exist** (`form` column, #158): `direction` is the implied move
+     for both forms, but regular (reversal-flavored) and hidden
+     (continuation-flavored) are different claims off the same swing — decide
+     explicitly whether "net direction" pools them, and prefer separate features
+     or a form interaction over silent pooling.
+  3. **Condition on context.** The study's one solid result: the label's
+     information content differs ~3× by context — near-tautological after an
+     explosive move (nearly every new extreme prints one), selective after a
+     consolidation (~29% of comparable swings). `divergence_context` stores the
+     scalars (retrace fraction, leg2 bars, impulse, vol); an interaction or
+     context gate beats pooling. The registered mean-level test read out
+     all-Inconclusive, so this is a feature-engineering prior, not a claimed
+     effect.
+  4. **Survivorship gate:** until the Done #103 recompute lands, the
+     `divergences`/`divergence_control_pairs` tables are survivors-only (zero
+     delisted tickers). F6 features built before that recompute inherit the bias;
+     build after it, or mark the trial accordingly.
 - **Market structure:** direction of the last BOS/CHoCH and bars since it.
 - **Patterns:** direction of an as-of-safe active pattern, and its `confidence`.
 
