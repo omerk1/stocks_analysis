@@ -475,6 +475,29 @@ Build order, one PR each, each with its own tests:
      B4's columns. All 8 trials are worse in 2014–17 and better in 2018–21; the
      sliding scheme would tell more training data from a regime change. Details are in
      the `PREREGISTRATION.md` result addendum.
+6. **The combined model, judged on trading** (direction set 2026-10-08, after E1). The
+   goal of the modeling phase is one model over many simple features (MA family,
+   indicators, point-in-time zones and levels, divergences, patterns, volume, breadth)
+   whose top picks make trades with a good reward/risk after costs. Single simple
+   features aren't expected to carry an edge alone. So the headline is the realised
+   trading result of the model's top-k picks across the barrier grid, against B4's
+   picks and the market. Feature-group ablations like E1 become diagnostics, not the
+   question.
+   - **Step 1 (Track A): the trading scorecard.** `src/models/trading.py`, CLI
+     `run-scorecard`. At every barrier cell, the model (every registered column) and
+     B4 are fitted as E1's are. Each day's top 5 and top 20 by EV are scored against
+     B4's top k and the market (every eligible row's trade). The readouts are target,
+     stop and timeout rates, win rate, average win and loss (the realised R/R),
+     expectancy, profit factor, skew, trades per year and cost drag, each at 0, 10 and
+     25 bps. Each strategy also gets an era split and a non-overlapping portfolio:
+     annual return, drawdown and Sharpe, as the median over the H possible start days.
+     The model minus B4, and minus the market, get date-block CIs. Every cell is a
+     `TRIALS.csv` row (`S1`), with no verdict. This is a shakedown on today's features
+     (B4 + MA). E1 has already shown these features' top picks at cell 2/2, so no look
+     at them on 2010–2021 is fresh.
+   - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
+     divergences, patterns and the rest. Then one pre-registered trading test of the
+     full set, and the holdout opened once at the end.
 
 ---
 

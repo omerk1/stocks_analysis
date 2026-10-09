@@ -450,7 +450,9 @@ def test_the_disputes_file_loads_and_names_known_vendors():
 
 def test_a_whole_history_dispute_removes_the_ticker_from_the_modeling_universe(conn, monkeypatch):
     from src.foundation.market_common.price_disputes import DisputedDay
-    monkeypatch.setattr(dataset, "DISPUTED_DAYS", (DisputedDay("BBB", None, "yfinance", "reused symbol"),))
+    from src.foundation.market_common import price_basis
+    # whole-history disputes are read in price_basis.resolve_sources (#194)
+    monkeypatch.setattr(price_basis, "DISPUTED_DAYS", (DisputedDay("BBB", None, "yfinance", "reused symbol"),))
 
     mask = universe_mask(conn, "2020-01-01", "2020-06-30")
 
