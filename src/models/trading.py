@@ -20,9 +20,10 @@ are scored on the same test dates:
 Per strategy and round-trip cost: target / stop / timeout rates, win rate,
 average win and loss and their ratio (the realised R/R), expectancy per trade,
 profit factor, skew, trades per year and the yearly cost drag, the same per
-era, and a **portfolio** view: every H trading days, enter that day's picks
+era (with its trades and dates), and a **portfolio** view: every H trading days, enter that day's picks
 equally weighted, so positions never overlap; annual return, max drawdown and
-Sharpe, as the median over the H possible start days (one start day is luck).
+Sharpe, as the median over the H possible start days (one start day is luck),
+and its yearly cost drag.
 The portfolio assumes capital is tied up for the full H days even when a
 barrier exits early.
 
@@ -107,8 +108,10 @@ def basket(trades: pd.DataFrame, cost_bps: float = 0) -> pd.Series:
 
 def trade_stats(trades: pd.DataFrame, cost_bps: float, n_years: float) -> dict:
     """The trade-level readout of one strategy at one round-trip cost. A trade
-    "wins" if it is positive after cost. `n_years` is the test span, for
-    trades per year and the yearly cost drag (CLAUDE.md invariant 8)."""
+    "wins" if it is positive after cost. `n_years` is the test span:
+    `trades_per_year` counts the daily signal stream (overlapping positions),
+    not what the portfolio holds; the portfolio's yearly cost drag is in
+    `portfolio` (CLAUDE.md invariant 8)."""
     net = trades["ret"] - cost_bps / 1e4
     wins, losses = net[net > 0], net[net <= 0]
     per_year = len(trades) / n_years
@@ -116,7 +119,6 @@ def trade_stats(trades: pd.DataFrame, cost_bps: float, n_years: float) -> dict:
         "n_trades": int(len(trades)),
         "n_dates": int(trades["date"].nunique()),
         "trades_per_year": float(per_year),
-        "cost_per_year": float(per_year * cost_bps / 1e4),
         "target_rate": float((trades["hit"] == 1).mean()),
         "stop_rate": float((trades["hit"] == -1).mean()),
         "timeout_rate": float((trades["hit"] == 0).mean()),
@@ -131,11 +133,14 @@ def trade_stats(trades: pd.DataFrame, cost_bps: float, n_years: float) -> dict:
     }
 
 
-def portfolio(daily: pd.Series, horizon: int) -> dict:
-    """Non-overlapping holding: every `horizon`-th date's basket, compounded.
-    One series per start day (0 .. horizon - 1); the median of each statistic
-    across them, plus the annual return's range."""
+def portfolio(daily: pd.Series, horizon: int, cost_bps: float) -> dict:
+    """Non-overlapping holding: every `horizon`-th date's basket (already net
+    of `cost_bps`), compounded. One series per start day (0 .. horizon - 1);
+    the median of each statistic across them, plus the annual return's range.
+    `cost_drag` is the yearly cost of this holding: one round trip per hold,
+    252 / H holds a year. NaN statistics if no start day has two holds."""
     daily = daily.sort_index()
+    drag = float(TRADING_DAYS / horizon * cost_bps / 1e4)
     runs = []
     for start in range(min(horizon, len(daily))):
         r = daily.iloc[start::horizon]
@@ -148,8 +153,11 @@ def portfolio(daily: pd.Series, horizon: int) -> dict:
             "max_drawdown": float((equity / np.maximum.accumulate(equity) - 1).min()),
             "sharpe": float(r.mean() / r.std() * np.sqrt(TRADING_DAYS / horizon)) if r.std() > 0 else np.nan,
         })
+    if not runs:
+        return {"annual_return": np.nan, "max_drawdown": np.nan, "sharpe": np.nan, "annual_return_min": np.nan,
+                "annual_return_max": np.nan, "n_start_days": 0, "cost_drag": drag}
     runs = pd.DataFrame(runs)
-    return {**{c: float(runs[c].median()) for c in runs.columns},
+    return {"cost_drag": drag, **{c: float(runs[c].median()) for c in runs.columns},
             "annual_return_min": float(runs["annual_return"].min()),
             "annual_return_max": float(runs["annual_return"].max()),
             "n_start_days": int(len(runs))}
@@ -164,7 +172,10 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     neither = neither_returns(frame, folds)
     keys = ["ticker", "date"]
-    every = frame.merge(model[keys], on=keys).dropna(subset=["ret"])
+    if any(np.isnan(v) for v in neither.values()):
+        raise ValueError(f"a fold's training window has no 'neither' rows to price EV with: {neither}")
+    # the rows a model can pick: scored, resolved, and with a decision-time EV
+    every = frame.merge(model[keys], on=keys).dropna(subset=["ret", "atr", "close_t"])
     n_years = every["date"].nunique() / TRADING_DAYS
     metrics = {"neither_ret": neither, "n_years": n_years, "by_k": {}}
     boots = {}
@@ -181,9 +192,11 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
             t_year = t["date"].dt.year
             out[s] = {
                 "costs": {c: trade_stats(t, c, n_years) for c in sc.costs_bps},
-                "by_era": {f"{e[0]}-{e[-1]}": float(t.loc[t_year.isin(e), "ret"].mean() - HEADLINE_COST_BPS / 1e4)
-                           for e in sc.eras},
-                "portfolio": portfolio(basket(t, HEADLINE_COST_BPS), cell.horizon),
+                "by_era": {f"{e[0]}-{e[-1]}": {
+                    "expectancy": float(t.loc[t_year.isin(e), "ret"].mean() - HEADLINE_COST_BPS / 1e4),
+                    "n_trades": int(t_year.isin(e).sum()),
+                    "n_dates": int(t.loc[t_year.isin(e), "date"].nunique())} for e in sc.eras},
+                "portfolio": portfolio(basket(t, HEADLINE_COST_BPS), cell.horizon, HEADLINE_COST_BPS),
             }
         metrics["by_k"][k] = out
     return metrics, boots

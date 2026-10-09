@@ -485,12 +485,14 @@ Build order, one PR each, each with its own tests:
    question.
    - **Step 1 (Track A): the trading scorecard.** `src/models/trading.py`, CLI
      `run-scorecard`. At every barrier cell, the model (every registered column) and
-     B4 are fitted as E1's are. Each day's top 5 and top 20 by EV are scored against
+     B4 are fitted as E1's are, but at one seed, not three (a shakedown; E1-size runs
+     come with the pre-registered test). Each day's top 5 and top 20 by EV are scored against
      B4's top k and the market (every eligible row's trade). The readouts are target,
      stop and timeout rates, win rate, average win and loss (the realised R/R),
-     expectancy, profit factor, skew, trades per year and cost drag, each at 0, 10 and
+     expectancy, profit factor, skew and the daily signal count, each at 0, 10 and
      25 bps. Each strategy also gets an era split and a non-overlapping portfolio:
-     annual return, drawdown and Sharpe, as the median over the H possible start days.
+     annual return, drawdown and Sharpe, as the median over the H possible start days, and
+     its yearly cost drag (one round trip per hold, 252 / H holds a year).
      The model minus B4, and minus the market, get date-block CIs. Every cell is a
      `TRIALS.csv` row (`S1`), with no verdict. This is a shakedown on today's features
      (B4 + MA). E1 has already shown these features' top picks at cell 2/2, so no look

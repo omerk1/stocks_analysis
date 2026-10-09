@@ -27,7 +27,6 @@ def test_trade_stats_reads_wins_losses_and_costs():
                            "ticker": list("ABCD"), "hit": [1, -1, 0, 1], "ret": [0.04, -0.02, 0.0015, 0.03]})
     s = trading.trade_stats(trades, cost_bps=10, n_years=0.5)
     assert s["n_trades"] == 4 and s["n_dates"] == 2 and s["trades_per_year"] == 8
-    assert s["cost_per_year"] == pytest.approx(8 * 0.001)
     assert (s["target_rate"], s["stop_rate"], s["timeout_rate"]) == (0.5, 0.25, 0.25)
     # net: 0.039, -0.021, 0.0005, 0.029 -> three wins, one loss
     assert s["win_rate"] == 0.75
@@ -40,12 +39,15 @@ def test_trade_stats_reads_wins_losses_and_costs():
 
 def test_portfolio_compounds_non_overlapping_holds():
     days = pd.bdate_range("2020-01-01", periods=252)
-    p = trading.portfolio(pd.Series(0.01, index=days), horizon=2)
+    p = trading.portfolio(pd.Series(0.01, index=days), horizon=2, cost_bps=10)
     # 126 holds of +1% a year, whichever day it starts on
     assert p["annual_return"] == pytest.approx(1.01 ** 126 - 1)
     assert p["max_drawdown"] == 0 and p["n_start_days"] == 2
-    falling = trading.portfolio(pd.Series([0.1, -0.5, 0.1, -0.5], index=days[:4]), horizon=1)
+    assert p["cost_drag"] == pytest.approx(126 * 0.001)
+    falling = trading.portfolio(pd.Series([0.1, -0.5, 0.1, -0.5], index=days[:4]), horizon=1, cost_bps=0)
     assert falling["max_drawdown"] == pytest.approx(1.1 * 0.5 * 1.1 * 0.5 / 1.1 - 1)
+    # too short for two holds from any start day: NaN, not a crash
+    assert np.isnan(trading.portfolio(pd.Series(0.01, index=days[:2]), horizon=2, cost_bps=0)["annual_return"])
 
 
 def test_picks_take_each_dates_highest_ev():
@@ -106,5 +108,6 @@ def test_the_scorecard_finds_a_planted_edge_and_nothing_in_noise(tmp_path, monke
         assert m["model"]["costs"][0]["expectancy"] - net["model"] == pytest.approx(0.001)
         # the planted edge moves which barrier is hit first, so it shows in the target rate
         assert m["model"]["costs"][10]["target_rate"] > m["market"]["costs"][10]["target_rate"]
+    assert sum(e["n_dates"] for e in m["model"]["by_era"].values()) == m["vs_market"]["n_dates"]
     table = trading.grid_table([r], k=5)
     assert list(table[["H", "U", "D"]].iloc[0]) == [21, 2.0, 1.5]
