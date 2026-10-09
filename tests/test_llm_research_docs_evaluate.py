@@ -44,6 +44,9 @@ def test_stale_paths_finds_edited_added_and_deleted_files():
     assert stale_paths(indexed, list(reversed(indexed))) == []  # order doesn't matter
     current = [n("a.md", "x"), n("a.md", "y"), n("b.md", "z2"), n("d.md", "v")]
     assert stale_paths(indexed, current) == ["b.md", "c.md", "d.md"]
+    # same text, changed embedded metadata (e.g. a CSV row's outcome) is stale too
+    retagged = Document(text="w", metadata={"path": "c.md", "outcome": "dead"})
+    assert stale_paths(indexed, indexed[:3] + [retagged]) == ["c.md"]
 
 
 def test_scores_hit_at_k_and_mrr():
@@ -58,6 +61,7 @@ def test_report_breaks_scores_down_by_type_and_style():
             {"id": "q2", "type": "entry", "style": "plain", "rank": None, "top": "docs/done.md > #1"}]
     out = report(rows)
     assert "q2" in out and "type=row" in out and "style=plain" in out
+    assert "STALE" not in out and report(rows, ["docs/a.md"]).startswith("STALE INDEX: 1 file(s)")
     assert out.splitlines()[2].split()[3] == "-"  # q2 found nothing in the top 10
 
 

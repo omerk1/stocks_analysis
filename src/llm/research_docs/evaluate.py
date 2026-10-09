@@ -40,7 +40,7 @@ import sys
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode
+from llama_index.core.schema import BaseNode, MetadataMode
 
 from src.llm.research_docs.retrieve import cite, search
 
@@ -85,7 +85,7 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
     def by_path(nodes):
         out: dict[str, list[str]] = {}
         for n in nodes:
-            out.setdefault(n.metadata["path"], []).append(n.get_content())
+            out.setdefault(n.metadata["path"], []).append(n.get_content(MetadataMode.EMBED))
         return {p: sorted(texts) for p, texts in out.items()}
     old, new = by_path(indexed), by_path(current)
     return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
@@ -114,8 +114,15 @@ def scores(rows: list[dict]) -> dict[str, float]:
     return out
 
 
-def report(rows: list[dict]) -> str:
-    lines = [f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4}  top hit"]
+def report(rows: list[dict], stale: list[str] = ()) -> str:
+    """The per-question table and the scores, headed by a STALE line when the index
+    no longer matches the docs (`stale_paths`), so a saved copy carries the flag."""
+    lines = []
+    if stale:
+        lines += [f"STALE INDEX: {len(stale)} file(s) chunk differently now than when the index "
+                  f"was built ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''}); "
+                  "rebuild for current numbers", ""]
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4}  top hit")
     for r in rows:
         rank = str(r["rank"]) if r["rank"] else "-"
         lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>4}  {r['top'][:70]}")
@@ -135,32 +142,28 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks")
     args = ap.parse_args()
     questions = load_questions()
+    from src.llm.research_docs.chunk import chunk_documents
+    from src.llm.research_docs.load import load_documents
+    current = chunk_documents(load_documents())
     if args.check:
-        from src.llm.research_docs.chunk import chunk_documents
-        from src.llm.research_docs.load import load_documents
-        problems = check_golds(questions, chunk_documents(load_documents()))
+        problems = check_golds(questions, current)
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
-    from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.index import embed_model, load_index
-    from src.llm.research_docs.load import load_documents
     index = load_index(embed_model())
     indexed = list(index.docstore.docs.values())
     # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
     # retrieval miss, so refuse to score. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
+    stale = stale_paths(indexed, current)
     unmatched = check_golds(questions, indexed)
     if unmatched:
-        print("golds that match no indexed chunk (rebuild the index, or fix the gold):",
-              *unmatched, sep="\n  ", file=sys.stderr)
+        cause = (f"the index is stale ({len(stale)} file(s) changed), rebuild it" if stale
+                 else "the index is current, so fix the gold")
+        print(f"golds that match no indexed chunk; {cause}:", *unmatched, sep="\n  ",
+              file=sys.stderr)
         raise SystemExit(1)
-    stale = stale_paths(indexed, chunk_documents(load_documents()))
-    if stale:
-        print(f"STALE INDEX: {len(stale)} file(s) chunk differently now than when the index "
-              f"was built ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''}); "
-              "rebuild for current numbers\n")
-    print(report(evaluate(index, questions)))
-
+    print(report(evaluate(index, questions), stale))
 
 if __name__ == "__main__":
     main()
