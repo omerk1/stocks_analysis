@@ -1,3 +1,4 @@
+import pytest
 from llama_index.core import Document
 from llama_index.core.base.embeddings.base import BaseEmbedding
 
@@ -43,6 +44,8 @@ def test_search_ranks_the_matching_chunk_first_and_respects_k(tmp_path):
     assert hits[0].node.metadata["section"] == "Design > Slope"
     assert hits[0].score > hits[1].score
     assert search(index, "breadth regimes", k=1)[0].node.metadata["cell_id"] == "breadth_top"
+    with pytest.raises(ValueError):
+        search(index, "slope", k=0)
 
 
 def test_cite_uses_the_most_precise_id_available():
@@ -50,7 +53,9 @@ def test_cite_uses_the_most_precise_id_available():
         return Document(text="x", metadata={"path": "docs/p", "section": "S > T", **meta})
     assert cite(node(entry="#47")) == "docs/p > #47"
     assert cite(node(cell_id="sma20")) == "docs/p > sma20"
+    assert cite(node(experiment_id="E1")) == "docs/p > E1"
     assert cite(node()) == "docs/p > S > T"
+    assert cite(Document(text="x", metadata={"path": "docs/p"})) == "docs/p"
 
 
 def test_format_hits_shortens_unless_full(tmp_path):

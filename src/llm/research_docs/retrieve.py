@@ -36,6 +36,8 @@ TOP_K = 5
 
 def search(index: VectorStoreIndex, question: str, k: int = TOP_K) -> list[NodeWithScore]:
     """The `k` chunks closest to `question`, best first."""
+    if k < 1:  # LlamaIndex reads 0 as "no limit" and a negative k as "nothing"
+        raise ValueError(f"k must be at least 1, got {k}")
     return index.as_retriever(similarity_top_k=k).retrieve(question)
 
 
@@ -43,8 +45,9 @@ def cite(node: BaseNode) -> str:
     """Where a chunk comes from, as precisely as its metadata allows: a done.md entry
     number, an experiment row's cell id, or a markdown section's heading trail."""
     m = node.metadata
-    where = m.get("entry") or m.get("cell_id") or m.get("trial_id") or m["section"]
-    return f"{m['path']} > {where}"
+    where = (m.get("entry") or m.get("cell_id") or m.get("trial_id")
+             or m.get("experiment_id") or m.get("section"))
+    return f"{m['path']} > {where}" if where else m["path"]
 
 
 def format_hits(hits: list[NodeWithScore], full: bool = False) -> str:
@@ -53,7 +56,8 @@ def format_hits(hits: list[NodeWithScore], full: bool = False) -> str:
         text = h.node.get_content()
         if not full:
             text = textwrap.shorten(text, 240, placeholder=" …")
-        out.append(f"{rank}. {h.score:.3f}  {cite(h.node)}\n{textwrap.indent(text, '     ')}")
+        score = "  n/a" if h.score is None else f"{h.score:.3f}"
+        out.append(f"{rank}. {score}  {cite(h.node)}\n{textwrap.indent(text, '     ')}")
     return "\n\n".join(out)
 
 
