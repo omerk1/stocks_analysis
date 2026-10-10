@@ -34,9 +34,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import resolve_sources, source_for
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import recorded_run_sources
+from src.signals.divergences.store import builder_sources, purge_flagged
 
 logger = logging.getLogger(__name__)
 
@@ -283,34 +282,17 @@ def build_context(
         )
     ]
     # Same per-ticker vendor the detector read: context scalars must come
-    # from the bars the events were found on. Three cases, none silent:
-    # resolved and matching the recorded detection vendor -> compute;
-    # unresolved (whole-history dispute added after its events were
-    # stored) -> its stored context rows are purged, not left stale;
-    # vendor changed since detection -> SKIP with a warning (computing
-    # this vendor's scalars against the other vendor's pivots would be a
-    # silent cross-vendor mismatch) -- rescan detection first, which
-    # purges and replaces the events.
-    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
-    recorded = recorded_run_sources(derived_conn, "daily")
-    primary = source_for(config.price_basis)
-    written = skipped = processed = unresolved = vendor_stale = 0
+    # from the bars the events were found on. Unresolved and vendor-stale
+    # tickers (store.builder_sources) get their context rows purged and are
+    # skipped, never computed on a mismatched vendor; a vendor-stale ticker
+    # recovers once detection replaces its events.
+    sources, skip_tickers = builder_sources(
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
+    )
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_context", skip_tickers, "daily", logger)
+    written = skipped = processed = 0
     for ticker in tickers:
-        if ticker not in sources:
-            n_purged = derived_conn.execute(
-                "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
-            ).rowcount
-            derived_conn.commit()
-            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
-                           "purged %d stale context row(s)", ticker, n_purged)
-            unresolved += 1
-            continue
-        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
-            logger.warning("%s: resolved vendor %s differs from the one its events were "
-                           "detected on (%s) -- skipped; rescan detection first",
-                           ticker, sources[ticker], recorded[ticker] or primary)
-            vendor_stale += 1
+        if ticker in skip_tickers:
             continue
         events = pd.read_sql_query(
             "SELECT * FROM divergences WHERE ticker = ? AND timeframe = 'daily'",
@@ -320,8 +302,9 @@ def build_context(
         # The write path sits INSIDE the per-ticker guard too: a single
         # bad row must mean one skipped ticker (rolled back, counted,
         # logged), never an aborted backfill with the remaining tickers
-        # unprocessed. A committed runs row for a failed ticker is
-        # acceptable (same stance as cli.py's --all loop).
+        # unprocessed. The run row is written with commit=False, so it
+        # commits with this ticker's context rows or rolls back with them
+        # -- same as detection and the controls builder.
         try:
             bars, report = data_mod.load_and_validate(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
@@ -336,6 +319,7 @@ def build_context(
                 derived_conn, "divergence_context", ticker, "daily", None,
                 json.dumps({"impulse_lookback_bars": IMPULSE_LOOKBACK_BARS}),
                 report.rows_dropped, report.unreliable,
+                commit=False,  # lands with this ticker's rows, or rolls back with them
             )
             for row in rows:
                 row["run_id"] = run_id

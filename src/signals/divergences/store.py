@@ -9,7 +9,22 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from src.foundation.market_common.price_basis import (
+    MODULE_PRICE_BASIS,
+    resolve_sources,
+    source_for,
+    source_members,
+)
 from src.signals.divergences.models import Divergence
+
+# The divergence builders walk the whole scanned universe (thousands of
+# tickers, ~2-3% of them off the primary vendor): above this many tickers,
+# list each source once instead of probing per ticker.
+MEMBERS_THRESHOLD = 500
+
+# The vendor a legacy run (recorded before `bar_source` existed) read: the
+# primary source, by construction -- no fallback existed then.
+PRIMARY_SOURCE = source_for(MODULE_PRICE_BASIS["divergences"])
 
 _DIVERGENCES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS divergences (
@@ -149,7 +164,9 @@ def upsert_divergences(conn: sqlite3.Connection, divergences: list[Divergence], 
     conn.commit()
 
 
-def recorded_run_sources(derived_conn: sqlite3.Connection, timeframe: str) -> dict[str, str]:
+def recorded_run_sources(
+    derived_conn: sqlite3.Connection, timeframe: str, ticker: str | None = None
+) -> dict[str, str]:
     """ticker -> the `bars_1d.source` its LATEST detection run read, from the
     runs table's config_json (`bar_source`, recorded since the vendor
     fallback landed). A run predating that record read the primary source by
@@ -162,35 +179,141 @@ def recorded_run_sources(derived_conn: sqlite3.Connection, timeframe: str) -> di
     re-scanned (replace, not upsert -- pivots shift between vendors, and an
     upsert by natural key would leave a mixed-vendor event base)."""
     out: dict[str, str] = {}
-    rows = derived_conn.execute(
-        "SELECT ticker, config_json FROM runs"
-        " WHERE module = 'divergences' AND timeframe = ? ORDER BY started_at",
-        (timeframe,),
-    ).fetchall()
-    for ticker, config_json in rows:  # later rows overwrite: latest run wins
+    sql = "SELECT ticker, config_json FROM runs WHERE module = 'divergences' AND timeframe = ?"
+    params: tuple = (timeframe,)
+    if ticker is not None:  # single-ticker callers: don't parse the whole table
+        sql += " AND ticker = ?"
+        params += (ticker,)
+    rows = derived_conn.execute(sql + " ORDER BY started_at", params).fetchall()
+    for row_ticker, config_json in rows:  # later rows overwrite: latest run wins
         source = None
         if config_json and '"bar_source"' in config_json:
             source = json.loads(config_json).get("bar_source")
-        out[ticker] = source
+        out[row_ticker] = source
     return out
 
 
 def purge_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
-    """Delete a ticker's stored divergences AND their context rows for one
-    timeframe (the control pairs are replace-per-ticker in their own
-    builder). Used when a ticker's resolved vendor changed since its events
-    were stored -- the old rows describe pivots on another vendor's prices
-    and must not survive next to the rescan's. Returns rows deleted from
-    `divergences`. Commits nothing: the caller owns the transaction, so the
-    purge and the rescan's rows land (or roll back) together."""
+    """Delete a ticker's stored divergences, context rows and control pairs
+    for one timeframe -- everything derived from its bars on the vendor they
+    were read from. Used when a ticker's resolved vendor changed (the old
+    rows describe pivots on another vendor's prices; the control pairs'
+    has_divergence flags were judged against those events, and the controls
+    builder's own replace step never runs for a ticker whose new-vendor
+    history yields no pairs). Returns rows deleted from `divergences`.
+    Commits nothing: the CLI's vendor-change path calls it inside the same
+    transaction as the new run row and events."""
     n = derived_conn.execute(
         "DELETE FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
     ).rowcount
-    has_context = derived_conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'divergence_context'"
-    ).fetchone()
-    if has_context:
-        derived_conn.execute(
-            "DELETE FROM divergence_context WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
-        )
+    for table in ("divergence_context", "divergence_control_pairs"):
+        if _table_exists(derived_conn, table):
+            derived_conn.execute(f"DELETE FROM {table} WHERE ticker = ? AND timeframe = ?", (ticker, timeframe))
     return n
+
+
+def vendor_changed(recorded: dict, ticker: str, resolved_source: str) -> bool:
+    """True when the ticker HAS prior detection runs and their bars came
+    from a different vendor than today's resolution (a legacy run with no
+    recorded `bar_source` counts as PRIMARY_SOURCE). Such a ticker's stored
+    events describe pivots on another vendor's prices: detection replaces
+    them (never upserts -- pivots shift between vendors and the natural-key
+    upsert would leave a mixed-vendor event base), and the context/controls
+    builders treat it as stale until it has. One definition for the CLI and
+    both builders."""
+    if ticker not in recorded:
+        return False
+    return (recorded[ticker] or PRIMARY_SOURCE) != resolved_source
+
+
+def stored_tickers(derived_conn: sqlite3.Connection, timeframe: str) -> set[str]:
+    """Every ticker with at least one stored divergence on `timeframe`."""
+    return {
+        r[0] for r in derived_conn.execute(
+            "SELECT DISTINCT ticker FROM divergences WHERE timeframe = ?", (timeframe,)
+        )
+    }
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+    ).fetchone() is not None
+
+
+def forget_ticker(derived_conn: sqlite3.Connection, ticker: str, timeframe: str) -> int:
+    """`purge_ticker` plus the ticker's `runs` rows for detection and both
+    derived builders (divergences, divergence_context,
+    divergence_control_pairs): the module forgets it ever scanned the ticker. For tickers
+    that no longer resolve (--purge-unresolved): keeping the runs rows would
+    leave it "already scanned" with no events -- skipped by --missing-only if
+    its dispute is lifted, and fed to the controls builder (whose universe is
+    the runs table) as a ticker with no divergences anywhere. Commits nothing.
+    Returns rows deleted from `divergences`."""
+    n = purge_ticker(derived_conn, ticker, timeframe)
+    derived_conn.execute(
+        "DELETE FROM runs WHERE module IN ('divergences', 'divergence_context', 'divergence_control_pairs')"
+        " AND ticker = ? AND timeframe = ?",
+        (ticker, timeframe),
+    )
+    return n
+
+
+_BUILDER_TABLES = frozenset({"divergence_context", "divergence_control_pairs"})
+
+
+def purge_flagged(derived_conn: sqlite3.Connection, table: str, flagged: dict[str, str],
+                  timeframe: str, logger) -> tuple[int, int]:
+    """The context/controls builders' shared handling of `builder_sources`'
+    flagged tickers: delete the builder's own rows for each and return
+    (n_unresolved, n_vendor_stale). Warns only when something is
+    actionable: rows were deleted, a ticker is vendor-stale (rescan
+    detection), or an unresolved ticker still has event rows in
+    `divergences` (they stay until `cli --all --purge-unresolved`, so the
+    warning repeats every build until then). A disputed ticker already
+    forgotten logs nothing -- "purged 0" every run would bury the warnings
+    that matter."""
+    if table not in _BUILDER_TABLES:
+        raise ValueError(f"purge_flagged: {table!r} is not a divergence builder table")
+    counts = {"unresolved": 0, "vendor_stale": 0}
+    for ticker, why in flagged.items():
+        n = derived_conn.execute(
+            f"DELETE FROM {table} WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
+        ).rowcount
+        events = 0 if why == "vendor_stale" else derived_conn.execute(
+            "SELECT COUNT(*) FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
+        ).fetchone()[0]
+        if n or events or why == "vendor_stale":
+            hint = ("; rescan detection first" if why == "vendor_stale" else
+                    f"; {events} event row(s) remain in divergences -- `cli --all --purge-unresolved` "
+                    "removes them" if events else "")
+            logger.warning("%s: %s -- purged %d stale %s row(s)%s", ticker, why, n, table, hint)
+        counts[why] += 1
+    derived_conn.commit()
+    return counts["unresolved"], counts["vendor_stale"]
+
+
+def builder_sources(raw_conn: sqlite3.Connection, derived_conn: sqlite3.Connection, tickers: list[str],
+                    basis, fallback: bool, timeframe: str) -> tuple[dict[str, str], dict[str, str]]:
+    """(ticker -> resolved source, ticker -> 'unresolved' | 'vendor_stale')
+    for the context and control-pair builders -- one shared rule so the
+    two derived stores can't disagree about which tickers they may compute.
+
+    Large ticker lists (MEMBERS_THRESHOLD) list each source once; small
+    builds keep the per-ticker probe. Vendor staleness is judged against `timeframe`'s own runs. A ticker that doesn't resolve (whole-history
+    dispute or no bars) is 'unresolved'; one whose resolved vendor differs
+    from the vendor its stored events were detected on is 'vendor_stale'
+    (computing on the new vendor against the old vendor's pivots would be a
+    silent cross-vendor mismatch). The builders DELETE their own rows for
+    both kinds -- keeping them would turn replace-per-ticker into
+    keep-stale for exactly the tickers that went wrong -- and skip them."""
+    members = source_members(raw_conn, basis, fallback) if fallback and len(tickers) > MEMBERS_THRESHOLD else None
+    sources = resolve_sources(raw_conn, tickers, basis, fallback, members=members)
+    recorded = recorded_run_sources(derived_conn, timeframe)
+    flagged: dict[str, str] = {}
+    for t in tickers:
+        if t not in sources:
+            flagged[t] = "unresolved"
+        elif vendor_changed(recorded, t, sources[t]):
+            flagged[t] = "vendor_stale"
+    return sources, flagged
