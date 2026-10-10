@@ -37,10 +37,11 @@ import argparse
 import json
 import statistics
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode, MetadataMode
+from llama_index.core.schema import BaseNode
 
 from src.llm.research_docs.retrieve import cite, search
 
@@ -80,13 +81,14 @@ def first_hit(nodes: list[BaseNode], golds: list[dict]) -> int | None:
 
 
 def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
-    """Files whose chunks in the index differ from chunking the docs now: a doc edited,
-    added or deleted since the build, or a change to the chunking itself."""
+    """Files whose chunks (text and metadata) in the index differ from chunking the docs
+    now: a doc edited, added or deleted since the build, or a change to the chunking."""
     def by_path(nodes):
         out: dict[str, list[str]] = {}
         for n in nodes:
-            out.setdefault(n.metadata["path"], []).append(n.get_content(MetadataMode.EMBED))
-        return {p: sorted(texts) for p, texts in out.items()}
+            out.setdefault(n.metadata["path"], []).append(
+                (n.get_content(), sorted(n.metadata.items())))
+        return {p: sorted(chunks) for p, chunks in out.items()}
     old, new = by_path(indexed), by_path(current)
     return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
 
@@ -114,14 +116,16 @@ def scores(rows: list[dict]) -> dict[str, float]:
     return out
 
 
-def report(rows: list[dict], stale: list[str] = ()) -> str:
+def _stale_summary(stale: Sequence[str]) -> str:
+    return f"{len(stale)} file(s) differ from the index ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''})"
+
+
+def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
     """The per-question table and the scores, headed by a STALE line when the index
     no longer matches the docs (`stale_paths`), so a saved copy carries the flag."""
     lines = []
     if stale:
-        lines += [f"STALE INDEX: {len(stale)} file(s) chunk differently now than when the index "
-                  f"was built ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''}); "
-                  "rebuild for current numbers", ""]
+        lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
     lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4}  top hit")
     for r in rows:
         rank = str(r["rank"]) if r["rank"] else "-"
@@ -144,26 +148,29 @@ def main() -> None:
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
-    current = chunk_documents(load_documents())
     if args.check:
-        problems = check_golds(questions, current)
+        problems = check_golds(questions, chunk_documents(load_documents()))
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
     from src.llm.research_docs.index import embed_model, load_index
-    index = load_index(embed_model())
+    index = load_index(embed_model())  # first, so a missing index fails before chunking
+    current = chunk_documents(load_documents())
     indexed = list(index.docstore.docs.values())
     # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
     # retrieval miss, so refuse to score. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
     stale = stale_paths(indexed, current)
-    unmatched = check_golds(questions, indexed)
-    if unmatched:
-        cause = (f"the index is stale ({len(stale)} file(s) changed), rebuild it" if stale
-                 else "the index is current, so fix the gold")
-        print(f"golds that match no indexed chunk; {cause}:", *unmatched, sep="\n  ",
-              file=sys.stderr)
+    # A gold whose own file changed may only need a rebuild; any other is wrong as written.
+    rebuild = [q for q in questions if any(g["path"] in stale for g in q["gold"])]
+    fix = [q for q in questions if q not in rebuild]
+    lines = [f"  {p}  (its file changed: rebuild the index)" for p in check_golds(rebuild, indexed)]
+    lines += [f"  {p}  (fix the gold)" for p in check_golds(fix, indexed)]
+    if lines:
+        head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
+        print(head, *lines, sep="\n", file=sys.stderr)
         raise SystemExit(1)
     print(report(evaluate(index, questions), stale))
+
 
 if __name__ == "__main__":
     main()
