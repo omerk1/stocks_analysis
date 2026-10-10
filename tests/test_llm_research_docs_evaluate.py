@@ -35,7 +35,16 @@ def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
     from src.llm.research_docs import evaluate as ev
     monkeypatch.setattr(ev, "search", lambda index, question, k: [])
     rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md"}]}])
-    assert rows[0]["rank"] is None and rows[0]["top"] == "-"
+    assert rows[0]["rank"] is None and rows[0]["top"] == "-" and rows[0]["score"] is None
+
+
+def test_evaluate_records_the_top_hits_score(monkeypatch):
+    from llama_index.core.schema import NodeWithScore
+    from src.llm.research_docs import evaluate as ev
+    hits = [NodeWithScore(node=_node(entry="#1"), score=0.9), NodeWithScore(node=_node(entry="#2"), score=0.6)]
+    monkeypatch.setattr(ev, "search", lambda index, question, k: hits)
+    rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md", "entry": "#2"}]}])
+    assert rows[0]["rank"] == 2 and rows[0]["score"] == 0.9
 
 
 def test_stale_paths_finds_edited_added_and_deleted_files():
@@ -68,7 +77,7 @@ def test_unmatched_golds_say_whether_a_rebuild_would_fix_them():
 
 def test_scores_hit_at_k_and_mrr():
     rows = [{"rank": 1}, {"rank": 4}, {"rank": None}, {"rank": 2}]
-    s = scores(rows)
+    s = scores(rows + [{"rank": None, "answerable": False}])  # unanswerable: not a miss
     assert s["hit@1"] == 0.25 and s["hit@3"] == 0.5 and s["hit@5"] == 0.75 and s["hit@10"] == 0.75
     assert s["MRR"] == pytest.approx((1 + 1 / 4 + 0 + 1 / 2) / 4)
 
@@ -95,8 +104,10 @@ def test_unanswerable_questions_show_but_stay_out_of_the_scores():
     all_line = next(line for line in lines if line.startswith("all"))
     assert all_line.split()[1:3] == ["1", "1.00"]  # n=1, hit@1 1.00: q2 isn't a miss
     assert not any(line.startswith("type=none") for line in lines)
-    assert lines[-1] == "(+1 unanswerable, not scored)"
-    assert report(rows[1:]).splitlines()[-1] == "(+1 unanswerable, not scored)"  # no table rows, no crash
+    assert lines[-2:] == ["(+1 unanswerable, not scored)",
+                          "top score range: answerable 0.80-0.80, unanswerable 0.70-0.70"]
+    assert report(rows[1:]).splitlines()[-2:] == ["no answerable questions to score",
+                                                  "(+1 unanswerable, not scored)"]
 
 
 def test_check_golds_flags_a_gold_no_chunk_matches():
@@ -107,11 +118,14 @@ def test_check_golds_flags_a_gold_no_chunk_matches():
 def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
     path = tmp_path / "q.json"
     bad = ['"gold": []', '"gold": [{}]', '"gold": {"path": "docs/a.md"}',
-           '"gold": [{"path": "docs/a.md"}], "answerable": false', '"gold": [], "answerable": "no"']
+           '"gold": [{"path": "docs/a.md"}], "answerable": false']
     for fields in bad:
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
         with pytest.raises(ValueError, match="without a path: q"):
             load_questions(path)
+    path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": "false"}]')
+    with pytest.raises(ValueError, match="q: answerable must be true or false"):
+        load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": false}]')
     assert load_questions(path)[0]["id"] == "q"
 

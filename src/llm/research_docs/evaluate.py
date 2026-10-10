@@ -14,11 +14,10 @@ a hit; a question's **rank** is the position of its first hit.
 Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
 cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
 the LLM should say "not in the docs" instead of answering from the nearest chunk. The report
-shows every question's top similarity score so the two kinds can be compared: if
-unanswerable questions score as high as answerable ones, a score cutoff alone can't tell
-them apart.
+shows every question's top similarity score and the range for each kind: if unanswerable
+questions score as high as answerable ones, a score cutoff alone can't tell them apart.
 
-Metrics, over all questions and per question type:
+Metrics, over the answerable questions and per question type:
 
 - **hit@k**: share of questions with a hit in the top k. hit@1 asks "is the best chunk
   right?"; hit@5 asks "would an LLM shown the top 5 have the answer in front of it?",
@@ -57,7 +56,10 @@ KS = (1, 3, 5, 10)
 
 
 def answerable(q: dict) -> bool:
-    return q.get("answerable", True)
+    a = q.get("answerable", True)
+    if not isinstance(a, bool):  # "false" as a string would read as true
+        raise ValueError(f"{q.get('id')}: answerable must be true or false, not {a!r}")
+    return a
 
 
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
@@ -65,8 +67,7 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
     # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
     bad = [q["id"] for q in questions
-           if not isinstance(q.get("gold"), list) or not isinstance(q.get("answerable", True), bool)
-           or bool(q["gold"]) != answerable(q)
+           if not isinstance(q.get("gold"), list) or bool(q["gold"]) != answerable(q)
            or not all(isinstance(g, dict) and g.get("path") for g in q["gold"])]
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
@@ -146,7 +147,8 @@ def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
 
 
 def scores(rows: list[dict]) -> dict[str, float]:
-    ranks = [r["rank"] for r in rows]
+    """hit@k and MRR over the answerable rows (an unanswerable one has no rank to score)."""
+    ranks = [r["rank"] for r in rows if answerable(r)]
     out = {f"hit@{k}": statistics.mean(r is not None and r <= k for r in ranks) for k in KS}
     out["MRR"] = statistics.mean(1 / r if r else 0 for r in ranks)
     return out
@@ -172,14 +174,21 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
     for key in ("type", "style"):
         for value in sorted({r[key] for r in scored}):
             groups[f"{key}={value}"] = [r for r in scored if r[key] == value]
-    lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in [*(f"hit@{k}" for k in KS), "MRR"])]
-    for name, group in groups.items():
-        if not group:  # every question unanswerable
-            continue
-        s = scores(group)
-        lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in s.values()))
+    if scored:
+        lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in scores(scored))]
+        for name, group in groups.items():
+            lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in scores(group).values()))
+    else:
+        lines += ["", "no answerable questions to score"]
     if unscored := len(rows) - len(scored):
         lines.append(f"(+{unscored} unanswerable, not scored)")
+    ranges = []
+    for kind, keep in (("answerable", True), ("unanswerable", False)):
+        top = [r["score"] for r in rows if answerable(r) == keep and r["score"] is not None]
+        if top:
+            ranges.append(f"{kind} {min(top):.2f}-{max(top):.2f}")
+    if len(ranges) == 2:
+        lines.append(f"top score range: {', '.join(ranges)}")
     return "\n".join(lines)
 
 
@@ -192,7 +201,9 @@ def main() -> None:
     from src.llm.research_docs.load import load_documents
     if args.check:
         problems = check_golds(questions, chunk_documents(load_documents()))
-        print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
+        n = sum(map(answerable, questions))
+        print("\n".join(problems)
+              or f"all {n} answerable questions' golds match a chunk ({len(questions) - n} unanswerable)")
         raise SystemExit(1 if problems else 0)
     from src.llm.research_docs.index import embed_model, load_index
     index = load_index(embed_model())  # first, so a missing index fails before re-chunking
