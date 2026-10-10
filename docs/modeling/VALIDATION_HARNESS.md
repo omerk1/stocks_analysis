@@ -500,40 +500,51 @@ Build order, one PR each, each with its own tests:
    - **Step 1 result (2026-10-09, 18 cells: H = 21 and 63, all 9 U/D; `TRIALS.csv`
      `S1` rows at 84e8452, ~4 h).** Track A looks, 36 cell × k readouts with no
      correction, in a 2014–2021 market where taking every long trade made money.
-     - **The model's picks don't beat taking every trade.** Model minus market is
-       inside its 90% CI at 34 of 36 cell × k readouts (top-5 at H63 2/1.5 and 2/2 are
-       the exceptions, +1.2% and +1.5% per trade). Top-20 never clears.
-     - **Per unit of risk it's worse than the market.** Non-overlapping portfolio, net
-       10 bps: model 2–10% a year, Sharpe 0.18–0.58, max drawdown −17% to −48%;
-       market (every eligible trade, equal weight) 3–8%, Sharpe 0.49–0.79, drawdown −7%
-       to −13%. EV ranks in return units, which favours high-ATR names, so five picks
-       carry far more volatility than the market basket.
+     - **Against the market (every eligible trade), no clear edge either way.**
+       Model minus market spans zero at 34 of 36 cell × k readouts. The split by
+       horizon matters: at H = 21 the estimates are small and mostly negative; at
+       H = 63 top-5 all 9 are positive (+0.06% to +1.47% per trade), two clear zero
+       (2/1.5 +1.21% [+0.01%, +2.44%], 2/2 +1.47% [+0.10%, +2.80%]) and 3/1 nearly does.
+       The CIs are about ±1% per trade wide at H = 63, so an edge large enough to trade
+       isn't ruled out there: inconclusive, not "no edge". Top-20 never clears.
+     - **Per unit of risk, the picks are worse than the market basket.** Non-overlapping
+       portfolio, net 10 bps: model 2–10% a year, Sharpe 0.18–0.58, max drawdown −17% to
+       −48%; market basket 3–8%, Sharpe 0.49–0.79, drawdown −7% to −13%. Two causes,
+       checked on three cells (H21 3/2, H63 2/2, H63 3/1.5) after the run:
+       concentration (k random names a day: drawdown −15% to −19% at k = 5, −10% to
+       −14% at k = 20, Sharpe 0.52–0.69) and a volatility tilt (the picks' mean ATR is
+       3.4–4.7% of price vs 2.4% for the universe and for random picks; drawdown −30% to
+       −48% at k = 5). B4's picks have the same tilt. EV in return units scales with
+       ATR, so ranking on it favours volatile names.
      - **The realised R/R is set by the barriers, not the picks.** Average win over
        average loss runs from ~1.0 at 2/2 to ~2.2–3.1 at 4/1 for model, B4 and market
        alike, and the market's is close to or above the picks' in most cells. Win
        rates differ by a few points at most.
-     - **Against B4 the model is better at wide targets.** Model minus B4 is positive at
-       every U = 3 and 4 cell at H = 63; its CI clears zero at 3/1.5, 4/1 and 4/2 (top-5)
-       and at 3/1.5, 4/1, 4/1.5, 4/2 (top-20); at H = 21, 4/2 (both k) and 4/1.5
-       (top-20). B4 is better at the tight 2/1 cell (spans zero). B4's own picks trail
-       or roughly match the market at wide targets, so this is B4 being weak there, not
-       the model being strong.
+     - **Model vs B4 is mixed, not a win.** Model minus B4 is positive at every U = 3 and
+       4 cell at H = 63, and its uncorrected CI clears zero at 10 of 36 readouts (H = 63
+       top-5 3/1.5, 4/1, 4/2; top-20 3/1.5, 4/1, 4/1.5, 4/2; H = 21 4/2 both k, 4/1.5
+       top-20), several only just (e.g. H63 4/1 top-20 [+0.02%, +0.85%]). B4 is ahead
+       at 2/1 (spanning zero). B4's own picks trail or roughly match the market at wide
+       targets, so this reads as B4 weak there more than the model strong.
      - **Era pattern again:** model minus market is lower in 2014–17 than in 2018–21 at
        34 of 36 readouts, as in E1.
-     - **Against the result:** one seed; 2014–2021 is one long bull market, so "every
-       long trade" is a strong benchmark here and a weak one in a bear market; the
-       portfolio ties capital up for the whole H even after an early exit.
-     - **What it means for the plan:** the scorecard works end to end, and on today's
-       features the combined model has no tradeable edge over buying everything. Two
-       things before step 2's run: rank by risk-adjusted EV (EV / ATR) as well as by EV,
-       since the drawdowns come from picking the most volatile names, and keep the market
-       basket as the benchmark to beat.
+     - **Against the result:** one seed; 36 uncorrected looks; 2014–2021 is one long
+       bull market, so "every long trade" is a strong benchmark here and a weak one in
+       a bear market; the portfolio ties capital up for the whole H even after an early
+       exit.
+     - **What it means for the plan:** the scorecard works end to end. On today's
+       features, the picks' edge over the market is unresolved (H = 63 leans positive,
+       H = 21 doesn't), and their risk is too high. Before step 2's run: rank by
+       risk-adjusted EV (EV / ATR) as well as by EV, add a random-k basket to the
+       scorecard so concentration and selection are separated, and keep the market
+       basket as the benchmark.
    - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
-     divergences, patterns and the rest. Divergence features follow the binding
-     constraints in `LRP.md` §2.4 (Done #107, #199): `confluence_count` and
-     `agreeing_indicators` recomputed point-in-time (`pit_confluence()`), never read as
-     stored; regular and hidden forms pooled only by an explicit decision; and no
-     divergence feature before the delisted-member recompute (Done #103) runs. Then one
+     divergences, patterns and the rest. Divergence features must follow the four
+     divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
+     here. Two would fail silently: the stored `confluence_count` /
+     `agreeing_indicators` are full-run values (look-ahead; recompute with
+     `pit_confluence()`), and the event tables are survivors-only until the Done #103
+     recompute (build after it, or mark the trial). Then one
      pre-registered trading test of the full set, and the holdout opened once at the end.
 
 ---
