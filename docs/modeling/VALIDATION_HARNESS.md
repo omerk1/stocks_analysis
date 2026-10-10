@@ -538,6 +538,41 @@ Build order, one PR each, each with its own tests:
        risk-adjusted EV (EV / ATR) as well as by EV, add a random-k basket to the
        scorecard so concentration and selection are separated, and keep the market
        basket as the benchmark.
+   - **Step 1b (Track A, 2026-10-10): risk-adjusted ranking and a random-k baseline.**
+     `rank="ev_atr"` ranks on EV in ATR units, P(+1) U − P(−1) D + P(0) n (n = the
+     training window's mean "neither" return in ATRs), i.e. the trade's expected
+     R-multiple. B4 is ranked the same way. A random-k basket (20 draws) gives the
+     portfolio of k names without selection. `rescore-scorecard` re-scored S1's
+     archived predictions, no refit: 18 `S1b` rows, each pointing at its S1 trial.
+     - **The volatility tilt is gone.** The picks' mean ATR is 2.3–2.7% of price, vs
+       2.4% for the universe.
+     - **The picks now beat the market on every readout.** Model minus market is
+       positive at 36 of 36 cell × k readouts (H = 21: +0.07% to +0.27% per trade; H = 63:
+       +0.19% to +0.61%), and the 90% CI clears zero at 17 (9 at H = 21, 8 at H = 63);
+       none is below. Against B4 ranked the same way: positive at 36, clearing zero at
+       15, none below.
+     - **No era flip.** Model minus market is positive in 2014–17 at 35 of 36 readouts
+       and in 2018–21 at 34; neither era dominates (2014–17 lower at 17 of 36). E1 and
+       S1 were worse in 2014–17 every time.
+     - **Portfolio, net 10 bps:** Sharpe 0.45–0.92 (EV-ranked: 0.18–0.58; higher at all
+       36), above the random-k basket at all 36, above the market basket at 21 (all 18
+       top-20 readouts, 3 of 18 top-5). Annual return 3.8–10.4% vs the market's
+       2.9–8.1%. Drawdown −7% to −20%, about the random-k basket's (−9% to −19%), so
+       what's left of the drawdown gap to the market (−7% to −13%) is concentration.
+     - **R/R is still set by the barriers:** average win over average loss 1.0–2.85,
+       as before.
+     - **Against the result:** this is a second look at the same 2014–2021 predictions,
+       chosen after S1 (planned in #201's write-up before it ran, but still a fork);
+       the 36 readouts share one model's predictions and overlapping cells, so 36 of 36
+       is far from 36 independent confirmations, and none is corrected; one seed; one
+       bull market, long only; the per-trade edge (+0.1–0.6%) is small next to the
+       trade's spread. B4 ranked the same way is still beaten, so the gain isn't only
+       the ranking rule.
+     - **What it means:** the first readout where the combined model's picks look
+       better than buying everything, in both eras, at the same risk per name. Rank on
+       EV in ATR units from here on; top-20 is the better trade-off (Sharpe above the
+       market everywhere). Still Track A: the confirmation is the pre-registered test
+       after step 2–3, then the holdout.
    - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
