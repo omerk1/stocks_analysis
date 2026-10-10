@@ -87,7 +87,7 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
         out: dict[str, list[tuple]] = {}
         for n in nodes:  # embedded rendering (catches embed-key changes) + all metadata
             out.setdefault(n.metadata["path"], []).append(
-                (n.get_content(MetadataMode.EMBED), sorted((k, str(v)) for k, v in n.metadata.items())))
+                (n.get_content(MetadataMode.EMBED), sorted(n.metadata.items())))
         return {p: sorted(chunks) for p, chunks in out.items()}
     old, new = by_path(indexed), by_path(current)
     return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
@@ -166,18 +166,24 @@ def main() -> None:
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
     from src.llm.research_docs.index import embed_model, load_index
-    index = load_index(embed_model())  # before re-chunking the docs
+    index = load_index(embed_model())  # first, so a missing index fails before re-chunking
     current = chunk_documents(load_documents())
     indexed = list(index.docstore.docs.values())
     # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
     # retrieval miss, so refuse to score. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
     stale = stale_paths(indexed, current)
+    # A question none of whose golds the index can match would score as a miss: refuse.
+    # One with only some golds unmatched still scores, with a warning.
     unmatched = unmatched_golds(questions, indexed, current)
     if unmatched:
+        dead = [q["id"] for q in questions
+                if q["gold"] and not any(matches(n, g) for g in q["gold"] for n in indexed)]
         head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
-        raise SystemExit(1)
+        if dead:
+            print(f"not scoring: no gold of {', '.join(dead)} matches the index", file=sys.stderr)
+            raise SystemExit(1)
     print(report(evaluate(index, questions), stale))
 
 

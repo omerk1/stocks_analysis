@@ -48,6 +48,10 @@ def test_stale_paths_finds_edited_added_and_deleted_files():
     # same text, changed metadata (e.g. a CSV row's outcome) is stale too
     retagged = Document(text="w", metadata={"path": "c.md", "outcome": "dead"})
     assert stale_paths(indexed, indexed[:3] + [retagged]) == ["c.md"]
+    # same text and metadata, but a key moved out of the embedding: vectors differ, stale
+    embedded = Document(text="w", metadata={"path": "c.md", "area": "x"})
+    hidden = Document(text="w", metadata={"path": "c.md", "area": "x"}, excluded_embed_metadata_keys=["area"])
+    assert stale_paths([embedded], [hidden]) == ["c.md"]
 
 
 def test_unmatched_golds_say_whether_a_rebuild_would_fix_them():
