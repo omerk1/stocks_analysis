@@ -37,9 +37,8 @@ import pandas as pd
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
 from src.foundation.market_common.models import PivotKind, Timeframe
-from src.foundation.market_common.price_basis import resolve_sources, source_for
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
-from src.signals.divergences.store import recorded_run_sources
+from src.signals.divergences.store import builder_sources, purge_flagged
 from src.signals.divergences.context import compute_context_for_ticker
 
 # Same-package reuse of detection's own price-pivot path (underscore
@@ -253,44 +252,44 @@ def build_control_pairs(
             " WHERE module = 'divergences' AND timeframe = 'daily' ORDER BY ticker"
         )
     ]
-    # Same per-ticker vendor the detector read (see context.py's note):
-    # control pairs must come from the same bars the events did. An
-    # unresolved ticker's stored pairs are PURGED (leaving them would
-    # quietly convert replace-per-ticker into keep-stale for exactly the
-    # garbage tickers); a vendor-changed ticker is skipped with a warning
-    # until detection rescans it (its has_divergence flags are judged
-    # against the stored events, which are the other vendor's pivots).
-    sources = resolve_sources(raw_conn, tickers, config.price_basis, VENDOR_FALLBACK)
-    recorded = recorded_run_sources(derived_conn, "daily")
-    primary = source_for(config.price_basis)
-    written = skipped = processed = unresolved = vendor_stale = 0
+    # Same per-ticker vendor the detector read (store.builder_sources):
+    # unresolved and vendor-stale tickers get their pairs purged and are
+    # skipped -- their has_divergence flags would be judged against another
+    # vendor's events, or against events that should not exist.
+    sources, skip_tickers = builder_sources(
+        raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
+    )
+    unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_control_pairs", skip_tickers, "daily", logger)
+    run_config = json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
+                             "min_scanned_pos": min_scanned})
+    written = skipped = processed = 0
     for ticker in tickers:
-        if ticker not in sources:
-            n_purged = derived_conn.execute(
-                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
-            ).rowcount
-            derived_conn.commit()
-            logger.warning("%s: unresolved (whole-history dispute or no bars) -- "
-                           "purged %d stale control pair(s)", ticker, n_purged)
-            unresolved += 1
-            continue
-        if ticker in recorded and (recorded[ticker] or primary) != sources[ticker]:
-            logger.warning("%s: resolved vendor %s differs from the one its events were "
-                           "detected on (%s) -- skipped; rescan detection first",
-                           ticker, sources[ticker], recorded[ticker] or primary)
-            vendor_stale += 1
+        if ticker in skip_tickers:
             continue
         try:
             bars, report = data_mod.load_and_validate(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,
                 source=sources[ticker],
             )
-            if len(bars) < config.min_bars:
-                skipped += 1
-                continue
-            pairs = extract_pairs_for_ticker(bars, config, ticker)
+            pairs = (
+                extract_pairs_for_ticker(bars, config, ticker)
+                if len(bars) >= config.min_bars else pd.DataFrame()
+            )
+            # Replace-per-ticker, including a zero-pair outcome: rows from an
+            # earlier calendar, a longer history or another config must not
+            # survive as sampling-frame members. Committed with the new rows.
+            derived_conn.execute(
+                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
+                (ticker,),
+            )
             if pairs.empty:
+                # Still a run: the ticker's latest run row must describe
+                # this build (zero pairs), not an older config's rows.
+                derived_db.record_run(
+                    derived_conn, "divergence_control_pairs", ticker, "daily", None, run_config,
+                    report.rows_dropped, report.unreliable, commit=False,
+                )
+                derived_conn.commit()
                 skipped += 1
                 continue
 
@@ -322,15 +321,9 @@ def build_control_pairs(
 
             run_id = derived_db.record_run(
                 derived_conn, "divergence_control_pairs", ticker, "daily", None,
-                json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
-                            "min_scanned_pos": min_scanned}),
+                run_config,
                 report.rows_dropped, report.unreliable,
-            )
-            # Replace-per-ticker: stale rows from an earlier calendar or
-            # config must not survive as sampling-frame members.
-            derived_conn.execute(
-                "DELETE FROM divergence_control_pairs WHERE ticker = ? AND timeframe = 'daily'",
-                (ticker,),
+                commit=False,  # lands with this ticker's rows, or rolls back with them
             )
             merged["run_id"] = run_id
             merged["leg2_bars"] = [

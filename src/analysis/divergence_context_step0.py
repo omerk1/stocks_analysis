@@ -36,9 +36,8 @@ from src.foundation.market_common.models import PivotKind, Timeframe
 from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
-from src.signals.divergences.study_universe import membership_intervals, pit_member_mask
+from src.signals.divergences.study_universe import DEV_END, membership_intervals, pit_member_mask
 
-DEV_END = "2021-12-31"
 OUTCOME_END = "2021-11-30"  # 20-bar outcome window must not cross the holdout
 # "Pullback + rebuild" shape: the move between the pivots gave back at
 # least this fraction of the impulse, over at least this many bars of

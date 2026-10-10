@@ -63,10 +63,15 @@ def record_run(
     config_json: str,
     rows_dropped: int,
     quality_warning: bool,
+    *,
+    commit: bool = True,
 ) -> str:
     """Insert a new `runs` row and return its `run_id` -- always a fresh
     insert, never an upsert (each detection run is its own record, unlike
-    the mutable result tables each module upserts into by natural key)."""
+    the mutable result tables each module upserts into by natural key).
+    `commit=False` leaves the row in the caller's open transaction, so a
+    module can make the run row and its result rows land (or roll back)
+    together."""
     run_id = str(uuid.uuid4())
     conn.execute(
         """
@@ -80,7 +85,8 @@ def record_run(
             pd.Timestamp.now("UTC").isoformat(), rows_dropped, int(quality_warning),
         ),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return run_id
 
 

@@ -31,7 +31,8 @@ import sqlite3
 from enum import Enum
 
 from src.foundation.data_processing import db
-from src.foundation.market_common.price_disputes import DISPUTED_DAYS, vendor_of
+from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 
 
@@ -168,18 +169,43 @@ def resolve_sources(
     a whole-history dispute (`price_disputes`, no date: e.g. a reused symbol
     whose bars are another company's) is left out, so it has no bars at
     all -- not in the universe, the ranks, the labels, or a detector's scan.
-    `members` as in `ticker_sources` (full-universe callers pass the
-    per-source ticker sets they already listed).
+    Whole-history disputes come from `price_disputes.DISPUTED_DAYS`, read
+    through the module at call time: ONE list for every consumer (modeling's
+    label dropping and cache manifest read the same name), so a data fix or
+    a test patch reaches all of them at once.
+
+    Membership is probed per ticker unless the caller passes `members`
+    (`source_members`: one DISTINCT scan per source, minutes on the 4GB
+    bars_1d). The probe is cheap for tickers on the primary vendor, so it
+    stays the default -- modeling's ~1,000-ticker calls must not pay
+    full-source scans; only callers resolving thousands of tickers with many
+    off-primary ones (the divergence universe) should opt into listing.
     (Moved here from models.dataset when divergences opted into the
     fallback -- one policy, not two drifting copies.)"""
     if not fallback:
         return dict.fromkeys(tickers, source_for(basis))
     sources = ticker_sources(conn, tickers, basis, fallback=True, members=members)
-    return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in _whole_history_disputes()}
+    excluded = _whole_history_disputes(price_disputes.DISPUTED_DAYS)
+    return {t: s for t, s in sources.items() if (t, vendor_of(s)) not in excluded}
 
 
-def _whole_history_disputes() -> set[tuple[str, str]]:
-    return {(d.ticker, d.vendor) for d in DISPUTED_DAYS if d.date is None}
+def _whole_history_disputes(disputes: tuple[DisputedDay, ...]) -> set[tuple[str, str]]:
+    return {(d.ticker, d.vendor) for d in disputes if d.date is None}
+
+
+def source_members(
+    conn: sqlite3.Connection, basis: PriceBasis | str, fallback: bool,
+) -> dict[str, set[str]]:
+    """{source: every ticker with any bar on it}, for each source
+    `sources_for(basis, fallback)` reads -- the `members` argument of
+    `ticker_sources`/`resolve_sources` for FULL-UNIVERSE callers. One
+    DISTINCT index scan per source (minutes on the 4GB file, but once),
+    instead of a per-ticker probe that walks a source-absent ticker's
+    whole bar history (fine for a few hundred tickers, slow for thousands)."""
+    return {
+        s: {r[0] for r in conn.execute("SELECT DISTINCT ticker FROM bars_1d WHERE source = ?", (s,))}
+        for s in sources_for(basis, fallback)
+    }
 
 
 def _has_bars(conn: sqlite3.Connection, ticker: str, source: str) -> bool:

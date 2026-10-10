@@ -47,10 +47,11 @@ from src.foundation.data_processing import db
 from src.foundation.data_processing.ticker_renames import apply_renames
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import (
-    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis, resolve_sources,
-    source_for,
-)
-from src.foundation.market_common.price_disputes import DISPUTED_DAYS, DisputedDay, vendor_of
+    MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis,
+    resolve_sources,  # universe exclusion: reads price_disputes.DISPUTED_DAYS at call time, like
+)                     # drop_disputed and disputes_fingerprint below -- one dispute list for all three
+from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid
 
 logger = logging.getLogger(__name__)
@@ -111,10 +112,6 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 
 # ---------------------------------------------------------------- bars
-
-# resolve_sources moved to market_common.price_basis when divergences
-# opted into the vendor fallback; imported above so every existing
-# `dataset.resolve_sources` caller keeps working.
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}
@@ -373,7 +370,7 @@ def drop_disputed(
     disputed date the ticker has no bar on counts from the next bar. A
     dispute with no date drops the ticker. Returns (kept rows, number
     dropped)."""
-    disputes = DISPUTED_DAYS if disputes is None else disputes
+    disputes = price_disputes.DISPUTED_DAYS if disputes is None else disputes
     if labels.empty or not disputes:
         return labels, 0
     drop = pd.Series(False, index=labels.index)
@@ -400,7 +397,7 @@ def disputes_fingerprint(disputes: tuple[DisputedDay, ...] | None = None) -> str
     """A short hash of the disputes list (`price_disputes.csv` as loaded), so a
     label cache records which list dropped its rows and a cache built before
     the list changed is refused (`read_labels`)."""
-    disputes = DISPUTED_DAYS if disputes is None else disputes
+    disputes = price_disputes.DISPUTED_DAYS if disputes is None else disputes
     text = "\n".join(sorted(f"{d.ticker},{d.date or ''},{d.vendor}" for d in disputes))
     return hashlib.sha256(text.encode()).hexdigest()[:16]
 

@@ -3,7 +3,8 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, docs_newer_than, first_hit, load_questions, matches, report, scores)
+    check_golds, first_hit, load_questions, matches, report, scores, stale_paths,
+    unmatched_golds)
 from src.llm.research_docs.load import load_documents
 
 
@@ -37,13 +38,32 @@ def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
     assert rows[0]["rank"] is None and rows[0]["top"] == "-"
 
 
-def test_docs_newer_than_the_index(tmp_path):
-    import os
-    index_file, old, new = tmp_path / "docstore.json", tmp_path / "old.md", tmp_path / "new.md"
-    for p, t in ((old, 100), (index_file, 200), (new, 300)):
-        p.write_text("x")
-        os.utime(p, (t, t))
-    assert docs_newer_than(index_file, tmp_path) == [new]
+def test_stale_paths_finds_edited_added_and_deleted_files():
+    def n(path, text):
+        return Document(text=text, metadata={"path": path})
+    indexed = [n("a.md", "x"), n("a.md", "y"), n("b.md", "z"), n("c.md", "w")]
+    assert stale_paths(indexed, list(reversed(indexed))) == []  # order doesn't matter
+    current = [n("a.md", "x"), n("a.md", "y"), n("b.md", "z2"), n("d.md", "v")]
+    assert stale_paths(indexed, current) == ["b.md", "c.md", "d.md"]
+    # same text, changed metadata (e.g. a CSV row's outcome) is stale too
+    retagged = Document(text="w", metadata={"path": "c.md", "outcome": "dead"})
+    assert stale_paths(indexed, indexed[:3] + [retagged]) == ["c.md"]
+    # same text and metadata, but a key moved out of the embedding: vectors differ, stale
+    embedded = Document(text="w", metadata={"path": "c.md", "area": "x"})
+    hidden = Document(text="w", metadata={"path": "c.md", "area": "x"}, excluded_embed_metadata_keys=["area"])
+    assert stale_paths([embedded], [hidden]) == ["c.md"]
+
+
+def test_unmatched_golds_say_whether_a_rebuild_would_fix_them():
+    indexed = [_node("old wording")]
+    current = [_node("new wording")]
+    questions = [{"id": "ok", "gold": [{"path": "docs/a.md", "contains": "old"}]},
+                 {"id": "moved", "gold": [{"path": "docs/a.md", "contains": "new"}]},
+                 {"id": "typo", "gold": [{"path": "docs/a.md", "contains": "nwe"}]}]
+    out = unmatched_golds(questions, indexed, current)
+    assert len(out) == 2
+    assert out[0].startswith("moved:") and out[0].endswith("(rebuild the index)")
+    assert out[1].startswith("typo:") and out[1].endswith("(fix the gold)")
 
 
 def test_scores_hit_at_k_and_mrr():
@@ -58,12 +78,24 @@ def test_report_breaks_scores_down_by_type_and_style():
             {"id": "q2", "type": "entry", "style": "plain", "rank": None, "top": "docs/done.md > #1"}]
     out = report(rows)
     assert "q2" in out and "type=row" in out and "style=plain" in out
+    assert "STALE" not in out
+    stale_out = report(rows, ["docs/a.md"]).splitlines()
+    assert stale_out[0].startswith("STALE INDEX: 1 file(s) differ from the index (docs/a.md)")
+    assert stale_out[1] == "" and stale_out[2].startswith("question")
     assert out.splitlines()[2].split()[3] == "-"  # q2 found nothing in the top 10
 
 
 def test_check_golds_flags_a_gold_no_chunk_matches():
     questions = [{"id": "q", "gold": [{"path": "docs/a.md", "contains": "gone"}]}]
     assert check_golds(questions, [_node("still here")]) == ["q: {'path': 'docs/a.md', 'contains': 'gone'}"]
+
+
+def test_a_question_without_gold_is_rejected(tmp_path):
+    path = tmp_path / "q.json"
+    for gold in ("[]", "[{}]", '{"path": "docs/a.md"}'):
+        path.write_text(f'[{{"id": "q", "question": "?", "gold": {gold}}}]')
+        with pytest.raises(ValueError, match="without a path: q"):
+            load_questions(path)
 
 
 def test_every_question_in_the_set_still_matches_the_real_docs():
