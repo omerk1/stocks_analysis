@@ -158,8 +158,10 @@ def _print_plan(conn, sources: dict[str, str], n_disputed: int, recorded: dict, 
             sample = ", ".join(todo_member_delisted[:12])
             more = "" if len(todo_member_delisted) <= 12 else f", ... (+{len(todo_member_delisted) - 12})"
             print(f"  delisted dev-window members: {sample}{more}")
+        orph = orphaned[tf]
+        more = "" if len(orph) <= 12 else f", ... (+{len(orph) - 12})"
         print(f"  unresolved tickers with stored events or runs (--purge-unresolved would forget): "
-              f"{len(orphaned[tf])}{': ' + ', '.join(orphaned[tf]) if orphaned[tf] else ''}")
+              f"{len(orph)}{': ' + ', '.join(orph[:12]) + more if orph else ''}")
     print("\nPLAN ONLY -- nothing was detected or written.")
 
 

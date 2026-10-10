@@ -302,10 +302,9 @@ def build_context(
         # The write path sits INSIDE the per-ticker guard too: a single
         # bad row must mean one skipped ticker (rolled back, counted,
         # logged), never an aborted backfill with the remaining tickers
-        # unprocessed. A committed runs row for a failed ticker is
-        # acceptable here (context rows are a deterministic recompute keyed
-        # by divergence_id; nothing reads this module's runs as "done").
-        # Detection differs on purpose: its run row commits with its events.
+        # unprocessed. The run row is written with commit=False, so it
+        # commits with this ticker's context rows or rolls back with them
+        # -- same as detection and the controls builder.
         try:
             bars, report = data_mod.load_and_validate(
                 raw_conn, ticker, Timeframe.DAILY, basis=config.price_basis,

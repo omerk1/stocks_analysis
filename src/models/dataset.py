@@ -49,7 +49,7 @@ from src.foundation.market_common.history_breaks import HistoryBreakConfig, trai
 from src.foundation.market_common.price_basis import (
     MODULE_PRICE_BASIS, MODULES_WITH_FALLBACK, SPLITS_SOURCE_BY_BAR_SOURCE, PriceBasis,
     resolve_sources,  # universe exclusion: reads price_disputes.DISPUTED_DAYS at call time, like
-)                     # drop_disputed and _disputes_hash below -- one dispute list for all three
+)                     # drop_disputed and disputes_fingerprint below -- one dispute list for all three
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.price_disputes import DisputedDay, vendor_of
 from src.models.labels.barriers import ATR_PERIOD, LONG, barrier_labels, v1_grid

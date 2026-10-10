@@ -15,12 +15,12 @@ from src.foundation.market_common.price_basis import (
     source_for,
     source_members,
 )
+from src.signals.divergences.models import Divergence
 
 # The divergence builders walk the whole scanned universe (thousands of
 # tickers, ~2-3% of them off the primary vendor): above this many tickers,
 # list each source once instead of probing per ticker.
 MEMBERS_THRESHOLD = 500
-from src.signals.divergences.models import Divergence
 
 # The vendor a legacy run (recorded before `bar_source` existed) read: the
 # primary source, by construction -- no fallback existed then.
@@ -266,10 +266,13 @@ def purge_flagged(derived_conn: sqlite3.Connection, table: str, flagged: dict[st
                   timeframe: str, logger) -> tuple[int, int]:
     """The context/controls builders' shared handling of `builder_sources`'
     flagged tickers: delete the builder's own rows for each and return
-    (n_unresolved, n_vendor_stale). Warns only when rows were actually
-    deleted or a ticker is vendor-stale (actionable: rescan detection) --
-    permanently disputed tickers would otherwise log "purged 0" every run
-    and bury the warnings that matter."""
+    (n_unresolved, n_vendor_stale). Warns only when something is
+    actionable: rows were deleted, a ticker is vendor-stale (rescan
+    detection), or an unresolved ticker still has event rows in
+    `divergences` (they stay until `cli --all --purge-unresolved`, so the
+    warning repeats every build until then). A disputed ticker already
+    forgotten logs nothing -- "purged 0" every run would bury the warnings
+    that matter."""
     if table not in _BUILDER_TABLES:
         raise ValueError(f"purge_flagged: {table!r} is not a divergence builder table")
     counts = {"unresolved": 0, "vendor_stale": 0}
@@ -277,9 +280,14 @@ def purge_flagged(derived_conn: sqlite3.Connection, table: str, flagged: dict[st
         n = derived_conn.execute(
             f"DELETE FROM {table} WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
         ).rowcount
-        if n or why == "vendor_stale":
-            logger.warning("%s: %s -- purged %d stale %s row(s)%s", ticker, why, n, table,
-                           "; rescan detection first" if why == "vendor_stale" else "")
+        events = 0 if why == "vendor_stale" else derived_conn.execute(
+            "SELECT COUNT(*) FROM divergences WHERE ticker = ? AND timeframe = ?", (ticker, timeframe)
+        ).fetchone()[0]
+        if n or events or why == "vendor_stale":
+            hint = ("; rescan detection first" if why == "vendor_stale" else
+                    f"; {events} event row(s) remain in divergences -- `cli --all --purge-unresolved` "
+                    "removes them" if events else "")
+            logger.warning("%s: %s -- purged %d stale %s row(s)%s", ticker, why, n, table, hint)
         counts[why] += 1
     derived_conn.commit()
     return counts["unresolved"], counts["vendor_stale"]

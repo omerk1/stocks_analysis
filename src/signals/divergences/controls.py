@@ -260,6 +260,8 @@ def build_control_pairs(
         raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
     unresolved, vendor_stale = purge_flagged(derived_conn, "divergence_control_pairs", skip_tickers, "daily", logger)
+    run_config = json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
+                             "min_scanned_pos": min_scanned})
     written = skipped = processed = 0
     for ticker in tickers:
         if ticker in skip_tickers:
@@ -281,6 +283,12 @@ def build_control_pairs(
                 (ticker,),
             )
             if pairs.empty:
+                # Still a run: the ticker's latest run row must describe
+                # this build (zero pairs), not an older config's rows.
+                derived_db.record_run(
+                    derived_conn, "divergence_control_pairs", ticker, "daily", None, run_config,
+                    report.rows_dropped, report.unreliable, commit=False,
+                )
                 derived_conn.commit()
                 skipped += 1
                 continue
@@ -313,8 +321,7 @@ def build_control_pairs(
 
             run_id = derived_db.record_run(
                 derived_conn, "divergence_control_pairs", ticker, "daily", None,
-                json.dumps({"divergence_match_bars": DIVERGENCE_MATCH_BARS,
-                            "min_scanned_pos": min_scanned}),
+                run_config,
                 report.rows_dropped, report.unreliable,
                 commit=False,  # lands with this ticker's rows, or rolls back with them
             )

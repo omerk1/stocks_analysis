@@ -389,6 +389,38 @@ def test_control_builder_replaces_with_nothing_when_a_ticker_yields_no_pairs(con
     derived.commit()
     build_control_pairs(conn, derived)
     assert derived.execute("SELECT COUNT(*) FROM divergence_control_pairs").fetchone()[0] == 0
+    # ... and the ticker's latest run row describes this (zero-pair) build
+    assert derived.execute(
+        "SELECT COUNT(*) FROM runs WHERE module = 'divergence_control_pairs' AND ticker = 'SHORT'"
+    ).fetchone()[0] == 1
+
+
+def test_purge_flagged_keeps_warning_while_unresolved_events_remain(derived, caplog):
+    """The builders can't delete `divergences` rows; while an unresolved
+    ticker still has events, every build says so (not just the first one,
+    which also deleted builder rows). Once forgotten, it goes quiet."""
+    import logging
+    from src.signals.divergences.controls import create_control_pairs_table
+    from src.signals.divergences.store import forget_ticker, purge_flagged
+
+    create_divergences_table(derived)
+    create_control_pairs_table(derived)
+    derived.execute(
+        "INSERT INTO divergences (id, ticker, timeframe, indicator, direction, p2_date)"
+        " VALUES ('x1', 'GONE', 'daily', 'rsi', 'bearish', '2015-01-05')"
+    )
+    derived.commit()
+    log = logging.getLogger("t")
+    for _ in range(2):  # nothing left to purge in the builder table either time
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="t"):
+            purge_flagged(derived, "divergence_control_pairs", {"GONE": "unresolved"}, "daily", log)
+        assert "--purge-unresolved" in caplog.text
+    forget_ticker(derived, "GONE", "daily")
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="t"):
+        purge_flagged(derived, "divergence_control_pairs", {"GONE": "unresolved"}, "daily", log)
+    assert caplog.text == ""
 
 
 def test_purge_flagged_only_accepts_builder_tables(derived):
