@@ -90,6 +90,13 @@ def test_check_golds_flags_a_gold_no_chunk_matches():
     assert check_golds(questions, [_node("still here")]) == ["q: {'path': 'docs/a.md', 'contains': 'gone'}"]
 
 
+def test_a_question_without_gold_is_rejected(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text('[{"id": "q", "question": "?", "gold": []}]')
+    with pytest.raises(ValueError, match="no gold: q"):
+        load_questions(path)
+
+
 def test_every_question_in_the_set_still_matches_the_real_docs():
     """If this fails, a doc was edited under a question: fix the question's gold."""
     questions = load_questions()

@@ -50,7 +50,10 @@ KS = (1, 3, 5, 10)
 
 
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    questions = json.loads(path.read_text(encoding="utf-8"))
+    if empty := [q["id"] for q in questions if not q["gold"]]:  # would score as a silent miss
+        raise ValueError(f"questions with no gold: {', '.join(empty)}")
+    return questions
 
 
 def _norm(text: str) -> str:
@@ -87,7 +90,7 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
         out: dict[str, list[tuple]] = {}
         for n in nodes:  # embedded rendering (catches embed-key changes) + all metadata
             out.setdefault(n.metadata["path"], []).append(
-                (n.get_content(MetadataMode.EMBED), sorted(n.metadata.items())))
+                (n.get_content(MetadataMode.EMBED), sorted((k, str(v)) for k, v in n.metadata.items())))
         return {p: sorted(chunks) for p, chunks in out.items()}
     old, new = by_path(indexed), by_path(current)
     return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
@@ -173,17 +176,11 @@ def main() -> None:
     # retrieval miss, so refuse to score. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
     stale = stale_paths(indexed, current)
-    # A question none of whose golds the index can match would score as a miss: refuse.
-    # One with only some golds unmatched still scores, with a warning.
     unmatched = unmatched_golds(questions, indexed, current)
     if unmatched:
-        dead = [q["id"] for q in questions
-                if q["gold"] and not any(matches(n, g) for g in q["gold"] for n in indexed)]
         head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
-        if dead:
-            print(f"not scoring: no gold of {', '.join(dead)} matches the index", file=sys.stderr)
-            raise SystemExit(1)
+        raise SystemExit(1)
     print(report(evaluate(index, questions), stale))
 
 
