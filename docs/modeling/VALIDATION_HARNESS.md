@@ -497,9 +497,44 @@ Build order, one PR each, each with its own tests:
      `TRIALS.csv` row (`S1`), with no verdict. This is a shakedown on today's features
      (B4 + MA). E1 has already shown these features' top picks at cell 2/2, so no look
      at them on 2010–2021 is fresh.
+   - **Step 1 result (2026-10-09, 18 cells: H = 21 and 63, all 9 U/D; `TRIALS.csv`
+     `S1` rows at 84e8452, ~4 h).** Track A looks, 36 cell × k readouts with no
+     correction, in a 2014–2021 market where taking every long trade made money.
+     - **The model's picks don't beat taking every trade.** Model minus market is
+       inside its 90% CI at 34 of 36 cell × k readouts (top-5 at H63 2/1.5 and 2/2 are
+       the exceptions, +1.2% and +1.5% per trade). Top-20 never clears.
+     - **Per unit of risk it's worse than the market.** Non-overlapping portfolio, net
+       10 bps: model 2–10% a year, Sharpe 0.18–0.58, max drawdown −17% to −48%;
+       market (every eligible trade, equal weight) 3–8%, Sharpe 0.49–0.79, drawdown −7%
+       to −13%. EV ranks in return units, which favours high-ATR names, so five picks
+       carry far more volatility than the market basket.
+     - **The realised R/R is set by the barriers, not the picks.** Average win over
+       average loss runs from ~1.0 at 2/2 to ~2.2–3.1 at 4/1 for model, B4 and market
+       alike, and the market's is close to or above the picks' in most cells. Win
+       rates differ by a few points at most.
+     - **Against B4 the model is better at wide targets.** Model minus B4 is positive at
+       every U = 3 and 4 cell at H = 63; its CI clears zero at 3/1.5, 4/1 and 4/2 (top-5)
+       and at 3/1.5, 4/1, 4/1.5, 4/2 (top-20); at H = 21, 4/2 (both k) and 4/1.5
+       (top-20). B4 is better at the tight 2/1 cell (spans zero). B4's own picks trail
+       or roughly match the market at wide targets, so this is B4 being weak there, not
+       the model being strong.
+     - **Era pattern again:** model minus market is lower in 2014–17 than in 2018–21 at
+       34 of 36 readouts, as in E1.
+     - **Against the result:** one seed; 2014–2021 is one long bull market, so "every
+       long trade" is a strong benchmark here and a weak one in a bear market; the
+       portfolio ties capital up for the whole H even after an early exit.
+     - **What it means for the plan:** the scorecard works end to end, and on today's
+       features the combined model has no tradeable edge over buying everything. Two
+       things before step 2's run: rank by risk-adjusted EV (EV / ATR) as well as by EV,
+       since the drawdowns come from picking the most volatile names, and keep the market
+       basket as the benchmark to beat.
    - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
-     divergences, patterns and the rest. Then one pre-registered trading test of the
-     full set, and the holdout opened once at the end.
+     divergences, patterns and the rest. Divergence features follow the binding
+     constraints in `LRP.md` §2.4 (Done #107, #199): `confluence_count` and
+     `agreeing_indicators` recomputed point-in-time (`pit_confluence()`), never read as
+     stored; regular and hidden forms pooled only by an explicit decision; and no
+     divergence feature before the delisted-member recompute (Done #103) runs. Then one
+     pre-registered trading test of the full set, and the holdout opened once at the end.
 
 ---
 
