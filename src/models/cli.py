@@ -18,8 +18,12 @@ Commands:
                   feature and label caches: one TRIALS.csv row per trial.
   close-experiment  BH and the three verdicts over an experiment's logged
                   trials. Read-only.
+  run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
+                  model's top picks vs B4's and the market at every barrier
+                  cell of the chosen horizons, one TRIALS.csv row per cell.
 
-Only run-experiment is a trial: the other commands write nothing to TRIALS.csv.
+Only run-experiment and run-scorecard are trials: the other commands write
+nothing to TRIALS.csv.
 """
 
 from __future__ import annotations
@@ -251,6 +255,27 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
     return 0
 
 
+def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...]) -> int:
+    from src.models import trading, trial_log
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    if trial_log.git_dirty() is not False:
+        raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
+    sc = trading.Scorecard(horizons=horizons)
+    features = cache.read_feature_cache(features_dir)
+    results = []
+    for h in horizons:
+        for r in trading.run_horizon(sc, h, features, labels_dir):
+            print(f"{r['trial_id']}: {trading.outcome(r, r['cell'])}", flush=True)
+            results.append(r)
+    pd.set_option("display.width", 250)
+    for k in sc.ks:
+        print(f"\nTop-{k}, net {trading.HEADLINE_COST_BPS} bps per trade (Track A, no verdict; "
+              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {sc.ci:.0%} CI):")
+        print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
+    return 0
+
+
 def close_experiment(experiment_id: str) -> int:
     from src.models import ablation, trial_log
     exp = ablation.PREREGISTERED[experiment_id]
@@ -297,6 +322,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"),
                      help="a build-labels output directory")
     run.add_argument("--horizons", nargs="+", type=int, default=None, help="a subset of the registered horizons")
+    score = sub.add_parser("run-scorecard", help="the combined model's trading scorecard (Track A), logging every cell")
+    score.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
+    score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
+    score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
     close.add_argument("experiment")
     args = parser.parse_args(argv)
@@ -305,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-experiment":
         return run_experiment(args.experiment, args.features, args.labels,
                               tuple(args.horizons) if args.horizons else None)
+    if args.command == "run-scorecard":
+        return run_scorecard(args.features, args.labels, tuple(args.horizons))
     if args.command == "close-experiment":
         return close_experiment(args.experiment)
     if args.command == "run-gates":
