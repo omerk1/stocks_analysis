@@ -41,7 +41,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode
+from llama_index.core.schema import BaseNode, MetadataMode
 
 from src.llm.research_docs.retrieve import cite, search
 
@@ -84,10 +84,10 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
     """Files whose chunks (text and metadata) in the index differ from chunking the docs
     now: a doc edited, added or deleted since the build, or a change to the chunking."""
     def by_path(nodes):
-        out: dict[str, list[str]] = {}
-        for n in nodes:
+        out: dict[str, list[tuple]] = {}
+        for n in nodes:  # embedded rendering (catches embed-key changes) + all metadata
             out.setdefault(n.metadata["path"], []).append(
-                (n.get_content(), sorted(n.metadata.items())))
+                (n.get_content(MetadataMode.EMBED), sorted((k, str(v)) for k, v in n.metadata.items())))
         return {p: sorted(chunks) for p, chunks in out.items()}
     old, new = by_path(indexed), by_path(current)
     return sorted(p for p in old.keys() | new.keys() if old.get(p) != new.get(p))
@@ -97,6 +97,19 @@ def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
     """Golds that match no chunk: a doc was edited or re-chunked under the question."""
     return [f"{q['id']}: {g}" for q in questions for g in q["gold"]
             if not any(matches(n, g) for n in nodes)]
+
+
+def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
+                    current: list[BaseNode]) -> list[str]:
+    """Golds no indexed chunk matches, each labelled with its fix: a gold the current docs
+    do match needs an index rebuild; one they don't match is wrong as written."""
+    out = []
+    for q in questions:
+        for g in q["gold"]:
+            if not any(matches(n, g) for n in indexed):
+                fix = "rebuild the index" if any(matches(n, g) for n in current) else "fix the gold"
+                out.append(f"{q['id']}: {g}  ({fix})")
+    return out
 
 
 def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
@@ -153,21 +166,17 @@ def main() -> None:
         print("\n".join(problems) or f"all {len(questions)} questions' golds match a chunk")
         raise SystemExit(1 if problems else 0)
     from src.llm.research_docs.index import embed_model, load_index
-    index = load_index(embed_model())  # first, so a missing index fails before chunking
+    index = load_index(embed_model())  # before re-chunking the docs
     current = chunk_documents(load_documents())
     indexed = list(index.docstore.docs.values())
     # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
     # retrieval miss, so refuse to score. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
     stale = stale_paths(indexed, current)
-    # A gold whose own file changed may only need a rebuild; any other is wrong as written.
-    rebuild = [q for q in questions if any(g["path"] in stale for g in q["gold"])]
-    fix = [q for q in questions if q not in rebuild]
-    lines = [f"  {p}  (its file changed: rebuild the index)" for p in check_golds(rebuild, indexed)]
-    lines += [f"  {p}  (fix the gold)" for p in check_golds(fix, indexed)]
-    if lines:
+    unmatched = unmatched_golds(questions, indexed, current)
+    if unmatched:
         head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
-        print(head, *lines, sep="\n", file=sys.stderr)
+        print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
     print(report(evaluate(index, questions), stale))
 

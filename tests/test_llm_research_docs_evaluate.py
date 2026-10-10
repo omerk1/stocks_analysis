@@ -3,7 +3,8 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, first_hit, load_questions, matches, report, scores, stale_paths)
+    check_golds, first_hit, load_questions, matches, report, scores, stale_paths,
+    unmatched_golds)
 from src.llm.research_docs.load import load_documents
 
 
@@ -47,6 +48,18 @@ def test_stale_paths_finds_edited_added_and_deleted_files():
     # same text, changed metadata (e.g. a CSV row's outcome) is stale too
     retagged = Document(text="w", metadata={"path": "c.md", "outcome": "dead"})
     assert stale_paths(indexed, indexed[:3] + [retagged]) == ["c.md"]
+
+
+def test_unmatched_golds_say_whether_a_rebuild_would_fix_them():
+    indexed = [_node("old wording")]
+    current = [_node("new wording")]
+    questions = [{"id": "ok", "gold": [{"path": "docs/a.md", "contains": "old"}]},
+                 {"id": "moved", "gold": [{"path": "docs/a.md", "contains": "new"}]},
+                 {"id": "typo", "gold": [{"path": "docs/a.md", "contains": "nwe"}]}]
+    out = unmatched_golds(questions, indexed, current)
+    assert len(out) == 2
+    assert out[0].startswith("moved:") and out[0].endswith("(rebuild the index)")
+    assert out[1].startswith("typo:") and out[1].endswith("(fix the gold)")
 
 
 def test_scores_hit_at_k_and_mrr():
