@@ -45,7 +45,7 @@ def test_rebuild_replaces_rather_than_appends(tmp_path):
 
 
 def test_load_without_a_build_says_so(tmp_path):
-    with pytest.raises(FileNotFoundError, match="index build"):
+    with pytest.raises(FileNotFoundError, match="repo root"):
         load_index(MockEmbedding(embed_dim=DIM), tmp_path / "missing")
 
 

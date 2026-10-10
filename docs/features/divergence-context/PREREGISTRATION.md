@@ -293,3 +293,26 @@ entries; the cells are eligible for a dated POWER addendum (era pooling
 formulation only) — which would be a new, separately registered decision, not
 a re-run. The context study's Track-B phase closes here unless such an
 addendum is proposed.
+
+---
+
+## Addendum 2026-10-09 — record notes on the DC-B1/B2 readout (no definitions changed)
+
+1. **The MACD-hist same-sign robustness pass was not run, and is moot under the
+   disposition.** The frozen text named it as a generalization check on the six
+   registered tests; its role was to confirm or contradict an Alive RSI result.
+   With all six cells Inconclusive there is nothing for sign agreement on noise
+   to establish. If a power addendum revives the cells, the robustness pass
+   revives with them.
+2. **Survivorship caveat on the event base (found by the R/R sweep thread,
+   backlog "Signals" / Done #103).** The `divergences` and
+   `divergence_control_pairs` tables contained zero delisted tickers at run
+   time — the backfills covered tickers with yfinance bars, while delisted
+   members' bars exist only under the Tiingo sources. This registration's
+   "delisted members included; delisting-terminal returns realized" therefore
+   held for the forward-return machinery but **vacuously for the event base**:
+   the readout's cells are survivors-only, which biases weak-trend buckets
+   upward (repo invariant #4) and most plausibly flatters the bullish arms.
+   The Inconclusive verdicts stand (a survivors-only Inconclusive is still
+   Inconclusive), but any power addendum or DC-B5 must run on the recomputed,
+   fallback-covered event base (backlog lists the pending recompute steps).

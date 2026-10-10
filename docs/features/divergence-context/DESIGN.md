@@ -55,6 +55,16 @@ pivots, `confirmed_at` timestamps, `as_of`-safe. Full daily-universe backfill si
   step 0 motivates it, Case C becomes its own event definition ("close within ε·ATR of
   prior confirmed pivot extreme with indicator below its reading at that pivot"),
   which needs no pivot confirmation and carries only the standard one-bar lag.
+- **Candidate future formulation — the momentum-deficit residual (recorded
+  2026-10-09, unbuilt).** Instead of the binary divergence label, measure how much
+  lower the indicator's second peak is than the slower second price leg
+  *mechanically implies* (fit the indicator's expected reading from the leg's own
+  speed/length, take the residual). Separates the mechanical part of a lower high
+  from the anomalous part — the purest version of this study's "normalization vs
+  deterioration" distinction, and the natural cure for step 0's finding that the
+  divergence label is near-tautological in explosive contexts. Motivated if the
+  binary formulations stay inconclusive (DC-B1/B2 did) or the R/R sweep finds
+  nothing.
 
 ## Context scalars (v0)
 

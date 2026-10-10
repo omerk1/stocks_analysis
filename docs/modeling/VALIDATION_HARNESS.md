@@ -470,6 +470,11 @@ Build order, one PR each, each with its own tests:
    - **Run:** after the reused-symbol disputes PR (#184), the feature and label caches
      are rebuilt from `main`. The feature cache also records its disputes list, since
      whole-history disputes leave the universe.
+   - **Result (2026-10-08):** both groups are **inconclusive** at every horizon, and
+     nothing is BH-significant. The CIs are 10–100× wider than the band. v1 stays on
+     B4's columns. All 8 trials are worse in 2014–17 and better in 2018–21; the
+     sliding scheme would tell more training data from a regime change. Details are in
+     the `PREREGISTRATION.md` result addendum.
 
 ---
 
