@@ -322,7 +322,7 @@ addendum is proposed.
 ## Addendum 2026-10-10 — the event base was recomputed (no definitions changed)
 
 The survivorship caveat in the 2026-10-09 addendum (note 2) points to backlog
-steps that have now run (Done #111). `divergences` now includes every delisted
+steps that have now run (Done #112). `divergences` now includes every delisted
 ticker the vendor fallback covers — 117 added, all 111 delisted S&P 500/NDX
 members with 2010–2021 membership among them — and the 7 whole-history-disputed
 tickers are gone. `divergence_context` and `divergence_control_pairs` were

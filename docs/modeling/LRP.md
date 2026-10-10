@@ -149,7 +149,7 @@ Kept separate from levels:
      effect.
   4. **Survivorship gate:** the `divergences`/`divergence_control_pairs`
      tables were survivors-only (zero delisted tickers) until the 2026-10-10
-     recompute (Done #111), which added every delisted ticker the vendor
+     recompute (Done #112), which added every delisted ticker the vendor
      fallback covers (117, all 111 delisted 2010–2021 index members among them).
      F6 features built before 2026-10-10 inherit the bias; rebuild them, or
      mark the trial accordingly.
