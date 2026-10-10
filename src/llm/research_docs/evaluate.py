@@ -51,8 +51,13 @@ KS = (1, 3, 5, 10)
 
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
     questions = json.loads(path.read_text(encoding="utf-8"))
-    if empty := [q["id"] for q in questions if not q["gold"]]:  # would score as a silent miss
-        raise ValueError(f"questions with no gold: {', '.join(empty)}")
+    # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
+    # as a silent hit.
+    bad = [q["id"] for q in questions
+           if not isinstance(q.get("gold"), list) or not q["gold"]
+           or not all(isinstance(g, dict) and g.get("path") for g in q["gold"])]
+    if bad:
+        raise ValueError(f"questions with no gold, or a gold without a path: {', '.join(bad)}")
     return questions
 
 
@@ -172,8 +177,8 @@ def main() -> None:
     index = load_index(embed_model())  # first, so a missing index fails before re-chunking
     current = chunk_documents(load_documents())
     indexed = list(index.docstore.docs.values())
-    # The index is rebuilt by hand. A gold no indexed chunk matches would score as a
-    # retrieval miss, so refuse to score. Other drift since the build is flagged in the
+    # The index is rebuilt by hand. Any gold no indexed chunk matches means the index or
+    # the answer key is out of date, so refuse to score until one is fixed. Other drift since the build is flagged in the
     # report itself, so a saved copy can't pass for current numbers.
     stale = stale_paths(indexed, current)
     unmatched = unmatched_golds(questions, indexed, current)

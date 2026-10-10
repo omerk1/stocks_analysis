@@ -92,9 +92,10 @@ def test_check_golds_flags_a_gold_no_chunk_matches():
 
 def test_a_question_without_gold_is_rejected(tmp_path):
     path = tmp_path / "q.json"
-    path.write_text('[{"id": "q", "question": "?", "gold": []}]')
-    with pytest.raises(ValueError, match="no gold: q"):
-        load_questions(path)
+    for gold in ("[]", "[{}]", '{"path": "docs/a.md"}'):
+        path.write_text(f'[{{"id": "q", "question": "?", "gold": {gold}}}]')
+        with pytest.raises(ValueError, match="without a path: q"):
+            load_questions(path)
 
 
 def test_every_question_in_the_set_still_matches_the_real_docs():
