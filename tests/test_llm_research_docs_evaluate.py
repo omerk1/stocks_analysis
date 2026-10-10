@@ -142,6 +142,8 @@ def test_check_golds_flags_a_gold_no_chunk_matches():
                  {"id": "p", "parts": [[{"path": "docs/a.md"}], [{"path": "docs/a.md", "contains": "lost"}]]}]
     assert check_golds(questions, [_node("still here")]) == [
         "q: {'path': 'docs/a.md', 'contains': 'gone'}", "p: {'path': 'docs/a.md', 'contains': 'lost'}"]
+    overlap = [{"id": "o", "parts": [[{"path": "docs/a.md"}], [{"path": "docs/a.md", "contains": "here"}]]}]
+    assert check_golds(overlap, [_node("still here")]) == ["o: one chunk satisfies parts [1, 2] (docs/a.md > S)"]
 
 
 def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
@@ -150,7 +152,7 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
            '"gold": [{"path": "docs/a.md"}], "answerable": false']
     for fields in bad:
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="no gold repeated: q$"):
+        with pytest.raises(ValueError, match="gold lists: q$"):
             load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": "false"}]')
     with pytest.raises(ValueError, match="q: answerable must be true or false"):
@@ -160,9 +162,9 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
     one = '[{"path": "docs/a.md"}]'
     for fields in (f'"parts": [{one}]', f'"parts": [{one}, []]', f'"parts": [{one}, [{{}}]]',
                    f'"parts": [{one}, {one}], "gold": {one}',
-                   f'"parts": [{one}, {one}], "answerable": false', f'"parts": [{one}, {one}]'):
+                   f'"parts": [{one}, {one}], "answerable": false'):
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="no gold repeated: q$"):
+        with pytest.raises(ValueError, match="gold lists: q$"):
             load_questions(path)
     path.write_text(f'[{{"id": "q", "question": "?", "parts": [{one}, [{{"path": "docs/b.md"}}]]}}]')
     assert load_questions(path)[0]["id"] == "q"

@@ -80,10 +80,9 @@ def _golds_ok(golds) -> bool:
 
 def _shape_ok(q: dict) -> bool:
     if "parts" in q:  # multi-part: answerable, no `gold` beside it, every part non-empty
-        ps = q["parts"]  # and no gold in two parts (one chunk would then satisfy both)
+        ps = q["parts"]
         return ("gold" not in q and answerable(q) and isinstance(ps, list) and len(ps) > 1
-                and all(_golds_ok(p) and p for p in ps)
-                and len({json.dumps(g, sort_keys=True) for p in ps for g in p}) == sum(map(len, ps)))
+                and all(_golds_ok(p) and p for p in ps))
     return _golds_ok(q.get("gold")) and bool(q["gold"]) == answerable(q)
 
 
@@ -96,7 +95,7 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
                          "some on an unanswerable one, a gold without a path, or `parts` that aren't "
-                         f"two or more non-empty gold lists with no gold repeated: {', '.join(bad)}")
+                         f"two or more non-empty gold lists: {', '.join(bad)}")
     return questions
 
 
@@ -150,9 +149,16 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
 
 
 def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
-    """Golds that match no chunk: a doc was edited or re-chunked under the question."""
-    return [f"{q['id']}: {g}" for q in questions for p in parts(q) for g in p
-            if not any(matches(n, g) for n in nodes)]
+    """Golds that match no chunk (a doc was edited or re-chunked under the question), and
+    chunks that satisfy two parts of one question (its full answer would then be one chunk)."""
+    problems = [f"{q['id']}: {g}" for q in questions for p in parts(q) for g in p
+                if not any(matches(n, g) for n in nodes)]
+    for q in questions:
+        for n in nodes if len(parts(q)) > 1 else ():
+            hit = [i for i, p in enumerate(parts(q), 1) if any(matches(n, g) for g in p)]
+            if len(hit) > 1:
+                problems.append(f"{q['id']}: one chunk satisfies parts {hit} ({cite(n)})")
+    return problems
 
 
 def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
@@ -223,6 +229,7 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
         for name, group in groups.items():
             lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in scores(group).values()))
         if multi := [r for r in scored if len(parts(r)) > 1]:
+            lines.append("of which, multi-part (full answer, then first part found):")
             for name, key in (("multi-part", "rank"), ("  any part", "rank_any")):
                 lines.append(f"{name:<14} {len(multi):>3}"
                              + "".join(f"{v:>8.2f}" for v in scores(multi, key).values()))
