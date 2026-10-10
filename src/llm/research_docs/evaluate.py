@@ -14,8 +14,8 @@ a hit; a question's **rank** is the position of its first hit.
 A question whose answer has several pieces (say, the lookback windows *and* the horizons)
 lists `parts` instead of `gold`: one gold list per piece, each a set of alternatives as
 above. Its rank is the position by which every part has been hit, so hit@5 means the full
-answer is in the top 5. The report adds a lenient "any part" line (rank of the first part
-hit) next to it: the gap between the two is what a multi-part question loses.
+answer is in the top 5. The report scores the multi-part questions on their own twice, on
+the full answer and on the first part found: the gap is what they lose to partial retrieval.
 
 Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
 cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
@@ -80,9 +80,10 @@ def _golds_ok(golds) -> bool:
 
 def _shape_ok(q: dict) -> bool:
     if "parts" in q:  # multi-part: answerable, no `gold` beside it, every part non-empty
-        ps = q["parts"]
+        ps = q["parts"]  # and no gold in two parts (one chunk would then satisfy both)
         return ("gold" not in q and answerable(q) and isinstance(ps, list) and len(ps) > 1
-                and all(_golds_ok(p) and p for p in ps))
+                and all(_golds_ok(p) and p for p in ps)
+                and len({json.dumps(g, sort_keys=True) for p in ps for g in p}) == sum(map(len, ps)))
     return _golds_ok(q.get("gold")) and bool(q["gold"]) == answerable(q)
 
 
@@ -90,11 +91,12 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     questions = json.loads(path.read_text(encoding="utf-8"))
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
     # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
+    # A multi-part question's `parts` follow the same rules per part.
     bad = [q["id"] for q in questions if not _shape_ok(q)]
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
-                         "some on an unanswerable one, a gold without a path, or `parts` "
-                         f"that aren't two or more non-empty gold lists: {', '.join(bad)}")
+                         "some on an unanswerable one, a gold without a path, or `parts` that aren't "
+                         f"two or more non-empty gold lists with no gold repeated: {', '.join(bad)}")
     return questions
 
 
@@ -167,8 +169,8 @@ def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
 
 
 def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
-    """Each question's rank of first hit in the top `max(KS)`, its top chunk and that
-    chunk's similarity score."""
+    """Each question's rank in the top `max(KS)` (`part_ranks`: full answer, and first part
+    found), its top chunk and that chunk's similarity score."""
     rows = []
     for q in questions:
         hits = search(index, q["question"], max(KS))
@@ -220,10 +222,10 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
         lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in METRICS)]
         for name, group in groups.items():
             lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in scores(group).values()))
-        if multi := sum(len(parts(r)) > 1 for r in scored):
-            lines.append(f"{'any part':<14} {len(scored):>3}"
-                         + "".join(f"{v:>8.2f}" for v in scores(scored, "rank_any").values())
-                         + f"   ({multi} multi-part, scored above on the full answer)")
+        if multi := [r for r in scored if len(parts(r)) > 1]:
+            for name, key in (("multi-part", "rank"), ("  any part", "rank_any")):
+                lines.append(f"{name:<14} {len(multi):>3}"
+                             + "".join(f"{v:>8.2f}" for v in scores(multi, key).values()))
     else:
         lines += ["", "no answerable questions to score"]
     if unscored := len(rows) - len(scored):

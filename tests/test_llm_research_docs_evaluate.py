@@ -115,9 +115,11 @@ def test_report_shows_full_and_any_part_ranks_for_multi_part_questions():
     lines = report(rows).splitlines()
     assert lines[1].split()[3] == "-/2" and lines[2].split()[3] == "1"
     all_line = next(line for line in lines if line.startswith("all"))
-    any_line = next(line for line in lines if line.startswith("any part"))
+    multi_line = next(line for line in lines if line.startswith("multi-part"))
+    any_line = next(line for line in lines if line.startswith("  any part"))
     assert all_line.split()[2:4] == ["0.50", "0.50"]  # hit@1, hit@3: q1's full answer is never found
-    assert any_line.split()[3:5] == ["0.50", "1.00"] and "(1 multi-part" in any_line
+    assert multi_line.split()[1:4] == ["1", "0.00", "0.00"]
+    assert any_line.split()[2:5] == ["1", "0.00", "1.00"]  # q1 alone: first part at rank 2
 
 
 def test_unanswerable_questions_show_but_stay_out_of_the_scores():
@@ -148,7 +150,7 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
            '"gold": [{"path": "docs/a.md"}], "answerable": false']
     for fields in bad:
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="gold lists: q$"):
+        with pytest.raises(ValueError, match="no gold repeated: q$"):
             load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": "false"}]')
     with pytest.raises(ValueError, match="q: answerable must be true or false"):
@@ -158,11 +160,11 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
     one = '[{"path": "docs/a.md"}]'
     for fields in (f'"parts": [{one}]', f'"parts": [{one}, []]', f'"parts": [{one}, [{{}}]]',
                    f'"parts": [{one}, {one}], "gold": {one}',
-                   f'"parts": [{one}, {one}], "answerable": false'):
+                   f'"parts": [{one}, {one}], "answerable": false', f'"parts": [{one}, {one}]'):
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="gold lists: q$"):
+        with pytest.raises(ValueError, match="no gold repeated: q$"):
             load_questions(path)
-    path.write_text(f'[{{"id": "q", "question": "?", "parts": [{one}, {one}]}}]')
+    path.write_text(f'[{{"id": "q", "question": "?", "parts": [{one}, [{{"path": "docs/b.md"}}]]}}]')
     assert load_questions(path)[0]["id"] == "q"
 
 
