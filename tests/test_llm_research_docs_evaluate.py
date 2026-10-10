@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    METRICS, check_golds, first_hit, load_questions, matches, report, scores, stale_paths,
+    METRICS, check_golds, first_hit, part_ranks, load_questions, matches, report, scores, stale_paths,
     unmatched_golds)
 from src.llm.research_docs.load import load_documents
 
@@ -29,6 +29,14 @@ def test_first_hit_is_the_rank_of_the_first_matching_node():
     nodes = [_node(entry="#1"), _node(entry="#2"), _node(entry="#3")]
     assert first_hit(nodes, [{"entry": "#2"}, {"entry": "#3"}]) == 2
     assert first_hit(nodes, [{"entry": "#9"}]) is None
+
+
+def test_a_multi_part_question_ranks_where_its_last_part_is_found():
+    nodes = [_node(entry="#1"), _node(entry="#2"), _node(entry="#3")]
+    q = {"parts": [[{"entry": "#3"}], [{"entry": "#9"}, {"entry": "#1"}]]}
+    assert part_ranks(nodes, q) == (3, 1)
+    assert part_ranks(nodes, {"parts": [[{"entry": "#2"}], [{"entry": "#9"}]]}) == (None, 2)
+    assert part_ranks(nodes, {"gold": [{"entry": "#2"}]}) == (2, 2)
 
 
 def test_evaluate_records_a_miss_when_search_returns_nothing(monkeypatch):
@@ -98,6 +106,20 @@ def test_report_breaks_scores_down_by_type_and_style():
     assert out.splitlines()[2].split()[3:5] == ["-", "-"]  # q2 found nothing in the top 10
 
 
+def test_report_shows_full_and_any_part_ranks_for_multi_part_questions():
+    two = [[{"path": "a"}], [{"path": "b"}]]
+    rows = [{"id": "q1", "type": "row", "style": "plain", "rank": None, "rank_any": 2, "parts": two,
+             "top": "a", "score": 0.8},
+            {"id": "q2", "type": "row", "style": "plain", "rank": 1, "rank_any": 1, "gold": [{"path": "a"}],
+             "top": "a", "score": 0.8}]
+    lines = report(rows).splitlines()
+    assert lines[1].split()[3] == "-/2" and lines[2].split()[3] == "1"
+    all_line = next(line for line in lines if line.startswith("all"))
+    any_line = next(line for line in lines if line.startswith("any part"))
+    assert all_line.split()[2:4] == ["0.50", "0.50"]  # hit@1, hit@3: q1's full answer is never found
+    assert any_line.split()[3:5] == ["0.50", "1.00"] and "(1 multi-part" in any_line
+
+
 def test_unanswerable_questions_show_but_stay_out_of_the_scores():
     rows = [{"id": "q1", "type": "row", "style": "plain", "rank": 1, "top": "a", "score": 0.8},
             {"id": "q2", "type": "none", "style": "plain", "rank": None, "top": "b", "score": 0.7,
@@ -114,8 +136,10 @@ def test_unanswerable_questions_show_but_stay_out_of_the_scores():
 
 
 def test_check_golds_flags_a_gold_no_chunk_matches():
-    questions = [{"id": "q", "gold": [{"path": "docs/a.md", "contains": "gone"}]}]
-    assert check_golds(questions, [_node("still here")]) == ["q: {'path': 'docs/a.md', 'contains': 'gone'}"]
+    questions = [{"id": "q", "gold": [{"path": "docs/a.md", "contains": "gone"}]},
+                 {"id": "p", "parts": [[{"path": "docs/a.md"}], [{"path": "docs/a.md", "contains": "lost"}]]}]
+    assert check_golds(questions, [_node("still here")]) == [
+        "q: {'path': 'docs/a.md', 'contains': 'gone'}", "p: {'path': 'docs/a.md', 'contains': 'lost'}"]
 
 
 def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
@@ -124,12 +148,21 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
            '"gold": [{"path": "docs/a.md"}], "answerable": false']
     for fields in bad:
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="without a path: q"):
+        with pytest.raises(ValueError, match="gold lists: q$"):
             load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": "false"}]')
     with pytest.raises(ValueError, match="q: answerable must be true or false"):
         load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": false}]')
+    assert load_questions(path)[0]["id"] == "q"
+    one = '[{"path": "docs/a.md"}]'
+    for fields in (f'"parts": [{one}]', f'"parts": [{one}, []]', f'"parts": [{one}, [{{}}]]',
+                   f'"parts": [{one}, {one}], "gold": {one}',
+                   f'"parts": [{one}, {one}], "answerable": false'):
+        path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
+        with pytest.raises(ValueError, match="gold lists: q$"):
+            load_questions(path)
+    path.write_text(f'[{{"id": "q", "question": "?", "parts": [{one}, {one}]}}]')
     assert load_questions(path)[0]["id"] == "q"
 
 

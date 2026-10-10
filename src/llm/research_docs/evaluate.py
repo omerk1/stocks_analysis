@@ -11,6 +11,12 @@ case-insensitive), or a metadata value (`entry`, `cell_id`, `experiment_id`) tha
 chunk of that done.md entry or CSV row carries. A retrieved chunk that matches any gold is
 a hit; a question's **rank** is the position of its first hit.
 
+A question whose answer has several pieces (say, the lookback windows *and* the horizons)
+lists `parts` instead of `gold`: one gold list per piece, each a set of alternatives as
+above. Its rank is the position by which every part has been hit, so hit@5 means the full
+answer is in the top 5. The report adds a lenient "any part" line (rank of the first part
+hit) next to it: the gap between the two is what a multi-part question loses.
+
 Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
 cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
 the LLM should say "not in the docs" instead of answering from the nearest chunk. The report
@@ -63,16 +69,32 @@ def answerable(q: dict) -> bool:
     return a
 
 
+def parts(q: dict) -> list[list[dict]]:
+    """The question's answer as a list of parts, each a list of alternative golds."""
+    return q["parts"] if "parts" in q else [q["gold"]] if q.get("gold") else []
+
+
+def _golds_ok(golds) -> bool:
+    return isinstance(golds, list) and all(isinstance(g, dict) and g.get("path") for g in golds)
+
+
+def _shape_ok(q: dict) -> bool:
+    if "parts" in q:  # multi-part: answerable, no `gold` beside it, every part non-empty
+        ps = q["parts"]
+        return ("gold" not in q and answerable(q) and isinstance(ps, list) and len(ps) > 1
+                and all(_golds_ok(p) and p for p in ps))
+    return _golds_ok(q.get("gold")) and bool(q["gold"]) == answerable(q)
+
+
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
     questions = json.loads(path.read_text(encoding="utf-8"))
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
     # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
-    bad = [q["id"] for q in questions
-           if not isinstance(q.get("gold"), list) or bool(q["gold"]) != answerable(q)
-           or not all(isinstance(g, dict) and g.get("path") for g in q["gold"])]
+    bad = [q["id"] for q in questions if not _shape_ok(q)]
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
-                         f"some on an unanswerable one, or a gold without a path: {', '.join(bad)}")
+                         "some on an unanswerable one, a gold without a path, or `parts` "
+                         f"that aren't two or more non-empty gold lists: {', '.join(bad)}")
     return questions
 
 
@@ -103,6 +125,15 @@ def first_hit(nodes: list[BaseNode], golds: list[dict]) -> int | None:
     return None
 
 
+def part_ranks(nodes: list[BaseNode], q: dict) -> tuple[int | None, int | None]:
+    """(full, any): the rank by which every part has been hit (None if one never is),
+    and the rank of the first part hit. The same number for a one-part question."""
+    ranks = [first_hit(nodes, p) for p in parts(q)]
+    found = [r for r in ranks if r is not None]
+    return (max(ranks) if ranks and len(found) == len(ranks) else None,
+            min(found) if found else None)
+
+
 def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
     """Files whose chunks (text and metadata) in the index differ from chunking the docs
     now: a doc edited, added or deleted since the build, or a change to the chunking."""
@@ -118,7 +149,7 @@ def stale_paths(indexed: list[BaseNode], current: list[BaseNode]) -> list[str]:
 
 def check_golds(questions: list[dict], nodes: list[BaseNode]) -> list[str]:
     """Golds that match no chunk: a doc was edited or re-chunked under the question."""
-    return [f"{q['id']}: {g}" for q in questions for g in q["gold"]
+    return [f"{q['id']}: {g}" for q in questions for p in parts(q) for g in p
             if not any(matches(n, g) for n in nodes)]
 
 
@@ -128,7 +159,7 @@ def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
     do match needs an index rebuild; one they don't match is wrong as written."""
     out = []
     for q in questions:
-        for g in q["gold"]:
+        for g in (g for p in parts(q) for g in p):
             if not any(matches(n, g) for n in indexed):
                 fix = "rebuild the index" if any(matches(n, g) for n in current) else "fix the gold"
                 out.append(f"{q['id']}: {g}  ({fix})")
@@ -141,20 +172,26 @@ def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
     rows = []
     for q in questions:
         hits = search(index, q["question"], max(KS))
-        rows.append({**q, "rank": first_hit([h.node for h in hits], q["gold"]),
+        rank, rank_any = part_ranks([h.node for h in hits], q)
+        rows.append({**q, "rank": rank, "rank_any": rank_any,
                      "top": cite(hits[0].node) if hits else "-",
                      "score": hits[0].score if hits else None})
     return rows
 
 
-def scores(rows: list[dict]) -> dict[str, float]:
-    """hit@k and MRR over the answerable rows (an unanswerable one has no rank to score)."""
-    ranks = [r["rank"] for r in rows if answerable(r)]
+def scores(rows: list[dict], key: str = "rank") -> dict[str, float]:
+    """hit@k and MRR over the answerable rows (an unanswerable one has no rank to score),
+    on the full-answer `rank` or, with key="rank_any", the first part found."""
+    ranks = [r[key] for r in rows if answerable(r)]
     if not ranks:
         raise ValueError("no answerable questions to score")
     out = {f"hit@{k}": statistics.mean(r is not None and r <= k for r in ranks) for k in KS}
     out["MRR"] = statistics.mean(1 / r if r else 0 for r in ranks)
     return out
+
+
+def _rank(rank: int | None) -> str:
+    return str(rank) if rank else "-"
 
 
 def _stale_summary(stale: Sequence[str]) -> str:
@@ -167,11 +204,13 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
     lines = []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4} {'score':>5}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>5}  top hit")
     for r in rows:
-        rank = "n/a" if not answerable(r) else str(r["rank"]) if r["rank"] else "-"
+        rank = "n/a" if not answerable(r) else _rank(r["rank"])
+        if len(parts(r)) > 1:  # full/any part
+            rank = f"{rank}/{_rank(r['rank_any'])}"
         score = f"{r['score']:.2f}" if r["score"] is not None else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>4} {score:>5}  {r['top'][:70]}")
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>5}  {r['top'][:70]}")
     scored = [r for r in rows if answerable(r)]
     groups = {"all": scored}
     for key in ("type", "style"):
@@ -181,6 +220,10 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
         lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in METRICS)]
         for name, group in groups.items():
             lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in scores(group).values()))
+        if multi := sum(len(parts(r)) > 1 for r in scored):
+            lines.append(f"{'any part':<14} {len(scored):>3}"
+                         + "".join(f"{v:>8.2f}" for v in scores(scored, "rank_any").values())
+                         + f"   ({multi} multi-part, scored above on the full answer)")
     else:
         lines += ["", "no answerable questions to score"]
     if unscored := len(rows) - len(scored):
