@@ -11,6 +11,13 @@ case-insensitive), or a metadata value (`entry`, `cell_id`, `experiment_id`) tha
 chunk of that done.md entry or CSV row carries. A retrieved chunk that matches any gold is
 a hit; a question's **rank** is the position of its first hit.
 
+Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
+cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
+the LLM should say "not in the docs" instead of answering from the nearest chunk. The report
+shows every question's top similarity score so the two kinds can be compared: if
+unanswerable questions score as high as answerable ones, a score cutoff alone can't tell
+them apart.
+
 Metrics, over all questions and per question type:
 
 - **hit@k**: share of questions with a hit in the top k. hit@1 asks "is the best chunk
@@ -49,15 +56,21 @@ QUESTIONS = Path(__file__).with_name("eval_questions.json")
 KS = (1, 3, 5, 10)
 
 
+def answerable(q: dict) -> bool:
+    return q.get("answerable", True)
+
+
 def load_questions(path: Path = QUESTIONS) -> list[dict]:
     questions = json.loads(path.read_text(encoding="utf-8"))
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
-    # as a silent hit.
+    # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
     bad = [q["id"] for q in questions
-           if not isinstance(q.get("gold"), list) or not q["gold"]
+           if not isinstance(q.get("gold"), list) or not isinstance(q.get("answerable", True), bool)
+           or bool(q["gold"]) != answerable(q)
            or not all(isinstance(g, dict) and g.get("path") for g in q["gold"])]
     if bad:
-        raise ValueError(f"questions with no gold, or a gold without a path: {', '.join(bad)}")
+        raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
+                         f"some on an unanswerable one, or a gold without a path: {', '.join(bad)}")
     return questions
 
 
@@ -121,12 +134,14 @@ def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
 
 
 def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
-    """Each question's rank of first hit in the top `max(KS)` and its top chunk."""
+    """Each question's rank of first hit in the top `max(KS)`, its top chunk and that
+    chunk's similarity score."""
     rows = []
     for q in questions:
         hits = search(index, q["question"], max(KS))
         rows.append({**q, "rank": first_hit([h.node for h in hits], q["gold"]),
-                     "top": cite(hits[0].node) if hits else "-"})
+                     "top": cite(hits[0].node) if hits else "-",
+                     "score": hits[0].score if hits else None})
     return rows
 
 
@@ -147,18 +162,24 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
     lines = []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>4} {'score':>5}  top hit")
     for r in rows:
-        rank = str(r["rank"]) if r["rank"] else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>4}  {r['top'][:70]}")
-    groups = {"all": rows}
+        rank = "n/a" if not answerable(r) else str(r["rank"]) if r["rank"] else "-"
+        score = f"{r['score']:.2f}" if r["score"] is not None else "-"
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>4} {score:>5}  {r['top'][:70]}")
+    scored = [r for r in rows if answerable(r)]
+    groups = {"all": scored}
     for key in ("type", "style"):
-        for value in sorted({r[key] for r in rows}):
-            groups[f"{key}={value}"] = [r for r in rows if r[key] == value]
-    lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in scores(rows))]
+        for value in sorted({r[key] for r in scored}):
+            groups[f"{key}={value}"] = [r for r in scored if r[key] == value]
+    lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in [*(f"hit@{k}" for k in KS), "MRR"])]
     for name, group in groups.items():
+        if not group:  # every question unanswerable
+            continue
         s = scores(group)
         lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in s.values()))
+    if unscored := len(rows) - len(scored):
+        lines.append(f"(+{unscored} unanswerable, not scored)")
     return "\n".join(lines)
 
 

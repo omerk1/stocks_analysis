@@ -74,15 +74,29 @@ def test_scores_hit_at_k_and_mrr():
 
 
 def test_report_breaks_scores_down_by_type_and_style():
-    rows = [{"id": "q1", "type": "row", "style": "id", "rank": 1, "top": "docs/E.csv > a"},
-            {"id": "q2", "type": "entry", "style": "plain", "rank": None, "top": "docs/done.md > #1"}]
+    rows = [{"id": "q1", "type": "row", "style": "id", "rank": 1, "top": "docs/E.csv > a", "score": 0.81},
+            {"id": "q2", "type": "entry", "style": "plain", "rank": None, "top": "docs/done.md > #1", "score": None}]
     out = report(rows)
     assert "q2" in out and "type=row" in out and "style=plain" in out
     assert "STALE" not in out
     stale_out = report(rows, ["docs/a.md"]).splitlines()
     assert stale_out[0].startswith("STALE INDEX: 1 file(s) differ from the index (docs/a.md)")
     assert stale_out[1] == "" and stale_out[2].startswith("question")
-    assert out.splitlines()[2].split()[3] == "-"  # q2 found nothing in the top 10
+    assert out.splitlines()[1].split()[4] == "0.81"
+    assert out.splitlines()[2].split()[3:5] == ["-", "-"]  # q2 found nothing in the top 10
+
+
+def test_unanswerable_questions_show_but_stay_out_of_the_scores():
+    rows = [{"id": "q1", "type": "row", "style": "plain", "rank": 1, "top": "a", "score": 0.8},
+            {"id": "q2", "type": "none", "style": "plain", "rank": None, "top": "b", "score": 0.7,
+             "answerable": False}]
+    lines = report(rows).splitlines()
+    assert lines[2].split()[3:5] == ["n/a", "0.70"]
+    all_line = next(line for line in lines if line.startswith("all"))
+    assert all_line.split()[1:3] == ["1", "1.00"]  # n=1, hit@1 1.00: q2 isn't a miss
+    assert not any(line.startswith("type=none") for line in lines)
+    assert lines[-1] == "(+1 unanswerable, not scored)"
+    assert report(rows[1:]).splitlines()[-1] == "(+1 unanswerable, not scored)"  # no table rows, no crash
 
 
 def test_check_golds_flags_a_gold_no_chunk_matches():
@@ -90,12 +104,16 @@ def test_check_golds_flags_a_gold_no_chunk_matches():
     assert check_golds(questions, [_node("still here")]) == ["q: {'path': 'docs/a.md', 'contains': 'gone'}"]
 
 
-def test_a_question_without_gold_is_rejected(tmp_path):
+def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
     path = tmp_path / "q.json"
-    for gold in ("[]", "[{}]", '{"path": "docs/a.md"}'):
-        path.write_text(f'[{{"id": "q", "question": "?", "gold": {gold}}}]')
+    bad = ['"gold": []', '"gold": [{}]', '"gold": {"path": "docs/a.md"}',
+           '"gold": [{"path": "docs/a.md"}], "answerable": false', '"gold": [], "answerable": "no"']
+    for fields in bad:
+        path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
         with pytest.raises(ValueError, match="without a path: q"):
             load_questions(path)
+    path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": false}]')
+    assert load_questions(path)[0]["id"] == "q"
 
 
 def test_every_question_in_the_set_still_matches_the_real_docs():
