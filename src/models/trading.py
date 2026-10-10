@@ -238,6 +238,8 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
     every = every.assign(atr_pct=every["atr"] / every["close_t"])
     n_years = every["date"].nunique() / TRADING_DAYS
     neither_atr = neither_atr_returns(frame, folds)
+    if not all(np.isfinite(v) for v in neither_atr.values()):
+        raise ValueError(f"a fold's 'neither' return in ATRs isn't finite (zero ATR?): {neither_atr}")
     metrics = {"neither_ret": neither, "neither_atr": neither_atr, "n_years": n_years, "rank": sc.rank, "by_k": {}}
     boots = {}
     for k in sc.ks:

@@ -546,14 +546,14 @@ Build order, one PR each, each with its own tests:
      archived predictions, no refit: 18 `S1b` rows, each pointing at its S1 trial.
      - **The volatility tilt is gone.** The picks' mean ATR is 2.3–2.7% of price, vs
        2.4% for the universe.
-     - **The picks now beat the market on every readout.** Model minus market is
-       positive at 36 of 36 cell × k readouts (H = 21: +0.07% to +0.27% per trade; H = 63:
+     - **The picks' point estimate is above the market at every readout.** Model minus
+       market is positive at 36 of 36 cell × k readouts (H = 21: +0.07% to +0.27% per trade; H = 63:
        +0.19% to +0.61%), and the 90% CI clears zero at 17 (9 at H = 21, 8 at H = 63);
        none is below. Against B4 ranked the same way: positive at 36, clearing zero at
        15, none below.
      - **No era flip.** Model minus market is positive in 2014–17 at 35 of 36 readouts
-       and in 2018–21 at 34; neither era dominates (2014–17 lower at 17 of 36). E1 and
-       S1 were worse in 2014–17 every time.
+       and in 2018–21 at 34; neither era dominates (2014–17 lower at 17 of 36). S1 was
+       lower in 2014–17 at 34 of 36, E1 in every trial.
      - **Portfolio, net 10 bps:** Sharpe 0.45–0.92 (EV-ranked: 0.18–0.58; higher at all
        36), above the random-k basket at all 36, above the market basket at 21 (all 18
        top-20 readouts, 3 of 18 top-5). Annual return 3.8–10.4% vs the market's
