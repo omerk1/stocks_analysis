@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    check_golds, first_hit, load_questions, matches, report, scores, stale_paths,
+    METRICS, check_golds, first_hit, load_questions, matches, report, scores, stale_paths,
     unmatched_golds)
 from src.llm.research_docs.load import load_documents
 
@@ -80,6 +80,9 @@ def test_scores_hit_at_k_and_mrr():
     s = scores(rows + [{"rank": None, "answerable": False}])  # unanswerable: not a miss
     assert s["hit@1"] == 0.25 and s["hit@3"] == 0.5 and s["hit@5"] == 0.75 and s["hit@10"] == 0.75
     assert s["MRR"] == pytest.approx((1 + 1 / 4 + 0 + 1 / 2) / 4)
+    assert tuple(s) == METRICS  # the report's header
+    with pytest.raises(ValueError, match="no answerable"):
+        scores([{"rank": None, "answerable": False}])
 
 
 def test_report_breaks_scores_down_by_type_and_style():

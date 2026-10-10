@@ -53,6 +53,7 @@ from src.llm.research_docs.retrieve import cite, search
 
 QUESTIONS = Path(__file__).with_name("eval_questions.json")
 KS = (1, 3, 5, 10)
+METRICS = (*(f"hit@{k}" for k in KS), "MRR")
 
 
 def answerable(q: dict) -> bool:
@@ -149,6 +150,8 @@ def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
 def scores(rows: list[dict]) -> dict[str, float]:
     """hit@k and MRR over the answerable rows (an unanswerable one has no rank to score)."""
     ranks = [r["rank"] for r in rows if answerable(r)]
+    if not ranks:
+        raise ValueError("no answerable questions to score")
     out = {f"hit@{k}": statistics.mean(r is not None and r <= k for r in ranks) for k in KS}
     out["MRR"] = statistics.mean(1 / r if r else 0 for r in ranks)
     return out
@@ -175,7 +178,7 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
         for value in sorted({r[key] for r in scored}):
             groups[f"{key}={value}"] = [r for r in scored if r[key] == value]
     if scored:
-        lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in scores(scored))]
+        lines += ["", f"{'':<14} {'n':>3}" + "".join(f"{name:>8}" for name in METRICS)]
         for name, group in groups.items():
             lines.append(f"{name:<14} {len(group):>3}" + "".join(f"{v:>8.2f}" for v in scores(group).values()))
     else:
