@@ -39,8 +39,9 @@ from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common import indicators
 from src.foundation.market_common import price_disputes
+from src.foundation.market_common.price_basis import resolve_sources
 from src.foundation.market_common.price_disputes import DisputedDay
-from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.matching import classify_context
 from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals, pit_member_mask
 
@@ -402,11 +403,22 @@ def build(args) -> None:
           f"{n_nan_conf} missing confirmed_at, {n_nan_bin} NA duration/geometry)")
 
     flags = delisted_flags(raw_conn)
-    walked, done = [], 0
+    # Walk each ticker on the vendor its events were detected on (the
+    # divergences fallback): a delisted ticker's bars live only under the
+    # Tiingo sources, so the primary vendor alone would walk it as empty.
     tickers = frame["ticker"].unique()
+    sources = resolve_sources(raw_conn, list(tickers), config.price_basis, VENDOR_FALLBACK)
+    unresolved = ~frame["ticker"].isin(sources.keys())
+    if unresolved.any():
+        print(f"excluded: {int(unresolved.sum())} rows on {frame.loc[unresolved, 'ticker'].nunique()} "
+              "ticker(s) with no resolvable bars (whole-history dispute or no bars)")
+        frame = frame[~unresolved]
+        tickers = frame["ticker"].unique()
+    walked, done = [], 0
     for ticker, grp in frame.groupby("ticker"):
         bars, _report = data_mod.load_and_validate(
-            raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis
+            raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis,
+            source=sources[ticker],
         )
         walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)))
         done += 1

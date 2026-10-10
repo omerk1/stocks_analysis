@@ -138,3 +138,54 @@ the primary vendor only and a Tiingo-only delisted ticker would otherwise walk a
 Reported alongside the verdict: old-vs-new region table, effective N, rows from delisted
 tickers, and delisting-terminal exits. Same outcomes as before: DEAD → one line, stop; a
 survivor → a DRAFT DC-B5 only, presented to the user.
+
+### Result (rerun, same date, run after the pre-commit note above was committed)
+
+- **DEAD again per the pre-committed kill criterion** — no (direction × form × context)
+  region clears all four rails at the primary variant (2R/63-bar/ε0.25/20 bps). One line,
+  stop; no DC-B5 draft.
+- Accounting: 101,989 trades walked (38,343 events / 63,646 controls; old run 33,270 /
+  55,234). 124 tickers new to the sweep, 6 gone (the forgotten disputed tickers that were
+  PIT members); 4,908 event rows on delisted tickers (old: 0). Primary-variant delisting
+  exits: 44 events / 87 controls (old: 0 / 0) — the delisting-terminal path is now
+  exercised. 534 trades excluded for disputed-day windows, 0 for whole-history disputes
+  (those tickers are no longer in the base).
+- Old vs new, primary variant, control-adjusted net R (distinct p2 dates; neighbors):
+
+  | region | old adj R | new adj R | old → new dates | era 2010–15 / 2016–21 (new) | neighbors old → new |
+  |---|---|---|---|---|---|
+  | bearish/regular/other | +0.101 | +0.078 | 619 → 706 | +0.078 / +0.079 | 3/4 → 3/5 |
+  | bullish/regular/pullback | +0.052 | +0.064 | 982 → 1,077 | +0.120 / +0.009 | 5/8 → 7/8 |
+  | bearish/regular/extension | +0.078 | +0.006 | 365 → 440 | +0.041 / −0.028 | 1/2 → 2/4 |
+  | bearish/regular/pullback | +0.004 | −0.014 | 1,456 → 1,566 | −0.029 / +0.002 | 3/7 → 4/7 |
+  | hidden-form regions | ≈ 0 or < 0 | ≈ 0 or < 0 | — | — | — |
+
+- Closest non-survivor: **bullish/regular/pullback** clears the 500-date floor, both era
+  signs and the ex-2020 split, and fails only the neighbor rail on one sub-cell (strength
+  tercile 1 × 26–45 bars: −0.013 R, 220 dates). Named noise per the plateau discipline,
+  for three reasons:
+  - the disagreeing sub-cell is near zero, but the rail is sign-only by pre-commitment;
+  - the 2016–21 half is +0.009 R, essentially flat, so the region's mean is carried by
+    2010–15;
+  - the sub-cells range from −0.01 to +0.15 R with no strength or duration ordering — a
+    bumpy surface, not a plateau.
+- Not used, recorded so it isn't rediscovered: restricted to the old run's tickers,
+  this region would pass all four rails (8/8 neighbors). That is a post-hoc subset of
+  the pre-committed universe and is not a survival. If anything, it shows the near-miss
+  hinges on which tickers are in the base.
+- Cost: 10 vs 20 bps moves no region's adjusted R by more than 0.002 R. Events and their
+  matched controls pay the same cost, so it nets out of the delta; net-of-cost levels
+  are in the report.
+- Argue-against:
+  - The bearish positives are still "events lose less than controls": shorting with a
+    stop above loses ~0.19–0.25 R net in this bull window.
+  - The bullish/pullback edge is concentrated in 2010–15.
+  - The 44 delisting-exit events average +0.29 R net. A delisting is often an
+    acquisition at a premium, not a failure, so the newly exercised path doesn't only
+    add distress.
+  - With ~324 cells, a sign-stable near-miss of this size is what winner's curse
+    produces.
+- Survivorship caveat from the first run: resolved for the vendor-covered universe. About
+  50 cap-drop and bankruptcy names have no bars from any vendor (the EODHD question).
+  Code change (plumbing only): the walk now loads each ticker on its resolved vendor
+  (`price_basis.resolve_sources`), matching what detection read.
