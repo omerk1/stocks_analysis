@@ -124,3 +124,17 @@ beyond one barrier decides that barrier; only an undecidable bar goes to the sto
   residual bias is unknown. The DEAD verdict is what the criterion says on this event
   base; any future registration (DC-B5 or otherwise) should gate on the delisted
   backfill (backlog item).
+
+## 2026-10-10 — R/R sweep rerun on the recomputed event base: pre-commit (written BEFORE the rerun was computed)
+
+Track A. A rerun of the sweep above on the post-recompute event base (Done #112:
+delisted tickers detected on their Tiingo bars, the 7 whole-history-disputed tickers
+forgotten, context and control pairs rebuilt). **Grid, strategy form, primary variant,
+controls, metrics, robustness facets and the kill criterion are identical to the
+2026-10-10 entry above, verbatim — nothing is redefined.** One plumbing change, not a
+definition: the walk loads each ticker's bars from the vendor its events were detected on
+(`price_basis.resolve_sources`, the divergences fallback), because the original build read
+the primary vendor only and a Tiingo-only delisted ticker would otherwise walk as empty.
+Reported alongside the verdict: old-vs-new region table, effective N, rows from delisted
+tickers, and delisting-terminal exits. Same outcomes as before: DEAD → one line, stop; a
+survivor → a DRAFT DC-B5 only, presented to the user.
