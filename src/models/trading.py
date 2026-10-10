@@ -20,10 +20,14 @@ are scored on the same test dates:
   portfolio only: the same concentration as the picks without any selection,
   so the picks' extra risk splits into "only k names" and "which k names".
 
-Picks rank by EV (`rank="ev"`), or by EV per unit of ATR (`rank="ev_atr"`:
-EV / (ATR / close), the edge in risk units). EV in return units scales with
-ATR, so plain EV favours volatile names. Each strategy's mean ATR / close is
-reported (`atr_pct`).
+Picks rank by EV (`rank="ev"`), or by EV in ATR units (`rank="ev_atr"`:
+P(+1) U - P(-1) D + P(0) n, with U, D the cell's distances in ATRs and n the
+training window's mean "neither" return in ATRs, ret / (ATR / close) -- the
+expected R-multiple of the trade). EV in return units scales with ATR, so
+plain EV favours volatile names. (Dividing return-EV by ATR / close instead
+would also divide the "neither" return, one number per fold, by each name's
+volatility, and rank on low ATR whatever the probabilities.) The model,
+reference and market report their picks' mean ATR / close (`atr_pct`).
 
 Per strategy and round-trip cost: target / stop / timeout rates, win rate,
 average win and loss and their ratio (the realised R/R), expectancy per trade,
@@ -63,7 +67,7 @@ from src.models.inference import N_BOOT, BootstrapResult, archive_draws, per_dat
 from src.models.labels.barriers import REFERENCE_HORIZON, BarrierCell, v1_grid
 from src.models.learners import BoostingConfig
 from src.models.metrics import TOP_K, expected_value
-from src.models.splits import EXPANDING, V1_FIRST_TRAIN_START, V1_TEST_YEARS, walk_forward_folds
+from src.models.splits import EXPANDING, V1_FIRST_TRAIN_START, V1_TEST_YEARS, fold_masks, walk_forward_folds
 
 EXPERIMENT_ID = "S1"
 RESCORE_ID = "S1b"
@@ -103,22 +107,37 @@ class Scorecard:
 
 # ---------------------------------------------------------------- the trades
 
+def neither_atr_returns(frame: pd.DataFrame, folds) -> dict[int, float]:
+    """Per fold: the mean "neither" return in ATRs, ret / (ATR / close), over
+    the (purged) training window -- `neither_returns` in risk units."""
+    out = {}
+    r = frame["ret"] / (frame["atr"] / frame["close_t"])
+    for fold in folds:
+        train, _ = fold_masks(frame, fold)
+        out[fold.test_start.year] = float(r[train & (frame["hit"] == 0).to_numpy()].mean())
+    return out
+
+
 def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: dict[int, float],
-          k: int, rank: str = "ev") -> pd.DataFrame:
+          k: int, rank: str = "ev", neither_atr: dict[int, float] | None = None) -> pd.DataFrame:
     """Each test date's `k` rows with the highest score (ties broken by
     ticker), with their realised `hit` and `ret`. `preds` is one row per
-    (ticker, date) with `fold` and the probabilities; EV uses the fold's
-    training-window `neither` return. The score is EV, or EV / (ATR / close)
-    for `rank="ev_atr"` -- both decision-time quantities."""
+    (ticker, date) with `fold` and the probabilities. The score is EV (with
+    the fold's training-window `neither` return), or for `rank="ev_atr"` EV
+    in ATR units (with `neither_atr`, `neither_atr_returns`) -- both from
+    decision-time quantities."""
     if rank not in RANKS:
         raise ValueError(f"rank must be one of {RANKS}, got {rank!r}")
+    if rank == "ev_atr" and neither_atr is None:
+        raise ValueError("rank='ev_atr' needs the folds' neither returns in ATRs (neither_atr_returns)")
     keys = ["ticker", "date"]
     scored = preds[[*keys, "fold", *P_COLS]].merge(frame[[*keys, "hit", "ret", "atr", "close_t"]], on=keys)
     parts = []
     for year, g in scored.groupby("fold"):
         g = g.assign(ev=expected_value(g, cell, neither[year]), atr_pct=g["atr"] / g["close_t"]
                      ).dropna(subset=["ev", "ret"])
-        g["score"] = g["ev"] if rank == "ev" else g["ev"] / g["atr_pct"]
+        g["score"] = g["ev"] if rank == "ev" else (g["p_up"] * cell.upper_atr - g["p_down"] * cell.lower_atr
+                                                   + g["p_neither"] * neither_atr[year])
         parts.append(g.sort_values(["date", "score", "ticker"], ascending=[True, False, True]).groupby("date").head(k))
     return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev", "atr_pct"]]
 
@@ -218,11 +237,12 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
     every = frame.merge(model[keys], on=keys).dropna(subset=["ret", "atr", "close_t"])
     every = every.assign(atr_pct=every["atr"] / every["close_t"])
     n_years = every["date"].nunique() / TRADING_DAYS
-    metrics = {"neither_ret": neither, "n_years": n_years, "rank": sc.rank, "by_k": {}}
+    neither_atr = neither_atr_returns(frame, folds)
+    metrics = {"neither_ret": neither, "neither_atr": neither_atr, "n_years": n_years, "rank": sc.rank, "by_k": {}}
     boots = {}
     for k in sc.ks:
-        trades = {"model": picks(model, frame, cell, neither, k, sc.rank),
-                  "reference": picks(ref, frame, cell, neither, k, sc.rank),
+        trades = {"model": picks(model, frame, cell, neither, k, sc.rank, neither_atr),
+                  "reference": picks(ref, frame, cell, neither, k, sc.rank, neither_atr),
                   "market": every[["date", "ticker", "hit", "ret", "atr_pct"]]}
         gross = {s: basket(t) for s, t in trades.items()}
         for other in ("reference", "market"):
@@ -328,10 +348,23 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         groups = json.loads(row["feature_groups"])
         if tuple(groups["model"]) != sc.model_columns or tuple(groups["reference_columns"]) != sc.reference_columns:
             raise ValueError(f"{row['trial_id']} was fitted on other columns than this scorecard's")
-        preds = pd.read_parquet(Path(artifacts_root) / row["trial_id"] / "predictions.parquet")
         labels = dataset.read_labels(labels_dir, cell.horizon, cell=(cell.upper, cell.lower))
-        frame = cell_frame(features, labels)
         spec = trial_spec(sc, cell, features, labels)
+        # The rescored row must describe the fit that made the predictions, and
+        # score them on the same labels and features.
+        for field in ("seeds", "hyperparameters"):
+            if json.loads(row[field]) != json.loads(json.dumps(spec[field])):
+                raise ValueError(f"{row['trial_id']}: {field} differ from this scorecard's")
+        logged, now = json.loads(row["fold_scheme"]), spec["fold_scheme"]
+        if (logged["test_years"], logged["first_train_start"]) != (now["test_years"], now["first_train_start"]):
+            raise ValueError(f"{row['trial_id']}: folds differ from this scorecard's")
+        built = json.loads(row["universe"])
+        for key in ("features_built", "labels_built"):
+            if built.get(key) != spec["universe"][key]:
+                raise ValueError(f"{row['trial_id']}: {key} {built.get(key)} != the cache's {spec['universe'][key]} "
+                                 "(caches rebuilt since the fit)")
+        preds = pd.read_parquet(Path(artifacts_root) / row["trial_id"] / "predictions.parquet")
+        frame = cell_frame(features, labels)
         spec["feature_groups"]["rescored_from"] = row["trial_id"]
         with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
             model = preds[preds["model"] == "model"].drop(columns="model")

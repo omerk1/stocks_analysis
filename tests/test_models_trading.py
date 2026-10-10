@@ -115,15 +115,23 @@ def test_the_scorecard_finds_a_planted_edge_and_nothing_in_noise(tmp_path, monke
 
 def test_ev_atr_ranks_the_edge_per_unit_of_risk():
     d = pd.to_datetime(["2020-01-02"] * 2)
-    # same probabilities; B is three times as volatile, so its EV in return units is 3x A's
+    # A has the better odds; B is three times as volatile, so its EV in return units is larger
     preds = pd.DataFrame({"ticker": ["A", "B"], "date": d, "fold": 2020, "p_up": [0.5, 0.45],
                           "p_down": [0.2, 0.25], "p_neither": [0.3, 0.3]})
     frame = preds[["ticker", "date"]].assign(hit=1.0, ret=0.01, atr=[1.0, 3.0], close_t=50.0)
     cell = BarrierCell(21, 2.0, 1.0)
     assert list(trading.picks(preds, frame, cell, {2020: 0.0}, k=1)["ticker"]) == ["B"]
-    assert list(trading.picks(preds, frame, cell, {2020: 0.0}, k=1, rank="ev_atr")["ticker"]) == ["A"]
+    assert list(trading.picks(preds, frame, cell, {2020: 0.0}, 1, "ev_atr", {2020: 0.0})["ticker"]) == ["A"]
+    # Now B (volatile) has the better odds: 0.45*2 - 0.25 = 0.65 ATR vs A's 0.5.
+    # A large "neither" return is the same number of ATRs for both, so B stays
+    # ahead. Dividing return-EV by ATR / close would divide the 5% "neither"
+    # return by each name's volatility and put A first (1.25 vs 0.90).
+    flipped = preds.assign(p_up=[0.4, 0.45], p_down=[0.3, 0.25])
+    assert list(trading.picks(flipped, frame, cell, {2020: 0.05}, 1, "ev_atr", {2020: 0.5})["ticker"]) == ["B"]
     with pytest.raises(ValueError):
         trading.picks(preds, frame, cell, {2020: 0.0}, k=1, rank="sharpe")
+    with pytest.raises(ValueError, match="neither_atr"):
+        trading.picks(preds, frame, cell, {2020: 0.0}, k=1, rank="ev_atr")
 
 
 def test_random_picks_take_k_names_a_day_without_looking():
@@ -159,6 +167,15 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     assert again["by_k"][5]["model"]["costs"][10] == first["by_k"][5]["model"]["costs"][10]
     assert ev_atr["by_k"][5]["model"]["atr_pct"] <= first["by_k"][5]["model"]["atr_pct"]
     assert again["by_k"][5]["random"]["portfolio"]["n_draws"] == trading.RANDOM_DRAWS
+    with pytest.raises(ValueError, match="hyperparameters"):
+        trading.rescore(replace(SMALL, config=BoostingConfig(max_iter=51, min_samples_leaf=50)),
+                        trial_log.read_trials(trials), features, tmp_path, trials_path=trials, artifacts_root=art)
+    rebuilt = labels.copy()
+    rebuilt.attrs["manifest"] = {**labels.attrs["manifest"], "created": "later"}
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: rebuilt)
+    with pytest.raises(ValueError, match="labels_built"):
+        trading.rescore(SMALL, trial_log.read_trials(trials), features, tmp_path, trials_path=trials,
+                        artifacts_root=art)
     with pytest.raises(ValueError, match="other columns"):
         trading.rescore(replace(SMALL, model_columns=B4_COLUMNS), trial_log.read_trials(trials), features,
                         tmp_path, trials_path=trials, artifacts_root=art)
