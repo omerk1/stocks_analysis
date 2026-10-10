@@ -233,8 +233,8 @@ def test_a_cache_built_with_another_disputes_list_is_refused(conn, tmp_path, mon
     from src.foundation.market_common import price_disputes
     build_labels(conn, _rows(conn, "2021-01-04", "2021-06-30"), 21, tmp_path)
     read_labels(tmp_path, 21)
-    monkeypatch.setattr(dataset, "DISPUTED_DAYS",
-                        dataset.DISPUTED_DAYS + (price_disputes.DisputedDay("AAA", None, "yfinance", "reused"),))
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
+                        price_disputes.DISPUTED_DAYS + (price_disputes.DisputedDay("AAA", None, "yfinance", "reused"),))
     with pytest.raises(dataset.StaleLabelCacheError):
         read_labels(tmp_path, 21)
 
@@ -428,7 +428,7 @@ def test_drop_disputed_only_applies_to_the_vendor_with_the_bad_bars():
 
 def test_build_labels_drops_disputed_rows_and_records_them(conn, tmp_path, monkeypatch):
     from src.foundation.market_common import price_disputes
-    monkeypatch.setattr(dataset, "DISPUTED_DAYS", (price_disputes.DisputedDay("AAA", "2020-03-02", "yfinance", "t"),))
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS", (price_disputes.DisputedDay("AAA", "2020-03-02", "yfinance", "t"),))
     rows = universe_mask(conn, "2020-01-01", "2020-06-30")
     rows = rows[rows["ticker"] == "AAA"][["ticker", "date"]]
 
@@ -449,10 +449,9 @@ def test_the_disputes_file_loads_and_names_known_vendors():
 
 
 def test_a_whole_history_dispute_removes_the_ticker_from_the_modeling_universe(conn, monkeypatch):
+    from src.foundation.market_common import price_disputes
     from src.foundation.market_common.price_disputes import DisputedDay
-    from src.foundation.market_common import price_basis
-    # whole-history disputes are read in price_basis.resolve_sources (#194)
-    monkeypatch.setattr(price_basis, "DISPUTED_DAYS", (DisputedDay("BBB", None, "yfinance", "reused symbol"),))
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS", (DisputedDay("BBB", None, "yfinance", "reused symbol"),))
 
     mask = universe_mask(conn, "2020-01-01", "2020-06-30")
 
