@@ -147,10 +147,12 @@ Kept separate from levels:
      context gate beats pooling. The registered mean-level test read out
      all-Inconclusive, so this is a feature-engineering prior, not a claimed
      effect.
-  4. **Survivorship gate:** until the Done #103 recompute lands, the
-     `divergences`/`divergence_control_pairs` tables are survivors-only (zero
-     delisted tickers). F6 features built before that recompute inherit the bias;
-     build after it, or mark the trial accordingly.
+  4. **Survivorship gate:** the `divergences`/`divergence_control_pairs`
+     tables were survivors-only (zero delisted tickers) until the 2026-10-10
+     recompute (Done #111), which added every delisted ticker the vendor
+     fallback covers (117, all 111 delisted 2010–2021 index members among them).
+     F6 features built before 2026-10-10 inherit the bias; rebuild them, or
+     mark the trial accordingly.
 - **Market structure:** direction of the last BOS/CHoCH and bars since it.
 - **Patterns:** direction of an as-of-safe active pattern, and its `confidence`.
 

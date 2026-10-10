@@ -543,8 +543,8 @@ Build order, one PR each, each with its own tests:
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
      `agreeing_indicators` are full-run values (look-ahead; recompute with
-     `pit_confluence()`), and the event tables are survivors-only until the Done #103
-     recompute (build after it, or mark the trial). Then one
+     `pit_confluence()`), and the event tables were survivors-only until the 2026-10-10
+     recompute (Done #111; anything built before it needs a rebuild or a mark). Then one
      pre-registered trading test of the full set, and the holdout opened once at the end.
 
 ---
