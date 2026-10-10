@@ -15,7 +15,15 @@ are scored on the same test dates:
 - **model**: the model's top k;
 - **reference**: B4's top k (the strongest benchmark that isn't the model);
 - **market**: every eligible row's trade, the same barriers (what a pick has to
-  beat; a random k has the same expectancy).
+  beat; a random k has the same expectancy);
+- **random**: k rows drawn at random each date (`RANDOM_DRAWS` draws), for the
+  portfolio only: the same concentration as the picks without any selection,
+  so the picks' extra risk splits into "only k names" and "which k names".
+
+Picks rank by EV (`rank="ev"`), or by EV per unit of ATR (`rank="ev_atr"`:
+EV / (ATR / close), the edge in risk units). EV in return units scales with
+ATR, so plain EV favours volatile names. Each strategy's mean ATR / close is
+reported (`atr_pct`).
 
 Per strategy and round-trip cost: target / stop / timeout rates, win rate,
 average win and loss and their ratio (the realised R/R), expectancy per trade,
@@ -34,11 +42,16 @@ cost (both sides pay it per trade), so it is computed once.
 Every cell is a logged trial (`TRIALS.csv`, H7) under `EXPERIMENT_ID`, with no
 verdict: step 1 is Track A (exploration), a shakedown of the scorecard on the
 features we have before more are added. Its numbers are looks, not findings.
+`rescore` scores an earlier run's archived predictions again (another ranking,
+the random baseline) without refitting; each rescored cell is its own trial
+under `RESCORE_ID`, pointing at the trial it came from.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -47,12 +60,15 @@ from src.models import dataset, trial_log
 from src.models.ablation import (B4_COLUMNS, MA_SUPPORTED, MA_WEAK, P_COLS, cell_frame, check_features, check_labels,
                                  neither_returns, oos_predictions, seed_mean)
 from src.models.inference import N_BOOT, BootstrapResult, archive_draws, per_date_diff
-from src.models.labels.barriers import BarrierCell, v1_grid
+from src.models.labels.barriers import REFERENCE_HORIZON, BarrierCell, v1_grid
 from src.models.learners import BoostingConfig
 from src.models.metrics import TOP_K, expected_value
 from src.models.splits import EXPANDING, V1_FIRST_TRAIN_START, V1_TEST_YEARS, walk_forward_folds
 
 EXPERIMENT_ID = "S1"
+RESCORE_ID = "S1b"
+RANKS = ("ev", "ev_atr")
+RANDOM_DRAWS = 20
 TRACK = "A"
 TRADING_DAYS = 252
 COSTS_BPS = (0, 10, 25)   # round trip; 0 = gross
@@ -79,6 +95,7 @@ class Scorecard:
     indices: tuple[str, ...] = ("sp500",)
     config: BoostingConfig = BoostingConfig()
     grid: tuple[tuple[float, float], ...] = ()   # (U, D) cells; empty = every v1 cell
+    rank: str = "ev"                             # RANKS
 
     def cells(self, horizon: int) -> list[BarrierCell]:
         return [c for c in v1_grid() if c.horizon == horizon and (not self.grid or (c.upper, c.lower) in self.grid)]
@@ -87,18 +104,41 @@ class Scorecard:
 # ---------------------------------------------------------------- the trades
 
 def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: dict[int, float],
-          k: int) -> pd.DataFrame:
-    """Each test date's `k` rows with the highest EV (ties broken by ticker),
-    with their realised `hit` and `ret`. `preds` is one row per (ticker,
-    date) with `fold` and the probabilities; EV uses the fold's training-window
-    `neither` return."""
+          k: int, rank: str = "ev") -> pd.DataFrame:
+    """Each test date's `k` rows with the highest score (ties broken by
+    ticker), with their realised `hit` and `ret`. `preds` is one row per
+    (ticker, date) with `fold` and the probabilities; EV uses the fold's
+    training-window `neither` return. The score is EV, or EV / (ATR / close)
+    for `rank="ev_atr"` -- both decision-time quantities."""
+    if rank not in RANKS:
+        raise ValueError(f"rank must be one of {RANKS}, got {rank!r}")
     keys = ["ticker", "date"]
     scored = preds[[*keys, "fold", *P_COLS]].merge(frame[[*keys, "hit", "ret", "atr", "close_t"]], on=keys)
     parts = []
     for year, g in scored.groupby("fold"):
-        g = g.assign(ev=expected_value(g, cell, neither[year])).dropna(subset=["ev", "ret"])
-        parts.append(g.sort_values(["date", "ev", "ticker"], ascending=[True, False, True]).groupby("date").head(k))
-    return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev"]]
+        g = g.assign(ev=expected_value(g, cell, neither[year]), atr_pct=g["atr"] / g["close_t"]
+                     ).dropna(subset=["ev", "ret"])
+        g["score"] = g["ev"] if rank == "ev" else g["ev"] / g["atr_pct"]
+        parts.append(g.sort_values(["date", "score", "ticker"], ascending=[True, False, True]).groupby("date").head(k))
+    return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev", "atr_pct"]]
+
+
+def random_picks(every: pd.DataFrame, k: int, rng: np.random.Generator) -> pd.DataFrame:
+    """k rows drawn uniformly at random from each date's pickable rows."""
+    u = pd.Series(rng.uniform(size=len(every)), index=every.index)
+    return every[u.groupby(every["date"]).rank(method="first") <= k]
+
+
+def random_portfolio(every: pd.DataFrame, k: int, horizon: int, cost_bps: float, draws: int = RANDOM_DRAWS,
+                     seed: int = 0) -> dict:
+    """`portfolio` of a random k a day, as the median of each statistic over
+    `draws` draws (and the range of the annual return across them)."""
+    rng = np.random.default_rng(seed)
+    runs = pd.DataFrame([portfolio(basket(random_picks(every, k, rng), cost_bps), horizon, cost_bps)
+                         for _ in range(draws)])
+    out = {c: float(runs[c].median()) for c in ("annual_return", "max_drawdown", "sharpe", "cost_drag")}
+    return {**out, "annual_return_min": float(runs["annual_return"].min()),
+            "annual_return_max": float(runs["annual_return"].max()), "n_draws": draws}
 
 
 def basket(trades: pd.DataFrame, cost_bps: float = 0) -> pd.Series:
@@ -176,12 +216,14 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
         raise ValueError(f"a fold's training window has no 'neither' rows to price EV with: {neither}")
     # the rows a model can pick: scored, resolved, and with a decision-time EV
     every = frame.merge(model[keys], on=keys).dropna(subset=["ret", "atr", "close_t"])
+    every = every.assign(atr_pct=every["atr"] / every["close_t"])
     n_years = every["date"].nunique() / TRADING_DAYS
-    metrics = {"neither_ret": neither, "n_years": n_years, "by_k": {}}
+    metrics = {"neither_ret": neither, "n_years": n_years, "rank": sc.rank, "by_k": {}}
     boots = {}
     for k in sc.ks:
-        trades = {"model": picks(model, frame, cell, neither, k), "reference": picks(ref, frame, cell, neither, k),
-                  "market": every[["date", "ticker", "hit", "ret"]]}
+        trades = {"model": picks(model, frame, cell, neither, k, sc.rank),
+                  "reference": picks(ref, frame, cell, neither, k, sc.rank),
+                  "market": every[["date", "ticker", "hit", "ret", "atr_pct"]]}
         gross = {s: basket(t) for s, t in trades.items()}
         for other in ("reference", "market"):
             boots[f"top{k}_vs_{other}"] = per_date_diff(gross["model"], gross[other], cell.horizon, True,
@@ -197,7 +239,9 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
                     "n_trades": int(t_year.isin(e).sum()),
                     "n_dates": int(t.loc[t_year.isin(e), "date"].nunique())} for e in sc.eras},
                 "portfolio": portfolio(basket(t, HEADLINE_COST_BPS), cell.horizon, HEADLINE_COST_BPS),
+                "atr_pct": float(t["atr_pct"].mean()),
             }
+        out["random"] = {"portfolio": random_portfolio(every, k, cell.horizon, HEADLINE_COST_BPS, seed=seed)}
         metrics["by_k"][k] = out
     return metrics, boots
 
@@ -207,7 +251,7 @@ def outcome(metrics: dict, cell: BarrierCell, k: int = TOP_K[0]) -> str:
     e = {s: m[s]["costs"][HEADLINE_COST_BPS]["expectancy"] for s in STRATEGIES}
     pay = m["model"]["costs"][HEADLINE_COST_BPS]["payoff_ratio"]
     d = m["vs_reference"]
-    return (f"Track A, no verdict. H{cell.horizon} {cell.upper:g}/{cell.lower:g}, top-{k} net "
+    return (f"Track A, no verdict, rank {metrics.get('rank', 'ev')}. H{cell.horizon} {cell.upper:g}/{cell.lower:g}, top-{k} net "
             f"{HEADLINE_COST_BPS} bps per trade: model {e['model']:+.2%} (R/R {pay:.2f}), reference "
             f"{e['reference']:+.2%}, market {e['market']:+.2%}; model - reference {d['point_estimate']:+.2%} "
             f"[{d['ci_low']:+.2%}, {d['ci_high']:+.2%}].")
@@ -217,7 +261,7 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     fm, lm = features.attrs.get("manifest", {}), labels.attrs.get("manifest", {})
     return {
         "feature_groups": {"track": TRACK, "model": list(sc.model_columns), "reference": sc.reference,
-                           "reference_columns": list(sc.reference_columns)},
+                           "reference_columns": list(sc.reference_columns), "rank": sc.rank},
         "cells": [{"horizon": cell.horizon, "upper": cell.upper, "lower": cell.lower,
                    "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr}],
         "fold_scheme": {"scheme": EXPANDING, "test_years": list(sc.test_years),
@@ -262,6 +306,46 @@ def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir,
     return results
 
 
+def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_dir, source: str = EXPERIMENT_ID,
+            n_boot: int | None = None, trials_path=trial_log.TRIALS_PATH,
+            artifacts_root=trial_log.ARTIFACTS_ROOT) -> list[dict]:
+    """Score the archived predictions of `source`'s `ok` trials again with
+    `sc` (its `rank`, the random baseline), one `RESCORE_ID` trial per cell,
+    no refit. A cell's first `ok` source row is used. The source run's model
+    columns must match `sc`'s: the predictions are what they are."""
+    n_boot = sc.n_boot if n_boot is None else n_boot
+    check_features(sc, features)
+    rows = trials[(trials["experiment_id"] == source) & (trials["status"] == trial_log.OK)].sort_values("date")
+    results, seen = [], set()
+    for _, row in rows.iterrows():
+        c = json.loads(row["cells"])[0]
+        cell = BarrierCell(c["horizon"], c["upper"], c["lower"], REFERENCE_HORIZON)
+        if not np.isclose(cell.upper_atr, c["upper_atr"]) or not np.isclose(cell.lower_atr, c["lower_atr"]):
+            raise ValueError(f"{row['trial_id']}: logged barrier distances aren't the v1 grid's")
+        if (cell.horizon, cell.upper, cell.lower) in seen or cell.horizon not in sc.horizons:
+            continue
+        seen.add((cell.horizon, cell.upper, cell.lower))
+        groups = json.loads(row["feature_groups"])
+        if tuple(groups["model"]) != sc.model_columns or tuple(groups["reference_columns"]) != sc.reference_columns:
+            raise ValueError(f"{row['trial_id']} was fitted on other columns than this scorecard's")
+        preds = pd.read_parquet(Path(artifacts_root) / row["trial_id"] / "predictions.parquet")
+        labels = dataset.read_labels(labels_dir, cell.horizon, cell=(cell.upper, cell.lower))
+        frame = cell_frame(features, labels)
+        spec = trial_spec(sc, cell, features, labels)
+        spec["feature_groups"]["rescored_from"] = row["trial_id"]
+        with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
+            model = preds[preds["model"] == "model"].drop(columns="model")
+            ref = preds[preds["model"] == sc.reference].drop(columns="model")
+            metrics, boots = score_cell(model, ref, frame, cell, sc, n_boot)
+            metrics["rescored_from"] = row["trial_id"]
+            for name, b in boots.items():
+                archive_draws(b, t.dir, name)
+            t.record(metrics, n_dates=metrics["by_k"][sc.ks[0]]["vs_reference"]["n_dates"],
+                     outcome=outcome(metrics, cell, sc.ks[0]))
+        results.append({"trial_id": t.trial_id, "cell": cell, **metrics})
+    return results
+
+
 # ---------------------------------------------------------------- the grid
 
 def grid_table(results: list[dict], k: int, cost_bps: int = HEADLINE_COST_BPS) -> pd.DataFrame:
@@ -279,6 +363,10 @@ def grid_table(results: list[dict], k: int, cost_bps: int = HEADLINE_COST_BPS) -
         row["model_annual"] = m["model"]["portfolio"]["annual_return"]
         row["model_mdd"] = m["model"]["portfolio"]["max_drawdown"]
         row["model_sharpe"] = m["model"]["portfolio"]["sharpe"]
+        for s in ("market", "random"):
+            row[f"{s}_sharpe"] = m[s]["portfolio"]["sharpe"]
+            row[f"{s}_mdd"] = m[s]["portfolio"]["max_drawdown"]
+        row["model_atr"] = m["model"]["atr_pct"]
         for other in ("reference", "market"):
             d = m[f"vs_{other}"]
             row[f"vs_{other}"], row[f"vs_{other}_lo"], row[f"vs_{other}_hi"] = (
