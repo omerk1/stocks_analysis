@@ -393,13 +393,13 @@ def walk_sources(
     'vendor_stale' (resolves today to a vendor other than the one its
     events were detected on, so pivots and payoff prices would come from
     different series). Returns (kept frame, ticker -> source,
-    reason -> (events, controls, tickers) dropped)."""
+    reason -> (events, controls, tickers) dropped); every reason is
+    present, zeros included, so a run log shows the check ran."""
     sources, flagged = builder_sources(
         raw_conn, derived_conn, sorted(frame["ticker"].unique()), basis, VENDOR_FALLBACK, "daily"
     )
     why = frame["ticker"].map(flagged)
-    # Every reason builder_sources can give is counted (zeros included, so a
-    # run log shows the check ran), and any future reason is counted too.
+    # Any future builder_sources reason is counted too.
     dropped = {}
     for reason in sorted({"unresolved", "vendor_stale", *flagged.values()}):
         sel = why == reason
@@ -442,13 +442,13 @@ def build(args) -> None:
             raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis,
             source=sources[ticker],
         )
-        walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)).assign(
-            bar_source=sources[ticker]))  # which vendor's prices the payoffs came from
+        walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)))
         done += 1
         if done % 200 == 0:
             print(f"  walked {done}/{len(tickers)} tickers")
 
     trades = pd.concat(walked, ignore_index=True)
+    trades["bar_source"] = trades["ticker"].map(sources)  # the vendor the payoffs came from
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = CACHE_DIR / "trades.parquet"
     trades.to_parquet(path, index=False)
@@ -580,17 +580,22 @@ def drop_disputed(
     d: 63 held bars ahead of entry, and behind it the Wilder-smoothed
     ATR(14)'s memory of the disputed bar — (13/14)^k decay keeps ~28% of a
     shock 17 bars later, so the trailing side runs ~62 trading days ≈ 90
-    calendar days, by which point the residual is under 2%). Vendor-blind,
-    so slightly over-broad — fine for exploration, counted either way.
-    (The DC-B1/B2 run predates this filter; the repo's full per-window
-    treatment is dataset.build_labels', logged as backlog for the signals
-    modules.) Kept vendor-blind on purpose, as in the first run, so reruns
-    stay comparable with it. `build` already drops tickers whose RESOLVED
-    vendor is whole-history disputed (`walk_sources`); this check
-    additionally drops a ticker disputed on some other vendor, which is
-    over-broad and is counted in the report. The cache's `bar_source`
-    column records the vendor each trade was walked on, so a vendor-aware
-    rule is possible later as an explicit, logged change."""
+    calendar days, by which point the residual is under 2%).
+
+    Vendor-blind on purpose, in both branches, as in the first run, so
+    reruns stay comparable with it. It is slightly over-broad, and the
+    excess is counted in the report:
+    - whole-history: `build` already drops tickers whose RESOLVED vendor
+      is disputed (`walk_sources`), so this drops only tickers disputed
+      on some other vendor;
+    - per-day windows: this also drops trades near a day disputed on a
+      vendor the ticker wasn't walked on (23 of 534 window drops on the
+      2026-10-10 rerun).
+    Caches built since that rerun carry a `bar_source` column (older ones
+    don't), so a vendor-aware rule is possible later as an explicit,
+    logged change. (The DC-B1/B2 run predates this filter; the repo's full
+    per-window treatment is dataset.build_labels', logged as backlog for
+    the signals modules.)"""
     if disputes is None:  # the canonical list, read at call time (one knob)
         disputes = price_disputes.DISPUTED_DAYS
     whole = {d.ticker for d in disputes if d.date is None}

@@ -141,17 +141,20 @@ survivor → a DRAFT DC-B5 only, presented to the user.
 
 ### Result (rerun, same date, run after the pre-commit note above was committed)
 
-*(Amended same date, pre-merge, after code review — the first run's precedent:
+**Amendment 2026-10-11 (pre-merge, after code review; same practice as the first run's
+amendment):**
+
 - **Delisted count corrected.** "4,908 event rows on delisted tickers" counted tickers
   inactive today; 2,554 of those rows are on tickers delisted by 2021-12-31.
 - **Source rule moved.** The walk's vendor resolution now goes through
   `store.builder_sources`, which adds a vendor-stale check.
-- **Cache rebuilt twice.** Each build was identical to the first rerun's (walk outputs
-  content hash `9880af761b1cf8c3`). The build log now prints 0 unresolved and 0
+- **Cache rebuilt twice.** Each rebuild's walk outputs match the first rerun's by
+  content hash (`9880af761b1cf8c3`); the latest cache also carries a new `bar_source`
+  column, so the file itself differs. The build log now prints 0 unresolved and 0
   vendor-stale tickers.
 - **Dispute filter left vendor-blind,** as in the first run, for comparability. A
   vendor-aware rule would keep 23 of its 534 window drops (9 events, 2 tickers).
-- Verdict and every number below unchanged.)*
+- Verdict and every number below unchanged.
 
 - **DEAD again per the pre-committed kill criterion** — no (direction × form × context)
   region clears all four rails at the primary variant (2R/63-bar/ε0.25/20 bps). One line,

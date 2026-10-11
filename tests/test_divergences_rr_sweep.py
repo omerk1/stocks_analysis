@@ -283,6 +283,10 @@ def test_walk_sources_routes_fallback_tickers_and_drops_flagged(monkeypatch, lis
 
     monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
                         (DisputedDay("BAD", None, "yfinance", "synthetic"),))
+    listed = []
+    real_members = store.source_members
+    monkeypatch.setattr(store, "source_members",
+                        lambda *a, **k: listed.append(1) or real_members(*a, **k))
     if list_sources:  # the production path: thousands of tickers -> list each source once
         monkeypatch.setattr(store, "MEMBERS_THRESHOLD", 0)
     raw = db.get_connection(":memory:")
@@ -315,3 +319,4 @@ def test_walk_sources_routes_fallback_tickers_and_drops_flagged(monkeypatch, lis
     assert sources["LIVE"] == db.YFINANCE_SPLIT_ONLY
     assert sources["LEGACY"] == db.YFINANCE_SPLIT_ONLY
     assert dropped == {"unresolved": (1, 1, 1), "vendor_stale": (1, 1, 2)}
+    assert bool(listed) == list_sources  # the path under test actually ran
