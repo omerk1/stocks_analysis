@@ -264,3 +264,46 @@ cells would be uninstrumentable. Passing both gates means a DC-B3/B4 draft is
 
 Code: `src/analysis/divergence_hidden_prep.py` (read-only over `divergences` +
 `divergence_context`; no DB writes, no caches).
+
+### Result (same date, run after the entry above was committed)
+
+- **Both gates pass; a DC-B3/B4 draft is warranted and will be presented to the user.**
+  Nothing below is a finding; the registration (own N_tests, own correction) is where
+  hypotheses get tested.
+- **Look (a) — hidden is NOT the regular cells' complement.** Only 29.2%/33.4% of
+  hidden bearish/bullish rows (raw; PIT dev-window 29.7%/33.6%) carry a mirrored-
+  direction regular p2 strictly inside their pivot interval (same-indicator: 19–23%).
+  The disagreement cells are large: hidden-alone PIT dev-window distinct p2 dates
+  ≈ 1,486 (bearish) / 1,530 (bullish) — far above any plausible effective-N floor.
+  Coherence check: the 29–34% rate is the step-0 entanglement number (29.2% of shaped
+  higher-high pairs carry a regular-bearish divergence) asked from the other side.
+  Conditioning the other way, 28–36% of regular rows sit inside a hidden window —
+  co-occurrence is a facet/covariate for DC-B3/B4, not grounds to pool forms (the
+  LRP §2.4 / F6 constraint stands).
+- Outcome peek (bare rates, within form): invalidation is slightly HIGHER with a
+  regular counterpart in both directions (bearish 19.5% vs 18.1%; bullish 17.3% vs
+  14.1%; medMFE ≈ equal) — directionally consistent with a reversal label weighing
+  against a continuation label on the same swing, and confounded by everything a bare
+  rate is confounded by (deeper/busier structures are more likely to print the
+  counterpart at all). Design input only.
+- **Look (b) — the pivot-to-pivot candidate fits; v0 is confirmed misfit.** v0
+  retrace_frac > 1 on 65.7%/75.8% of hidden bearish/bullish rows (vs 5.3%/8.7% of
+  regular cells — the scalar built for regular geometry). The candidate
+  (counter-move / trend-leg) is defined on 100.0% of hidden rows (0 input-NaN beyond
+  the join, 0 degenerate trend-legs) with a smooth distribution: p10≈0.36–0.37,
+  p50≈0.67–0.70, p90=0.93 in both directions. Sanity: for a true hidden pair the
+  ratio is mechanically bounded in (0,1) (a higher low IS a counter-move smaller than
+  the trend leg), so the candidate is exactly "retracement depth of the trend leg" —
+  interpretable and bounded where v0 exploded.
+- Caveat that shapes the draft: at the regular-geometry 0.33/5-bar edges the shallow
+  pole holds only 5.1%/10.0% of defined PIT dev-window rows (259/531 distinct dates)
+  — a fixed-edge two-pole split would re-create DC-B1/B2's thin-extension-pool
+  problem. DC-B3/B4 context classes should be defined on the candidate's own
+  within-cell quantiles (e.g. shallow/middle/deep terciles), which are balanced by
+  construction; tercile edges would be the sanctioned cell-defining-bin exception,
+  as in the frozen DC-B1/B2 matching bins.
+- Argue-against: the co-occurrence rate is an undercount at the margin (strict-
+  interior matching; the detector's own 3-bar pairing window can place a counterpart
+  p2 just outside the interval) — but no plausible widening moves ~30% to ~90%, so
+  the independence conclusion stands. The outcome deltas are bare rates and carry no
+  claim.
