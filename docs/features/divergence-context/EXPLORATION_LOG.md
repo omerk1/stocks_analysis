@@ -146,10 +146,14 @@ survivor → a DRAFT DC-B5 only, presented to the user.
   stop; no DC-B5 draft.
 - Accounting: 101,989 trades walked (38,343 events / 63,646 controls; old run 33,270 /
   55,234). 124 tickers new to the sweep, 6 gone (the forgotten disputed tickers that were
-  PIT members); 4,908 event rows on delisted tickers (old: 0). Primary-variant delisting
-  exits: 44 events / 87 controls (old: 0 / 0) — the delisting-terminal path is now
-  exercised. 534 trades excluded for disputed-day windows, 0 for whole-history disputes
-  (those tickers are no longer in the base).
+  PIT members). 4,908 event rows sit on tickers inactive today, and 2,554 of them on
+  tickers delisted by 2021-12-31 (old: 0). The rest delisted after the dev window and
+  were alive at its end. Primary-variant delisting exits: 44 events / 87 controls
+  (old: 0 / 0), so the delisting-terminal path is now exercised. No event on a
+  delisted-by-2021 ticker is censored, so no terminal return was dropped. 534 trades
+  excluded for disputed-day windows. No ticker was dropped before the walk: 0
+  unresolved and 0 vendor-stale. The 7 whole-history-disputed tickers are no longer in
+  the base.
 - Old vs new, primary variant, control-adjusted net R (distinct p2 dates; neighbors):
 
   | region | old adj R | new adj R | old → new dates | era 2010–15 / 2016–21 (new) | neighbors old → new |
@@ -187,5 +191,10 @@ survivor → a DRAFT DC-B5 only, presented to the user.
     produces.
 - Survivorship caveat from the first run: resolved for the vendor-covered universe. About
   50 cap-drop and bankruptcy names have no bars from any vendor (the EODHD question).
-  Code change (plumbing only): the walk now loads each ticker on its resolved vendor
-  (`price_basis.resolve_sources`), matching what detection read.
+  Code change (plumbing only): the walk loads each ticker's bars from its resolved
+  vendor by the context/controls builders' rule (`store.builder_sources`), and drops
+  unresolved or vendor-stale tickers, of which there were none.
+- Caches: the first run's per-trade parquet is still in the main checkout's gitignored
+  `data/derived/divergence_rr_sweep/`. This rerun's cache was written to the rerun
+  worktree's own data dir, so the old cache was not overwritten. The rebuilt-after-review
+  cache is identical to the first rerun's (row for row).
