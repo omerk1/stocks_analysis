@@ -267,6 +267,25 @@ Code: `src/analysis/divergence_hidden_prep.py` (read-only over `divergences` +
 
 ### Result (same date, run after the entry above was committed)
 
+*(Amended same date, pre-merge, after code review — step-0's precedent. (1) The shape
+split's `leg2_bars >= 5` comparison now carries an explicit NA mask + test (invariant
+#9); no number changed — a NaN `leg2_bars` co-occurs with a NaN `leg2_gain_pct` today,
+so the undefined rows were already excluded, but only by an undeclared coupling. (2)
+The co-occurrence matching was rewritten as one vectorized merge; every original
+figure reproduced exactly. (3) A PIT variant of the counterpart flag was added
+(counterpart confirmed by the hidden event's own `confirmed_at`): 29.1%/33.3% vs the
+structure-level 29.2%/33.4% — the regular counterpart nearly always confirms first,
+so the structure-level flags are not materially look-ahead; the outcome peek is now
+also reported on the PIT split (same picture). Caveat made explicit: counterparts
+confirming after DEV_END are never read (holdout), a small undercount at the window
+margin. (4) The disagreement-cell date counts cited below were "dates with any alone
+row", which overlap the with-counterpart dates; the conservative **alone-only** count
+(dates hosting no counterpart row at all) is now reported alongside — PIT dev-window
+826 (bearish) / 719 (bullish), still comfortably above any plausible floor, gate
+conclusion unchanged. (5) The dev-events loader and shape-bucket edges moved to
+`src/analysis/divergence_study_common.py`, shared with step 0, so the definitions
+can't drift between the two scripts.)*
+
 - **Both gates pass; a DC-B3/B4 draft is warranted and will be presented to the user.**
   Nothing below is a finding; the registration (own N_tests, own correction) is where
   hypotheses get tested.
@@ -274,7 +293,9 @@ Code: `src/analysis/divergence_hidden_prep.py` (read-only over `divergences` +
   hidden bearish/bullish rows (raw; PIT dev-window 29.7%/33.6%) carry a mirrored-
   direction regular p2 strictly inside their pivot interval (same-indicator: 19–23%).
   The disagreement cells are large: hidden-alone PIT dev-window distinct p2 dates
-  ≈ 1,486 (bearish) / 1,530 (bullish) — far above any plausible effective-N floor.
+  ≈ 1,486 (bearish) / 1,530 (bullish), of which 826 / 719 host no counterpart row at
+  all (the conservative count) — far above any plausible effective-N floor either way.
+  The PIT-ordered counterpart flag matches the structure-level one to within 0.1pp.
   Coherence check: the 29–34% rate is the step-0 entanglement number (29.2% of shaped
   higher-high pairs carry a regular-bearish divergence) asked from the other side.
   Conditioning the other way, 28–36% of regular rows sit inside a hidden window —

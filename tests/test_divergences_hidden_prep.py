@@ -1,14 +1,15 @@
-"""Unit tests for the hidden-forms prep looks' two derivations
+"""Unit tests for the hidden-forms prep looks' derivations
 (src/analysis/divergence_hidden_prep.py): the pivot-to-pivot retrace
-fraction and the hidden/regular co-occurrence interval matching."""
+fraction, the hidden/regular co-occurrence interval matching, and the
+NA discipline of the shape classifier."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.analysis.divergence_hidden_prep import (
-    _covered_mask,
     attach_cooccurrence,
+    classify_hidden_shape,
     hidden_fit_retrace_frac,
 )
 
@@ -46,7 +47,30 @@ class TestHiddenFitRetraceFrac:
         assert frac.isna().all()
 
 
-def _event(ticker, form, direction, indicator, p1, p2):
+class TestClassifyHiddenShape:
+    def test_buckets(self):
+        shape = classify_hidden_shape(
+            pd.Series([0.1, 0.5, 0.5]), pd.Series([10.0, 10.0, 2.0])
+        )
+        assert shape.tolist() == [
+            "shallow (extension-analogue)",
+            "deep+slow (pullback-analogue)",
+            "deep-fast",
+        ]
+
+    def test_na_leg2_bars_is_na_not_deep_fast(self):
+        # Invariant #9: a NaN leg2_bars with a defined fraction must come
+        # out NA, never "fast" (the comparison alone would read NaN as
+        # False and misbucket the row into deep-fast).
+        shape = classify_hidden_shape(pd.Series([0.5, 0.5]), pd.Series([np.nan, 2.0]))
+        assert shape.isna().tolist() == [True, False]
+
+    def test_na_frac_is_na(self):
+        shape = classify_hidden_shape(pd.Series([np.nan]), pd.Series([10.0]))
+        assert shape.isna().all()
+
+
+def _event(ticker, form, direction, indicator, p1, p2, confirmed_at=None):
     return {
         "ticker": ticker,
         "form": form,
@@ -54,6 +78,7 @@ def _event(ticker, form, direction, indicator, p1, p2):
         "indicator": indicator,
         "p1_ts": pd.Timestamp(p1),
         "p2_ts": pd.Timestamp(p2),
+        "confirmed_at": confirmed_at or (pd.Timestamp(p2) + pd.Timedelta(days=3)).isoformat(),
     }
 
 
@@ -136,22 +161,41 @@ class TestAttachCooccurrence:
         assert events.iloc[0]["counterpart_any"]
         assert events.iloc[1]["inside_hidden_any"]
 
+    def test_pit_flag_requires_counterpart_confirmed_first(self):
+        # Counterpart confirms AFTER the hidden event's own confirmed_at:
+        # structure-level flag True, PIT flag False.
+        events = attach_cooccurrence(
+            pd.DataFrame(
+                [
+                    _event("A", "hidden", "bullish", "rsi", "2020-01-01", "2020-02-01",
+                           confirmed_at="2020-02-04T00:00:00"),
+                    _event("A", "regular", "bearish", "rsi", "2019-12-01", "2020-01-30",
+                           confirmed_at="2020-02-10T00:00:00"),
+                ]
+            )
+        )
+        hidden = events.iloc[0]
+        assert hidden["counterpart_any"]
+        assert not hidden["counterpart_pit"]
 
-class TestCoveredMask:
-    def test_nested_intervals_do_not_hide_coverage(self):
-        # A long interval starts first; a short one nested inside it ends
-        # earlier. A point after the short end but before the long end is
-        # still covered — the prefix-max over ends must see the long one.
-        starts = np.array([pd.Timestamp("2020-01-01").to_datetime64(),
-                           pd.Timestamp("2020-01-05").to_datetime64()])
-        ends = np.array([pd.Timestamp("2020-03-01").to_datetime64(),
-                         pd.Timestamp("2020-01-10").to_datetime64()])
-        pts = np.array([pd.Timestamp("2020-02-01").to_datetime64(),
-                        pd.Timestamp("2020-03-05").to_datetime64()])
-        covered = _covered_mask(pts, starts, ends)
-        assert covered.tolist() == [True, False]
+    def test_pit_flag_set_when_counterpart_already_confirmed(self):
+        events = attach_cooccurrence(
+            pd.DataFrame(
+                [
+                    _event("A", "hidden", "bullish", "rsi", "2020-01-01", "2020-02-01",
+                           confirmed_at="2020-02-04T00:00:00"),
+                    _event("A", "regular", "bearish", "rsi", "2019-12-01", "2020-01-15",
+                           confirmed_at="2020-01-20T00:00:00"),
+                ]
+            )
+        )
+        assert events.iloc[0]["counterpart_pit"]
 
-    def test_empty_intervals(self):
-        pts = np.array([pd.Timestamp("2020-02-01").to_datetime64()])
-        covered = _covered_mask(pts, np.array([], dtype=pts.dtype), np.array([], dtype=pts.dtype))
-        assert covered.tolist() == [False]
+    def test_hidden_only_frame_gets_all_false_flags(self):
+        events = attach_cooccurrence(
+            pd.DataFrame(
+                [_event("A", "hidden", "bullish", "rsi", "2020-01-01", "2020-02-01")]
+            )
+        )
+        assert not events.iloc[0]["counterpart_any"]
+        assert not events.iloc[0]["counterpart_pit"]

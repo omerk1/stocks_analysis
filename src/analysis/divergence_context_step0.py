@@ -29,6 +29,13 @@ import random
 
 import pandas as pd
 
+from src.analysis.divergence_study_common import (
+    OUTCOME_END,
+    SHAPE_LEG2_BARS,
+    SHAPE_RETRACE_FRAC,
+    fmt_quantiles,
+    load_dev_events,
+)
 from src.foundation.data_processing import db
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
@@ -38,28 +45,6 @@ from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
 from src.signals.divergences.study_universe import DEV_END, membership_intervals, pit_member_mask
 
-OUTCOME_END = "2021-11-30"  # 20-bar outcome window must not cross the holdout
-# "Pullback + rebuild" shape: the move between the pivots gave back at
-# least this fraction of the impulse, over at least this many bars of
-# rebuild. Descriptive bucket edges for step 0, not pre-registered
-# thresholds.
-SHAPE_RETRACE_FRAC = 0.33
-SHAPE_LEG2_BARS = 5
-
-
-def _load_dev_events(derived_conn) -> pd.DataFrame:
-    q = """
-    SELECT d.*, c.impulse_gain_pct, c.interpeak_retrace_pct, c.interpeak_retrace_frac,
-           c.leg2_gain_pct, c.leg2_bars, c.atr_contraction
-    FROM divergences d LEFT JOIN divergence_context c ON c.divergence_id = d.id
-    WHERE d.timeframe = 'daily' AND d.confirmed_at <= ?
-    """
-    events = pd.read_sql_query(q, derived_conn, params=[DEV_END + "T23:59:59"])
-    events["p2_ts"] = pd.to_datetime(events["p2_date"])
-    events["year"] = events["p2_ts"].dt.year
-    events["cell"] = events["form"] + "/" + events["direction"]
-    return events
-
 
 def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
     """True where the event's ticker was an S&P 500 or Nasdaq-100 member
@@ -68,17 +53,6 @@ def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
     events = events.copy()
     events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
     return events
-
-
-def _fmt_quantiles(s: pd.Series) -> str:
-    s = s.dropna()
-    if s.empty:
-        return "n=0"
-    q = s.quantile([0.25, 0.5, 0.75, 0.9])
-    return (
-        f"n={len(s)}  p25={q.iloc[0]:.2f}  p50={q.iloc[1]:.2f}  "
-        f"p75={q.iloc[2]:.2f}  p90={q.iloc[3]:.2f}"
-    )
 
 
 def report_prevalence(events: pd.DataFrame) -> None:
@@ -91,12 +65,12 @@ def report_prevalence(events: pd.DataFrame) -> None:
             & (grp["leg2_bars"] >= SHAPE_LEG2_BARS)
         ]
         frac = len(shaped) / len(grp) if len(grp) else float("nan")
-        print(f"  {cell:18s} retrace_frac: {_fmt_quantiles(grp['interpeak_retrace_frac'])}")
+        print(f"  {cell:18s} retrace_frac: {fmt_quantiles(grp['interpeak_retrace_frac'])}")
         print(
             f"  {'':18s} shape (frac>={SHAPE_RETRACE_FRAC}, leg2_bars>={SHAPE_LEG2_BARS}): "
             f"{len(shaped)}/{len(grp)} = {frac:.1%}  (distinct p2 dates: {shaped['p2_date'].nunique()})"
         )
-        print(f"  {'':18s} atr_contraction: {_fmt_quantiles(grp['atr_contraction'])}")
+        print(f"  {'':18s} atr_contraction: {fmt_quantiles(grp['atr_contraction'])}")
 
 
 def report_cells(events: pd.DataFrame) -> None:
@@ -225,7 +199,7 @@ def main() -> None:
 
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
 
-    events = _load_dev_events(derived_conn)
+    events = load_dev_events(derived_conn)
     events = _attach_pit_membership(events, raw_conn)
     report_prevalence(events)
     report_cells(events)
