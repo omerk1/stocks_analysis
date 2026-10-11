@@ -329,3 +329,37 @@ tickers are gone. `divergence_context` and `divergence_control_pairs` were
 rebuilt on that base. The DC-B1/B2 readout above is not re-run by this; its
 numbers remain survivors-only as recorded. Any power addendum or DC-B5 runs on
 the recomputed base.
+
+---
+
+## Addendum 2026-10-11 — power addendum assessed, not proposed (no definitions changed)
+
+The disposition left the six cells eligible for a dated POWER addendum. The
+options were sized blind on the recomputed base (matched-pair and distinct-p2-date
+counts only; no forward returns or outcomes read in any window; power scaled
+from the registered CIs, SE ∝ 1/√dates):
+
+- **Dead is out of reach for every option.** A CI inside the ±20 bps band
+  needs ~13.5× the registered effective N in the best cell (B1c) and 33–395× in
+  the others; the most any permitted option adds is ~2.3×. A power addendum
+  could only return Alive or Inconclusive.
+- **Best option** (pool the era, continuous cells only, N_tests = 2): 80%-power
+  MDE ≈ 0.8% (bearish) / 1.7% (bullish) per 63 days in return units, against
+  registered points of +0.19% / −0.88%.
+- **The pre-2010 era is thinner than the disposition assumed:** S&P 500
+  membership history starts in 1996 (not 1990), Nasdaq-100 in 2015, so the era
+  is 1996–2009, S&P only. It is heavily survivorship-biased — 55–77% of members
+  have bars (2000–2008) against 84–98% in 2010–2021, and 28–56% of delisted
+  members do. Matched dates 1996–2009: 1,273 bearish / 798 bullish
+  (extension arms 241 / 85).
+- The recompute itself raised 2010–2021 matched dates by only 8–15%
+  (1,372 / 772 vs 1,246 / 672 registered).
+- Longer horizons (126/252d) widen the CI (~×1.47 at 126d) and overlap the
+  already-read 63d outcome.
+
+**Not proposed.** The Track-B phase of the context study closes, as the
+disposition provides. **1996–2009 outcomes stay unread** — kept as an untouched
+replication sample for a sharper future hypothesis, or until vendor coverage of
+its delisted names improves (backlog Data section, EODHD). The context prior's
+more promising route is as a combined-model feature (LRP §2.4), not another
+mean-level test.
