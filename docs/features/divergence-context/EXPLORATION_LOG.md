@@ -214,3 +214,53 @@ amendment):**
   worktree's own data dir, so the old cache was not overwritten. The rebuilt-after-review
   cache matches the first rerun's walk-output hash (`9880af761b1cf8c3`; the cache now
   also carries a `bar_source` column: 87,806 trades yfinance / 14,183 Tiingo).
+
+## 2026-10-11 — hidden-forms prep looks: definitions and gates (written BEFORE anything was computed)
+
+Track A. The two prep looks PREREGISTRATION.md's "Hidden forms" section gates DC-B3/B4
+on, run on the recomputed event base (Done #112). Everything below is exploration —
+bare rates, no controls, no corrections, nothing stated as a finding. These are
+feasibility gates on exploratory data, not hypothesis verdicts: no cell becomes
+Alive/Dead/Inconclusive here, and the only promotion path is a drafted DC-B3/B4
+registration (own N_tests, own correction) presented to the user.
+
+**Look (a) — co-occurrence.** Does a hidden event mark the same structure as a regular
+event of the opposite direction, or is it independent information? The interleaving is
+structural: an uptrend's pullback makes hidden-bullish's LOW pair (L1, L2) bracket
+regular-bearish's second high H2, and mirrored for downtrends. Match rule: same ticker,
+a regular event of the opposite direction with `p2_date` strictly inside the hidden
+event's `(p1_date, p2_date)` interval — reported any-indicator and same-indicator,
+both conditioning directions (hidden rows with a regular counterpart; regular rows
+inside some hidden window), dev window (`confirmed_at <= 2021-12-31`), raw and
+PIT-membership-filtered. Outcome peek (bare rates, step-0 discipline: confirmed
+<= 2021-11-30, rows with a walked outcome window, within-form comparisons only):
+`invalidated` rate and median `max_favorable_move_atr` for hidden events with vs
+without a regular counterpart, with distinct p2 dates per bucket.
+
+**Look (b) — impulse-scalar fit for hidden geometry.** Step 0 showed the v0 63-bar
+impulse mismeasures hidden structure (retrace_frac medians > 1: p1 is often not an
+impulse extreme). Candidate: a **pivot-to-pivot** normalization derived from stored
+scalars (DESIGN's ratios-at-analysis-time rule) — the trend leg is p1 → interpeak
+extreme, the counter-move is interpeak extreme → p2, and the hidden-fit retrace
+fraction is counter-move / trend-leg:
+`leg2_gain_pct × (1 + interpeak_retrace_pct) / interpeak_retrace_pct` for LOW pairs
+(bullish), `leg2_gain_pct × (1 − interpeak_retrace_pct) / interpeak_retrace_pct` for
+HIGH pairs (bearish); NaN wherever an input is NaN or the trend leg is ≈ 0 (invariant
+#9). Reported per hidden cell: v0-misfit quantification (% of rows with v0
+retrace_frac > 1 vs the regular cells), the candidate's quantiles and NaN rate, and
+the shape-class split (candidate frac ≥ 0.33 and rebuild/counter-move ≥ 5 bars vs
+not) with rows and distinct p2 dates, raw and PIT — i.e., does hidden get a populated
+two-pole context contrast under a scalar that actually fits it, where v0 put ~91% of
+hidden mass in one pole?
+
+**Gates (pre-committed):** DC-B3/B4 do NOT get drafted if (a) the disagreement cells
+(hidden without a regular counterpart, per direction) cannot plausibly reach useful
+effective N as distinct p2 dates PIT-filtered — hidden would be the regular cells'
+complement, handled as a form interaction in F6 instead; or (b) no candidate scalar
+yields a well-defined, non-degenerate distribution (NaN rate comparable to the
+regular cells' v0 scalars, mass on both sides of the shape split) — hidden context
+cells would be uninstrumentable. Passing both gates means a DC-B3/B4 draft is
+*presented*, not that anything is alive.
+
+Code: `src/analysis/divergence_hidden_prep.py` (read-only over `divergences` +
+`divergence_context`; no DB writes, no caches).
