@@ -2,7 +2,7 @@ import pytest
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from src.llm.research_docs import keyword
-from src.llm.research_docs.keyword import KeywordIndex, fuse, hybrid_search, tokens
+from src.llm.research_docs.keyword import KeywordIndex, fuse, hybrid_search, indexed_text, tokens
 
 
 def _node(nid: str, text: str) -> TextNode:
@@ -29,10 +29,15 @@ def test_a_rare_word_outranks_common_ones():
     assert index.score("the")[0] < index.score("sharpe")[0] / 5
 
 
-def test_only_body_and_heading_are_indexed_and_wordless_chunks_dont_crash():
-    node = TextNode(id_="s", text="body words", metadata={"path": "docs/STATUS.md", "section": "Status > Watch"})
-    index = KeywordIndex([node])
-    assert index.search("watch", k=1) and not index.search("docs", k=1)
+def test_indexed_text_keeps_headings_and_row_ids_but_not_path_keys_or_module():
+    sec = TextNode(text="## Watch\nbody words", metadata={"path": "docs/STATUS.md", "section": "Status > Watch"})
+    assert indexed_text(sec) == "Status > Watch\n## Watch\nbody words"  # own heading twice: a title boost
+    row = TextNode(text="notes: slope", metadata={"path": "docs/E.csv", "section": "row 63", "module": "M5",
+                                                  "cell_id": "breadth_top", "outcome": "no_effect"})
+    assert indexed_text(row) == "breadth_top\nno_effect\nnotes: slope"
+    index = KeywordIndex([sec, row])
+    assert not index.search("docs status", k=2)[1:]  # "status" from the heading only, not the path
+    assert not index.search("63 m5", k=2)
     assert KeywordIndex([_node("p", "--- | ---")]).search("x", k=1) == []
 
 

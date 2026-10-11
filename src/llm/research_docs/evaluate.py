@@ -52,8 +52,8 @@ the top 5 of vector search or of BM25 keyword search was judged once, and 25 tha
 were added. Golds are only as complete as the pool, which favours those two searches: a
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
-unjudged chunks, on both splits, and add the ones that answer (hybrid search: 71 judged,
-7 added).
+unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
+12 added).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
@@ -238,13 +238,13 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     lines = [f"split: {split}", ""] if split else []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>6}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>7}  top hit")
     for r in rows:
         rank = "n/a" if not answerable(r) else _rank(r["rank"])
         if len(parts(r)) > 1:  # full/any part
             rank = f"{rank}/{_rank(r['rank_any'])}"
-        score = f"{r['score']:.3f}" if r["score"] is not None else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>6}  {r['top'][:70]}")
+        score = f"{r['score']:.4f}" if r["score"] is not None else "-"
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>7}  {r['top'][:70]}")
     scored = [r for r in rows if answerable(r)]
     groups = {"all": scored}
     for key in ("type", "style"):
@@ -267,7 +267,7 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     for kind, keep in (("answerable", True), ("unanswerable", False)):
         top = [r["score"] for r in rows if answerable(r) == keep and r["score"] is not None]
         if top:
-            ranges.append(f"{kind} {min(top):.3f}-{max(top):.3f}")
+            ranges.append(f"{kind} {min(top):.4f}-{max(top):.4f}")
     if len(ranges) == 2:
         lines.append(f"top score range: {', '.join(ranges)}")
     return "\n".join(lines)

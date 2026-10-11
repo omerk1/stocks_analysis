@@ -15,10 +15,19 @@ paraphrase but ranks a chunk containing the question's rare word near the top.
 - long chunks are discounted (`b`): a long chunk contains more words by chance.
 
 Text is lowercased and split on anything that isn't a letter or digit, so a snake_case
-name matches its plain words too. What's indexed is the chunk's body plus its heading trail
-(`section`), not the rest of its metadata: the file path and keys like `entry:` or
-`cell_id:` would make a question word such as "status" or "design" match every chunk of a
-file with that name. No stemming: "retest" and "retesting" are different words.
+name matches its plain words too. No stemming: "retest" and "retesting" are different words.
+
+What's indexed (`indexed_text`) is the chunk's body, its heading trail (`section`) and, for
+an experiment-table row, the identifying values `chunk` moved out of the row's text into
+metadata (a cell's id, its tier and outcome), so an id typed into a question still finds
+its row. Left out: the file path and the metadata key names, which would make a question
+word such as "status" or "design" match every chunk of a file with that name; a CSV row's
+"row N" placeholder section, whose number would match any question with that number in
+it; and the module code (M1-M22), study-internal shorthand a question shouldn't need.
+A section's own heading is in the trail and usually on the body's first line too, so its
+words count twice: kept on purpose, the usual title boost (a heading says what a passage
+is about more than any body sentence). Dev hit@5 0.76 with it, 0.71 without: 2 questions,
+within noise, so it's kept as the conventional choice, not as a measured win.
 
 **Reciprocal rank fusion** merges the two rankings by position, not score (cosine
 similarity and BM25 aren't on the same scale): each chunk gets `1 / (RRF_K + rank)` from
@@ -37,10 +46,12 @@ from collections import Counter
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, NodeWithScore
 
+from src.llm.research_docs.chunk import ROW_ID_COLUMNS
 from src.llm.research_docs.retrieve import TOP_K, search
 
 RRF_K = 60
 POOL = 20  # how deep each list goes before fusing
+ROW_IDS = tuple(c for c in ROW_ID_COLUMNS if c != "module")
 
 
 def tokens(text: str) -> list[str]:
@@ -48,9 +59,13 @@ def tokens(text: str) -> list[str]:
 
 
 def indexed_text(node: BaseNode) -> str:
-    """What BM25 sees: the heading trail, if any, and the body."""
-    section = node.metadata.get("section")
-    return f"{section}\n{node.get_content()}" if section else node.get_content()
+    """What BM25 sees: heading trail, row ids and body (module docstring has what's left out)."""
+    m, body = node.metadata, node.get_content()
+    trail = m.get("section", "")
+    if re.fullmatch(r"row \d+", trail):
+        trail = ""
+    ids = [str(m[c]) for c in ROW_IDS if m.get(c)]
+    return "\n".join([*filter(None, [trail]), *ids, body])
 
 
 class KeywordIndex:
@@ -61,7 +76,7 @@ class KeywordIndex:
         self.k1, self.b = k1, b
         docs = [tokens(indexed_text(n)) for n in nodes]
         self.lens = [len(d) for d in docs]
-        self.avg_len = (sum(self.lens) / len(docs) if docs else 0.0) or 1.0  # no words: avoid /0
+        self.avg_len = sum(self.lens) / len(docs) if docs else 0.0  # only divides for chunks with words
         # word -> [(chunk, count)]: a question only touches the chunks containing its words
         self.postings: dict[str, list[tuple[int, int]]] = {}
         for i, d in enumerate(docs):
