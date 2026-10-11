@@ -183,3 +183,16 @@ def test_every_question_in_the_set_still_matches_the_real_docs():
     types = {q["type"] for q in questions}
     assert types == {q["type"] for q in test}  # every type held out, unanswerable included
     assert check_golds(questions, chunk_documents(load_documents())) == []
+
+
+def test_evaluate_scores_the_search_it_is_given(monkeypatch):
+    from llama_index.core.schema import NodeWithScore
+    from src.llm.research_docs import evaluate as ev
+    monkeypatch.setattr(ev, "search", lambda index, question, k: [])  # the default, unused here
+    asked = []
+
+    def find(question, k):
+        asked.append((question, k))
+        return [NodeWithScore(node=_node(entry="#1"), score=0.03)]
+    rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md", "entry": "#1"}]}], find)
+    assert rows[0]["rank"] == 1 and asked == [("?", max(ev.KS))]
