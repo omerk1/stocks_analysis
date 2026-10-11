@@ -12,6 +12,11 @@ each row's date -- including corporate actions: a split or dividend after t
 rescales every earlier adjusted price, so a column at t may depend on price
 *ratios* within the past, never on adjusted price *levels*.
 
+A `PanelSource` instead computes from every ticker's bars at once, plus a
+`market.PanelContext` (point-in-time membership, sectors, the benchmark): the
+market-wide and sector-relative columns. The leakage gate perturbs all of its
+inputs' bars the same way, so it is covered like any other source.
+
 Not yet here (§7, for the ablation step): grouping beyond this file's
 `group`, and the ablation order.
 """
@@ -27,7 +32,8 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
-from src.models.features import baseline, ma_family
+from src.models.features import baseline, ma_family, market
+from src.models.features import indicators as indicator_features
 from src.models.labels.barriers import ATR_PERIOD
 
 # Shapes (IDEAS.md §2b) and priors (IDEAS.md §2).
@@ -47,6 +53,12 @@ class Source:
 
 
 @dataclass(frozen=True)
+class PanelSource:
+    basis: PriceBasis
+    compute: Callable[[pd.DataFrame, market.PanelContext], pd.DataFrame]  # (long bars, context) -> ticker, date, columns
+
+
+@dataclass(frozen=True)
 class FeatureSpec:
     name: str
     group: str
@@ -55,6 +67,7 @@ class FeatureSpec:
     prior: str | None            # None for controls (baselines) and non-model columns
     source: str | None           # key into SOURCES; None = not computed from bars
     warmup_bars: int             # bars up to and including the first defined value; 0 = never NaN
+                                 # (market_wide: counted on the benchmark's bars)
     ranked: bool = False         # a per-date percentile `<name>_rank` is also a model column
     note: str = ""
 
@@ -92,9 +105,15 @@ def _liquidity(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
     return ma_family.liquidity_features(bars)
 
 
-SOURCES: dict[str, Source] = {
+def _indicators(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame:
+    return indicator_features.ticker_features(bars)
+
+
+SOURCES: dict[str, Source | PanelSource] = {
     "baseline": Source(baseline.FEATURE_BASIS, _baseline),
     "ma_family": Source(baseline.FEATURE_BASIS, _ma_family),
+    "indicators": Source(baseline.FEATURE_BASIS, _indicators),
+    "market": PanelSource(baseline.FEATURE_BASIS, market.panel_features),
     "liquidity": Source(dataset.UNIVERSE_BASIS, _liquidity),
     "universe": Source(dataset.UNIVERSE_BASIS, _universe),
     "decision": Source(dataset.LABEL_BASIS, _decision),
@@ -124,6 +143,30 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("dist_z_sma_200", "ma", MODEL, "dense", "weak", "ma_family", 451),
     FeatureSpec("slope_log_63_sma_50", "ma", MODEL, "dense", "weak", "ma_family", 113),
     FeatureSpec("adx_14", "ma", MODEL, "dense", "weak", "ma_family", 29),
+    # Indicators and market regime (combined-model step 2b, 2026-10-10): the lean
+    # list, one column per idea; every prior null (IDEAS.md §2).
+    FeatureSpec("bb_width_pctile", "volatility", MODEL, "dense", "null", "indicators", 271,
+                note="Bollinger(20, 2) width as a trailing 252-day percentile; compression"),
+    FeatureSpec("atr_ratio_5_63", "volatility", MODEL, "dense", "null", "indicators", 64,
+                note="< 1 squeeze, > 1 expansion"),
+    FeatureSpec("rvol_21_pctile_252", "volatility", MODEL, "dense", "null", "indicators", 273,
+                note="21-day realised vol against the ticker's own trailing year"),
+    FeatureSpec("rel_volume_20", "volume", MODEL, "dense", "null", "indicators", 20, ranked=True),
+    FeatureSpec("updown_volume_20", "volume", MODEL, "dense", "null", "indicators", 21,
+                note="signed volume share; OBV's 20-day change, scale-free"),
+    FeatureSpec("rsi_14", "oscillator", MODEL, "dense", "null", "indicators", 15,
+                note="M17: corr 0.86 with dist_z_sma_20, sign flips near the MA; kept for that interaction"),
+    FeatureSpec("spy_dist_sma_200", "market", MODEL, "market_wide", "null", "market", 200),
+    FeatureSpec("spy_slope_log_63", "market", MODEL, "market_wide", "null", "market", 113,
+                note="slope_log_63 of SPY's SMA50"),
+    FeatureSpec("spy_rvol_21", "market", MODEL, "market_wide", "null", "market", 22),
+    FeatureSpec("breadth_above_sma50", "market", MODEL, "market_wide", "null", "market", 50,
+                note="point-in-time members, delisted included"),
+    FeatureSpec("breadth_above_sma200", "market", MODEL, "market_wide", "null", "market", 200),
+    FeatureSpec("adv_dec_10", "market", MODEL, "market_wide", "null", "market", 11),
+    FeatureSpec("sector_rel_mom_63", "relative", MODEL, "dense", "null", "market", 64,
+                note="vs the sector members' median; sector is current-state (inherits its leak)"),
+    FeatureSpec("sector_rank_mom_63", "relative", MODEL, "dense", "null", "market", 64),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
@@ -184,13 +227,17 @@ def compute_registered(
     bars: dict[PriceBasis, pd.DataFrame],
     splits: dict[str, pd.DataFrame],
     registry: tuple[FeatureSpec, ...] = REGISTRY,
-    sources: dict[str, Source] = SOURCES,
+    sources: dict[str, Source | PanelSource] = SOURCES,
     rank: bool = True,
+    context: market.PanelContext | None = None,
 ) -> pd.DataFrame:
     """Every bar-derived registered column for every (ticker, date), plus the
     per-date ranks of ranked ones (over all tickers passed; `rank=False` to
     rank later over another row set, e.g. the eligible universe). `bars` holds
-    one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker."""
+    one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker;
+    `context` is what panel sources read besides bars (default: every ticker
+    passed is a member, no sectors)."""
+    context = context if context is not None else market.PanelContext()
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:
@@ -198,6 +245,10 @@ def compute_registered(
     out = None
     for name, cols in by_source.items():
         source = sources[name]
+        if isinstance(source, PanelSource):
+            frame = source.compute(bars[source.basis], context)[["ticker", "date", *cols]]
+            out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
+            continue
         parts = []
         for ticker, g in bars[source.basis].groupby("ticker", sort=False):
             values = source.compute(g.drop(columns="ticker").set_index("date").sort_index(), splits.get(ticker))

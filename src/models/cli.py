@@ -107,8 +107,8 @@ def run_gates(quick: bool, smoke_db: Path | None, seed: int) -> int:
         print("       (stale_matches_expected not checked at the quick size; see gates.planted_verdict)")
     passed.append(_print_verdict("gate 2, label shuffle", gates.shuffle_verdict(r)))
 
-    bars, splits, cut = gates.synthetic_leakage_inputs(seed=seed)
-    r = gates.leakage_gate(bars, splits, cut, seed=seed)
+    bars, splits, cut, context = gates.synthetic_leakage_inputs(seed=seed)
+    r = gates.leakage_gate(bars, splits, cut, seed=seed, context=context)
     _leakage_report("Gate 3: leakage (synthetic bars)", r)
     passed.append(_print_verdict("gate 3, leakage", gates.leakage_verdict(r)))
 
@@ -121,12 +121,12 @@ def run_gates(quick: bool, smoke_db: Path | None, seed: int) -> int:
         conn = db.get_connection(f"file:{smoke_db}?mode=ro", uri=True)  # read-only
         try:
             tickers = _smoke_tickers(conn)
-            bars, splits, sources = gates.real_leakage_inputs(conn, tickers, SMOKE_START, SMOKE_END)
+            bars, splits, sources, context = gates.real_leakage_inputs(conn, tickers, SMOKE_START, SMOKE_END)
         finally:
             conn.close()
         print(f"Smoke: real bars for {', '.join(tickers)}")
         print(f"  sources: {pd.Series(sources).value_counts().to_dict()}; tickers with splits: {sorted(splits)}")
-        r = gates.leakage_gate(bars, splits, SMOKE_CUT, seed=seed)
+        r = gates.leakage_gate(bars, splits, SMOKE_CUT, seed=seed, context=context)
         _leakage_report("Gate 3 smoke: leakage (real bars)", r)
         verdict = gates.leakage_verdict(r)
         # Real histories start mid-series and have gaps; the warmup check is for synthetic bars only.
@@ -215,6 +215,8 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
     if spread:
         print(f"  no spread in the window (gap = share of rows that differ): {spread}")
+    if s["not_compared"]:
+        print(f"  undefined on both vendors throughout, not compared: {s['not_compared']}")
     print("  PASS" if s["passed"] else "  FAIL:\n    " + "\n    ".join(s["failures"]))
     return 0 if s["passed"] else 1
 
