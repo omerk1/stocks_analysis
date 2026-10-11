@@ -329,3 +329,180 @@ tickers are gone. `divergence_context` and `divergence_control_pairs` were
 rebuilt on that base. The DC-B1/B2 readout above is not re-run by this; its
 numbers remain survivors-only as recorded. Any power addendum or DC-B5 runs on
 the recomputed base.
+
+---
+
+## DC-B3 / DC-B4 — DRAFT 2026-10-11, NOT FROZEN: does retracement depth change hidden-divergence outcomes?
+
+> **STATUS: DRAFT.** Pre-freeze edits are legitimate here (with superseded wording
+> preserved per the amendment-history convention); this section freezes at the final
+> pre-run commit of its run PR, after which the frozen header's dated-addenda-only
+> rule applies. Nothing in this section alters any DC-B1/B2 text above.
+
+**Module/track:** divergence-context, Track B. Second (and, per the disposition below,
+final) registered experiment of this study.
+**Promoted from:** EXPLORATION_LOG 2026-10-11 hidden-forms prep looks (Done #119) —
+both prep gates the "Hidden forms" section above required: (a) hidden is independent
+information, not the regular cells' complement (only 29–34% of hidden events carry a
+mirrored-direction regular counterpart inside their pivot interval; hidden-alone cells
+~1,490–1,530 PIT dev dates); (b) the pivot-to-pivot retrace fraction is a well-defined
+hidden-geometry scalar (100% defined, mechanically bounded in (0,1), smooth) where the
+v0 63-bar impulse was shown misfit (retrace_frac > 1 on 66%/76% of defined hidden rows).
+
+**Hypothesis.** Hidden divergence is a continuation claim. For hidden divergences,
+forward outcomes after a *shallow* counter-move (trend barely dented — the textbook
+"strong trend" continuation setup) differ from outcomes after a *deep* counter-move
+(trend nearly given back), beyond what the same hidden-geometry structures show
+*without* a divergence. DC-B3 = bearish (downtrend, lower-high pairs), DC-B4 = bullish
+(uptrend, higher-low pairs). Direction of the difference is deliberately not
+pre-committed.
+
+### Event set
+
+- **Hidden form, RSI only** for the primary test (largest single-indicator hidden set;
+  no duplicate-swing pooling across indicators). **MACD-hist repeats as a pre-named
+  same-sign robustness pass**, not a new hypothesis — same speed-oscillator reasoning
+  as DC-B1/B2. **OBV excluded by mechanism**, as there: its hidden divergence (volume
+  flow breaking while price holds its trend) is a participation claim, not a momentum
+  one; any OBV cell is a separate, later registration.
+- Window: p2 dates 2010-01-01..2021-12-31. Universe: PIT S&P 500 + Nasdaq-100
+  membership at p2 (rename-aware), delisted members included, delisting-terminal
+  returns realized. **Runs on the recomputed event base (Done #112)** — the first
+  registration of this study drafted after the survivorship recompute, so DC-B1/B2's
+  2026-10-09 addendum-note-2 caveat does not apply.
+- **Context scalar: the hidden-fit retrace fraction** — counter-move / trend-leg,
+  derived at analysis time from the stored scalars exactly as implemented in
+  `src.analysis.divergence_hidden_prep.hidden_fit_retrace_frac`:
+  `leg2_gain_pct × (1 + interpeak_retrace_pct) / interpeak_retrace_pct` for LOW pairs
+  (bullish), `(1 − interpeak_retrace_pct)` variant for HIGH pairs (bearish); NaN
+  wherever an input is NaN or the trend leg is ≤ 1e-6 of p1's close (invariant #9).
+  Undefined events are excluded and counted (prep measured 0.0% on this base, for
+  events and controls both).
+
+### Context classification (at event time, from the scalar above)
+
+- **Poles by within-direction terciles** of the hidden-fit fraction over POOLED
+  events+controls (per direction): **shallow = tercile 1, deep = tercile 3**; the
+  middle tercile is the buffer — excluded from the binary contrast, included in the
+  continuous cells. Tercile edges are the same sanctioned full-sample
+  cell-defining-bin exception as the matching bins (invariant #3 note in DC-B1/B2).
+  *Why terciles and not DC-B1/B2's fixed edges:* the prep showed the regular-geometry
+  0.33 edge leaves a 5–10% shallow pole (259/531 PIT dates) — the thin-extension-arm
+  failure again — while terciles are balanced by construction; and unlike DC-B1/B2's
+  thresholds, no prior literature pins a natural edge for this scalar.
+- **Plateau rule:** the binary contrast must agree in sign under two pre-named
+  re-classifications — **quartile poles (Q1 vs Q4)** and a **median split** — each a
+  full re-classification AND re-matching from the unfiltered event/control frames
+  (DC-B1/B2's 2026-10-09 addendum item 3 semantics). Finite neighbors must agree in
+  sign; an incomputable neighbor is absence of evidence, and the finite count is
+  reported per cell.
+
+### Controls
+
+Matched **no-divergence** pivot pairs with hidden geometry (bearish: lower high;
+bullish: higher low), i.e. `divergence_control_pairs` rows with
+`regular_geometry = 0`, `has_divergence = 0` (no stored divergence within ±3 bars of
+p2, any indicator — the stored flag's semantics), span ≥ 5 bars, same context class.
+Control timing is the pair's own price-only `confirmed_at`; events confirm at
+max(price, indicator) and so enter slightly later on average — a level difference the
+difference-in-differences absorbs, noted as in DC-B1/B2.
+
+- Matching mirrors the DC-B1/B2 build as amended and balance-validated: hard cell =
+  p2 calendar month within direction × context class; covariates bucketed on POOLED
+  events+controls quantiles computed per direction × context class —
+  **`interpeak_retrace_pct` deciles** (the trend-leg magnitude: hidden geometry's
+  analogue of impulse_gain_pct), **`realized_vol_63` quintiles**, **hidden-fit
+  fraction quintiles** (the within-class depth confound, playing retrace_frac's
+  DC-B1/B2 role) — ±1-bin caliper per covariate; within the caliper nearest by raw
+  trend-leg distance, depth then vol as tiebreakers; up to 3 controls per event,
+  without replacement, breadth-first rounds over a seed-fixed random event order.
+- A match-quality (covariate balance) report runs before any outcome is read, as for
+  DC-B1/B2.
+
+### Outcome, effect, inference
+
+- Entry: open of the bar after `confirmed_at` (invariant #2). Primary outcome:
+  **63-trading-day forward log return** (delisting-terminal; fail-closed `data_end`;
+  per-horizon confirmation cutoff — all exactly the DC-B1/B2 machinery). **No 21-day
+  cells**: DC-B1b/B2b added noise and N_tests, not information.
+- **Binary effect = difference-in-differences:**
+  `(div_shallow − ctrl_shallow) − (div_deep − ctrl_deep)`.
+- **Continuous effect:** fwd ret ~ divergence × hidden-fit fraction, over all events
+  and controls (middle tercile included), date-clustered (p2 calendar month) with
+  block-bootstrap confirmation; the cost band applies to **b3 scaled to return units
+  by the inter-pole gap** (median fraction of the deep pole minus the shallow pole,
+  pooled events+controls per direction — covariates-only, printable blind), per the
+  DC-B1/B2 2026-10-09 addendum item 2.
+- Effective N = distinct p2 dates, in every table (invariant #6). Hit rate, win/loss
+  magnitude ratio, skew reported per cell — descriptive only (invariant #10). Costs:
+  20 bps round-trip hurdle primary, 10 bps liquid-core annotated (invariant #8).
+
+### Registered test grid and multiplicity
+
+| id | direction | outcome | formulation |
+|----|-----------|---------|-------------|
+| DC-B3a | bearish | 63d fwd ret | binary DiD (shallow − deep) |
+| DC-B3b | bearish | 63d fwd ret | continuous: fwd ret ~ divergence × hidden-fit frac |
+| DC-B4a | bullish | 63d fwd ret | binary DiD (shallow − deep) |
+| DC-B4b | bullish | 63d fwd ret | continuous interaction |
+
+**N_tests = 4**, BH-corrected together, separate from DC-B1/B2's correction (as the
+"Hidden forms" section committed). Robustness checks on these four, never new tests:
+MACD-hist same-sign pass; era split 2010–2015 / 2016–2021; the two plateau
+re-classifications; a **co-occurrence facet** (split by whether a mirrored-direction
+regular counterpart was confirmed by the event's own `confirmed_at` — the prep's
+`counterpart_confirmed_first`, ~30% of hidden events); a **counter-move duration
+facet** (`leg2_bars` terciles — duration is deliberately a facet, not a pole
+dimension, to keep the primary contrast one-dimensional).
+
+### Verdicts and kill criteria (pre-committed, DC-B1/B2 wording verbatim)
+
+Three verdicts per cell:
+
+- **Alive**: BH-corrected 95% clustered CI excludes 0 and the point estimate clears
+  the cost hurdle.
+- **Dead** — a demonstrated economic null, and a successful outcome: the entire 95%
+  CI sits inside the cost-hurdle band (±hurdle).
+- **Inconclusive**: the CI includes 0 but extends beyond the hurdle band on either
+  side — underpowered, never logged as dead.
+
+Additionally, a cell cannot be Alive if (1) the plateau check fails (sign not stable
+across the two pre-named re-classifications), or (2) the binary and continuous
+formulations disagree about the underlying direction — by construction (DiD is
+shallow-minus-deep; b3 is per-unit-depth slope) **the formulations agree iff
+sign(DiD) × sign(b3) < 0**. Every cell's verdict goes to `EXPERIMENTS.csv`; Tier 1–3
+survivors to `FINDINGS.md`.
+
+### Pre-identified power risk and pre-committed disposition (the load-bearing part)
+
+Sized blind on the recomputed base (counts and covariate definedness only, no outcome
+read — the 2026-10-11 power-addendum method): RSI hidden events, PIT, dev window:
+**DC-B3 3,758 rows / 1,334 distinct p2 dates; DC-B4 6,780 / 1,451**; control pools
+16,412 / 22,587 rows (2,283 / 2,344 dates). These effective Ns sit between DC-B2c's
+966 and DC-B1c's 1,573 dates, whose registered 95% CI half-widths were 1.8–3.0% per
+63d against the ±0.2% band. That scaling transfers directly:
+
+- **Dead is unreachable in these cells.** A CI inside ±20 bps needs on the order of
+  100× the effective N (the DC-B1/B2 power addendum's conclusion, which also rules
+  out the rescues: era pooling buys ≤ ~2.3×, and pre-2010 is survivorship-biased and
+  S&P-only). The registered cells can only read **Alive** (true effect ≳ ~2% per 63d)
+  or **Inconclusive**. This is registered knowingly: the tercile design removes
+  DC-B1/B2's starved-arm failure mode (every pole ≈ a third of events, vs 85 matched
+  events in DC-B2a's extension arm), the build/matching/inference machinery exists,
+  and the run is cheap.
+- **Pre-committed disposition if no cell is Alive:** the hidden Track-B line closes —
+  **no power addendum will be proposed** (the DC-B1/B2 addendum already established
+  none can work at this N), and the hidden-fit retrace fraction routes to the
+  combined-model feature track as a continuous feature (IDEAS F6 / LRP §2.4, whose
+  constraint 2 already mandates hidden/regular form separation). The experiment is
+  decision-complete at registration: every outcome has a pre-named next step.
+
+### Prerequisites before this can run (implementation, separate PR)
+
+1. Extend the Track-B machinery (`divergence_trackb_balance.py`,
+   `divergence_trackb_run.py`, matching) to hidden geometry: the hidden-fit scalar as
+   the classification/matching input, tercile classes, hidden-geometry control pools.
+2. The co-occurrence and duration facets wired as report splits.
+3. Balance report run and reviewed blind (before any outcome).
+4. The run happens only after this section's final pre-run commit freezes it; the
+   runner stays blind-by-default with `--unblind` crossed exactly once.
