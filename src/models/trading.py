@@ -79,6 +79,15 @@ COSTS_BPS = (0, 10, 25)   # round trip; 0 = gross
 HEADLINE_COST_BPS = 10
 STRATEGIES = ("model", "reference", "market")
 FULL_COLUMNS = B4_COLUMNS + MA_SUPPORTED + MA_WEAK
+# Step 2b (2026-10-10): indicators, volume, volatility regime, market regime,
+# sector-relative (VALIDATION_HARNESS.md §7). Listed, not read off the registry,
+# so a later registration doesn't change what S2 means.
+STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "rel_volume_20_rank",
+                   "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
+                   "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
+                   "sector_rank_mom_63")
+# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA.
+COLUMN_SETS = {"S1": FULL_COLUMNS, "S2": FULL_COLUMNS + STEP_2B_COLUMNS}
 
 
 @dataclass(frozen=True)

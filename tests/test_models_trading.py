@@ -20,6 +20,10 @@ def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     from src.models.features.registry import model_input, model_specs
     s1 = [s for s in model_specs() if s.group in ("baseline", "ma")]
     assert set(trading.FULL_COLUMNS) == {model_input(s) for s in s1}
+    step_2b = [s for s in model_specs() if s.group in ("volatility", "volume", "oscillator", "market", "relative")]
+    assert set(trading.STEP_2B_COLUMNS) == {model_input(s) for s in step_2b}
+    assert trading.COLUMN_SETS["S1"] == trading.FULL_COLUMNS
+    assert set(trading.COLUMN_SETS["S2"]) == {model_input(s) for s in model_specs()}
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]

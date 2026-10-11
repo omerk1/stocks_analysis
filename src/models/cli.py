@@ -20,7 +20,8 @@ Commands:
                   trials. Read-only.
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
-                  cell of the chosen horizons, one TRIALS.csv row per cell.
+                  cell of the chosen horizons, one TRIALS.csv row per cell;
+                  `--columns` picks the model's column set (S1, S2).
   rescore-scorecard  Score run-scorecard's archived predictions again (e.g.
                   `--rank ev_atr`, plus the random-k baseline), no refit; one
                   TRIALS.csv row per cell (S1b).
@@ -260,13 +261,15 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
     return 0
 
 
-def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str = "ev") -> int:
+def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str = "ev",
+                  columns: str = "S1") -> int:
     from src.models import trading, trial_log
     from src.models.features import cache
     warnings.filterwarnings("ignore")
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
-    sc = trading.Scorecard(horizons=horizons, rank=rank)
+    sc = trading.Scorecard(experiment_id=columns, model_columns=trading.COLUMN_SETS[columns], horizons=horizons,
+                           rank=rank)
     features = cache.read_feature_cache(features_dir)
     results = []
     for h in horizons:
@@ -352,6 +355,8 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     score.add_argument("--rank", choices=["ev", "ev_atr"], default="ev")
+    score.add_argument("--columns", choices=["S1", "S2"], default="S1",
+                       help="the model's column set, also the experiment id (trading.COLUMN_SETS)")
     resc = sub.add_parser("rescore-scorecard", help="score run-scorecard's archived predictions again, no refit")
     resc.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     resc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
@@ -366,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_experiment(args.experiment, args.features, args.labels,
                               tuple(args.horizons) if args.horizons else None)
     if args.command == "run-scorecard":
-        return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
+        return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.columns)
     if args.command == "rescore-scorecard":
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":
