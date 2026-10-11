@@ -22,10 +22,18 @@ def test_tokens_lowercase_and_split_snake_case():
 
 
 def test_a_rare_word_outranks_common_ones():
-    hits = KeywordIndex(NODES).search("was the sharpe ratio used?", k=4)
-    assert hits[0].node.node_id == "a"
-    # "the" is in every chunk: its idf is near zero, so it alone ranks nothing high
-    assert {h.node.node_id for h in KeywordIndex(NODES).search("the", k=4)} == {"a", "b", "c", "d"}
+    index = KeywordIndex(NODES)
+    assert index.search("was the sharpe ratio used?", k=4)[0].node.node_id == "a"
+    # "the" is in every chunk, so its idf is far below a word only one chunk has
+    assert index.idf["the"] < index.idf["sharpe"] / 10
+    assert index.score("the")[0] < index.score("sharpe")[0] / 5
+
+
+def test_only_body_and_heading_are_indexed_and_wordless_chunks_dont_crash():
+    node = TextNode(id_="s", text="body words", metadata={"path": "docs/STATUS.md", "section": "Status > Watch"})
+    index = KeywordIndex([node])
+    assert index.search("watch", k=1) and not index.search("docs", k=1)
+    assert KeywordIndex([_node("p", "--- | ---")]).search("x", k=1) == []
 
 
 def test_repeats_help_and_chunks_sharing_no_word_are_left_out():
