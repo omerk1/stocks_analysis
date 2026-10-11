@@ -152,7 +152,7 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
            '"gold": [{"path": "docs/a.md"}], "answerable": false']
     for fields in bad:
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="gold lists: q$"):
+        with pytest.raises(ValueError, match="dev/test: q$"):
             load_questions(path)
     path.write_text('[{"id": "q", "question": "?", "gold": [], "answerable": "false"}]')
     with pytest.raises(ValueError, match="q: answerable must be true or false"):
@@ -164,8 +164,11 @@ def test_a_gold_that_doesnt_fit_the_question_is_rejected(tmp_path):
                    f'"parts": [{one}, {one}], "gold": {one}',
                    f'"parts": [{one}, {one}], "answerable": false'):
         path.write_text(f'[{{"id": "q", "question": "?", {fields}}}]')
-        with pytest.raises(ValueError, match="gold lists: q$"):
+        with pytest.raises(ValueError, match="dev/test: q$"):
             load_questions(path)
+    path.write_text(f'[{{"id": "q", "question": "?", "gold": {one}, "split": "train"}}]')
+    with pytest.raises(ValueError, match="dev/test: q$"):
+        load_questions(path)
     path.write_text(f'[{{"id": "q", "question": "?", "parts": [{one}, [{{"path": "docs/b.md"}}]]}}]')
     assert load_questions(path)[0]["id"] == "q"
 
@@ -174,4 +177,5 @@ def test_every_question_in_the_set_still_matches_the_real_docs():
     """If this fails, a doc was edited under a question: fix the question's gold."""
     questions = load_questions()
     assert len({q["id"] for q in questions}) == len(questions)
+    assert 12 <= sum(q.get("split") == "test" for q in questions) <= 20
     assert check_golds(questions, chunk_documents(load_documents())) == []

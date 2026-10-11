@@ -32,14 +32,19 @@ Metrics, over the answerable questions and per question type:
   the deepest `KS` cut).
   One number that rewards ranking the answer higher, not only finding it.
 
-With ~20 questions, one question moves hit@k by ~5 points: compare configurations on the
-per-question table, not on a 1-point difference.
+About 15 questions are held out as a final **test** split (`"split": "test"`, drawn at
+random within each type). Day-to-day runs score only the **dev** split: tuning step 7 on
+the same questions it is judged on would overfit them. Run `--split test` once, at the end.
+
+With ~40 dev questions, one question moves hit@k by ~2.5 points: compare configurations
+on the per-question table, not on a 1-point difference.
 
 The questions were written from the docs before any retrieval run, the way they'd be
 asked, mostly in different words from the passage. Questions copied from a passage's own
 wording would overrate an embedding model (and overrate keyword search more).
 
-    python -m src.llm.research_docs.evaluate           # run all questions against the index
+    python -m src.llm.research_docs.evaluate           # run the dev questions against the index
+    python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
 
@@ -74,6 +79,10 @@ def parts(q: dict) -> list[list[dict]]:
     return q["parts"] if "parts" in q else [q["gold"]] if q.get("gold") else []
 
 
+def split(q: dict) -> str:
+    return q.get("split", "dev")
+
+
 def _golds_ok(golds) -> bool:
     return isinstance(golds, list) and all(isinstance(g, dict) and g.get("path") for g in golds)
 
@@ -91,11 +100,11 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
     # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
     # A multi-part question's `parts` follow the same rules per part.
-    bad = [q["id"] for q in questions if not _shape_ok(q)]
+    bad = [q["id"] for q in questions if not _shape_ok(q) or split(q) not in ("dev", "test")]
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
-                         "some on an unanswerable one, a gold without a path, or `parts` that aren't "
-                         f"two or more non-empty gold lists: {', '.join(bad)}")
+                         "some on an unanswerable one, a gold without a path, `parts` that aren't two or "
+                         f"more non-empty gold lists, or a split other than dev/test: {', '.join(bad)}")
     return questions
 
 
@@ -249,7 +258,9 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true", help="only check golds against the chunks")
+    ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
+    ap.add_argument("--split", choices=("dev", "test", "all"), default="dev",
+                    help="which questions to score (default dev; test is the held-out set)")
     args = ap.parse_args()
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
@@ -273,7 +284,9 @@ def main() -> None:
         head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
-    print(report(evaluate(index, questions), stale))
+    chosen = [q for q in questions if args.split in ("all", split(q))]
+    print(f"split: {args.split} ({len(chosen)} of {len(questions)} questions)\n")
+    print(report(evaluate(index, chosen), stale))
 
 
 if __name__ == "__main__":
