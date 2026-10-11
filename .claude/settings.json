@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/link_models.sh *)",
+      "Bash(python3 scripts/list_trial_ids.py *)",
+      "Bash(pytest *)",
+      "Bash(python3 -m pytest *)",
+      "Bash(python3 -m src.models.cli *)",
+      "Bash(python3 -m src.signals.moving_averages.cli *)",
+      "Bash(black --check *)"
+    ]
+  }
+}
