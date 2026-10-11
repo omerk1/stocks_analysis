@@ -3,7 +3,7 @@
     "id": "ma_touch_bounce",
     "source": "docs/features/moving-averages/PREREGISTRATION.md, M5 (2026-09-17)",
     "description": "Moving averages act as support and resistance. When price has been well away from a widely watched MA (the 200-day, the 50-day, the 21 EMA) and comes back to touch it for the first time, it tends to bounce off it rather than slice through. Check it from above, where the MA should act as support, and from below, where it should act as resistance.",
-    "stated": ["direction", "size", "trigger", "invalidation"],
+    "stated": ["direction", "size", "trigger", "invalidation", "secondary_metrics"],
     "spec": {
       "name": "First touch of a moving average after being away",
       "direction": "both",
@@ -60,10 +60,10 @@
       },
       "horizons_bars": [10, 20, 60],
       "invalidation": [
-        {"description": "A contraction's low breaks below the base's low: failed base.", "phase": "before_entry"},
-        {"description": "A close below the 150-day SMA during the base (the design doc says the 50-day; the detector uses the 150-day).", "phase": "before_entry"},
+        {"description": "After the base and before a breakout, a low below the base's low: failed base.", "phase": "before_entry"},
+        {"description": "After the base and before a breakout, a close below the 150-day SMA (the design doc says the 50-day; the detector uses the 150-day).", "phase": "before_entry"},
         {"description": "No breakout within 2x the base's length: expired.", "phase": "before_entry"},
-        {"description": "Failed breakout: price reverses back through the pivot after the breakout.", "phase": "after_entry"}
+        {"description": "Failed breakout: price closes back through the pivot after the breakout. Scored as an outcome (failed-breakout rate), not used as an exit.", "phase": "after_entry"}
       ],
       "supporting_signals": [
         {"name": "stage-2 trend template", "description": "Close above rising 150- and 200-day SMAs (rising over 20 bars), 50-day SMA above both, within 25% of the 52-week high.", "role": "filter"},

@@ -40,6 +40,10 @@ def test_described_but_unquantified():
     assert "executed at the next bar's open?" in reasons  # execution left open is a gap
 
 
+def test_trigger_without_a_condition_is_one_gap():
+    assert [(g.field, g.kind) for g in find_gaps(_complete(trigger=Trigger()))] == [("trigger", "missing")]
+
+
 def test_guardrails_are_invalid():
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="raw_price", min=2.0)))
     assert ("trigger", "invalid") in _gaps(

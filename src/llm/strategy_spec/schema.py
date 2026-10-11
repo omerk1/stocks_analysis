@@ -68,8 +68,8 @@ class Duration(_Section):
 class Size(_Section):
     """The pattern's magnitude, in units comparable across tickers.
 
-    `min`/`max` bound one quantity, as a magnitude (never negative); a percentile is on a
-    0-100 scale. An idea with more thresholds keeps the others in the description or in
+    `min`/`max` bound one quantity, as a magnitude (never negative); `pct` is in percent
+    (5 means 5%) and a percentile is on a 0-100 scale. An idea with more thresholds keeps the others in the description or in
     the trigger, where they belong to the firing condition.
     """
 
@@ -192,11 +192,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             add("size", "invalid", "a percentile is on a 0-100 scale")
 
     t = spec.trigger
-    if t is None:
+    if t is None or t.description is None:
+        # Basis and execution are asked about once there is a condition to attach them to.
         add("trigger", "missing", "which bar does the signal fire on?")
     else:
-        if t.description is None:
-            add("trigger", "missing", "no trigger condition")
         if t.price_basis is None:
             add("trigger", "unquantified", "on the close or on an intraday high/low?")
         if t.execution is None:
@@ -229,14 +228,16 @@ class GoldenSpec:
     """A spec written by hand for an idea this repo already built, used as an answer key.
 
     `description` is the idea as a user might first type it (written after the fact, from
-    the source doc). `stated` names the fields that description mentions at all: in
-    step 2, an extractor that fills a field the description never mentions has invented
-    it, a worse failure than leaving it for the elicitation loop to ask about.
+    the source doc). `stated` names the fields that description mentions at all, in words
+    or numbers; a list field counts as stated if any one item is mentioned. In step 2, an
+    extractor that fills a field the description never mentions has invented it, a worse
+    failure than leaving it for the elicitation loop to ask about. Finer, per-value
+    scoring is step 2's to define.
     """
 
     id: str
     source: str
-    description: Text
+    description: str
     stated: tuple[str, ...]
     spec: StrategySpec
 
@@ -244,6 +245,9 @@ class GoldenSpec:
 def load_golden_specs(path: Path = GOLDEN_SPECS_PATH) -> list[GoldenSpec]:
     with path.open() as f:
         raw = json.load(f)
+    for item in raw:
+        if not item["description"].strip():
+            raise ValueError(f"golden spec {item['id']!r} has a blank description")
     return [
         GoldenSpec(
             id=item["id"],
