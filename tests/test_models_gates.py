@@ -101,23 +101,25 @@ def test_gate_2_label_shuffle(planted):
 
 
 def test_gate_3_leakage_on_synthetic_bars():
-    bars, splits, cut = gates.synthetic_leakage_inputs()
-    result = gates.leakage_gate(bars, splits, cut)
+    bars, splits, cut, context = gates.synthetic_leakage_inputs()
+    result = gates.leakage_gate(bars, splits, cut, context=context)
     assert not _failed(gates.leakage_verdict(result))
-    assert set(result["columns"]) >= {"mom_12_1_rank", "dollar_volume_20d", "history_eligible", "atr_pct"}
+    assert set(result["columns"]) >= {"mom_12_1_rank", "dollar_volume_20d", "history_eligible", "atr_pct",
+                                      "bb_width_pctile", "rel_volume_20_rank", "breadth_above_sma200",
+                                      "sector_rank_mom_63"}
     assert result["not_bar_derived"] == ["sector"]
 
 
 def test_gate_3_catches_an_unsafe_registered_feature():
     """Registering a feature that reads an adjusted price level makes the gate fail."""
-    bars, splits, cut = gates.synthetic_leakage_inputs()
+    bars, splits, cut, context = gates.synthetic_leakage_inputs()
     unsafe = registry.FeatureSpec("sma_50_level", "test", registry.MODEL, "dense", None, "level", 50)
     sources = {**registry.SOURCES, "level": registry.Source(
         registry.PriceBasis.TOTAL_RETURN, lambda b, s: pd.DataFrame({"sma_50_level": b["close"].rolling(50).mean()}))}
     original = registry.SOURCES
     try:
         registry.SOURCES = sources
-        result = gates.leakage_gate(bars, splits, cut, registry=registry.REGISTRY + (unsafe,))
+        result = gates.leakage_gate(bars, splits, cut, registry=registry.REGISTRY + (unsafe,), context=context)
     finally:
         registry.SOURCES = original
     failed = _failed(gates.leakage_verdict(result))
@@ -129,7 +131,7 @@ def test_gate_3_catches_atr_masked_by_the_label():
     """The label cache's `atr` is NaN where bar t+1 is missing -- future
     information. Registered as a feature, the delisting perturbation catches it."""
     from src.models.labels.barriers import BarrierCell, barrier_labels
-    bars, splits, cut = gates.synthetic_leakage_inputs()
+    bars, splits, cut, context = gates.synthetic_leakage_inputs()
 
     def masked_atr(b, s):
         labels = barrier_labels(b.reset_index().assign(ticker="_"), [BarrierCell(1, 1.0, 1.0)])
@@ -139,7 +141,7 @@ def test_gate_3_catches_atr_masked_by_the_label():
     original = registry.SOURCES
     try:
         registry.SOURCES = {**original, "masked": registry.Source(registry.PriceBasis.TOTAL_RETURN, masked_atr)}
-        result = gates.leakage_gate(bars, splits, cut, registry=registry.REGISTRY + (unsafe,))
+        result = gates.leakage_gate(bars, splits, cut, registry=registry.REGISTRY + (unsafe,), context=context)
     finally:
         registry.SOURCES = original
     assert result["leaks"]["future_delisting"] == {"masked_atr": result["leaks"]["future_delisting"]["masked_atr"]}

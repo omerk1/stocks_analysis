@@ -8,7 +8,10 @@ one parquet file with a JSON manifest.
 
 Values are computed per ticker on that ticker's whole bar history (warmup
 before `start` included), then restricted to eligible rows and ranked: a rank
-is "where this row sits among the names a model could trade that day". The
+is "where this row sits among the names a model could trade that day". Panel
+sources (`market.py`) read every member's bars, eligible or not, plus the
+benchmark's: breadth and sector peers are the whole point-in-time index of the
+universe's indices (recorded as `panel_membership_indices`). The
 manifest records each column's registry entry (prior, source, warmup), the
 universe spec, price sources and the git SHA.
 
@@ -27,7 +30,7 @@ import pandas as pd
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import MODULES_WITH_FALLBACK
 from src.models import dataset
-from src.models.features import baseline, registry
+from src.models.features import baseline, market, registry
 
 # The longest registered warmup is 451 bars (~655 calendar days).
 WARMUP_DAYS = 750
@@ -53,23 +56,47 @@ def build_feature_cache(
     tickers = sorted(rows["ticker"].unique())
 
     bar_specs = [s for s in specs if s.source is not None]
-    bases = sorted({registry.SOURCES[s.source].basis for s in bar_specs}, key=lambda b: b.value)
+    panel_specs = [s for s in bar_specs if isinstance(registry.SOURCES[s.source], registry.PanelSource)]
+    ticker_specs = [s for s in bar_specs if s not in panel_specs]
     first = start - pd.Timedelta(days=WARMUP_DAYS)
+    sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
+    sectors["sector"] = sectors["sector"].replace("", pd.NA)
+    panel_indices = list(spec.get("indices", ["sp500"]))
+
+    # Panel sources see every name that was a member of the universe's indices
+    # at any point in [first, end] -- eligible or not, delisted ones included --
+    # plus the benchmark; per-ticker sources only the eligible names. One read
+    # covers both.
+    names = tickers
+    if panel_specs:
+        intervals = pd.concat([dataset.apply_renames(conn, db.read_index_membership(conn, n))
+                               for n in panel_indices], ignore_index=True)
+        overlap = (pd.to_datetime(intervals["start_date"]) <= end) & (
+            pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max) >= first)
+        names = sorted(set(tickers) | set(intervals.loc[overlap, "ticker"]) | {market.BENCHMARK})
     bars, sources = {}, {}
-    for basis in bases:
-        bars[basis] = dataset.read_bars_bulk(conn, tickers, basis, first, end, fallback=_fallback(basis))
+    for basis in sorted({registry.SOURCES[s.source].basis for s in bar_specs}, key=lambda b: b.value):
+        bars[basis] = dataset.read_bars_bulk(conn, names, basis, first, end, fallback=_fallback(basis))
         sources[basis.value] = bars[basis].attrs["price_sources"]
     split_sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, _fallback(dataset.UNIVERSE_BASIS))
     splits = dataset._read_splits_bulk(conn, split_sources)
 
-    values = registry.compute_registered(bars, splits, tuple(bar_specs), rank=False)
+    values = None
+    if ticker_specs:
+        eligible_bars = {b: f[f["ticker"].isin(tickers)] for b, f in bars.items()}
+        values = registry.compute_registered(eligible_bars, splits, tuple(ticker_specs), rank=False)
+    if panel_specs:
+        # Membership from the index intervals, so the trailing breadth windows are warm on `start` too.
+        panel_bars = bars[registry.SOURCES[panel_specs[0].source].basis]
+        context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars),
+                                      sectors=sectors.set_index("ticker")["sector"])
+        pvalues = registry.compute_registered(bars, {}, tuple(panel_specs), rank=False, context=context)
+        values = pvalues if values is None else values.merge(pvalues, on=["ticker", "date"], how="left")
     out = rows.merge(values, on=["ticker", "date"], how="left")
     ranked = tuple(s.name for s in bar_specs if s.ranked)
     if ranked:
         out = baseline.add_ranks(out, ranked)
     if any(s.name == "sector" for s in specs):
-        sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
-        sectors["sector"] = sectors["sector"].replace("", pd.NA)
         out = out.merge(sectors, on="ticker", how="left")
         out["sector"] = out["sector"].astype("category")
 
@@ -81,6 +108,7 @@ def build_feature_cache(
     manifest = {
         "universe": spec, "start": str(start.date()), "end": str(end.date()), "open_holdout": bool(open_holdout),
         "n_rows": len(out), "n_tickers": int(out["ticker"].nunique()), "price_sources": sources,
+        "panel_membership_indices": panel_indices if panel_specs else None,
         "columns": {s.name: {k: v for k, v in asdict(s).items() if k != "name"} for s in specs},
         "missing_share": {c: float(out[c].isna().mean()) for c in out.columns if c not in ("ticker", "date")},
         # Whole-history disputes take tickers out of the universe (`dataset.resolve_sources`).
