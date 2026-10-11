@@ -39,9 +39,11 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
 from src.models.baselines import ConstantModel
+from src.models.features import market
 from src.models.features import registry as reg
 from src.models.inference import BootstrapResult, paired_loss_diff, per_date_diff
 from src.models.labels.barriers import BarrierCell, barrier_labels, v1_grid
@@ -294,14 +296,23 @@ def _changed_columns(before: pd.DataFrame, after: pd.DataFrame, cut: pd.Timestam
     return changed
 
 
-def _warmup_mismatches(values: pd.DataFrame, registry) -> dict[str, list]:
+def _warmup_mismatches(values: pd.DataFrame, registry, benchmark: str = market.BENCHMARK) -> dict[str, list]:
     """Registered float columns whose first defined value isn't at the
-    declared `warmup_bars` for a ticker with enough history."""
+    declared `warmup_bars` for a ticker with enough history. A market-wide
+    column is the same on every ticker's row, so it's counted on the
+    benchmark's bars (which start with the panel's); the others on the
+    stocks' (the benchmark has no sector)."""
     bad = {}
+    is_benchmark = values["ticker"] == benchmark
+    on = {"benchmark": values[is_benchmark], "stocks": values[~is_benchmark]}
     for spec in registry:
         if spec.source is None or spec.warmup_bars == 0 or values[spec.name].dtype == bool:
             continue
-        for ticker, g in values.groupby("ticker", sort=False):
+        rows = on["benchmark" if spec.shape == "market_wide" else "stocks"]
+        if spec.shape == "market_wide" and rows.empty:
+            bad.setdefault(spec.name, []).append((benchmark, "no benchmark rows to count on"))
+            continue
+        for ticker, g in rows.groupby("ticker", sort=False):
             col = g[spec.name].to_numpy(dtype=float)
             if len(col) < spec.warmup_bars + 5:
                 continue
@@ -314,19 +325,21 @@ def _warmup_mismatches(values: pd.DataFrame, registry) -> dict[str, list]:
 def leakage_gate(
     bars: dict[PriceBasis, pd.DataFrame], splits: dict[str, pd.DataFrame], cut: str | pd.Timestamp,
     registry: tuple[reg.FeatureSpec, ...] = reg.REGISTRY, seed: int = 0,
+    context: market.PanelContext | None = None,
 ) -> dict:
     """`bars`: one long frame per basis the registry's sources read (the
-    synthetic gate passes the same walk on both). Recomputes every source
-    under each perturbation."""
+    synthetic gate passes the same walk on both); `context`: membership and
+    sectors for the panel sources (the perturbations don't touch it: it isn't
+    bar-derived). Recomputes every source under each perturbation."""
     cut = pd.Timestamp(cut)
     specs = registry + CANARIES
     sources = {**reg.SOURCES, **CANARY_SOURCES}
-    base = reg.compute_registered(bars, splits, specs, sources)
+    base = reg.compute_registered(bars, splits, specs, sources, context=context)
     registered = {s.name for s in registry} | {f"{s.name}_rank" for s in registry if s.ranked}
     leaks, canaries = {}, {}
     for name, perturb in PERTURBATIONS.items():
         pbars, psplits = perturb(bars, splits, cut, seed)
-        changed = _changed_columns(base, reg.compute_registered(pbars, psplits, specs, sources), cut)
+        changed = _changed_columns(base, reg.compute_registered(pbars, psplits, specs, sources, context=context), cut)
         leaks[name] = {c: n for c, n in changed.items() if c in registered or c == "<row set>"}
         canaries[name] = sorted(c for c in changed if c not in registered)
 
@@ -363,25 +376,41 @@ def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     differ), rounded to cents like real quotes (exact ties between price moves
     then occur, and a rescaling breaks them -- a column that compares moves
     strictly would leak), with one reverse split before the cut so
-    `history_eligible` and `unadjusted_close` have something to undo.
-    Returns (bars, splits, cut)."""
+    `history_eligible` and `unadjusted_close` have something to undo; plus a
+    benchmark (SPY) listed throughout, three sectors, and a membership that
+    takes one ticker out of the index for a year after its warmup (breadth
+    and the sector columns must not count it there). Returns (bars, splits,
+    cut, context)."""
     bars = synthetic_bars(n_tickers, start="2016-01-04", end="2019-12-31", delist_share=0.2, late_share=0.2,
                           seed=seed)
+    bench = synthetic_bars(1, start="2016-01-04", end="2019-12-31", delist_share=0.0, late_share=0.0,
+                           seed=seed + 1).assign(ticker=market.BENCHMARK)
+    tickers = sorted(bars["ticker"].unique())
+    sectors = pd.Series({t: ("Energy", "Health Care", "Technology")[i % 3] for i, t in enumerate(tickers)})
+    outsider = bars["ticker"].value_counts().idxmax()
+    days = np.sort(bars.loc[bars["ticker"] == outsider, "date"].unique())
+    out = (bars["ticker"] == outsider) & bars["date"].between(days[300], days[550])
+    membership = bars.loc[~out, ["ticker", "date"]]
+    bars = pd.concat([bars, bench], ignore_index=True)
     bars[_price_cols()] = bars[_price_cols()].round(2)
     cut = pd.Timestamp("2019-03-29")
-    ticker = sorted(bars["ticker"].unique())[0]
+    ticker = tickers[0]  # a stock, not the benchmark
     when = pd.Timestamp("2018-06-01")
     before = (bars["ticker"] == ticker) & (bars["date"] < when)
     bars.loc[before, _price_cols()] = bars.loc[before, _price_cols()].to_numpy() / 0.25
     bars.loc[before, "volume"] = bars.loc[before, "volume"].to_numpy() * 0.25
     splits = {ticker: pd.DataFrame({"execution_date": [when], "ratio": [0.25]})}
-    return {PriceBasis.TOTAL_RETURN: bars, PriceBasis.TRADED: bars.copy()}, splits, cut
+    context = market.PanelContext(membership=membership.reset_index(drop=True), sectors=sectors)
+    return {PriceBasis.TOTAL_RETURN: bars, PriceBasis.TRADED: bars.copy()}, splits, cut, context
 
 
 def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
     """Real bars on both bases (with the modeling modules' Tiingo fallback)
-    and each ticker's splits from its own vendor. Read-only."""
+    for `tickers` and the benchmark, each ticker's splits from its own vendor,
+    and their real S&P 500 membership and sectors. Read-only. Returns (bars,
+    splits, sources, context)."""
     dataset.check_holdout(end)
+    tickers = sorted({*tickers, market.BENCHMARK})
     bars = {
         dataset.LABEL_BASIS: dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, start, end,
                                                     fallback=dataset.LABEL_FALLBACK),
@@ -389,7 +418,11 @@ def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
                                                        fallback=dataset.UNIVERSE_FALLBACK),
     }
     sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK)
-    return bars, dataset._read_splits_bulk(conn, sources), sources
+    intervals = dataset.apply_renames(conn, db.read_index_membership(conn, "sp500"))
+    sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
+    panel_bars = bars[reg.SOURCES["market"].basis]
+    context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars), sectors=sectors)
+    return bars, dataset._read_splits_bulk(conn, sources), sources, context
 
 
 # ---------------------------------------------------------------- gate 4

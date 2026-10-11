@@ -50,7 +50,8 @@ from sklearn.model_selection import GroupKFold
 
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
-from src.models.features import registry
+from src.models import dataset
+from src.models.features import baseline, market, registry
 
 FAR_DAYS = 730
 TIINGO_SOURCES = (db.TIINGO, db.TIINGO_SPLIT_ONLY)
@@ -157,6 +158,9 @@ def run(features: pd.DataFrame, bars: pd.DataFrame, sources: dict[str, str], cal
     the same tickers (for the fingerprints); `delisted`: ticker -> delisting
     date for the Tiingo tickers (Tiingo's listing end)."""
     inputs = [registry.model_input(s) for s in registry.model_specs()]
+    missing = [c for c in inputs if c not in features.columns]
+    if missing:
+        raise ValueError(f"the feature cache lacks registered columns {missing}; rebuild it (build-features)")
     numeric = [c for c in inputs if c != "sector"]
     rows = tag_rows(features, sources, delisted)
     far = rows[rows["far"]]
@@ -196,33 +200,61 @@ def _vendor_bars(conn, tickers: list[str], source: str, start, end) -> pd.DataFr
     return bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"], ignore_index=True)
 
 
-def vendor_features(conn, tickers: list[str], vendor: str, start, end) -> pd.DataFrame:
+def _warm_start(start) -> pd.Timestamp:
+    return pd.Timestamp(start) - pd.Timedelta(days=int(1.6 * max(s.warmup_bars for s in registry.REGISTRY)) + 30)
+
+
+def common_rows(conn, tickers: list[str], start, end) -> pd.DataFrame:
+    """(ticker, date) rows both vendors have a bar for, warm-up included: the
+    panel columns' membership, so breadth and sector peers average over the
+    same names on both sides (a coverage difference isn't a value difference)."""
+    rows = [_vendor_bars(conn, tickers, VENDOR_SOURCES[v][PriceBasis.TOTAL_RETURN], _warm_start(start), end)
+            [["ticker", "date"]] for v in ("yfinance", "tiingo")]
+    return rows[0].merge(rows[1], on=["ticker", "date"])
+
+
+def vendor_features(conn, tickers: list[str], vendor: str, start, end,
+                    membership: pd.DataFrame | None = None) -> pd.DataFrame:
     """Every registered column for `tickers` in [start, end], from `vendor`'s
-    bars and splits only (warm-up read before `start`)."""
-    warm = pd.Timestamp(start) - pd.Timedelta(days=int(1.6 * max(s.warmup_bars for s in registry.REGISTRY)) + 30)
-    bars = {basis: _vendor_bars(conn, tickers, source, warm, end) for basis, source in VENDOR_SOURCES[vendor].items()}
+    bars and splits only (warm-up read before `start`). The panel columns treat
+    `tickers` as the index -- `membership` rows of them if given (breadth and
+    sector peers over them, each from this vendor) -- and read the benchmark as
+    the dataset does, whatever the vendor."""
+    warm = _warm_start(start)
+    bars = {}
+    for basis, source in VENDOR_SOURCES[vendor].items():
+        bench = dataset.read_bars_bulk(conn, [market.BENCHMARK], basis, warm, end)
+        bars[basis] = pd.concat([_vendor_bars(conn, tickers, source, warm, end), bench], ignore_index=True)
     splits = {}
     for t in tickers:
         sp = db.read_splits(conn, t, VENDOR_SPLITS[vendor])
         if not sp.empty:
             splits[t] = sp
-    f = registry.compute_registered(bars, splits)
+    sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
+    f = registry.compute_registered(bars, splits, rank=False,
+                                    context=market.PanelContext(membership=membership, sectors=sectors))
+    # Ranked over the compared stocks only, as the cache ranks over its eligible rows.
+    f = baseline.add_ranks(f[f["ticker"].isin(tickers)], tuple(s.name for s in registry.REGISTRY
+                                                              if s.ranked and s.source is not None))
     return f[f["date"].between(pd.Timestamp(start), pd.Timestamp(end))].reset_index(drop=True)
 
 
-def feature_gaps(yf: pd.DataFrame, ti: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+def feature_gaps(yf: pd.DataFrame, ti: pd.DataFrame, columns: list[str],
+                 market_wide: tuple[str, ...] = ()) -> pd.DataFrame:
     """Per column, on the (ticker, date) rows both vendors have: the median
     |Tiingo - yfinance| in units of the cross-sectional SD (median over dates
     of the per-date SD of the yfinance values), the share of rows off by more
     than 0.1 SD, and the share where only one vendor is missing the value.
-    A column with no spread (constant or empty in the window) has no SD to
-    scale by: it's marked `no_spread` and counts rows that differ at all."""
+    A `market_wide` column is the same for every ticker on a date, so it has
+    no cross-section: its SD is over time instead. A column with no spread
+    (constant or empty in the window) has no SD to scale by: it's marked
+    `no_spread` and counts rows that differ at all."""
     j = yf.merge(ti, on=["ticker", "date"], suffixes=("_yf", "_ti"))
     out = []
     for c in columns:
         a, b = j[f"{c}_yf"].astype(float), j[f"{c}_ti"].astype(float)
         both = a.notna() & b.notna()
-        sd = a[both].groupby(j.loc[both, "date"]).std().median()
+        sd = a[both].std() if c in market_wide else a[both].groupby(j.loc[both, "date"]).std().median()
         diff = (b[both] - a[both]).abs()
         no_spread = not (sd > 0)
         gap = (diff > 0).astype(float) if no_spread else diff / sd
@@ -257,13 +289,22 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0) -> dict:
         raise ValueError("no tickers stored on both vendors")
     specs = [s for s in registry.model_specs() if s.name != "sector"]
     columns = [registry.model_input(s) for s in specs] + [s.name for s in specs if s.ranked]
-    yf = vendor_features(conn, tickers, "yfinance", start, end)
-    ti = vendor_features(conn, tickers, "tiingo", start, end)
-    gaps = feature_gaps(yf, ti, columns)
+    members = common_rows(conn, tickers, start, end)
+    yf = vendor_features(conn, tickers, "yfinance", start, end, members)
+    ti = vendor_features(conn, tickers, "tiingo", start, end, members)
+    # Undefined on both vendors throughout (e.g. no benchmark or sectors stored):
+    # nothing to compare -- reported, not failed.
+    not_compared = [c for c in columns if yf[c].isna().all() and ti[c].isna().all()]
+    columns = [c for c in columns if c not in not_compared]
+    gaps = feature_gaps(yf, ti, columns, tuple(s.name for s in specs if s.shape == "market_wide"))
     rows = pd.concat([yf.assign(tiingo=False), ti.assign(tiingo=True)], ignore_index=True)
-    auc = vendor_auc(rows, columns, seed=seed)
+    # Market-wide columns stay out of the classifier: one value per date and
+    # vendor, they fingerprint the date's vendor across tickers (the folds hold
+    # out tickers, not dates) -- their gaps above are the check.
+    market_wide = {s.name for s in specs if s.shape == "market_wide"}
+    auc = vendor_auc(rows, [c for c in columns if c not in market_wide], seed=seed)
     failures = gate_failures(gaps, auc)
     return {
         "n_tickers": len(tickers), "n_rows": {"yfinance": len(yf), "tiingo": len(ti)},
-        "gaps": gaps, "auc": auc, "failures": failures, "passed": not failures,
+        "gaps": gaps, "auc": auc, "failures": failures, "passed": not failures, "not_compared": not_compared,
     }

@@ -301,9 +301,9 @@ close; on adjusted prices the future-split perturbation would fail them. Pattern
 `pit_confluence()` are point-in-time (§2.4 constraint 1).
 
 **The comparison:** step 2's scorecard compares against a run with the same other
-columns. If other features are registered between S1b and step 2's run (e.g. step 2b's
-indicator features), the no-levels side is rerun on them too, so the difference is the
-levels alone.
+columns, so the difference is the levels alone. Step 2b's indicator features (#208) were
+registered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,
+otherwise a rerun on the same columns.
 
 ---
 
