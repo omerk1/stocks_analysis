@@ -21,8 +21,11 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell.
+  rescore-scorecard  Score run-scorecard's archived predictions again (e.g.
+                  `--rank ev_atr`, plus the random-k baseline), no refit; one
+                  TRIALS.csv row per cell (S1b).
 
-Only run-experiment and run-scorecard are trials: the other commands write
+Only run-experiment, run-scorecard and rescore-scorecard are trials: the other commands write
 nothing to TRIALS.csv.
 """
 
@@ -255,25 +258,45 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
     return 0
 
 
-def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...]) -> int:
+def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str = "ev") -> int:
     from src.models import trading, trial_log
     from src.models.features import cache
     warnings.filterwarnings("ignore")
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
-    sc = trading.Scorecard(horizons=horizons)
+    sc = trading.Scorecard(horizons=horizons, rank=rank)
     features = cache.read_feature_cache(features_dir)
     results = []
     for h in horizons:
         for r in trading.run_horizon(sc, h, features, labels_dir):
             print(f"{r['trial_id']}: {trading.outcome(r, r['cell'])}", flush=True)
             results.append(r)
-    pd.set_option("display.width", 250)
-    for k in sc.ks:
-        print(f"\nTop-{k}, net {trading.HEADLINE_COST_BPS} bps per trade (Track A, no verdict; "
-              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {sc.ci:.0%} CI):")
-        print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
+    _print_grid(results, sc)
     return 0
+
+
+def rescore_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str) -> int:
+    from src.models import trading, trial_log
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    if trial_log.git_dirty() is not False:
+        raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
+    sc = trading.Scorecard(horizons=horizons, rank=rank)
+    results = trading.rescore(sc, trial_log.read_trials(), cache.read_feature_cache(features_dir), labels_dir)
+    for r in results:
+        print(f"{r['trial_id']} (from {r['rescored_from']}): {trading.outcome(r, r['cell'])}", flush=True)
+    _print_grid(results, sc)
+    return 0
+
+
+def _print_grid(results: list[dict], sc) -> None:
+    from src.models import trading
+    pd.set_option("display.width", 300)
+    for k in sc.ks:
+        print(f"\nTop-{k}, rank {sc.rank}, net {trading.HEADLINE_COST_BPS} bps per trade (Track A, no verdict; "
+              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {sc.ci:.0%} CI; "
+              f"random = {trading.RANDOM_DRAWS} draws of k random names, median):")
+        print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
 
 
 def close_experiment(experiment_id: str) -> int:
@@ -326,6 +349,12 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
+    score.add_argument("--rank", choices=["ev", "ev_atr"], default="ev")
+    resc = sub.add_parser("rescore-scorecard", help="score run-scorecard's archived predictions again, no refit")
+    resc.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
+    resc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
+    resc.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
+    resc.add_argument("--rank", choices=["ev", "ev_atr"], default="ev_atr")
     close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
     close.add_argument("experiment")
     args = parser.parse_args(argv)
@@ -335,7 +364,9 @@ def main(argv: list[str] | None = None) -> int:
         return run_experiment(args.experiment, args.features, args.labels,
                               tuple(args.horizons) if args.horizons else None)
     if args.command == "run-scorecard":
-        return run_scorecard(args.features, args.labels, tuple(args.horizons))
+        return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
+    if args.command == "rescore-scorecard":
+        return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":
         return close_experiment(args.experiment)
     if args.command == "run-gates":

@@ -316,3 +316,16 @@ addendum is proposed.
    The Inconclusive verdicts stand (a survivors-only Inconclusive is still
    Inconclusive), but any power addendum or DC-B5 must run on the recomputed,
    fallback-covered event base (backlog lists the pending recompute steps).
+
+---
+
+## Addendum 2026-10-10 — the event base was recomputed (no definitions changed)
+
+The survivorship caveat in the 2026-10-09 addendum (note 2) points to backlog
+steps that have now run (Done #112). `divergences` now includes every delisted
+ticker the vendor fallback covers — 117 added, all 111 delisted S&P 500/NDX
+members with 2010–2021 membership among them — and the 7 whole-history-disputed
+tickers are gone. `divergence_context` and `divergence_control_pairs` were
+rebuilt on that base. The DC-B1/B2 readout above is not re-run by this; its
+numbers remain survivors-only as recorded. Any power addendum or DC-B5 runs on
+the recomputed base.
