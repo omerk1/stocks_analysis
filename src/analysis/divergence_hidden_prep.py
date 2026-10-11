@@ -22,8 +22,10 @@ confirmation that lands after the hidden event's own `confirmed_at`, and
 the dev-window load truncates counterparts confirming after DEV_END (a
 small undercount at the window margin — rows past the holdout boundary are
 not read). `counterpart_confirmed_first` is the
-as-of-the-hidden-confirmation variant; any DC-B3/B4 covariate use must
-build on that ordering, not the structure-level flags.
+as-of-the-hidden-confirmation variant (with a strict-< companion,
+`counterpart_confirmed_strictly_first`, keeping same-bar ties visible);
+any DC-B3/B4 covariate use must build on that ordering, not the
+structure-level flags.
 
 Usage: python -m src.analysis.divergence_hidden_prep
 """
@@ -38,17 +40,13 @@ from src.analysis.divergence_study_common import (
     OUTCOME_END,
     SHAPE_LEG2_BARS,
     SHAPE_RETRACE_FRAC,
+    attach_pit_membership,
     classify_shape,
     fmt_quantiles,
     load_dev_events,
 )
 from src.foundation.market_common import derived_db
-from src.signals.divergences.study_universe import (
-    DEV_END,
-    DEV_START,
-    membership_intervals,
-    pit_member_mask,
-)
+from src.signals.divergences.study_universe import DEV_END, DEV_START
 
 # A hidden event and the regular event marking the other side of the same
 # swing run in opposite directions: the uptrend that prints hidden-bullish
@@ -104,10 +102,15 @@ def hidden_fit_undefined_reasons(events: pd.DataFrame) -> pd.DataFrame:
     scalar's mask and the report's NaN decomposition, so the printed
     breakdown cannot desynchronize from the actual NaN rate."""
     retrace = events["interpeak_retrace_pct"]
+    inputs_nan = retrace.isna() | events["leg2_gain_pct"].isna()
     return pd.DataFrame(
         {
-            "inputs_nan": retrace.isna() | events["leg2_gain_pct"].isna(),
-            "trend_leg_degenerate": retrace.notna() & ~(retrace > TREND_LEG_EPS),
+            # The first two are mutually exclusive (degenerate requires
+            # non-NaN inputs), so the printed decomposition can't sum past
+            # the total NaN rate. `not_hidden_form` is the domain mask and
+            # may overlap either.
+            "inputs_nan": inputs_nan,
+            "trend_leg_degenerate": ~inputs_nan & ~(retrace > TREND_LEG_EPS),
             "not_hidden_form": events["form"] != "hidden",
         },
         index=events.index,
@@ -121,7 +124,7 @@ def classify_hidden_shape(frac: pd.Series, leg2_bars: pd.Series) -> pd.Series:
 
 
 def attach_cooccurrence(events: pd.DataFrame, max_batch_tickers: int = 200) -> pd.DataFrame:
-    """Adds the five boolean columns in COOCCURRENCE_FLAGS.
+    """Adds the six boolean columns in COOCCURRENCE_FLAGS.
 
     Hidden rows: `counterpart_any` / `counterpart_same_ind` — a regular
     event of the mirrored direction (any indicator / this row's indicator)
@@ -137,7 +140,7 @@ def attach_cooccurrence(events: pd.DataFrame, max_batch_tickers: int = 200) -> p
     interval. Boundaries are exclusive: a shared pivot date is not
     "between the pivots".
 
-    Vectorized merges over (ticker, mirrored direction) do all five flags
+    Vectorized merges over (ticker, mirrored direction) do all six flags
     — no per-ticker loop, only the needed columns carried, and the merge
     runs over ticker batches so the intermediate per-ticker hidden ×
     regular cross product (which the interval filter then prunes) stays
@@ -248,10 +251,13 @@ def report_cooccurrence(events: pd.DataFrame) -> None:
             print(_rate_line(f"hidden/{direction} w/ counterpart conf-ordered (confirmed first)",
                              grp, "counterpart_confirmed_first"))
             n_first = int(grp["counterpart_confirmed_first"].sum())
-            n_tied = n_first - int(grp["counterpart_confirmed_strictly_first"].sum())
-            tie_share = n_tied / n_first if n_first else float("nan")
-            print(f"  {'':52s} (same-bar confirmation ties within conf-ordered: "
-                  f"{n_tied}/{n_first} = {tie_share:.1%})")
+            # Per-event, not per-pair: counts events whose conf-ordering
+            # rests ONLY on a same-bar tie (no strictly-earlier
+            # counterpart exists) — the case where <= vs < would matter.
+            n_tie_only = n_first - int(grp["counterpart_confirmed_strictly_first"].sum())
+            tie_share = n_tie_only / n_first if n_first else float("nan")
+            print(f"  {'':52s} (conf-ordered only via a same-bar tie: "
+                  f"{n_tie_only}/{n_first} = {tie_share:.1%})")
         for direction, grp in regular.groupby("direction"):
             mirrored = MIRROR[direction]
             print(_rate_line(f"regular/{direction} inside a hidden/{mirrored} window (any ind)",
@@ -324,7 +330,7 @@ def report_scalar_fit(events: pd.DataFrame) -> None:
 def main() -> None:
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
     events = load_dev_events(derived_conn)
-    events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
+    events = attach_pit_membership(events, raw_conn)
     events["hidden_fit_frac"] = hidden_fit_retrace_frac(events)
     events = attach_cooccurrence(events)
 

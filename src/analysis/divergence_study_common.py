@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.signals.divergences.study_universe import DEV_END
+from src.signals.divergences.study_universe import DEV_END, membership_intervals, pit_member_mask
 
 OUTCOME_END = "2021-11-30"  # 20-bar outcome window must not cross the holdout
 # "Pullback + rebuild" shape: the counter-move gave back at least this
@@ -34,6 +34,16 @@ def load_dev_events(derived_conn) -> pd.DataFrame:
     events["p2_ts"] = pd.to_datetime(events["p2_date"])
     events["year"] = events["p2_ts"].dt.year
     events["cell"] = events["form"] + "/" + events["direction"]
+    return events
+
+
+def attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
+    """True where the event's ticker was an S&P 500 or Nasdaq-100 member
+    on its own p2 date — the shared, rename-aware machinery in
+    `study_universe`, attached under one column name (`pit_member`) by one
+    helper so sibling scripts cannot drift on the membership scope."""
+    events = events.copy()
+    events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
     return events
 
 

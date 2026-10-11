@@ -296,16 +296,24 @@ the shared module and step 0's two shape computations now use it (behavior-prese
 today, same coupling argument as (1)). (8) Output labels disambiguated: "PIT index
 members" (membership scope) vs "conf-ordered" (confirmation ordering) — two different
 "PIT"s no longer share a word. Round 3: (9) the conf-ordered flag's `<=` could have
-folded in same-bar confirmation ties; a strict-`<` companion flag now measures them —
-**0 ties in every cell**, so "the regular counterpart nearly always confirms first"
-is not a tie artifact. (10) The outcome peek's False bucket is labeled per flag
+folded in same-bar confirmation ties; a strict-`<` companion flag now measures the
+events whose conf-ordering rests ONLY on a same-bar tie (the case where `<=` vs `<`
+changes the flag) — **0 such events in every cell**, so "the regular counterpart
+nearly always confirms first" is not a tie artifact. (Per-event, not per-pair: an
+event with both an earlier and a same-bar counterpart isn't counted, and needn't be —
+its ordering doesn't rest on the tie.) (10) The outcome peek's False bucket is labeled per flag
 ("hidden alone" vs "none confirmed yet") — the two splits' buckets are composed
 differently and no longer share a label. (11) Distinct p2 dates added to the v0-misfit
 and candidate quantile tables (invariant #6): the 66%/76% misfit rates rest on
 10,247/10,533 dates, the candidate's quantiles on 10,277/10,565 — not previously
 printed, nothing else changed. (12) The NaN decomposition now reads the scalar's own
-mask components (`hidden_fit_undefined_reasons`) instead of re-deriving them. All
-reported figures identical across all three rounds' reruns.)*
+mask components (`hidden_fit_undefined_reasons`) instead of re-deriving them. Round 4
+(claim accuracy, no new numbers): (13) those reason components made mutually
+exclusive so the printed breakdown can't sum past the NaN rate; (14) the `pit_member`
+attach moved into the shared module (both scripts call it); (15) the tie count's
+per-event semantics and the misfit rates' defined-only denominator stated precisely
+(in-place wording fixes in this entry, no figure changed). All reported figures
+identical across every round's rerun.)*
 
 - **Both gates pass; a DC-B3/B4 draft is warranted and will be presented to the user.**
   Nothing below is a finding; the registration (own N_tests, own correction) is where
@@ -330,8 +338,10 @@ reported figures identical across all three rounds' reruns.)*
   rate is confounded by (deeper/busier structures are more likely to print the
   counterpart at all). Design input only.
 - **Look (b) — the pivot-to-pivot candidate fits; v0 is confirmed misfit.** v0
-  retrace_frac > 1 on 65.7%/75.8% of hidden bearish/bullish rows (vs 5.3%/8.7% of
-  regular cells — the scalar built for regular geometry). The candidate
+  retrace_frac > 1 on 65.7%/75.8% of hidden bearish/bullish rows with a defined v0
+  value (v0 NaN on 0.6%/0.5%; 10,247/10,533 distinct p2 dates behind the defined
+  rows), vs 5.3%/8.7% of the regular cells' defined rows — the scalar built for
+  regular geometry. The candidate
   (counter-move / trend-leg) is defined on 100.0% of hidden rows (0 input-NaN beyond
   the join, 0 degenerate trend-legs) with a smooth distribution: p10≈0.36–0.37,
   p50≈0.67–0.70, p90=0.93 in both directions. Sanity: for a true hidden pair the

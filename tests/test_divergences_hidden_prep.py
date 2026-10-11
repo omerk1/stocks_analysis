@@ -11,6 +11,7 @@ from src.analysis.divergence_hidden_prep import (
     attach_cooccurrence,
     classify_hidden_shape,
     hidden_fit_retrace_frac,
+    hidden_fit_undefined_reasons,
 )
 
 
@@ -52,6 +53,14 @@ class TestHiddenFitRetraceFrac:
         # "defined" ratio that escapes the NaN rate; the eps guard masks it.
         frac = hidden_fit_retrace_frac(_scalar_frame("bullish", 1e-9, 0.1))
         assert frac.isna().all()
+
+    def test_nan_reason_components_are_disjoint(self):
+        # A row with a degenerate trend leg AND a NaN leg2 must count once
+        # (inputs_nan), or the printed decomposition sums past the NaN rate.
+        frame = _scalar_frame("bullish", 0.0, np.nan)
+        reasons = hidden_fit_undefined_reasons(frame)
+        assert reasons.loc[0, "inputs_nan"]
+        assert not reasons.loc[0, "trend_leg_degenerate"]
 
     def test_regular_rows_are_masked_not_defined_garbage(self):
         # The decomposition only means "retracement depth" for hidden

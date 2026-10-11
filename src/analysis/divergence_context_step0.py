@@ -31,6 +31,7 @@ import pandas as pd
 
 from src.analysis.divergence_study_common import (
     OUTCOME_END,
+    attach_pit_membership,
     SHAPE_LEG2_BARS,
     SHAPE_RETRACE_FRAC,
     classify_shape,
@@ -44,20 +45,11 @@ from src.foundation.market_common.models import PivotKind, Timeframe
 from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
-from src.signals.divergences.study_universe import DEV_END, membership_intervals, pit_member_mask
+from src.signals.divergences.study_universe import DEV_END
 
 # Step 0's vocabulary for the three shape buckets (the regular-geometry
 # reading of the same edges).
 V0_SHAPE_LABELS = ("extension", "pullback+rebuild", "deep-fast")
-
-
-def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
-    """True where the event's ticker was an S&P 500 or Nasdaq-100 member
-    on its own p2 date -- the shared, rename-aware machinery in
-    `study_universe` (one implementation for every study script)."""
-    events = events.copy()
-    events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
-    return events
 
 
 def report_prevalence(events: pd.DataFrame) -> None:
@@ -200,7 +192,7 @@ def main() -> None:
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
 
     events = load_dev_events(derived_conn)
-    events = _attach_pit_membership(events, raw_conn)
+    events = attach_pit_membership(events, raw_conn)
     report_prevalence(events)
     report_cells(events)
     report_outcomes(events)
