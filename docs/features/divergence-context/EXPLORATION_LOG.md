@@ -141,6 +141,18 @@ survivor → a DRAFT DC-B5 only, presented to the user.
 
 ### Result (rerun, same date, run after the pre-commit note above was committed)
 
+*(Amended same date, pre-merge, after code review — the first run's precedent:
+- **Delisted count corrected.** "4,908 event rows on delisted tickers" counted tickers
+  inactive today; 2,554 of those rows are on tickers delisted by 2021-12-31.
+- **Source rule moved.** The walk's vendor resolution now goes through
+  `store.builder_sources`, which adds a vendor-stale check.
+- **Cache rebuilt twice.** Each build was identical to the first rerun's (walk outputs
+  content hash `9880af761b1cf8c3`). The build log now prints 0 unresolved and 0
+  vendor-stale tickers.
+- **Dispute filter left vendor-blind,** as in the first run, for comparability. A
+  vendor-aware rule would keep 23 of its 534 window drops (9 events, 2 tickers).
+- Verdict and every number below unchanged.)*
+
 - **DEAD again per the pre-committed kill criterion** — no (direction × form × context)
   region clears all four rails at the primary variant (2R/63-bar/ε0.25/20 bps). One line,
   stop; no DC-B5 draft.
@@ -197,4 +209,5 @@ survivor → a DRAFT DC-B5 only, presented to the user.
 - Caches: the first run's per-trade parquet is still in the main checkout's gitignored
   `data/derived/divergence_rr_sweep/`. This rerun's cache was written to the rerun
   worktree's own data dir, so the old cache was not overwritten. The rebuilt-after-review
-  cache is identical to the first rerun's (row for row).
+  cache matches the first rerun's walk-output hash (`9880af761b1cf8c3`; the cache now
+  also carries a `bar_source` column: 87,806 trades yfinance / 14,183 Tiingo).

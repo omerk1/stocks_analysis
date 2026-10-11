@@ -398,13 +398,14 @@ def walk_sources(
         raw_conn, derived_conn, sorted(frame["ticker"].unique()), basis, VENDOR_FALLBACK, "daily"
     )
     why = frame["ticker"].map(flagged)
+    # Every reason builder_sources can give is counted (zeros included, so a
+    # run log shows the check ran), and any future reason is counted too.
     dropped = {}
-    for reason in ("unresolved", "vendor_stale"):
+    for reason in sorted({"unresolved", "vendor_stale", *flagged.values()}):
         sel = why == reason
-        if sel.any():
-            dropped[reason] = (int(frame.loc[sel, "is_divergence"].sum()),
-                               int((~frame.loc[sel, "is_divergence"]).sum()),
-                               int(frame.loc[sel, "ticker"].nunique()))
+        dropped[reason] = (int(frame.loc[sel, "is_divergence"].sum()),
+                           int((~frame.loc[sel, "is_divergence"]).sum()),
+                           int(frame.loc[sel, "ticker"].nunique()))
     return frame[why.isna()], sources, dropped
 
 
@@ -441,7 +442,8 @@ def build(args) -> None:
             raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis,
             source=sources[ticker],
         )
-        walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)))
+        walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)).assign(
+            bar_source=sources[ticker]))  # which vendor's prices the payoffs came from
         done += 1
         if done % 200 == 0:
             print(f"  walked {done}/{len(tickers)} tickers")
@@ -582,10 +584,13 @@ def drop_disputed(
     so slightly over-broad — fine for exploration, counted either way.
     (The DC-B1/B2 run predates this filter; the repo's full per-window
     treatment is dataset.build_labels', logged as backlog for the signals
-    modules.) Since `build` walks only resolved tickers (`walk_sources`),
-    the whole-history part normally removes nothing here -- `build` prints
-    those exclusions; this stays as a ticker-level (vendor-blind) guard for
-    caches built before that, and the report's count reads 0 by design."""
+    modules.) Kept vendor-blind on purpose, as in the first run, so reruns
+    stay comparable with it. `build` already drops tickers whose RESOLVED
+    vendor is whole-history disputed (`walk_sources`); this check
+    additionally drops a ticker disputed on some other vendor, which is
+    over-broad and is counted in the report. The cache's `bar_source`
+    column records the vendor each trade was walked on, so a vendor-aware
+    rule is possible later as an explicit, logged change."""
     if disputes is None:  # the canonical list, read at call time (one knob)
         disputes = price_disputes.DISPUTED_DAYS
     whole = {d.ticker for d in disputes if d.date is None}
