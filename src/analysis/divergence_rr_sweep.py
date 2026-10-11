@@ -2,8 +2,10 @@
 
 Registration-lite: the grid, strategy form, controls, metrics and kill
 criterion are pre-committed in docs/features/divergence-context/
-EXPLORATION_LOG.md (entry dated 2026-10-10) BEFORE any payoff was
-computed. Everything here is Track A exploration: no multiple-testing
+EXPLORATION_LOG.md (the first entry dated 2026-10-10, "R/R strategy-form
+sweep: pre-committed grid and kill criterion") BEFORE any payoff was
+computed; the post-recompute rerun's note below it reuses that grid
+verbatim. Everything here is Track A exploration: no multiple-testing
 correction, nothing a finding, no tradeable claim. The only promotion
 path for a surviving region is a DRAFT DC-B5 pre-registration presented
 to the user.
@@ -40,8 +42,9 @@ from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common import indicators
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.price_disputes import DisputedDay
-from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
 from src.signals.divergences.matching import classify_context
+from src.signals.divergences.store import builder_sources
 from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals, pit_member_mask
 
 DEV_YEARS = 12.0
@@ -379,6 +382,33 @@ def walk_ticker(
 # ---- build ----
 
 
+def walk_sources(
+    raw_conn, derived_conn, frame: pd.DataFrame, basis
+) -> tuple[pd.DataFrame, dict[str, str], dict[str, tuple[int, int, int]]]:
+    """The bar vendor each ticker is walked on, by the same rule the context
+    and control-pair builders use (`store.builder_sources`): the divergences
+    fallback, so a Tiingo-only delisted ticker walks on its Tiingo bars
+    rather than as an empty primary-vendor series. Tickers it flags are
+    dropped: 'unresolved' (whole-history dispute or no bars) and
+    'vendor_stale' (resolves today to a vendor other than the one its
+    events were detected on, so pivots and payoff prices would come from
+    different series). Returns (kept frame, ticker -> source,
+    reason -> (events, controls, tickers) dropped); every reason is
+    present, zeros included, so a run log shows the check ran."""
+    sources, flagged = builder_sources(
+        raw_conn, derived_conn, sorted(frame["ticker"].unique()), basis, VENDOR_FALLBACK, "daily"
+    )
+    why = frame["ticker"].map(flagged)
+    # Any future builder_sources reason is counted too.
+    dropped = {}
+    for reason in sorted({"unresolved", "vendor_stale", *flagged.values()}):
+        sel = why == reason
+        dropped[reason] = (int(frame.loc[sel, "is_divergence"].sum()),
+                           int((~frame.loc[sel, "is_divergence"]).sum()),
+                           int(frame.loc[sel, "ticker"].nunique()))
+    return frame[why.isna()], sources, dropped
+
+
 def build(args) -> None:
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
     config = DivergenceConfig()
@@ -402,11 +432,15 @@ def build(args) -> None:
           f"{n_nan_conf} missing confirmed_at, {n_nan_bin} NA duration/geometry)")
 
     flags = delisted_flags(raw_conn)
-    walked, done = [], 0
+    frame, sources, dropped = walk_sources(raw_conn, derived_conn, frame, config.price_basis)
+    for why, (n_ev, n_ct, n_tk) in dropped.items():
+        print(f"excluded before the walk: {n_ev} events, {n_ct} controls on {n_tk} {why} ticker(s)")
     tickers = frame["ticker"].unique()
+    walked, done = [], 0
     for ticker, grp in frame.groupby("ticker"):
         bars, _report = data_mod.load_and_validate(
-            raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis
+            raw_conn, ticker, Timeframe.DAILY, as_of=DEV_END, basis=config.price_basis,
+            source=sources[ticker],
         )
         walked.append(grp.join(walk_ticker(bars, grp, flags.get(ticker), DEV_END)))
         done += 1
@@ -414,6 +448,7 @@ def build(args) -> None:
             print(f"  walked {done}/{len(tickers)} tickers")
 
     trades = pd.concat(walked, ignore_index=True)
+    trades["bar_source"] = trades["ticker"].map(sources)  # the vendor the payoffs came from
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = CACHE_DIR / "trades.parquet"
     trades.to_parquet(path, index=False)
@@ -545,11 +580,22 @@ def drop_disputed(
     d: 63 held bars ahead of entry, and behind it the Wilder-smoothed
     ATR(14)'s memory of the disputed bar — (13/14)^k decay keeps ~28% of a
     shock 17 bars later, so the trailing side runs ~62 trading days ≈ 90
-    calendar days, by which point the residual is under 2%). Vendor-blind,
-    so slightly over-broad — fine for exploration, counted either way.
-    (The DC-B1/B2 run predates this filter; the repo's full per-window
-    treatment is dataset.build_labels', logged as backlog for the signals
-    modules.)"""
+    calendar days, by which point the residual is under 2%).
+
+    Vendor-blind on purpose, in both branches, as in the first run, so
+    reruns stay comparable with it. It is slightly over-broad, and the
+    excess is counted in the report:
+    - whole-history: `build` already drops tickers whose RESOLVED vendor
+      is disputed (`walk_sources`), so this drops only tickers disputed
+      on some other vendor;
+    - per-day windows: this also drops trades near a day disputed on a
+      vendor the ticker wasn't walked on (23 of 534 window drops on the
+      2026-10-10 rerun).
+    Caches built since that rerun carry a `bar_source` column (older ones
+    don't), so a vendor-aware rule is possible later as an explicit,
+    logged change. (The DC-B1/B2 run predates this filter; the repo's full
+    per-window treatment is dataset.build_labels', logged as backlog for
+    the signals modules.)"""
     if disputes is None:  # the canonical list, read at call time (one knob)
         disputes = price_disputes.DISPUTED_DAYS
     whole = {d.ticker for d in disputes if d.date is None}

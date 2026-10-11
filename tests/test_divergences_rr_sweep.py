@@ -263,3 +263,60 @@ def test_variant_names_round_trip():
         assert hold in (21, 63)
         assert mult in (1.0, 2.0, 3.0, None)
         assert eps in (0.25, 0.10, 0.50)
+
+
+@pytest.mark.parametrize("list_sources", [False, True], ids=["probe", "source_listing"])
+def test_walk_sources_routes_fallback_tickers_and_drops_flagged(monkeypatch, list_sources):
+    """The walk reads each ticker on its detected vendor: a Tiingo-only
+    (delisted) ticker gets its Tiingo source, never an empty primary read;
+    whole-history-disputed and vendor-stale tickers are dropped and counted
+    by events/controls."""
+    import json
+
+    from src.analysis.divergence_rr_sweep import walk_sources
+    from src.foundation.data_processing import db
+    from src.foundation.market_common import derived_db, price_disputes
+    from src.foundation.market_common.price_basis import PriceBasis
+    from src.foundation.market_common.price_disputes import DisputedDay
+
+    from src.signals.divergences import store
+
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
+                        (DisputedDay("BAD", None, "yfinance", "synthetic"),))
+    listed = []
+    real_members = store.source_members
+    monkeypatch.setattr(store, "source_members",
+                        lambda *a, **k: listed.append(1) or real_members(*a, **k))
+    if list_sources:  # the production path: thousands of tickers -> list each source once
+        monkeypatch.setattr(store, "MEMBERS_THRESHOLD", 0)
+    raw = db.get_connection(":memory:")
+    db.create_tables(raw)
+    bars = make_bars(5).assign(volume=1000, is_partial=0)
+    bars.index.name = "timestamp"
+    db.upsert_bars(raw, "bars_1d", "LIVE", db.YFINANCE_SPLIT_ONLY, bars)
+    db.upsert_bars(raw, "bars_1d", "GONE", db.TIINGO_SPLIT_ONLY, bars)
+    db.upsert_bars(raw, "bars_1d", "BAD", db.YFINANCE_SPLIT_ONLY, bars)
+    db.upsert_bars(raw, "bars_1d", "STALE", db.TIINGO_SPLIT_ONLY, bars)
+    db.upsert_bars(raw, "bars_1d", "LEGACY", db.YFINANCE_SPLIT_ONLY, bars)
+    db.upsert_bars(raw, "bars_1d", "OLDTIINGO", db.TIINGO_SPLIT_ONLY, bars)
+    derived = db.get_connection(":memory:")
+    derived_db.create_runs_table(derived)
+    for t, src in (("LIVE", db.YFINANCE_SPLIT_ONLY), ("GONE", db.TIINGO_SPLIT_ONLY),
+                   ("BAD", db.YFINANCE_SPLIT_ONLY), ("STALE", db.YFINANCE_SPLIT_ONLY)):
+        derived_db.record_run(derived, "divergences", t, "daily", None,
+                              json.dumps({"bar_source": src}), 0, False)
+    # Legacy runs (no bar_source recorded) count as the primary vendor: kept
+    # if it still resolves there, vendor-stale if it now resolves elsewhere.
+    for t in ("LEGACY", "OLDTIINGO"):
+        derived_db.record_run(derived, "divergences", t, "daily", None, json.dumps({}), 0, False)
+    frame = pd.DataFrame({
+        "ticker": ["LIVE", "GONE", "BAD", "BAD", "STALE", "LEGACY", "OLDTIINGO"],
+        "is_divergence": [True, True, True, False, False, True, True],
+    })
+    kept, sources, dropped = walk_sources(raw, derived, frame, PriceBasis.TRADED)
+    assert sorted(kept["ticker"]) == ["GONE", "LEGACY", "LIVE"]
+    assert sources["GONE"] == db.TIINGO_SPLIT_ONLY
+    assert sources["LIVE"] == db.YFINANCE_SPLIT_ONLY
+    assert sources["LEGACY"] == db.YFINANCE_SPLIT_ONLY
+    assert dropped == {"unresolved": (1, 1, 1), "vendor_stale": (1, 1, 2)}
+    assert bool(listed) == list_sources  # the path under test actually ran
