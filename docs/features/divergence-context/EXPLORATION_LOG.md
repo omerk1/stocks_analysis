@@ -124,3 +124,93 @@ beyond one barrier decides that barrier; only an undecidable bar goes to the sto
   residual bias is unknown. The DEAD verdict is what the criterion says on this event
   base; any future registration (DC-B5 or otherwise) should gate on the delisted
   backfill (backlog item).
+
+## 2026-10-10 — R/R sweep rerun on the recomputed event base: pre-commit (written BEFORE the rerun was computed)
+
+Track A. A rerun of the sweep above on the post-recompute event base (Done #112:
+delisted tickers detected on their Tiingo bars, the 7 whole-history-disputed tickers
+forgotten, context and control pairs rebuilt). **Grid, strategy form, primary variant,
+controls, metrics, robustness facets and the kill criterion are identical to the
+2026-10-10 entry above, verbatim — nothing is redefined.** One plumbing change, not a
+definition: the walk loads each ticker's bars from the vendor its events were detected on
+(`price_basis.resolve_sources`, the divergences fallback), because the original build read
+the primary vendor only and a Tiingo-only delisted ticker would otherwise walk as empty.
+Reported alongside the verdict: old-vs-new region table, effective N, rows from delisted
+tickers, and delisting-terminal exits. Same outcomes as before: DEAD → one line, stop; a
+survivor → a DRAFT DC-B5 only, presented to the user.
+
+### Result (rerun, same date, run after the pre-commit note above was committed)
+
+**Amendment 2026-10-11 (pre-merge, after code review; same practice as the first run's
+amendment):**
+
+- **Delisted count corrected.** "4,908 event rows on delisted tickers" counted tickers
+  inactive today; 2,554 of those rows are on tickers delisted by 2021-12-31.
+- **Source rule moved.** The walk's vendor resolution now goes through
+  `store.builder_sources`, which adds a vendor-stale check.
+- **Cache rebuilt twice.** Each rebuild's walk outputs match the first rerun's by
+  content hash (`9880af761b1cf8c3`); the latest cache also carries a new `bar_source`
+  column, so the file itself differs. The build log now prints 0 unresolved and 0
+  vendor-stale tickers.
+- **Dispute filter left vendor-blind,** as in the first run, for comparability. A
+  vendor-aware rule would keep 23 of its 534 window drops (9 events, 2 tickers).
+- Verdict and every number below unchanged.
+
+- **DEAD again per the pre-committed kill criterion** — no (direction × form × context)
+  region clears all four rails at the primary variant (2R/63-bar/ε0.25/20 bps). One line,
+  stop; no DC-B5 draft.
+- Accounting: 101,989 trades walked (38,343 events / 63,646 controls; old run 33,270 /
+  55,234). 124 tickers new to the sweep, 6 gone (the forgotten disputed tickers that were
+  PIT members). 4,908 event rows sit on tickers inactive today, and 2,554 of them on
+  tickers delisted by 2021-12-31 (old: 0). The rest delisted after the dev window and
+  were alive at its end. Primary-variant delisting exits: 44 events / 87 controls
+  (old: 0 / 0), so the delisting-terminal path is now exercised. No event on a
+  delisted-by-2021 ticker is censored, so no terminal return was dropped. 534 trades
+  excluded for disputed-day windows. No ticker was dropped before the walk: 0
+  unresolved and 0 vendor-stale. The 7 whole-history-disputed tickers are no longer in
+  the base.
+- Old vs new, primary variant, control-adjusted net R (distinct p2 dates; neighbors):
+
+  | region | old adj R | new adj R | old → new dates | era 2010–15 / 2016–21 (new) | neighbors old → new |
+  |---|---|---|---|---|---|
+  | bearish/regular/other | +0.101 | +0.078 | 619 → 706 | +0.078 / +0.079 | 3/4 → 3/5 |
+  | bullish/regular/pullback | +0.052 | +0.064 | 982 → 1,077 | +0.120 / +0.009 | 5/8 → 7/8 |
+  | bearish/regular/extension | +0.078 | +0.006 | 365 → 440 | +0.041 / −0.028 | 1/2 → 2/4 |
+  | bearish/regular/pullback | +0.004 | −0.014 | 1,456 → 1,566 | −0.029 / +0.002 | 3/7 → 4/7 |
+  | hidden-form regions | ≈ 0 or < 0 | ≈ 0 or < 0 | — | — | — |
+
+- Closest non-survivor: **bullish/regular/pullback** clears the 500-date floor, both era
+  signs and the ex-2020 split, and fails only the neighbor rail on one sub-cell (strength
+  tercile 1 × 26–45 bars: −0.013 R, 220 dates). Named noise per the plateau discipline,
+  for three reasons:
+  - the disagreeing sub-cell is near zero, but the rail is sign-only by pre-commitment;
+  - the 2016–21 half is +0.009 R, essentially flat, so the region's mean is carried by
+    2010–15;
+  - the sub-cells range from −0.01 to +0.15 R with no strength or duration ordering — a
+    bumpy surface, not a plateau.
+- Not used, recorded so it isn't rediscovered: restricted to the old run's tickers,
+  this region would pass all four rails (8/8 neighbors). That is a post-hoc subset of
+  the pre-committed universe and is not a survival. If anything, it shows the near-miss
+  hinges on which tickers are in the base.
+- Cost: 10 vs 20 bps moves no region's adjusted R by more than 0.002 R. Events and their
+  matched controls pay the same cost, so it nets out of the delta; net-of-cost levels
+  are in the report.
+- Argue-against:
+  - The bearish positives are still "events lose less than controls": shorting with a
+    stop above loses ~0.19–0.25 R net in this bull window.
+  - The bullish/pullback edge is concentrated in 2010–15.
+  - The 44 delisting-exit events average +0.29 R net. A delisting is often an
+    acquisition at a premium, not a failure, so the newly exercised path doesn't only
+    add distress.
+  - With ~324 cells, a sign-stable near-miss of this size is what winner's curse
+    produces.
+- Survivorship caveat from the first run: resolved for the vendor-covered universe. About
+  50 cap-drop and bankruptcy names have no bars from any vendor (the EODHD question).
+  Code change (plumbing only): the walk loads each ticker's bars from its resolved
+  vendor by the context/controls builders' rule (`store.builder_sources`), and drops
+  unresolved or vendor-stale tickers, of which there were none.
+- Caches: the first run's per-trade parquet is still in the main checkout's gitignored
+  `data/derived/divergence_rr_sweep/`. This rerun's cache was written to the rerun
+  worktree's own data dir, so the old cache was not overwritten. The rebuilt-after-review
+  cache matches the first rerun's walk-output hash (`9880af761b1cf8c3`; the cache now
+  also carries a `bar_source` column: 87,806 trades yfinance / 14,183 Tiingo).
