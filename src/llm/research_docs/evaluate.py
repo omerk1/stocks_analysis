@@ -32,16 +32,25 @@ Metrics, over the answerable questions and per question type:
   the deepest `KS` cut).
   One number that rewards ranking the answer higher, not only finding it.
 
-About 15 questions are held out as a final **test** split (`"split": "test"`, drawn at
-random within each type). Day-to-day runs score only the **dev** split: tuning step 7 on
-the same questions it is judged on would overfit them. Run `--split test` once, at the end.
+16 questions are held out as a final **test** split (`"split": "test"`: 2 entry, 2 row,
+9 section, 2 status and 1 unanswerable, drawn with `random.sample` over each type's
+sorted ids, seed 20261011). Day-to-day runs score only the **dev** split (43): tuning
+step 7 on the questions it is judged on would overfit them. Run `--split test` once, at
+the end.
 
-With ~40 dev questions, one question moves hit@k by ~2.5 points: compare configurations
-on the per-question table, not on a 1-point difference.
+With 40 answerable dev questions, one question moves hit@k by 2.5 points: compare
+configurations on the per-question table, not on a 1-point difference.
 
-The questions were written from the docs before any retrieval run, the way they'd be
-asked, mostly in different words from the passage. Questions copied from a passage's own
-wording would overrate an embedding model (and overrate keyword search more).
+The questions were written before any retrieval run, the way they'd be asked, mostly in
+different words from the passage (questions copied from a passage's own wording would
+overrate an embedding model, and keyword search more): 22 from the docs, 20 more covering
+rows, ids, status and out-of-scope questions, 10 by an agent shown only the doc file
+names, and 7 by the user. The golds were then completed by **pooling**: every chunk in
+the top 5 of vector search or of BM25 keyword search was judged once, and 25 that answer
+were added. Golds are only as complete as the pool, which favours those two searches: a
+step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
+a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
+unjudged chunks, on both splits, and add the ones that answer.
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
@@ -79,7 +88,7 @@ def parts(q: dict) -> list[list[dict]]:
     return q["parts"] if "parts" in q else [q["gold"]] if q.get("gold") else []
 
 
-def split(q: dict) -> str:
+def question_split(q: dict) -> str:
     return q.get("split", "dev")
 
 
@@ -100,7 +109,7 @@ def load_questions(path: Path = QUESTIONS) -> list[dict]:
     # No gold would score as a silent miss; a gold without a path ({} matches every chunk)
     # as a silent hit. An unanswerable question has no gold, and a gold on one is a typo.
     # A multi-part question's `parts` follow the same rules per part.
-    bad = [q["id"] for q in questions if not _shape_ok(q) or split(q) not in ("dev", "test")]
+    bad = [q["id"] for q in questions if not _shape_ok(q) or question_split(q) not in ("dev", "test")]
     if bad:
         raise ValueError("questions whose gold doesn't fit: none on an answerable question, "
                          "some on an unanswerable one, a gold without a path, `parts` that aren't two or "
@@ -215,10 +224,11 @@ def _stale_summary(stale: Sequence[str]) -> str:
     return f"{len(stale)} file(s) differ from the index ({', '.join(stale[:3])}{', …' if len(stale) > 3 else ''})"
 
 
-def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
-    """The per-question table and the scores, headed by a STALE line when the index
-    no longer matches the docs (`stale_paths`), so a saved copy carries the flag."""
-    lines = []
+def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None) -> str:
+    """The per-question table and the scores, headed by the split scored and by a STALE
+    line when the index no longer matches the docs (`stale_paths`), so a saved copy
+    carries both."""
+    lines = [f"split: {split}", ""] if split else []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
     lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>5}  top hit")
@@ -259,7 +269,7 @@ def report(rows: list[dict], stale: Sequence[str] = ()) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
-    ap.add_argument("--split", choices=("dev", "test", "all"), default="dev",
+    ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
     args = ap.parse_args()
     questions = load_questions()
@@ -284,9 +294,8 @@ def main() -> None:
         head = f"golds that match no indexed chunk ({_stale_summary(stale) if stale else 'index current'}):"
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
-    chosen = [q for q in questions if args.split in ("all", split(q))]
-    print(f"split: {args.split} ({len(chosen)} of {len(questions)} questions)\n")
-    print(report(evaluate(index, chosen), stale))
+    chosen = [q for q in questions if question_split(q) == args.split]
+    print(report(evaluate(index, chosen), stale, f"{args.split} ({len(chosen)} of {len(questions)} questions)"))
 
 
 if __name__ == "__main__":

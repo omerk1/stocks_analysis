@@ -3,7 +3,7 @@ from llama_index.core import Document
 
 from src.llm.research_docs.chunk import chunk_documents
 from src.llm.research_docs.evaluate import (
-    METRICS, check_golds, first_hit, part_ranks, load_questions, matches, report, scores, stale_paths,
+    METRICS, check_golds, first_hit, part_ranks, question_split, load_questions, matches, report, scores, stale_paths,
     unmatched_golds)
 from src.llm.research_docs.load import load_documents
 
@@ -99,6 +99,7 @@ def test_report_breaks_scores_down_by_type_and_style():
     out = report(rows)
     assert "q2" in out and "type=row" in out and "style=plain" in out
     assert "STALE" not in out
+    assert report(rows, split="test (2 of 9 questions)").splitlines()[:2] == ["split: test (2 of 9 questions)", ""]
     stale_out = report(rows, ["docs/a.md"]).splitlines()
     assert stale_out[0].startswith("STALE INDEX: 1 file(s) differ from the index (docs/a.md)")
     assert stale_out[1] == "" and stale_out[2].startswith("question")
@@ -177,5 +178,8 @@ def test_every_question_in_the_set_still_matches_the_real_docs():
     """If this fails, a doc was edited under a question: fix the question's gold."""
     questions = load_questions()
     assert len({q["id"] for q in questions}) == len(questions)
-    assert 12 <= sum(q.get("split") == "test" for q in questions) <= 20
+    test = [q for q in questions if question_split(q) == "test"]
+    assert 12 <= len(test) <= 20
+    types = {q["type"] for q in questions}
+    assert types == {q["type"] for q in test}  # every type held out, unanswerable included
     assert check_golds(questions, chunk_documents(load_documents())) == []
