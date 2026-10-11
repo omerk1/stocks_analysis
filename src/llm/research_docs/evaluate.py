@@ -33,12 +33,12 @@ Metrics, over the answerable questions and per question type:
   One number that rewards ranking the answer higher, not only finding it.
 
 16 questions are held out as a final **test** split (`"split": "test"`: 2 entry, 2 row,
-9 section, 2 status and 1 unanswerable, drawn with `random.sample` over each type's
-sorted ids, seed 20261011). Day-to-day runs score only the **dev** split (43): tuning
+9 section, 2 status and 1 unanswerable, drawn after `random.seed(20261011)` by
+`random.sample(sorted(ids), n)` per type, in that order). Day-to-day runs score only the **dev** split (43): tuning
 step 7 on the questions it is judged on would overfit them. Run `--split test` once, at
 the end.
 
-With 40 answerable dev questions, one question moves hit@k by 2.5 points: compare
+With ~40 answerable dev questions, one question moves hit@k by ~2.5 points: compare
 configurations on the per-question table, not on a 1-point difference.
 
 The questions were written before any retrieval run, the way they'd be asked, mostly in
