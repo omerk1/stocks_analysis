@@ -14,9 +14,12 @@ from src.models.synthetic import PlantedSpec, planted_panel, shuffle_within_date
 FAST = BoostingConfig(max_iter=50, min_samples_leaf=50)
 
 
-def test_the_model_is_every_registered_column_and_the_reference_is_b4():
+def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
+    """FULL_COLUMNS stays S1's set (B4 + MA family) so S1/S1b reproduce; the
+    step-2b columns registered since join through their own column set."""
     from src.models.features.registry import model_input, model_specs
-    assert set(trading.FULL_COLUMNS) == {model_input(s) for s in model_specs()}
+    s1 = [s for s in model_specs() if s.group in ("baseline", "ma")]
+    assert set(trading.FULL_COLUMNS) == {model_input(s) for s in s1}
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]
