@@ -615,7 +615,9 @@ Build order, one PR each, each with its own tests:
      14 null-prior columns registered (§7): volatility regime, volume, RSI, SPY trend and vol,
      point-in-time breadth, sector-relative momentum. Next: rebuild the cache, rerun
      `vendor-check`, and run the scorecard (`--rank ev_atr`, H 21 and 63) as `S2` against S1b.
-   - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
+   - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
+     build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
+     judges them (`LRP.md` §3 addendum). **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
