@@ -9,21 +9,25 @@ what is still open (`find_gaps`). Later steps build on it:
   field against the hand-written golden specs (`golden_specs.json`, next to this file);
 - step 3: the elicitation loop asks one question per gap until `find_gaps` is empty.
 
-Why pydantic: Gemini (and most LLM APIs) can be told to answer in a JSON schema, and a
-pydantic model *is* that schema (`StrategySpec.model_json_schema()`). The same class then
-validates the answer, so a malformed reply fails loudly instead of half-parsing.
+Why pydantic: LLM APIs, Gemini included, can be told to answer in a JSON schema, and a
+pydantic model produces one (`StrategySpec.model_json_schema()`). The same class then
+validates the answer, so a malformed reply fails loudly instead of half-parsing. Whether
+Gemini accepts this schema as is (`$defs`/`$ref`, nullable `anyOf`, `additionalProperties`)
+or needs it flattened is step 2's to check; validation here doesn't depend on it.
 
 Every section is optional on purpose. The LLM's output in step 2 will be partial, and
 "not stated yet" (`None` or an empty list) has to be representable, distinct from a
-wrong value. A section that genuinely doesn't apply to an idea (a single-bar event has
-no formation length) says so with `not_applicable=True`, which is an answer, not a gap.
+wrong value. A blank string is rejected: it would otherwise pass as an answer. A section
+that genuinely doesn't apply to an idea (a single-bar event has no formation length) says
+so with `not_applicable=True`, which is an answer, not a gap.
 
 `find_gaps` reports three kinds of gap:
 
 - **missing**: a required section isn't stated at all;
 - **unquantified**: it's described in words but has no numbers ("price coils tightly");
 - **invalid**: it breaks one of the repo's guardrails (raw-price size, same-bar
-  execution) or is self-contradictory (min above max).
+  execution) or is self-contradictory (min above max, values on a section marked not
+  applicable).
 
 Visual examples (`examples`) are part of the spec but not checked yet: grounding in
 historical instances is step 4, and it needs the data tools.
@@ -34,9 +38,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Direction = Literal["long", "short", "both"]
 Timeframe = Literal["daily", "weekly"]
@@ -44,6 +48,7 @@ Timeframe = Literal["daily", "weekly"]
 # idea stated in dollars can be recorded as such, then flagged by `find_gaps`.
 Normalisation = Literal["atr", "log", "pct", "percentile", "raw_price"]
 GapKind = Literal["missing", "unquantified", "invalid"]
+Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class _Section(BaseModel):
@@ -54,16 +59,21 @@ class _Section(BaseModel):
 class Duration(_Section):
     """How many bars the pattern takes to form."""
 
-    description: str | None = None
+    description: Text | None = None
     min_bars: int | None = None
     max_bars: int | None = None
     not_applicable: bool = False
 
 
 class Size(_Section):
-    """The pattern's magnitude, in units comparable across tickers."""
+    """The pattern's magnitude, in units comparable across tickers.
 
-    description: str | None = None
+    `min`/`max` bound one quantity, as a magnitude (never negative); a percentile is on a
+    0-100 scale. An idea with more thresholds keeps the others in the description or in
+    the trigger, where they belong to the firing condition.
+    """
+
+    description: Text | None = None
     normalisation: Normalisation | None = None
     min: float | None = None
     max: float | None = None
@@ -73,7 +83,7 @@ class Size(_Section):
 class Trigger(_Section):
     """The bar the signal fires on, and when the trade executes."""
 
-    description: str | None = None
+    description: Text | None = None
     price_basis: Literal["close", "intraday"] | None = None
     # The signal is known at the close of bar t; the repo executes at t+1, never t.
     execution: Literal["next_open", "same_close"] | None = None
@@ -82,34 +92,34 @@ class Trigger(_Section):
 class Rule(_Section):
     """One invalidation rule: what kills the setup, before or after entry."""
 
-    description: str
+    description: Text
     phase: Literal["before_entry", "after_entry"]
 
 
 class Signal(_Section):
     """A supporting signal: a hard filter, or an input that only raises confidence."""
 
-    name: str
-    description: str
+    name: Text
+    description: Text
     role: Literal["filter", "score"]
 
 
 class Control(_Section):
     """What the setup is compared against, so the result is a delta, not a bare mean."""
 
-    description: str
+    description: Text
 
 
 class Example(_Section):
     """A historical instance the user accepted or rejected (step 4; not checked yet)."""
 
-    ticker: str
-    date: str
+    ticker: Text
+    date: Text
     matches: bool
 
 
 class StrategySpec(_Section):
-    name: str | None = None
+    name: Text | None = None
     direction: Direction | None = None
     timeframe: Timeframe | None = None
     duration: Duration | None = None
@@ -118,7 +128,7 @@ class StrategySpec(_Section):
     horizons_bars: list[int] = Field(default_factory=list)
     invalidation: list[Rule] = Field(default_factory=list)
     supporting_signals: list[Signal] = Field(default_factory=list)
-    secondary_metrics: list[str] = Field(default_factory=list)
+    secondary_metrics: list[Text] = Field(default_factory=list)
     control: Control | None = None
     examples: list[Example] = Field(default_factory=list)
 
@@ -149,7 +159,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     d = spec.duration
     if d is None:
         add("duration", "missing", "how many bars does the pattern take to form?")
-    elif not d.not_applicable:
+    elif d.not_applicable:
+        if d.min_bars is not None or d.max_bars is not None:
+            add("duration", "invalid", "marked not applicable but has bar counts")
+    else:
         if d.min_bars is None and d.max_bars is None:
             add("duration", "unquantified", "no minimum or maximum bar count")
         if (d.min_bars is not None and d.min_bars < 1) or (d.max_bars is not None and d.max_bars < 1):
@@ -160,7 +173,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     s = spec.size
     if s is None:
         add("size", "missing", "how big must the pattern be, and in what units?")
-    elif not s.not_applicable:
+    elif s.not_applicable:
+        if s.normalisation is not None or s.min is not None or s.max is not None:
+            add("size", "invalid", "marked not applicable but has a normalisation or bounds")
+    else:
         if s.normalisation is None:
             add("size", "unquantified", "no normalisation (ATR, log, %, percentile)")
         elif s.normalisation == "raw_price":
@@ -169,6 +185,11 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             add("size", "unquantified", "no threshold")
         if s.min is not None and s.max is not None and s.min > s.max:
             add("size", "invalid", f"min {s.min} > max {s.max}")
+        bounds = [b for b in (s.min, s.max) if b is not None]
+        if any(b < 0 for b in bounds):
+            add("size", "invalid", "bounds are magnitudes and can't be negative")
+        if s.normalisation == "percentile" and any(b > 100 for b in bounds):
+            add("size", "invalid", "a percentile is on a 0-100 scale")
 
     t = spec.trigger
     if t is None:
@@ -178,13 +199,18 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             add("trigger", "missing", "no trigger condition")
         if t.price_basis is None:
             add("trigger", "unquantified", "on the close or on an intraday high/low?")
-        if t.execution == "same_close":
+        if t.execution is None:
+            add("trigger", "unquantified", "executed at the next bar's open?")
+        elif t.execution == "same_close":
             add("trigger", "invalid", "a signal known at the close of bar t executes at t+1, never on bar t")
 
     if not spec.horizons_bars:
         add("horizons_bars", "missing", "how many bars after entry is the outcome measured?")
-    elif any(h < 1 for h in spec.horizons_bars):
-        add("horizons_bars", "invalid", "horizons must be at least 1 bar")
+    else:
+        if any(h < 1 for h in spec.horizons_bars):
+            add("horizons_bars", "invalid", "horizons must be at least 1 bar")
+        if len(set(spec.horizons_bars)) < len(spec.horizons_bars):
+            add("horizons_bars", "invalid", "a horizon is listed twice")
 
     if not spec.invalidation:
         add("invalidation", "missing", "what kills the setup, before or after entry?")
@@ -210,7 +236,7 @@ class GoldenSpec:
 
     id: str
     source: str
-    description: str
+    description: Text
     stated: tuple[str, ...]
     spec: StrategySpec
 

@@ -3,15 +3,14 @@
     "id": "ma_touch_bounce",
     "source": "docs/features/moving-averages/PREREGISTRATION.md, M5 (2026-09-17)",
     "description": "Moving averages act as support and resistance. When price has been well away from a widely watched MA (the 200-day, the 50-day, the 21 EMA) and comes back to touch it for the first time, it tends to bounce off it rather than slice through. Check it from above, where the MA should act as support, and from below, where it should act as resistance.",
-    "stated": ["direction", "trigger"],
+    "stated": ["direction", "size", "trigger", "invalidation"],
     "spec": {
       "name": "First touch of a moving average after being away",
       "direction": "both",
       "timeframe": "daily",
       "duration": {
-        "description": "An away-run (close at least 1 ATR from the MA) ends, then the first touch must come within 10 bars.",
-        "min_bars": null,
-        "max_bars": 10
+        "description": "A single-bar event, not a formation; the 10-bar window for the touch is an invalidation rule.",
+        "not_applicable": true
       },
       "size": {
         "description": "Away means |close - MA| >= 1 ATR(14); a touch means |close - MA| <= 0.25 ATR.",
@@ -38,7 +37,7 @@
     "id": "vcp_breakout",
     "source": "docs/features/chart_pattern_detection_design.md section 4.5; src/signals/patterns/config.py (vcp_*), detectors/vcp.py",
     "description": "Volatility contraction pattern: a stock in a strong uptrend builds a base with a series of pullbacks, each shallower than the last, while volume dries up. Buy the breakout above the last, tightest pullback's high, ideally on a volume surge.",
-    "stated": ["direction", "trigger", "supporting_signals"],
+    "stated": ["direction", "size", "trigger", "supporting_signals"],
     "spec": {
       "name": "VCP breakout",
       "direction": "long",
@@ -55,17 +54,16 @@
         "max": 1.0
       },
       "trigger": {
-        "description": "Close above the pivot (the high of the final contraction) by at least 0.1%.",
+        "description": "Close above the pivot (the high of the final contraction) by at least 0.1%. As built, the backtest enters at that same close (lifecycle.py sets entry_price to the breakout bar's close).",
         "price_basis": "close",
-        "execution": "next_open"
+        "execution": "same_close"
       },
       "horizons_bars": [10, 20, 60],
       "invalidation": [
         {"description": "A contraction's low breaks below the base's low: failed base.", "phase": "before_entry"},
-        {"description": "A close below the rising 50-day MA during the base.", "phase": "before_entry"},
+        {"description": "A close below the 150-day SMA during the base (the design doc says the 50-day; the detector uses the 150-day).", "phase": "before_entry"},
         {"description": "No breakout within 2x the base's length: expired.", "phase": "before_entry"},
-        {"description": "Failed breakout: price reverses back through the pivot after the breakout.", "phase": "after_entry"},
-        {"description": "Stop at the base's low.", "phase": "after_entry"}
+        {"description": "Failed breakout: price reverses back through the pivot after the breakout.", "phase": "after_entry"}
       ],
       "supporting_signals": [
         {"name": "stage-2 trend template", "description": "Close above rising 150- and 200-day SMAs (rising over 20 bars), 50-day SMA above both, within 25% of the 52-week high.", "role": "filter"},
@@ -79,7 +77,7 @@
     "id": "bullish_rsi_divergence_context",
     "source": "docs/features/divergence-context/PREREGISTRATION.md, DC-B2 (frozen 2026-10-08); src/signals/divergences/config.py, lifecycle.py",
     "description": "Bullish RSI divergence: price makes a lower low but RSI makes a higher low. I think it matters how the second low formed: if price pulled back meaningfully and rebuilt before the second low, the signal should behave differently than when the second low is just a straight-line extension of the first. Look at returns over the next few months.",
-    "stated": ["direction", "trigger", "horizons_bars"],
+    "stated": ["direction", "size", "trigger", "horizons_bars"],
     "spec": {
       "name": "Bullish regular RSI divergence: extension vs pullback+rebuild context",
       "direction": "long",
