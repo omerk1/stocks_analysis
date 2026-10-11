@@ -1,7 +1,7 @@
 [
   {
     "id": "ma_touch_bounce",
-    "source": "docs/features/moving-averages/PREREGISTRATION.md, M5 (2026-09-17)",
+    "source": "docs/features/moving-averages/PREREGISTRATION.md, section 'Touch / test / bounce behaviour' (2026-09-17)",
     "description": "Moving averages act as support and resistance. When price has been well away from a widely watched MA (the 200-day, the 50-day, the 21 EMA) and comes back to touch it for the first time, it tends to bounce off it rather than slice through. Check it from above, where the MA should act as support, and from below, where it should act as resistance.",
     "stated": ["direction", "size", "trigger", "invalidation", "secondary_metrics"],
     "spec": {
@@ -75,7 +75,7 @@
   },
   {
     "id": "bullish_rsi_divergence_context",
-    "source": "docs/features/divergence-context/PREREGISTRATION.md, DC-B2 (frozen 2026-10-08); src/signals/divergences/config.py, lifecycle.py",
+    "source": "docs/features/divergence-context/PREREGISTRATION.md, the bullish regular-divergence cells (frozen 2026-10-08); src/signals/divergences/config.py, lifecycle.py",
     "description": "Bullish RSI divergence: price makes a lower low but RSI makes a higher low. I think it matters how the second low formed: if price pulled back meaningfully and rebuilt before the second low, the signal should behave differently than when the second low is just a straight-line extension of the first. Look at returns over the next few months.",
     "stated": ["direction", "size", "trigger", "horizons_bars"],
     "spec": {
@@ -104,7 +104,7 @@
       ],
       "supporting_signals": [],
       "secondary_metrics": ["hit rate", "win/loss magnitude ratio", "skew", "MFE/MAE"],
-      "control": {"description": "Matched no-divergence lower-low pivot pairs in the same context class (same p2 month; impulse, 63-day volatility and retrace within one quantile bin); effect = (divergence - control) in extension minus (divergence - control) in pullback."}
+      "control": {"description": "Matched no-divergence lower-low pivot pairs in the same context class (second low in the same calendar month; impulse, 63-day volatility and retrace within one quantile bin); effect = (divergence - control) in extension minus (divergence - control) in pullback."}
     }
   }
 ]
