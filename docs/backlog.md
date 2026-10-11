@@ -71,3 +71,8 @@ here first.
   - Decile spread is 10/9 × top-minus-bottom; add a `spread_kind` or document it in DESIGN §6.1.
   - `validate-synth` plants +3%/21d and never exercises C2 or the bootstrap; add a planted effect at ~0.3%.
   - Cleanups: `kama` should import `regime.efficiency_ratio`; one shared `per_date_median_corr`, VWMA and `_cell_row`; `kernel_space_scan.py` runs at import; `cross_sectional_bucket(duplicates="drop")` can silently return fewer buckets; `state_run_id` assumes a unique index; the sector merge has no duplicate guard; `annualize` should require `horizon`.
+
+## LLM
+
+- **LLM ideation, ideas 2–4 — open (`docs/ideation/llm_agentic_workflows.md`, Done #98).** Idea 1 (research-docs RAG) is built and evaluated (Done #99, #102, #104, #106, #109, #115). Still open, in the agreed order: (2) a read-only tool-calling agent over the DB with the holdout lock inside the tools (LangGraph or plain tool use), the next one; (3) plain-language reasons on model alerts, built on idea 2's tools, waits for a fitted model that produces alerts; (4) search over SEC filing text for live alert context only, later (the filing text still has to be fetched from EDGAR). LLM output stays out of anything backtested.
+- **Natural-language → testable strategy agent — idea only (`docs/strategy-agent/idea.md`, 2026-10-11).** Turns a plain-language trading idea into an explicit spec, deterministic event code and an honest test (delta vs control, effective N, costs, three-way verdict); internal Track A tool or a possible external platform. Nothing decided. First step if picked up: elicitation only, checked against 2–3 ideas from the MA study's `EXPLORATION_LOG.md` that were built by hand.

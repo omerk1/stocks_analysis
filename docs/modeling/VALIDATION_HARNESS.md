@@ -266,6 +266,44 @@ Changes from §2.2:
 - dollar volume is a per-date rank, not a tercile;
 - ADX is the level, not the regime bucket.
 
+**Indicators and market regime (combined-model step 2b, 2026-10-10).** The lean list, one
+column per idea (`IDEAS.md` §2's near-copy rule), every prior null:
+- **volatility** (`features/indicators.py`): `bb_width_pctile` (Bollinger 20/2 width as a
+  trailing 252-day percentile), `atr_ratio_5_63`, `rvol_21_pctile_252`;
+- **volume:** `rel_volume_20` (rank), `updown_volume_20` (signed volume share, OBV's 20-day
+  change made scale-free);
+- **oscillator:** `rsi_14` only. %K, Williams %R and Bollinger %b are left out (M17: RSI/%K
+  corr 0.86 with `dist_z_sma_20`; %R = 100 − %K; %b is another SMA20 z-score). RSI stays for
+  M17's sign flip near the MA, an interaction for the tree.
+- **market** (`features/market.py`, the same value for every ticker on a date): SPY's
+  `spy_dist_sma_200`, `spy_slope_log_63` (of its SMA50) and `spy_rvol_21`; breadth
+  `breadth_above_sma50`, `breadth_above_sma200` and `adv_dec_10` over the point-in-time
+  members, delisted ones included (Tiingo fallback). `signals/breadth` isn't reused: it
+  reads one vendor with no fallback, so delisted members would drop out;
+- **relative:** `sector_rel_mom_63` (63-day return minus the median of that day's sector
+  members) and `sector_rank_mom_63` (its rank among them). Sector ETFs can't cover 2010–21
+  (XLRE starts in 2015, XLC in 2018). The current-state `sector` leak carries over.
+
+Market-wide and sector columns come from a `PanelSource`: it sees every member's bars at
+once, plus a `market.PanelContext` (membership, sectors, the benchmark). The leakage gate
+perturbs all of those bars, so these columns are gated like the rest. The synthetic inputs
+add a SPY, three sectors, and one ticker out of the index for a year. `--smoke-db` reads the
+real membership. A market-wide column's warmup is counted on the benchmark's bars. A
+market-wide column can't change which names make a day's top k on its own (every name has
+the same value that day); it acts only through interactions. In the vendor check the panel
+columns treat the compared tickers as the index, on the rows both vendors have (so a coverage
+difference doesn't pass for a value difference). A market-wide gap is scaled by the SD over
+time (there is no cross-section), and a column that neither vendor defines is reported, not
+failed.
+
+The gate caught one tie: two windows of cent prices can hold the same values, so their widths
+or vols tie exactly. Pandas' running-sum rolling std breaks the tie in float after a later
+split or dividend, and a trailing percentile rank would then depend on it. Values are rounded
+to 9 decimals before ranking; the same goes for the cross-sectionally ranked
+`rel_volume_20` and the sector returns, where two names can tie exactly. The cache's panel
+source reads every name that was a member of the universe's indices in the window (recorded
+as `panel_membership_indices`); the per-ticker sources are still computed on the eligible names only.
+
 **Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 × close):
 ADX's "which move is larger", the ribbon's "slope > 0" and the stack's ordering. Quoted
 (cent-rounded) prices tie exactly, and a later split or dividend breaks such ties in
@@ -573,6 +611,10 @@ Build order, one PR each, each with its own tests:
        EV in ATR units from here on; top-20 is the better trade-off (Sharpe above the
        market everywhere). Still Track A: the confirmation is the pre-registered test
        after step 2–3, then the holdout.
+   - **Step 2b (Track A, in parallel with step 2): indicator and market-regime features.**
+     14 null-prior columns registered (§7): volatility regime, volume, RSI, SPY trend and vol,
+     point-in-time breadth, sector-relative momentum. Next: rebuild the cache, rerun
+     `vendor-check`, and run the scorecard (`--rank ev_atr`, H 21 and 63) as `S2` against S1b.
    - **Step 2:** point-in-time zones and levels as registered features. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
