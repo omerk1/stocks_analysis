@@ -14,9 +14,10 @@ from src.analysis.divergence_hidden_prep import (
 )
 
 
-def _scalar_frame(direction, retrace_pct, leg2_gain_pct):
+def _scalar_frame(direction, retrace_pct, leg2_gain_pct, form="hidden"):
     return pd.DataFrame(
         {
+            "form": [form],
             "direction": [direction],
             "interpeak_retrace_pct": [retrace_pct],
             "leg2_gain_pct": [leg2_gain_pct],
@@ -44,6 +45,18 @@ class TestHiddenFitRetraceFrac:
 
     def test_zero_trend_leg_is_nan_not_inf(self):
         frac = hidden_fit_retrace_frac(_scalar_frame("bearish", 0.0, 0.1))
+        assert frac.isna().all()
+
+    def test_near_zero_trend_leg_is_nan_not_huge(self):
+        # A glitch-sized trend leg would produce an astronomically large
+        # "defined" ratio that escapes the NaN rate; the eps guard masks it.
+        frac = hidden_fit_retrace_frac(_scalar_frame("bullish", 1e-9, 0.1))
+        assert frac.isna().all()
+
+    def test_regular_rows_are_masked_not_defined_garbage(self):
+        # The decomposition only means "retracement depth" for hidden
+        # geometry; on a regular row it must be NaN, not a plausible float.
+        frac = hidden_fit_retrace_frac(_scalar_frame("bearish", 0.2, 0.125, form="regular"))
         assert frac.isna().all()
 
 
@@ -161,9 +174,9 @@ class TestAttachCooccurrence:
         assert events.iloc[0]["counterpart_any"]
         assert events.iloc[1]["inside_hidden_any"]
 
-    def test_pit_flag_requires_counterpart_confirmed_first(self):
+    def test_conf_ordered_flag_requires_counterpart_confirmed_first(self):
         # Counterpart confirms AFTER the hidden event's own confirmed_at:
-        # structure-level flag True, PIT flag False.
+        # structure-level flag True, conf-ordered flag False.
         events = attach_cooccurrence(
             pd.DataFrame(
                 [
@@ -176,9 +189,9 @@ class TestAttachCooccurrence:
         )
         hidden = events.iloc[0]
         assert hidden["counterpart_any"]
-        assert not hidden["counterpart_pit"]
+        assert not hidden["counterpart_confirmed_first"]
 
-    def test_pit_flag_set_when_counterpart_already_confirmed(self):
+    def test_conf_ordered_flag_set_when_counterpart_already_confirmed(self):
         events = attach_cooccurrence(
             pd.DataFrame(
                 [
@@ -189,7 +202,7 @@ class TestAttachCooccurrence:
                 ]
             )
         )
-        assert events.iloc[0]["counterpart_pit"]
+        assert events.iloc[0]["counterpart_confirmed_first"]
 
     def test_hidden_only_frame_gets_all_false_flags(self):
         events = attach_cooccurrence(
@@ -198,4 +211,4 @@ class TestAttachCooccurrence:
             )
         )
         assert not events.iloc[0]["counterpart_any"]
-        assert not events.iloc[0]["counterpart_pit"]
+        assert not events.iloc[0]["counterpart_confirmed_first"]

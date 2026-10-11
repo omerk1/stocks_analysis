@@ -42,5 +42,24 @@ def fmt_quantiles(s: pd.Series, probs: tuple[float, ...] = (0.25, 0.5, 0.75, 0.9
     if s.empty:
         return "n=0"
     q = s.quantile(list(probs))
-    parts = "  ".join(f"p{int(p * 100)}={v:.2f}" for p, v in zip(probs, q))
+    parts = "  ".join(f"p{round(p * 100)}={v:.2f}" for p, v in zip(probs, q))
     return f"n={len(s)}  {parts}"
+
+
+def classify_shape(
+    frac: pd.Series, leg2_bars: pd.Series, labels: tuple[str, str, str]
+) -> pd.Series:
+    """Three-way shape bucket on a retrace fraction and a rebuild/counter-move
+    duration, with the step-0 edges. `labels` names the (shallow, deep+slow,
+    deep+fast) buckets in the caller's vocabulary. NA wherever either input
+    is NA (invariant #9: a NaN duration must never read as "fast", a NaN
+    fraction never as "shallow")."""
+    shallow, deep_slow, deep_fast = labels
+    defined = frac.notna() & leg2_bars.notna()
+    deep = frac >= SHAPE_RETRACE_FRAC
+    slow = leg2_bars >= SHAPE_LEG2_BARS
+    shape = pd.Series(pd.NA, index=frac.index, dtype="object")
+    shape[defined & ~deep] = shallow
+    shape[defined & deep & slow] = deep_slow
+    shape[defined & deep & ~slow] = deep_fast
+    return shape

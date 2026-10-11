@@ -33,9 +33,14 @@ from src.analysis.divergence_study_common import (
     OUTCOME_END,
     SHAPE_LEG2_BARS,
     SHAPE_RETRACE_FRAC,
+    classify_shape,
     fmt_quantiles,
     load_dev_events,
 )
+
+# Step 0's vocabulary for the three shape buckets (the regular-geometry
+# reading of the same edges).
+V0_SHAPE_LABELS = ("extension", "pullback+rebuild", "deep-fast")
 from src.foundation.data_processing import db
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
@@ -60,10 +65,10 @@ def report_prevalence(events: pd.DataFrame) -> None:
     has_ctx = events[events["interpeak_retrace_frac"].notna()]
     print(f"events in dev window: {len(events)}; with retrace_frac: {len(has_ctx)}")
     for cell, grp in has_ctx.groupby("cell"):
-        shaped = grp[
-            (grp["interpeak_retrace_frac"] >= SHAPE_RETRACE_FRAC)
-            & (grp["leg2_bars"] >= SHAPE_LEG2_BARS)
-        ]
+        # NA-masked classifier (invariant #9): a NaN leg2_bars is undefined,
+        # not "unshaped" — it just also never counts as shaped here.
+        shaped = grp[classify_shape(grp["interpeak_retrace_frac"], grp["leg2_bars"],
+                                    V0_SHAPE_LABELS) == "pullback+rebuild"]
         frac = len(shaped) / len(grp) if len(grp) else float("nan")
         print(f"  {cell:18s} retrace_frac: {fmt_quantiles(grp['interpeak_retrace_frac'])}")
         print(
@@ -95,13 +100,8 @@ def report_outcomes(events: pd.DataFrame) -> None:
     # Three-way split, not two: a deep retrace with a fast (< SHAPE_LEG2_BARS)
     # rebuild is NOT "extension/no reset" -- lumping it there contaminated
     # the contrast this tabulation previews.
-    defined = sub["interpeak_retrace_frac"].notna()
-    deep = sub["interpeak_retrace_frac"] >= SHAPE_RETRACE_FRAC
-    rebuilt = sub["leg2_bars"] >= SHAPE_LEG2_BARS
-    sub["shape"] = pd.Series(pd.NA, index=sub.index, dtype="object")
-    sub.loc[defined & ~deep, "shape"] = "extension"
-    sub.loc[defined & deep & rebuilt, "shape"] = "pullback+rebuild"
-    sub.loc[defined & deep & ~rebuilt, "shape"] = "deep-fast"
+    sub["shape"] = classify_shape(sub["interpeak_retrace_frac"], sub["leg2_bars"],
+                                  V0_SHAPE_LABELS)
     for (cell, shape), grp in sub.groupby(["cell", "shape"], dropna=True):
         inval = grp["invalidated"].mean()
         mfe = grp["max_favorable_move_atr"].median()
