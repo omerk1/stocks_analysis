@@ -51,7 +51,7 @@ from sklearn.model_selection import GroupKFold
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
-from src.models.features import market, registry
+from src.models.features import baseline, market, registry
 
 FAR_DAYS = 730
 TIINGO_SOURCES = (db.TIINGO, db.TIINGO_SPLIT_ONLY)
@@ -231,8 +231,11 @@ def vendor_features(conn, tickers: list[str], vendor: str, start, end,
         if not sp.empty:
             splits[t] = sp
     sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
-    f = registry.compute_registered(bars, splits, context=market.PanelContext(membership=membership, sectors=sectors))
-    f = f[f["ticker"].isin(tickers)]
+    f = registry.compute_registered(bars, splits, rank=False,
+                                    context=market.PanelContext(membership=membership, sectors=sectors))
+    # Ranked over the compared stocks only, as the cache ranks over its eligible rows.
+    f = baseline.add_ranks(f[f["ticker"].isin(tickers)], tuple(s.name for s in registry.REGISTRY
+                                                              if s.ranked and s.source is not None))
     return f[f["date"].between(pd.Timestamp(start), pd.Timestamp(end))].reset_index(drop=True)
 
 
@@ -295,7 +298,11 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0) -> dict:
     columns = [c for c in columns if c not in not_compared]
     gaps = feature_gaps(yf, ti, columns, tuple(s.name for s in specs if s.shape == "market_wide"))
     rows = pd.concat([yf.assign(tiingo=False), ti.assign(tiingo=True)], ignore_index=True)
-    auc = vendor_auc(rows, columns, seed=seed)
+    # Market-wide columns stay out of the classifier: one value per date and
+    # vendor, they fingerprint the date's vendor across tickers (the folds hold
+    # out tickers, not dates) -- their gaps above are the check.
+    market_wide = {s.name for s in specs if s.shape == "market_wide"}
+    auc = vendor_auc(rows, [c for c in columns if c not in market_wide], seed=seed)
     failures = gate_failures(gaps, auc)
     return {
         "n_tickers": len(tickers), "n_rows": {"yfinance": len(yf), "tiingo": len(ti)},

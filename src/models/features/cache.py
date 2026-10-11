@@ -59,37 +59,38 @@ def build_feature_cache(
     panel_specs = [s for s in bar_specs if isinstance(registry.SOURCES[s.source], registry.PanelSource)]
     ticker_specs = [s for s in bar_specs if s not in panel_specs]
     first = start - pd.Timedelta(days=WARMUP_DAYS)
-    sources = {}
-
-    def read(names: list[str], specs_: list[registry.FeatureSpec]):
-        bars = {}
-        for basis in sorted({registry.SOURCES[s.source].basis for s in specs_}, key=lambda b: b.value):
-            bars[basis] = dataset.read_bars_bulk(conn, names, basis, first, end, fallback=_fallback(basis))
-        split_sources = dataset.resolve_sources(conn, names, dataset.UNIVERSE_BASIS, _fallback(dataset.UNIVERSE_BASIS))
-        return bars, dataset._read_splits_bulk(conn, split_sources)
-
-    bars, splits = read(tickers, ticker_specs)
-    sources.update({b.value: f.attrs["price_sources"] for b, f in bars.items()})
-    values = registry.compute_registered(bars, splits, tuple(ticker_specs), rank=False) if ticker_specs else None
-
     sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
     sectors["sector"] = sectors["sector"].replace("", pd.NA)
     panel_indices = list(spec.get("indices", ["sp500"]))
+
+    # Panel sources see every name that was a member of the universe's indices
+    # at any point in [first, end] -- eligible or not, delisted ones included --
+    # plus the benchmark; per-ticker sources only the eligible names. One read
+    # covers both.
+    names = tickers
     if panel_specs:
-        # Panel sources see every name that was a member of the universe's
-        # indices at any point in [first, end] -- eligible or not, delisted
-        # ones included -- plus the benchmark. Membership comes from the index
-        # intervals, so the trailing breadth windows are warm on `start` too.
         intervals = pd.concat([dataset.apply_renames(conn, db.read_index_membership(conn, n))
                                for n in panel_indices], ignore_index=True)
         overlap = (pd.to_datetime(intervals["start_date"]) <= end) & (
             pd.to_datetime(intervals["end_date"]).fillna(pd.Timestamp.max) >= first)
-        names = sorted(set(intervals.loc[overlap, "ticker"]) | {market.BENCHMARK})
-        pbars, psplits = read(names, panel_specs)
-        sources.update({f"panel_{b.value}": f.attrs["price_sources"] for b, f in pbars.items()})
-        context = market.PanelContext(membership=market.members_from_intervals(intervals, next(iter(pbars.values()))),
+        names = sorted(set(tickers) | set(intervals.loc[overlap, "ticker"]) | {market.BENCHMARK})
+    bars, sources = {}, {}
+    for basis in sorted({registry.SOURCES[s.source].basis for s in bar_specs}, key=lambda b: b.value):
+        bars[basis] = dataset.read_bars_bulk(conn, names, basis, first, end, fallback=_fallback(basis))
+        sources[basis.value] = bars[basis].attrs["price_sources"]
+    split_sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, _fallback(dataset.UNIVERSE_BASIS))
+    splits = dataset._read_splits_bulk(conn, split_sources)
+
+    values = None
+    if ticker_specs:
+        eligible_bars = {b: f[f["ticker"].isin(tickers)] for b, f in bars.items()}
+        values = registry.compute_registered(eligible_bars, splits, tuple(ticker_specs), rank=False)
+    if panel_specs:
+        # Membership from the index intervals, so the trailing breadth windows are warm on `start` too.
+        panel_bars = bars[registry.SOURCES[panel_specs[0].source].basis]
+        context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars),
                                       sectors=sectors.set_index("ticker")["sector"])
-        pvalues = registry.compute_registered(pbars, psplits, tuple(panel_specs), rank=False, context=context)
+        pvalues = registry.compute_registered(bars, {}, tuple(panel_specs), rank=False, context=context)
         values = pvalues if values is None else values.merge(pvalues, on=["ticker", "date"], how="left")
     out = rows.merge(values, on=["ticker", "date"], how="left")
     ranked = tuple(s.name for s in bar_specs if s.ranked)

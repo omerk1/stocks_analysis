@@ -173,11 +173,9 @@ def test_sector_columns_rank_among_that_days_sector_members():
     # Day 100: STAY is Energy's only member (LATE hasn't joined): its own median, rank 1.
     assert f.loc[("STAY", days[100]), "sector_rel_mom_63"] == pytest.approx(0.0, abs=1e-6)
     assert f.loc[("STAY", days[100]), "sector_rank_mom_63"] == 1.0
-    # LATE isn't a member yet: no rank; its relative return is against the members' median.
-    assert np.isnan(f.loc[("LATE", days[100]), "sector_rank_mom_63"])
-    assert f.loc[("LATE", days[100]), "sector_rel_mom_63"] == pytest.approx(
-        mom["LATE"][days[100]] - mom["STAY"][days[100]], rel=1e-4)
-    # Day 280: both Energy names are members.
+    # LATE isn't a member yet: neither column is defined (the same missingness).
+    assert f.loc[("LATE", days[100]), list(market.SECTOR_COLUMNS)].isna().all()
+    # Day 280: both Energy names are members (GONE, Technology, has left).
     d = days[280]
     a, b = mom["STAY"][d], mom["LATE"][d]
     assert f.loc[("STAY", d), "sector_rel_mom_63"] == pytest.approx(a - (a + b) / 2, rel=1e-4)
@@ -210,6 +208,12 @@ def test_tied_sector_returns_stay_tied_after_a_rescaling():
         rescaled = {"A": frames["A"] * factor, "B": frames["B"]}
         pd.testing.assert_series_equal(base, rank(rescaled))
     assert base.loc[("A", days[75])] == base.loc[("B", days[75])] == 0.75  # a tie: the average rank
+
+
+def test_synthetic_gate_splits_a_stock_not_the_benchmark():
+    from src.models import gates
+    _, splits, _, _ = gates.synthetic_leakage_inputs()
+    assert splits and market.BENCHMARK not in splits
 
 
 def test_gate_warmup_check_flags_a_missing_benchmark():

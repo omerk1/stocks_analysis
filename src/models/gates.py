@@ -303,14 +303,15 @@ def _warmup_mismatches(values: pd.DataFrame, registry, benchmark: str = market.B
     benchmark's bars (which start with the panel's); the others on the
     stocks' (the benchmark has no sector)."""
     bad = {}
+    is_benchmark = values["ticker"] == benchmark
+    on = {"benchmark": values[is_benchmark], "stocks": values[~is_benchmark]}
     for spec in registry:
         if spec.source is None or spec.warmup_bars == 0 or values[spec.name].dtype == bool:
             continue
-        is_benchmark = values["ticker"] == benchmark
-        if spec.shape == "market_wide" and not is_benchmark.any():
+        rows = on["benchmark" if spec.shape == "market_wide" else "stocks"]
+        if spec.shape == "market_wide" and rows.empty:
             bad.setdefault(spec.name, []).append((benchmark, "no benchmark rows to count on"))
             continue
-        rows = values[is_benchmark if spec.shape == "market_wide" else ~is_benchmark]
         for ticker, g in rows.groupby("ticker", sort=False):
             col = g[spec.name].to_numpy(dtype=float)
             if len(col) < spec.warmup_bars + 5:
@@ -393,7 +394,7 @@ def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     bars = pd.concat([bars, bench], ignore_index=True)
     bars[_price_cols()] = bars[_price_cols()].round(2)
     cut = pd.Timestamp("2019-03-29")
-    ticker = sorted(bars["ticker"].unique())[0]
+    ticker = tickers[0]  # a stock, not the benchmark
     when = pd.Timestamp("2018-06-01")
     before = (bars["ticker"] == ticker) & (bars["date"] < when)
     bars.loc[before, _price_cols()] = bars.loc[before, _price_cols()].to_numpy() / 0.25
@@ -409,7 +410,7 @@ def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
     and their real S&P 500 membership and sectors. Read-only. Returns (bars,
     splits, sources, context)."""
     dataset.check_holdout(end)
-    tickers = [*tickers, market.BENCHMARK]
+    tickers = sorted({*tickers, market.BENCHMARK})
     bars = {
         dataset.LABEL_BASIS: dataset.read_bars_bulk(conn, tickers, dataset.LABEL_BASIS, start, end,
                                                     fallback=dataset.LABEL_FALLBACK),
@@ -419,8 +420,8 @@ def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
     sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK)
     intervals = dataset.apply_renames(conn, db.read_index_membership(conn, "sp500"))
     sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
-    context = market.PanelContext(membership=market.members_from_intervals(intervals, bars[dataset.LABEL_BASIS]),
-                                  sectors=sectors)
+    panel_bars = bars[reg.SOURCES["market"].basis]
+    context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars), sectors=sectors)
     return bars, dataset._read_splits_bulk(conn, sources), sources, context
 
 

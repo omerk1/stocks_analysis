@@ -113,7 +113,7 @@ def breadth_features(stocks: pd.DataFrame, member: pd.Series) -> pd.DataFrame:
 
 def sector_features(stocks: pd.DataFrame, member: pd.Series, sectors: pd.Series | None) -> pd.DataFrame:
     """63-day return minus the median of that date's same-sector members, and
-    its percentile rank among them (NaN on rows that aren't members)."""
+    its percentile rank among them; both NaN on rows that aren't members."""
     # Rounded: two members' returns can tie exactly on cent prices, and float
     # noise from a later split or dividend would otherwise break the tie in the rank.
     mom = _by_ticker(stocks, lambda s: s / s.shift(SECTOR_MOM_WINDOW) - 1).round(PCTILE_DECIMALS)
@@ -124,7 +124,7 @@ def sector_features(stocks: pd.DataFrame, member: pd.Series, sectors: pd.Series 
     keys = [stocks["date"], sector]
     median = mom[peer].groupby([k[peer] for k in keys]).median()
     idx = pd.MultiIndex.from_arrays([stocks["date"], sector])
-    rel = mom.to_numpy() - median.reindex(idx).to_numpy()
+    rel = (mom - median.reindex(idx).to_numpy()).where(member)
     rank = pd.Series(np.nan, index=stocks.index)
     rank[peer] = mom[peer].groupby([k[peer] for k in keys]).rank(pct=True)
     return pd.DataFrame({"sector_rel_mom_63": rel, "sector_rank_mom_63": rank}, index=stocks.index)

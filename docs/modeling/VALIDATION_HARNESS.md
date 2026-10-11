@@ -302,7 +302,7 @@ split or dividend, and a trailing percentile rank would then depend on it. Value
 to 9 decimals before ranking; the same goes for the cross-sectionally ranked
 `rel_volume_20` and the sector returns, where two names can tie exactly. The cache's panel
 source reads every name that was a member of the universe's indices in the window (recorded
-as `panel_membership_indices`); the per-ticker sources still read only the eligible names.
+as `panel_membership_indices`); the per-ticker sources are still computed on the eligible names only.
 
 **Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 × close):
 ADX's "which move is larger", the ribbon's "slope > 0" and the stack's ordering. Quoted

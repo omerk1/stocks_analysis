@@ -124,10 +124,9 @@ def test_cache_holds_eligible_rows_ranked_among_themselves(conn, tmp_path):
     assert f.loc[f["ticker"] == "CCC", "sector"].isna().all()
     manifest = f.attrs["manifest"]
     assert manifest["columns"]["slope_log_21_sma_50"]["prior"] == "supported"
-    # Per-ticker sources read eligible tickers only; the panel source every member's
-    # bars (DDD too, for breadth); no SPY stored here.
-    assert manifest["price_sources"]["total_return"] == {db.YFINANCE: 3}
-    assert manifest["price_sources"]["panel_total_return"] == {db.YFINANCE: 4}
+    # Bars are read for every member (DDD too, for breadth; no SPY stored here);
+    # per-ticker sources use the eligible ones.
+    assert manifest["price_sources"]["total_return"] == {db.YFINANCE: 4}
     assert manifest["panel_membership_indices"] == ["sp500"]
     assert f["spy_dist_sma_200"].isna().all() and f["breadth_above_sma200"].notna().all()
     assert f["sector_rank_mom_63"].notna().sum() and f.loc[f["ticker"] == "CCC", "sector_rank_mom_63"].isna().all()
