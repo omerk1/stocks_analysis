@@ -18,7 +18,7 @@ make every one explicit and have the user confirm it.
 
 Two possible uses:
 
-- **Internal:** a faster, more disciplined Track A for this repo.
+- **Internal:** faster, more disciplined exploration of new ideas in this repo.
 - **External (possible later):** a platform where other people test their own ideas.
   The pitch is "test your trading idea honestly", not "turn your idea into a strategy".
   Tools that turn text into a strategy already exist; few of them report a matched
