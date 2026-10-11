@@ -74,4 +74,5 @@ here first.
 
 ## LLM
 
+- **LLM ideation, ideas 2–4 — open (`docs/ideation/llm_agentic_workflows.md`, Done #98).** Idea 1 (research-docs RAG) is built and evaluated (Done #99–#115). Still open, in the agreed order: (2) a read-only tool-calling agent over the DB with the holdout lock inside the tools (LangGraph or plain tool use), the next one; (3) plain-language reasons on model alerts, built on idea 2's tools, waits for a fitted model that produces alerts; (4) search over SEC filing text for live alert context only, later (the filing text still has to be fetched from EDGAR). LLM output stays out of anything backtested.
 - **Natural-language → testable strategy agent — idea only (`docs/strategy-agent/idea.md`, 2026-10-11).** Turns a plain-language trading idea into an explicit spec, deterministic event code and an honest test (delta vs control, effective N, costs, three-way verdict); internal Track A tool or a possible external platform. Nothing decided. First step if picked up: elicitation only, checked against 2–3 ideas from the MA study's `EXPLORATION_LOG.md` that were built by hand.
