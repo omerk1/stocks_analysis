@@ -204,6 +204,23 @@ class TestAttachCooccurrence:
         )
         assert events.iloc[0]["counterpart_confirmed_first"]
 
+    def test_same_bar_confirmation_is_a_tie_not_strictly_first(self):
+        # Same confirmed_at: knowable at that close (<= flag set) but not
+        # strictly first — the tie must stay visible in the strict flag.
+        events = attach_cooccurrence(
+            pd.DataFrame(
+                [
+                    _event("A", "hidden", "bullish", "rsi", "2020-01-01", "2020-02-01",
+                           confirmed_at="2020-02-04T00:00:00"),
+                    _event("A", "regular", "bearish", "rsi", "2019-12-01", "2020-01-15",
+                           confirmed_at="2020-02-04T00:00:00"),
+                ]
+            )
+        )
+        hidden = events.iloc[0]
+        assert hidden["counterpart_confirmed_first"]
+        assert not hidden["counterpart_confirmed_strictly_first"]
+
     def test_hidden_only_frame_gets_all_false_flags(self):
         events = attach_cooccurrence(
             pd.DataFrame(

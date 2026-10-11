@@ -37,10 +37,6 @@ from src.analysis.divergence_study_common import (
     fmt_quantiles,
     load_dev_events,
 )
-
-# Step 0's vocabulary for the three shape buckets (the regular-geometry
-# reading of the same edges).
-V0_SHAPE_LABELS = ("extension", "pullback+rebuild", "deep-fast")
 from src.foundation.data_processing import db
 from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db, indicators
@@ -49,6 +45,10 @@ from src.foundation.market_common.pivots import detect_pivots
 from src.signals.divergences.config import DivergenceConfig
 from src.signals.divergences.context import IMPULSE_LOOKBACK_BARS
 from src.signals.divergences.study_universe import DEV_END, membership_intervals, pit_member_mask
+
+# Step 0's vocabulary for the three shape buckets (the regular-geometry
+# reading of the same edges).
+V0_SHAPE_LABELS = ("extension", "pullback+rebuild", "deep-fast")
 
 
 def _attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:

@@ -295,7 +295,17 @@ decomposition is defined garbage, and a glitch-sized trend leg would print a hug
 the shared module and step 0's two shape computations now use it (behavior-preserving
 today, same coupling argument as (1)). (8) Output labels disambiguated: "PIT index
 members" (membership scope) vs "conf-ordered" (confirmation ordering) — two different
-"PIT"s no longer share a word.)*
+"PIT"s no longer share a word. Round 3: (9) the conf-ordered flag's `<=` could have
+folded in same-bar confirmation ties; a strict-`<` companion flag now measures them —
+**0 ties in every cell**, so "the regular counterpart nearly always confirms first"
+is not a tie artifact. (10) The outcome peek's False bucket is labeled per flag
+("hidden alone" vs "none confirmed yet") — the two splits' buckets are composed
+differently and no longer share a label. (11) Distinct p2 dates added to the v0-misfit
+and candidate quantile tables (invariant #6): the 66%/76% misfit rates rest on
+10,247/10,533 dates, the candidate's quantiles on 10,277/10,565 — not previously
+printed, nothing else changed. (12) The NaN decomposition now reads the scalar's own
+mask components (`hidden_fit_undefined_reasons`) instead of re-deriving them. All
+reported figures identical across all three rounds' reruns.)*
 
 - **Both gates pass; a DC-B3/B4 draft is warranted and will be presented to the user.**
   Nothing below is a finding; the registration (own N_tests, own correction) is where

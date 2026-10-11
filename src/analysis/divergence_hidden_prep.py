@@ -56,7 +56,8 @@ from src.signals.divergences.study_universe import (
 MIRROR = {"bullish": "bearish", "bearish": "bullish"}
 
 COOCCURRENCE_FLAGS = (
-    "counterpart_any", "counterpart_same_ind", "counterpart_confirmed_first",
+    "counterpart_any", "counterpart_same_ind",
+    "counterpart_confirmed_first", "counterpart_confirmed_strictly_first",
     "inside_hidden_any", "inside_hidden_same_ind",
 )
 
@@ -93,11 +94,24 @@ def hidden_fit_retrace_frac(events: pd.DataFrame) -> pd.Series:
     leg2 = events["leg2_gain_pct"]
     level_factor = (1.0 - retrace).where(events["direction"] == "bearish", 1.0 + retrace)
     frac = leg2 * level_factor / retrace
-    defined = (
-        retrace.notna() & leg2.notna() & (retrace > TREND_LEG_EPS)
-        & (events["form"] == "hidden")
+    undefined = hidden_fit_undefined_reasons(events)
+    return frac.where(~undefined.any(axis=1))
+
+
+def hidden_fit_undefined_reasons(events: pd.DataFrame) -> pd.DataFrame:
+    """The component masks behind hidden_fit_retrace_frac's NaNs, one
+    boolean column per reason. The single source of truth for both the
+    scalar's mask and the report's NaN decomposition, so the printed
+    breakdown cannot desynchronize from the actual NaN rate."""
+    retrace = events["interpeak_retrace_pct"]
+    return pd.DataFrame(
+        {
+            "inputs_nan": retrace.isna() | events["leg2_gain_pct"].isna(),
+            "trend_leg_degenerate": retrace.notna() & ~(retrace > TREND_LEG_EPS),
+            "not_hidden_form": events["form"] != "hidden",
+        },
+        index=events.index,
     )
-    return frac.where(defined)
 
 
 def classify_hidden_shape(frac: pd.Series, leg2_bars: pd.Series) -> pd.Series:
@@ -113,7 +127,11 @@ def attach_cooccurrence(events: pd.DataFrame, max_batch_tickers: int = 200) -> p
     event of the mirrored direction (any indicator / this row's indicator)
     has its p2 strictly inside this row's (p1, p2) interval;
     `counterpart_confirmed_first` — such a counterpart (any indicator) was
-    already confirmed by this row's own `confirmed_at`.
+    already confirmed by this row's own `confirmed_at` (<=, matching the
+    study's `confirmed_at <= as_of` knowability convention: a counterpart
+    confirming on the same bar is knowable at that close);
+    `counterpart_confirmed_strictly_first` — the same with strict <, so
+    the share of same-bar ties is visible rather than folded in.
     Regular rows: `inside_hidden_any` / `inside_hidden_same_ind` — this
     row's p2 lies strictly inside some mirrored-direction hidden row's
     interval. Boundaries are exclusive: a shared pivot date is not
@@ -155,12 +173,23 @@ def attach_cooccurrence(events: pd.DataFrame, max_batch_tickers: int = 200) -> p
         }
     )
 
-    tickers = hidden["ticker"].unique()
+    # Sort both sides by ticker once; each batch is then a contiguous
+    # slice (no repeated full-frame isin scans).
+    hidden = hidden.sort_values("ticker", kind="stable", ignore_index=True)
+    regular = regular.sort_values("ticker", kind="stable", ignore_index=True)
+    h_tickers = hidden["ticker"].to_numpy()
+    r_tickers = regular["ticker"].to_numpy()
+    tickers = np.unique(h_tickers)
     n_batches = max(1, -(-len(tickers) // max_batch_tickers))
     for batch in np.array_split(tickers, n_batches):
-        batch_set = set(batch)
-        h = hidden[hidden["ticker"].isin(batch_set)]
-        r = regular[regular["ticker"].isin(batch_set)]
+        if len(batch) == 0:
+            continue
+        h = hidden.iloc[
+            np.searchsorted(h_tickers, batch[0]) : np.searchsorted(h_tickers, batch[-1], side="right")
+        ]
+        r = regular.iloc[
+            np.searchsorted(r_tickers, batch[0]) : np.searchsorted(r_tickers, batch[-1], side="right")
+        ]
         pairs = h.merge(r, on=["ticker", "direction"])
         pairs = pairs[(pairs["r_p2"] > pairs["h_p1"]) & (pairs["r_p2"] < pairs["h_p2"])]
         same_ind = pairs[pairs["h_ind"] == pairs["r_ind"]]
@@ -170,6 +199,10 @@ def attach_cooccurrence(events: pd.DataFrame, max_batch_tickers: int = 200) -> p
         events.loc[
             pairs.loc[pairs["r_conf"] <= pairs["h_conf"], "h_idx"].unique(),
             "counterpart_confirmed_first",
+        ] = True
+        events.loc[
+            pairs.loc[pairs["r_conf"] < pairs["h_conf"], "h_idx"].unique(),
+            "counterpart_confirmed_strictly_first",
         ] = True
         events.loc[pairs["r_idx"].unique(), "inside_hidden_any"] = True
         events.loc[same_ind["r_idx"].unique(), "inside_hidden_same_ind"] = True
@@ -214,6 +247,11 @@ def report_cooccurrence(events: pd.DataFrame) -> None:
                              grp, "counterpart_same_ind"))
             print(_rate_line(f"hidden/{direction} w/ counterpart conf-ordered (confirmed first)",
                              grp, "counterpart_confirmed_first"))
+            n_first = int(grp["counterpart_confirmed_first"].sum())
+            n_tied = n_first - int(grp["counterpart_confirmed_strictly_first"].sum())
+            tie_share = n_tied / n_first if n_first else float("nan")
+            print(f"  {'':52s} (same-bar confirmation ties within conf-ordered: "
+                  f"{n_tied}/{n_first} = {tie_share:.1%})")
         for direction, grp in regular.groupby("direction"):
             mirrored = MIRROR[direction]
             print(_rate_line(f"regular/{direction} inside a hidden/{mirrored} window (any ind)",
@@ -228,11 +266,19 @@ def report_disagreement_outcomes(events: pd.DataFrame) -> None:
     sub = events[(events["form"] == "hidden")
                  & (events["confirmed_at"] <= OUTCOME_END + "T23:59:59")].copy()
     sub = sub[sub["outcome_computed_through"].notna() & sub["invalidated"].notna()]
-    for flag in ("counterpart_any", "counterpart_confirmed_first"):
+    # The False bucket means different things per flag: no counterpart
+    # structure at all vs none CONFIRMED YET at the hidden event's own
+    # confirmation — same label for both would invite comparing
+    # differently-composed buckets.
+    labels = {
+        "counterpart_any": ("hidden alone", "with counterpart"),
+        "counterpart_confirmed_first": ("none confirmed yet", "w/ conf-ordered cpart"),
+    }
+    for flag, (label_without, label_with) in labels.items():
         print(f"  -- split by {flag} --")
         for (direction, has), grp in sub.groupby(["direction", flag]):
-            label = "with counterpart" if has else "hidden alone"
-            print(f"  hidden/{direction:8s} {label:18s} n={len(grp):6d} "
+            label = label_with if has else label_without
+            print(f"  hidden/{direction:8s} {label:21s} n={len(grp):6d} "
                   f"dates={grp['p2_date'].nunique():5d} "
                   f"invalidated={grp['invalidated'].mean():.1%} "
                   f"medMFE={grp['max_favorable_move_atr'].median():.2f} ATR")
@@ -248,22 +294,20 @@ def report_scalar_fit(events: pd.DataFrame) -> None:
         v0 = grp["interpeak_retrace_frac"]
         defined = v0.notna()
         over1 = (v0 > 1).where(defined).mean()
-        print(f"  {cell:18s} {fmt_quantiles(v0, _PROBS)}  frac>1: {over1:.1%}  "
-              f"NaN: {(~defined).mean():.1%}")
+        dates = grp.loc[defined, "p2_date"].nunique()
+        print(f"  {cell:18s} {fmt_quantiles(v0, _PROBS)}  dates={dates}  "
+              f"frac>1: {over1:.1%}  NaN: {(~defined).mean():.1%}")
 
     print("\n  -- candidate: pivot-to-pivot retrace fraction (counter-move / trend-leg) --")
     hidden = events[events["form"] == "hidden"]
     for direction, grp in hidden.groupby("direction"):
         cand = grp["hidden_fit_frac"]
-        inputs_nan = grp["interpeak_retrace_pct"].isna() | grp["leg2_gain_pct"].isna()
-        degenerate = (
-            grp["interpeak_retrace_pct"].notna()
-            & ~(grp["interpeak_retrace_pct"] > TREND_LEG_EPS)
-        )
-        print(f"  hidden/{direction:8s} {fmt_quantiles(cand, _PROBS)}")
+        reasons = hidden_fit_undefined_reasons(grp)
+        dates = grp.loc[cand.notna(), "p2_date"].nunique()
+        print(f"  hidden/{direction:8s} {fmt_quantiles(cand, _PROBS)}  dates={dates}")
         print(f"  {'':18s} NaN: {cand.isna().mean():.1%} "
-              f"(inputs NaN: {inputs_nan.mean():.1%}, "
-              f"trend-leg <= {TREND_LEG_EPS:g}: {degenerate.mean():.1%})")
+              f"(inputs NaN: {reasons['inputs_nan'].mean():.1%}, "
+              f"trend-leg <= {TREND_LEG_EPS:g}: {reasons['trend_leg_degenerate'].mean():.1%})")
 
     print(f"\n  -- shape split on the candidate (frac >= {SHAPE_RETRACE_FRAC},"
           f" counter-move bars >= {SHAPE_LEG2_BARS}; descriptive edges) --")
