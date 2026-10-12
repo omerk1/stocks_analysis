@@ -435,6 +435,15 @@ exclusions**:
    bullish rows, ±5 calendar days as the sizing approximation of the bar rule).
    Implementing this exclusion exactly (±3 bars) is prerequisite 1.
 
+**Registered asymmetry between the two exclusions, stated rather than hidden:**
+exclusion 1 uses the stored flag exactly as the builder computes it — against all
+stored regular divergences, with no `confirmed_at` bound — because that is the
+DC-B1/B2 pool machinery, inherited unchanged for comparability; re-deriving it
+dev-window-bounded would redefine the shared pool DC-B1/B2 ran on. At the dev-window
+edge this lets a holdout-confirmed regular divergence drop a late-December-2021 pair
+(≤3 bars of one month out of 144; exclusion-only — it removes pairs, never adds).
+Exclusion 2 is new machinery and is bounded.
+
 Control timing is the pair's own price-only `confirmed_at`; events confirm at
 max(price, indicator) and so enter slightly later on average — a level difference the
 difference-in-differences absorbs, noted as in DC-B1/B2.
@@ -521,7 +530,11 @@ draft, output reproducible): RSI hidden events, PIT, dev window: **DC-B3 3,758 r
 1,334 distinct p2 dates; DC-B4 6,780 / 1,451**; control pools after the strict
 geometry and both divergence exclusions: **10,247 / 12,706 rows (2,011 / 2,067
 dates)** — 1.9–2.7× the event sets in aggregate, with per-pole coverage deferred to
-the blind balance report.
+the blind balance report. The ±5-calendar-day sizing approximation of the ±3-bar
+exclusion errs in both directions (it over-covers mid-week spans, excluding some
+4–5-bar neighbours, and under-covers holiday weeks, missing some 3-bar ones), so
+these pool counts are sizing-grade: the build's exact-rule pool is printed in the
+blind balance report and supersedes them.
 
 The power implication is derivable from this file's own registered DC-B1/B2 readout
 (the 2026-10-09 result table above), with no external citation: its four 63d cells
@@ -591,3 +604,9 @@ corresponding DiD cells, showed exactly that (±2.1% / ±4.0%). Hence:
   MACD-pass and era-split tercile-edge scoping registered explicitly; sizing script
   now reuses the shared study loader, membership attach, and the scalar's own mask
   components instead of private copies.
+- 2026-10-11, same day, third review round: exclusion 1's lack of a `confirmed_at`
+  bound (the stored flag is built against full-history regular divergences)
+  registered explicitly as inherited DC-B1/B2 machinery rather than silently carried;
+  the calendar-day sizing approximation's error directions stated, with the build's
+  exact-rule pool declared the superseding number; sizing exclusion vectorized (same
+  counts).

@@ -20,13 +20,12 @@ Usage: python -m src.analysis.divergence_dcb3b4_sizing
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from src.analysis.divergence_hidden_prep import hidden_fit_undefined_reasons
 from src.analysis.divergence_study_common import attach_pit_membership, load_dev_events
 from src.foundation.market_common import derived_db
-from src.signals.divergences.study_universe import DEV_END, DEV_START
+from src.signals.divergences.study_universe import DEV_END, DEV_START, membership_intervals
 
 # Sizing-only approximation of the registered +/-3-bar hidden-divergence
 # exclusion (calendar days; the build uses exact bar distance).
@@ -36,19 +35,21 @@ HIDDEN_EXCLUSION_DAYS = 5
 def _frac_defined(frame: pd.DataFrame) -> pd.Series:
     """Definedness of the hidden-fit retrace fraction on rows that are
     hidden-geometry by construction: the scalar's own mask components
-    (hidden_fit_undefined_reasons, the single source of truth), minus its
-    form-domain column — control pairs carry no `form`, so the frame is
-    tagged hidden for the call."""
+    (hidden_fit_undefined_reasons, the single source of truth) — control
+    pairs carry no `form`, so the frame is tagged hidden for the call,
+    which neutralizes the domain column while any future reason column
+    keeps counting."""
     reasons = hidden_fit_undefined_reasons(frame.assign(form="hidden"))
-    return ~(reasons["inputs_nan"] | reasons["trend_leg_degenerate"])
+    return ~reasons.any(axis=1)
 
 
 def main() -> None:
     raw_conn, derived_conn = derived_db.bootstrap_cli(lambda conn: None)
 
+    intervals = membership_intervals(raw_conn)
     ev = load_dev_events(derived_conn)
     ev = ev[(ev["form"] == "hidden") & (ev["p2_ts"] >= DEV_START)]
-    ev = attach_pit_membership(ev, raw_conn)
+    ev = attach_pit_membership(ev, raw_conn, intervals)
     ev = ev[ev["pit_member"]]
     ev["frac_defined"] = _frac_defined(ev)
 
@@ -68,7 +69,7 @@ def main() -> None:
         derived_conn, params=[DEV_END + "T23:59:59", DEV_START],
     )
     cp["p2_ts"] = pd.to_datetime(cp["p2_date"])
-    cp = attach_pit_membership(cp, raw_conn)
+    cp = attach_pit_membership(cp, raw_conn, intervals)
     cp = cp[cp["pit_member"]]
     cp["frac_defined"] = _frac_defined(cp)
 
@@ -82,18 +83,15 @@ def main() -> None:
         derived_conn, params=[DEV_END + "T23:59:59"],
     )
     hidden_all["p2_ts"] = pd.to_datetime(hidden_all["p2_date"])
-    tol = pd.Timedelta(days=HIDDEN_EXCLUSION_DAYS).to_timedelta64()
-    keep = pd.Series(True, index=cp.index)
-    hid_by_key = {k: g["p2_ts"].sort_values().to_numpy()
-                  for k, g in hidden_all.groupby(["ticker", "direction"])}
-    for key, grp in cp.groupby(["ticker", "direction"]):
-        hid = hid_by_key.get(key)
-        if hid is None:
-            continue
-        pts = grp["p2_ts"].to_numpy()
-        lo = np.searchsorted(hid, pts - tol)
-        hi = np.searchsorted(hid, pts + tol, side="right")
-        keep.loc[grp.index] = hi == lo
+    tol = pd.Timedelta(days=HIDDEN_EXCLUSION_DAYS)
+    # One vectorized merge (the prep module's pattern), no per-ticker loop:
+    # a pair is excluded when any same-key hidden p2 falls inside the window.
+    pairs = cp.reset_index()[["index", "ticker", "direction", "p2_ts"]].merge(
+        hidden_all[["ticker", "direction", "p2_ts"]].rename(columns={"p2_ts": "h_p2"}),
+        on=["ticker", "direction"],
+    )
+    near = pairs[(pairs["h_p2"] - pairs["p2_ts"]).abs() <= tol]
+    keep = ~cp.index.isin(near["index"].unique())
 
     print("\n== strict hidden-geometry no-div control pairs, PIT, dev window ==")
     print("  before hidden-divergence exclusion:")
