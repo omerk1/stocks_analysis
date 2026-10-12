@@ -121,7 +121,9 @@ def inputs_digest(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
     hashed as the detectors read them (float prices, datetime splits), so an
     equivalent frame of other dtypes hits."""
     h = hashlib.sha256()
-    h.update(f"{ticker}|{HISTORY_RESET_OVERRIDES.get(ticker)!r}".encode())
+    # Membership and value apart: an override of None ("never reset") isn't the
+    # automatic rule a ticker with no entry gets.
+    h.update(f"{ticker}|{ticker in HISTORY_RESET_OVERRIDES}|{HISTORY_RESET_OVERRIDES.get(ticker)!r}".encode())
     h.update(pd.DatetimeIndex(dates).asi8.tobytes())
     b = bars[["open", "high", "low", "close", "volume"]].astype("float64")
     b.index = pd.DatetimeIndex(b.index)
@@ -296,13 +298,18 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
         old = {}
     if not isinstance(old, dict) or any(old.get(k) != v for k, v in epoch.items()):
         old = {}  # another build's files: their per-ticker record doesn't describe this code or window
-    # Per ticker, per source: a run of some sources keeps the others' records.
-    tickers_done = {t: dict(c) for t, c in old.get("tickers", {}).items() if t not in failed}
+    # Per ticker, per source: a run of some sources keeps the others' records,
+    # and a source whose config changed keeps none of its old ones.
+    new_configs = {s: json.loads(config_key(configs[s])) for s in sources}
+    changed = {s for s in sources if old.get("configs", {}).get(s) != new_configs[s]}
+    tickers_done = {t: {s: n for s, n in c.items() if s not in changed}
+                    for t, c in old.get("tickers", {}).items() if t not in failed}
+    tickers_done = {t: c for t, c in tickers_done.items() if c}
     for t, counts in done.items():
         tickers_done.setdefault(t, {}).update(counts)
     failures = {t: e for t, e in {**old.get("failed", {}), **failed}.items() if t not in done}
     all_sources = sorted({s for c in tickers_done.values() for s in c} | set(sources))
-    configs_all = {**old.get("configs", {}), **{s: json.loads(config_key(configs[s])) for s in sources}}
+    configs_all = {**old.get("configs", {}), **new_configs}
     manifest = {
         **epoch, "sources": all_sources, "configs": configs_all,
         "first_snapshot": str(snap.SNAPSHOT_START.date()),

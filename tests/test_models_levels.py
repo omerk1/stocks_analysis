@@ -381,6 +381,10 @@ def test_the_step_and_the_level_snap_alike(price, dn, up):
 def test_the_fingerprint_covers_the_tickers_history_override(bars, configs, monkeypatch):
     dates = _as_of_dates(bars)
     before = level_cache.fingerprint("avwap", TICKER, bars, None, dates, configs["avwap"])
+    monkeypatch.delitem(level_cache.HISTORY_RESET_OVERRIDES, TICKER, raising=False)
+    none = level_cache.fingerprint("avwap", TICKER, bars, None, dates, configs["avwap"])
+    monkeypatch.setitem(level_cache.HISTORY_RESET_OVERRIDES, TICKER, None)  # "never reset" isn't "no entry"
+    assert level_cache.fingerprint("avwap", TICKER, bars, None, dates, configs["avwap"]) != none
     monkeypatch.setitem(level_cache.HISTORY_RESET_OVERRIDES, TICKER, "2015-06-01")
     assert level_cache.fingerprint("avwap", TICKER, bars, None, dates, configs["avwap"]) != before
 
@@ -423,6 +427,26 @@ def test_a_run_of_some_sources_keeps_the_others_records(tmp_path, monkeypatch):
                                            sources=("avwap",))
     c.close()
     assert bumped["tickers"] == {"AAA": {"avwap": 1}} and bumped["failed"] == {}
+    # A changed config drops that source's old records, not the others'.
+    monkeypatch.setattr(level_cache, "_build_one", lambda root, t, *a: (t, {"vp": 2}, 0.0))
+    level_cache.build_level_cache(c2 := _one_ticker_db(), ["AAA"], tmp_path, "2021-12-31", workers=1,
+                                  progress=None, sources=("vp",))
+    real = levels.default_configs
+    monkeypatch.setattr(levels, "default_configs",
+                        lambda: {**real(), "avwap": dataclasses.replace(real()["avwap"], min_bars=7)})
+    monkeypatch.setattr(level_cache, "_build_one", lambda root, t, *a: (t, {"avwap": 3}, 0.0))
+    swapped = level_cache.build_level_cache(c2, ["AAA"], tmp_path, "2021-12-31", workers=1,
+                                            progress=None, sources=("avwap",))
+    c2.close()
+    assert swapped["tickers"] == {"AAA": {"avwap": 3, "vp": 2}}
+
+
+def _one_ticker_db():
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    return c
 
 
 def _boom(*a):
