@@ -332,12 +332,14 @@ the recomputed base.
 
 ---
 
-## DC-B3 / DC-B4 — DRAFT 2026-10-11, NOT FROZEN: does retracement depth change hidden-divergence outcomes?
+## DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?
 
-> **STATUS: DRAFT.** Pre-freeze edits are legitimate here (substantive ones noted in
-> the draft history at the end of this section); the section freezes at the final
-> pre-run commit of its run PR, after which the frozen header's dated-addenda-only
-> rule applies. Nothing in this section alters any DC-B1/B2 text above.
+> **STATUS: DRAFT, CLOSED WITHOUT RUN** (user decision 2026-10-12 — see the
+> disposition section at the end). Never frozen, never executed: no prerequisite was
+> built, no outcome was read; the only numbers ever computed were the blind sizing
+> counts. The section is kept whole as the record that the hypothesis was considered,
+> designed, and sized. Reviving it would be a new dated section referencing this one,
+> not a reopening. Nothing in this section alters any DC-B1/B2 text above.
 
 **Module/track:** divergence-context, Track B. Second (and, per the disposition below,
 final) registered experiment of this study.
@@ -610,3 +612,27 @@ corresponding DiD cells, showed exactly that (±2.1% / ±4.0%). Hence:
   the calendar-day sizing approximation's error directions stated, with the build's
   exact-rule pool declared the superseding number; sizing exclusion vectorized (same
   counts).
+
+### Disposition 2026-10-12 — closed without run (user decision, pre-freeze, pre-build, no outcome read)
+
+The user reviewed this draft and chose not to run it. Reason: the registration-time
+power analysis above shows the only reachable readouts are Alive at a ≳ ~2%/63d true
+effect (larger for the DiD cells) or Inconclusive — Dead is unreachable — and the
+pre-committed next step for an Inconclusive readout (route the hidden-fit retrace
+fraction to the combined-model F6 feature track, where the trading scorecard asks the
+"is there alpha, net of costs, vs the market" form of the question directly) is
+available without spending the run or building its prerequisites.
+
+For the record, what makes this an honest close rather than file-drawering: the
+decision was made before the section froze, before any prerequisite existed, and
+before any outcome was read anywhere (blind counts only); it is recorded here, inside
+the registration, with the full design preserved above; and the hypothesis is not
+quietly retested elsewhere — any future claim about this scalar comes from the model
+scorecard under the modeling track's own protocol, or from a new dated registration.
+Process lesson, also for the record: the power analysis should have preceded the
+drafting, not followed it — DC-B1/B2's readout already contained everything needed to
+see that Dead was unreachable at this N.
+
+Routing: `docs/modeling/LRP.md` §2.4 divergence-feature constraints gain the
+hidden-fit scalar pointer (same PR as this disposition). The divergence-context
+study's Track-B phase is closed.
