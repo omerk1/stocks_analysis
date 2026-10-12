@@ -20,8 +20,10 @@ the full answer and on the first part found: the gap is what they lose to partia
 Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
 cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
 the LLM should say "not in the docs" instead of answering from the nearest chunk. The report
-shows every question's top similarity score and the range for each kind: if unanswerable
+shows every question's top score and the range for each kind: if unanswerable
 questions score as high as answerable ones, a score cutoff alone can't tell them apart.
+(The score is the method's own: cosine similarity for vector search, BM25 for keyword,
+a fused rank score for hybrid, so ranges compare only within one method.)
 
 Metrics, over the answerable questions and per question type:
 
@@ -50,10 +52,12 @@ the top 5 of vector search or of BM25 keyword search was judged once, and 25 tha
 were added. Golds are only as complete as the pool, which favours those two searches: a
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
-unjudged chunks, on both splits, and add the ones that answer.
+unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
+12 added).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword; default vector
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
 
@@ -63,11 +67,11 @@ import argparse
 import json
 import statistics
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode, MetadataMode
+from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore
 
 from src.llm.research_docs.retrieve import cite, search
 
@@ -192,12 +196,15 @@ def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
     return out
 
 
-def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
+def evaluate(index: VectorStoreIndex, questions: list[dict],
+             find: Callable[[str, int], list[NodeWithScore]] | None = None) -> list[dict]:
     """Each question's rank in the top `max(KS)` (`part_ranks`: full answer, and first part
-    found), its top chunk and that chunk's similarity score."""
+    found), its top chunk and that chunk's score. `find(question, k)` is the search to
+    score; vector search by default."""
+    find = find or (lambda question, k: search(index, question, k))
     rows = []
     for q in questions:
-        hits = search(index, q["question"], max(KS))
+        hits = find(q["question"], max(KS))
         rank, rank_any = part_ranks([h.node for h in hits], q)
         rows.append({**q, "rank": rank, "rank_any": rank_any,
                      "top": cite(hits[0].node) if hits else "-",
@@ -231,13 +238,13 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     lines = [f"split: {split}", ""] if split else []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>5}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>9}  top hit")
     for r in rows:
         rank = "n/a" if not answerable(r) else _rank(r["rank"])
         if len(parts(r)) > 1:  # full/any part
             rank = f"{rank}/{_rank(r['rank_any'])}"
-        score = f"{r['score']:.2f}" if r["score"] is not None else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>5}  {r['top'][:70]}")
+        score = f"{r['score']:.4f}" if r["score"] is not None else "-"
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>9}  {r['top'][:70]}")
     scored = [r for r in rows if answerable(r)]
     groups = {"all": scored}
     for key in ("type", "style"):
@@ -260,7 +267,7 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     for kind, keep in (("answerable", True), ("unanswerable", False)):
         top = [r["score"] for r in rows if answerable(r) == keep and r["score"] is not None]
         if top:
-            ranges.append(f"{kind} {min(top):.2f}-{max(top):.2f}")
+            ranges.append(f"{kind} {min(top):.4f}-{max(top):.4f}")
     if len(ranges) == 2:
         lines.append(f"top score range: {', '.join(ranges)}")
     return "\n".join(lines)
@@ -271,6 +278,8 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid"), default="vector",
+                    help="search to score (default vector)")
     args = ap.parse_args()
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
@@ -295,7 +304,14 @@ def main() -> None:
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
     chosen = [q for q in questions if question_split(q) == args.split]
-    print(report(evaluate(index, chosen), stale, f"{args.split} ({len(chosen)} of {len(questions)} questions)"))
+    find = None
+    if args.method != "vector":
+        from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
+        keywords = KeywordIndex(indexed)
+        find = keywords.search if args.method == "keyword" else (
+            lambda question, k: hybrid_search(index, keywords, question, k))
+    head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {args.method} search"
+    print(report(evaluate(index, chosen, find), stale, head))
 
 
 if __name__ == "__main__":
