@@ -37,13 +37,17 @@ def load_dev_events(derived_conn) -> pd.DataFrame:
     return events
 
 
-def attach_pit_membership(events: pd.DataFrame, raw_conn) -> pd.DataFrame:
+def attach_pit_membership(events: pd.DataFrame, raw_conn, intervals: dict | None = None) -> pd.DataFrame:
     """True where the event's ticker was an S&P 500 or Nasdaq-100 member
     on its own p2 date — the shared, rename-aware machinery in
     `study_universe`, attached under one column name (`pit_member`) by one
-    helper so sibling scripts cannot drift on the membership scope."""
+    helper so sibling scripts cannot drift on the membership scope.
+    `intervals` (a membership_intervals result) may be passed to reuse one
+    read across several frames."""
     events = events.copy()
-    events["pit_member"] = pit_member_mask(events, membership_intervals(raw_conn))
+    if intervals is None:
+        intervals = membership_intervals(raw_conn)
+    events["pit_member"] = pit_member_mask(events, intervals)
     return events
 
 
