@@ -147,6 +147,18 @@ Kept separate from levels:
      context gate beats pooling. The registered mean-level test read out
      all-Inconclusive, so this is a feature-engineering prior, not a claimed
      effect.
+  4a. **Hidden-form depth scalar (added 2026-10-12):** for hidden events the
+     stored `interpeak_retrace_frac` is misfit (medians > 1 — p1 is often not an
+     impulse extreme; Done #119); the usable depth measure is the pivot-to-pivot
+     **hidden-fit retrace fraction**
+     (`src.analysis.divergence_hidden_prep.hidden_fit_retrace_frac`:
+     counter-move / trend-leg, bounded in (0,1), 100% defined on the recomputed
+     base). The registered mean-level test of it (DC-B3/B4) was drafted, sized,
+     and deliberately closed without running (PREREGISTRATION.md disposition
+     2026-10-12: Dead unreachable at available N) — the scalar enters F6 as a
+     continuous feature or form×depth interaction instead, judged on the trading
+     scorecard like every other feature, and no standalone effect claim exists
+     for it.
   4. **Survivorship gate:** the `divergences`/`divergence_control_pairs`
      tables were survivors-only (zero delisted tickers) until the 2026-10-10
      recompute (Done #112), which added every delisted ticker the vendor
