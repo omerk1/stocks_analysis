@@ -22,8 +22,11 @@ an experiment-table row, the id values `chunk` moved out of the row's text into 
 (`cell_id`, `trial_id`, `experiment_id`, and `outcome`, a verdict label or result
 sentence), so an id or verdict typed into a question still finds its row. Left out: the file path and metadata key names, which would make a question word such
 as "status" or "design" match every chunk of a file with that name; a CSV row's "row N"
-placeholder section and its `tier` column, bare numbers that would match any question
-with that number in it; and its `module` column. Module codes
+placeholder section and its `tier` column, a lone number that would match any question
+with that number in it; and its `module` column. (Numbers still get in through row bodies
+and TRIALS.csv's `outcome`, a result sentence with its statistics: a number there sits
+among words that also have to match, not alone.) Every other `chunk.ROW_ID_COLUMNS` entry
+is indexed, including any added later. Module codes
 (M1-M22) still reach the index through headings and prose, which use them throughout.
 
 A section's own heading is in the trail and, on the section's first piece, on the body's
