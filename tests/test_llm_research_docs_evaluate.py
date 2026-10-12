@@ -103,7 +103,7 @@ def test_report_breaks_scores_down_by_type_and_style():
     stale_out = report(rows, ["docs/a.md"]).splitlines()
     assert stale_out[0].startswith("STALE INDEX: 1 file(s) differ from the index (docs/a.md)")
     assert stale_out[1] == "" and stale_out[2].startswith("question")
-    assert out.splitlines()[1].split()[4] == "0.81"
+    assert out.splitlines()[1].split()[4] == "0.8100"
     assert out.splitlines()[2].split()[3:5] == ["-", "-"]  # q2 found nothing in the top 10
 
 
@@ -128,12 +128,12 @@ def test_unanswerable_questions_show_but_stay_out_of_the_scores():
             {"id": "q2", "type": "none", "style": "plain", "rank": None, "top": "b", "score": 0.7,
              "answerable": False}]
     lines = report(rows).splitlines()
-    assert lines[2].split()[3:5] == ["n/a", "0.70"]
+    assert lines[2].split()[3:5] == ["n/a", "0.7000"]
     all_line = next(line for line in lines if line.startswith("all"))
     assert all_line.split()[1:3] == ["1", "1.00"]  # n=1, hit@1 1.00: q2 isn't a miss
     assert not any(line.startswith("type=none") for line in lines)
     assert lines[-2:] == ["(+1 unanswerable, not scored)",
-                          "top score range: answerable 0.80-0.80, unanswerable 0.70-0.70"]
+                          "top score range: answerable 0.8000-0.8000, unanswerable 0.7000-0.7000"]
     assert report(rows[1:]).splitlines()[-2:] == ["no answerable questions to score",
                                                   "(+1 unanswerable, not scored)"]
 
@@ -183,3 +183,16 @@ def test_every_question_in_the_set_still_matches_the_real_docs():
     types = {q["type"] for q in questions}
     assert types == {q["type"] for q in test}  # every type held out, unanswerable included
     assert check_golds(questions, chunk_documents(load_documents())) == []
+
+
+def test_evaluate_scores_the_search_it_is_given(monkeypatch):
+    from llama_index.core.schema import NodeWithScore
+    from src.llm.research_docs import evaluate as ev
+    monkeypatch.setattr(ev, "search", lambda index, question, k: [])  # the default, unused here
+    asked = []
+
+    def find(question, k):
+        asked.append((question, k))
+        return [NodeWithScore(node=_node(entry="#1"), score=0.03)]
+    rows = ev.evaluate(None, [{"id": "q", "question": "?", "gold": [{"path": "docs/a.md", "entry": "#1"}]}], find)
+    assert rows[0]["rank"] == 1 and asked == [("?", max(ev.KS))]
