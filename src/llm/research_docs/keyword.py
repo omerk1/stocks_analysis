@@ -19,17 +19,17 @@ name matches its plain words too. No stemming: "retest" and "retesting" are diff
 
 What's indexed (`indexed_text`) is the chunk's body, its heading trail (`section`) and, for
 an experiment-table row, the id values `chunk` moved out of the row's text into metadata
-(`cell_id`, `trial_id`, `experiment_id`), so an id typed into a question still finds its
-row. Left out: the file path and metadata key names, which would make a question word such
+(`cell_id`, `trial_id`, `experiment_id`, and `outcome`, a verdict label or result
+sentence), so an id or verdict typed into a question still finds its row. Left out: the file path and metadata key names, which would make a question word such
 as "status" or "design" match every chunk of a file with that name; a CSV row's "row N"
-placeholder section, and its `tier` and `outcome` columns, which are mostly bare numbers
-that would match any question with that number in it; and its `module` column. Module codes
+placeholder section and its `tier` column, bare numbers that would match any question
+with that number in it; and its `module` column. Module codes
 (M1-M22) still reach the index through headings and prose, which use them throughout.
 
 A section's own heading is in the trail and, on the section's first piece, on the body's
 first line too, so there its words count twice: kept on purpose, the usual title boost (a
 heading says what a passage is about more than any body sentence). Later pieces of a split
-section get the trail once. Dev hit@5 0.76 with it, 0.71 without: 2 questions, within
+section get the trail once. Dev hit@5 0.76 with it, 0.73 without: 1 question, within
 noise, so it's kept as the conventional choice, not as a measured win.
 
 **Reciprocal rank fusion** merges the two rankings by position, not score (cosine
@@ -49,11 +49,12 @@ from collections import Counter
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, NodeWithScore
 
+from src.llm.research_docs.chunk import ROW_ID_COLUMNS
 from src.llm.research_docs.retrieve import TOP_K, search
 
 RRF_K = 60
 POOL = 20  # how deep each list goes before fusing
-ROW_IDS = ("cell_id", "trial_id", "experiment_id")  # see the module docstring
+ROW_IDS = tuple(c for c in ROW_ID_COLUMNS if c not in ("module", "tier"))  # module docstring has why
 
 
 def tokens(text: str) -> list[str]:

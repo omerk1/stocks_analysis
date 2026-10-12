@@ -34,13 +34,14 @@ def test_indexed_text_keeps_headings_and_row_ids_but_not_path_keys_or_module():
     assert indexed_text(sec) == "Status > Watch\n## Watch\nbody words"  # own heading twice: a title boost
     row = TextNode(text="notes: slope", metadata={"path": "docs/E.csv", "section": "row 63", "module": "M5",
                                                   "cell_id": "breadth_top", "tier": "4", "outcome": "no_effect"})
-    assert indexed_text(row) == "breadth_top\nnotes: slope"
+    assert indexed_text(row) == "breadth_top\nno_effect\nnotes: slope"
     trial = TextNode(text="notes: x", metadata={"path": "docs/T.csv", "section": "row 2", "trial_id": "S1b_k20",
                                                 "experiment_id": "S1b"})
     assert indexed_text(trial) == "S1b_k20\nS1b\nnotes: x"
     index = KeywordIndex([sec, row, trial])
     assert not index.search("docs status", k=3)[1:]  # "status" from the heading only, not the path
-    assert not index.search("63 4 m5 effect", k=3)  # row placeholder, tier, module, outcome
+    assert not index.search("63 4 m5", k=3)  # row placeholder, tier, module
+    assert index.search("no effect", k=3)[0].node is row
     assert KeywordIndex([_node("p", "--- | ---")]).search("x", k=1) == []
 
 
