@@ -142,6 +142,32 @@ def _read_only(db_path: Path):
     return db.get_connection(f"file:{db_path}?mode=ro", uri=True)
 
 
+def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...], workers: int,
+                 tickers: list[str] | None, smoke: bool) -> int:
+    from src.models import dataset
+    from src.models.features import level_cache
+    conn = _read_only(db_path)
+    try:
+        if smoke:
+            tickers = _smoke_tickers(conn)
+        elif tickers is None:
+            universe = dataset.universe_mask(conn, start, end, indices=indices)
+            tickers = sorted(universe.loc[universe["eligible"], "ticker"].unique())
+        print(f"building level snapshots for {len(tickers)} tickers into {out} ({workers} workers)", flush=True)
+        m = level_cache.build_level_cache(conn, tickers, out, end, workers=workers,
+                                          progress=lambda s: print(s, flush=True))
+    finally:
+        conn.close()
+    run = m["last_run"]
+    print(f"this run: {run['n_tickers']} tickers, {run['cpu_hours']:.2f} CPU hours; cache: {m['n_tickers']} tickers, "
+          f"rows {m['rows']}, price sources {pd.Series(m['price_sources']).value_counts().to_dict()}")
+    if m["no_bars"]:
+        print(f"  no bars: {m['no_bars']}")
+    if m["failed"]:
+        print(f"  FAILED: {m['failed']}")
+    return 1 if run["failed"] else 0
+
+
 def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...]) -> int:
     from src.models import dataset
     from src.models.features import cache
@@ -327,6 +353,15 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
+    lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
+    lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
+    lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
+    lev.add_argument("--start", default="2010-01-01", help="the universe's first date (whose tickers get snapshots)")
+    lev.add_argument("--end", default="2021-12-31")
+    lev.add_argument("--indices", nargs="+", default=["sp500"])
+    lev.add_argument("--workers", type=int, default=4)
+    lev.add_argument("--tickers", nargs="+", default=None, help="these tickers instead of the universe's")
+    lev.add_argument("--smoke", action="store_true", help="only cli._smoke_tickers' 20 (16 live, 4 delisted)")
     vend = sub.add_parser("vendor-check", help="can a model tell Tiingo rows from yfinance rows?")
     vend.add_argument("--db", type=Path, required=True)
     vend.add_argument("--features", type=Path, default=None,
@@ -373,6 +408,9 @@ def main(argv: list[str] | None = None) -> int:
         return close_experiment(args.experiment)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
+    if args.command == "build-levels":
+        return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
+                            args.tickers, args.smoke)
     if args.command == "build-features":
         return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
     if args.command == "vendor-check":
