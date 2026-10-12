@@ -398,7 +398,12 @@ pre-committed.
   cell-defining-bin exception as the matching bins (invariant #3 note in DC-B1/B2).
   *Why terciles and not DC-B1/B2's fixed edges:* the prep showed the
   regular-geometry 0.33 edge leaves a 5–10% shallow pole (259/531 PIT dates), and no
-  prior literature pins a natural edge for this scalar.
+  prior literature pins a natural edge for this scalar. **Edge scoping, registered
+  now:** the MACD-hist robustness pass re-derives tercile edges from its OWN event
+  distribution (the registered procedure applied to the robustness indicator — the
+  pass is a standalone re-run of the design, as DC-B1/B2's was); the era-split facet
+  reuses the full-window edges (eras split the registered cells, they do not
+  re-register them).
 - **Plateau rule:** the binary contrast must agree in sign under two pre-named
   re-classifications — **quartile poles (Q1 vs Q4)** and a **median split** (both on
   the event distribution) — each a full re-classification AND re-matching from the
@@ -422,11 +427,13 @@ exclusions**:
    **regular** stored divergences of the same direction (±3 bars of p2, any
    indicator);
 2. **no stored HIDDEN divergence of the same direction within ±3 bars of p2 (any
-   indicator)** — without this, the pool contains the treatment itself: a hidden
-   pair IS a strict-hidden-geometry pair, and sizing measured the contamination at
-   37–44% of the pool (16,333 → 10,247 bearish; 22,534 → 12,705 bullish rows, ±5
-   calendar days as the sizing approximation of the bar rule). Implementing this
-   exclusion exactly (±3 bars) is prerequisite 1.
+   indicator), consulting only stored rows with `confirmed_at <= 2021-12-31`** —
+   the study's dev-window truncation; the pool definition must not read holdout
+   rows (invariant #1). Without this exclusion the pool contains the treatment
+   itself: a hidden pair IS a strict-hidden-geometry pair, and sizing measured the
+   contamination at 37–44% of the pool (16,333 → 10,247 bearish; 22,534 → 12,706
+   bullish rows, ±5 calendar days as the sizing approximation of the bar rule).
+   Implementing this exclusion exactly (±3 bars) is prerequisite 1.
 
 Control timing is the pair's own price-only `confirmed_at`; events confirm at
 max(price, indicator) and so enter slightly later on average — a level difference the
@@ -512,22 +519,27 @@ Sized blind on the recomputed base — counts and covariate definedness only, no
 outcome read — by `src/analysis/divergence_dcb3b4_sizing.py` (committed with this
 draft, output reproducible): RSI hidden events, PIT, dev window: **DC-B3 3,758 rows /
 1,334 distinct p2 dates; DC-B4 6,780 / 1,451**; control pools after the strict
-geometry and both divergence exclusions: **10,247 / 12,705 rows (2,011 / 2,067
+geometry and both divergence exclusions: **10,247 / 12,706 rows (2,011 / 2,067
 dates)** — 1.9–2.7× the event sets in aggregate, with per-pole coverage deferred to
 the blind balance report.
 
 The power implication is derivable from this file's own registered DC-B1/B2 readout
-(the 2026-10-09 result table above), with no external citation: those six cells ran
-at 672–1,573 effective dates and produced 95% CI half-widths of ≈ 1.2–4.0% per
-63d-trade against the ±0.2% hurdle band. DC-B3/B4's effective Ns (1,334 / 1,451) sit
-inside that same range, so comparable half-widths follow by √N scaling, and:
+(the 2026-10-09 result table above), with no external citation: its four 63d cells
+ran at 672–1,573 effective dates and produced 95% CI half-widths of ≈ 1.8–4.0% per
+63d trade against the ±0.2% hurdle band. DC-B3b/B4b (continuous, all events) run at
+1,334 / 1,451 dates — inside that range, so comparable half-widths follow by √N
+scaling. DC-B3a/B4a (binary DiD) use only the outer terciles, ≈ two-thirds of those
+dates split across two arms (plus two control arms), so their effective per-arm N is
+roughly a third of the events and their CIs are wider still — DC-B1a/B2a, the
+corresponding DiD cells, showed exactly that (±2.1% / ±4.0%). Hence:
 
 - **Dead is unreachable in these cells.** Shrinking a ≈ 2% half-width inside a
   ±0.2% band needs ~10× tighter CIs, i.e. on the order of **100× the effective N**;
   no admissible extension supplies it (even tripling N buys only √3 ≈ 1.7×, and
   pre-2010 data is outside the repo's supported development window — CLAUDE.md
   invariant #1's 2026-09-07 revision note). The registered cells can therefore only
-  read **Alive** (true effect ≳ ~2% per 63d) or **Inconclusive**. This is registered
+  read **Alive** or **Inconclusive** — and Alive requires a true effect ≳ ~2% per
+  63d for the continuous cells, larger still for the binary DiD cells. This is registered
   knowingly: the event-tercile design removes DC-B1/B2's starved-arm failure mode,
   the build/matching/inference machinery exists, and the run is cheap.
 - **Pre-committed disposition if no cell is Alive:** the hidden Track-B line closes —
@@ -542,9 +554,10 @@ inside that same range, so comparable half-widths follow by √N scaling, and:
 
 1. **The hidden-divergence control exclusion**: extend the controls machinery
    (`controls.flag_divergences` computes against regular form only) so hidden-form
-   stored divergences of the same direction within ±3 bars of p2 (any indicator)
-   also disqualify a pair — as a second flag column or an analysis-time join; the
-   registered pool is defined by BOTH exclusions.
+   stored divergences of the same direction within ±3 bars of p2 (any indicator,
+   `confirmed_at <= 2021-12-31` — never holdout rows) also disqualify a pair — as a
+   second flag column or an analysis-time join; the registered pool is defined by
+   BOTH exclusions.
 2. Extend the Track-B machinery (`divergence_trackb_balance.py`,
    `divergence_trackb_run.py`, matching) to hidden geometry: the hidden-fit scalar
    as the classification/matching input, event-tercile classes, strict-geometry
@@ -569,3 +582,12 @@ inside that same range, so comparable half-widths follow by √N scaling, and:
   an unmerged power-addendum analysis, which is not citable); the Inconclusive
   verdict's deviation from DC-B1/B2 wording made explicit; the plateau gate scoped
   direction-level.
+- 2026-10-11, same day, second review round: the hidden-divergence exclusion (and
+  the sizing script) bounded to stored rows with `confirmed_at <= 2021-12-31` — the
+  first version consulted full-history (holdout-era) rows, letting post-2021 events
+  shape the dev-window pool (invariant #1; corrected bullish pool 12,705 → 12,706);
+  the power paragraph's half-width range restated 63d-only (1.8–4.0%, not 1.2–4.0%
+  which included the 21d cells) with the binary cells' smaller per-arm N stated;
+  MACD-pass and era-split tercile-edge scoping registered explicitly; sizing script
+  now reuses the shared study loader, membership attach, and the scalar's own mask
+  components instead of private copies.
