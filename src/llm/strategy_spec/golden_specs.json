@@ -1,0 +1,110 @@
+[
+  {
+    "id": "ma_touch_bounce",
+    "source": "docs/features/moving-averages/PREREGISTRATION.md, section 'Touch / test / bounce behaviour' (2026-09-17)",
+    "description": "Moving averages act as support and resistance. When price has been well away from a widely watched MA (the 200-day, the 50-day, the 21 EMA) and comes back to touch it for the first time, it tends to bounce off it rather than slice through. Check it from above, where the MA should act as support, and from below, where it should act as resistance.",
+    "stated": ["direction", "size", "trigger", "invalidation", "secondary_metrics"],
+    "spec": {
+      "name": "First touch of a moving average after being away",
+      "direction": "both",
+      "timeframe": "daily",
+      "duration": {
+        "description": "A single-bar event, not a formation; the 10-bar window for the touch is an invalidation rule.",
+        "not_applicable": true
+      },
+      "size": {
+        "description": "Away means |close - MA| >= 1 ATR(14); a touch means |close - MA| <= 0.25 ATR.",
+        "normalisation": "atr",
+        "min": 1.0,
+        "max": null
+      },
+      "trigger": {
+        "description": "The first daily close within 0.25 ATR of the MA after an away-run; one event per away-run.",
+        "price_basis": "close",
+        "execution": "next_open"
+      },
+      "horizons_bars": [5],
+      "invalidation": [
+        {"description": "No touch within 10 bars after the away-run ends: no event.", "phase": "before_entry"},
+        {"description": "Slice-through: 5 bars after the touch, the close is at least 0.5 ATR past the MA on the far side. Scored as an outcome, not used as a stop.", "phase": "after_entry"}
+      ],
+      "supporting_signals": [],
+      "secondary_metrics": ["hold rate", "slice-through rate", "chop rate"],
+      "control": {"description": "The same touch event at nearby placebo MA lookbacks (e.g. 187/193/207/213 around the 200-day), matched on date, momentum tercile, volatility tercile and sector; effect = P(hold at the real MA) - P(hold at the placebos)."}
+    }
+  },
+  {
+    "id": "vcp_breakout",
+    "source": "docs/features/chart_pattern_detection_design.md section 4.5; src/signals/patterns/config.py (vcp_*), detectors/vcp.py",
+    "description": "Volatility contraction pattern: a stock in a strong uptrend builds a base with a series of pullbacks, each shallower than the last, while volume dries up. Buy the breakout above the last, tightest pullback's high, ideally on a volume surge.",
+    "stated": ["direction", "size", "trigger", "supporting_signals"],
+    "spec": {
+      "name": "VCP breakout",
+      "direction": "long",
+      "timeframe": "daily",
+      "duration": {
+        "description": "Base of 2-6 contractions, typically 15-90 bars (the bar range feeds scoring, not a hard gate).",
+        "min_bars": 15,
+        "max_bars": 90
+      },
+      "size": {
+        "description": "Volatility dries up: ATR(10) at the final contraction / ATR(50) at most 1.0. Each contraction's depth (% from its high to its low) shallower than the previous, one violation allowed.",
+        "normalisation": "atr",
+        "min": null,
+        "max": 1.0
+      },
+      "trigger": {
+        "description": "Close above the pivot (the high of the final contraction) by at least 0.1%. As built, the backtest enters at that same close (lifecycle.py sets entry_price to the breakout bar's close).",
+        "price_basis": "close",
+        "execution": "same_close"
+      },
+      "horizons_bars": [10, 20, 60],
+      "invalidation": [
+        {"description": "After the base and before a breakout, a low below the base's low: failed base.", "phase": "before_entry"},
+        {"description": "After the base and before a breakout, a close below the 150-day SMA (the design doc says the 50-day; the detector uses the 150-day).", "phase": "before_entry"},
+        {"description": "No breakout within 2x the base's length: expired.", "phase": "before_entry"},
+        {"description": "Failed breakout: price closes back through the pivot after the breakout. Scored as an outcome (failed-breakout rate), not used as an exit.", "phase": "after_entry"}
+      ],
+      "supporting_signals": [
+        {"name": "stage-2 trend template", "description": "Close above rising 150- and 200-day SMAs (rising over 20 bars), 50-day SMA above both, within 25% of the 52-week high.", "role": "filter"},
+        {"name": "breakout volume", "description": "Breakout-bar volume at least 1.4x its 50-day average.", "role": "score"}
+      ],
+      "secondary_metrics": ["target-hit rate (target = pivot + (pivot - base low))", "failed-breakout rate", "throwback rate", "median and winsorized forward return"],
+      "control": null
+    }
+  },
+  {
+    "id": "bullish_rsi_divergence_context",
+    "source": "docs/features/divergence-context/PREREGISTRATION.md, the bullish regular-divergence cells (frozen 2026-10-08); src/signals/divergences/config.py, lifecycle.py",
+    "description": "Bullish RSI divergence: price makes a lower low but RSI makes a higher low. I think it matters how the second low formed: if price pulled back meaningfully and rebuilt before the second low, the signal should behave differently than when the second low is just a straight-line extension of the first. Look at returns over the next few months.",
+    "stated": ["direction", "size", "trigger", "horizons_bars"],
+    "spec": {
+      "name": "Bullish regular RSI divergence: extension vs pullback+rebuild context",
+      "direction": "long",
+      "timeframe": "daily",
+      "duration": {
+        "description": "At least 5 bars between the two price lows; in the pullback+rebuild context the rebuild leg into the second low is at least 5 bars.",
+        "min_bars": 5,
+        "max_bars": null
+      },
+      "size": {
+        "description": "Price pivots from an ATR-ZigZag at 2.0 ATR(14). Pullback context: retrace between the lows >= 0.33 of the first leg; extension context: < 0.25.",
+        "normalisation": "atr",
+        "min": 2.0,
+        "max": null
+      },
+      "trigger": {
+        "description": "Price makes a lower low and RSI(14) a higher low at the paired pivot; fires when both the price and the RSI pivot are confirmed.",
+        "price_basis": "close",
+        "execution": "next_open"
+      },
+      "horizons_bars": [63, 21],
+      "invalidation": [
+        {"description": "Within 20 bars of confirmation, a low below the lower of the two price lows. Tracked descriptively, not used as a stop.", "phase": "after_entry"}
+      ],
+      "supporting_signals": [],
+      "secondary_metrics": ["hit rate", "win/loss magnitude ratio", "skew", "MFE/MAE"],
+      "control": {"description": "Matched no-divergence lower-low pivot pairs in the same context class (second low in the same calendar month; impulse, 63-day volatility and retrace within one quantile bin); effect = (divergence - control) in extension minus (divergence - control) in pullback."}
+    }
+  }
+]
