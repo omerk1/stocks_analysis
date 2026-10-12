@@ -238,13 +238,13 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     lines = [f"split: {split}", ""] if split else []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>7}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>9}  top hit")
     for r in rows:
         rank = "n/a" if not answerable(r) else _rank(r["rank"])
         if len(parts(r)) > 1:  # full/any part
             rank = f"{rank}/{_rank(r['rank_any'])}"
         score = f"{r['score']:.4f}" if r["score"] is not None else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>7}  {r['top'][:70]}")
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>9}  {r['top'][:70]}")
     scored = [r for r in rows if answerable(r)]
     groups = {"all": scored}
     for key in ("type", "style"):

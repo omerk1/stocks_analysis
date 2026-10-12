@@ -18,16 +18,19 @@ Text is lowercased and split on anything that isn't a letter or digit, so a snak
 name matches its plain words too. No stemming: "retest" and "retesting" are different words.
 
 What's indexed (`indexed_text`) is the chunk's body, its heading trail (`section`) and, for
-an experiment-table row, the identifying values `chunk` moved out of the row's text into
-metadata (a cell's id, its tier and outcome), so an id typed into a question still finds
-its row. Left out: the file path and the metadata key names, which would make a question
-word such as "status" or "design" match every chunk of a file with that name; a CSV row's
-"row N" placeholder section, whose number would match any question with that number in
-it; and the module code (M1-M22), study-internal shorthand a question shouldn't need.
-A section's own heading is in the trail and usually on the body's first line too, so its
-words count twice: kept on purpose, the usual title boost (a heading says what a passage
-is about more than any body sentence). Dev hit@5 0.76 with it, 0.71 without: 2 questions,
-within noise, so it's kept as the conventional choice, not as a measured win.
+an experiment-table row, the id values `chunk` moved out of the row's text into metadata
+(`cell_id`, `trial_id`, `experiment_id`), so an id typed into a question still finds its
+row. Left out: the file path and metadata key names, which would make a question word such
+as "status" or "design" match every chunk of a file with that name; a CSV row's "row N"
+placeholder section, and its `tier` and `outcome` columns, which are mostly bare numbers
+that would match any question with that number in it; and its `module` column. Module codes
+(M1-M22) still reach the index through headings and prose, which use them throughout.
+
+A section's own heading is in the trail and, on the section's first piece, on the body's
+first line too, so there its words count twice: kept on purpose, the usual title boost (a
+heading says what a passage is about more than any body sentence). Later pieces of a split
+section get the trail once. Dev hit@5 0.76 with it, 0.71 without: 2 questions, within
+noise, so it's kept as the conventional choice, not as a measured win.
 
 **Reciprocal rank fusion** merges the two rankings by position, not score (cosine
 similarity and BM25 aren't on the same scale): each chunk gets `1 / (RRF_K + rank)` from
@@ -46,12 +49,11 @@ from collections import Counter
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, NodeWithScore
 
-from src.llm.research_docs.chunk import ROW_ID_COLUMNS
 from src.llm.research_docs.retrieve import TOP_K, search
 
 RRF_K = 60
 POOL = 20  # how deep each list goes before fusing
-ROW_IDS = tuple(c for c in ROW_ID_COLUMNS if c != "module")
+ROW_IDS = ("cell_id", "trial_id", "experiment_id")  # see the module docstring
 
 
 def tokens(text: str) -> list[str]:
