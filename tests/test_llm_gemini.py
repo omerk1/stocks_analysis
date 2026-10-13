@@ -33,7 +33,8 @@ class StubModels:
         meta = SimpleNamespace(prompt_token_count=self.prompt_tokens, candidates_token_count=self.output,
                                thoughts_token_count=self.thinking,
                                total_token_count=self.prompt_tokens + self.output + self.thinking)
-        candidates = [SimpleNamespace(finish_reason=SimpleNamespace(name=self.finish))] if self.candidates else []
+        reason = SimpleNamespace(name=self.finish) if self.finish else None
+        candidates = [SimpleNamespace(finish_reason=reason)] if self.candidates else []
         return SimpleNamespace(text=self.text, usage_metadata=meta if self.usage else None, candidates=candidates)
 
 
@@ -149,12 +150,68 @@ def test_missing_usage_or_failed_call_charges_the_worst_case(tmp_path):
     assert [(r["total_tokens"], r.get("estimated")) for r in rows] == [(500, True), (500, True)]
 
 
+def test_rejected_request_is_not_charged_but_an_interrupted_one_is(tmp_path):
+    from google.genai import errors
+
+    rejected = errors.ClientError(429, {"error": {"code": 429, "message": "rate limited", "status": "RESOURCE_EXHAUSTED"}})
+    client, _ = _client(tmp_path, error=rejected)
+    with pytest.raises(errors.ClientError):
+        client.generate("hi", purpose="test")
+    assert read_ledger(tmp_path / "usage.jsonl") == []
+    client, _ = _client(tmp_path, error=KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        client.generate("hi", purpose="test")
+    assert [r.get("estimated") for r in read_ledger(tmp_path / "usage.jsonl")] == [True]
+
+
+def test_missing_finish_reason_with_text_is_a_normal_reply(tmp_path):
+    client, _ = _client(tmp_path, finish=None)
+    assert client.generate("hi", purpose="test").finish_reason == "STOP"
+
+
+def test_parallel_calls_cannot_share_the_last_budget(tmp_path):
+    # Room for exactly one call (100 + 400 = 500 of 700); the stub is slow, so without the
+    # lock both threads would pass the check before either records.
+    import threading
+    import time
+
+    budget = Budget(max_output_tokens=400, daily_token_cap=700)
+    outcomes = []
+
+    def call():
+        client, models = _client(tmp_path, budget=budget, output=400)
+        original = models.generate_content
+        models.generate_content = lambda **kw: (time.sleep(0.2), original(**kw))[1]
+        try:
+            client.generate("hi", purpose="test")
+            outcomes.append("ok")
+        except BudgetExceeded:
+            outcomes.append("refused")
+
+    threads = [threading.Thread(target=call) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(outcomes) == ["ok", "refused"]
+
+
 def test_damaged_ledger_line_is_skipped(tmp_path):
     ledger = tmp_path / "usage.jsonl"
     ledger.write_text(json.dumps({"time": "2026-10-13T08:00:00+00:00", "total_tokens": 7}) + "\n"
                       + '{"time": "2026-10-13T09')
     with pytest.warns(UserWarning, match="unreadable"):
         assert used_on(ledger, "2026-10-13") == 7
+    # The next record starts on a fresh line instead of being glued onto the damaged one.
+    client, _ = _client(tmp_path)
+    with pytest.warns(UserWarning):
+        client.generate("hi", purpose="test")
+    with pytest.warns(UserWarning):
+        assert used_on(ledger, "2026-10-13") == 7 + 120
+    # Valid JSON that isn't a record is skipped too.
+    ledger.write_text("12\n")
+    with pytest.warns(UserWarning):
+        assert used_on(ledger, "2026-10-13") == 0
 
 
 def test_budget_rejects_dynamic_thinking():

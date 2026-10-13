@@ -14,8 +14,9 @@ Every call goes through `GeminiClient.generate`, which:
    model's hidden reasoning. Gemini 2.5 models think by default, and thinking tokens are
    billed as output, so the default here is 0 (off) and a caller turns it on on purpose.
 4. **records what was spent.** The token counts the API reports back are appended to a
-   ledger (one JSON line per call). If the call fails after it was sent, or the reply
-   carries no usage, the worst case is recorded instead (`"estimated": true`): spending
+   ledger (one JSON line per call). If the call fails after it was sent (anything but a
+   4xx rejection, which isn't billed), or the reply carries no usage, the worst case is
+   recorded instead (`"estimated": true`): spending
    that might have happened counts against the cap. `python -m src.llm.gemini usage`
    summarises the ledger.
 
@@ -23,7 +24,8 @@ The ledger lives in the main checkout's `data/llm/` (git-ignored), found through
 every worktree charges the same daily total instead of each starting from zero. A file
 lock is held from the cap check to the ledger write, so two processes can't both pass
 the check on the same remaining budget; calls from parallel processes run one at a time,
-which is fine at this repo's scale.
+which is fine at this repo's scale. Requests time out after `REQUEST_TIMEOUT_MS`, so a
+hung call can't hold the lock forever.
 
 The cap is in tokens, not money: prices change and differ per model, token counts don't
 drift. A prepaid balance with auto-reload off is the hard money limit; this is the one the
@@ -36,7 +38,6 @@ Tests never reach the API: `GeminiClient` takes any object shaped like
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import subprocess
 import warnings
@@ -51,6 +52,8 @@ from pydantic import BaseModel, ValidationError
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 LEDGER_NAME = "gemini_usage.jsonl"
+# The lock is held across the call, so a hung request must not hold it forever.
+REQUEST_TIMEOUT_MS = 120_000
 
 
 @dataclass(frozen=True)
@@ -121,11 +124,11 @@ def read_ledger(path: Path) -> list[dict]:
                 continue
             try:
                 row = json.loads(line)
-                if isinstance(row.get("time"), str) and isinstance(row.get("total_tokens"), int):
-                    rows.append(row)
-                    continue
             except json.JSONDecodeError:
-                pass
+                row = None
+            if isinstance(row, dict) and isinstance(row.get("time"), str) and isinstance(row.get("total_tokens"), int):
+                rows.append(row)
+                continue
             warnings.warn(f"{path}:{n}: unreadable ledger line skipped")
     return rows
 
@@ -137,6 +140,8 @@ def used_on(path: Path, day: str) -> int:
 
 @contextmanager
 def _locked(ledger_path: Path):
+    import fcntl  # Unix only; imported here so the module (and its tests) load anywhere
+
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     with ledger_path.with_suffix(".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -168,7 +173,8 @@ class GeminiClient:
             from google import genai
 
             load_dotenv()
-            client = genai.Client()  # reads GOOGLE_API_KEY
+            client = genai.Client(  # reads GOOGLE_API_KEY
+                http_options=genai.types.HttpOptions(timeout=REQUEST_TIMEOUT_MS))
         self._client = client
 
     def generate(
@@ -184,7 +190,7 @@ class GeminiClient:
         With `response_schema`, Gemini is asked for JSON in that shape and the reply is
         validated into it (`Reply.parsed`); a reply that doesn't validate raises.
         """
-        from google.genai import types
+        from google.genai import errors, types
 
         b = self.budget
         schema = response_schema.model_json_schema() if response_schema else None
@@ -216,9 +222,12 @@ class GeminiClient:
                     f"over the daily cap of {b.daily_token_cap}")
             try:
                 response = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
-            except Exception:
-                # The request may have been billed (a timeout after generation finished):
-                # charge the worst case rather than nothing.
+            except errors.ClientError:
+                # 4xx (bad request, bad key, rate limit): rejected before generating, not billed.
+                raise
+            except BaseException:
+                # Anything else (server error, timeout, Ctrl-C mid-call) may have been billed
+                # after generation finished: charge the worst case rather than nothing.
                 self._record(purpose, Usage(counted, 0, 0, worst), estimated=True)
                 raise
             meta = response.usage_metadata
@@ -236,7 +245,8 @@ class GeminiClient:
         if not response.candidates:
             raise ReplyError("no reply: the prompt was blocked")
         finish = response.candidates[0].finish_reason
-        finish_reason = getattr(finish, "name", str(finish))
+        # Some responses carry no finish reason; with text present that's a normal reply.
+        finish_reason = "STOP" if finish is None else getattr(finish, "name", str(finish))
         if finish_reason == "MAX_TOKENS":
             raise ReplyError(f"reply cut off at max_output_tokens={b.max_output_tokens}")
         if finish_reason != "STOP":
@@ -257,8 +267,15 @@ class GeminiClient:
                 "purpose": purpose, **asdict(usage)}
         if estimated:
             line["estimated"] = True
+        # After an interrupted write the file ends mid-line; start a new line so this row
+        # isn't glued onto the damaged one and lost with it.
+        damaged_end = False
+        if self.ledger_path.exists() and self.ledger_path.stat().st_size:
+            with self.ledger_path.open("rb") as f:
+                f.seek(-1, 2)
+                damaged_end = f.read(1) != b"\n"
         with self.ledger_path.open("a") as f:
-            f.write(json.dumps(line) + "\n")
+            f.write(("\n" if damaged_end else "") + json.dumps(line) + "\n")
 
 
 def summarise(rows: list[dict]) -> list[str]:
