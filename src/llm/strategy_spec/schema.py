@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal, get_args
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -172,15 +172,14 @@ class RequestGroup:
     details: tuple[str, ...]
 
 
-def group_unsupported(items: list[UnsupportedRequest], by_field: bool = False) -> list[RequestGroup]:
-    """`items` merged by `UnsupportedRequest.key` (and by field too if `by_field`), in
-    first-seen order; details are merged with case and spacing ignored. An LLM repeating a
-    request shouldn't ask the user twice or count twice in the log, so every reader goes
-    through this rather than reading `spec.unsupported` item by item."""
-    groups: dict[tuple, tuple[UnsupportedRequest, dict, dict]] = {}
+def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
+    """`items` merged by `UnsupportedRequest.key`, in first-seen order; details are merged
+    with case and spacing ignored. An LLM repeating a request shouldn't ask the user twice
+    or count twice in the log, so every reader goes through this rather than reading
+    `spec.unsupported` item by item."""
+    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict, dict]] = {}
     for item in items:
-        key = (*item.key(), item.field) if by_field else item.key()
-        first, fields, details = groups.setdefault(key, (item, {}, {}))
+        first, fields, details = groups.setdefault(item.key(), (item, {}, {}))
         fields[item.field] = None  # dicts as ordered sets
         if item.detail:
             details.setdefault(request_wording(item.detail), item.detail)
@@ -298,14 +297,18 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # Blocking: the spec can't be tested as stated. A field may also be reported missing
     # (an intraday idea has no supported timeframe), so the user can pick a supported one.
-    # One gap per field a request was filed under, with that field's details; a repeat
-    # within a field is one gap. In field order, like the gaps above.
-    order = get_args(SpecField)
-    for group in sorted(group_unsupported(spec.unsupported, by_field=True), key=lambda g: order.index(g.fields[0])):
-        detail = f" ({'; '.join(group.details)})" if group.details else ""
-        add(group.fields[0], "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
+    # One gap per field a request was filed under, worded as the request was first given,
+    # with only that field's details; a repeat within a field is one gap.
+    for group in group_unsupported(spec.unsupported):
+        key = (request_wording(group.requested), group.reason)
+        for field in group.fields:
+            same = group_unsupported([i for i in spec.unsupported if i.key() == key and i.field == field])
+            detail = f" ({'; '.join(same[0].details)})" if same[0].details else ""
+            add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
-    return gaps
+    # Field order across every kind of gap (a stable sort keeps each field's own order).
+    order = {name: n for n, name in enumerate(StrategySpec.model_fields)}
+    return sorted(gaps, key=lambda g: order.get(g.field, len(order)))
 
 
 GOLDEN_SPECS_PATH = Path(__file__).with_name("golden_specs.json")

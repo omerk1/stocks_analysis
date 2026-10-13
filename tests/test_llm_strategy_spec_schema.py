@@ -146,6 +146,15 @@ def test_unsupported_gaps_come_in_field_order_with_details_merged():
     assert gaps[0].reason == "'intraday': unsupported timeframe (no intraday bars)"
 
 
+def test_unsupported_gaps_sit_in_field_order_among_the_others_with_one_wording():
+    items = [UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe"),
+             UnsupportedRequest(requested="15-MINUTE BARS", field="trigger", reason="unsupported_timeframe")]
+    gaps = find_gaps(_complete(control=None, unsupported=items))
+    assert [(g.field, g.kind) for g in gaps] == [
+        ("timeframe", "unsupported"), ("trigger", "unsupported"), ("control", "missing")]
+    assert {g.reason for g in gaps[:2]} == {"'15-minute bars': unsupported timeframe"}
+
+
 def test_unsupported_timeframe_also_leaves_the_field_missing():
     spec = _complete(timeframe=None, unsupported=[UnsupportedRequest(
         requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")])
