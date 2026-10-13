@@ -121,11 +121,13 @@ def test_unsupported_request_blocks_and_keeps_the_users_words():
                                    "'earnings surprise': unsupported data (no earnings data)")]
 
 
-def test_a_repeated_unsupported_request_is_one_gap():
+def test_a_repeated_unsupported_request_is_kept_once_per_field():
     first = UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")
-    again = UnsupportedRequest(requested="15-Minute Bars", field="trigger", reason="unsupported_timeframe")
-    assert [(g.field, g.kind) for g in find_gaps(_complete(unsupported=[first, again]))] == [
-        ("timeframe", "unsupported")]
+    same = UnsupportedRequest(requested="15-Minute  Bars", field="timeframe", reason="unsupported_timeframe")
+    other_field = UnsupportedRequest(requested="15-minute bars", field="trigger", reason="unsupported_timeframe")
+    spec = _complete(unsupported=[first, same, other_field])
+    assert spec.unsupported == [first, other_field]  # on the spec itself, for every reader
+    assert [(g.field, g.kind) for g in find_gaps(spec)] == [("timeframe", "unsupported"), ("trigger", "unsupported")]
 
 
 def test_unsupported_timeframe_also_leaves_the_field_missing():

@@ -80,6 +80,7 @@ def test_rendering_does_not_load_signal_code():
     # interpreter, since this test session has already imported them.
     code = ("import sys; from src.llm.strategy_spec import catalogue; catalogue.render(); "
             "print([m for m in sys.modules if m == 'pandas' or m.startswith(('src.signals', 'src.models'))])")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          cwd=Path(__file__).resolve().parents[1])
+    assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"

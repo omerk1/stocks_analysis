@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -24,21 +24,27 @@ def test_log_appends_one_line_per_request(tmp_path):
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     assert len(rows) == 3
     assert rows[1] == {"time": "2026-10-13T12:00:00+00:00", "spec_name": "idea", "idea": "buy beats",
-                       **EARNINGS}
-    assert rows[2]["idea"] is None and rows[2]["detail"] is None
+                       "requested": "Earnings surprise", "reason": "unsupported_data",
+                       "fields": ["supporting_signals"], "details": ["no earnings data"]}
+    assert rows[2]["idea"] is None and rows[2]["details"] == []
 
 
-def test_a_request_repeated_within_one_spec_is_logged_once(tmp_path):
+def test_one_request_under_two_fields_is_one_line_with_both(tmp_path):
     path = tmp_path / "log.jsonl"
-    repeat = {**INTRADAY, "requested": "15-Minute  bars", "field": "trigger"}
-    assert unsupported.log_unsupported(_spec(INTRADAY, repeat, EARNINGS), path=path) == 2
-    assert [json.loads(line)["field"] for line in path.read_text().splitlines()] == ["timeframe",
-                                                                                     "supporting_signals"]
+    again = {**INTRADAY, "requested": "15-Minute  bars", "field": "trigger", "detail": "intraday entry"}
+    assert unsupported.log_unsupported(_spec(INTRADAY, again, EARNINGS), path=path) == 2
+    first = json.loads(path.read_text().splitlines()[0])
+    assert first["requested"] == "15-minute bars"
+    assert first["fields"] == ["timeframe", "trigger"] and first["details"] == ["intraday entry"]
 
 
-def test_naive_time_is_refused(tmp_path):
+def test_time_is_stored_in_utc_and_naive_time_is_refused(tmp_path):
+    path = tmp_path / "log.jsonl"
+    unsupported.log_unsupported(_spec(INTRADAY), path=path,
+                                now=datetime(2026, 10, 13, 1, tzinfo=timezone(timedelta(hours=3))))
+    assert json.loads(path.read_text())["time"] == "2026-10-12T22:00:00+00:00"
     with pytest.raises(ValueError, match="timezone-aware"):
-        unsupported.log_unsupported(_spec(INTRADAY), path=tmp_path / "log.jsonl", now=datetime(2026, 10, 13))
+        unsupported.log_unsupported(_spec(INTRADAY), path=path, now=datetime(2026, 10, 13))
 
 
 def test_a_spec_without_unsupported_requests_writes_nothing(tmp_path):
@@ -52,24 +58,26 @@ def test_damaged_line_is_skipped_with_a_warning(tmp_path):
     unsupported.log_unsupported(_spec(INTRADAY), path=path)
     with path.open("a") as f:
         f.write('{"time": "2026-10-1\n[1, 2]\n')
+        f.write('{"time": "2026-10-13T00:00:00", "requested": "x", "reason": "other", "fields": []}\n')  # naive
     unsupported.log_unsupported(_spec(EARNINGS), path=path)
     with pytest.warns(UserWarning, match="unreadable line"):
         rows = unsupported.read_log(path)
     assert [r["requested"] for r in rows] == ["15-minute bars", "Earnings surprise"]
 
 
+def _row(time, requested, fields, reason="unsupported_data"):
+    return {"time": datetime.fromisoformat(time), "requested": requested, "fields": fields, "reason": reason}
+
+
 def test_summary_groups_by_wording_and_reason_most_requested_first():
     rows = [
-        {"time": "2026-10-01T00:00:00+00:00", "requested": "Earnings surprise", "field": "supporting_signals",
-         "reason": "unsupported_data"},
-        {"time": "2026-10-03T00:00:00+00:00", "requested": "earnings  SURPRISE", "field": "trigger",
-         "reason": "unsupported_data"},
-        {"time": "2026-10-02T00:00:00+00:00", "requested": "15-minute bars", "field": "timeframe",
-         "reason": "unsupported_timeframe"},
+        _row("2026-10-12T23:00:00+00:00", "Earnings surprise", ["supporting_signals"]),
+        _row("2026-10-13T01:00:00+03:00", "earnings  SURPRISE", ["trigger"]),  # 22:00 UTC, earlier
+        _row("2026-10-02T00:00:00+00:00", "15-minute bars", ["timeframe"], "unsupported_timeframe"),
     ]
     lines = unsupported.summarise(rows)
     assert len(lines) == 2
-    assert lines[0].split() == ["2", "unsupported_data", "supporting_signals,trigger", "last", "2026-10-03",
+    assert lines[0].split() == ["2", "unsupported_data", "supporting_signals,trigger", "last", "2026-10-12",
                                 "earnings", "surprise"]
     assert lines[1].split()[0] == "1" and lines[1].endswith("15-minute bars")
     assert unsupported.summarise(rows, top=1) == lines[:1]

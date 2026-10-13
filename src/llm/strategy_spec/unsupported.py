@@ -1,12 +1,14 @@
-"""Back-reporting: every unsupported request a spec carries is appended to a local log, and
+"""Back-reporting: the unsupported requests a spec carries are appended to a local log, and
 `python -m src.llm.strategy_spec.unsupported summary` lists the most-requested ones. That
 list is the development backlog: what users ask for that doesn't exist yet.
 
 The log is `data/llm/unsupported_requests.jsonl` in the main checkout (git-ignored, found
-through git like the Gemini usage ledger), one JSON line per request. Requests are grouped
-by their wording (case and spacing ignored) and reason, so "Intraday bars" and "intraday
-bars" count together, while "15-minute bars" is its own line: merging synonyms is a
-judgement left to whoever reads the summary.
+through git like the Gemini usage ledger). Each spec writes one JSON line per distinct
+request: the same wording (case and spacing ignored) and reason filed under two fields is
+one line listing both fields and every detail given, so the summary counts ideas asking,
+not how often the LLM repeated itself. "Intraday bars" and "intraday bars" count together,
+while "15-minute bars" is its own line: merging synonyms is a judgement left to whoever
+reads the summary.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.llm.paths import llm_data_dir, locked
-from src.llm.strategy_spec.schema import StrategySpec, distinct_unsupported, request_wording
+from src.llm.strategy_spec.schema import StrategySpec, request_wording
 
 LOG_NAME = "unsupported_requests.jsonl"
 
@@ -30,18 +32,21 @@ def default_log_path() -> Path:
 
 def log_unsupported(spec: StrategySpec, idea: str | None = None, path: Path | None = None,
                     now: datetime | None = None) -> int:
-    """Append one line per unsupported request in `spec`; returns how many were logged.
-    `idea` is the user's original text, kept so a request can be read in context. A request
-    the spec repeats is logged once: the count is of ideas asking, not of LLM repeats."""
-    items = distinct_unsupported(spec)
-    if not items:
+    """Append one line per distinct request in `spec`; returns how many were logged.
+    `idea` is the user's original text, kept so a request can be read in context."""
+    groups: dict[tuple[str, str], dict] = {}
+    for item in spec.unsupported:
+        g = groups.setdefault(item.key(), {"requested": item.requested, "reason": item.reason,
+                                           "fields": [], "details": []})
+        g["fields"] += [item.field] if item.field not in g["fields"] else []
+        g["details"] += [item.detail] if item.detail and item.detail not in g["details"] else []
+    if not groups:
         return 0
     now = now or datetime.now(timezone.utc)
-    if now.tzinfo is None:
+    if now.utcoffset() is None:
         raise ValueError("`now` must be timezone-aware")
     time = now.astimezone(timezone.utc).isoformat(timespec="seconds")
-    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **item.model_dump()})
-             for item in items]
+    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **g}) for g in groups.values()]
     path = path or default_log_path()
     # Locked like the Gemini ledger: sessions in other worktrees append to the same file.
     with locked(path), path.open("a") as f:
@@ -58,28 +63,40 @@ def read_log(path: Path) -> list[dict]:
         for n, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                row = None
-            if isinstance(row, dict) and all(isinstance(row.get(k), str) for k in ("time", "requested", "reason")):
+            row = _parse(line)
+            if row is None:
+                warnings.warn(f"{path}:{n}: unreadable line skipped")
+            else:
                 rows.append(row)
-                continue
-            warnings.warn(f"{path}:{n}: unreadable line skipped")
     return rows
 
 
+def _parse(line: str) -> dict | None:
+    """A log line with its `time` as an aware datetime, or None if it isn't one."""
+    try:
+        row = json.loads(line)
+        if not (isinstance(row, dict) and isinstance(row.get("requested"), str)
+                and isinstance(row.get("reason"), str) and isinstance(row.get("fields"), list)):
+            return None
+        time = datetime.fromisoformat(row["time"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return None
+    return {**row, "time": time} if time.utcoffset() is not None else None
+
+
 def summarise(rows: list[dict], top: int = 20) -> list[str]:
-    """The `top` most-requested (wording, reason) pairs, most requested first: count,
-    reason, the fields it was asked for in, when it was last asked, and the wording."""
-    groups: dict[tuple[str, str], dict] = defaultdict(lambda: {"count": 0, "fields": set(), "last": ""})
+    """The `top` most-requested (wording, reason) pairs, most requested first: how many
+    ideas asked, the reason, the fields it was filed under, the last day it was asked
+    (UTC), and the wording."""
+    groups: dict[tuple[str, str], dict] = defaultdict(lambda: {"count": 0, "fields": set(), "last": None})
     for r in rows:
         g = groups[(request_wording(r["requested"]), r["reason"])]
         g["count"] += 1
-        g["fields"].add(str(r.get("field", "?")))
-        g["last"] = max(g["last"], r["time"])
+        g["fields"].update(map(str, r["fields"]))
+        g["last"] = r["time"] if g["last"] is None else max(g["last"], r["time"])
     ranked = sorted(groups.items(), key=lambda kv: (-kv[1]["count"], kv[0]))[:top]
-    return [f"{g['count']:>4}  {reason:<22} {','.join(sorted(g['fields'])):<20} last {g['last'][:10]}  {requested}"
+    return [f"{g['count']:>4}  {reason:<22} {','.join(sorted(g['fields'])):<20} "
+            f"last {g['last'].astimezone(timezone.utc).date()}  {requested}"
             for (requested, reason), g in ranked]
 
 

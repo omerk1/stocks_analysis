@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from src.llm.strategy_spec import catalogue
 
@@ -160,15 +160,6 @@ def request_wording(requested: str) -> str:
     return " ".join(requested.lower().split())
 
 
-def distinct_unsupported(spec: StrategySpec) -> list[UnsupportedRequest]:
-    """`spec.unsupported` with repeats dropped (first kept): an LLM listing one request
-    twice, or under two fields, shouldn't ask the user twice or count as two requests."""
-    first: dict[tuple[str, str], UnsupportedRequest] = {}
-    for item in spec.unsupported:
-        first.setdefault(item.key(), item)
-    return list(first.values())
-
-
 class StrategySpec(_Section):
     name: Text | None = None
     direction: Direction | None = None
@@ -185,6 +176,16 @@ class StrategySpec(_Section):
     # Capability catalogue ids the spec is built from (`catalogue.py`), e.g. "indicator:rsi".
     uses: list[Text] = Field(default_factory=list)
     unsupported: list[UnsupportedRequest] = Field(default_factory=list)
+
+    @field_validator("unsupported")
+    @classmethod
+    def _drop_repeats(cls, items: list[UnsupportedRequest]) -> list[UnsupportedRequest]:
+        # An LLM listing one request twice under the same field shouldn't ask the user twice;
+        # the first is kept. The same request under two fields stays: each field has a gap.
+        first: dict[tuple[str, str, str], UnsupportedRequest] = {}
+        for item in items:
+            first.setdefault((*item.key(), item.field), item)
+        return list(first.values())
 
 
 @dataclass(frozen=True)
@@ -278,7 +279,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # Blocking: the spec can't be tested as stated. A field may also be reported missing
     # (an intraday idea has no supported timeframe), so the user can pick a supported one.
-    for item in distinct_unsupported(spec):
+    for item in spec.unsupported:
         detail = f" ({item.detail})" if item.detail else ""
         add(item.field, "unsupported", f"{item.requested!r}: {item.reason.replace('_', ' ')}{detail}")
 
