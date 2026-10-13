@@ -52,6 +52,6 @@ bash scripts/run_tests.sh tests/test_<area>_*.py -q
 - Never merge, never force-push, never delete branches or worktrees.
 - If a command is denied, stop retrying it. Don't rephrase it, wrap it
   (`sh -c`, `bash -c`, a script), use `git -C`, or call the binary by full
-  path. Write `BLOCKED.md` at the worktree root (it's git-ignored) with the
-  exact command and why you needed it, mention it in the PR body if a PR gets
-  opened, and keep going on work that doesn't depend on it.
+  path. Write `BLOCKED.md` at the worktree root with the exact command and
+  why you needed it, leave it uncommitted, mention it in the PR body if a PR
+  gets opened, and keep going on work that doesn't depend on it.

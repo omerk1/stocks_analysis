@@ -45,7 +45,7 @@ log=$HOME/claude-runs/$slug-$(date +%Y%m%d-%H%M%S).jsonl
 errlog=${log%.jsonl}.err
 echo "worktree: $wt"
 echo "log:      $log  (follow with: tail -f $log)"
-echo "stderr:   $errlog"
+echo "stderr:   $errlog  (follow with: tail -f $errlog)"
 
 cmd=(claude -p --model sonnet --permission-mode auto --permission-prompts none
      --max-budget-usd "$budget" --max-turns 150 --output-format stream-json --verbose)
@@ -87,7 +87,7 @@ echo "== commits (origin/main..HEAD):"
 git log --oneline origin/main..HEAD
 echo "== git status --short:"
 git status --short
-if [ -f BLOCKED.md ]; then  # git-ignored, so not in the status above
+if [ -f BLOCKED.md ]; then
   echo "== BLOCKED.md:"
   cat BLOCKED.md
 fi
