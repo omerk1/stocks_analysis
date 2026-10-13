@@ -203,6 +203,19 @@ and report nothing on (b).
 - Every module reads from cache; no module recomputes the panel.
 - Plots before tests. Look at the distribution before you summarise it.
 
+## Tool and git conventions (general — not MA-specific)
+
+- **Edit files with the Edit/Write tools**, never heredoc Python, `python -c`, or
+  `sed`/`awk` on files. Appending to `docs/done.md` is an Edit too.
+- **Search with Read (and Grep/Glob where the session has them)**, not `cd … && grep`.
+  When grep/find via Bash is unavoidable, pass absolute paths — no `cd … &&` prefix.
+- **Delete merged branches only via `bash scripts/cleanup_merged.sh`**: run
+  `--dry-run` first, then `--apply`. Never `git branch -D`, `git worktree remove` or
+  `git push --delete` by hand.
+- **If a command is denied, STOP and report it.** Don't retry it rephrased, wrapped
+  (`sh -c`, `bash -c`, a script), with `git -C`, or via a full path to the binary.
+- **Never merge PRs, never force-push.**
+
 ## Working with parallel forked agents (general — not MA-specific)
 
 Moved here from a since-retired `docs/features/moving-averages/HANDOVER.md` (a live

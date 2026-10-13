@@ -10,7 +10,13 @@
       "Bash(python3 -m src.models.cli vendor-check *)",
       "Bash(python3 -m src.models.cli close-experiment *)",
       "Bash(python3 -m src.signals.moving_averages.cli validate-synth *)",
-      "Bash(black --check *)"
+      "Bash(black --check *)",
+      "Bash(bash scripts/cleanup_merged.sh)",
+      "Bash(bash scripts/cleanup_merged.sh *)"
+    ],
+    "ask": [
+      "Edit(**/scripts/cleanup_merged.sh)",
+      "Write(**/scripts/cleanup_merged.sh)"
     ]
   }
 }
