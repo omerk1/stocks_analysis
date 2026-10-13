@@ -313,28 +313,27 @@ def main() -> None:
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
     chosen = [q for q in questions if question_split(q) == args.split]
-    from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
-    keywords = KeywordIndex(indexed)
-    method = args.method
-    if args.method == "vector":
-        find = lambda question, k: search(index, question, k)  # noqa: E731
-    elif args.method == "keyword":
+    find, method = None, args.method  # None: evaluate's default, vector search
+    if args.method != "vector":
+        from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
+        keywords = KeywordIndex(indexed)
+    if args.method == "keyword":
         find = keywords.search
     elif args.method == "hybrid":
         find = lambda question, k: hybrid_search(index, keywords, question, k)  # noqa: E731
-    else:
+    elif args.method == "rerank":
         from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
         name = args.reranker or MODELS[0]
         score = cross_encoder(name)
         find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
         method = f"rerank (hybrid top {DEPTH}, {name})"
     head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {method} search"
-    find("warm-up", max(KS))  # the first call pays one-off setup; keep it out of the timing
+    evaluate(index, chosen[:1], find)  # the first search pays one-off setup; keep it out of the timing
     start = time.perf_counter()
     rows = evaluate(index, chosen, find)
     per_question = (time.perf_counter() - start) / len(chosen) if chosen else 0.0
     print(report(rows, stale, head))
-    print(f"{per_question:.2f} s per question (retrieval and re-ranking; models loaded and warmed up first)")
+    print(f"{per_question:.2f} s per question (models loaded and warmed up first)")
 
 
 if __name__ == "__main__":

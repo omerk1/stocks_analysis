@@ -59,3 +59,7 @@ def test_rerank_search_scores_hybrids_top_depth(monkeypatch):
     assert [h.node.node_id for h in out] == ["c", "a"]
     rerank_search(None, None, score, "q?", k=40, depth=30)
     assert calls["k"] == 40  # never fewer candidates than asked for
+    calls.clear()
+    with pytest.raises(ValueError):
+        rerank_search(None, None, score, "q?", k=0)
+    assert calls == {}  # a bad k fails before any search runs
