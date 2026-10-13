@@ -49,13 +49,21 @@ worktree_of() {
 # Best effort: lsof sees only processes this user may inspect, and a process
 # writing there with its cwd elsewhere isn't seen. It exits non-zero when some
 # processes are unreadable, so its status is ignored, but an empty list (this
-# shell has a cwd) aborts.
+# shell has a cwd) aborts. A worktree that can't be entered counts as in use.
 in_use() {
   local real cwds
-  real=$(cd "$1" && pwd -P)
+  real=$(cd "$1" 2>/dev/null && pwd -P) || { echo "  can't enter $1" >&2; return 0; }
   cwds=$(lsof -a -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
   if [ -z "$cwds" ]; then echo "lsof listed no processes; can't tell if $1 is in use" >&2; exit 1; fi
   printf '%s\n' "$cwds" | awk -v wt="$real" '$0==wt || index($0, wt "/")==1 {f=1} END {exit !f}'
+}
+
+# Whether branch $1 still points at $2 and is checked out only in worktree $3
+# (empty: nowhere), on a fresh read.
+unchanged() {
+  [ "$(git rev-parse -q --verify "refs/heads/$1" || true)" = "$2" ] || return 1
+  worktrees=$(git -C "$main_root" worktree list --porcelain)
+  [ "$(worktree_of "$1")" = "$3" ]
 }
 
 remote_tip() {
@@ -123,11 +131,12 @@ while read -r branch upstream <&3; do
     if [ ! -r "$wt" ] || [ ! -x "$wt" ]; then
       echo "SKIP $branch: can't read worktree $wt"; continue
     fi
-    dirty=$(git -C "$wt" status --porcelain)
+    if ! dirty=$(git -C "$wt" status --porcelain) || ! ignored=$(ignored_files "$wt"); then
+      echo "SKIP $branch: git status failed in worktree $wt"; continue
+    fi
     if [ -n "$dirty" ]; then
       echo "SKIP $branch: worktree $wt has uncommitted changes"; continue
     fi
-    ignored=$(ignored_files "$wt")
     if [ -n "$ignored" ]; then
       echo "SKIP $branch: worktree $wt has gitignored files, e.g. $(printf '%s\n' "$ignored" | head -1)"
       continue
@@ -141,27 +150,29 @@ while read -r branch upstream <&3; do
     echo "SKIP $branch: origin/$head moved past PR #$num"; continue
   fi
 
-  # Fresh look, in case another session moved the branch or checked it out
-  # elsewhere during the checks above.
-  if [ "$(git rev-parse -q --verify "$ref" || true)" != "$tip" ]; then
-    echo "SKIP $branch: moved or deleted during the checks"; continue
-  fi
-  worktrees=$(git -C "$main_root" worktree list --porcelain)
-  if [ "$(worktree_of "$branch")" != "$wt" ]; then
-    echo "SKIP $branch: checked out somewhere new during the checks"; continue
+  if ! unchanged "$branch" "$tip" "$wt"; then
+    echo "SKIP $branch: moved, deleted or checked out somewhere new during the checks"; continue
   fi
 
   echo "CLEAN $branch (PR #$num merged)"
-  if [ -n "$wt" ]; then act git -C "$main_root" worktree remove "$wt"; fi
-  # Compare-and-delete: refused if a commit landed since the checks (for example
-  # while the worktree was being removed). Then drop its tracking config, as
-  # branch -D would.
+  if [ -n "$wt" ]; then
+    act git -C "$main_root" worktree remove "$wt"
+    if [ "$mode" = apply ] && ! unchanged "$branch" "$tip" ""; then
+      echo "  KEEP $branch and origin/$head: moved or checked out again during the worktree removal"; continue
+    fi
+  fi
+  # Compare-and-delete: refused if a commit landed since the checks. Then drop
+  # its tracking config, as branch -D would.
   if [ "$mode" = apply ]; then
     echo "  + git update-ref -d $ref $tip"
     if ! git -C "$main_root" update-ref -d "$ref" "$tip" </dev/null; then
-      echo "  KEEP $branch and origin/$head: the branch moved since the checks"; continue
+      echo "  KEEP $branch and origin/$head: update-ref failed (git's error above)"; continue
     fi
-    git -C "$main_root" config --remove-section "branch.$branch" 2>/dev/null || true
+    if git -C "$main_root" config --get-regexp "^branch\.$(printf '%s' "$branch" | sed 's/[.[\*^$]/\\&/g')\." >/dev/null; then
+      echo "  + git config --remove-section branch.$branch"
+      git -C "$main_root" config --remove-section "branch.$branch" ||
+        echo "  WARN: branch.$branch config left behind (git's error above)"
+    fi
   else
     echo "  (dry-run) git update-ref -d $ref $tip; drop branch.$branch config"
   fi
