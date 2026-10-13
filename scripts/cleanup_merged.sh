@@ -8,8 +8,9 @@
 # A branch is cleaned only if all of these hold:
 #   - no PR with it as head is OPEN, and a MERGED one has the local tip as its head
 #     commit or an ancestor of it, so commits made after the merge are never lost
-#     (a squash merge leaves the branch unmerged in git's eyes, so branch -D is
-#     needed; the tip is checked again just before the worktree and branch go)
+#     (a squash merge leaves the branch unmerged in git's eyes, so the delete is
+#     forced; it is a compare-and-delete on the checked tip, run after the
+#     worktree is removed, so a commit landing meanwhile keeps the branch)
 #   - neither it nor its PR head is main, and it is not checked out in the main
 #     checkout or the one running this script
 #   - if checked out in a worktree, that worktree is under .claude/worktrees/, still
@@ -32,6 +33,7 @@ wt_prefix="$main_root/.claude/worktrees/"
 current=$(git branch --show-current)
 worktrees=$(git -C "$main_root" worktree list --porcelain)
 refs=$(git for-each-ref --format='%(refname:lstrip=2) %(upstream:short)' refs/heads)
+command -v lsof >/dev/null || { echo "lsof not found; can't tell which worktrees are in use" >&2; exit 1; }
 
 act() {
   if [ "$mode" = apply ]; then echo "  + $*"; "$@" </dev/null
@@ -43,15 +45,14 @@ worktree_of() {
     /^worktree /{p=substr($0,10)} $0=="branch " ref {print p}'
 }
 
-# Whether a running process has its cwd in worktree $1. Best effort: lsof sees
-# only processes this user may inspect, and a process writing there with its cwd
-# elsewhere isn't seen. It exits non-zero when some processes are unreadable, so
-# its status is ignored, but no lsof or an empty list (this shell has a cwd)
-# aborts. An unreadable worktree counts as in use.
+# Whether a running process has its cwd in worktree $1 (which must be readable).
+# Best effort: lsof sees only processes this user may inspect, and a process
+# writing there with its cwd elsewhere isn't seen. It exits non-zero when some
+# processes are unreadable, so its status is ignored, but an empty list (this
+# shell has a cwd) aborts.
 in_use() {
   local real cwds
-  command -v lsof >/dev/null || { echo "lsof not found; can't tell if $1 is in use" >&2; exit 1; }
-  real=$(cd "$1" 2>/dev/null && pwd -P) || { echo "  can't read $1" >&2; return 0; }
+  real=$(cd "$1" && pwd -P)
   cwds=$(lsof -a -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
   if [ -z "$cwds" ]; then echo "lsof listed no processes; can't tell if $1 is in use" >&2; exit 1; fi
   printf '%s\n' "$cwds" | awk -v wt="$real" '$0==wt || index($0, wt "/")==1 {f=1} END {exit !f}'
@@ -119,6 +120,9 @@ while read -r branch upstream <&3; do
     if [ ! -d "$wt" ]; then
       echo "SKIP $branch: worktree $wt is missing (git worktree prune)"; continue
     fi
+    if [ ! -r "$wt" ] || [ ! -x "$wt" ]; then
+      echo "SKIP $branch: can't read worktree $wt"; continue
+    fi
     dirty=$(git -C "$wt" status --porcelain)
     if [ -n "$dirty" ]; then
       echo "SKIP $branch: worktree $wt has uncommitted changes"; continue
@@ -137,13 +141,30 @@ while read -r branch upstream <&3; do
     echo "SKIP $branch: origin/$head moved past PR #$num"; continue
   fi
 
+  # Fresh look, in case another session moved the branch or checked it out
+  # elsewhere during the checks above.
   if [ "$(git rev-parse -q --verify "$ref" || true)" != "$tip" ]; then
     echo "SKIP $branch: moved or deleted during the checks"; continue
   fi
+  worktrees=$(git -C "$main_root" worktree list --porcelain)
+  if [ "$(worktree_of "$branch")" != "$wt" ]; then
+    echo "SKIP $branch: checked out somewhere new during the checks"; continue
+  fi
+
   echo "CLEAN $branch (PR #$num merged)"
   if [ -n "$wt" ]; then act git -C "$main_root" worktree remove "$wt"; fi
-  # branch -D still refuses a branch checked out in any worktree.
-  act git -C "$main_root" branch -D "$branch"
+  # Compare-and-delete: refused if a commit landed since the checks (for example
+  # while the worktree was being removed). Then drop its tracking config, as
+  # branch -D would.
+  if [ "$mode" = apply ]; then
+    echo "  + git update-ref -d $ref $tip"
+    if ! git -C "$main_root" update-ref -d "$ref" "$tip" </dev/null; then
+      echo "  KEEP $branch and origin/$head: the branch moved since the checks"; continue
+    fi
+    git -C "$main_root" config --remove-section "branch.$branch" 2>/dev/null || true
+  else
+    echo "  (dry-run) git update-ref -d $ref $tip; drop branch.$branch config"
+  fi
   if [ -z "$remote_oid" ]; then
     echo "  origin/$head already gone"
   elif [ "$mode" = apply ] && [ "$(remote_tip "$head")" != "$oid" ]; then
