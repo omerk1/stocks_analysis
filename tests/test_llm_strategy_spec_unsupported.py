@@ -38,6 +38,13 @@ def test_one_request_under_two_fields_is_one_line_with_both(tmp_path):
     assert first["fields"] == ["timeframe", "trigger"] and first["details"] == ["intraday entry"]
 
 
+def test_a_same_field_repeat_keeps_its_detail(tmp_path):
+    path = tmp_path / "log.jsonl"
+    unsupported.log_unsupported(_spec(INTRADAY, {**INTRADAY, "detail": "intraday entry"}), path=path)
+    row = json.loads(path.read_text())
+    assert row["fields"] == ["timeframe"] and row["details"] == ["intraday entry"]
+
+
 def test_time_is_stored_in_utc_and_naive_time_is_refused(tmp_path):
     path = tmp_path / "log.jsonl"
     unsupported.log_unsupported(_spec(INTRADAY), path=path,
@@ -58,15 +65,19 @@ def test_damaged_line_is_skipped_with_a_warning(tmp_path):
     unsupported.log_unsupported(_spec(INTRADAY), path=path)
     with path.open("a") as f:
         f.write('{"time": "2026-10-1\n[1, 2]\n')
-        f.write('{"time": "2026-10-13T00:00:00", "requested": "x", "reason": "other", "fields": []}\n')  # naive
+        f.write('{"time": "2026-10-13T00:00:00", "requested": "x", "reason": "other", "fields": ["trigger"]}\n')
+        f.write('{"time": "2026-10-13T00:00:00+00:00", "requested": "x", "reason": "other", "fields": []}\n')
+        f.write('{"time": "2026-10-13T00:00:00+00:00", "requested": "x", "reason": "other", "fields": [null]}\n')
     unsupported.log_unsupported(_spec(EARNINGS), path=path)
-    with pytest.warns(UserWarning, match="unreadable line"):
+    with pytest.warns(UserWarning, match="unreadable line") as caught:
         rows = unsupported.read_log(path)
+    assert len(caught) == 5
     assert [r["requested"] for r in rows] == ["15-minute bars", "Earnings surprise"]
+    assert all(isinstance(r["time"], str) for r in rows)  # rows as stored
 
 
 def _row(time, requested, fields, reason="unsupported_data"):
-    return {"time": datetime.fromisoformat(time), "requested": requested, "fields": fields, "reason": reason}
+    return {"time": time, "requested": requested, "fields": fields, "reason": reason}
 
 
 def test_summary_groups_by_wording_and_reason_most_requested_first():

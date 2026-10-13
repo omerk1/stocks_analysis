@@ -126,8 +126,12 @@ def test_a_repeated_unsupported_request_is_kept_once_per_field():
     same = UnsupportedRequest(requested="15-Minute  Bars", field="timeframe", reason="unsupported_timeframe")
     other_field = UnsupportedRequest(requested="15-minute bars", field="trigger", reason="unsupported_timeframe")
     spec = _complete(unsupported=[first, same, other_field])
-    assert spec.unsupported == [first, other_field]  # on the spec itself, for every reader
     assert [(g.field, g.kind) for g in find_gaps(spec)] == [("timeframe", "unsupported"), ("trigger", "unsupported")]
+    # Read at gap-check time, so a list extended after the spec was built is covered too.
+    spec.unsupported.append(UnsupportedRequest(requested="15-MINUTE bars", field="timeframe",
+                                               reason="unsupported_timeframe", detail="for the entry"))
+    gaps = find_gaps(spec)
+    assert len(gaps) == 2 and gaps[0].reason == "'15-minute bars': unsupported timeframe (for the entry)"
 
 
 def test_unsupported_timeframe_also_leaves_the_field_missing():

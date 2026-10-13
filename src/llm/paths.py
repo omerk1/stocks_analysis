@@ -15,10 +15,13 @@ from pathlib import Path
 
 @contextmanager
 def locked(path: Path):
-    """An exclusive lock on `path` (through `<name>.lock` next to it), so processes in
-    different worktrees don't interleave their writes. Unix only (`fcntl`)."""
+    """An exclusive lock on `path` (through a `.lock` file next to it), so processes in
+    different worktrees don't interleave their writes. Unix only (`fcntl`).
+
+    The lock file replaces the suffix (`gemini_usage.jsonl` -> `gemini_usage.lock`): that
+    name is the one older code locks, and two names for one ledger would be two locks."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.with_name(path.name + ".lock").open("w") as lock:
+    with path.with_suffix(".lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             yield

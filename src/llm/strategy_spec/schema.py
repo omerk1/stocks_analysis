@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from src.llm.strategy_spec import catalogue
 
@@ -152,12 +152,38 @@ class UnsupportedRequest(_Section):
     detail: Text | None = None
 
     def key(self) -> tuple[str, str]:
-        """The same request, whatever its case, spacing or field."""
+        """What makes two items one request: the wording (case and spacing ignored) and the
+        reason. Not the field: one request can be filed under several (`group_unsupported`)."""
         return request_wording(self.requested), self.reason
 
 
 def request_wording(requested: str) -> str:
     return " ".join(requested.lower().split())
+
+
+@dataclass(frozen=True)
+class RequestGroup:
+    """One distinct request: the first wording given, every field it was filed under and
+    every detail, in order, without repeats."""
+
+    requested: str
+    reason: UnsupportedReason
+    fields: tuple[SpecField, ...]
+    details: tuple[str, ...]
+
+
+def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
+    """`items` merged by `UnsupportedRequest.key`, in first-seen order. An LLM repeating a
+    request shouldn't ask the user twice or count twice in the log, so every reader goes
+    through this rather than reading `spec.unsupported` item by item."""
+    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict, dict]] = {}
+    for item in items:
+        first, fields, details = groups.setdefault(item.key(), (item, {}, {}))
+        fields[item.field] = None  # dicts as ordered sets
+        if item.detail:
+            details[item.detail] = None
+    return [RequestGroup(first.requested, first.reason, tuple(fields), tuple(details))
+            for first, fields, details in groups.values()]
 
 
 class StrategySpec(_Section):
@@ -175,17 +201,8 @@ class StrategySpec(_Section):
     examples: list[Example] = Field(default_factory=list)
     # Capability catalogue ids the spec is built from (`catalogue.py`), e.g. "indicator:rsi".
     uses: list[Text] = Field(default_factory=list)
+    # As the LLM wrote it, repeats included; read it through `group_unsupported`.
     unsupported: list[UnsupportedRequest] = Field(default_factory=list)
-
-    @field_validator("unsupported")
-    @classmethod
-    def _drop_repeats(cls, items: list[UnsupportedRequest]) -> list[UnsupportedRequest]:
-        # An LLM listing one request twice under the same field shouldn't ask the user twice;
-        # the first is kept. The same request under two fields stays: each field has a gap.
-        first: dict[tuple[str, str, str], UnsupportedRequest] = {}
-        for item in items:
-            first.setdefault((*item.key(), item.field), item)
-        return list(first.values())
 
 
 @dataclass(frozen=True)
@@ -279,9 +296,11 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # Blocking: the spec can't be tested as stated. A field may also be reported missing
     # (an intraday idea has no supported timeframe), so the user can pick a supported one.
-    for item in spec.unsupported:
-        detail = f" ({item.detail})" if item.detail else ""
-        add(item.field, "unsupported", f"{item.requested!r}: {item.reason.replace('_', ' ')}{detail}")
+    # One gap per field a request was filed under; a repeat within a field is one gap.
+    for group in group_unsupported(spec.unsupported):
+        detail = f" ({'; '.join(group.details)})" if group.details else ""
+        for field in group.fields:
+            add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
     return gaps
 

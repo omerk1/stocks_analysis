@@ -17,11 +17,12 @@ import argparse
 import json
 import warnings
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from src.llm.paths import llm_data_dir, locked
-from src.llm.strategy_spec.schema import StrategySpec, request_wording
+from src.llm.strategy_spec.schema import StrategySpec, group_unsupported, request_wording
 
 LOG_NAME = "unsupported_requests.jsonl"
 
@@ -34,19 +35,14 @@ def log_unsupported(spec: StrategySpec, idea: str | None = None, path: Path | No
                     now: datetime | None = None) -> int:
     """Append one line per distinct request in `spec`; returns how many were logged.
     `idea` is the user's original text, kept so a request can be read in context."""
-    groups: dict[tuple[str, str], dict] = {}
-    for item in spec.unsupported:
-        g = groups.setdefault(item.key(), {"requested": item.requested, "reason": item.reason,
-                                           "fields": [], "details": []})
-        g["fields"] += [item.field] if item.field not in g["fields"] else []
-        g["details"] += [item.detail] if item.detail and item.detail not in g["details"] else []
+    groups = group_unsupported(spec.unsupported)
     if not groups:
         return 0
     now = now or datetime.now(timezone.utc)
     if now.utcoffset() is None:
         raise ValueError("`now` must be timezone-aware")
     time = now.astimezone(timezone.utc).isoformat(timespec="seconds")
-    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **g}) for g in groups.values()]
+    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **asdict(g)}) for g in groups]
     path = path or default_log_path()
     # Locked like the Gemini ledger: sessions in other worktrees append to the same file.
     with locked(path), path.open("a") as f:
@@ -63,25 +59,31 @@ def read_log(path: Path) -> list[dict]:
         for n, line in enumerate(f, 1):
             if not line.strip():
                 continue
-            row = _parse(line)
-            if row is None:
-                warnings.warn(f"{path}:{n}: unreadable line skipped")
-            else:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                row = None
+            if _readable(row):
                 rows.append(row)
+            else:
+                warnings.warn(f"{path}:{n}: unreadable line skipped")
     return rows
 
 
-def _parse(line: str) -> dict | None:
-    """A log line with its `time` as an aware datetime, or None if it isn't one."""
+def _time(row: dict) -> datetime:
+    return datetime.fromisoformat(row["time"])
+
+
+def _readable(row) -> bool:
+    """A line `summarise` can use: wording, reason, at least one field, an aware time."""
+    if not (isinstance(row, dict) and isinstance(row.get("requested"), str) and isinstance(row.get("reason"), str)
+            and isinstance(row.get("fields"), list) and row["fields"]
+            and all(isinstance(f, str) for f in row["fields"]) and isinstance(row.get("time"), str)):
+        return False
     try:
-        row = json.loads(line)
-        if not (isinstance(row, dict) and isinstance(row.get("requested"), str)
-                and isinstance(row.get("reason"), str) and isinstance(row.get("fields"), list)):
-            return None
-        time = datetime.fromisoformat(row["time"])
-    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-        return None
-    return {**row, "time": time} if time.utcoffset() is not None else None
+        return _time(row).utcoffset() is not None
+    except ValueError:
+        return False
 
 
 def summarise(rows: list[dict], top: int = 20) -> list[str]:
@@ -92,8 +94,8 @@ def summarise(rows: list[dict], top: int = 20) -> list[str]:
     for r in rows:
         g = groups[(request_wording(r["requested"]), r["reason"])]
         g["count"] += 1
-        g["fields"].update(map(str, r["fields"]))
-        g["last"] = r["time"] if g["last"] is None else max(g["last"], r["time"])
+        g["fields"].update(r["fields"])
+        g["last"] = _time(r) if g["last"] is None else max(g["last"], _time(r))
     ranked = sorted(groups.items(), key=lambda kv: (-kv[1]["count"], kv[0]))[:top]
     return [f"{g['count']:>4}  {reason:<22} {','.join(sorted(g['fields'])):<20} "
             f"last {g['last'].astimezone(timezone.utc).date()}  {requested}"
