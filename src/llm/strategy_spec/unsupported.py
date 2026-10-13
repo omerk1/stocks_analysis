@@ -95,7 +95,8 @@ def summarise(rows: list[dict], top: int = 20) -> list[str]:
         g = groups[(request_wording(r["requested"]), r["reason"])]
         g["count"] += 1
         g["fields"].update(r["fields"])
-        g["last"] = _time(r) if g["last"] is None else max(g["last"], _time(r))
+        t = _time(r)
+        g["last"] = t if g["last"] is None else max(g["last"], t)
     ranked = sorted(groups.items(), key=lambda kv: (-kv[1]["count"], kv[0]))[:top]
     return [f"{g['count']:>4}  {reason:<22} {','.join(sorted(g['fields'])):<20} "
             f"last {g['last'].astimezone(timezone.utc).date()}  {requested}"

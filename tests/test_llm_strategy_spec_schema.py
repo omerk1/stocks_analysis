@@ -132,6 +132,18 @@ def test_a_repeated_unsupported_request_is_kept_once_per_field():
                                                reason="unsupported_timeframe", detail="for the entry"))
     gaps = find_gaps(spec)
     assert len(gaps) == 2 and gaps[0].reason == "'15-minute bars': unsupported timeframe (for the entry)"
+    assert gaps[1].reason == "'15-minute bars': unsupported timeframe"  # the detail stays with its field
+
+
+def test_unsupported_gaps_come_in_field_order_with_details_merged():
+    items = [UnsupportedRequest(requested="tick data", field="trigger", reason="unsupported_data"),
+             UnsupportedRequest(requested="intraday", field="timeframe", reason="unsupported_timeframe",
+                                detail="no intraday bars"),
+             UnsupportedRequest(requested="intraday", field="timeframe", reason="unsupported_timeframe",
+                                detail="No intraday  bars")]
+    gaps = find_gaps(_complete(unsupported=items))
+    assert [g.field for g in gaps] == ["timeframe", "trigger"]
+    assert gaps[0].reason == "'intraday': unsupported timeframe (no intraday bars)"
 
 
 def test_unsupported_timeframe_also_leaves_the_field_missing():

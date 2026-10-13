@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -172,17 +172,19 @@ class RequestGroup:
     details: tuple[str, ...]
 
 
-def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
-    """`items` merged by `UnsupportedRequest.key`, in first-seen order. An LLM repeating a
+def group_unsupported(items: list[UnsupportedRequest], by_field: bool = False) -> list[RequestGroup]:
+    """`items` merged by `UnsupportedRequest.key` (and by field too if `by_field`), in
+    first-seen order; details are merged with case and spacing ignored. An LLM repeating a
     request shouldn't ask the user twice or count twice in the log, so every reader goes
     through this rather than reading `spec.unsupported` item by item."""
-    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict, dict]] = {}
+    groups: dict[tuple, tuple[UnsupportedRequest, dict, dict]] = {}
     for item in items:
-        first, fields, details = groups.setdefault(item.key(), (item, {}, {}))
+        key = (*item.key(), item.field) if by_field else item.key()
+        first, fields, details = groups.setdefault(key, (item, {}, {}))
         fields[item.field] = None  # dicts as ordered sets
         if item.detail:
-            details[item.detail] = None
-    return [RequestGroup(first.requested, first.reason, tuple(fields), tuple(details))
+            details.setdefault(request_wording(item.detail), item.detail)
+    return [RequestGroup(first.requested, first.reason, tuple(fields), tuple(details.values()))
             for first, fields, details in groups.values()]
 
 
@@ -296,11 +298,12 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # Blocking: the spec can't be tested as stated. A field may also be reported missing
     # (an intraday idea has no supported timeframe), so the user can pick a supported one.
-    # One gap per field a request was filed under; a repeat within a field is one gap.
-    for group in group_unsupported(spec.unsupported):
+    # One gap per field a request was filed under, with that field's details; a repeat
+    # within a field is one gap. In field order, like the gaps above.
+    order = get_args(SpecField)
+    for group in sorted(group_unsupported(spec.unsupported, by_field=True), key=lambda g: order.index(g.fields[0])):
         detail = f" ({'; '.join(group.details)})" if group.details else ""
-        for field in group.fields:
-            add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
+        add(group.fields[0], "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
     return gaps
 
