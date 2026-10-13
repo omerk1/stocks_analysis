@@ -41,7 +41,6 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
-import subprocess
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
@@ -51,6 +50,8 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+
+from src.llm.paths import llm_data_dir
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 LEDGER_NAME = "gemini_usage.jsonl"
@@ -108,17 +109,7 @@ class Reply:
 
 def default_ledger_path() -> Path:
     """`data/llm/gemini_usage.jsonl` in the main checkout, from any worktree."""
-    here = Path(__file__).resolve().parent
-    try:
-        # Without --path-format (git >= 2.31 only), the answer may be relative to `cwd`.
-        common = subprocess.run(
-            ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, check=True, cwd=here,
-        ).stdout.strip()
-        root = (here / common).resolve().parent
-    except (OSError, subprocess.CalledProcessError):
-        root = Path(__file__).resolve().parents[2]
-    return root / "data" / "llm" / LEDGER_NAME
+    return llm_data_dir() / LEDGER_NAME
 
 
 def read_ledger(path: Path) -> list[dict]:

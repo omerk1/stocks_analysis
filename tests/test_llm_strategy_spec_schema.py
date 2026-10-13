@@ -1,8 +1,11 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Size, StrategySpec, Trigger, find_gaps, load_golden_specs)
+    Control, Duration, Gap, Rule, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps,
+    load_golden_specs)
 
 
 def _complete(**overrides):
@@ -108,3 +111,37 @@ def test_golden_spec_gaps():
     # As built, the pattern backtest enters on the breakout bar's own close and reports
     # bare outcome rates with no matched control: the checker catches both.
     assert gaps["vcp_breakout"] == {("trigger", "invalid"), ("control", "missing")}
+
+
+def test_unsupported_request_blocks_and_keeps_the_users_words():
+    spec = _complete(unsupported=[UnsupportedRequest(
+        requested="earnings surprise", field="supporting_signals", reason="unsupported_data",
+        detail="no earnings data")])
+    assert find_gaps(spec) == [Gap("supporting_signals", "unsupported",
+                                   "'earnings surprise': unsupported data (no earnings data)")]
+
+
+def test_unsupported_timeframe_also_leaves_the_field_missing():
+    spec = _complete(timeframe=None, unsupported=[UnsupportedRequest(
+        requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")])
+    assert _gaps(spec) == {("timeframe", "missing"), ("timeframe", "unsupported")}
+
+
+def test_unsupported_request_needs_a_known_field_and_reason():
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested="x", field="examples", reason="other")
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested="x", field="trigger", reason="too hard")
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested=" ", field="trigger", reason="other")
+
+
+def test_unsupported_fields_are_the_specs_decision_fields():
+    assert set(get_args(SpecField)) == set(StrategySpec.model_fields) - {"name", "examples", "uses", "unsupported"}
+
+
+def test_uses_must_name_catalogue_entries():
+    assert find_gaps(_complete(uses=["indicator:rsi", "control:matched"])) == []
+    gaps = find_gaps(_complete(uses=["indicator:stochastic", "indicator:stochastic", "indicator:rsi"]))
+    assert [(g.field, g.kind) for g in gaps] == [("uses", "invalid")]
+    assert "'indicator:stochastic'" in gaps[0].reason
