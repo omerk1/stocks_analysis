@@ -8,7 +8,8 @@
 # A branch is cleaned only if all of these hold:
 #   - no PR with it as head is OPEN, and a MERGED one has the local tip as its head
 #     commit or an ancestor of it, so commits made after the merge are never lost
-#     (squash merges need branch -D)
+#     (a squash merge leaves the branch unmerged in git's eyes, so the delete is
+#     forced, but only from the tip that was checked)
 #   - neither it nor its PR head is main, and it is not checked out in the main
 #     checkout or the one running this script
 #   - if checked out in a worktree, that worktree is under .claude/worktrees/, still
@@ -30,9 +31,8 @@ main_root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 wt_prefix="$main_root/.claude/worktrees/"
 current=$(git branch --show-current)
 worktrees=$(git -C "$main_root" worktree list --porcelain)
-# Working directories of every running process (best effort: lsof sees only
-# processes this user may inspect).
-cwds=$(lsof -a -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
+refs=$(git for-each-ref --format='%(refname:lstrip=2) %(upstream:short)' refs/heads)
+command -v lsof >/dev/null || { echo "lsof not found; can't tell which worktrees are in use" >&2; exit 1; }
 
 act() {
   if [ "$mode" = apply ]; then echo "  + $*"; "$@" </dev/null
@@ -44,8 +44,16 @@ worktree_of() {
     /^worktree /{p=substr($0,10)} $0=="branch " ref {print p}'
 }
 
+# Whether a running process has its cwd in worktree $1. Best effort: lsof sees
+# only processes this user may inspect, and a process writing there with its cwd
+# elsewhere isn't seen. It exits non-zero when some processes are unreadable, so
+# its status is ignored, but an empty list (this shell has a cwd) aborts.
 in_use() {
-  printf '%s\n' "$cwds" | awk -v wt="$1" '$0==wt || index($0, wt "/")==1 {f=1} END {exit !f}'
+  local real cwds
+  real=$(cd "$1" && pwd -P)
+  cwds=$(lsof -a -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
+  if [ -z "$cwds" ]; then echo "lsof listed no processes; can't tell if $1 is in use" >&2; exit 1; fi
+  printf '%s\n' "$cwds" | awk -v wt="$real" '$0==wt || index($0, wt "/")==1 {f=1} END {exit !f}'
 }
 
 remote_tip() {
@@ -71,6 +79,7 @@ while read -r branch upstream <&3; do
   head=$branch
   case "$upstream" in origin/main) ;; origin/*) head=${upstream#origin/} ;; esac
   ref="refs/heads/$branch"
+  tip=$(git rev-parse "$ref")
 
   wt=$(worktree_of "$branch")
   if [ "$branch" = main ] || [ "$head" = main ] || [ "$branch" = "$current" ] \
@@ -90,7 +99,7 @@ while read -r branch upstream <&3; do
   num=; oid=
   while read -r state n o; do
     [ "$state" = MERGED ] || continue
-    if git cat-file -e "$o^{commit}" 2>/dev/null && git merge-base --is-ancestor "$ref" "$o"; then
+    if git cat-file -e "$o^{commit}" 2>/dev/null && git merge-base --is-ancestor "$tip" "$o"; then
       num=$n; oid=$o; break
     fi
   done <<<"$prs"
@@ -127,7 +136,8 @@ while read -r branch upstream <&3; do
 
   echo "CLEAN $branch (PR #$num merged)"
   if [ -n "$wt" ]; then act git -C "$main_root" worktree remove "$wt"; fi
-  act git -C "$main_root" branch -D "$branch"
+  # Deletes the branch only if it still points at the tip checked above.
+  act git -C "$main_root" update-ref -d "$ref" "$tip"
   if [ -z "$remote_oid" ]; then
     echo "  origin/$head already gone"
   elif [ "$mode" = apply ] && [ "$(remote_tip "$head")" != "$oid" ]; then
@@ -135,4 +145,4 @@ while read -r branch upstream <&3; do
   else
     act git -C "$main_root" push origin --delete "$head"
   fi
-done 3< <(git for-each-ref --format='%(refname:lstrip=2) %(upstream:short)' refs/heads)
+done 3<<<"$refs"
