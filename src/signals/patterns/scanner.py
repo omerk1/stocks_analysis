@@ -60,7 +60,8 @@ def scan_bars(
         return []
 
     atr = indicators.atr(df, config.atr_period)
-    pivots = detect_pivots(df["high"], df["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr.iloc[i])
+    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
+    pivots = detect_pivots(df["high"], df["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr_values[i])
 
     matches: list[PatternMatch] = []
     for detector in detectors:

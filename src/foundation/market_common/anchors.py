@@ -189,7 +189,8 @@ def _cycle_pivot_dates(bars: pd.DataFrame, config: AnchorConfig) -> list[tuple[s
         return []
     atr_series = indicators.atr(bars, config.cycle_atr_period).iloc[start:]
 
-    pivots = detect_pivots(close, threshold_fn=lambda i: config.cycle_scale_mult * atr_series.iloc[i])
+    atr_values = atr_series.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
+    pivots = detect_pivots(close, threshold_fn=lambda i: config.cycle_scale_mult * atr_values[i])
     if config.regime_reach_factor is not None:
         # Same relevance test as the regime high/low: a swing whose price is
         # out of reach of today's close (AMC's 2021 peak, 280x above) isn't

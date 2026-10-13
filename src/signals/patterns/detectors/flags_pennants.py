@@ -67,8 +67,9 @@ class FlagPennantDetector(PatternDetector):
 
         atr = indicators.atr(df, config.atr_period)
         vol_sma = volume_mod.volume_sma(df["volume"], config.volume_sma_period)
+        atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
         fine_pivots = detect_pivots(
-            df["high"], df["low"], threshold_fn=lambda i: config.flag_pivot_atr_mult * atr.iloc[i]
+            df["high"], df["low"], threshold_fn=lambda i: config.flag_pivot_atr_mult * atr_values[i]
         )
         if len(fine_pivots) < window_size:
             return []
