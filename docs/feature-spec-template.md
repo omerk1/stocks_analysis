@@ -2,6 +2,8 @@
 
 Slug: `<slug>` — branch `feat/<slug>`, worktree `.claude/worktrees/<slug>`.
 Run with: `bash scripts/run_feature.sh <slug> <path-to-this-file> [budget_usd]`
+done.md number: `#<N>` (assign it here when several specs run in parallel, so
+two PRs don't claim the same one)
 
 ## Goal
 
@@ -37,11 +39,13 @@ bash scripts/run_tests.sh tests/test_<area>_*.py -q
 
 - You are on branch `feat/<slug>` in `.claude/worktrees/<slug>`. Stay on it;
   don't create or switch branches.
-- Commit in small steps on this branch, one logical change per commit.
+- Commit in small steps on this branch, one logical change per commit. Stage
+  files by name (`git add <paths>`), not `git add -A` or `git add .`.
 - Edit files only with the Edit/Write tools, never with heredocs, `python -c`,
   `sed` or `awk`.
-- Add the `docs/done.md` entry (the next `#N`, with a topic tag from its header)
-  in this branch, as part of this PR.
+- Add the `docs/done.md` entry (the number given above, or the next `#N` if
+  none is given, with a topic tag from its header) in this branch, as part of
+  this PR.
 - At the end, run the "How to verify" commands, then push with
   `git push -u origin feat/<slug>` and open a PR with `gh pr create`
   (no AI attribution in the commits or the PR body).

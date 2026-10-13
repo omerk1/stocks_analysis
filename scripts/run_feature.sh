@@ -17,7 +17,7 @@ budget=${3:-5}
 [[ $slug =~ ^[a-z0-9-]+$ ]] || { echo "bad slug '$slug': must match ^[a-z0-9-]+\$" >&2; exit 2; }
 [[ $budget =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "bad budget '$budget': must be a number" >&2; exit 2; }
 [ -f "$spec" ] || { echo "spec file not found: $spec" >&2; exit 1; }
-spec=$(cd "$(dirname "$spec")" && pwd -P)/$(basename "$spec")  # absolute, survives the cd below
+spec=$(CDPATH= cd -- "$(dirname -- "$spec")" >/dev/null && pwd -P)/$(basename -- "$spec")  # absolute, survives the cd below
 for tool in claude jq gh; do
   command -v "$tool" >/dev/null || { echo "$tool not found" >&2; exit 1; }
 done
@@ -42,15 +42,26 @@ cd "$wt"
 
 mkdir -p "$HOME/claude-runs"
 log=$HOME/claude-runs/$slug-$(date +%Y%m%d-%H%M%S).jsonl
+errlog=${log%.jsonl}.err
 echo "worktree: $wt"
 echo "log:      $log  (follow with: tail -f $log)"
+echo "stderr:   $errlog"
 
-cmd=(claude -p "$(cat "$spec")" --model sonnet --permission-mode auto --permission-prompts none
+cmd=(claude -p --model sonnet --permission-mode auto --permission-prompts none
      --max-budget-usd "$budget" --max-turns 150 --output-format stream-json --verbose)
 if command -v caffeinate >/dev/null; then cmd=(caffeinate -i "${cmd[@]}"); fi
 
+# The prompt goes in on stdin, so a spec starting with '-' (e.g. '---' front
+# matter) can't be read as an option. The header pins the real slug and branch,
+# whatever the spec's own placeholders say.
+prompt() {
+  printf 'This run: slug `%s`, branch `%s`, worktree `%s`. Wherever the spec below says `<slug>`, use `%s`.\n\n' \
+    "$slug" "$branch" "$wt" "$slug"
+  cat "$spec"
+}
+
 set +e
-"${cmd[@]}" </dev/null >"$log"
+"${cmd[@]}" < <(prompt) >"$log" 2> >(tee "$errlog" >&2)
 rc=$?
 set -e
 
