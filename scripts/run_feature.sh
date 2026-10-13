@@ -61,7 +61,7 @@ prompt() {
 }
 
 set +e
-"${cmd[@]}" < <(prompt) >"$log" 2> >(tee "$errlog" >&2)
+"${cmd[@]}" < <(prompt) >"$log" 2>"$errlog"
 rc=$?
 set -e
 
@@ -70,6 +70,10 @@ result=$(jq -cR 'fromjson? | select(.type == "result")' "$log" | tail -n 1)
 
 echo
 echo "== exit code: $rc"
+if [ -s "$errlog" ]; then
+  echo "== stderr (last 20 lines of $errlog):"
+  tail -n 20 "$errlog"
+fi
 if [ -n "$result" ]; then
   echo "== result subtype: $(jq -r '.subtype // "n/a"' <<<"$result")"
   echo "== total_cost_usd: $(jq -r '.total_cost_usd // "n/a"' <<<"$result")"
@@ -83,6 +87,10 @@ echo "== commits (origin/main..HEAD):"
 git log --oneline origin/main..HEAD
 echo "== git status --short:"
 git status --short
+if [ -f BLOCKED.md ]; then  # git-ignored, so not in the status above
+  echo "== BLOCKED.md:"
+  cat BLOCKED.md
+fi
 echo "== PRs with head $branch:"
 gh pr list --head "$branch" --state all || echo "  (gh pr list failed)"
 exit "$rc"

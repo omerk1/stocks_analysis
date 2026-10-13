@@ -19,12 +19,11 @@
       "Bash(gh pr create *)"
     ],
     "deny": [
-      "Bash(git push *:*)",
-      "Bash(git push * main)",
-      "Bash(git push * main *)",
-      "Bash(git push * refs/*)",
-      "Bash(git push * --all*)",
-      "Bash(git push * --mirror*)"
+      "Bash(git push -u origin feat/* *)",
+      "Bash(git push -u origin feat/*:**)",
+      "Bash(git push *--force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)"
     ],
     "ask": [
       "Edit(**/scripts/cleanup_merged.sh)",

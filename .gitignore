@@ -81,6 +81,8 @@ logs/
 
 # Claude Code settings (local overrides are personal, project settings are shared)
 .claude/settings.local.json
+# Written by a headless run (scripts/run_feature.sh) when a command is denied
+BLOCKED.md
 
 # API keys and secrets
 .env
