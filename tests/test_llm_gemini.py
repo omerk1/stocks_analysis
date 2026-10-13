@@ -15,21 +15,26 @@ NOW = datetime(2026, 10, 13, 9, 30, tzinfo=timezone.utc)
 class StubModels:
     """Shaped like `google.genai.Client().models`: records calls, returns canned replies."""
 
-    def __init__(self, prompt_tokens=100, text='{"answer": "yes"}', finish="STOP", output=20, thinking=0):
+    def __init__(self, prompt_tokens=100, text='{"answer": "yes"}', finish="STOP", output=20, thinking=0,
+                 candidates=True, usage=True, error=None):
         self.prompt_tokens, self.text, self.finish = prompt_tokens, text, finish
         self.output, self.thinking = output, thinking
-        self.generate_calls = []
+        self.candidates, self.usage, self.error = candidates, usage, error
+        self.generate_calls, self.counted = [], []
 
     def count_tokens(self, *, model, contents):
+        self.counted.append(contents)
         return SimpleNamespace(total_tokens=self.prompt_tokens)
 
     def generate_content(self, *, model, contents, config):
         self.generate_calls.append(SimpleNamespace(model=model, contents=contents, config=config))
+        if self.error:
+            raise self.error
         meta = SimpleNamespace(prompt_token_count=self.prompt_tokens, candidates_token_count=self.output,
                                thoughts_token_count=self.thinking,
                                total_token_count=self.prompt_tokens + self.output + self.thinking)
-        return SimpleNamespace(text=self.text, usage_metadata=meta,
-                               candidates=[SimpleNamespace(finish_reason=SimpleNamespace(name=self.finish))])
+        candidates = [SimpleNamespace(finish_reason=SimpleNamespace(name=self.finish))] if self.candidates else []
+        return SimpleNamespace(text=self.text, usage_metadata=meta if self.usage else None, candidates=candidates)
 
 
 class Answer(BaseModel):
@@ -105,6 +110,56 @@ def test_unusable_replies_raise_but_are_still_charged(tmp_path):
     with pytest.raises(ReplyError, match="cut off"):
         client.generate("hi", purpose="test")
     assert len(read_ledger(tmp_path / "usage.jsonl")) == 2
+
+
+def test_count_includes_system_and_schema(tmp_path):
+    client, models = _client(tmp_path)
+    client.generate("the prompt", purpose="test", system="the system", response_schema=Answer)
+    [counted] = models.counted
+    assert "the system" in counted and "the prompt" in counted and '"answer"' in counted
+
+
+def test_worst_case_includes_thinking(tmp_path):
+    # 100 prompt + 400 output + 501 thinking = 1,001 > 1,000, refused; with 500 thinking it fits.
+    client, models = _client(tmp_path, budget=Budget(max_output_tokens=400, thinking_budget=501,
+                                                     daily_token_cap=1_000))
+    with pytest.raises(BudgetExceeded):
+        client.generate("a", purpose="test")
+    client, _ = _client(tmp_path, budget=Budget(max_output_tokens=400, thinking_budget=500, daily_token_cap=1_000))
+    client.generate("a", purpose="test")
+
+
+def test_blocked_stopped_or_empty_replies_raise_and_are_charged(tmp_path):
+    for stub, match in [(dict(candidates=False), "blocked"), (dict(finish="SAFETY"), "SAFETY"),
+                        (dict(text=""), "empty")]:
+        client, _ = _client(tmp_path, **stub)
+        with pytest.raises(ReplyError, match=match):
+            client.generate("hi", purpose="test")
+    assert len(read_ledger(tmp_path / "usage.jsonl")) == 3
+
+
+def test_missing_usage_or_failed_call_charges_the_worst_case(tmp_path):
+    budget = Budget(max_output_tokens=400, thinking_budget=0)
+    client, _ = _client(tmp_path, budget=budget, usage=False)
+    client.generate("hi", purpose="test")
+    client, _ = _client(tmp_path, budget=budget, error=TimeoutError("read timeout"))
+    with pytest.raises(TimeoutError):
+        client.generate("hi", purpose="test")
+    rows = read_ledger(tmp_path / "usage.jsonl")
+    assert [(r["total_tokens"], r.get("estimated")) for r in rows] == [(500, True), (500, True)]
+
+
+def test_damaged_ledger_line_is_skipped(tmp_path):
+    ledger = tmp_path / "usage.jsonl"
+    ledger.write_text(json.dumps({"time": "2026-10-13T08:00:00+00:00", "total_tokens": 7}) + "\n"
+                      + '{"time": "2026-10-13T09')
+    with pytest.warns(UserWarning, match="unreadable"):
+        assert used_on(ledger, "2026-10-13") == 7
+
+
+def test_budget_rejects_dynamic_thinking():
+    with pytest.raises(ValueError, match="dynamic"):
+        Budget(thinking_budget=-1)
 
 
 def test_summarise_groups_by_day_model_and_purpose():

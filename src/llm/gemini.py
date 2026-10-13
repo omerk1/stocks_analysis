@@ -3,8 +3,9 @@
 
 Every call goes through `GeminiClient.generate`, which:
 
-1. **counts the prompt first.** Gemini's token-counting call is free. A prompt over
-   `Budget.max_input_tokens` is refused before anything is spent.
+1. **counts the prompt first.** Gemini's token-counting call is free. Everything sent is
+   counted: the system instruction, the prompt and, for a structured reply, the JSON
+   schema. A prompt over `Budget.max_input_tokens` is refused before anything is spent.
 2. **checks the daily cap against the worst case.** Today's usage so far, plus this
    prompt, plus the most the reply can cost (`max_output_tokens` plus the thinking
    budget), must fit under `Budget.daily_token_cap`. Checking the worst case, not a
@@ -13,16 +14,20 @@ Every call goes through `GeminiClient.generate`, which:
    model's hidden reasoning. Gemini 2.5 models think by default, and thinking tokens are
    billed as output, so the default here is 0 (off) and a caller turns it on on purpose.
 4. **records what was spent.** The token counts the API reports back are appended to a
-   ledger (one JSON line per call), which step 2 reads. `python -m src.llm.gemini usage`
-   summarises it.
+   ledger (one JSON line per call). If the call fails after it was sent, or the reply
+   carries no usage, the worst case is recorded instead (`"estimated": true`): spending
+   that might have happened counts against the cap. `python -m src.llm.gemini usage`
+   summarises the ledger.
 
 The ledger lives in the main checkout's `data/llm/` (git-ignored), found through git, so
-every worktree charges the same daily total instead of each starting from zero.
+every worktree charges the same daily total instead of each starting from zero. A file
+lock is held from the cap check to the ledger write, so two processes can't both pass
+the check on the same remaining budget; calls from parallel processes run one at a time,
+which is fine at this repo's scale.
 
 The cap is in tokens, not money: prices change and differ per model, token counts don't
-drift. On Flash-class models the default daily cap is well under a dollar at the prices
-listed when this was written. A prepaid balance with auto-reload off is the hard money
-limit; this is the one the code controls.
+drift. A prepaid balance with auto-reload off is the hard money limit; this is the one the
+code controls.
 
 Tests never reach the API: `GeminiClient` takes any object shaped like
 `google.genai.Client` (`client=`), and the tests pass a stub.
@@ -31,9 +36,12 @@ Tests never reach the API: `GeminiClient` takes any object shaped like
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import subprocess
+import warnings
 from collections import defaultdict
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,8 +58,15 @@ class Budget:
     max_input_tokens: int = 8_000
     max_output_tokens: int = 4_000
     # 0 turns thinking off on 2.5 Flash / Flash-Lite. 2.5 Pro can't turn it off (min 128).
+    # Must be a fixed number: "dynamic" thinking (-1) has no worst case to check.
     thinking_budget: int = 0
     daily_token_cap: int = 300_000
+
+    def __post_init__(self):
+        if self.thinking_budget < 0:
+            raise ValueError("thinking_budget must be >= 0; dynamic thinking (-1) can't be budgeted")
+        if min(self.max_input_tokens, self.max_output_tokens, self.daily_token_cap) <= 0:
+            raise ValueError("token caps must be positive")
 
 
 class BudgetExceeded(RuntimeError):
@@ -59,8 +74,8 @@ class BudgetExceeded(RuntimeError):
 
 
 class ReplyError(RuntimeError):
-    """The model replied, but not usably (cut off, or not the requested shape). The
-    tokens were spent and are in the ledger."""
+    """The model replied, but not usably (cut off, blocked, empty, or not the requested
+    shape). The tokens were spent and are in the ledger."""
 
 
 @dataclass(frozen=True)
@@ -81,27 +96,54 @@ class Reply:
 
 def default_ledger_path() -> Path:
     """`data/llm/gemini_usage.jsonl` in the main checkout, from any worktree."""
+    here = Path(__file__).resolve().parent
     try:
+        # Without --path-format (git >= 2.31 only), the answer may be relative to `cwd`.
         common = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True, text=True, check=True, cwd=Path(__file__).parent,
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, check=True, cwd=here,
         ).stdout.strip()
-        root = Path(common).parent
+        root = (here / common).resolve().parent
     except (OSError, subprocess.CalledProcessError):
         root = Path(__file__).resolve().parents[2]
     return root / "data" / "llm" / LEDGER_NAME
 
 
 def read_ledger(path: Path) -> list[dict]:
+    """Every readable ledger line. A damaged line (an interrupted write) is skipped with a
+    warning rather than making every later call fail."""
     if not path.exists():
         return []
+    rows = []
     with path.open() as f:
-        return [json.loads(line) for line in f if line.strip()]
+        for n, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+                if isinstance(row.get("time"), str) and isinstance(row.get("total_tokens"), int):
+                    rows.append(row)
+                    continue
+            except json.JSONDecodeError:
+                pass
+            warnings.warn(f"{path}:{n}: unreadable ledger line skipped")
+    return rows
 
 
 def used_on(path: Path, day: str) -> int:
     """Total tokens recorded on `day` (UTC, `YYYY-MM-DD`)."""
     return sum(r["total_tokens"] for r in read_ledger(path) if r["time"][:10] == day)
+
+
+@contextmanager
+def _locked(ledger_path: Path):
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    with ledger_path.with_suffix(".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def _utc_now() -> datetime:
@@ -145,46 +187,63 @@ class GeminiClient:
         from google.genai import types
 
         b = self.budget
-        # The system instruction is billed as input too; count it with the prompt.
+        schema = response_schema.model_json_schema() if response_schema else None
+        # Count everything sent. The smoke test's reported input (26 tokens with the
+        # strategy spec's schema attached) suggests the schema isn't billed as input, but
+        # counting it errs on the safe side and costs nothing.
+        sent = [system, prompt, json.dumps(schema) if schema else None]
         counted = self._client.models.count_tokens(
-            model=self.model, contents="\n\n".join(p for p in (system, prompt) if p)
-        ).total_tokens
+            model=self.model, contents="\n\n".join(p for p in sent if p)).total_tokens
         if counted > b.max_input_tokens:
             raise BudgetExceeded(f"prompt is {counted} tokens, over the per-call cap of {b.max_input_tokens}")
-        today = self._now().date().isoformat()
-        used = used_on(self.ledger_path, today)
         worst = counted + b.max_output_tokens + b.thinking_budget
-        if used + worst > b.daily_token_cap:
-            raise BudgetExceeded(
-                f"{used} tokens used today; this call could take {worst} more, "
-                f"over the daily cap of {b.daily_token_cap}")
 
         config = types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=b.max_output_tokens,
             thinking_config=types.ThinkingConfig(thinking_budget=b.thinking_budget),
-            response_mime_type="application/json" if response_schema else None,
+            response_mime_type="application/json" if schema else None,
             # `response_json_schema` takes standard JSON Schema ($defs/$ref, nullable anyOf,
             # additionalProperties). The older `response_schema` takes an OpenAPI subset and
             # rejects `additionalProperties`, which `extra="forbid"` models emit.
-            response_json_schema=response_schema.model_json_schema() if response_schema else None,
+            response_json_schema=schema,
         )
-        response = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
+        with _locked(self.ledger_path):
+            used = used_on(self.ledger_path, self._now().date().isoformat())
+            if used + worst > b.daily_token_cap:
+                raise BudgetExceeded(
+                    f"{used} tokens used today; this call could take {worst} more, "
+                    f"over the daily cap of {b.daily_token_cap}")
+            try:
+                response = self._client.models.generate_content(model=self.model, contents=prompt, config=config)
+            except Exception:
+                # The request may have been billed (a timeout after generation finished):
+                # charge the worst case rather than nothing.
+                self._record(purpose, Usage(counted, 0, 0, worst), estimated=True)
+                raise
+            meta = response.usage_metadata
+            if meta is None or not meta.total_token_count:
+                usage, estimated = Usage(counted, 0, 0, worst), True
+            else:
+                usage, estimated = Usage(
+                    prompt_tokens=meta.prompt_token_count or 0,
+                    output_tokens=meta.candidates_token_count or 0,
+                    thinking_tokens=meta.thoughts_token_count or 0,
+                    total_tokens=meta.total_token_count,
+                ), False
+            self._record(purpose, usage, estimated=estimated)
 
-        meta = response.usage_metadata
-        usage = Usage(
-            prompt_tokens=meta.prompt_token_count or 0,
-            output_tokens=meta.candidates_token_count or 0,
-            thinking_tokens=meta.thoughts_token_count or 0,
-            total_tokens=meta.total_token_count or 0,
-        )
-        self._record(purpose, usage)
-
-        finish = response.candidates[0].finish_reason if response.candidates else None
+        if not response.candidates:
+            raise ReplyError("no reply: the prompt was blocked")
+        finish = response.candidates[0].finish_reason
         finish_reason = getattr(finish, "name", str(finish))
-        text = response.text or ""
         if finish_reason == "MAX_TOKENS":
             raise ReplyError(f"reply cut off at max_output_tokens={b.max_output_tokens}")
+        if finish_reason != "STOP":
+            raise ReplyError(f"reply stopped early: {finish_reason}")
+        text = response.text or ""
+        if not text.strip():
+            raise ReplyError("empty reply")
         parsed = None
         if response_schema is not None:
             try:
@@ -193,10 +252,11 @@ class GeminiClient:
                 raise ReplyError(f"reply doesn't match {response_schema.__name__}: {e}") from e
         return Reply(text=text, parsed=parsed, usage=usage, finish_reason=finish_reason)
 
-    def _record(self, purpose: str, usage: Usage) -> None:
-        self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    def _record(self, purpose: str, usage: Usage, estimated: bool = False) -> None:
         line = {"time": self._now().isoformat(timespec="seconds"), "model": self.model,
                 "purpose": purpose, **asdict(usage)}
+        if estimated:
+            line["estimated"] = True
         with self.ledger_path.open("a") as f:
             f.write(json.dumps(line) + "\n")
 
@@ -205,11 +265,11 @@ def summarise(rows: list[dict]) -> list[str]:
     """One line per (day, model, purpose): calls and tokens, newest day first."""
     totals: dict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
     for r in rows:
-        t = totals[(r["time"][:10], r["model"], r["purpose"])]
+        t = totals[(r["time"][:10], r.get("model", "?"), r.get("purpose", "?"))]
         t[0] += 1
-        t[1] += r["prompt_tokens"]
-        t[2] += r["output_tokens"]
-        t[3] += r["thinking_tokens"]
+        t[1] += r.get("prompt_tokens", 0)
+        t[2] += r.get("output_tokens", 0)
+        t[3] += r.get("thinking_tokens", 0)
         t[4] += r["total_tokens"]
     lines = []
     for (day, model, purpose), (calls, p, o, th, tot) in sorted(totals.items(), reverse=True):
@@ -228,7 +288,8 @@ def main(argv: list[str] | None = None) -> None:
         rows = read_ledger(path)
         print(f"ledger: {path}")
         today = _utc_now().date().isoformat()
-        print(f"today ({today}, UTC): {used_on(path, today)} of {Budget().daily_token_cap} tokens")
+        print(f"today ({today}, UTC): {used_on(path, today)} tokens "
+              f"(the default daily cap is {Budget().daily_token_cap}; a caller may set its own)")
         for line in summarise(rows):
             print(line)
 
