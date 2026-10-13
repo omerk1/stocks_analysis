@@ -3,6 +3,9 @@ where the code has a fixed list, the catalogue matches it both ways."""
 
 import importlib
 import inspect
+import subprocess
+import sys
+from pathlib import Path
 from typing import get_args
 
 import pytest
@@ -72,7 +75,11 @@ def test_render_lists_the_schema_choices_and_every_entry():
         assert f"- {c.id}: " in text
 
 
-def test_catalogue_does_not_import_signal_code():
-    # Rendering the prompt must stay cheap: no pandas, no feature registry.
-    source = inspect.getsource(catalogue)
-    assert "import pandas" not in source and "from src.signals" not in source and "from src.models" not in source
+def test_rendering_does_not_load_signal_code():
+    # Rendering the prompt must stay cheap: no pandas, no feature registry. A fresh
+    # interpreter, since this test session has already imported them.
+    code = ("import sys; from src.llm.strategy_spec import catalogue; catalogue.render(); "
+            "print([m for m in sys.modules if m == 'pandas' or m.startswith(('src.signals', 'src.models'))])")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         cwd=Path(__file__).resolve().parents[1])
+    assert out.stdout.strip() == "[]"

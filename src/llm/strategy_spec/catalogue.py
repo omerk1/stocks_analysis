@@ -206,8 +206,8 @@ METRICS = [
     Capability("metric:forward_return", "metric", "return from entry to N bars later", f"{_FWD}:forward_return"),
     Capability("metric:forward_volatility", "metric", "realised volatility over the N bars after entry",
                f"{_FWD}:forward_realized_vol"),
-    Capability("metric:max_adverse_excursion", "metric", "worst drawdown touched within N bars after entry (MAE); "
-               "the favourable side (MFE) isn't built",
+    Capability("metric:max_adverse_excursion", "metric", "worst drawdown touched within N bars after a long entry "
+               "(MAE, long side only); the short side and the favourable excursion (MFE) aren't built",
                "src.signals.moving_averages.labels.path_metrics:forward_max_drawdown"),
     Capability("metric:hit_rate", "metric", "share of events with a positive outcome, against the control's",
                f"{_SHAPE}:hit_rate_deltas"),

@@ -39,11 +39,9 @@ Tests never reach the API: `GeminiClient` takes any object shaped like
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import warnings
 from collections import defaultdict
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,7 +49,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from src.llm.paths import llm_data_dir
+from src.llm.paths import llm_data_dir, locked
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 LEDGER_NAME = "gemini_usage.jsonl"
@@ -138,17 +136,6 @@ def used_on(path: Path, day: str) -> int:
     return sum(r["total_tokens"] for r in read_ledger(path) if r["time"][:10] == day)
 
 
-@contextmanager
-def _locked(ledger_path: Path):
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.with_suffix(".lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
-
-
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -213,7 +200,7 @@ class GeminiClient:
             # rejects `additionalProperties`, which `extra="forbid"` models emit.
             response_json_schema=schema,
         )
-        with _locked(self.ledger_path):
+        with locked(self.ledger_path):
             used = used_on(self.ledger_path, self._now().date().isoformat())
             if used + worst > b.daily_token_cap:
                 raise BudgetExceeded(

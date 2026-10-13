@@ -28,6 +28,19 @@ def test_log_appends_one_line_per_request(tmp_path):
     assert rows[2]["idea"] is None and rows[2]["detail"] is None
 
 
+def test_a_request_repeated_within_one_spec_is_logged_once(tmp_path):
+    path = tmp_path / "log.jsonl"
+    repeat = {**INTRADAY, "requested": "15-Minute  bars", "field": "trigger"}
+    assert unsupported.log_unsupported(_spec(INTRADAY, repeat, EARNINGS), path=path) == 2
+    assert [json.loads(line)["field"] for line in path.read_text().splitlines()] == ["timeframe",
+                                                                                     "supporting_signals"]
+
+
+def test_naive_time_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="timezone-aware"):
+        unsupported.log_unsupported(_spec(INTRADAY), path=tmp_path / "log.jsonl", now=datetime(2026, 10, 13))
+
+
 def test_a_spec_without_unsupported_requests_writes_nothing(tmp_path):
     path = tmp_path / "log.jsonl"
     assert unsupported.log_unsupported(StrategySpec(), path=path) == 0
@@ -65,7 +78,8 @@ def test_summary_groups_by_wording_and_reason_most_requested_first():
 def test_cli_summary_reads_the_default_log(tmp_path, monkeypatch, capsys):
     path = tmp_path / "log.jsonl"
     monkeypatch.setattr(unsupported, "default_log_path", lambda: path)
-    unsupported.log_unsupported(_spec(INTRADAY, INTRADAY), path=path)
+    unsupported.log_unsupported(_spec(INTRADAY), path=path)
+    unsupported.log_unsupported(_spec(INTRADAY), path=path)
     unsupported.main(["summary", "--top", "5"])
     out = capsys.readouterr().out.splitlines()
     assert out[0] == f"log: {path} (2 requests)"

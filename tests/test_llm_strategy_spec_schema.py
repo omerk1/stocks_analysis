@@ -121,6 +121,13 @@ def test_unsupported_request_blocks_and_keeps_the_users_words():
                                    "'earnings surprise': unsupported data (no earnings data)")]
 
 
+def test_a_repeated_unsupported_request_is_one_gap():
+    first = UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")
+    again = UnsupportedRequest(requested="15-Minute Bars", field="trigger", reason="unsupported_timeframe")
+    assert [(g.field, g.kind) for g in find_gaps(_complete(unsupported=[first, again]))] == [
+        ("timeframe", "unsupported")]
+
+
 def test_unsupported_timeframe_also_leaves_the_field_missing():
     spec = _complete(timeframe=None, unsupported=[UnsupportedRequest(
         requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")])
@@ -141,7 +148,9 @@ def test_unsupported_fields_are_the_specs_decision_fields():
 
 
 def test_uses_must_name_catalogue_entries():
-    assert find_gaps(_complete(uses=["indicator:rsi", "control:matched"])) == []
+    assert find_gaps(_complete(uses=[" indicator:rsi\n", "control:matched"])) == []  # stripped
+    with pytest.raises(ValidationError):
+        StrategySpec(uses=[""])
     gaps = find_gaps(_complete(uses=["indicator:stochastic", "indicator:stochastic", "indicator:rsi"]))
     assert [(g.field, g.kind) for g in gaps] == [("uses", "invalid")]
     assert "'indicator:stochastic'" in gaps[0].reason

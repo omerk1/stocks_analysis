@@ -18,8 +18,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.llm.paths import llm_data_dir
-from src.llm.strategy_spec.schema import StrategySpec
+from src.llm.paths import llm_data_dir, locked
+from src.llm.strategy_spec.schema import StrategySpec, distinct_unsupported, request_wording
 
 LOG_NAME = "unsupported_requests.jsonl"
 
@@ -31,16 +31,20 @@ def default_log_path() -> Path:
 def log_unsupported(spec: StrategySpec, idea: str | None = None, path: Path | None = None,
                     now: datetime | None = None) -> int:
     """Append one line per unsupported request in `spec`; returns how many were logged.
-    `idea` is the user's original text, kept so a request can be read in context."""
-    if not spec.unsupported:
+    `idea` is the user's original text, kept so a request can be read in context. A request
+    the spec repeats is logged once: the count is of ideas asking, not of LLM repeats."""
+    items = distinct_unsupported(spec)
+    if not items:
         return 0
-    path = path or default_log_path()
-    time = (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("`now` must be timezone-aware")
+    time = now.astimezone(timezone.utc).isoformat(timespec="seconds")
     lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **item.model_dump()})
-             for item in spec.unsupported]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
-        # One write per call, so a crash doesn't leave half of one spec's requests behind.
+             for item in items]
+    path = path or default_log_path()
+    # Locked like the Gemini ledger: sessions in other worktrees append to the same file.
+    with locked(path), path.open("a") as f:
         f.write("".join(line + "\n" for line in lines))
     return len(lines)
 
@@ -65,16 +69,12 @@ def read_log(path: Path) -> list[dict]:
     return rows
 
 
-def _key(requested: str) -> str:
-    return " ".join(requested.lower().split())
-
-
 def summarise(rows: list[dict], top: int = 20) -> list[str]:
     """The `top` most-requested (wording, reason) pairs, most requested first: count,
     reason, the fields it was asked for in, when it was last asked, and the wording."""
     groups: dict[tuple[str, str], dict] = defaultdict(lambda: {"count": 0, "fields": set(), "last": ""})
     for r in rows:
-        g = groups[(_key(r["requested"]), r["reason"])]
+        g = groups[(request_wording(r["requested"]), r["reason"])]
         g["count"] += 1
         g["fields"].add(str(r.get("field", "?")))
         g["last"] = max(g["last"], r["time"])

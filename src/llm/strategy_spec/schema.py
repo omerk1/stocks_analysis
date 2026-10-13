@@ -151,6 +151,23 @@ class UnsupportedRequest(_Section):
     reason: UnsupportedReason
     detail: Text | None = None
 
+    def key(self) -> tuple[str, str]:
+        """The same request, whatever its case, spacing or field."""
+        return request_wording(self.requested), self.reason
+
+
+def request_wording(requested: str) -> str:
+    return " ".join(requested.lower().split())
+
+
+def distinct_unsupported(spec: StrategySpec) -> list[UnsupportedRequest]:
+    """`spec.unsupported` with repeats dropped (first kept): an LLM listing one request
+    twice, or under two fields, shouldn't ask the user twice or count as two requests."""
+    first: dict[tuple[str, str], UnsupportedRequest] = {}
+    for item in spec.unsupported:
+        first.setdefault(item.key(), item)
+    return list(first.values())
+
 
 class StrategySpec(_Section):
     name: Text | None = None
@@ -166,7 +183,7 @@ class StrategySpec(_Section):
     control: Control | None = None
     examples: list[Example] = Field(default_factory=list)
     # Capability catalogue ids the spec is built from (`catalogue.py`), e.g. "indicator:rsi".
-    uses: list[str] = Field(default_factory=list)
+    uses: list[Text] = Field(default_factory=list)
     unsupported: list[UnsupportedRequest] = Field(default_factory=list)
 
 
@@ -261,7 +278,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # Blocking: the spec can't be tested as stated. A field may also be reported missing
     # (an intraday idea has no supported timeframe), so the user can pick a supported one.
-    for item in spec.unsupported:
+    for item in distinct_unsupported(spec):
         detail = f" ({item.detail})" if item.detail else ""
         add(item.field, "unsupported", f"{item.requested!r}: {item.reason.replace('_', ' ')}{detail}")
 

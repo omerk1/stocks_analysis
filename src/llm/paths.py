@@ -7,8 +7,23 @@ requests instead of each worktree keeping its own.
 
 from __future__ import annotations
 
+import fcntl
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def locked(path: Path):
+    """An exclusive lock on `path` (through a `.lock` file next to it), so processes in
+    different worktrees don't interleave their writes. Unix only (`fcntl`)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def llm_data_dir() -> Path:
