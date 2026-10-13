@@ -49,10 +49,10 @@ worktree_of() {
 # Best effort: lsof sees only processes this user may inspect, and a process
 # writing there with its cwd elsewhere isn't seen. It exits non-zero when some
 # processes are unreadable, so its status is ignored, but an empty list (this
-# shell has a cwd) aborts. A worktree that can't be entered counts as in use.
+# shell has a cwd) aborts. Returns 2 if the worktree can't be entered.
 in_use() {
   local real cwds
-  real=$(cd "$1" 2>/dev/null && pwd -P) || { echo "  can't enter $1" >&2; return 0; }
+  real=$(cd "$1" 2>/dev/null && pwd -P) || return 2
   cwds=$(lsof -a -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' || true)
   if [ -z "$cwds" ]; then echo "lsof listed no processes; can't tell if $1 is in use" >&2; exit 1; fi
   printf '%s\n' "$cwds" | awk -v wt="$real" '$0==wt || index($0, wt "/")==1 {f=1} END {exit !f}'
@@ -141,8 +141,11 @@ while read -r branch upstream <&3; do
       echo "SKIP $branch: worktree $wt has gitignored files, e.g. $(printf '%s\n' "$ignored" | head -1)"
       continue
     fi
-    if in_use "$wt"; then
+    use=0; in_use "$wt" || use=$?
+    if [ "$use" = 0 ]; then
       echo "SKIP $branch: a running process has its cwd in $wt"; continue
+    elif [ "$use" = 2 ]; then
+      echo "SKIP $branch: can't enter worktree $wt"; continue
     fi
   fi
   remote_oid=$(remote_tip "$head")
@@ -168,7 +171,11 @@ while read -r branch upstream <&3; do
     if ! git -C "$main_root" update-ref -d "$ref" "$tip" </dev/null; then
       echo "  KEEP $branch and origin/$head: update-ref failed (git's error above)"; continue
     fi
-    if git -C "$main_root" config --get-regexp "^branch\.$(printf '%s' "$branch" | sed 's/[.[\*^$]/\\&/g')\." >/dev/null; then
+    # Plain prefix match on the key names: a regex would need escaping for
+    # characters branch names allow (+ ? ( ) { } |).
+    if ! keys=$(git -C "$main_root" config --name-only --list); then
+      echo "  WARN: couldn't read git config; check branch.$branch by hand"
+    elif printf '%s\n' "$keys" | awk -v p="branch.$branch." 'index($0, p)==1 {f=1} END {exit !f}'; then
       echo "  + git config --remove-section branch.$branch"
       git -C "$main_root" config --remove-section "branch.$branch" ||
         echo "  WARN: branch.$branch config left behind (git's error above)"
