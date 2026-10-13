@@ -53,3 +53,5 @@ llama-index-core>=0.14
 llama-index-embeddings-huggingface>=0.8,<0.9
 transformers<4.47
 sentence-transformers<4
+# Gemini API (src/llm/gemini.py); reads GOOGLE_API_KEY.
+google-genai>=2.29
