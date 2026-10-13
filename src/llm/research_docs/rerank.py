@@ -46,15 +46,19 @@ from src.llm.research_docs.retrieve import TOP_K
 
 MODELS = ("cross-encoder/ms-marco-MiniLM-L-6-v2", "BAAI/bge-reranker-base")
 DEPTH = 30  # hybrid candidates the cross-encoder scores
-MAX_TOKENS = 512  # both models' limit; chunks are capped at 384 bge tokens, so the pair fits
+# Both models' limit, for question and chunk together. A longer pair loses the end of the
+# chunk without a warning: with the longest dev question, 118 of 3,483 pairs for MiniLM and
+# 22 for bge (their tokenizers differ from the one `chunk` caps chunks with).
+MAX_TOKENS = 512
 
 Scorer = Callable[[list[tuple[str, str]]], list[float]]
 
 
 def cross_encoder(name: str = MODELS[0]) -> Scorer:
     """A scorer for (question, chunk text) pairs, downloaded once to the HF cache."""
-    warnings.filterwarnings("ignore", message="Failed to initialize NumPy")  # index.embed_model has why
-    from sentence_transformers import CrossEncoder
+    with warnings.catch_warnings():  # index.embed_model has why
+        warnings.filterwarnings("ignore", message="Failed to initialize NumPy")
+        from sentence_transformers import CrossEncoder
 
     model = CrossEncoder(name, max_length=MAX_TOKENS)
     # as a tensor, then a list: the default numpy output fails under torch 2.2 + numpy 2
@@ -78,6 +82,4 @@ def rerank(score: Scorer, question: str, hits: Sequence[NodeWithScore],
 def rerank_search(index: VectorStoreIndex, keywords: KeywordIndex, score: Scorer,
                   question: str, k: int = TOP_K, depth: int = DEPTH) -> list[NodeWithScore]:
     """Hybrid search's top `max(k, depth)`, re-ranked; the `k` best, best first."""
-    if k < 1:
-        raise ValueError(f"k must be at least 1, got {k}")
     return rerank(score, question, hybrid_search(index, keywords, question, max(k, depth)), k)
