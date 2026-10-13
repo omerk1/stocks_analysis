@@ -23,8 +23,9 @@ def compute_atr(bars: pd.DataFrame, config: SRConfig) -> pd.Series:
 def detect_pivots(bars: pd.DataFrame, config: SRConfig, atr: pd.Series | None = None) -> list[Pivot]:
     if atr is None:
         atr = compute_atr(bars, config)
+    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
     return market_common_pivots.detect_pivots(
         bars["high"], bars["low"],
-        threshold_fn=lambda i: config.pivot_atr_mult * atr.iloc[i],
-        magnitude_fn=lambda i: atr.iloc[i],
+        threshold_fn=lambda i: config.pivot_atr_mult * atr_values[i],
+        magnitude_fn=lambda i: atr_values[i],
     )

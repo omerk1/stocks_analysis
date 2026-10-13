@@ -80,7 +80,8 @@ def _price_pivots_and_atr(
     close_s = bars["close"].iloc[warmup:]
     atr_s = atr_series.iloc[warmup:]
 
-    pivots = detect_pivots(close_s, threshold_fn=lambda i: config.price_pivot_atr_mult * atr_s.iloc[i])
+    atr_values = atr_s.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
+    pivots = detect_pivots(close_s, threshold_fn=lambda i: config.price_pivot_atr_mult * atr_values[i])
     return pivots, atr_s
 
 
