@@ -164,9 +164,32 @@ def test_rejected_request_is_not_charged_but_an_interrupted_one_is(tmp_path):
     assert [r.get("estimated") for r in read_ledger(tmp_path / "usage.jsonl")] == [True]
 
 
-def test_missing_finish_reason_with_text_is_a_normal_reply(tmp_path):
+def test_unsent_request_is_not_charged_but_a_timed_out_one_is(tmp_path):
+    import httpx
+    from google.genai import errors
+
+    client, _ = _client(tmp_path, error=httpx.ConnectError("offline"))
+    with pytest.raises(httpx.ConnectError):
+        client.generate("hi", purpose="test")
+    assert read_ledger(tmp_path / "usage.jsonl") == []
+    # 408 can come after the reply was generated, so it's charged like any failure.
+    timed_out = errors.ClientError(408, {"error": {"code": 408, "message": "timeout", "status": "DEADLINE"}})
+    client, _ = _client(tmp_path, error=timed_out)
+    with pytest.raises(errors.ClientError):
+        client.generate("hi", purpose="test")
+    assert [r.get("estimated") for r in read_ledger(tmp_path / "usage.jsonl")] == [True]
+
+
+def test_missing_finish_reason_passes_only_a_validated_structured_reply(tmp_path):
     client, _ = _client(tmp_path, finish=None)
-    assert client.generate("hi", purpose="test").finish_reason == "STOP"
+    assert client.generate("hi", purpose="test", response_schema=Answer).finish_reason == "STOP"
+    with pytest.raises(ReplyError, match="stopped early"):  # free text could be cut short
+        client.generate("hi", purpose="test")
+
+
+def test_timeout_grows_with_the_reply_budget():
+    assert Budget().request_timeout_ms() == 160_000
+    assert Budget(max_output_tokens=8_000, thinking_budget=24_000).request_timeout_ms() == 860_000
 
 
 def test_parallel_calls_cannot_share_the_last_budget(tmp_path):
