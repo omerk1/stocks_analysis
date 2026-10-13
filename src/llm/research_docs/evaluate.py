@@ -23,7 +23,8 @@ the LLM should say "not in the docs" instead of answering from the nearest chunk
 shows every question's top score and the range for each kind: if unanswerable
 questions score as high as answerable ones, a score cutoff alone can't tell them apart.
 (The score is the method's own: cosine similarity for vector search, BM25 for keyword,
-a fused rank score for hybrid, so ranges compare only within one method.)
+a fused rank score for hybrid, the cross-encoder's for rerank, so ranges compare only
+within one method.)
 
 Metrics, over the answerable questions and per question type:
 
@@ -53,11 +54,14 @@ were added. Golds are only as complete as the pool, which favours those two sear
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
 unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
-12 added).
+12 added; the two re-rankers: 152 judged, 19 added). Nothing records the chunks judged
+"no", and node ids change on every rebuild: a chunk counts as judged if it is a gold or in
+the vector, keyword or hybrid top 5 for that question, matched by its text.
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
-    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword; default vector
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank; default vector
+    python -m src.llm.research_docs.evaluate --method rerank --reranker BAAI/bge-reranker-base
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
 
@@ -67,6 +71,7 @@ import argparse
 import json
 import statistics
 import sys
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -278,9 +283,13 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
-    ap.add_argument("--method", choices=("vector", "keyword", "hybrid"), default="vector",
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank"), default="vector",
                     help="search to score (default vector)")
+    ap.add_argument("--reranker", default=None,
+                    help="cross-encoder for --method rerank (default rerank.MODELS[0])")
     args = ap.parse_args()
+    if args.reranker and args.method != "rerank":
+        ap.error("--reranker needs --method rerank")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -305,13 +314,24 @@ def main() -> None:
         raise SystemExit(1)
     chosen = [q for q in questions if question_split(q) == args.split]
     find = None
+    method = args.method
     if args.method != "vector":
         from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
         keywords = KeywordIndex(indexed)
         find = keywords.search if args.method == "keyword" else (
             lambda question, k: hybrid_search(index, keywords, question, k))
-    head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {args.method} search"
-    print(report(evaluate(index, chosen, find), stale, head))
+    if args.method == "rerank":
+        from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
+        name = args.reranker or MODELS[0]
+        score = cross_encoder(name)
+        find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
+        method = f"rerank (hybrid top {DEPTH}, {name})"
+    head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {method} search"
+    start = time.perf_counter()
+    rows = evaluate(index, chosen, find)
+    per_question = (time.perf_counter() - start) / len(chosen) if chosen else 0.0
+    print(report(rows, stale, head))
+    print(f"{per_question:.2f} s per question (search only; models loaded beforehand)")
 
 
 if __name__ == "__main__":
