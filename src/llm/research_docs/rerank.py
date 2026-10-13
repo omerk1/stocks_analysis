@@ -56,7 +56,8 @@ Scorer = Callable[[list[tuple[str, str]]], list[float]]
 
 def cross_encoder(name: str = MODELS[0]) -> Scorer:
     """A scorer for (question, chunk text) pairs, downloaded once to the HF cache."""
-    warnings.filterwarnings("ignore", message="Failed to initialize NumPy")  # index.embed_model has why
+    # process-wide, as in index.embed_model (which has why): torch warns once, at first import
+    warnings.filterwarnings("ignore", message="Failed to initialize NumPy")
     from sentence_transformers import CrossEncoder
 
     model = CrossEncoder(name, max_length=MAX_TOKENS)
