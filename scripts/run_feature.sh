@@ -91,7 +91,7 @@ if [ -f BLOCKED.md ]; then
   echo "== BLOCKED.md:"
   cat BLOCKED.md
 fi
-if git log --oneline origin/main..HEAD -- BLOCKED.md | grep -q .; then
+if [ -n "$(git log --oneline origin/main..HEAD -- BLOCKED.md)" ]; then
   echo "== WARNING: a commit on $branch adds or changes BLOCKED.md; it must not reach main"
 fi
 echo "== PRs with head $branch:"
