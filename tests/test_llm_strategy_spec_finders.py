@@ -147,6 +147,11 @@ def test_refusals_name_the_problem():
         # Numbers without a normalisation must never silently fall to the default away
         # distance (the rubric would then falsely claim no number was stated).
         find_first_touch(spec(size=Size(min=2.0, description="2 ATR above")), panel({"AAA": MATCH}))
+    with pytest.raises(GroundingError, match="degenerates"):
+        # away <= touch tolerance: the first bar after every away run is already a touch.
+        find_first_touch(spec(size=Size(normalisation="atr", min=0.2)), panel({"AAA": MATCH}))
+    with pytest.raises(GroundingError, match="date-sorted"):
+        find_first_touch(spec(), panel({"AAA": MATCH}).iloc[::-1].reset_index(drop=True))
     with pytest.raises(GroundingError, match="intraday"):
         find_first_touch(spec(trigger=Trigger(description="touch", price_basis="intraday")),
                          panel({"AAA": MATCH}))

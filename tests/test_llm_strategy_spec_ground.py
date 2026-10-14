@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from src.llm.strategy_spec import charts
-from src.llm.strategy_spec.finders import Candidate, GroundingError
+from src.llm.strategy_spec.finders import FINDERS, Candidate, FinderResult, GroundingError
 from src.llm.strategy_spec.ground import ground, load_spec, pick_finder, sample
 from src.models.dataset import HoldoutError
 from tests.test_llm_strategy_spec_finders import MATCH, TOUCH_RING, panel, signal_date, spec
@@ -177,12 +177,53 @@ def test_unparseable_answers_stop_the_session(tmp_path):
     assert result.examples == []
 
 
+def test_a_stray_empty_answer_does_not_end_the_round(tmp_path):
+    answers = iter(["", "y", "y", "y"])  # Enter slips once; the instance is re-asked
+    result, prompts, said, session = run(tmp_path, lambda text: next(answers, None))
+    assert all(s["verdict"] is True for s in session["shown"])
+    assert any("ctrl-d stops" in line for line in said)
+
+
+def test_already_judged_instances_are_never_reshown(tmp_path):
+    # Round 2 on a spec that already carries round 1's verdicts: an instance whose truth
+    # was revealed must not come back, whatever the seed.
+    test_spec, frame = session_inputs()  # 2 matches + 1 near-miss in the population
+    first = ground(test_spec, frame, ask=lambda text: "y", say=lambda line: None,
+                   out_dir=tmp_path / "r1", seed=42, matches_shown=1, near_misses_shown=1)
+    assert len(first.examples) == 2
+    judged = {(e.ticker, e.date) for e in first.examples}
+    for seed in (1, 2, 3):
+        second = ground(first, frame, ask=lambda text: "y", say=lambda line: None,
+                        out_dir=tmp_path / f"r2_{seed}", seed=seed,
+                        matches_shown=2, near_misses_shown=1)
+        session = json.loads((tmp_path / f"r2_{seed}" / "session.json").read_text())
+        # Only the one still-unjudged match can appear, whatever the seed asks for.
+        assert len(session["shown"]) == 1
+        assert all((row["ticker"], row["date"]) not in judged for row in session["shown"])
+        # No contradictory duplicate rows either: every (ticker, date) appears once.
+        pairs = [(e.ticker, e.date) for e in second.examples]
+        assert len(pairs) == len(set(pairs))
+
+
 def test_a_hedge_is_not_a_rejection(tmp_path):
     # "not sure, hard to tell" starts with n but is no verdict — it must count as
     # invalid, not land in spec.examples as a rejection.
     result, prompts, said, session = run(tmp_path, lambda text: "not sure, hard to tell")
     assert all(s["verdict"] is None for s in session["shown"])
     assert result.examples == []
+
+
+def test_an_explicit_ma_for_a_finder_that_takes_none_is_announced(tmp_path, monkeypatch):
+    def pattern_finder(spec, panel):  # no `ma` parameter, like a future pattern finder
+        return FinderResult((), (), (), overlay_column="sma_200", overlay_name="SMA 200")
+
+    monkeypatch.setitem(FINDERS, "detector:fake", pattern_finder)
+    test_spec, frame = session_inputs()
+    said = []
+    ground(test_spec, frame, ask=lambda text: "y", say=said.append, out_dir=tmp_path,
+           detector="detector:fake", ma="ema_50")
+    assert any("--ma ema_50 is ignored" in line for line in said)
+    assert any("isn't among the spec's own detectors" in line for line in said)
 
 
 def test_a_panel_reaching_past_the_holdout_is_refused(tmp_path):

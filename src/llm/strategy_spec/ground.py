@@ -186,24 +186,31 @@ def sessions_dir() -> Path:
 
 
 def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
-           out_dir: Path | None = None, ma: str = DEFAULT_MA, seed: int | None = None,
+           out_dir: Path | None = None, ma: str | None = None, seed: int | None = None,
            detector: str | None = None, matches_shown: int = MATCHES_SHOWN,
            near_misses_shown: int = NEAR_MISSES_SHOWN) -> StrategySpec:
     """One grounding round over `panel` (a `features/panel.py` panel, development window
     only — a panel reaching past the holdout boundary is refused). `ask` returns the
     trader's answer to one instance ("y"/"n", an optional reason after a comma) or None
-    to stop; `say` reports the rubric, population and the final reveal. Returns the spec
-    with the verdicts appended to `examples`."""
+    to stop (an empty answer counts as invalid, not as a stop — a stray Enter must not
+    end a half-judged round); `say` reports the rubric, population and the final reveal.
+    `ma` left None means the finder's default; passing it for a finder that takes no MA
+    is announced, not silently dropped. Returns the spec with the verdicts appended to
+    `examples`."""
     if panel.empty:
         raise GroundingError("the panel is empty — nothing to ground against")
     check_holdout(panel["date"].max())
     finder_id = pick_finder(spec, detector)
     finder = FINDERS[finder_id]
     # A run option goes only to a finder that declares it: `ma` means nothing to a
-    # future pattern or divergence finder, and each finder's rubric states what it
-    # actually applied, so an undeclared option isn't silently influential either way.
+    # future pattern or divergence finder. An option the user explicitly passed to a
+    # finder that doesn't take it is said out loud, never silently dropped.
     declared = inspect.signature(finder).parameters
-    options = {name: value for name, value in {"ma": ma}.items() if name in declared}
+    options = {}
+    if "ma" in declared:
+        options["ma"] = ma or DEFAULT_MA
+    elif ma is not None:
+        say(f"Note: {finder_id} takes no moving-average option; --ma {ma} is ignored.")
     result: FinderResult = finder(spec, panel, **options)
     if detector is not None and finder_id not in spec.uses:
         say(f"Note: {finder_id} isn't among the spec's own detectors "
@@ -218,10 +225,17 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     say(f"Population: the definition fires {len(result.matches)} times on {len(dates)} "
         f"distinct dates, {window[0]} to {window[1]}.")
 
+    # An instance already judged in an earlier round was revealed there (the trader knows
+    # its truth) and already has its Example row — never re-show it: the blind would be
+    # broken and spec.examples could carry two contradictory rows for one instance.
+    judged = {(e.ticker, e.date) for e in spec.examples}
+    def unjudged(candidates):
+        return tuple(c for c in candidates if (c.ticker, str(c.date.date())) not in judged)
+
     seed = random.randrange(2**32) if seed is None else seed
     rng = random.Random(seed)
-    picked = sample(result.matches, matches_shown, rng)
-    near = sample(result.near_misses, near_misses_shown, rng,
+    picked = sample(unjudged(result.matches), matches_shown, rng)
+    near = sample(unjudged(result.near_misses), near_misses_shown, rng,
                   taken_dates={c.date for c in picked},
                   taken_tickers={c.ticker for c in picked})
     shown_candidates = picked + near
@@ -265,9 +279,18 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
             answer = ask(f"[{n}/{len(session.shown)}] {shown.candidate.ticker} "
                          f"{shown.candidate.date.date()} — chart: {out_dir / shown.chart}\n"
                          "Does this match your idea? (y / n, optional reason after a comma)")
-            if answer is None or not answer.strip():
+            if answer is None:
                 stopped = True
                 break
+            if not answer.strip():
+                # A stray Enter must not end a half-judged round (the blind sample would
+                # be wasted); stopping is explicit — ctrl-d at the CLI, None from `ask`.
+                invalid += 1
+                if invalid >= INVALID_ANSWER_LIMIT:
+                    stopped = True
+                    break
+                say("Answer y or n (ctrl-d stops the session).")
+                continue
             head, _, comment = answer.strip().partition(",")
             # Exactly y/yes or n/no: a hedge like "not sure" must not be recorded as a
             # rejection — a misread verdict would send a correct constraint back to the
@@ -334,8 +357,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("spec", type=Path, help="a spec JSON, or an elicitation transcript")
     parser.add_argument("--panel-dir", type=Path, default=None,
                         help="feature panel cache (default: the configured features dir)")
-    parser.add_argument("--ma", default=DEFAULT_MA, choices=list(MA_COLUMNS),
-                        help="which moving average to ground against (the spec has no structured slot)")
+    parser.add_argument("--ma", default=None, choices=list(MA_COLUMNS),
+                        help="which moving average to ground against (the spec has no structured "
+                             f"slot; an MA finder defaults to {DEFAULT_MA})")
     parser.add_argument("--detector", default=None, help="finder to use (default: from the spec's `uses`)")
     parser.add_argument("--seed", type=int, default=None, help="sampling seed (recorded either way)")
     parser.add_argument("--start", default=None, help="YYYY-MM-DD (default: the whole cached window)")

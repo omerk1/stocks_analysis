@@ -168,6 +168,11 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
                                  f"your spec caps the size at {size.max:g}, but the detector "
                                  "has no away-distance cap — instances may exceed it"))
     touch_tol = touch.TOUCH_THRESHOLD
+    if away <= touch_tol:
+        raise GroundingError(
+            f"the away distance ({away:g} ATR) doesn't exceed the touch tolerance ({touch_tol:g} ATR) — "
+            "as stated, the first bar after every away run already counts as a touch and the "
+            "definition degenerates; restate the size")
     rubric.append(RubricLine("touch tolerance", f"within {touch_tol:g} ATR of the MA", "default",
                              "no structured slot yet — if your idea states one, check the charts against it"))
     max_days = touch.MAX_DAYS_TO_TOUCH
@@ -214,6 +219,11 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     dates_by_ticker: dict[str, pd.api.extensions.ExtensionArray] = {}
     dist_by_ticker: dict[str, pd.Series] = {}
     for ticker, frame in working.groupby("ticker", sort=False):
+        if not frame["date"].is_monotonic_increasing:
+            # The unlag shift and the run detection both assume chronological rows per
+            # ticker; an unsorted panel would yield confidently wrong instances.
+            raise GroundingError(f"panel rows for {ticker!r} aren't date-sorted — "
+                                 "pass a (ticker, date)-sorted feature panel")
         dates_by_ticker[ticker] = frame["date"].to_numpy()
         dist = frame["dist"].reset_index(drop=True)
         last_valid = dist.last_valid_index()
