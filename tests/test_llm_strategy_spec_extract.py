@@ -57,8 +57,10 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"normalisation": "ATR"}}}},
                    # An expected value that means "nothing stated" is a 'blank' spelled wrong.
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"not_applicable": False}}}},
-                   # A flag wording with no letters or digits would match everything.
-                   {**ok, "unsupported": [{"has": "%", "reason": "other"}]},
+                   # A flag wording that folds to nothing would match everything.
+                   {**ok, "unsupported": [{"has": "-", "reason": "other"}]},
+                   # Flags without their keys name the case instead of a bare KeyError.
+                   {**ok, "unsupported": [{"reason": "other"}]},
                    # Exactly one idea text per case, an id, and a real golden reference.
                    {**ok, "golden": "ma_touch_bounce"},
                    {k: v for k, v in ok.items() if k != "id"},
@@ -142,10 +144,13 @@ CASE = Case("c", "idea", {f: Expectation("either") for f in get_args(SpecField)}
 def test_flags_matched_by_wording_substring_and_reason():
     score = score_case(_flagged(EARNINGS), CASE)
     assert score.caught == 1 and score.missed == () and score.unexpected == ()
-    # Punctuation doesn't break the match: "15-minute" finds "the 15 minute chart".
+    # Hyphenation doesn't break the match: "15-minute" finds "the 15 minute chart".
     flag = ExpectedFlag("15-minute", "unsupported_timeframe")
     assert flag.matches("the 15 minute chart", "unsupported_timeframe")
     assert not flag.matches("the 5 minute chart", "unsupported_timeframe")
+    # Meaning-bearing symbols must appear as typed: "10%" doesn't match a bare "10".
+    assert not ExpectedFlag("10%", "other").matches("the top 10 names", "other")
+    assert ExpectedFlag("10%", "other").matches("a move of 10% or more", "other")
     # The same words under the wrong reason don't count.
     score = score_case(_flagged({**EARNINGS, "reason": "unknown_metric"}), CASE)
     assert score.missed == ("earnings",) and score.unexpected == ("Earnings  Surprise filter",)

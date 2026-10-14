@@ -114,8 +114,8 @@ class ExpectedFlag:
     optional: bool = False
 
     def matches(self, requested: str, reason: str) -> bool:
-        # `request_wording` folds punctuation on both sides, so "15-minute" finds "the
-        # 15 minute chart". Keep `has` to letters and digits: "10%" would fold to "10".
+        # `request_wording` folds hyphens on both sides, so "15-minute" finds "the 15
+        # minute chart"; other symbols ("10%") must appear as typed.
         return self.reason == reason and request_wording(self.has) in request_wording(requested)
 
 
@@ -163,28 +163,30 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
     cases = []
     with path.open() as f:
         raw = json.load(f)
-    for item in raw:
+    for n, item in enumerate(raw, 1):
         if "id" not in item:
-            raise ValueError("every case needs an 'id'")
+            raise ValueError(f"case #{n} needs an 'id'")
         cid = item["id"]
-        if ("golden" in item) == ("idea" in item):
-            raise ValueError(f"case {cid!r} needs exactly one of 'golden' or 'idea'")
-        if "golden" in item and item["golden"] not in golden:
-            raise ValueError(f"case {cid!r}: no golden spec named {item['golden']!r}")
-        idea = golden[item["golden"]] if "golden" in item else item["idea"]
-        if set(item["fields"]) != set(get_args(SpecField)):
-            raise ValueError(f"case {cid!r} must cover every spec field exactly once")
         try:
+            if ("golden" in item) == ("idea" in item):
+                raise ValueError("needs exactly one of 'golden' or 'idea'")
+            if "golden" in item and item["golden"] not in golden:
+                raise ValueError(f"no golden spec named {item['golden']!r}")
+            idea = golden[item["golden"]] if "golden" in item else item["idea"]
+            if set(item["fields"]) != set(get_args(SpecField)):
+                raise ValueError("must cover every spec field exactly once")
             fields = {f: _expectation(f, v) for f, v in item["fields"].items()}
+            flags = tuple(ExpectedFlag(f["has"], f["reason"], f.get("optional", False))
+                          for f in item["unsupported"])
+            if any(f.reason not in get_args(UnsupportedReason) for f in flags):
+                raise ValueError("has an unknown reason")
+            if any(f.has and not request_wording(f.has) for f in flags):
+                # "-" folds to nothing and would match every request with that reason.
+                raise ValueError("has a flag wording that folds to nothing")
+        except KeyError as e:  # an authoring mistake names its case
+            raise ValueError(f"case {cid!r} is missing {e}") from None
         except ValueError as e:
-            raise ValueError(f"case {cid!r}: {e}") from None
-        flags = tuple(ExpectedFlag(f["has"], f["reason"], f.get("optional", False))
-                      for f in item["unsupported"])
-        if any(f.reason not in get_args(UnsupportedReason) for f in flags):
-            raise ValueError(f"case {cid!r} has an unknown reason")
-        if any(f.has and not request_wording(f.has) for f in flags):
-            # "%" folds to nothing and would match every request with that reason.
-            raise ValueError(f"case {cid!r} has a flag wording with no letters or digits")
+            raise ValueError(f"case {cid!r}: {e}") from e
         cases.append(Case(cid, idea, fields, flags))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
