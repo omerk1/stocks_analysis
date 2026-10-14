@@ -26,7 +26,7 @@ Not yet here (§7, for the ablation step): grouping beyond this file's
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Callable
 
 import pandas as pd
@@ -181,9 +181,7 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("days_to_earnings_expected", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
                 note="the expected date (a year after the same quarter's), never the realized one"),
     FeatureSpec("sue_net_income", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True,
-                note="net income: leaves out buybacks and dilution, which sue_eps carries"),
-    FeatureSpec("sue_eps", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True,
-                note="diluted EPS on one share basis via the splits; scale errors dropped"),
+                note="net income, not EPS: same number up to share-count changes, without EPS's data problems"),
     FeatureSpec("rev_growth_yoy", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True),
     FeatureSpec("rev_growth_accel", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
                 note="change in YoY growth vs the previous quarter; the seasonality-free stand-in for QoQ"),
@@ -260,8 +258,6 @@ def compute_registered(
     `context` is what panel sources read besides bars (default: every ticker
     passed is a member, no sectors)."""
     context = context if context is not None else market.PanelContext()
-    if splits or context.splits is None:  # the splits passed here (the gate perturbs them) win
-        context = replace(context, splits=splits)
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:

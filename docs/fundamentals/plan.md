@@ -166,17 +166,18 @@ Simple, well-known ones only, all computed point-in-time:
 - Registered in the model's feature registry like any other feature.
 
 **As built (2026-10-14), part one (valuation is the second):** `src/models/features/fundamentals.py`,
-registered as group `fundamentals` (prior null: untested here). Eight columns. Plain
-quarter-over-quarter growth (revenue or EPS) is left out on purpose: it mostly measures
-seasonality, and EPS percent growth blows up near zero; acceleration and the EPS surprise
-replace them.
+registered as group `fundamentals` (prior null: untested here). Seven columns. Plain
+quarter-over-quarter growth is left out on purpose (it mostly measures seasonality;
+acceleration replaces it), and so is an EPS surprise: a SUE is a ratio, so on EPS it equals
+the net-income one up to share-count changes (corr 0.985 on 20 large caps), while as-filed
+EPS needs split adjustment, a derived Q4 and scale-error cleaning that kept producing edge
+cases (tried and dropped 2026-10-14). Buybacks/dilution belong in a share-count-change feature.
 
 | Column | What it is |
 |---|---|
 | `days_since_earnings` | business days since the last earnings reaction date |
 | `days_to_earnings_expected` | business days to the *expected* next one: the same quarter's reaction a year earlier + 52 weeks, 0 when overdue. Never the realized date |
 | `sue_net_income` (+ rank) | the surprise against the company's own history: net income minus the same quarter a year earlier, over the standard deviation of the previous 8 such changes (at least 4). Net income, not EPS, because stored EPS isn't split-adjusted |
-| `sue_eps` (+ rank) | the same on diluted EPS, which adds buybacks and dilution. Nearly redundant on large caps (corr 0.985 with the net-income version on 20 of them); kept for the ablation to judge. EPS is put on one share basis with the splits table (ratios that aren't small-number splits, i.e. spin-offs booked as splits, ignored); since a SUE is a ratio and every value in a quarter's window gets the same factor from later splits, this equals using only the splits known at the time. Q4 EPS, rarely tagged, is derived as the year minus the three quarters filed by then (approximate). Dropped as scale errors: \|EPS\| outside 0.001–100,000, and EPS whose implied share count (net income / EPS) is 50× off its recent median |
 | `rev_growth_accel` | this quarter's YoY revenue growth minus the previous quarter's: whether growth is speeding up. Stands in for quarter-over-quarter growth, which mostly measures seasonality |
 | `rev_growth_yoy` (+ rank) | revenue vs the same quarter a year earlier; only when both measure the same thing: the same tag, or two total-revenue tags, since ASC 606 moved nearly every filer between them in 2018 |
 | `net_margin_ttm` | trailing four quarters' net income over their revenue |

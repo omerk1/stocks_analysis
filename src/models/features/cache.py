@@ -78,8 +78,6 @@ def build_feature_cache(
     for basis in sorted({registry.SOURCES[s.source].basis for s in bar_specs}, key=lambda b: b.value):
         bars[basis] = dataset.read_bars_bulk(conn, names, basis, first, end, fallback=_fallback(basis))
         sources[basis.value] = bars[basis].attrs["price_sources"]
-    # Eligible names only: the panel's per-share columns (sue_eps) for the other members
-    # go unadjusted, harmless while only eligible rows are kept and nothing aggregates them.
     split_sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, _fallback(dataset.UNIVERSE_BASIS))
     splits = dataset._read_splits_bulk(conn, split_sources)
 
@@ -95,7 +93,7 @@ def build_feature_cache(
         context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars),
                                       sectors=sectors.set_index("ticker")["sector"],
                                       fundamentals=filings[0], earnings=filings[1])
-        pvalues = registry.compute_registered(bars, splits, tuple(panel_specs), rank=False, context=context)
+        pvalues = registry.compute_registered(bars, {}, tuple(panel_specs), rank=False, context=context)
         values = pvalues if values is None else values.merge(pvalues, on=["ticker", "date"], how="left")
     out = rows.merge(values, on=["ticker", "date"], how="left")
     ranked = tuple(s.name for s in bar_specs if s.ranked)
