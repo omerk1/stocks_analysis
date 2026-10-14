@@ -58,6 +58,16 @@ def test_sample_prefers_unseen_tickers_and_respects_taken_dates():
     assert {c.ticker for c in picked} == {"A", "B"}  # not two dates of the same ticker
     taken = {pd.Timestamp("2016-03-02")}
     assert all(c.date not in taken for c in sample(pool, 3, random.Random(1), taken_dates=taken))
+    # Pre-taken tickers (the match round's) are avoided while alternatives exist.
+    assert [c.ticker for c in sample(pool, 1, random.Random(1), taken_tickers={"A"})] == ["B"]
+
+
+def test_sample_falls_back_to_a_seen_ticker_only_when_no_year_has_a_new_one():
+    # X's year must not pre-empt Y: a whole pass over every year looks for an unseen
+    # ticker before any year falls back to a repeat.
+    pool = candidates(("X", "2015-03-02"), ("X", "2016-03-02"), ("Y", "2016-05-02"))
+    for seed in range(50):
+        assert {c.ticker for c in sample(pool, 2, random.Random(seed))} == {"X", "Y"}
 
 
 def test_sample_is_deterministic_under_a_seed_and_caps_at_the_population():
@@ -164,6 +174,14 @@ def test_unparseable_answers_stop_the_session(tmp_path):
     result, prompts, said, session = run(tmp_path, lambda text: "maybe")
     assert all(s["verdict"] is None for s in session["shown"])
     assert sum("Answer y or n" in line for line in said) == 2
+    assert result.examples == []
+
+
+def test_a_hedge_is_not_a_rejection(tmp_path):
+    # "not sure, hard to tell" starts with n but is no verdict — it must count as
+    # invalid, not land in spec.examples as a rejection.
+    result, prompts, said, session = run(tmp_path, lambda text: "not sure, hard to tell")
+    assert all(s["verdict"] is None for s in session["shown"])
     assert result.examples == []
 
 

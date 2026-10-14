@@ -53,6 +53,8 @@ def test_finds_the_match_on_its_signal_bar():
     result = find_first_touch(spec(), panel({"AAA": MATCH}))
     assert [(c.ticker, c.date) for c in result.matches] == [("AAA", signal_date(MATCH, 0.1))]
     assert result.matches[0].fails is None and result.near_misses == ()
+    # The finder owns its chart geometry: the session runner draws what it declares.
+    assert (result.overlay_column, result.overlay_name) == ("sma_200", "SMA 200")
 
 
 def test_each_ring_yields_its_near_miss_and_no_match():
@@ -152,6 +154,9 @@ def test_refusals_name_the_problem():
         find_first_touch(spec(), panel({"AAA": MATCH}), ma="sma_37")
     with pytest.raises(GroundingError, match="not a feature panel"):
         find_first_touch(spec(), panel({"AAA": MATCH}).drop(columns=["dist_atr_sma_200"]))
+    with pytest.raises(GroundingError, match="not a feature panel"):
+        # The MA itself is needed too — it's the chart overlay.
+        find_first_touch(spec(), panel({"AAA": MATCH}).drop(columns=["sma_200"]))
 
 
 def test_registry_covers_catalogue_ids_only():

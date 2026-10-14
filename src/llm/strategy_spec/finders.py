@@ -97,6 +97,12 @@ class FinderResult:
     matches: tuple[Candidate, ...]
     near_misses: tuple[Candidate, ...]
     rubric: tuple[RubricLine, ...]
+    # The finder owns its chart geometry: the panel column (one-bar-lagged, like every
+    # panel feature — `ground.py` shifts it to the signal bar for display) drawn as the
+    # chart overlay, and its display name. The session runner draws what the finder
+    # declares; it doesn't assume every detector is about a moving average.
+    overlay_column: str
+    overlay_name: str
 
 
 def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
@@ -121,8 +127,9 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     if ma not in MA_COLUMNS:
         raise GroundingError(f"unknown moving average {ma!r}; one of {', '.join(MA_COLUMNS)}")
     dist_col = f"dist_atr_{ma}"
-    if dist_col not in panel.columns:
-        raise GroundingError(f"panel has no {dist_col!r} column — not a feature panel?")
+    for needed in (dist_col, ma):  # the distance drives detection, the MA itself the chart overlay
+        if needed not in panel.columns:
+            raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
 
     if spec.timeframe is None:
         raise GroundingError("the spec doesn't state a timeframe — finish elicitation before "
@@ -199,23 +206,27 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
 
     working = panel[["ticker", "date"]].copy()
     working["dist"] = shift_to_signal_bar(panel, dist_col)
-    dates_by_ticker = {ticker: frame["date"].to_numpy()
-                       for ticker, frame in working.groupby("ticker", sort=False)}
+    # One grouping pass for all four detection runs (strict + three rings): the per-ticker
+    # trimmed series and dates don't change between runs, only the thresholds do. The
+    # unlag shift leaves each ticker's last row NaN (and warmup NaNs stay leading, which
+    # `state_run_id` supports); the tail is trimmed — a bar with no distance can't host
+    # an event, and positions into the kept rows don't move.
+    dates_by_ticker: dict[str, pd.api.extensions.ExtensionArray] = {}
+    dist_by_ticker: dict[str, pd.Series] = {}
+    for ticker, frame in working.groupby("ticker", sort=False):
+        dates_by_ticker[ticker] = frame["date"].to_numpy()
+        dist = frame["dist"].reset_index(drop=True)
+        last_valid = dist.last_valid_index()
+        if last_valid is not None:
+            dist_by_ticker[ticker] = dist.iloc[:last_valid + 1]
 
     def events(away_threshold: float, touch_threshold: float, max_days_to_touch: int) -> dict[str, set[int]]:
         """Qualifying bar positions per ticker (positions, not dates, so rings can
         reason about how far apart two events on one ticker are)."""
         found: dict[str, set[int]] = {}
-        for ticker, frame in working.groupby("ticker", sort=False):
-            # The unlag shift leaves each ticker's last row NaN (and warmup NaNs stay
-            # leading, which `state_run_id` supports); trim the tail — a bar with no
-            # distance can't host an event, and positions into the kept rows don't move.
-            dist = frame["dist"].reset_index(drop=True)
-            last_valid = dist.last_valid_index()
-            if last_valid is None:
-                continue
+        for ticker, dist in dist_by_ticker.items():
             positions, direction = touch.touch_positions(
-                dist.iloc[:last_valid + 1], away_threshold, touch_threshold, max_days_to_touch)
+                dist, away_threshold, touch_threshold, max_days_to_touch)
             kept = {int(p) for p, s in zip(positions, direction) if s in signs}
             if kept:
                 found[ticker] = kept
@@ -231,7 +242,10 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     # same run still fires strictly a few bars later — that bar is not evidence the
     # tolerance is misplaced, so anything with a strict event close behind it (within
     # the touch window, which bounds how far apart two touches of one run can be) is
-    # dropped rather than shown as a near-miss.
+    # dropped rather than shown as a near-miss. Keyed on the ticker, not the run (run
+    # ids don't leave `touch_positions`), so a strict event from a neighbouring run
+    # also suppresses — deliberately conservative: it occasionally hides a genuine
+    # near-miss, it never presents a mislabelled one.
     touch_ring = {t: kept for t, ps in touch_ring.items()
                   if (kept := {p for p in ps
                                if not any(p < s <= p + max_days for s in strict.get(t, ()))})}
@@ -258,7 +272,8 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         for key in dated(ring):
             seen.setdefault(key, fails)
     near_misses = tuple(Candidate(t, d, fails) for (t, d), fails in seen.items())
-    return FinderResult(matches, near_misses, tuple(rubric))
+    return FinderResult(matches, near_misses, tuple(rubric),
+                        overlay_column=ma, overlay_name=f"{family.upper()} {lookback}")
 
 
 # Catalogue detector id -> finder. Grounding dispatches on the spec's `uses`; a spec

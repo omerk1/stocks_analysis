@@ -88,12 +88,16 @@ def pick_finder(spec: StrategySpec, override: str | None = None) -> str:
 
 
 def sample(candidates: tuple[Candidate, ...], k: int, rng: random.Random,
-           taken_dates: set[pd.Timestamp] | None = None) -> list[Candidate]:
+           taken_dates: set[pd.Timestamp] | None = None,
+           taken_tickers: set[str] | None = None) -> list[Candidate]:
     """Up to `k` of `candidates`: random within each year, round-robin across years (so
     one loud regime can't fill the whole sample), never two on the same date (events
-    cluster), and preferring unseen tickers while any remain."""
+    cluster), and preferring unseen tickers while any remain — anywhere: a round falls
+    back to a repeated ticker only after a whole pass over every year found no new one,
+    not year by year (a year whose only candidates are seen tickers must not pre-empt
+    another year's unseen one)."""
     taken_dates = set(taken_dates or ())
-    taken_tickers: set[str] = set()
+    taken_tickers = set(taken_tickers or ())
     pools: dict[int, list[Candidate]] = {}
     for candidate in candidates:
         pools.setdefault(candidate.date.year, []).append(candidate)
@@ -114,23 +118,21 @@ def sample(candidates: tuple[Candidate, ...], k: int, rng: random.Random,
     picked: list[Candidate] = []
     while len(picked) < k:
         progressed = False
-        for year in years:
-            if len(picked) >= k:
+        for require_new_ticker in (True, False):
+            for year in years:
+                if len(picked) >= k:
+                    break
+                candidate = take(pools[year], require_new_ticker)
+                if candidate is not None:
+                    picked.append(candidate)
+                    taken_dates.add(candidate.date)
+                    taken_tickers.add(candidate.ticker)
+                    progressed = True
+            if progressed:
                 break
-            candidate = take(pools[year], True) or take(pools[year], False)
-            if candidate is not None:
-                picked.append(candidate)
-                taken_dates.add(candidate.date)
-                taken_tickers.add(candidate.ticker)
-                progressed = True
         if not progressed:
             break
     return picked
-
-
-def _ma_label(ma: str) -> str:
-    family, _, lookback = ma.partition("_")
-    return f"{family.upper()} {lookback}"
 
 
 @dataclass
@@ -203,6 +205,9 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     declared = inspect.signature(finder).parameters
     options = {name: value for name, value in {"ma": ma}.items() if name in declared}
     result: FinderResult = finder(spec, panel, **options)
+    if detector is not None and finder_id not in spec.uses:
+        say(f"Note: {finder_id} isn't among the spec's own detectors "
+            f"({', '.join(spec.uses) or 'none listed'}) — grounding it anyway, as asked.")
 
     say("Search rubric — what was actually applied:")
     for line in result.rubric:
@@ -216,8 +221,9 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     seed = random.randrange(2**32) if seed is None else seed
     rng = random.Random(seed)
     picked = sample(result.matches, matches_shown, rng)
-    picked_dates = {c.date for c in picked}
-    near = sample(result.near_misses, near_misses_shown, rng, taken_dates=picked_dates)
+    near = sample(result.near_misses, near_misses_shown, rng,
+                  taken_dates={c.date for c in picked},
+                  taken_tickers={c.ticker for c in picked})
     shown_candidates = picked + near
     rng.shuffle(shown_candidates)  # blind: the trader must not know which is which
     if not shown_candidates:
@@ -234,16 +240,18 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
         seed=seed)
 
     # Only the shown tickers' rows, grouped once — not a full-panel scan per chart.
+    # The overlay is whatever the finder declared, not an assumption that every
+    # detector is about a moving average.
     shown_tickers = {c.ticker for c in shown_candidates}
     display = panel.loc[panel["ticker"].isin(shown_tickers),
-                        ["ticker", "date", "open", "high", "low", "close", ma]].copy()
-    display["ma_display"] = shift_to_signal_bar(display, ma)
+                        ["ticker", "date", "open", "high", "low", "close", result.overlay_column]].copy()
+    display["overlay_display"] = shift_to_signal_bar(display, result.overlay_column)
     bars_by_ticker = {ticker: frame.reset_index(drop=True)
                       for ticker, frame in display.groupby("ticker", sort=False)}
     for n, candidate in enumerate(shown_candidates, start=1):
         bars = bars_by_ticker[candidate.ticker]
         figure = charts.instance_chart(
-            charts.chart_window(bars, candidate.date), "ma_display", _ma_label(ma),
+            charts.chart_window(bars, candidate.date), "overlay_display", result.overlay_name,
             candidate.date, f"{candidate.ticker} — {candidate.date.date()}")
         name = f"{n:02d}_{candidate.ticker}_{candidate.date.date()}.html"
         charts.write_chart(figure, out_dir / name)
@@ -261,8 +269,12 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
                 stopped = True
                 break
             head, _, comment = answer.strip().partition(",")
-            if head.strip().lower().startswith(("y", "n")):
-                shown.verdict = head.strip().lower().startswith("y")
+            # Exactly y/yes or n/no: a hedge like "not sure" must not be recorded as a
+            # rejection — a misread verdict would send a correct constraint back to the
+            # elicitation loop.
+            token = head.strip().lower()
+            if token in ("y", "yes", "n", "no"):
+                shown.verdict = token in ("y", "yes")
                 shown.comment = comment.strip() or None
                 break
             invalid += 1
@@ -336,7 +348,10 @@ def main(argv: list[str] | None = None) -> None:
         Path(load_config().data_paths.features) / "moving_averages" / "ma_panel")
     panel = read_panel(panel_dir, start=args.start, end=end)
     if panel.empty:
-        raise SystemExit(f"no panel at {panel_dir} — run the moving_averages build-panel command first")
+        if not any(panel_dir.glob("year=*")):
+            raise SystemExit(f"no panel at {panel_dir} — run the moving_averages build-panel command first")
+        raise SystemExit(f"the cached panel at {panel_dir} has no rows between "
+                         f"{args.start or 'its start'} and {end} — check --start/--end")
 
     def ask(text: str) -> str | None:
         print(f"\n{text}")
