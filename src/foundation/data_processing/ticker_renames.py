@@ -47,8 +47,14 @@ from dotenv import load_dotenv
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing import sec_companyfacts as sec
-from src.foundation.data_processing.polygon_client import PolygonClient
 from src.foundation.utils.config_loader import load_config
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # the client needs the `polygon` package; only the decision
+    # tooling (main/run) constructs one, so readers of apply_renames/
+    # price_ticker_map don't pay the import
+    from src.foundation.data_processing.polygon_client import PolygonClient
 
 MIN_COVERAGE = 0.9
 NAME_MATCH = 0.6  # token Jaccard between normalised names
@@ -349,6 +355,8 @@ def main():
             "Renames aren't decided without the former-name check."
         )
     cik_map = sec.load_cik_map(sec_dir / "company_tickers.json")
+    from src.foundation.data_processing.polygon_client import PolygonClient
+
     table = run(conn, PolygonClient(), cik_map, submissions, args.indices.split(","), args.since,
                 args.refresh, args.relookup)
     print(table["status"].value_counts().to_string())
