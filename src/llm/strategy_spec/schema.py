@@ -163,28 +163,34 @@ def request_wording(requested: str) -> str:
 
 @dataclass(frozen=True)
 class RequestGroup:
-    """One distinct request: the first wording given, every field it was filed under and
-    every detail, in order, without repeats."""
+    """One distinct request: the first wording given, every field it was filed under, and
+    the details given under each field (only fields that have one), in order, without
+    repeats. `details` is `(field, details)` pairs rather than a dict, so a group stays
+    hashable like the rest of its fields; read it with `details_for`."""
 
     requested: str
     reason: UnsupportedReason
     fields: tuple[SpecField, ...]
-    details: tuple[str, ...]
+    details: tuple[tuple[SpecField, tuple[str, ...]], ...]
+
+    def details_for(self, field: SpecField) -> tuple[str, ...]:
+        return next((d for f, d in self.details if f == field), ())
 
 
 def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
-    """`items` merged by `UnsupportedRequest.key`, in first-seen order; details are merged
-    with case and spacing ignored. An LLM repeating a request shouldn't ask the user twice
-    or count twice in the log, so every reader goes through this rather than reading
-    `spec.unsupported` item by item."""
-    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict, dict]] = {}
+    """`items` merged by `UnsupportedRequest.key`, in first-seen order; a field's details
+    are merged with case and spacing ignored. An LLM repeating a request shouldn't ask the
+    user twice or count twice in the log, so every reader goes through this rather than
+    reading `spec.unsupported` item by item."""
+    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict]] = {}
     for item in items:
-        first, fields, details = groups.setdefault(item.key(), (item, {}, {}))
-        fields[item.field] = None  # dicts as ordered sets
+        first, fields = groups.setdefault(item.key(), (item, {}))
+        details = fields.setdefault(item.field, {})  # dicts as ordered sets
         if item.detail:
             details.setdefault(request_wording(item.detail), item.detail)
-    return [RequestGroup(first.requested, first.reason, tuple(fields), tuple(details.values()))
-            for first, fields, details in groups.values()]
+    return [RequestGroup(first.requested, first.reason, tuple(fields),
+                         tuple((f, tuple(d.values())) for f, d in fields.items() if d))
+            for first, fields in groups.values()]
 
 
 class StrategySpec(_Section):
@@ -300,10 +306,9 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     # One gap per field a request was filed under, worded as the request was first given,
     # with only that field's details; a repeat within a field is one gap.
     for group in group_unsupported(spec.unsupported):
-        key = (request_wording(group.requested), group.reason)
         for field in group.fields:
-            same = group_unsupported([i for i in spec.unsupported if i.key() == key and i.field == field])
-            detail = f" ({'; '.join(same[0].details)})" if same[0].details else ""
+            details = group.details_for(field)
+            detail = f" ({'; '.join(details)})" if details else ""
             add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
     # Field order across every kind of gap (a stable sort keeps each field's own order).

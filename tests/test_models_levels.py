@@ -8,6 +8,7 @@ import dataclasses
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -405,6 +406,34 @@ def test_build_is_resumable_and_reruns_merge_into_the_manifest(tmp_path):
     assert level_cache.snapshot_path(tmp_path, "sr_line", "AAA").stat().st_mtime_ns == stamp  # a hit, not rewritten
     assert second["no_bars"] == ["ZZZ"] and second["failed"] == {}
     assert sum(second["rows"].values()) > 0
+
+
+def test_the_manifest_merge_holds_the_lock_under_its_existing_name(tmp_path, monkeypatch):
+    # Builds agree on the lock by its file name: a build running older code locks this one.
+    # (That the lock excludes other processes is `tests/test_file_lock.py`'s to check.)
+    held, merged_under = [], []
+    real_lock, real_merge = level_cache.file_lock, level_cache._merge_manifest
+
+    @contextmanager
+    def spy_lock(path):
+        with real_lock(path):
+            held.append(path)
+            try:
+                yield
+            finally:
+                held.pop()
+
+    def spy_merge(*a):
+        merged_under.append(list(held))
+        return real_merge(*a)
+
+    monkeypatch.setattr(level_cache, "file_lock", spy_lock)
+    monkeypatch.setattr(level_cache, "_merge_manifest", spy_merge)
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    level_cache.build_level_cache(c, [], tmp_path, "2021-12-31", workers=1, progress=None)
+    c.close()
+    assert merged_under == [[tmp_path / "manifest.json.lock"]]
 
 
 def test_a_run_of_some_sources_keeps_the_others_records(tmp_path, monkeypatch):
