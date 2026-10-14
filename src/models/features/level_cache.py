@@ -27,7 +27,6 @@ Only reads the database; writes only under `root`.
 from __future__ import annotations
 
 import ast
-import fcntl
 import dataclasses
 import functools
 import hashlib
@@ -43,6 +42,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src.foundation.market_common.history_break_overrides import HISTORY_RESET_OVERRIDES
+from src.foundation.utils.file_lock import file_lock
 from src.models import dataset
 from src.models.features import level_snapshots as snap
 from src.models.features import levels
@@ -274,9 +274,7 @@ def build_level_cache(
     finally:
         if pool is not None:
             pool.shutdown()
-    root.mkdir(parents=True, exist_ok=True)
-    with open(root / f"{MANIFEST}.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)  # read-merge-write: an overlapping build's records aren't lost
+    with file_lock(root / f"{MANIFEST}.lock"):  # read-merge-write: an overlapping build's records aren't lost
         return _merge_manifest(root, done, failed, missing, price_sources, configs, sources, end, open_holdout,
                                basis, seconds)
 
