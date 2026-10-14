@@ -134,6 +134,13 @@ def fundamentals(facts: pd.DataFrame, accepted: pd.Series) -> pd.DataFrame:
     instant = facts["start"].isna()
     durations = facts[~instant].assign(period_type=lambda d: _period_type((d["end"] - d["start"]).dt.days),
                                        derived=0)
+    # a "quarter" equal to the same filing's year ending that day is the year under a mistyped
+    # start date (Oracle's 10-Ks: full-year revenue tagged as the fourth quarter)
+    year_keys = ["concept", "end", "accession", "value"]
+    years = durations.loc[durations["period_type"] == "year", year_keys].drop_duplicates()
+    as_year = durations[year_keys].merge(years, how="left", indicator=True)["_merge"].eq("both").to_numpy()
+    durations = durations[~((durations["period_type"] == "quarter").to_numpy() & as_year
+                            & (durations["value"] != 0).to_numpy())]
     additive = durations["concept"].map(lambda c: CONCEPTS[c][2]).astype(bool)
     candidates = pd.concat([
         facts[instant].assign(period_type="instant", derived=0),

@@ -44,7 +44,8 @@ YTD = [_fact("q1", 10, "2020-03-31", "2020-01-01"), _fact("q2", 25, "2020-06-30"
 
 
 def test_quarters_are_derived_from_year_to_date_values_available_with_the_later_one():
-    facts = sf.company_facts(_company({"NetCashProvidedByUsedInOperatingActivities": YTD}))
+    mistyped = _fact("k", 70, "2020-12-31", "2020-10-01")  # the full year under a fourth quarter's dates
+    facts = sf.company_facts(_company({"NetCashProvidedByUsedInOperatingActivities": YTD + [mistyped]}))
     out = sf.fundamentals(facts, _accepted("q1", "q2", "q3", "k")).set_index(["period_type", "period_end"])
 
     quarters = out.loc["quarter"]
