@@ -5,7 +5,7 @@ first session whose close may use it; for earnings, the `reaction_date`), so
 the leakage gate's `future_filings` perturbation must not move anything
 dated before a filing.
 
-- `days_since_earnings`: sessions since the last earnings reaction date.
+- `days_since_earnings`: business days since the last earnings reaction date.
 - `days_to_earnings_expected`: business days to the *expected* next one --
   the same quarter's reaction date a year earlier + 52 weeks. Never the
   realized next date, which is future information on every day before it.
@@ -43,7 +43,7 @@ SUE_WINDOW, SUE_MIN = 8, 4
 MAX_AGE_DAYS = 200
 FOUR_QUARTERS_SPAN = (250, 300)  # days from the first quarter's end to the fourth's
 EXPECTED_GAP = pd.Timedelta(weeks=52)
-MAX_DAYS_SINCE = 200  # sessions; longer means the earnings history has a hole
+MAX_DAYS_SINCE = 200  # business days; longer means the earnings history has a hole
 # Revenue tags that all mean total revenue: a switch among them (ASC 606 moved
 # nearly every filer from `SalesRevenueNet` to `RevenueFromContractWith...` in
 # 2018) keeps growth comparable. Any other switch (goods only, net of
@@ -68,15 +68,22 @@ def _year_ago(q: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return m.sort_values("row")[cols].reset_index(drop=True)
 
 
-def _in_order(rows: pd.DataFrame) -> pd.DataFrame:
-    """One concept's rows without the late reports of old periods: a period
-    ending before one already known when it arrives is dropped. What's left
-    arrives in period order, so a quarter's feature reads only quarters known
-    before it -- a late report can't change, after the fact, which quarter
-    counted as "a year earlier" or which ones filled a window."""
-    rows = rows.sort_values(["ticker", "available_date", "period_end"])
+def _in_order(rows: pd.DataFrame, known: str = "available_date") -> pd.DataFrame:
+    """One concept's rows (or the announcements) without the late reports of
+    old periods: a period ending before one already known when it arrives is
+    dropped. What's left arrives in period order, so a quarter's feature reads
+    only quarters known before it -- a late report can't change, after the
+    fact, which quarter counted as "a year earlier" or which ones filled a
+    window."""
+    rows = rows.sort_values(["ticker", known, "period_end"], kind="stable")
     newest = rows.groupby("ticker")["period_end"].cummax().groupby(rows["ticker"]).shift(1)
     return rows[newest.isna() | (rows["period_end"] > newest)]
+
+
+def _rolling(s: pd.Series, by: pd.Series, window: int, how: str, min_periods: int) -> pd.Series:
+    """`how` over each ticker's trailing `window` rows (rows sorted by ticker)."""
+    out = s.groupby(by).rolling(window, min_periods=min_periods).agg(how)
+    return out.reset_index(level=0, drop=True).sort_index()
 
 
 def _quarters(fundamentals: pd.DataFrame) -> pd.DataFrame:
@@ -92,9 +99,8 @@ def _quarters(fundamentals: pd.DataFrame) -> pd.DataFrame:
 
 
 def _rolling_max_dates(s: pd.Series, by: pd.Series, window: int) -> pd.Series:
-    as_int = s.astype("int64").where(s.notna())
-    out = as_int.groupby(by).transform(lambda x: x.rolling(window, min_periods=1).max())
-    return pd.to_datetime(out)
+    as_int = s.astype("int64").where(s.notna()).astype(float)
+    return pd.to_datetime(_rolling(as_int, by, window, "max", 1))
 
 
 def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -107,8 +113,7 @@ def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
         prev = _year_ago(q, ["ni", "ni_at", "rev", "rev_at", "rev_tag"])
         # SUE: the change vs a year earlier, scaled by the spread of the previous changes
         change = q["ni"] - prev["ni"]
-        spread = change.groupby(q["ticker"]).transform(
-            lambda x: x.shift(1).rolling(SUE_WINDOW, min_periods=SUE_MIN).std())
+        spread = _rolling(change.groupby(q["ticker"]).shift(1), q["ticker"], SUE_WINDOW, "std", SUE_MIN)
         sue = (change / spread.where(spread > 0))
         # everything read: this quarter, its year-ago, and the window's quarters and year-agos
         read_at = pd.concat([q["ni_at"], prev["ni_at"]], axis=1).max(axis=1)
@@ -128,8 +133,8 @@ def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
         by = q["ticker"]
         both = q["ni"].notna() & q["rev"].notna()
-        ni4 = q["ni"].where(both).groupby(by).transform(lambda x: x.rolling(4, min_periods=4).sum())
-        rev4 = q["rev"].where(both).groupby(by).transform(lambda x: x.rolling(4, min_periods=4).sum())
+        ni4 = _rolling(q["ni"].where(both), by, 4, "sum", 4)
+        rev4 = _rolling(q["rev"].where(both), by, 4, "sum", 4)
         span = (q["period_end"] - q.groupby("ticker")["period_end"].shift(3)).dt.days
         margin = (ni4 / rev4).where(span.between(*FOUR_QUARTERS_SPAN) & (rev4 > 0))
         margin_at = _rolling_max_dates(pd.concat([q["ni_at"], q["rev_at"]], axis=1).max(axis=1), by, 4).where(both)
@@ -156,7 +161,8 @@ def _as_of(rows: pd.DataFrame, events: pd.DataFrame) -> pd.Series:
     ev = ev.sort_values(["ticker", "known_at", "period_end"])
     # an old quarter first known late must not displace a newer one
     newest = ev.groupby("ticker")["period_end"].cummax()
-    ev = ev[ev["period_end"] >= newest].sort_values("known_at")
+    # ties on known_at: the newest period last, so the as-of merge takes it
+    ev = ev[ev["period_end"] >= newest].sort_values(["known_at", "period_end"], kind="stable")
     left = rows[["ticker", "date"]].assign(row=np.arange(len(rows))).sort_values("date")
     m = pd.merge_asof(left, ev[["ticker", "known_at", "period_end", "value"]], left_on="date",
                       right_on="known_at", by="ticker", direction="backward").sort_values("row")
@@ -166,9 +172,11 @@ def _as_of(rows: pd.DataFrame, events: pd.DataFrame) -> pd.Series:
 
 def earnings_features(rows: pd.DataFrame, earnings: pd.DataFrame) -> pd.DataFrame:
     """`days_since_earnings` and `days_to_earnings_expected` for each (ticker,
-    date) row (`rows` sorted by ticker, date: one ticker's bars in order)."""
+    date) row. Both count business days (weekends out, holidays in), so a gap
+    in a ticker's bars or a reaction before its first bar doesn't shift them."""
     out = pd.DataFrame(np.nan, index=rows.index, columns=["days_since_earnings", "days_to_earnings_expected"])
-    ann = earnings.dropna(subset=["reaction_date"]).sort_values(["ticker", "period_end"], ignore_index=True)
+    # announcements in the order they happened; a late one for an old period is dropped
+    ann = _in_order(earnings.dropna(subset=["reaction_date"]), known="reaction_date").reset_index(drop=True)
     if ann.empty:
         return out
     # the expected next reaction, known once this one has happened: the reaction
@@ -177,23 +185,19 @@ def earnings_features(rows: pd.DataFrame, earnings: pd.DataFrame) -> pd.DataFram
     span = (ann["period_end"] - back["period_end"]).dt.days
     ann["expected_next"] = (back["reaction_date"] + EXPECTED_GAP).where(span.between(*FOUR_QUARTERS_SPAN))
 
-    pos = rows.groupby("ticker").cumcount()
-    bars = rows[["ticker", "date"]].assign(pos=pos.to_numpy())
-    # the session position of each reaction (first bar on or after it)
-    reaction_pos = pd.merge_asof(ann[["ticker", "reaction_date"]].assign(i=np.arange(len(ann)))
-                                 .sort_values("reaction_date"), bars.sort_values("date"), left_on="reaction_date",
-                                 right_on="date", by="ticker", direction="forward").sort_values("i")
-    ann["reaction_pos"] = reaction_pos["pos"].to_numpy()
-    ev = ann.sort_values("reaction_date")
-    left = bars.assign(row=np.arange(len(bars))).sort_values("date")
-    m = pd.merge_asof(left, ev[["ticker", "reaction_date", "reaction_pos", "expected_next"]], left_on="date",
+    ev = ann.sort_values(["reaction_date", "period_end"], kind="stable")  # ties: the newest period last
+    left = rows[["ticker", "date"]].assign(row=np.arange(len(rows))).sort_values("date", kind="stable")
+    m = pd.merge_asof(left, ev[["ticker", "reaction_date", "expected_next"]], left_on="date",
                       right_on="reaction_date", by="ticker", direction="backward").sort_values("row")
-    since = (m["pos"] - m["reaction_pos"]).where(lambda s: s <= MAX_DAYS_SINCE)
-    ok = m["expected_next"].notna() & since.notna()
+    day = lambda s: s.to_numpy().astype("datetime64[D]")
+    has = m["reaction_date"].notna().to_numpy()
+    since = np.full(len(m), np.nan)
+    since[has] = np.busday_count(day(m.loc[has, "reaction_date"]), day(m.loc[has, "date"]))
+    since[since > MAX_DAYS_SINCE] = np.nan
+    ok = m["expected_next"].notna().to_numpy() & ~np.isnan(since)
     to = np.full(len(m), np.nan)
-    to[ok.to_numpy()] = np.busday_count(m.loc[ok, "date"].to_numpy().astype("datetime64[D]"),
-                                        m.loc[ok, "expected_next"].to_numpy().astype("datetime64[D]"))
-    out["days_since_earnings"] = since.to_numpy()
+    to[ok] = np.busday_count(day(m.loc[ok, "date"]), day(m.loc[ok, "expected_next"]))
+    out["days_since_earnings"] = since
     out["days_to_earnings_expected"] = np.clip(to, 0, None)
     return out
 
@@ -210,7 +214,8 @@ def load_tables(conn, tickers: list[str], end) -> tuple[pd.DataFrame, pd.DataFra
     concepts = ", ".join("?" * len(CONCEPTS_READ))
     fundamentals = pd.read_sql_query(
         f"SELECT ticker, concept, period_type, period_end, value, tag, available_date FROM fundamentals "
-        f"WHERE ticker IN ({marks}) AND concept IN ({concepts}) AND available_date <= ?",
+        f"WHERE ticker IN ({marks}) AND concept IN ({concepts}) AND period_type IN ('quarter', 'instant') "
+        f"AND available_date <= ?",
         conn, params=[*tickers, *CONCEPTS_READ, end], parse_dates=["period_end", "available_date"])
     earnings = pd.read_sql_query(
         f"SELECT ticker, period_end, reaction_date FROM earnings_announcements "

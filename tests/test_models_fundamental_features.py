@@ -100,6 +100,33 @@ def test_earnings_timing_uses_past_reactions_only():
     assert out["days_to_earnings_expected"].min() >= 0
 
 
+def test_earnings_ignore_a_late_announcement_and_count_from_before_the_first_bar():
+    reactions = pd.to_datetime(["2018-10-25", "2019-01-30", "2019-04-25", "2019-07-25", "2019-10-24"])
+    ends = pd.date_range("2018-09-30", "2019-09-30", freq="QE")
+    earnings = pd.DataFrame({"ticker": "AAA", "period_end": ends, "reaction_date": reactions})
+    late = pd.DataFrame({"ticker": ["AAA"], "period_end": [pd.Timestamp("2018-06-30")],
+                         "reaction_date": [pd.Timestamp("2019-08-01")]})
+    bars = pd.DataFrame({"ticker": "AAA", "date": pd.bdate_range("2018-11-01", "2019-12-31")})
+    before = F.panel_features(bars, PanelContext(earnings=earnings))
+    after = F.panel_features(bars, PanelContext(earnings=pd.concat([earnings, late], ignore_index=True)))
+
+    pd.testing.assert_frame_equal(before, after)
+    assert _at(before, "2018-11-01", "days_since_earnings") == 5  # the reaction predates the first bar
+
+
+def test_the_gate_catches_a_value_used_from_its_quarter_end(monkeypatch):
+    from src.models import gates
+
+    bars, splits, cut, context = gates.synthetic_leakage_inputs()
+    f = context.fundamentals
+    assert ((f["period_end"] <= cut) & (f["available_date"] > cut)).any()  # filings straddle the cut
+    real = F.quarter_features
+    monkeypatch.setattr(F, "quarter_features",
+                        lambda fundamentals: {k: v.assign(known_at=v["period_end"]) for k, v in real(fundamentals).items()})
+    result = gates.leakage_gate(bars, splits, cut, context=context)
+    assert result["leaks"]["future_filings"]
+
+
 def test_no_tables_gives_nan_columns():
     out = _features()
     assert list(out.columns) == ["ticker", "date", *F.COLUMNS]

@@ -170,7 +170,7 @@ registered as group `fundamentals` (prior null: untested here). Six columns:
 
 | Column | What it is |
 |---|---|
-| `days_since_earnings` | sessions since the last earnings reaction date |
+| `days_since_earnings` | business days since the last earnings reaction date |
 | `days_to_earnings_expected` | business days to the *expected* next one: the same quarter's reaction a year earlier + 52 weeks, 0 when overdue. Never the realized date |
 | `sue_net_income` (+ rank) | the surprise against the company's own history: net income minus the same quarter a year earlier, over the standard deviation of the previous 8 such changes (at least 4). Net income, not EPS, because stored EPS isn't split-adjusted |
 | `rev_growth_yoy` (+ rank) | revenue vs the same quarter a year earlier; only when both measure the same thing: the same tag, or two total-revenue tags, since ASC 606 moved nearly every filer between them in 2018 |
@@ -184,20 +184,23 @@ How point-in-time is enforced:
 - **Every input counts:** a feature's value counts only once *all* its inputs are known,
   including the year-ago quarter and the window's quarters. A quarter whose own value isn't
   known yet produces nothing.
-- **Late reports are ignored:** a late report of an old quarter is dropped before anything
-  is computed, so it can't change, after the fact, which quarter counted as "a year
-  earlier".
+- **Late reports are ignored:** a late report of an old quarter (or a late earnings
+  announcement for an old period) is dropped before anything is computed, so it can't
+  change, after the fact, which quarter counted as "a year earlier".
 - **Values go stale:** a quarter's value is NaN once the quarter ended more than 200 days
   before.
 - **Leakage gate:** it gets a `future_filings` perturbation that rewrites every filing after
-  the cut: values, deleted rows, moved reaction dates, a late report of an old quarter. It
-  also gets a canary that reads net income by period end instead of filing date; the canary
-  is caught. The gate caught two leaks of this kind in the first version, both fixed:
-  - a late report changed which quarter matched as "a year earlier";
-  - a quarter with revenue filed but net income not yet filed counted as known from its
-    inputs' dates.
-
-  It now passes on synthetic data (3 seeds) and on 20 real tickers.
+  the cut: values, deleted rows, moved reaction dates, and a late report of a mid-history
+  period for both tables. It also gets a canary that reads net income by period end
+  instead of filing date.
+  - **Straddling quarters:** the synthetic filings use December, January and February
+    fiscal years, so some quarters end before the cut and are filed after it. That's the
+    case a period-end leak gets wrong, and a test plants such a leak and checks the gate
+    catches it.
+  - **Two leaks caught in the first version, both fixed:** a late report changed which
+    quarter matched as "a year earlier"; and a quarter with revenue filed but net income
+    not yet filed counted as known from its inputs' dates.
+  - **Passes** on synthetic data (3 seeds) and on 20 real tickers.
 
 Coverage on S&P 500 member rows (150-ticker sample, 81 with bars in the window):
 - earnings timing: 94–100%;

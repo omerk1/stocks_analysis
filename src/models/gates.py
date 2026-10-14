@@ -268,27 +268,37 @@ PERTURBATIONS = {"future_path": perturb_path, "future_split": perturb_split, "fu
 
 def perturb_filings(context: market.PanelContext, cut, seed=0) -> market.PanelContext:
     """Everything filed after `cut` rewritten: values rescaled at random (sign
-    flips included), every other such row dropped, reaction dates moved, and
-    per ticker one extra late filing of a quarter that ended before `cut`
-    (an out-of-order report). Rows known by `cut` are untouched."""
+    flips included) -- among them quarters that ended before `cut` but were
+    filed after it, the case a column reading a value from its period end
+    gets wrong -- every other such row dropped, reaction dates moved, and per
+    ticker a late report of a period in the middle of the history just before
+    `cut` (an out-of-order report, for the fundamentals and the earnings
+    dates). Rows known by `cut` are untouched."""
     rng = np.random.default_rng(seed)
+    cut = pd.Timestamp(cut)
+
+    def late_reports(frame: pd.DataFrame, known: str, keys: list[str]) -> pd.DataFrame:
+        # the last period known by `cut`, reported again 45 days earlier (a period that
+        # doesn't exist yet), right after `cut`
+        last = frame[frame[known] <= cut].sort_values("period_end").groupby(keys).tail(1)
+        return last.assign(period_end=last["period_end"] - pd.Timedelta(days=45),
+                           **{known: cut + pd.Timedelta(days=2)})
+
     out = {}
     if context.fundamentals is not None:
         f = context.fundamentals.copy()
         after = f["available_date"] > cut
         f.loc[after, "value"] = f.loc[after, "value"] * rng.choice([-3.0, -0.5, 0.25, 4.0], int(after.sum()))
+        late = late_reports(f, "available_date", ["ticker", "concept", "period_type"])
         f = f[~after | (np.arange(len(f)) % 2 == 0)]
-        late = (f[f["period_end"] < cut].sort_values("period_end").groupby(["ticker", "concept", "period_type"])
-                .head(1).assign(available_date=cut + pd.Timedelta(days=3), value=lambda d: d["value"] * 7 + 1))
-        late["period_end"] = late["period_end"] - pd.Timedelta(days=91)
-        out["fundamentals"] = pd.concat([f, late], ignore_index=True)
+        out["fundamentals"] = pd.concat([f, late.assign(value=late["value"] * 7 + 1)], ignore_index=True)
     if context.earnings is not None:
         e = context.earnings.copy()
         after = e["reaction_date"] > cut
-        e.loc[after, "reaction_date"] = e.loc[after, "reaction_date"] - pd.Timedelta(days=9)
-        e.loc[after, "reaction_date"] = e.loc[after, "reaction_date"].where(
-            e.loc[after, "reaction_date"] > cut, cut + pd.Timedelta(days=1))
-        out["earnings"] = e[~after | (np.arange(len(e)) % 2 == 0)]
+        moved = e.loc[after, "reaction_date"] - pd.Timedelta(days=9)
+        e.loc[after, "reaction_date"] = moved.where(moved > cut, cut + pd.Timedelta(days=1))
+        late = late_reports(e, "reaction_date", ["ticker"])
+        out["earnings"] = pd.concat([e[~after | (np.arange(len(e)) % 2 == 0)], late], ignore_index=True)
     return replace(context, **out)
 
 
@@ -388,16 +398,22 @@ def leakage_gate(
     base = reg.compute_registered(bars, splits, specs, sources, context=context)
     registered = {s.name for s in registry} | {f"{s.name}_rank" for s in registry if s.ranked}
     leaks, canaries = {}, {}
+
+    def record(name: str, before: pd.DataFrame, after: pd.DataFrame) -> None:
+        changed = _changed_columns(before, after, cut)
+        leaks[name] = {c: n for c, n in changed.items() if c in registered or c == "<row set>"}
+        canaries[name] = sorted(c for c in changed if c not in registered)
+
     for name, perturb in PERTURBATIONS.items():
         pbars, psplits = perturb(bars, splits, cut, seed)
-        changed = _changed_columns(base, reg.compute_registered(pbars, psplits, specs, sources, context=context), cut)
-        leaks[name] = {c: n for c, n in changed.items() if c in registered or c == "<row set>"}
-        canaries[name] = sorted(c for c in changed if c not in registered)
+        record(name, base, reg.compute_registered(pbars, psplits, specs, sources, context=context))
+    # Only panel sources read the context: recompute those, compare their columns.
+    panel = tuple(s for s in specs if isinstance(sources.get(s.source), reg.PanelSource))
     for name, perturb in CONTEXT_PERTURBATIONS.items():
         pcontext = perturb(context if context is not None else market.PanelContext(), cut, seed)
-        changed = _changed_columns(base, reg.compute_registered(bars, splits, specs, sources, context=pcontext), cut)
-        leaks[name] = {c: n for c, n in changed.items() if c in registered or c == "<row set>"}
-        canaries[name] = sorted(c for c in changed if c not in registered)
+        after = reg.compute_registered(bars, splits, panel, sources, context=pcontext)
+        recomputed = [c for c in after.columns if c not in ("ticker", "date")]
+        record(name, base, base.drop(columns=recomputed).merge(after, on=["ticker", "date"], how="left"))
 
     # The future-path perturbation must move labels that look across the cut.
     label_bars = bars[dataset.LABEL_BASIS]
