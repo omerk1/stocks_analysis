@@ -418,8 +418,10 @@ def test_the_manifest_merge_holds_the_lock_under_its_existing_name(tmp_path, mon
     def spy_lock(path):
         with real_lock(path):
             held.append(path)
-            yield
-            held.pop()
+            try:
+                yield
+            finally:
+                held.pop()
 
     def spy_merge(*a):
         merged_under.append(list(held))
