@@ -21,13 +21,20 @@ wrong value. A blank string is rejected: it would otherwise pass as an answer. A
 that genuinely doesn't apply to an idea (a single-bar event has no formation length) says
 so with `not_applicable=True`, which is an answer, not a gap.
 
-`find_gaps` reports three kinds of gap:
+`find_gaps` reports four kinds of gap:
 
 - **missing**: a required section isn't stated at all;
 - **unquantified**: it's described in words but has no numbers ("price coils tightly");
 - **invalid**: it breaks one of the repo's guardrails (raw-price size, same-bar
-  execution) or is self-contradictory (min above max, values on a section marked not
-  applicable).
+  execution), is self-contradictory (min above max, values on a section marked not
+  applicable), or names a capability id (`uses`) that isn't in the catalogue;
+- **unsupported**: the idea asks for something the platform can't test yet (intraday
+  bars, earnings surprises, an indicator that isn't built). The spec records it in
+  `unsupported`, in the user's words with a reason, instead of swapping in the nearest
+  thing that exists; `unsupported.py` logs it so the most-requested ones can be built.
+
+`uses` names the capability catalogue entries (`catalogue.py`) the spec is built from.
+The catalogue lists what can be computed, and goes into the extraction prompt (step 2c).
 
 Visual examples (`examples`) are part of the spec but not checked yet: grounding in
 historical instances is step 4, and it needs the data tools.
@@ -42,12 +49,30 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from src.llm.strategy_spec import catalogue
+
 Direction = Literal["long", "short", "both"]
 Timeframe = Literal["daily", "weekly"]
 # How a size is made comparable across tickers. `raw_price` is allowed as a value so an
 # idea stated in dollars can be recorded as such, then flagged by `find_gaps`.
 Normalisation = Literal["atr", "log", "pct", "percentile", "raw_price"]
-GapKind = Literal["missing", "unquantified", "invalid"]
+PriceBasis = Literal["close", "intraday"]
+# The signal is known at the close of bar t; the repo executes at t+1, never t.
+Execution = Literal["next_open", "same_close"]
+GapKind = Literal["missing", "unquantified", "invalid", "unsupported"]
+# The spec fields an unsupported request can belong to.
+SpecField = Literal["direction", "timeframe", "duration", "size", "trigger", "horizons_bars",
+                    "invalidation", "supporting_signals", "secondary_metrics", "control"]
+UnsupportedReason = Literal[
+    "unknown_detector",       # a pattern or event the platform doesn't detect
+    "unknown_indicator",      # an indicator or feature that isn't computed
+    "unsupported_timeframe",  # e.g. intraday or monthly bars
+    "unsupported_data",       # data that isn't loaded: options, earnings, news, ...
+    "unsupported_execution",  # e.g. limit orders, intraday stops
+    "unknown_control",        # a comparison the platform can't build
+    "unknown_metric",         # an outcome measure that isn't built
+    "other",
+]
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
@@ -84,9 +109,8 @@ class Trigger(_Section):
     """The bar the signal fires on, and when the trade executes."""
 
     description: Text | None = None
-    price_basis: Literal["close", "intraday"] | None = None
-    # The signal is known at the close of bar t; the repo executes at t+1, never t.
-    execution: Literal["next_open", "same_close"] | None = None
+    price_basis: PriceBasis | None = None
+    execution: Execution | None = None
 
 
 class Rule(_Section):
@@ -118,6 +142,51 @@ class Example(_Section):
     matches: bool
 
 
+class UnsupportedRequest(_Section):
+    """Something the idea asks for that the platform can't test yet, recorded instead of
+    being swapped for the nearest thing it can. `requested` is in the user's words."""
+
+    requested: Text
+    field: SpecField
+    reason: UnsupportedReason
+    detail: Text | None = None
+
+    def key(self) -> tuple[str, str]:
+        """What makes two items one request: the wording (case and spacing ignored) and the
+        reason. Not the field: one request can be filed under several (`group_unsupported`)."""
+        return request_wording(self.requested), self.reason
+
+
+def request_wording(requested: str) -> str:
+    return " ".join(requested.lower().split())
+
+
+@dataclass(frozen=True)
+class RequestGroup:
+    """One distinct request: the first wording given, every field it was filed under and
+    every detail, in order, without repeats."""
+
+    requested: str
+    reason: UnsupportedReason
+    fields: tuple[SpecField, ...]
+    details: tuple[str, ...]
+
+
+def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
+    """`items` merged by `UnsupportedRequest.key`, in first-seen order; details are merged
+    with case and spacing ignored. An LLM repeating a request shouldn't ask the user twice
+    or count twice in the log, so every reader goes through this rather than reading
+    `spec.unsupported` item by item."""
+    groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict, dict]] = {}
+    for item in items:
+        first, fields, details = groups.setdefault(item.key(), (item, {}, {}))
+        fields[item.field] = None  # dicts as ordered sets
+        if item.detail:
+            details.setdefault(request_wording(item.detail), item.detail)
+    return [RequestGroup(first.requested, first.reason, tuple(fields), tuple(details.values()))
+            for first, fields, details in groups.values()]
+
+
 class StrategySpec(_Section):
     name: Text | None = None
     direction: Direction | None = None
@@ -131,6 +200,10 @@ class StrategySpec(_Section):
     secondary_metrics: list[Text] = Field(default_factory=list)
     control: Control | None = None
     examples: list[Example] = Field(default_factory=list)
+    # Capability catalogue ids the spec is built from (`catalogue.py`), e.g. "indicator:rsi".
+    uses: list[Text] = Field(default_factory=list)
+    # As the LLM wrote it, repeats included; read it through `group_unsupported`.
+    unsupported: list[UnsupportedRequest] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -217,7 +290,25 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     if spec.control is None:
         add("control", "missing", "what is the setup compared against?")
 
-    return gaps
+    for cap_id in dict.fromkeys(spec.uses):
+        if cap_id not in catalogue.IDS:
+            add("uses", "invalid", f"{cap_id!r} isn't in the capability catalogue; "
+                "if the idea needs it, it belongs in `unsupported`")
+
+    # Blocking: the spec can't be tested as stated. A field may also be reported missing
+    # (an intraday idea has no supported timeframe), so the user can pick a supported one.
+    # One gap per field a request was filed under, worded as the request was first given,
+    # with only that field's details; a repeat within a field is one gap.
+    for group in group_unsupported(spec.unsupported):
+        key = (request_wording(group.requested), group.reason)
+        for field in group.fields:
+            same = group_unsupported([i for i in spec.unsupported if i.key() == key and i.field == field])
+            detail = f" ({'; '.join(same[0].details)})" if same[0].details else ""
+            add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
+
+    # Field order across every kind of gap (a stable sort keeps each field's own order).
+    order = {name: n for n, name in enumerate(StrategySpec.model_fields)}
+    return sorted(gaps, key=lambda g: order.get(g.field, len(order)))
 
 
 GOLDEN_SPECS_PATH = Path(__file__).with_name("golden_specs.json")

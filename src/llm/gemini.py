@@ -39,18 +39,17 @@ Tests never reach the API: `GeminiClient` takes any object shaped like
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
-import subprocess
 import warnings
 from collections import defaultdict
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
+
+from src.llm.paths import llm_data_dir, locked
 
 DEFAULT_MODEL = "gemini-2.5-flash"
 LEDGER_NAME = "gemini_usage.jsonl"
@@ -108,17 +107,7 @@ class Reply:
 
 def default_ledger_path() -> Path:
     """`data/llm/gemini_usage.jsonl` in the main checkout, from any worktree."""
-    here = Path(__file__).resolve().parent
-    try:
-        # Without --path-format (git >= 2.31 only), the answer may be relative to `cwd`.
-        common = subprocess.run(
-            ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, check=True, cwd=here,
-        ).stdout.strip()
-        root = (here / common).resolve().parent
-    except (OSError, subprocess.CalledProcessError):
-        root = Path(__file__).resolve().parents[2]
-    return root / "data" / "llm" / LEDGER_NAME
+    return llm_data_dir() / LEDGER_NAME
 
 
 def read_ledger(path: Path) -> list[dict]:
@@ -145,17 +134,6 @@ def read_ledger(path: Path) -> list[dict]:
 def used_on(path: Path, day: str) -> int:
     """Total tokens recorded on `day` (UTC, `YYYY-MM-DD`)."""
     return sum(r["total_tokens"] for r in read_ledger(path) if r["time"][:10] == day)
-
-
-@contextmanager
-def _locked(ledger_path: Path):
-    ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.with_suffix(".lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def _utc_now() -> datetime:
@@ -222,7 +200,7 @@ class GeminiClient:
             # rejects `additionalProperties`, which `extra="forbid"` models emit.
             response_json_schema=schema,
         )
-        with _locked(self.ledger_path):
+        with locked(self.ledger_path):
             used = used_on(self.ledger_path, self._now().date().isoformat())
             if used + worst > b.daily_token_cap:
                 raise BudgetExceeded(

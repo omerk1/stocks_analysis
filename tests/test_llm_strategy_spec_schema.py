@@ -1,8 +1,11 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Size, StrategySpec, Trigger, find_gaps, load_golden_specs)
+    Control, Duration, Gap, Rule, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps,
+    load_golden_specs)
 
 
 def _complete(**overrides):
@@ -108,3 +111,73 @@ def test_golden_spec_gaps():
     # As built, the pattern backtest enters on the breakout bar's own close and reports
     # bare outcome rates with no matched control: the checker catches both.
     assert gaps["vcp_breakout"] == {("trigger", "invalid"), ("control", "missing")}
+
+
+def test_unsupported_request_blocks_and_keeps_the_users_words():
+    spec = _complete(unsupported=[UnsupportedRequest(
+        requested="earnings surprise", field="supporting_signals", reason="unsupported_data",
+        detail="no earnings data")])
+    assert find_gaps(spec) == [Gap("supporting_signals", "unsupported",
+                                   "'earnings surprise': unsupported data (no earnings data)")]
+
+
+def test_a_repeated_unsupported_request_is_kept_once_per_field():
+    first = UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")
+    same = UnsupportedRequest(requested="15-Minute  Bars", field="timeframe", reason="unsupported_timeframe")
+    other_field = UnsupportedRequest(requested="15-minute bars", field="trigger", reason="unsupported_timeframe")
+    spec = _complete(unsupported=[first, same, other_field])
+    assert [(g.field, g.kind) for g in find_gaps(spec)] == [("timeframe", "unsupported"), ("trigger", "unsupported")]
+    # Read at gap-check time, so a list extended after the spec was built is covered too.
+    spec.unsupported.append(UnsupportedRequest(requested="15-MINUTE bars", field="timeframe",
+                                               reason="unsupported_timeframe", detail="for the entry"))
+    gaps = find_gaps(spec)
+    assert len(gaps) == 2 and gaps[0].reason == "'15-minute bars': unsupported timeframe (for the entry)"
+    assert gaps[1].reason == "'15-minute bars': unsupported timeframe"  # the detail stays with its field
+
+
+def test_unsupported_gaps_come_in_field_order_with_details_merged():
+    items = [UnsupportedRequest(requested="tick data", field="trigger", reason="unsupported_data"),
+             UnsupportedRequest(requested="intraday", field="timeframe", reason="unsupported_timeframe",
+                                detail="no intraday bars"),
+             UnsupportedRequest(requested="intraday", field="timeframe", reason="unsupported_timeframe",
+                                detail="No intraday  bars")]
+    gaps = find_gaps(_complete(unsupported=items))
+    assert [g.field for g in gaps] == ["timeframe", "trigger"]
+    assert gaps[0].reason == "'intraday': unsupported timeframe (no intraday bars)"
+
+
+def test_unsupported_gaps_sit_in_field_order_among_the_others_with_one_wording():
+    items = [UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe"),
+             UnsupportedRequest(requested="15-MINUTE BARS", field="trigger", reason="unsupported_timeframe")]
+    gaps = find_gaps(_complete(control=None, unsupported=items))
+    assert [(g.field, g.kind) for g in gaps] == [
+        ("timeframe", "unsupported"), ("trigger", "unsupported"), ("control", "missing")]
+    assert {g.reason for g in gaps[:2]} == {"'15-minute bars': unsupported timeframe"}
+
+
+def test_unsupported_timeframe_also_leaves_the_field_missing():
+    spec = _complete(timeframe=None, unsupported=[UnsupportedRequest(
+        requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")])
+    assert _gaps(spec) == {("timeframe", "missing"), ("timeframe", "unsupported")}
+
+
+def test_unsupported_request_needs_a_known_field_and_reason():
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested="x", field="examples", reason="other")
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested="x", field="trigger", reason="too hard")
+    with pytest.raises(ValidationError):
+        UnsupportedRequest(requested=" ", field="trigger", reason="other")
+
+
+def test_unsupported_fields_are_the_specs_decision_fields():
+    assert set(get_args(SpecField)) == set(StrategySpec.model_fields) - {"name", "examples", "uses", "unsupported"}
+
+
+def test_uses_must_name_catalogue_entries():
+    assert find_gaps(_complete(uses=[" indicator:rsi\n", "control:matched"])) == []  # stripped
+    with pytest.raises(ValidationError):
+        StrategySpec(uses=[""])
+    gaps = find_gaps(_complete(uses=["indicator:stochastic", "indicator:stochastic", "indicator:rsi"]))
+    assert [(g.field, g.kind) for g in gaps] == [("uses", "invalid")]
+    assert "'indicator:stochastic'" in gaps[0].reason
