@@ -177,6 +177,15 @@ def test_an_unexpected_flag_on_a_supported_idea_is_reported():
     assert score.unexpected == ("Earnings  Surprise filter",)
 
 
+def test_extra_flags_ok_waives_unexpected_but_not_required():
+    # On an idea where nothing is testable, any extra flag is fine whatever its label —
+    # but the required flags still have to appear.
+    waived = Case("w", "idea", CASE.fields, (ExpectedFlag("intraday", "unsupported_timeframe"),),
+                  extra_flags_ok=True)
+    score = score_case(_flagged(EARNINGS), waived)
+    assert score.unexpected == () and score.missed == ("intraday",)
+
+
 # --- the prompt and the call ------------------------------------------------------
 
 
