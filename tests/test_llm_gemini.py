@@ -62,11 +62,14 @@ def test_call_is_recorded_in_the_ledger(tmp_path):
 
 def test_config_caps_output_and_thinking(tmp_path):
     client, models = _client(tmp_path, budget=Budget(max_output_tokens=500, thinking_budget=0))
-    client.generate("hi", purpose="test", system="be brief")
+    client.generate("hi", purpose="test", system="be brief", temperature=0.0)
     config = models.generate_calls[0].config
     assert config.max_output_tokens == 500
     assert config.thinking_config.thinking_budget == 0
     assert config.system_instruction == "be brief"
+    assert config.temperature == 0.0
+    client.generate("hi", purpose="test")
+    assert models.generate_calls[1].config.temperature is None  # the model's own default
 
 
 def test_prompt_over_the_input_cap_is_refused_before_any_call(tmp_path):
