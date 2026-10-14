@@ -984,10 +984,11 @@ def read_symbol_reuse(conn: sqlite3.Connection) -> pd.DataFrame:
 
 
 def _replace_ticker_rows(conn: sqlite3.Connection, table: str, columns: list[str], ticker: str,
-                         rows: pd.DataFrame, dates: tuple[str, ...], ints: tuple[str, ...]) -> None:
+                         rows: pd.DataFrame, dates: tuple[str, ...], ints: tuple[str, ...],
+                         floats: tuple[str, ...] = ()) -> None:
     """Delete `ticker`'s rows of `table` and insert `rows` (`columns` minus
     ticker) in one transaction. `dates` are stored as days, `accepted_at` as an
-    ISO timestamp, `ints` as integers."""
+    ISO timestamp, `ints` as integers, `floats` as floats."""
     conn.execute(f"DELETE FROM {table} WHERE ticker = ?", (ticker,))
     if not rows.empty:
         out = rows.assign(ticker=ticker)[columns].copy()
@@ -996,6 +997,8 @@ def _replace_ticker_rows(conn: sqlite3.Connection, table: str, columns: list[str
         out["accepted_at"] = [pd.Timestamp(v).isoformat() for v in out["accepted_at"]]
         for column in ints:
             out[column] = out[column].astype(int)
+        for column in floats:
+            out[column] = out[column].astype(float)
         conn.executemany(
             f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
             out.astype(object).where(out.notna(), None).itertuples(index=False, name=None),
@@ -1021,10 +1024,9 @@ def read_earnings_announcements(conn: sqlite3.Connection, ticker: str | None = N
 def replace_fundamentals(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
     """Delete `ticker`'s `fundamentals` rows and insert `rows` (columns as in
     the schema, minus ticker) in one transaction."""
-    _replace_ticker_rows(conn, "fundamentals", _FUNDAMENTALS_COLUMNS, ticker,
-                         rows.astype({"value": float}) if len(rows) else rows,
+    _replace_ticker_rows(conn, "fundamentals", _FUNDAMENTALS_COLUMNS, ticker, rows,
                          dates=("period_end", "period_start", "filed", "available_date"),
-                         ints=("derived", "cik", "filer_cik"))
+                         ints=("derived", "cik", "filer_cik"), floats=("value",))
 
 
 def read_fundamentals(conn: sqlite3.Connection, ticker: str | None = None,

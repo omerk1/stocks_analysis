@@ -141,8 +141,9 @@ def fundamentals(facts: pd.DataFrame, accepted: pd.Series) -> pd.DataFrame:
     # keeping first reports, so a later filing's comparative still finds its year
     year_keys = ["concept", "end", "accession", "value"]
     years = facts.loc[facts["period_type"] == "year", year_keys].drop_duplicates()
-    as_year = facts[year_keys].merge(years, how="left", indicator=True)["_merge"].eq("both").to_numpy()
-    facts = facts[~((facts["period_type"] == "quarter").to_numpy() & as_year & (facts["value"] != 0).to_numpy())]
+    quarters = facts[(facts["period_type"] == "quarter") & (facts["value"] != 0)]
+    as_year = quarters[year_keys].merge(years, how="left", indicator=True)["_merge"].eq("both").to_numpy()
+    facts = facts.drop(quarters.index[as_year])
     # first report of each period under each tag
     facts = facts.sort_values("accepted_at").drop_duplicates(["concept", "tag", "start", "end"])
     instant = facts["period_type"] == "instant"
