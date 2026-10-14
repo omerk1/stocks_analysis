@@ -52,9 +52,13 @@ SESSION_CLOSE = pd.Timedelta(hours=16)
 # Checked by hand (2026-10-14, names in submissions.zip): a company whose
 # history is filed under an earlier CIK than the one SEC's ticker file gives
 # today -- a holding-company reorganisation or redomicile moves future filings
-# to a new CIK. Newest first; each one only fills periods before the earliest
-# period already found, since some keep filing as subsidiaries (Apache, Xerox
-# Corp). Not here on purpose: tickers whose earlier history is another company
+# to a new CIK. Newest first. Some keep filing as subsidiaries (Apache, Xerox
+# Corp), so each one is cut off: for earnings dates it only fills periods
+# before the earliest period already found; for fundamentals it counts only
+# for filings before the newer CIK's first 10-Q/10-K
+# (`bulk_sec_fundamentals_ingest.ticker_rows`) -- so a new entry's successor
+# must not have filed periodic reports before the reorganisation (all of
+# these first did at it). Not here on purpose: tickers whose earlier history is another company
 # (FOXA/21st Century Fox, DOW/Dow Chemical, SNDK, CEG, IR/Ingersoll-Rand plc).
 PREDECESSOR_CIKS: dict[int, tuple[int, ...]] = {
     2115436: (34088,),  # Exxon Mobil: new holding company, 8-K12B 2026-07-01
