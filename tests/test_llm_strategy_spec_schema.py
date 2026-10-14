@@ -161,11 +161,12 @@ def test_request_wording_keeps_meaning_bearing_symbols():
     from src.llm.strategy_spec.schema import request_wording
 
     assert request_wording("15-Minute  Bars.") == request_wording("15 minute bars")
-    assert request_wording("(intraday bars)") == request_wording("intraday bars")
+    assert request_wording('unusual "options" flow.') == request_wording("(unusual) options flow")
     # A minus sign isn't a hyphen, and comparison symbols change the ask.
     assert request_wording("z-score < -2") != request_wording("z-score < 2")
     assert request_wording("VIX > 30") != request_wording("VIX < 30")
     assert request_wording("a move of 10%") != request_wording("a move of $10")
+    assert request_wording("...") not in ("", request_wording("??"))  # junk stays apart
 
 
 def test_unsupported_timeframe_also_leaves_the_field_missing():

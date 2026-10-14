@@ -153,21 +153,29 @@ class UnsupportedRequest(_Section):
     detail: Text | None = None
 
     def key(self) -> tuple[str, str]:
-        """What makes two items one request: the wording (case, spacing and hyphenation
-        ignored) and the reason. Not the field: one request can be filed under several
+        """What makes two items one request: the wording (as `request_wording` folds it)
+        and the reason. Not the field: one request can be filed under several
         (`group_unsupported`)."""
         return request_wording(self.requested), self.reason
+
+
+# A hyphen that joins words is spelling; one next to a space or a digit's sign is not.
+_WORD_HYPHEN = re.compile(r"(?<=[a-z0-9])-(?=[a-z0-9])")
+# Punctuation that wraps a word without changing the ask. Not >, <, %, $, which do.
+_EDGE_PUNCTUATION = ".,;:!?'\"()"
 
 
 def request_wording(requested: str) -> str:
     """One wording for grouping and matching: lowercased, spacing collapsed, a hyphen
     joining words folded to a space ("15-minute bars" is "15 Minute bars"; the minus in
-    "< -2" survives, it doesn't join two words), and sentence punctuation stripped from
-    the ends ("intraday bars." is "intraday bars"). Meaning-bearing symbols stay:
-    "VIX > 30" and "VIX < 30", or "10%" and "$10", are different asks and must not
-    merge."""
-    folded = re.sub(r"(?<=[a-z0-9])-(?=[a-z0-9])", " ", requested.lower().replace("_", " "))
-    return " ".join(folded.split()).strip(".,;:!?'\"() ")
+    "< -2" survives, it doesn't join two words), and wrapping punctuation stripped from
+    each word ('unusual "options" flow.' is 'unusual options flow'). Meaning-bearing
+    symbols stay: "VIX > 30" and "VIX < 30", or "10%" and "$10", are different asks and
+    must not merge."""
+    folded = _WORD_HYPHEN.sub(" ", requested.lower().replace("_", " "))
+    words = [w for w in (t.strip(_EDGE_PUNCTUATION) for t in folded.split()) if w]
+    # All punctuation ("...", "??") stays itself rather than everything becoming "".
+    return " ".join(words) or " ".join(folded.split())
 
 
 @dataclass(frozen=True)
@@ -188,7 +196,7 @@ class RequestGroup:
 
 def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
     """`items` merged by `UnsupportedRequest.key`, in first-seen order; a field's details
-    are merged with case, spacing and hyphenation ignored. An LLM repeating a request shouldn't ask the
+    are merged on their `request_wording` folding. An LLM repeating a request shouldn't ask the
     user twice or count twice in the log, so every reader goes through this rather than
     reading `spec.unsupported` item by item."""
     groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict]] = {}

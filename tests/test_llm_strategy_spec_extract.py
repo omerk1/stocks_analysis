@@ -57,8 +57,6 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"normalisation": "ATR"}}}},
                    # An expected value that means "nothing stated" is a 'blank' spelled wrong.
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"not_applicable": False}}}},
-                   # A flag wording that folds to nothing would match everything.
-                   {**ok, "unsupported": [{"has": ".", "reason": "other"}]},
                    # Malformed shapes name the case instead of a bare KeyError/TypeError.
                    {**ok, "unsupported": [{"reason": "other"}]},
                    {**ok, "unsupported": ["earnings"]},
@@ -150,12 +148,13 @@ def test_flags_matched_by_wording_substring_and_reason():
     flag = ExpectedFlag("15-minute", "unsupported_timeframe")
     assert flag.matches("the 15 minute chart", "unsupported_timeframe")
     assert not flag.matches("the 5 minute chart", "unsupported_timeframe")
-    # Matching is by whole tokens (prefixes allowed), so "sweep" finds "sweeps" but a
-    # number can't hide inside a bigger one and symbols must appear as typed.
-    assert ExpectedFlag("sweep", "other").matches("sweeps", "other")
+    # Matching is by whole words: a stem extends ("sweep" finds "sweeps", quotes don't
+    # hide it), a number or symbol matches exactly in either direction.
+    assert ExpectedFlag("sweep", "other").matches('big "sweeps" on the tape', "other")
     assert not ExpectedFlag("10%", "other").matches("the top 10 names", "other")
     assert not ExpectedFlag("10%", "other").matches("a 110% move", "other")
     assert not ExpectedFlag("15 minute", "other").matches("a 415 minute window", "other")
+    assert not ExpectedFlag("15-minute", "other").matches("the 150 minute chart", "other")
     assert ExpectedFlag("10%", "other").matches("a move of 10% or more", "other")
     # The same words under the wrong reason don't count.
     score = score_case(_flagged({**EARNINGS, "reason": "unknown_metric"}), CASE)

@@ -4,7 +4,7 @@ list is the development backlog: what users ask for that doesn't exist yet.
 
 The log is `data/llm/unsupported_requests.jsonl` in the main checkout (git-ignored, found
 through git like the Gemini usage ledger). Each spec writes one JSON line per distinct
-request: the same wording (case, spacing and hyphenation ignored) and reason filed under two fields is
+request: the same wording (as `request_wording` folds it) and reason filed under two fields is
 one line listing both fields, with each detail under the field it was given for
 (`"details": {"trigger": ["intraday entry"]}`), so the summary counts ideas asking,
 not how often the LLM repeated itself. "Intraday bars" and "intraday bars" count together,

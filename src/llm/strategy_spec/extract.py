@@ -114,13 +114,18 @@ class ExpectedFlag:
     optional: bool = False
 
     def matches(self, requested: str, reason: str) -> bool:
-        """Reason equal, and the wording contains `has` as consecutive tokens, each a
-        prefix of the request's token: "sweep" finds "sweeps" and "15-minute" finds
-        "the 15 minute chart", while "10%" matches neither "110%" nor a bare "10"."""
+        """Reason equal, and the wording contains `has` as consecutive words. A word
+        ending in a letter matches as a stem ("sweep" finds "sweeps"); anything else
+        matches exactly, so "15" doesn't find "150" and "10%" matches neither "110%"
+        nor a bare "10"."""
         if self.reason != reason:
             return False
         has, words = request_wording(self.has).split(), request_wording(requested).split()
-        return any(all(w.startswith(h) for h, w in zip(has, words[i:i + len(has)]))
+
+        def word(h: str, w: str) -> bool:
+            return w == h or (h[-1].isalpha() and w.startswith(h))
+
+        return any(all(word(h, w) for h, w in zip(has, words[i:i + len(has)]))
                    for i in range(len(words) - len(has) + 1))
 
 
@@ -185,13 +190,10 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
                           for f in item["unsupported"])
             if any(f.reason not in get_args(UnsupportedReason) for f in flags):
                 raise ValueError("has an unknown reason")
-            if any(f.has and not request_wording(f.has) for f in flags):
-                # "." folds to nothing and would match every request with that reason.
-                raise ValueError("has a flag wording that folds to nothing")
         except ValueError as e:
             raise ValueError(f"case {cid!r}: {e}") from e
         except (KeyError, TypeError, AttributeError) as e:  # an authoring mistake names its case
-            raise ValueError(f"case {cid!r}: {type(e).__name__}: {e}") from None
+            raise ValueError(f"case {cid!r}: {type(e).__name__}: {e}") from e
         cases.append(Case(cid, idea, fields, flags))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
