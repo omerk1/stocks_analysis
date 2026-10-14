@@ -106,7 +106,7 @@ def test_summary_groups_by_wording_and_reason_most_requested_first():
     assert len(lines) == 2
     assert lines[0].split() == ["2", "unsupported_data", "supporting_signals,trigger", "last", "2026-10-12",
                                 "earnings", "surprise"]
-    assert lines[1].split()[0] == "1" and lines[1].endswith("15-minute bars")
+    assert lines[1].split()[0] == "1" and lines[1].endswith("15 minute bars")  # folded wording
     assert unsupported.summarise(rows, top=1) == lines[:1]
 
 

@@ -152,13 +152,16 @@ class UnsupportedRequest(_Section):
     detail: Text | None = None
 
     def key(self) -> tuple[str, str]:
-        """What makes two items one request: the wording (case and spacing ignored) and the
-        reason. Not the field: one request can be filed under several (`group_unsupported`)."""
+        """What makes two items one request: the wording (case, spacing and punctuation
+        ignored) and the reason. Not the field: one request can be filed under several
+        (`group_unsupported`)."""
         return request_wording(self.requested), self.reason
 
 
 def request_wording(requested: str) -> str:
-    return " ".join(requested.lower().split())
+    """One wording for grouping and matching: lowercased, punctuation to spaces, spacing
+    collapsed — "15-minute bars" and "15 Minute bars" are the same request."""
+    return " ".join("".join(c if c.isalnum() else " " for c in requested.lower()).split())
 
 
 @dataclass(frozen=True)
@@ -179,7 +182,7 @@ class RequestGroup:
 
 def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
     """`items` merged by `UnsupportedRequest.key`, in first-seen order; a field's details
-    are merged with case and spacing ignored. An LLM repeating a request shouldn't ask the
+    are merged with case, spacing and punctuation ignored. An LLM repeating a request shouldn't ask the
     user twice or count twice in the log, so every reader goes through this rather than
     reading `spec.unsupported` item by item."""
     groups: dict[tuple[str, str], tuple[UnsupportedRequest, dict]] = {}

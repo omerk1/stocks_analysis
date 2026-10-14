@@ -53,7 +53,7 @@ from src.llm.gemini import GeminiClient, Reply
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    SpecField, StrategySpec, UnsupportedReason, group_unsupported, load_golden_specs)
+    SpecField, StrategySpec, UnsupportedReason, group_unsupported, load_golden_specs, request_wording)
 
 PURPOSE = "strategy_spec.extract"
 RUNS_DIR_NAME = "extraction_runs"
@@ -107,12 +107,6 @@ class Expectation:
     values: object = None  # for "values": a scalar, a list of horizons, or {attr: value}
 
 
-def _fold(text: str) -> str:
-    """Wording for matching: lowercased, punctuation to spaces, spacing collapsed, so
-    "15-minute" matches "the 15 minute chart"."""
-    return " ".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
-
-
 @dataclass(frozen=True)
 class ExpectedFlag:
     has: str  # a substring of the request's wording (case and punctuation ignored); "" = any
@@ -120,7 +114,9 @@ class ExpectedFlag:
     optional: bool = False
 
     def matches(self, requested: str, reason: str) -> bool:
-        return self.reason == reason and _fold(self.has) in _fold(requested)
+        # `request_wording` folds punctuation on both sides, so "15-minute" finds "the
+        # 15 minute chart". Keep `has` to letters and digits: "10%" would fold to "10".
+        return self.reason == reason and request_wording(self.has) in request_wording(requested)
 
 
 @dataclass(frozen=True)
@@ -131,12 +127,18 @@ class Case:
     flags: tuple[ExpectedFlag, ...]
 
 
-def _validated(field: str, value) -> None:
-    """Expected values must be ones the schema accepts, or the case is unwinnable."""
+def _validated(field: str, value):
+    """Expected values must be ones the schema accepts, or the case is unwinnable — and
+    what's stored is the schema's coerced form, since scoring compares with `==` and a
+    "1.5" in the key would never equal the extractor's 1.5. A value that means "nothing
+    stated" is a 'blank' spelled wrong."""
     try:
-        StrategySpec(**{field: value})
+        got = getattr(StrategySpec(**{field: value}), field)
     except ValidationError as e:
         raise ValueError(f"bad expected value for {field}: {value!r}") from e
+    if _empty(got):
+        raise ValueError(f"the expected value for {field} means empty — use 'blank': {value!r}")
+    return {a: getattr(got, a) for a in value} if isinstance(value, dict) else got
 
 
 def _expectation(field: str, raw) -> Expectation:
@@ -145,17 +147,14 @@ def _expectation(field: str, raw) -> Expectation:
             raise ValueError(f"{field} has no description to check")
         return Expectation(raw)
     if isinstance(raw, dict) and set(raw) == {"value"} and field in _SCALARS:
-        _validated(field, raw["value"])
-        return Expectation("values", raw["value"])
+        return Expectation("values", _validated(field, raw["value"]))
     if isinstance(raw, dict) and set(raw) == {"values"}:
         if field == "horizons_bars" and isinstance(raw["values"], list):
-            _validated(field, raw["values"])
-            return Expectation("values", raw["values"])
+            return Expectation("values", _validated(field, raw["values"]))
         if field in QUANT_ATTRS and isinstance(raw["values"], dict) and raw["values"]:
             unknown = set(raw["values"]) - set(QUANT_ATTRS[field])
             if not unknown:
-                _validated(field, raw["values"])
-                return Expectation("values", raw["values"])
+                return Expectation("values", _validated(field, raw["values"]))
     raise ValueError(f"bad expectation for {field}: {raw!r}")
 
 
@@ -165,7 +164,9 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
     with path.open() as f:
         raw = json.load(f)
     for item in raw:
-        cid = item.get("id", "?")
+        if "id" not in item:
+            raise ValueError("every case needs an 'id'")
+        cid = item["id"]
         if ("golden" in item) == ("idea" in item):
             raise ValueError(f"case {cid!r} needs exactly one of 'golden' or 'idea'")
         if "golden" in item and item["golden"] not in golden:
@@ -173,12 +174,18 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
         idea = golden[item["golden"]] if "golden" in item else item["idea"]
         if set(item["fields"]) != set(get_args(SpecField)):
             raise ValueError(f"case {cid!r} must cover every spec field exactly once")
-        fields = {f: _expectation(f, v) for f, v in item["fields"].items()}
+        try:
+            fields = {f: _expectation(f, v) for f, v in item["fields"].items()}
+        except ValueError as e:
+            raise ValueError(f"case {cid!r}: {e}") from None
         flags = tuple(ExpectedFlag(f["has"], f["reason"], f.get("optional", False))
                       for f in item["unsupported"])
         if any(f.reason not in get_args(UnsupportedReason) for f in flags):
             raise ValueError(f"case {cid!r} has an unknown reason")
-        cases.append(Case(item["id"], idea, fields, flags))
+        if any(f.has and not request_wording(f.has) for f in flags):
+            # "%" folds to nothing and would match every request with that reason.
+            raise ValueError(f"case {cid!r} has a flag wording with no letters or digits")
+        cases.append(Case(cid, idea, fields, flags))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
     return cases
@@ -308,12 +315,16 @@ def score_dir(run_dir: Path, cases: list[Case] | None = None) -> list[CaseScore]
     """Re-score a saved run, free: the replies are already on disk. A partial run (an
     eval that died mid-way) is refused — its totals would look like an improvement."""
     cases = cases if cases is not None else load_cases()
+    if not run_dir.is_dir():
+        raise ValueError(f"{run_dir} isn't a directory")
     by_id = {c.id: c for c in cases}
     specs: dict[str, StrategySpec] = {}
     for file in sorted(run_dir.glob("*.json")):
         data = json.loads(file.read_text())
         if data.get("case") not in by_id:
             raise ValueError(f"{file}: no case named {data.get('case')!r}")
+        if data["case"] in specs:
+            raise ValueError(f"{run_dir} has two replies for {data['case']!r}")
         specs[data["case"]] = StrategySpec.model_validate(data["spec"])
     missing = [c.id for c in cases if c.id not in specs]
     if missing:

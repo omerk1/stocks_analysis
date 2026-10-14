@@ -39,6 +39,14 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
           "fields": {f: "blank" for f in get_args(SpecField)}, "unsupported": []}
     path.write_text(json.dumps([ok]))
     assert load_cases(path)[0].fields["trigger"] == Expectation("blank")
+    # Expected values are stored as the schema coerces them: a "1.5" written in the key
+    # must still equal the extractor's 1.5.
+    quoted = {**ok, "fields": {**ok["fields"], "size": {"values": {"min": "1.5"}},
+                               "horizons_bars": {"values": ["5", 20]}}}
+    path.write_text(json.dumps([quoted]))
+    fields = load_cases(path)[0].fields
+    assert fields["size"] == Expectation("values", {"min": 1.5})
+    assert fields["horizons_bars"] == Expectation("values", [5, 20])
     for broken in ({**ok, "fields": {k: v for k, v in ok["fields"].items() if k != "control"}},
                    {**ok, "fields": {**ok["fields"], "direction": "described"}},
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"min_bars": 3}}}},
@@ -47,12 +55,21 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    # Expected values the schema would reject make a case unwinnable.
                    {**ok, "fields": {**ok["fields"], "direction": {"value": "lonh"}}},
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"normalisation": "ATR"}}}},
-                   # Exactly one idea text per case, and a golden reference must exist.
+                   # An expected value that means "nothing stated" is a 'blank' spelled wrong.
+                   {**ok, "fields": {**ok["fields"], "size": {"values": {"not_applicable": False}}}},
+                   # A flag wording with no letters or digits would match everything.
+                   {**ok, "unsupported": [{"has": "%", "reason": "other"}]},
+                   # Exactly one idea text per case, an id, and a real golden reference.
                    {**ok, "golden": "ma_touch_bounce"},
+                   {k: v for k, v in ok.items() if k != "id"},
                    {k: v for k, v in {**ok, "golden": "no_such_idea"}.items() if k != "idea"}):
         path.write_text(json.dumps([broken]))
         with pytest.raises(ValueError):
             load_cases(path)
+    # An authoring mistake names its case.
+    path.write_text(json.dumps([{**ok, "fields": {**ok["fields"], "direction": {"value": "lonh"}}}]))
+    with pytest.raises(ValueError, match="case 'x'"):
+        load_cases(path)
     path.write_text(json.dumps([ok, ok]))
     with pytest.raises(ValueError, match="unique"):
         load_cases(path)
@@ -208,9 +225,19 @@ def test_eval_saves_replies_and_score_rereads_them(tmp_path):
 
 
 def test_score_dir_rejects_an_unknown_case_or_a_partial_run(tmp_path):
+    with pytest.raises(ValueError, match="isn't a directory"):
+        score_dir(tmp_path / "no_such_run", cases=_two_cases())
     (tmp_path / "x.json").write_text(json.dumps({"case": "mystery", "spec": {}}))
     with pytest.raises(ValueError, match="mystery"):
         score_dir(tmp_path, cases=_two_cases())
+    # Two files answering the same case can't silently shadow each other.
+    (tmp_path / "x.json").write_text(json.dumps({"case": "a", "spec": {}}))
+    (tmp_path / "x_retry.json").write_text(json.dumps({"case": "a", "spec": {}}))
+    (tmp_path / "b.json").write_text(json.dumps({"case": "b", "spec": {}}))
+    with pytest.raises(ValueError, match="two replies for 'a'"):
+        score_dir(tmp_path, cases=_two_cases())
+    (tmp_path / "x_retry.json").unlink()
+    assert len(score_dir(tmp_path, cases=_two_cases())) == 2
     # A run that died mid-way isn't scored: its totals would look like an improvement.
     partial = tmp_path / "partial"
     partial.mkdir()
