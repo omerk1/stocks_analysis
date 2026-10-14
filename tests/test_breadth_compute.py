@@ -345,6 +345,116 @@ def test_cap_weighted_uses_yfinance_splits_when_polygon_has_none(conn):
     assert result["n_advancing"].iloc[1] == pytest.approx(2200)
 
 
+def _dual_class_setup(conn, secondary_shares: float | None):
+    # AAA/AAB are two share classes of one company (both falling, below
+    # their SMA(3)); like Alphabet's GOOG/GOOGL, each class's share count
+    # is the COMPANY total (10,000), so counting both doubles the company.
+    # CCC is an independent rising ticker. Day 3 (iloc 2): CCC close=12 >
+    # sma=11, cap=1200; the company close=17 < sma=18, cap=170,000 once.
+    falling = [19, 18, 17, 16, 15, 14, 13, 12, 11, 10]
+    db.upsert_bars(conn, "bars_1d", "AAA", db.YFINANCE, _bars(falling))
+    db.upsert_bars(conn, "bars_1d", "AAB", db.YFINANCE, _bars(falling))
+    db.upsert_bars(conn, "bars_1d", "CCC", db.YFINANCE, _bars([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]))
+    _shares(conn, "AAA", 10_000)
+    if secondary_shares is not None:
+        _shares(conn, "AAB", secondary_shares)
+    _shares(conn, "CCC", 100)
+    membership = pd.DataFrame(
+        {"ticker": ["AAA", "AAB", "CCC"], "start_date": [_DATES[0]] * 3, "end_date": [None] * 3}
+    )
+    db.replace_index_membership(conn, "test_idx", membership)
+
+
+def test_cap_weighted_counts_a_dual_class_company_once_not_twice(conn):
+    _dual_class_setup(conn, secondary_shares=10_000)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA"})
+    result = compute_breadth(conn, "test_idx", config)
+
+    # The company's 170,000 cap enters the denominator once (via AAA);
+    # without the mapping it enters twice and halves CCC's weight.
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+    unmapped = compute_breadth(conn, "test_idx", _config(weighting="cap", share_class_secondaries={}))
+    assert unmapped["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 340000))
+    # Both classes still count as constituents -- only the weight dedupes.
+    assert result["n_with_data"].iloc[2] == 3
+
+
+def test_dual_class_secondary_stands_in_when_the_primary_has_no_cap_that_date(conn):
+    # The primary class has no share-count data at all, so excluding the
+    # secondary too would silently drop the whole company.
+    _dual_class_setup(conn, secondary_shares=10_000)
+    conn.execute("DELETE FROM shares_outstanding WHERE ticker = 'AAA'")
+    conn.commit()
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA"})
+    result = compute_breadth(conn, "test_idx", config)
+
+    # Same answer as the deduped case, carried by AAB instead of AAA.
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+
+
+def test_dual_class_secondary_stands_in_when_the_primarys_cap_is_a_scale_error(conn):
+    # The primary's share count is mis-scaled (1e6x), so the outlier guard
+    # masks it; the mask must then see the primary as cap-less and keep the
+    # sane secondary -- not mask the good cap because a rejected value
+    # existed. (The guard runs first for exactly this reason.)
+    _dual_class_setup(conn, secondary_shares=10_000)
+    conn.execute("DELETE FROM shares_outstanding WHERE ticker = 'AAA'")
+    conn.commit()
+    _shares(conn, "AAA", 10_000 * 1_000_000)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA"},
+                     cap_outlier_min_members=3)
+    result = compute_breadth(conn, "test_idx", config)
+
+    # Same answer as the healthy deduped case, carried by AAB.
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+
+
+def test_three_class_company_with_capless_primary_is_counted_once_not_twice(conn):
+    # Two secondaries map to one primary (a three-class company). The
+    # primary has no cap at all, so a secondary stands in -- exactly ONE of
+    # them, not both.
+    _dual_class_setup(conn, secondary_shares=10_000)
+    conn.execute("DELETE FROM shares_outstanding WHERE ticker = 'AAA'")
+    conn.commit()
+    falling = [19, 18, 17, 16, 15, 14, 13, 12, 11, 10]
+    db.upsert_bars(conn, "bars_1d", "AAC", db.YFINANCE, _bars(falling))
+    _shares(conn, "AAC", 10_000)
+    membership = pd.DataFrame(
+        {"ticker": ["AAA", "AAB", "AAC", "CCC"], "start_date": [_DATES[0]] * 4, "end_date": [None] * 4}
+    )
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA", "AAC": "AAA"})
+    result = compute_breadth(conn, "test_idx", config)
+
+    # The company's 170,000 cap enters once (first sorted secondary, AAB).
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+
+
+def test_a_reciprocal_share_class_mapping_fails_loudly(conn):
+    # {"A": "B", "B": "A"} would mask against already-masked caps and can
+    # drop the company entirely -- refuse it instead of computing wrong.
+    _dual_class_setup(conn, secondary_shares=10_000)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA", "AAA": "AAB"})
+    with pytest.raises(ValueError, match="both secondary and primary"):
+        compute_breadth(conn, "test_idx", config)
+
+
+def test_equal_weighting_still_counts_both_share_classes(conn):
+    # Both classes are genuine index constituents; the mapping only fixes
+    # the cap double-count, never the equal-weight constituent count.
+    _dual_class_setup(conn, secondary_shares=10_000)
+
+    config = _config(weighting="equal", share_class_secondaries={"AAB": "AAA"})
+    result = compute_breadth(conn, "test_idx", config)
+
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1 / 3)
+
+
 def test_advance_decline_line_is_a_cumulative_sum_of_net_advances():
     breadth = pd.DataFrame({"net_advances": [1, -2, 3, 0]}, index=pd.bdate_range("2020-01-01", periods=4))
 
