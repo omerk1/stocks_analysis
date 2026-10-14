@@ -216,7 +216,7 @@ def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, 
     December, January or February by ticker, so on any date some quarter has
     ended but isn't filed yet), results out 20-35 days after the quarter ends
     and the 10-Q 0-20 days later; net income and revenue per quarter, equity
-    and long-term debt at each quarter end. One ticker in three switches its
+    and long-term debt at each quarter end. Every other ticker switches its
     revenue tag halfway to a narrower one (a measure change)."""
     rng = np.random.default_rng(seed)
     fund, earn = [], []
@@ -229,7 +229,8 @@ def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, 
         available = reaction + pd.to_timedelta(rng.integers(0, 21, n), unit="D")
         revenue = 100.0 * np.exp(np.cumsum(rng.normal(0.01, 0.05, n))) * (1 + 0.1 * np.sin(np.arange(n) * np.pi / 2))
         income = revenue * rng.normal(0.08, 0.06, n)
-        tags = np.where((i % 3 == 0) & (np.arange(n) >= n // 2), "SalesRevenueGoodsNet", "Revenues")
+        # every other ticker, so the switch meets all three fiscal year-ends
+        tags = np.where((i % 2 == 0) & (np.arange(n) >= n // 2), "SalesRevenueGoodsNet", "Revenues")
         for concept, period_type, values, tag in (
             ("revenue", "quarter", revenue, tags), ("net_income", "quarter", income, "NetIncomeLoss"),
             ("equity", "instant", revenue * rng.normal(3.0, 0.5, n), "StockholdersEquity"),

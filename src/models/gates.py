@@ -391,7 +391,9 @@ def leakage_gate(
     """`bars`: one long frame per basis the registry's sources read (the
     synthetic gate passes the same walk on both); `context`: membership,
     sectors and filings for the panel sources (only `future_filings` touches
-    it, its filings). Recomputes every source under each perturbation."""
+    it, its filings). Recomputes every source under each bar perturbation, and
+    the panel sources under `future_filings` (only they read the context: a
+    per-ticker source that read filings would go unchecked)."""
     cut = pd.Timestamp(cut)
     specs = registry + CANARIES
     sources = {**reg.SOURCES, **CANARY_SOURCES}
@@ -409,7 +411,7 @@ def leakage_gate(
         record(name, base, reg.compute_registered(pbars, psplits, specs, sources, context=context))
     # Only panel sources read the context: recompute those, compare their columns.
     panel = tuple(s for s in specs if isinstance(sources.get(s.source), reg.PanelSource))
-    for name, perturb in CONTEXT_PERTURBATIONS.items():
+    for name, perturb in CONTEXT_PERTURBATIONS.items() if panel else ():
         pcontext = perturb(context if context is not None else market.PanelContext(), cut, seed)
         after = reg.compute_registered(bars, splits, panel, sources, context=pcontext)
         recomputed = [c for c in after.columns if c not in ("ticker", "date")]

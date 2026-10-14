@@ -107,6 +107,7 @@ def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Per feature, its events: (ticker, period_end, known_at, value), one per
     quarter or balance-sheet date. `known_at` is the latest availability of
     every value the feature read."""
+    fundamentals = _ns(fundamentals, ["period_end", "available_date"])  # date arithmetic below assumes ns
     q = _quarters(fundamentals)
     events = {}
     if len(q):
