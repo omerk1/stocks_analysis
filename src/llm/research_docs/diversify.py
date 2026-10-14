@@ -76,28 +76,34 @@ def mmr(hits: Sequence[NodeWithScore], vectors: Mapping[str, Sequence[float]],
         raise LookupError(f"no stored vector for {len(missing)} candidate(s), e.g. {missing[0]}: "
                           "the docstore and vector store disagree, rebuild the index")
     n = len(hits)
-    try:  # a None score or a ragged vector would otherwise become a silent NaN
-        scores = np.array([h.score for h in hits], dtype=float)
+    if not 0 <= lam <= 1:
+        raise ValueError(f"lam must be between 0 and 1, got {lam}")
+    # Bad input would otherwise rank silently on NaN: None scores become NaN in the array
+    # (caught by the isfinite check), ragged vectors raise here.
+    scores = np.array([h.score for h in hits], dtype=float)
+    if not np.isfinite(scores).all():
+        raise ValueError("a candidate has no score or a non-finite one; check the re-ranker's output")
+    try:
         vecs = np.array([vectors[h.node.node_id] for h in hits], dtype=float)
     except (TypeError, ValueError) as e:
-        raise ValueError(f"candidates need a score and same-length vectors: {e}") from None
+        raise ValueError(f"stored vectors differ in length: {e}; rebuild the index") from None
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    if not (np.isfinite(scores).all() and np.isfinite(vecs).all() and (norms > 0).all()):
-        raise ValueError("a candidate has a missing score or an empty vector; rebuild the index")
-    rel = _scale(scores)
+    if not (np.isfinite(vecs).all() and (norms > 0).all()):
+        raise ValueError("a candidate's stored vector is empty or non-finite; rebuild the index")
+    gain = lam * _scale(scores)
     vecs /= norms  # so the dot product is the cosine
     upper = np.triu_indices(n, 1)  # each pair once; a chunk's similarity to itself doesn't count
     sim = np.zeros((n, n))
     sim[upper] = _scale((vecs @ vecs.T)[upper])
     sim += sim.T
     closest = np.zeros(n)  # similarity to the closest picked chunk
-    taken = np.zeros(n, dtype=bool)
     picked: list[int] = []
     for _ in range(min(k, n)):
+        mmr_score = gain - (1 - lam) * closest
+        mmr_score[picked] = -np.inf
         # argmax returns the first of equal values: a tie goes to the re-ranker's order
-        best = int(np.argmax(np.where(taken, -np.inf, lam * rel - (1 - lam) * closest)))
+        best = int(np.argmax(mmr_score))
         picked.append(best)
-        taken[best] = True
         closest = np.maximum(closest, sim[best])
     return [hits[i] for i in picked]
 

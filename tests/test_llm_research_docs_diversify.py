@@ -42,11 +42,18 @@ def test_a_candidate_without_a_stored_vector_fails_with_a_clear_message():
 @pytest.mark.parametrize("vectors, hits", [
     ({**VECTORS, "c": [0.0, 0.0, 0.0]}, HITS),  # an empty embedding
     ({**VECTORS, "c": [1.0, 0.0]}, HITS),  # a vector of the wrong length
-    (VECTORS, HITS[:3] + [NodeWithScore(node=HITS[3].node, score=None)]),  # no score
+    *[(VECTORS, HITS[:3] + [NodeWithScore(node=HITS[3].node, score=s)])  # no score, or not finite
+      for s in (None, float("nan"), float("inf"))],
 ])
 def test_a_bad_vector_or_score_fails_instead_of_turning_into_nan(vectors, hits):
     with pytest.raises(ValueError):
         mmr(hits, vectors, k=3)
+
+
+@pytest.mark.parametrize("lam", [-0.1, 1.5, float("nan")])
+def test_lambda_outside_zero_to_one_is_refused(lam):
+    with pytest.raises(ValueError):
+        mmr(HITS, VECTORS, k=3, lam=lam)
 
 
 def test_vectors_need_not_be_unit_length():
