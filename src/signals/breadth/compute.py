@@ -145,25 +145,31 @@ def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: d
             "a reciprocal or chained mapping masks against already-masked caps and can drop "
             "the company from cap-weighted breadth entirely; pick one primary per company"
         )
+    # One representative class per company per date: the primary where it
+    # has a cap, else the first (sorted) secondary that does -- a three-
+    # class company with a cap-less primary must not have BOTH secondaries
+    # stand in, which would be the very double-count this fixes.
+    by_primary: dict[str, list[str]] = {}
+    for secondary, primary in sorted(secondary_to_primary.items()):
+        by_primary.setdefault(primary, []).append(secondary)
     caps = members["market_cap"]
-    for secondary, primary in secondary_to_primary.items():
-        primary_dates = members.loc[(members["ticker"] == primary) & caps.notna(), "date"]
-        if primary_dates.empty:
-            continue
-        duplicate = (
-            (members["ticker"] == secondary) & caps.notna() & members["date"].isin(set(primary_dates))
-        )
-        if not duplicate.any():
-            continue
-        # warning, not info: the module CLIs configure no logging, and
-        # Python's last-resort handler only shows WARNING+ -- same
-        # "logged, never silent" treatment as _drop_cap_outliers.
-        logger.warning(
-            "cap-weighted breadth: excluded %d %s member-days whose market cap duplicates %s's "
-            "(one company, two share classes, company-total share counts under each)",
-            int(duplicate.sum()), secondary, primary,
-        )
-        caps = caps.mask(duplicate)
+    for primary, secondaries in by_primary.items():
+        covered = set(members.loc[(members["ticker"] == primary) & caps.notna(), "date"])
+        for secondary in secondaries:
+            has_cap = (members["ticker"] == secondary) & caps.notna()
+            duplicate = has_cap & members["date"].isin(covered)
+            if duplicate.any():
+                # warning, not info: the module CLIs configure no logging,
+                # and Python's last-resort handler only shows WARNING+ --
+                # same "logged, never silent" treatment as
+                # _drop_cap_outliers.
+                logger.warning(
+                    "cap-weighted breadth: excluded %d %s member-days whose market cap duplicates "
+                    "%s's or a sibling class's (one company, company-total share counts per class)",
+                    int(duplicate.sum()), secondary, primary,
+                )
+                caps = caps.mask(duplicate)
+            covered |= set(members.loc[has_cap & ~duplicate, "date"])
     return caps
 
 

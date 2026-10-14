@@ -412,6 +412,28 @@ def test_dual_class_secondary_stands_in_when_the_primarys_cap_is_a_scale_error(c
     assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
 
 
+def test_three_class_company_with_capless_primary_is_counted_once_not_twice(conn):
+    # Two secondaries map to one primary (a three-class company). The
+    # primary has no cap at all, so a secondary stands in -- exactly ONE of
+    # them, not both.
+    _dual_class_setup(conn, secondary_shares=10_000)
+    conn.execute("DELETE FROM shares_outstanding WHERE ticker = 'AAA'")
+    conn.commit()
+    falling = [19, 18, 17, 16, 15, 14, 13, 12, 11, 10]
+    db.upsert_bars(conn, "bars_1d", "AAC", db.YFINANCE, _bars(falling))
+    _shares(conn, "AAC", 10_000)
+    membership = pd.DataFrame(
+        {"ticker": ["AAA", "AAB", "AAC", "CCC"], "start_date": [_DATES[0]] * 4, "end_date": [None] * 4}
+    )
+    db.replace_index_membership(conn, "test_idx", membership)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA", "AAC": "AAA"})
+    result = compute_breadth(conn, "test_idx", config)
+
+    # The company's 170,000 cap enters once (first sorted secondary, AAB).
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+
+
 def test_a_reciprocal_share_class_mapping_fails_loudly(conn):
     # {"A": "B", "B": "A"} would mask against already-masked caps and can
     # drop the company entirely -- refuse it instead of computing wrong.
