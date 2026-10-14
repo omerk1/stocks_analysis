@@ -113,6 +113,19 @@ def test_dropping_an_unsupported_entry_takes_an_explicit_resolution():
                        StubClient([{"value": "daily", "resolved_requests": ["15 Minute bars"]}]))
     assert out.timeframe == "daily"
     assert [u.requested for u in out.unsupported] == ["earnings"]
+    # Echoing the question's whole displayed line still resolves it (containment).
+    out = apply_answer(spec, q, "drop it", StubClient([
+        {"value": None, "resolved_requests": ["'15-minute bars': unsupported timeframe"]}]))
+    assert [u.requested for u in out.unsupported] == ["earnings"]
+
+
+def test_one_wording_under_two_reasons_is_one_ask_and_resolves_together():
+    # The trader resolves by their words, not by the model's reason classification.
+    spec = _spec(timeframe=None, unsupported=[
+        INTRADAY, UnsupportedRequest(requested="15-MINUTE bars", field="timeframe", reason="other")])
+    out = apply_answer(spec, next_question(spec), "drop it",
+                       StubClient([{"value": None, "resolved_requests": ["15-minute bars"]}]))
+    assert out.unsupported == []
 
 
 def test_a_new_entry_is_added_alongside_the_kept_ones():
@@ -162,12 +175,35 @@ def test_loop_asks_until_complete_and_saves_the_transcript(tmp_path, monkeypatch
 def test_stopping_early_keeps_the_open_gaps_in_the_transcript(tmp_path, monkeypatch):
     _extraction_stub(monkeypatch, _spec(direction=None, control=None))
     path = tmp_path / "s.json"
+    said = []
     spec = elicit("idea", StubClient([{"value": "long"}]),
                   ask=lambda q: {0: "long"}.get(len(q) and 0) if "direction" in q else None,
-                  say=lambda s: None, session_path=path, log_path=tmp_path / "log.jsonl")
+                  say=said.append, session_path=path, log_path=tmp_path / "log.jsonl")
     saved = json.loads(path.read_text())
     assert spec.direction == "long" and not saved["complete"]
     assert any("control" in g for g in saved["gaps_remaining"])
+    # A voluntary stop says so once; it isn't also reported as hitting the turn cap.
+    assert any("Stopping here" in s for s in said)
+    assert not any("Stopping after" in s for s in said)
+
+
+def test_hitting_the_turn_cap_reports_the_real_answer_count(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(direction=None, control=None))
+    said = []
+    elicit("idea", StubClient([{"value": "long"}]), ask=lambda q: "long", say=said.append,
+           session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl", max_turns=1)
+    assert any("Stopping after 1 answers" in s for s in said)
+
+
+def test_the_log_and_pointer_survive_a_failing_transcript_save(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(timeframe=None, unsupported=[INTRADAY]))
+    said = []
+    log = tmp_path / "log.jsonl"
+    with pytest.raises(IsADirectoryError):
+        elicit("idea", StubClient([]), ask=lambda q: None, say=said.append,
+               session_path=tmp_path, log_path=log)  # the "file" is a directory
+    assert any("Transcript:" in s for s in said)
+    assert json.loads(log.read_text())["requested"] == "15-minute bars"
 
 
 def test_unreadable_answers_count_toward_the_stall_guard(tmp_path, monkeypatch):

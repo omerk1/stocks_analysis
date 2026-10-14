@@ -123,7 +123,7 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
             lines.append(f"- {g.reason}")
     current = getattr(spec, field)
     if current not in (None, []):
-        lines.append(f"(currently: {json.dumps(_shown(current))})")
+        lines.append(f"(currently: {json.dumps(_shown(current), default=str)})")
     return Question(field, "\n".join(lines), own)
 
 
@@ -154,8 +154,12 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     wrong_field = [u for u in parsed.unsupported if u.field != question.field]
     if wrong_field:  # the model may only speak for the asked field
         raise ReplyError(f"unsupported entries for other fields: {[u.field for u in wrong_field]}")
-    resolved = {request_wording(r) for r in parsed.resolved_requests}
-    kept = [u for u in own if request_wording(u.requested) not in resolved]
+    # A naming resolves every entry whose wording it contains: the model may echo the
+    # question's whole displayed line ("'15-minute bars': unsupported timeframe"), and
+    # the trader resolves by their words, not by the model's reason classification —
+    # one wording filed under two reasons is one ask, dropped together.
+    resolved = [request_wording(r) for r in parsed.resolved_requests]
+    kept = [u for u in own if not any(request_wording(u.requested) in r for r in resolved)]
     new = [u for u in parsed.unsupported if u.key() not in {k.key() for k in kept}]
     updates: dict = {"unsupported": others + kept + new}
     if parsed.value is not None:
@@ -205,17 +209,10 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
         # Microseconds, so two sessions started together can't share a transcript file.
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + ".json")
     session = Session(idea, extraction.extract(idea, client).parsed)
-    session.note_unsupported()
-    # `uses` came from the model, not the trader: an uncatalogued id in it is the model's
-    # slip, dropped here rather than asked about (a genuine ask lives in `unsupported`).
-    bad_ids = [u for u in dict.fromkeys(session.spec.uses) if u not in catalogue.IDS]
-    if bad_ids:
-        say(f"Dropped from `uses`, not in the catalogue: {', '.join(bad_ids)}")
-        session.spec = session.spec.model_copy(
-            update={"uses": [u for u in session.spec.uses if u in catalogue.IDS]})
-    session.save(path)
     skip: set[str] = set()
     stalls: dict[str, int] = {}
+    answered = 0
+    stopped = False
 
     def stalled(field: str) -> None:
         # Twice in a row without movement (an identical re-parse, or a reply refused
@@ -227,12 +224,23 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
             say(f"`{field}` isn't converging; skipping it — it stays an open gap.")
 
     try:
+        session.note_unsupported()
+        # `uses` came from the model, not the trader: an uncatalogued id in it is the
+        # model's slip, dropped rather than asked about (a genuine ask lives in
+        # `unsupported`).
+        bad_ids = [u for u in dict.fromkeys(session.spec.uses) if u not in catalogue.IDS]
+        if bad_ids:
+            say(f"Dropped from `uses`, not in the catalogue: {', '.join(bad_ids)}")
+            session.spec = session.spec.model_copy(
+                update={"uses": [u for u in session.spec.uses if u in catalogue.IDS]})
+        session.save(path)
         for _ in range(max_turns):
             question = next_question(session.spec, frozenset(skip))
             if question is None:
                 break
             answer = ask(question.text)
             if answer is None or not answer.strip():
+                stopped = True
                 say("Stopping here; the open questions are kept in the transcript.")
                 break
             try:
@@ -244,6 +252,7 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 session.save(path)
                 stalled(question.field)
                 continue
+            answered += 1
             session.note_unsupported()
             session.turns.append({"field": question.field, "question": question.text, "answer": answer})
             session.save(path)
@@ -255,17 +264,21 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
         remaining = find_gaps(session.spec)
         if not remaining:
             say("The spec is complete.")
+        elif stopped:
+            pass  # the stop already said it; the transcript carries the open questions
         elif next_question(session.spec, frozenset(skip)) is not None:
-            say(f"Stopping after {max_turns} answers; the open questions are kept in the transcript.")
+            say(f"Stopping after {answered} answers; the open questions are kept in the transcript.")
         else:
             say("Done with the questions; still open: "
                 + "; ".join(f"{g.field}: {g.reason}" for g in remaining))
     finally:
-        session.save(path)
-        if session.seen:
-            logged = StrategySpec(name=session.spec.name, unsupported=list(session.seen))
-            log_unsupported(logged, idea=idea, path=log_path)
-        say(f"Transcript: {path}")
+        try:
+            session.save(path)
+        finally:  # the log line and the pointer survive even a failing save
+            if session.seen:
+                logged = StrategySpec(name=session.spec.name, unsupported=list(session.seen))
+                log_unsupported(logged, idea=idea, path=log_path)
+            say(f"Transcript: {path}")
     return session.spec
 
 
