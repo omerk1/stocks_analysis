@@ -41,14 +41,19 @@ import re
 import sqlite3
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from dotenv import load_dotenv
 
 from src.foundation.data_processing import db
 from src.foundation.data_processing import sec_companyfacts as sec
-from src.foundation.data_processing.polygon_client import PolygonClient
 from src.foundation.utils.config_loader import load_config
+
+if TYPE_CHECKING:  # the client needs the `polygon` package; only the decision
+    # tooling (main/run) constructs one, so readers of apply_renames/
+    # price_ticker_map don't pay the import
+    from src.foundation.data_processing.polygon_client import PolygonClient
 
 MIN_COVERAGE = 0.9
 NAME_MATCH = 0.6  # token Jaccard between normalised names
@@ -341,6 +346,15 @@ def main():
         print(f"cik_verified set on {backfill_cik_verified(conn)} rows")
         conn.close()
         return
+    try:  # deliberately lazy: everything above (and apply_renames readers) works without it
+        from src.foundation.data_processing.polygon_client import PolygonClient
+    except ModuleNotFoundError as exc:
+        if exc.name != "polygon":  # some other module genuinely missing -- don't misattribute it
+            raise
+        conn.close()
+        raise SystemExit(
+            "Deciding renames asks Polygon for historical listings -- `pip install polygon-api-client` first."
+        ) from exc
     sec_dir = Path(config.data_paths.raw) / "sec"
     submissions = sec_dir / "submissions.zip"
     if not submissions.exists():

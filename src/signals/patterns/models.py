@@ -94,6 +94,10 @@ class PatternMatch:
     trendlines: dict[str, tuple[float, float]] = field(default_factory=dict)
     status: PatternStatus = PatternStatus.PENDING
     breakout_bar: int | None = None
+    # The executable fill, not the signal level: the open of the bar after
+    # `breakout_bar` (one-bar lag, see lifecycle._walk_post_breakout). None
+    # when the breakout bar is the last visible bar -- no next open exists
+    # yet, so there is no trade to price.
     entry_price: float | None = None
     stop_price: float | None = None
     target_price: float | None = None
