@@ -5,6 +5,7 @@ speed copy of the same function."""
 
 import ast
 import dataclasses
+import fcntl
 import os
 import subprocess
 import sys
@@ -409,14 +410,28 @@ def test_build_is_resumable_and_reruns_merge_into_the_manifest(tmp_path):
 
 def test_the_manifest_merge_holds_the_lock_under_its_existing_name(tmp_path, monkeypatch):
     # Builds agree on the lock by its file name: a build running older code locks this one.
-    taken = []
-    real = level_cache.file_lock
-    monkeypatch.setattr(level_cache, "file_lock", lambda p: taken.append(p) or real(p))
+    lock_path = tmp_path / "manifest.json.lock"
+    held = []
+    merge = level_cache._merge_manifest
+
+    def checked_merge(*a):
+        with lock_path.open("w") as other:  # as another process would try it
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held.append(False)
+                fcntl.flock(other, fcntl.LOCK_UN)
+            except BlockingIOError:
+                held.append(True)
+        return merge(*a)
+
+    monkeypatch.setattr(level_cache, "_merge_manifest", checked_merge)
     c = raw_db.get_connection(":memory:")
     raw_db.create_tables(c)
-    level_cache.build_level_cache(c, [], tmp_path, "2021-12-31", workers=1, progress=None)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None)
     c.close()
-    assert taken == [tmp_path / "manifest.json.lock"]
+    assert held == [True]  # the merge ran under that lock
 
 
 def test_a_run_of_some_sources_keeps_the_others_records(tmp_path, monkeypatch):
