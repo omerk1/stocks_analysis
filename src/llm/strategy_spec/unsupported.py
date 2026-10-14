@@ -82,13 +82,14 @@ def _readable(row) -> bool:
     `details` (optional, since the summary doesn't use it) as `{field: [details]}`, every
     key one of the line's fields and every detail text. Shape only: reasons and fields
     aren't checked against today's schema, so old lines still count after it changes."""
-    if not (isinstance(row, dict) and isinstance(row.get("requested"), str) and isinstance(row.get("reason"), str)
+    def text(x) -> bool:
+        return isinstance(x, str) and bool(x.strip())
+
+    if not (isinstance(row, dict) and text(row.get("requested")) and text(row.get("reason"))
             and isinstance(row.get("fields"), list) and row["fields"]
-            and all(isinstance(f, str) for f in row["fields"]) and isinstance(row.get("time"), str)):
+            and all(text(f) for f in row["fields"]) and isinstance(row.get("time"), str)):
         return False
-    details = row.get("details")
-    if details is None:
-        details = {}
+    details = row.get("details", {})
     if not (isinstance(details, dict) and set(details) <= set(row["fields"])
             and all(isinstance(d, list) and d and all(isinstance(x, str) for x in d) for d in details.values())):
         return False

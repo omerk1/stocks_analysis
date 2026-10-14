@@ -76,13 +76,17 @@ def test_damaged_line_is_skipped_with_a_warning(tmp_path):
         for bad in ('["a flat list"]', '{"trigger": "a string"}', '{"trigger": [null]}', '{"trigger": []}',
                     '{"timeframe": ["not one of its fields"]}'):
             f.write(f'{ok}, "details": {bad}}}\n')
-        f.write(ok + ', "details": null}\n')  # also no details
+        f.write(ok + ', "details": null}\n')  # one shape for details: a dict, or no key
+        good = json.loads(ok + "}")
+        for bad in ({"reason": 5}, {"reason": " "}, {"requested": ""}, {"fields": [""]}):
+            f.write(json.dumps({**good, **bad}) + "\n")
         # Shape only: a reason or field today's schema doesn't have still counts.
-        f.write(ok.replace('"other"', '"since_renamed"').replace('"trigger"', '"old_field"') + "}\n")
+        f.write(ok.replace('"other"', '"since_renamed"') + "}\n")
+        f.write(ok.replace('"trigger"', '"old_field"') + "}\n")
     unsupported.log_unsupported(_spec(EARNINGS), path=path)
     with pytest.warns(UserWarning, match="unreadable line") as caught:
         rows = unsupported.read_log(path)
-    assert sum("unreadable line" in str(w.message) for w in caught) == 10
+    assert sum("unreadable line" in str(w.message) for w in caught) == 15
     assert [r["requested"] for r in rows] == ["15-minute bars", "x", "x", "x", "Earnings surprise"]
     assert all(isinstance(r["time"], str) for r in rows)  # rows as stored
 
