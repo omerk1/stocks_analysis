@@ -57,10 +57,13 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"normalisation": "ATR"}}}},
                    # An expected value that means "nothing stated" is a 'blank' spelled wrong.
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"not_applicable": False}}}},
+                   # An empty folded wording would match any request with that reason.
+                   {**ok, "unsupported": [{"has": "_", "reason": "other"}]},
                    # Malformed shapes name the case instead of a bare KeyError/TypeError.
                    {**ok, "unsupported": [{"reason": "other"}]},
                    {**ok, "unsupported": ["earnings"]},
                    {**ok, "fields": sorted(ok["fields"])},
+                   None,
                    # Exactly one idea text per case, an id, and a real golden reference.
                    {**ok, "golden": "ma_touch_bounce"},
                    {k: v for k, v in ok.items() if k != "id"},

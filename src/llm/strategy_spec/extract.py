@@ -174,8 +174,8 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
     with path.open() as f:
         raw = json.load(f)
     for n, item in enumerate(raw, 1):
-        if "id" not in item:
-            raise ValueError(f"case #{n} needs an 'id'")
+        if not isinstance(item, dict) or "id" not in item:
+            raise ValueError(f"case #{n} needs to be an object with an 'id'")
         cid = item["id"]
         try:
             if ("golden" in item) == ("idea" in item):
@@ -190,6 +190,9 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
                           for f in item["unsupported"])
             if any(f.reason not in get_args(UnsupportedReason) for f in flags):
                 raise ValueError("has an unknown reason")
+            if any(f.has and not request_wording(f.has) for f in flags):
+                # "_" folds to nothing, and an empty wording means "match any".
+                raise ValueError("has a flag wording that folds to nothing")
         except ValueError as e:
             raise ValueError(f"case {cid!r}: {e}") from e
         except (KeyError, TypeError, AttributeError) as e:  # an authoring mistake names its case
