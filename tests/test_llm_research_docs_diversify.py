@@ -34,6 +34,18 @@ def test_the_top_chunk_is_always_first_and_lambda_one_is_plain_reranking():
     assert _ids(mmr(HITS, VECTORS, k=4, lam=1.0)) == ["a", "a2", "b", "c"]
 
 
+def test_a_candidate_without_a_stored_vector_fails_with_a_clear_message():
+    with pytest.raises(LookupError, match="rebuild the index"):
+        mmr(HITS + [_hit("zz", 1.0)], VECTORS, k=3)
+
+
+def test_vectors_need_not_be_unit_length():
+    unit = {**VECTORS, "b": [0.6, 0.8, 0.0]}  # b now shares some direction with a
+    longer = {**unit, "b": [3.0, 4.0, 0.0]}  # same direction, 5x the length
+    # as a raw dot product, b's length would make it look like a copy of a and a2
+    assert _ids(mmr(HITS, longer, k=3)) == _ids(mmr(HITS, unit, k=3)) == ["a", "b", "a2"]
+
+
 def test_mmr_handles_few_hits_equal_scores_and_bad_k():
     assert mmr([], VECTORS, k=5) == []
     assert _ids(mmr(HITS[:1], VECTORS, k=5)) == ["a"]
@@ -52,8 +64,8 @@ def test_mmr_search_diversifies_the_reranked_candidates(monkeypatch):
     monkeypatch.setattr(dv, "hybrid_search", fake_hybrid)
     scores = {h.node.node_id: h.score for h in HITS}
 
-    def score(pairs):  # a fake cross-encoder that recovers HITS' scores from the chunk text
-        return [next(s for nid, s in scores.items() if text.endswith(nid)) for _, text in pairs]
+    def score(pairs):  # a fake cross-encoder: the chunk's body (its last line) is its id
+        return [scores[text.splitlines()[-1]] for _, text in pairs]
     out = mmr_search(None, None, score, VECTORS, "q?", k=3, depth=30)
     assert calls["k"] == 30
     assert _ids(out) == ["a", "b", "a2"]

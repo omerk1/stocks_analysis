@@ -325,14 +325,15 @@ def main() -> None:
         from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
         name = args.reranker or MODELS[0]
         score = cross_encoder(name)
-        find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
         method = f"rerank (hybrid top {DEPTH}, {name})"
-        if args.method == "mmr":
+        if args.method == "rerank":
+            find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
+        else:
             from src.llm.research_docs.diversify import LAMBDA, mmr_search
             from src.llm.research_docs.index import stored_vectors
             vectors = {nid: v for nid, (_, v) in stored_vectors(index).items()}
             find = lambda question, k: mmr_search(index, keywords, score, vectors, question, k)  # noqa: E731
-            method = f"{method}, then MMR (lambda {LAMBDA})"
+            method += f", then MMR (lambda {LAMBDA})"
     head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {method} search"
     evaluate(index, chosen[:1], find)  # the first search pays one-off setup; keep it out of the timing
     start = time.perf_counter()

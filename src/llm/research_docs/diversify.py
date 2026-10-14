@@ -22,31 +22,33 @@ The first pick has nothing to be similar to: it is always the re-ranker's top ch
   are scaled because the two raw scores live on different ranges: a MiniLM logit spans
   about -10 to 10, a bge cosine about 0.6 to 1.
 
-**LAMBDA = 0.75**, fixed before any run. A full near-copy of a picked chunk (scaled
-similarity 1) gives way to a fresh chunk (similarity 0) whenever the fresh one is within
+The scaling is relative to each question's own candidates: similarity 1 is the most alike
+pair among them (often a near-copy, but not necessarily), and relevance 0 is the weakest
+candidate, so one very low score stretches the range and narrows the gaps between the
+rest. Both are the usual MMR simplification, accepted here rather than calibrated.
+
+**LAMBDA = 0.75**, fixed before any run. The candidate most like a picked chunk (scaled
+similarity 1) gives way to one unlike any (similarity 0) whenever the second is within
 (1 - LAMBDA) / LAMBDA = 1/3 of the candidates' relevance range. The cross-encoder is the
 best judge of relevance this pipeline has, so diversity should break near-ties and push
 out copies, not override a clear relevance gap. The textbook 0.5 would let any candidate,
-however weak, beat a full copy.
+however weak, beat the most redundant one.
 
 It runs after re-ranking, on the re-ranker's candidates, because MMR trades relevance
 against redundancy and is only as good as its relevance term: the cross-encoder's is
 the best available, and it only exists for the `rerank.DEPTH` chunks it scored.
 Scores reported are the cross-encoder's, so they stay comparable with `--method rerank`.
 
-Result on dev (41 answerable questions): no better than re-ranking alone. hit@5 drops by
-1 question (0.85 to 0.83), hit@3 and hit@10 gain 1 each, and MRR moves by 0.01, all
-within the one-question noise. Multi-part full answers stay 0/4. Their missing parts are
-not crowded out of the top 5: they are not among the 30 candidates at all, so no
-reordering can bring them in. That is a recall problem, for splitting the question into
-one search per part. So re-ranking alone stays the method to beat, and MMR stays
-available as `--method mmr`. It costs ~40 ms per question on top of the re-ranker.
+When written, it scored no better than re-ranking alone (`docs/done.md` #134 has the
+numbers): the multi-part questions it was meant to help miss parts that aren't among the
+candidates at all, which no reordering can fix.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+import numpy as np
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import NodeWithScore
 
@@ -57,26 +59,32 @@ from src.llm.research_docs.retrieve import TOP_K
 LAMBDA = 0.75  # module docstring has why
 
 
-def _scale(values: list[float]) -> list[float]:
-    lo, hi = min(values, default=0.0), max(values, default=0.0)
-    return [(v - lo) / (hi - lo) if hi > lo else 0.0 for v in values]
+def _scale(values: np.ndarray) -> np.ndarray:
+    if values.size == 0 or values.max() == values.min():
+        return np.zeros_like(values)
+    return (values - values.min()) / (values.max() - values.min())
 
 
 def mmr(hits: Sequence[NodeWithScore], vectors: Mapping[str, Sequence[float]],
         k: int = TOP_K, lam: float = LAMBDA) -> list[NodeWithScore]:
     """`k` of `hits` (best first by their own scores) picked by maximal marginal
-    relevance; `vectors` maps node id to its unit-length embedding."""
+    relevance; `vectors` maps node id to its stored embedding."""
     if k < 1:
         raise ValueError(f"k must be at least 1, got {k}")
+    if not hits:
+        return []
+    if missing := [h.node.node_id for h in hits if h.node.node_id not in vectors]:
+        raise LookupError(f"no stored vector for {len(missing)} candidate(s), e.g. {missing[0]}: "
+                          "the docstore and vector store disagree, rebuild the index")
     n = len(hits)
-    rel = _scale([h.score for h in hits])
-    vecs = [vectors[h.node.node_id] for h in hits]
-    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-    scaled = _scale([sum(a * b for a, b in zip(vecs[i], vecs[j])) for i, j in pairs])
-    sim = [[0.0] * n for _ in range(n)]
-    for (i, j), s in zip(pairs, scaled):
-        sim[i][j] = sim[j][i] = s
-    closest = [0.0] * n  # similarity to the closest picked chunk
+    rel = _scale(np.array([h.score for h in hits], dtype=float))
+    vecs = np.array([vectors[h.node.node_id] for h in hits], dtype=float)
+    vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)  # so the dot product is the cosine
+    upper = np.triu_indices(n, 1)  # each pair once; a chunk's similarity to itself doesn't count
+    sim = np.zeros((n, n))
+    sim[upper] = _scale((vecs @ vecs.T)[upper])
+    sim += sim.T
+    closest = np.zeros(n)  # similarity to the closest picked chunk
     picked: list[int] = []
     left = list(range(n))
     while left and len(picked) < k:
@@ -84,7 +92,7 @@ def mmr(hits: Sequence[NodeWithScore], vectors: Mapping[str, Sequence[float]],
         best = max(left, key=lambda i: lam * rel[i] - (1 - lam) * closest[i])
         picked.append(best)
         left.remove(best)
-        closest = [max(c, sim[best][i]) for i, c in enumerate(closest)]
+        closest = np.maximum(closest, sim[best])
     return [hits[i] for i in picked]
 
 
