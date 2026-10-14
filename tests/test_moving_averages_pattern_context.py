@@ -109,6 +109,27 @@ def test_attach_breakout_dates_maps_bar_index_and_verifies_entry_price(monkeypat
     assert pd.isna(result.loc[4, "breakout_date"])
 
 
+def test_attach_breakout_dates_all_null_entry_prices_fail_closed_not_raise(monkeypatch):
+    # An all-NULL entry_price column (every stored breakout printed on its
+    # run's last bar) arrives from read_sql as object dtype, where a bare
+    # .abs() raises TypeError -- it must come back as all-NaT instead.
+    dates = pd.bdate_range("2020-01-01", periods=10)
+    bars = pd.DataFrame(
+        {"open": np.arange(10, dtype=float) + 200.0, "close": np.arange(10, dtype=float) + 100.0},
+        index=pd.Index(dates, name="timestamp"),
+    )
+    monkeypatch.setattr(
+        "src.foundation.market_common.data.load_and_validate", lambda conn, ticker, tf, as_of=None, **kw: (bars, None)
+    )
+    patterns = pd.DataFrame({
+        "ticker": ["A", "A"],
+        "breakout_bar": [3, 5],
+        "entry_price": pd.Series([None, None], dtype=object),
+    })
+    result = pc.attach_breakout_dates(patterns, raw_conn=None, as_of="2021-12-31")
+    assert result["breakout_date"].isna().all()
+
+
 def test_add_pattern_context_flag_empty_patterns_is_all_false():
     panel = pd.DataFrame({"ticker": ["A", "B"], "date": pd.to_datetime(["2020-01-01", "2020-01-02"])})
     result = pc.add_pattern_context_flag(panel, pd.DataFrame(columns=["ticker", "formation_end", "breakout_date"]))

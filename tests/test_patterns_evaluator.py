@@ -212,18 +212,32 @@ def test_had_throwback_directional_pattern_picks_lower_trendline_for_bearish():
     assert had_throwback(bars, match, target_hit_bar=12) is True
 
 
-def test_had_throwback_falls_back_to_entry_price_when_trendline_missing():
+def test_had_throwback_falls_back_to_breakout_close_when_trendline_missing():
     # Same bars/pattern_type as the sloped-fixed test above, but without
     # populating trendlines["neckline"] -- _reconstruct_trigger_at can't
-    # find the data, so had_throwback should fall back to entry_price
-    # (100.5 >= entry_price(100) -> True) rather than raise or silently
-    # treat it as "no trigger level at all".
+    # find the data, so had_throwback should fall back to the breakout
+    # bar's own close (100.5 >= closes[10] == 100 -> True) rather than
+    # raise or silently treat it as "no trigger level at all".
     bars = pd.DataFrame({"close": [100.0] * 11 + [100.5]})
     match = _match(
         pattern_type=PatternType.HEAD_AND_SHOULDERS, direction=Direction.BEARISH,
         breakout_bar=10, entry_price=100.0, trendlines={},
     )
     assert had_throwback(bars, match, target_hit_bar=12) is True
+
+
+def test_had_throwback_fallback_is_the_breakout_close_not_the_entry_fill():
+    # entry_price is now the next bar's open fill, which can gap far from
+    # the breakout level -- the fallback must read the breakout bar's close
+    # (100, within the buffer of the trigger by construction), not the
+    # fill. With a (nonsense) fill of 50, close 99.5 is NOT back above the
+    # 100 level; a fallback that compared against the fill would say it is.
+    bars = pd.DataFrame({"close": [100.0] * 11 + [99.5, 99.5]})
+    match = _match(
+        pattern_type=PatternType.HEAD_AND_SHOULDERS, direction=Direction.BEARISH,
+        breakout_bar=10, entry_price=50.0, trendlines={},
+    )
+    assert had_throwback(bars, match, target_hit_bar=12) is False
 
 
 def test_summarize_computes_rates_and_mean_returns_per_pattern_type():
@@ -471,6 +485,33 @@ def test_control_forward_returns_none_without_enough_control_bars_or_open_column
     assert evaluator.control_forward_returns(no_open, match2, (5,), config)[5] is None
 
 
+def test_control_forward_returns_none_for_a_non_positive_horizon():
+    # A CLI-supplied --horizons 0 (or a negative value) must come back None
+    # rather than index past the array end or wrap to earlier bars.
+    bars = _trend_bars()
+    match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=120.0)
+    out = evaluator.control_forward_returns(bars, match, (0, -5, 10), evaluator.get_preset("daily"))
+    assert out[0] is None
+    assert out[-5] is None
+    assert out[10] is not None
+
+
+def test_control_forward_returns_draws_only_from_before_the_pattern():
+    # Flat at 100 through the pattern's start, a huge rally after the
+    # breakout. The control must be built from trades that complete before
+    # the pattern begins (exactly 0.0 here) -- a window that reached past
+    # the breakout would absorb the rally, lift the baseline, and attenuate
+    # the very delta being reported.
+    n = 400
+    closes = np.array([100.0] * 201 + list(100.0 + 5.0 * np.arange(1, n - 200)))
+    bars = pd.DataFrame({
+        "open": closes, "high": closes + 0.3, "low": closes - 0.3, "close": closes, "volume": 1000.0,
+    })
+    match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=100.0)
+    ctrl = evaluator.control_forward_returns(bars, match, (10,), evaluator.get_preset("daily"))[10]
+    assert ctrl == pytest.approx(0.0)
+
+
 def test_compute_outcomes_populates_control_returns():
     bars = _trend_bars()
     match = _match(direction=Direction.BULLISH, status=PatternStatus.HIT_TARGET,
@@ -499,6 +540,42 @@ def test_summarize_empty_frame_carries_the_excess_columns():
     cols = summarize([], horizons=(10,)).columns
     assert "excess_median_10b" in cols
     assert "n_excess_10b" in cols
+    assert "n_dates" in cols
+
+
+def test_forward_return_pct_none_for_nan_entry():
+    # A NaN fill (bars that never went through validate_bars) must come
+    # back None -- a NaN return passes `is not None` filters downstream and
+    # would silently poison every stat in the pattern type's summary row.
+    match = _match(direction=Direction.BULLISH, breakout_bar=10, entry_price=float("nan"))
+    assert forward_return_pct(_STEP_BARS, match, 3) is None
+
+
+def test_summarize_n_dates_counts_distinct_breakout_dates():
+    day = pd.Timestamp("2020-06-01")
+    outcomes = [
+        PatternOutcome("a", "T", "vcp", "bullish", "hit_target", 10, {5: 0.1}, breakout_date=day),
+        PatternOutcome("b", "U", "vcp", "bullish", "hit_target", 10, {5: 0.2}, breakout_date=day),
+        PatternOutcome("c", "V", "vcp", "bullish", "hit_target", 12, {5: 0.3}, breakout_date=day + pd.Timedelta(days=1)),
+    ]
+    row = summarize(outcomes, horizons=(5,)).loc["vcp"]
+    assert row["n"] == 3
+    assert row["n_dates"] == 2  # three rows, two distinct event dates -- the effective N
+
+    # Hand-built outcomes with no dates report None, never a fake count.
+    undated = [PatternOutcome("d", "T", "vcp", "bullish", "hit_target", 10, {5: 0.1})]
+    assert summarize(undated, horizons=(5,)).loc["vcp", "n_dates"] is None
+
+
+def test_compute_outcomes_sets_breakout_date_from_a_datetime_index():
+    bars = _chain((100.0, 90.0, 15), start="2020-01-01")
+    match = _match(status=PatternStatus.HIT_TARGET, breakout_bar=5)
+    [outcome] = compute_outcomes([match], bars, horizons=(3,))
+    assert outcome.breakout_date == bars.index[5]
+
+    positional = pd.DataFrame({"close": [100.0] * 16})
+    [outcome2] = compute_outcomes([_match(breakout_bar=10)], positional, horizons=(3,))
+    assert outcome2.breakout_date is None
 
 
 def test_pattern_outcome_carries_confidence_from_the_match():

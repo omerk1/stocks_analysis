@@ -133,7 +133,10 @@ def attach_breakout_dates(
             next_opens.loc[group.index[in_range]] = bars["open"].to_numpy()[idx[in_range] + 1]
         # NaN entry_price (stored NULL: breakout on the run's last bar) or a
         # NaN next_open compares False here -- fail-closed, same as before.
-        verified = (next_opens - group["entry_price"]).abs() <= price_tolerance * group["entry_price"].abs().clip(lower=1.0)
+        # to_numeric: an all-NULL column arrives object-dtype (None values),
+        # where .abs() raises instead of propagating NaN.
+        entry = pd.to_numeric(group["entry_price"], errors="coerce")
+        verified = (next_opens - entry).abs() <= price_tolerance * entry.abs().clip(lower=1.0)
         working.loc[group.index, "breakout_date"] = dates.where(verified)
     working["breakout_date"] = pd.to_datetime(working["breakout_date"])
     return working
