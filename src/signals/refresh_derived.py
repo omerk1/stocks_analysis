@@ -2,23 +2,23 @@
 
 Run after every bar refresh: recomputes all seven derived RS/breadth
 table-slices in one go -- breadth for both indices x both weightings (4)
-plus the three relative-strength tiers -- then sweeps stale RS rows.
+plus the three relative-strength tiers -- then sweeps stale rows.
 Exists because the tables are only as fresh as their last manual run and
 twice in three days a bar refresh left them two weeks behind the bars
 (Done #77); running seven CLI invocations by hand is exactly the step that
 kept being skipped.
 
-The sweep: both RS stores are INSERT OR REPLACE by natural key, so a fresh
-run only overwrites keys it itself produces -- a ticker that lost its bars
-since the last run (delisted, renamed, vendor re-adjustment) keeps its old
-rows forever (Done #69 deleted 44,207 such rows by hand). After a full
-refresh, any row whose run_id isn't one of this refresh's is by definition
-stale, so it's deleted -- but only when every step feeding that table ran
-here and none was skipped (a skipped or --from-step-excluded step means
-this invocation did NOT cover the full key space, and "stale" would just
-mean "not recomputed today"). The breadth table isn't swept: its keys are
-(index_name, date, weighting), and a full-history rerun covers a superset
-of the old dates, so nothing is left behind.
+The sweep: all three stores are INSERT OR REPLACE by natural key, so a
+fresh run only overwrites keys it itself produces -- a ticker (RS) or a
+whole trading date (breadth) that lost its bars since the last run
+(delisted, renamed, vendor re-adjustment) keeps its old rows forever
+(Done #69 deleted 44,207 such RS rows by hand). After a full refresh, any
+row whose run_id isn't one of this refresh's is by definition stale, so
+it's deleted -- but only on a FULL-HISTORY run (no --start/--end: a
+windowed run's new run_ids only cover the window, so the sweep would
+delete everything outside it), and only when every step feeding that
+table ran here and none was skipped (a skipped or --from-step-excluded
+step means this invocation did not cover the full key space either).
 
 A failed step stops the whole command (later tables would otherwise look
 fresh while an earlier one silently stayed stale); rerun with
@@ -53,7 +53,9 @@ class Step:
 
 # Fixed order, so --from-step numbers stay meaningful across runs: the
 # four breadth slices first (fastest feedback), then the two stock RS
-# tiers over both indices, then the sector tier.
+# tiers over both indices, then the sector tier. Known trade-off: the
+# equal and cap steps for one index recompute the same price/indicator
+# panel; worth sharing only if the breadth half ever dominates the run.
 REFRESH_STEPS: tuple[Step, ...] = (
     Step("breadth", "breadth sp500 equal", index_name="sp500", weighting="equal"),
     Step("breadth", "breadth nasdaq100 equal", index_name="nasdaq100", weighting="equal"),
@@ -67,8 +69,9 @@ REFRESH_STEPS: tuple[Step, ...] = (
 )
 
 # Which steps must ALL have run (and stored rows) in this invocation
-# before each RS table may be swept of other runs' rows.
+# before each table may be swept of other runs' rows.
 _SWEEP_REQUIRES = {
+    "breadth": ("breadth",),
     "relative_strength": ("rs_stock",),
     "sector_relative_strength": ("rs_sector",),
 }
@@ -94,16 +97,17 @@ def _latest_date(frame) -> str:
 
 
 def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1) -> bool:
-    """Run steps `from_step`..9 in order, then sweep each RS table whose
-    feeding steps all stored rows here. Returns True when every step ran
-    and stored rows (i.e. the tables are fully fresh), False when any step
-    was skipped for having no data. Raises on the first failing step after
-    naming it and the --from-step number that resumes there.
+    """Run steps `from_step`..9 in order, then (full-history runs only)
+    sweep each table whose feeding steps all stored rows here. Returns True
+    when every step ran and stored rows (i.e. the tables are fully fresh),
+    False when any step was skipped for having no data. Raises on the first
+    failing step after naming it and the --from-step number that resumes
+    there.
     """
     n = len(REFRESH_STEPS)
     kinds_stored: set[str] = set()
     kinds_incomplete: set[str] = set()  # skipped here, or excluded by --from-step
-    run_ids: dict[str, list[str]] = {"rs_stock": [], "rs_sector": []}
+    run_ids: dict[str, list[str]] = {kind: [] for kinds in _SWEEP_REQUIRES.values() for kind in kinds}
 
     for step in REFRESH_STEPS[: from_step - 1]:
         kinds_incomplete.add(step.kind)
@@ -131,6 +135,13 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
             run_ids[step.kind].append(run_id)
         print(f"[{number}/{n}] {step.label} done: {len(frame):,} rows through {_latest_date(frame)}")
 
+    if start is not None or end is not None:
+        print(
+            "sweep: SKIPPED for all tables -- a windowed run's new run_ids only cover "
+            "--start/--end, so sweeping would delete every row outside the window"
+        )
+        return not kinds_incomplete
+
     for table, required_kinds in _SWEEP_REQUIRES.items():
         keep = [rid for kind in required_kinds for rid in run_ids[kind]]
         if any(kind in kinds_incomplete or kind not in kinds_stored for kind in required_kinds):
@@ -139,7 +150,7 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
                 "invocation, so old rows can't be told from not-recomputed ones"
             )
             continue
-        deleted = rs_store.delete_rows_from_other_runs(derived_conn, table, keep)
+        deleted = derived_db.delete_rows_from_other_runs(derived_conn, table, keep)
         print(f"sweep {table}: deleted {deleted:,} stale rows from earlier runs")
 
     return not kinds_incomplete
@@ -148,14 +159,14 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
 def main():
     parser = argparse.ArgumentParser(
         description="Recompute all seven derived RS/breadth table-slices after a bar refresh, "
-                    "then sweep stale RS rows"
+                    "then sweep stale rows (full-history runs only)"
     )
     parser.add_argument("--start", default=None, help="YYYY-MM-DD; default: full available history")
     parser.add_argument("--end", default=None, help="YYYY-MM-DD; default: latest available data")
     parser.add_argument(
         "--from-step", type=int, default=1, choices=range(1, len(REFRESH_STEPS) + 1),
         help="Resume from this step number (as printed by a previous run) after a failure. "
-             "The RS sweep still only runs when every feeding step ran in THIS invocation.",
+             "Each table's sweep still only runs when every feeding step ran in THIS invocation.",
     )
     args = parser.parse_args()
     # Surface compute's own logger output (cap-outlier exclusions, the

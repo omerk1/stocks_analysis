@@ -90,6 +90,37 @@ def record_run(
     return run_id
 
 
+# The result tables `delete_rows_from_other_runs` may sweep: INSERT OR
+# REPLACE stores whose full key space a complete refresh recomputes
+# (src/signals/refresh_derived.py). Event-keyed stores (gaps, divergences,
+# ...) don't belong here -- their ids must survive reruns.
+SWEEPABLE_TABLES = ("breadth", "relative_strength", "sector_relative_strength")
+
+
+def delete_rows_from_other_runs(conn: sqlite3.Connection, table: str, keep_run_ids: list[str]) -> int:
+    """Delete every row of `table` whose `run_id` is not in `keep_run_ids`
+    (NULL included) and return how many went. These tables are plain
+    INSERT OR REPLACE by natural key, so a fresh run only overwrites the
+    keys it itself produces -- a ticker (or a whole trading date) that lost
+    its bars since the last run keeps its old rows forever unless they're
+    swept like this (Done #69 deleted 44,207 such RS rows by hand). Only
+    call this after a run that covered the table's FULL key space (every
+    slice, full history); after a partial or windowed run the "stale" rows
+    are simply the part you didn't recompute.
+    """
+    if table not in SWEEPABLE_TABLES:
+        raise ValueError(f"table {table!r} is not sweepable -- expected one of {SWEEPABLE_TABLES}")
+    if not keep_run_ids:
+        raise ValueError("keep_run_ids is empty -- refusing to delete every row in the table")
+    placeholders = ",".join("?" for _ in keep_run_ids)
+    cursor = conn.execute(
+        f"DELETE FROM {table} WHERE run_id IS NULL OR run_id NOT IN ({placeholders})",
+        keep_run_ids,
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def bootstrap_cli(
     create_result_table: Callable[[sqlite3.Connection], None],
 ) -> tuple[sqlite3.Connection, sqlite3.Connection]:

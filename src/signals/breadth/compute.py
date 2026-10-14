@@ -130,9 +130,13 @@ def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: d
     reports company-total shares under both class tickers, so keeping both
     double-counts the company). On a date where the primary has no cap --
     not a member, no bar, no share count yet -- the secondary keeps its
-    own, so the company never silently drops out. Runs before
-    `_drop_cap_outliers` so the outlier median isn't computed over the
-    duplicate either.
+    own, so the company never silently drops out. Runs AFTER
+    `_drop_cap_outliers`, on the guarded caps: a primary whose cap that
+    date is a mis-scaled outlier has already been masked, so the sane
+    secondary stands in instead of being masked by a value the guard
+    rejected. The cost is that the guard's median sees the company twice --
+    a second copy of one genuine cap among hundreds of members, which
+    barely moves a median, vs. silently losing the company entirely.
     """
     caps = members["market_cap"]
     for secondary, primary in secondary_to_primary.items():
@@ -304,10 +308,10 @@ def compute_breadth(
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
-        members["market_cap"] = _mask_duplicate_share_classes(members, config.share_class_secondaries)
-        members["weight"] = _drop_cap_outliers(
+        members["market_cap"] = _drop_cap_outliers(
             members, config.cap_outlier_ratio, config.cap_outlier_min_members
         )
+        members["weight"] = _mask_duplicate_share_classes(members, config.share_class_secondaries)
     else:
         members["weight"] = 1.0
 

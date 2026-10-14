@@ -394,6 +394,24 @@ def test_dual_class_secondary_stands_in_when_the_primary_has_no_cap_that_date(co
     assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
 
 
+def test_dual_class_secondary_stands_in_when_the_primarys_cap_is_a_scale_error(conn):
+    # The primary's share count is mis-scaled (1e6x), so the outlier guard
+    # masks it; the mask must then see the primary as cap-less and keep the
+    # sane secondary -- not mask the good cap because a rejected value
+    # existed. (The guard runs first for exactly this reason.)
+    _dual_class_setup(conn, secondary_shares=10_000)
+    conn.execute("DELETE FROM shares_outstanding WHERE ticker = 'AAA'")
+    conn.commit()
+    _shares(conn, "AAA", 10_000 * 1_000_000)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA"},
+                     cap_outlier_min_members=3)
+    result = compute_breadth(conn, "test_idx", config)
+
+    # Same answer as the healthy deduped case, carried by AAB.
+    assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
+
+
 def test_equal_weighting_still_counts_both_share_classes(conn):
     # Both classes are genuine index constituents; the mapping only fixes
     # the cap double-count, never the equal-weight constituent count.
