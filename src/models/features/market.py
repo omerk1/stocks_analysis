@@ -55,10 +55,15 @@ class PanelContext:
         bar row except the benchmark's (synthetic data, a hand-picked ticker set).
     sectors: ticker -> sector; None or a missing ticker = unknown (its sector
         columns are NaN).
+    fundamentals, earnings: rows of the `fundamentals` and
+        `earnings_announcements` tables (`fundamentals.load_tables`) for the
+        company-financials columns; None = those columns are NaN.
     """
     membership: pd.DataFrame | None = None
     sectors: pd.Series | None = None
     benchmark: str = BENCHMARK
+    fundamentals: pd.DataFrame | None = None
+    earnings: pd.DataFrame | None = None
 
 
 def members_from_intervals(intervals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:
