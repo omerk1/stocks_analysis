@@ -258,3 +258,35 @@ def test_create_tables_adds_the_window_columns_to_an_older_table():
     db.create_tables(connection)
     columns = {row[1] for row in connection.execute("PRAGMA table_info(ticker_renames)")}
     assert {"valid_from", "valid_to"} <= columns
+
+
+def test_importable_without_the_polygon_package():
+    """apply_renames/price_ticker_map readers must not need `polygon` (backlog
+    2026-10-06): only the CLI constructs a PolygonClient, via a lazy import.
+    A fresh interpreter with the package blocked, so a transitive `import
+    polygon` anywhere in the module's import chain fails too (an in-process
+    sys.modules shuffle would miss dependencies the test session cached)."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys; sys.modules['polygon'] = None\n"
+        "from src.foundation.data_processing.ticker_renames import apply_renames\n"
+    )
+    env = dict(os.environ, PYTHONPATH=str(root))  # don't rely on cwd landing on sys.path
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=root, env=env, capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_study_universe_uses_the_shared_apply_renames():
+    """The divergence study's PIT universe must call the one real helper, not a
+    local mirror (the mirror was deleted with the lazy-import fix)."""
+    from src.signals.divergences import study_universe
+
+    assert study_universe.apply_renames is tr.apply_renames

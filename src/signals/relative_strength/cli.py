@@ -26,32 +26,35 @@ _TIERS = ("stock-vs-market", "stock-vs-sector", "sector-vs-market")
 
 
 def run_stock_tier(raw_conn, derived_conn, tier: str, index_name: str, config: RelativeStrengthConfig, start, end):
+    """Returns (rs, skip_reason, run_id) -- run_id is None exactly when
+    skip_reason isn't (nothing was stored, so no run was recorded)."""
     compute_fn = compute_stock_vs_market if tier == "stock-vs-market" else compute_stock_vs_sector
     comparison = "vs_market" if tier == "stock-vs-market" else "vs_sector"
 
     rs = compute_fn(raw_conn, index_name, config, start=start, end=end)
     if rs.empty:
-        return rs, "no membership/price/sector data for this index"
+        return rs, "no membership/price/sector data for this index", None
 
     run_id = derived_db.record_run(
         derived_conn, "relative_strength", index_name, "daily", None,
         json.dumps(dataclasses.asdict(config)), 0, False,
     )
     store.upsert_relative_strength(derived_conn, comparison, rs, run_id)
-    return rs, None
+    return rs, None, run_id
 
 
 def run_sector_tier(raw_conn, derived_conn, config: RelativeStrengthConfig, start, end):
+    """Returns (rs, skip_reason, run_id), same contract as run_stock_tier."""
     rs = compute_sector_vs_market(raw_conn, config, start=start, end=end)
     if rs.empty:
-        return rs, "no sector-ETF/benchmark price data"
+        return rs, "no sector-ETF/benchmark price data", None
 
     run_id = derived_db.record_run(
         derived_conn, "relative_strength", "sectors", "daily", None,
         json.dumps(dataclasses.asdict(config)), 0, False,
     )
     store.upsert_sector_relative_strength(derived_conn, rs, run_id)
-    return rs, None
+    return rs, None, run_id
 
 
 def main():
@@ -70,7 +73,7 @@ def main():
 
     for tier in tiers:
         if tier == "sector-vs-market":
-            rs, skip_reason = run_sector_tier(raw_conn, derived_conn, config, args.start, args.end)
+            rs, skip_reason, _ = run_sector_tier(raw_conn, derived_conn, config, args.start, args.end)
             if skip_reason is not None:
                 print(f"sector-vs-market: SKIPPED -- {skip_reason}")
                 continue
@@ -82,7 +85,7 @@ def main():
             continue
 
         for index_name in index_names:
-            rs, skip_reason = run_stock_tier(raw_conn, derived_conn, tier, index_name, config, args.start, args.end)
+            rs, skip_reason, _ = run_stock_tier(raw_conn, derived_conn, tier, index_name, config, args.start, args.end)
             if skip_reason is not None:
                 print(f"{tier}/{index_name}: SKIPPED -- {skip_reason}")
                 continue

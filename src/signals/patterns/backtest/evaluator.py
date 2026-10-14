@@ -4,8 +4,14 @@
 Design doc §7.3's outcome-based backtest: for patterns that actually broke
 out, measure what happened next -- forward returns at fixed horizons
 (reported three ways: mean, median and winsorized mean, see `summarize` for
-why one number is not enough here), target-hit rate, failed-breakout rate,
-and throwback rate -- using real historical price data. Deliberately covers
+why one number is not enough here), each horizon also reported as an excess
+over a matched same-ticker control (see `control_forward_returns` for the
+matching), target-hit rate, failed-breakout rate,
+and throwback rate -- using real historical price data. Returns are
+measured from the executable entry -- the open of the bar after the
+breakout bar (the repo's one-bar lag: signal on the close of t, fill at
+the open of t+1) -- never from the breakout bar's own close, which is a
+signal level a trader acting on that close cannot obtain. Deliberately covers
 §7.3 only, not §7.2 (precision/recall against
 hand labels): `pattern_labels` (backtest/labeler.py's table) is empty --
 the labeler is human-in-the-loop and nobody has run it against real charts
@@ -37,16 +43,20 @@ status, it has no reason to remember *which* bar first hit target).
 reconstructed by `_reconstruct_trigger_at` from whatever each detector
 already persists on `match.key_levels`/`match.trendlines` for plotting --
 exact for sloped triggers (H&S neckline, triangle/wedge/flag boundaries),
-not just the flat ones (double top/bottom, cup & handle, VCP) where
-`entry_price` alone would've been indistinguishable from it anyway.
+not just the flat ones (double top/bottom, cup & handle, VCP) where the
+stored level is a constant. (The last-resort fallback is the breakout
+bar's own close, which sits within the breakout buffer of the trigger --
+not `entry_price`, which is now the next bar's open fill -- see
+`had_throwback`.)
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
+import numpy as np
 import pandas as pd
 
 from src.foundation.data_processing import db
@@ -92,8 +102,18 @@ class PatternOutcome:
     breakout_bar: int
     # horizon (bars) -> signed forward return, or None if `bars` doesn't
     # extend far enough past breakout_bar yet to measure that horizon
-    # (right-censored, not a zero return).
+    # (right-censored, not a zero return), or if the breakout bar was the
+    # last visible bar (no next open exists, so there was no entry).
     forward_returns: dict[int, float | None]
+    # horizon (bars) -> matched-control forward return for this outcome
+    # (see control_forward_returns), or None when the control couldn't be
+    # computed. summarize() reports the per-outcome delta against this.
+    control_returns: dict[int, float | None] = field(default_factory=dict)
+    # The breakout bar's date, for effective-N reporting (CLAUDE.md
+    # invariant #6: events cluster on market-wide dates, so distinct dates
+    # are the real observation count). None when `bars` has no datetime
+    # index (hand-built positional test frames).
+    breakout_date: pd.Timestamp | None = None
     # The detector's own scoring.py confidence at match time -- carried
     # through so summarize() can eventually bucket outcomes by confidence
     # and check whether the score actually predicts anything, which
@@ -108,10 +128,26 @@ class PatternOutcome:
 def forward_return_pct(bars: pd.DataFrame, match: PatternMatch, horizon_bars: int) -> float | None:
     """Signed % return `horizon_bars` after breakout, positive meaning
     profitable in the pattern's traded direction (a BEARISH match profits
-    from price falling, so its raw price return is negated). None if
-    `bars` doesn't have a close that far past `match.breakout_bar` yet."""
+    from price falling, so its raw price return is negated). Measured from
+    `match.entry_price` -- the open of the bar after the breakout bar (the
+    one-bar lag, set in lifecycle._walk_post_breakout) -- to the close of
+    `breakout_bar + horizon_bars`. None if `bars` doesn't have a close that
+    far past `match.breakout_bar` yet, or if the match has no entry at all
+    (breakout on the last visible bar)."""
     target_idx = match.breakout_bar + horizon_bars
-    if target_idx >= len(bars) or match.entry_price is None or match.entry_price == 0:
+    # The finiteness/positivity guard mirrors control_forward_returns' --
+    # a NaN entry (bars that never went through validate_bars) must come
+    # back None, not a NaN that slips past summarize's `is not None`
+    # filters and poisons every stat in the row. The h >= 1 guard likewise:
+    # a CLI-supplied zero/negative horizon would read an exit at or before
+    # the entry and print a plausible-looking non-return.
+    if (
+        horizon_bars < 1
+        or target_idx >= len(bars)
+        or match.entry_price is None
+        or not np.isfinite(match.entry_price)
+        or match.entry_price <= 0
+    ):
         return None
     raw_return = (float(bars["close"].iloc[target_idx]) - match.entry_price) / match.entry_price
     return raw_return if match.direction != Direction.BEARISH else -raw_return
@@ -133,8 +169,11 @@ def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch, config: Patter
     # Same horizon bound `lifecycle._walk_post_breakout` used to set
     # HIT_TARGET in the first place -- searching further than the lifecycle
     # did could only find a bar the lifecycle never considered, which would
-    # report a hit date for a match it never actually credited.
-    formation_bars = match.pivots[-1].bar_index - match.pivots[0].bar_index if match.pivots else 0
+    # report a hit date for a match it never actually credited. max/min,
+    # not last/first: pivot order isn't guaranteed chronological.
+    formation_bars = (
+        max(p.bar_index for p in match.pivots) - min(p.bar_index for p in match.pivots) if match.pivots else 0
+    )
     horizon_end = match.breakout_bar + lifecycle.resolution_horizon_bars(formation_bars, config)
     for i in range(match.breakout_bar + 1, min(len(bars), horizon_end + 1)):
         hit = lows[i] <= target if is_bearish else highs[i] >= target
@@ -150,14 +189,14 @@ def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch, config: Patter
 # `trigger_at` closure computes internally before lifecycle.py discards
 # it). Reusing that persisted data here means throwback detection can
 # compare against the pattern's *actual* breakout level instead of the
-# fixed `entry_price` approximation -- exact for a sloped neckline/
-# boundary that keeps moving after the breakout bar, where `entry_price`
-# and the true trigger level diverge over time.
+# fixed breakout-close approximation -- exact for a sloped neckline/
+# boundary that keeps moving after the breakout bar, where any frozen
+# level and the true trigger diverge over time.
 #
 # This table is a second place that has to agree with each detector's own
 # key_levels/trendlines naming -- if a future detector doesn't follow the
 # existing convention, reconstruction below silently falls through to the
-# entry_price approximation (see `had_throwback`) rather than erroring.
+# breakout-close approximation (see `had_throwback`) rather than erroring.
 _FLAT_TRIGGER_KEY: dict[PatternType, str] = {
     PatternType.DOUBLE_TOP: "neckline",
     PatternType.DOUBLE_BOTTOM: "neckline",
@@ -225,19 +264,113 @@ def had_throwback(bars: pd.DataFrame, match: PatternMatch, target_hit_bar: int) 
 
     Uses `_reconstruct_trigger_at`'s real per-bar level when available
     (exact for sloped triggers, which keep moving after the breakout bar);
-    falls back to the fixed `entry_price` when reconstruction can't find
-    the data (only possible for a pattern_type outside the three lookup
-    tables above, or a hand-built match in tests)."""
+    falls back to the breakout bar's own close when reconstruction can't
+    find the data (only possible for a pattern_type outside the three
+    lookup tables above, or a hand-built match in tests). The breakout
+    close -- not `entry_price`, which is now the next bar's open fill --
+    is the right stand-in: it sits within `breakout_buffer_pct` of the
+    trigger by construction, where the next open can gap arbitrarily far
+    from the level and misread every close between the two as a revisit."""
     is_bearish = match.direction == Direction.BEARISH
     trigger_at = _reconstruct_trigger_at(match)
-    entry = match.entry_price
     closes = bars["close"].to_numpy()
+    if trigger_at is None:
+        if match.breakout_bar >= len(closes):
+            # A stored match replayed against a truncated frame: the scan
+            # window below is empty anyway, so there is no close to read
+            # and nothing to classify.
+            return False
+        fallback_level = float(closes[match.breakout_bar])
+        trigger_at = lambda _i: fallback_level  # noqa: E731
     for i in range(match.breakout_bar + 1, target_hit_bar):
-        level = trigger_at(i) if trigger_at is not None else entry
+        level = trigger_at(i)
         close = float(closes[i])
         if (close >= level) if is_bearish else (close <= level):
             return True
     return False
+
+
+# Matched-control parameters: how many bars immediately BEFORE the
+# pattern's first pivot the control entries are drawn from (never bars
+# during or after the pattern -- see control_forward_returns' docstring),
+# and the minimum number of control trades required before a control value
+# is reported at all -- below it the control is None rather than a noisy
+# handful of bars pretending to be a baseline.
+CONTROL_WINDOW_BARS = 126
+CONTROL_MIN_N = 20
+
+
+def control_forward_returns(
+    bars: pd.DataFrame, match: PatternMatch, horizons: Sequence[int],
+) -> dict[int, float | None]:
+    """Matched-control forward return per horizon, for reporting each
+    outcome as a delta rather than a bare conditional mean (the repo-wide
+    control discipline -- a number without its control is not a result).
+
+    The control matches ticker, direction and trade mechanics, and differs
+    only in the conditioning on the pattern: the *same ticker's* signed
+    forward return (enter at the open of bar j+1, exit at the close of bar
+    j+h -- identical to the pattern trade's one-bar-lag mechanics, signed
+    by the pattern's traded direction) over the `CONTROL_WINDOW_BARS` bars
+    immediately *before* the pattern's formation started, summarized as
+    the median. Median, not mean, for the same fat-tail reason `summarize`
+    documents. So the delta answers: did entering on this breakout beat
+    entering on an ordinary recent day of the same stock, traded the same
+    way? That controls for the ticker's own drift -- the confound that
+    makes a bare "pattern X returned +2%" unreadable.
+
+    Pre-formation bars only -- every control trade (entry AND exit) fully
+    completes before the formation's first pivot -- never post-breakout
+    ones: a control drawn from after the breakout contains the very move
+    being measured (a breakout that launches a rally would lift its own
+    baseline and attenuate the delta toward zero), and near the end of
+    loaded history it would silently fall back to pre-breakout bars
+    anyway, benchmarking different outcomes against structurally different
+    windows. The cost is a regime gap between the control window and the
+    trade window (the formation sits between them); accepted -- a
+    mechanical bias is worse than extra noise. Deliberately simple beyond
+    that: no cross-sectional matching on volatility or liquidity (a
+    C1-style refinement if this ever graduates beyond a descriptive
+    diagnostic).
+
+    None for a horizon when fewer than `CONTROL_MIN_N` control trades fit
+    (short pre-pattern history, or a horizon close to the window length),
+    when the horizon isn't a positive bar count, or when `bars` carries no
+    "open" column (hand-built test frames). Known limit: a match without
+    pivots has no knowable formation start, so its window anchors at the
+    breakout bar and the formation itself can contaminate the control --
+    every real detector persists pivots, so this only touches hand-built
+    matches."""
+    if "open" not in bars.columns or match.breakout_bar is None:
+        return {h: None for h in horizons}
+    opens = bars["open"].to_numpy(dtype=float)
+    closes = bars["close"].to_numpy(dtype=float)
+    # min(), not pivots[0]: nothing guarantees a detector appends its
+    # pivots chronologically, and a later-first list would let control
+    # trades overlap the formation.
+    footprint_start = min(p.bar_index for p in match.pivots) if match.pivots else match.breakout_bar
+    # Clamped so every control index stays inside `bars` even for a stored
+    # match replayed against a truncated frame (j + h < footprint_start
+    # then bounds entry and exit alike).
+    footprint_start = min(footprint_start, len(bars))
+    j = np.arange(max(0, footprint_start - CONTROL_WINDOW_BARS), footprint_start)
+    sign = -1.0 if match.direction == Direction.BEARISH else 1.0
+
+    out: dict[int, float | None] = {}
+    for h in horizons:
+        if h < 1:  # a CLI-supplied 0/negative horizon must not index off the array or wrap
+            out[h] = None
+            continue
+        # Exit strictly before the formation's first pivot (which is <= n),
+        # so the whole control trade -- entry at jj+1 included -- predates
+        # the pattern.
+        jj = j[j + h < footprint_start]
+        entries = opens[jj + 1]
+        exits = closes[jj + h]
+        valid = np.isfinite(entries) & np.isfinite(exits) & (entries > 0)
+        rets = sign * (exits[valid] - entries[valid]) / entries[valid]
+        out[h] = float(np.median(rets)) if len(rets) >= CONTROL_MIN_N else None
+    return out
 
 
 def compute_outcomes(
@@ -254,15 +387,27 @@ def compute_outcomes(
     Defaults to the daily preset for callers (mostly tests) that build
     matches by hand."""
     config = config if config is not None else get_preset("daily")
+    has_dates = isinstance(bars.index, pd.DatetimeIndex)
     outcomes = []
     for match in matches:
         if match.status not in _BREAKOUT_STATUSES or match.breakout_bar is None:
             continue
         target_hit_bar = _find_target_hit_bar(bars, match, config)
+        forward_returns = {h: forward_return_pct(bars, match, h) for h in horizons}
+        # A control is only ever consumed as the other side of a delta, so
+        # an outcome with no measurable pattern leg at all (no entry, or
+        # every horizon right-censored) skips the window scan entirely.
+        control_returns = (
+            control_forward_returns(bars, match, horizons)
+            if any(r is not None for r in forward_returns.values())
+            else {h: None for h in horizons}
+        )
         outcomes.append(PatternOutcome(
             match_id=match.id, ticker=match.ticker, pattern_type=match.pattern_type.value,
             direction=match.direction.value, status=match.status.value, breakout_bar=match.breakout_bar,
-            forward_returns={h: forward_return_pct(bars, match, h) for h in horizons},
+            forward_returns=forward_returns,
+            control_returns=control_returns,
+            breakout_date=bars.index[match.breakout_bar] if has_dates and match.breakout_bar < len(bars) else None,
             confidence=match.confidence,
             target_hit_bar=target_hit_bar,
             throwback=had_throwback(bars, match, target_hit_bar) if target_hit_bar is not None else None,
@@ -270,7 +415,9 @@ def compute_outcomes(
     return outcomes
 
 
-def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS) -> pd.DataFrame:
+def summarize(
+    outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS, years: float | None = None,
+) -> pd.DataFrame:
     """One row per pattern_type: sample size, target-hit / failed-breakout
     / unresolved / still-open rates (of matches that broke out), throwback
     rate (of matches that hit target, how many first retraced through the
@@ -315,13 +462,36 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
     than replaced: the gap between mean and median is itself the
     diagnostic, and hiding it would just make the distortion harder to
     notice next time.
+
+    `excess_median_{h}b` is the headline number per horizon: the median of
+    per-outcome (pattern return - matched control return) deltas, over the
+    outcomes where both sides resolved (`n_excess_{h}b` alongside). The raw
+    return columns are the pattern leg alone -- a bare conditional mean --
+    and must not be read as evidence without the excess next to them; see
+    `control_forward_returns` for what the control matches. The rate
+    columns (hit/failed/unresolved/throwback) stay uncontrolled: they
+    describe the pattern's own mechanics (did its target print), not a
+    return claim, and have no meaningful no-pattern counterpart.
+
+    `n_dates` is the effective N: distinct breakout *dates* in the group
+    (None unless every outcome carries a date -- a partially dated group
+    must not read as "n rows on k dates"). Breakouts cluster on
+    market-wide days, so n alone overstates the evidence; read every count
+    against it. `signals_per_year` (n over `years`, the calendar span of
+    history the caller scanned -- deliberately NOT the group's own date
+    span, which clustering shrinks until the rate inflates by orders of
+    magnitude) is the cost hook the repo's invariant #8 requires next to
+    any gross return: every return column here, the excess included, is
+    gross of costs, and a trading claim multiplies signals_per_year by a
+    per-trade cost before reading the excess as evidence. None when
+    `years` isn't supplied.
     """
     percentile_labels = [f"p{int(p * 100)}" for p in DEFAULT_PERCENTILES]
     if not outcomes:
         return pd.DataFrame(
             columns=[
-                "n", "hit_target_rate", "failed_breakout_rate", "unresolved_rate",
-                "still_open_rate", "throwback_rate",
+                "n", "n_dates", "signals_per_year", "hit_target_rate", "failed_breakout_rate",
+                "unresolved_rate", "still_open_rate", "throwback_rate",
             ]
             + [f"mean_return_{h}b" for h in horizons]
             + [f"median_return_{h}b" for h in horizons]
@@ -329,6 +499,8 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
             + [f"std_return_{h}b" for h in horizons]
             + [f"risk_adj_return_{h}b" for h in horizons]
             + [f"{label}_return_{h}b" for h in horizons for label in percentile_labels]
+            + [f"excess_median_{h}b" for h in horizons]
+            + [f"n_excess_{h}b" for h in horizons]
             + [f"n_resolved_{h}b" for h in horizons]
         )
 
@@ -347,8 +519,22 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
         # excluded from both sides of the ratio, not silently counted as
         # "no throwback" by staying in the denominator alone.
         throwback_resolved = [o.throwback for o in group if o.throwback is not None]
+        # All-or-None: a partially dated group (NaT included) would report
+        # "n rows on k dates" when the missing rows simply carried no date
+        # -- an honest effective N needs every row to have one.
+        all_dated = all(pd.notna(o.breakout_date) for o in group)
+        dates = {o.breakout_date for o in group} if all_dated else set()
         row = {
             "n": n,
+            "n_dates": len(dates) if all_dated else None,
+            # Invariant #8's cost hook: the excess columns are GROSS of
+            # costs; any trading claim multiplies this by a per-trade cost
+            # before being read as evidence. Denominated in the SCANNED
+            # history (`years`, from the caller), never the group's own
+            # date span -- clustered breakouts would shrink that span and
+            # inflate the rate by orders of magnitude. None when the
+            # caller didn't say how much history was scanned.
+            "signals_per_year": (n / years) if years is not None and years > 0 else None,
             "hit_target_rate": n_hit_target / n,
             "failed_breakout_rate": sum(o.status == PatternStatus.INVALIDATED_FAILED_BREAKOUT.value for o in group) / n,
             # Broke out, ran its full resolution horizon, resolved to
@@ -372,6 +558,13 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
             row[f"risk_adj_return_{h}b"] = stats.risk_adjusted_return
             for p, label in zip(DEFAULT_PERCENTILES, percentile_labels):
                 row[f"{label}_return_{h}b"] = stats.percentiles[p]
+            deltas = [
+                o.forward_returns[h] - o.control_returns.get(h)
+                for o in group
+                if o.forward_returns[h] is not None and o.control_returns.get(h) is not None
+            ]
+            row[f"excess_median_{h}b"] = float(np.median(deltas)) if deltas else None
+            row[f"n_excess_{h}b"] = len(deltas)
             row[f"n_resolved_{h}b"] = stats.n
         rows[pattern_type] = row
 
@@ -390,6 +583,8 @@ def run_backtest(
     (e.g. `validate_bars` raising on a corrupt row) shouldn't abort a
     `--all` run and lose every other ticker's already-computed outcomes."""
     all_outcomes: list[PatternOutcome] = []
+    span_start: pd.Timestamp | None = None
+    span_end: pd.Timestamp | None = None
     for ticker in tickers:
         try:
             bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe, basis=config.price_basis)
@@ -397,9 +592,15 @@ def run_backtest(
                 continue
             matches = scan_bars(bars, ticker, timeframe, config)
             all_outcomes.extend(compute_outcomes(matches, bars, horizons, config))
+            # The union span of everything scanned -- the denominator for
+            # signals_per_year (invariant #8's cost hook), which must be
+            # the searched history, never the found breakouts' own span.
+            span_start = bars.index[0] if span_start is None else min(span_start, bars.index[0])
+            span_end = bars.index[-1] if span_end is None else max(span_end, bars.index[-1])
         except Exception as exc:
             print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
-    return summarize(all_outcomes, horizons)
+    years = (span_end - span_start).days / 365.25 if span_start is not None and span_end > span_start else None
+    return summarize(all_outcomes, horizons, years=years)
 
 
 def main():
@@ -439,12 +640,17 @@ def main():
         print("No breakout outcomes found (no matches broke out across the given tickers).")
     else:
         pd.set_option("display.width", 220)
-        # 10 columns per horizon (mean/median/winsorized/std/risk_adj/4
-        # percentiles/n) plus 6 rate columns -- the old cap of 20 truncated
-        # the default 3 horizons even before the percentile/std columns
-        # were added.
+        # 12 columns per horizon (mean/median/winsorized/std/risk_adj/4
+        # percentiles/excess_median/n_excess/n_resolved) plus 8 count/rate
+        # columns -- the old cap of 20 truncated the default 3 horizons
+        # even before the percentile/std columns were added.
         pd.set_option("display.max_columns", 100)
         print(summary.round(4).to_string())
+        print(
+            "\nAll return columns (excess included) are GROSS of costs; weigh any excess against "
+            "signals_per_year x your per-trade cost before reading it as evidence (CLAUDE.md invariant #8). "
+            "Read n against n_dates: breakouts cluster, and distinct dates are the real observation count."
+        )
 
     raw_conn.close()
 
