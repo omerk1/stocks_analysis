@@ -119,6 +119,13 @@ def test_rubric_discloses_every_default_and_unapplied_filter():
     assert rubric["moving average"].source == "run option"
     assert rubric["filter: above SMA200"].value == "NOT APPLIED"
     assert "filter: volume" not in rubric  # a score isn't a filter; nothing was skipped
+    # An unstated price basis is applied as close and said so; a stated one is the spec's.
+    assert rubric["price basis"].source == "default"
+    stated = find_first_touch(
+        spec(trigger=Trigger(description="first close near the MA", price_basis="close")),
+        panel({"AAA": MATCH}))
+    assert {r.parameter: r for r in stated.rubric}["price basis"].source == "spec"
+    assert "search window" in rubric  # the unlag trim's one-bar blind spot is disclosed
 
 
 def test_a_stated_upper_bound_and_before_entry_rules_are_disclosed():
@@ -147,9 +154,12 @@ def test_refusals_name_the_problem():
         # Numbers without a normalisation must never silently fall to the default away
         # distance (the rubric would then falsely claim no number was stated).
         find_first_touch(spec(size=Size(min=2.0, description="2 ATR above")), panel({"AAA": MATCH}))
-    with pytest.raises(GroundingError, match="degenerates"):
-        # away <= touch tolerance: the first bar after every away run is already a touch.
-        find_first_touch(spec(size=Size(normalisation="atr", min=0.2)), panel({"AAA": MATCH}))
+    for degenerate in (0.2, 0.3):
+        # The headroom must cover the near-miss rings too: at min=0.3 the strict run is
+        # fine, but the away ring (0.2 <= 0.25) and touch ring (0.375 >= 0.3) both make
+        # the first bar after every away run a touch, flooding the near-miss pool.
+        with pytest.raises(GroundingError, match="degenerates"):
+            find_first_touch(spec(size=Size(normalisation="atr", min=degenerate)), panel({"AAA": MATCH}))
     with pytest.raises(GroundingError, match="date-sorted"):
         find_first_touch(spec(), panel({"AAA": MATCH}).iloc[::-1].reset_index(drop=True))
     with pytest.raises(GroundingError, match="intraday"):

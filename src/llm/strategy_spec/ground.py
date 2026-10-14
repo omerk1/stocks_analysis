@@ -207,10 +207,11 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     # finder that doesn't take it is said out loud, never silently dropped.
     declared = inspect.signature(finder).parameters
     options = {}
-    if "ma" in declared:
-        options["ma"] = ma or DEFAULT_MA
-    elif ma is not None:
-        say(f"Note: {finder_id} takes no moving-average option; --ma {ma} is ignored.")
+    if ma is not None:
+        if "ma" in declared:
+            options["ma"] = ma  # only an explicit choice is passed: None means the finder's own default
+        else:
+            say(f"Note: {finder_id} takes no moving-average option; --ma {ma} is ignored.")
     result: FinderResult = finder(spec, panel, **options)
     if detector is not None and finder_id not in spec.uses:
         say(f"Note: {finder_id} isn't among the spec's own detectors "
@@ -229,14 +230,17 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     # its truth) and already has its Example row — never re-show it: the blind would be
     # broken and spec.examples could carry two contradictory rows for one instance.
     judged = {(e.ticker, e.date) for e in spec.examples}
+    # Their dates too: near-misses cluster like matches, and a revealed date's siblings
+    # (another ticker, same regime day) partially inherit the unblinding.
+    judged_dates = {pd.Timestamp(e.date) for e in spec.examples}
     def unjudged(candidates):
         return tuple(c for c in candidates if (c.ticker, str(c.date.date())) not in judged)
 
     seed = random.randrange(2**32) if seed is None else seed
     rng = random.Random(seed)
-    picked = sample(unjudged(result.matches), matches_shown, rng)
+    picked = sample(unjudged(result.matches), matches_shown, rng, taken_dates=judged_dates)
     near = sample(unjudged(result.near_misses), near_misses_shown, rng,
-                  taken_dates={c.date for c in picked},
+                  taken_dates=judged_dates | {c.date for c in picked},
                   taken_tickers={c.ticker for c in picked})
     shown_candidates = picked + near
     rng.shuffle(shown_candidates)  # blind: the trader must not know which is which
@@ -350,7 +354,7 @@ def _reveal(session: Session, say) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     from src.foundation.utils.config_loader import load_config
-    from src.models.dataset import HOLDOUT_END
+    from src.models.dataset import HOLDOUT_END, HoldoutError
     from src.signals.moving_averages.features.panel import read_panel
 
     parser = argparse.ArgumentParser(prog="python -m src.llm.strategy_spec.ground")
@@ -367,7 +371,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     end = args.end or str(HOLDOUT_END.date())
-    check_holdout(end)
+    try:
+        check_holdout(end)
+    except HoldoutError as e:  # the carefully worded refusal, not a stack dump
+        raise SystemExit(str(e))
     panel_dir = args.panel_dir or (
         Path(load_config().data_paths.features) / "moving_averages" / "ma_panel")
     panel = read_panel(panel_dir, start=args.start, end=end)
@@ -384,7 +391,10 @@ def main(argv: list[str] | None = None) -> None:
         except EOFError:
             return None
 
-    ground(load_spec(args.spec), panel, ask=ask, ma=args.ma, seed=args.seed, detector=args.detector)
+    try:
+        ground(load_spec(args.spec), panel, ask=ask, ma=args.ma, seed=args.seed, detector=args.detector)
+    except (GroundingError, HoldoutError) as e:  # refusals are one-liners, not tracebacks
+        raise SystemExit(str(e))
 
 
 if __name__ == "__main__":

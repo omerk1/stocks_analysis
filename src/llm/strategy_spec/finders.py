@@ -151,6 +151,14 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
 
     rubric: list[RubricLine] = []
     rubric.append(RubricLine("timeframe", "daily bars", "spec"))
+    if spec.trigger is not None and spec.trigger.price_basis == "close":
+        rubric.append(RubricLine("price basis", "close", "spec"))
+    else:  # None (intraday was refused above): applied as a default, so say so
+        rubric.append(RubricLine("price basis", "close", "default",
+                                 "your spec didn't state one — detection and charts use closes"))
+    rubric.append(RubricLine("search window", "ends one bar before each ticker's last panel row",
+                             "default", "the cached panel carries a bar's state on the next row, "
+                             "so the final bar's own signal is undefined"))
     family, _, lookback = ma.partition("_")
     rubric.append(RubricLine("moving average", f"{family.upper()} {lookback}", "run option",
                              "the spec has no structured slot for the MA; pick with --ma"))
@@ -168,11 +176,16 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
                                  f"your spec caps the size at {size.max:g}, but the detector "
                                  "has no away-distance cap — instances may exceed it"))
     touch_tol = touch.TOUCH_THRESHOLD
-    if away <= touch_tol:
+    if away <= touch_tol * RELAX_FACTOR:
+        # Headroom is needed for the near-miss rings too: the away ring runs at
+        # away/RELAX_FACTOR and the touch ring at touch_tol*RELAX_FACTOR, and whenever
+        # an away threshold doesn't exceed the touch threshold in play, the first bar
+        # after every away run already counts as a touch and detection degenerates —
+        # the near-miss pool floods with bogus instances.
         raise GroundingError(
-            f"the away distance ({away:g} ATR) doesn't exceed the touch tolerance ({touch_tol:g} ATR) — "
-            "as stated, the first bar after every away run already counts as a touch and the "
-            "definition degenerates; restate the size")
+            f"the away distance ({away:g} ATR) must exceed {touch_tol * RELAX_FACTOR:g} ATR — "
+            f"the touch tolerance ({touch_tol:g}) times the near-miss relaxation ({RELAX_FACTOR:g}) — "
+            "or detection degenerates in the spec or in a near-miss ring; restate the size")
     rubric.append(RubricLine("touch tolerance", f"within {touch_tol:g} ATR of the MA", "default",
                              "no structured slot yet — if your idea states one, check the charts against it"))
     max_days = touch.MAX_DAYS_TO_TOUCH
