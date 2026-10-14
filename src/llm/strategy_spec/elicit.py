@@ -44,13 +44,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, get_args
 
-from pydantic import ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from src.llm.gemini import GeminiClient, ReplyError
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
+from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, SpecField, StrategySpec, UnsupportedRequest, find_gaps, group_unsupported)
+    Gap, SpecField, StrategySpec, UnsupportedRequest, find_gaps, request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -66,10 +67,11 @@ if the answer gives thresholds for two different things (a distance and a tolera
 say), the numbers take the one the section is about and the others stay in the \
 description as words. If the answer asks for something outside \
 the capability catalogue, put it in `unsupported` (in the trader's words, with the \
-section's field and a reason) and leave the value null. `unsupported` must also keep \
-any of the question's listed unsupported requests that this answer does not resolve or \
-drop. If the answer settles nothing (the trader is unsure, or answered something else), \
-return value null and the unsupported list unchanged.
+section's field and a reason) and leave the value null. If the answer resolves or drops \
+one of the question's listed unsupported requests, repeat that request's wording in \
+`resolved_requests`; a request not named there is kept as it was. If the answer settles \
+nothing (the trader is unsure, or answered something else), return value null, \
+`unsupported` empty and `resolved_requests` empty.
 
 The current spec, for context only — change nothing outside the asked section:
 """
@@ -82,15 +84,19 @@ class Question:
     gaps: tuple[Gap, ...]
 
 
-# One response schema per spec field: the field's own type as `value`, plus the
-# unsupported entries that belong to the field after the answer. extra="forbid" like
-# every spec section, so a stray key from the model is an error, not silently dropped.
+# One response schema per spec field: the field's own type as `value`, new unsupported
+# entries for the field, and the wordings of previously listed requests this answer
+# resolves. Dropping an entry takes an explicit `resolved_requests` naming — an entry the
+# model merely fails to repeat is kept by the code, so an unresolved request can't vanish
+# because the model forgot it. extra="forbid" like every spec section, so a stray key
+# from the model is an error, not silently dropped.
 _ANSWER_MODELS = {
     f: create_model(
         f"Answer_{f}",
         __config__=ConfigDict(extra="forbid"),
         value=(StrategySpec.model_fields[f].annotation | None, None),
         unsupported=(list[UnsupportedRequest], Field(default_factory=list)),
+        resolved_requests=(list[str], Field(default_factory=list)),
     )
     for f in get_args(SpecField)
 }
@@ -117,17 +123,27 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
             lines.append(f"- {g.reason}")
     current = getattr(spec, field)
     if current not in (None, []):
-        dump = current if isinstance(current, (str, list)) else current.model_dump(exclude_none=True)
-        lines.append(f"(currently: {json.dumps(dump, default=str)})")
+        lines.append(f"(currently: {json.dumps(_shown(current))})")
     return Question(field, "\n".join(lines), own)
+
+
+def _shown(value):
+    """A field value as the trader should see it: models without their default noise."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_defaults=True)
+    if isinstance(value, list):
+        return [_shown(v) for v in value]
+    return value
 
 
 def apply_answer(spec: StrategySpec, question: Question, answer: str,
                  client: GeminiClient) -> StrategySpec:
     """One budgeted call parses `answer` into the asked field; returns the new spec.
-    The field's value is set only if the answer settled it, and the field's unsupported
-    entries are replaced by the ones the model returns; other fields are untouched."""
+    The field's value is set only if the answer settled it. The field keeps every
+    unsupported entry the answer didn't explicitly resolve, plus the new ones the model
+    returns; other fields are untouched."""
     others = [u for u in spec.unsupported if u.field != question.field]
+    own = [u for u in spec.unsupported if u.field == question.field]
     context = spec.model_dump_json(exclude_none=True)
     prompt = f"Question:\n{question.text}\n\nThe trader's answer:\n{answer}"
     reply = client.generate(
@@ -138,7 +154,10 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     wrong_field = [u for u in parsed.unsupported if u.field != question.field]
     if wrong_field:  # the model may only speak for the asked field
         raise ReplyError(f"unsupported entries for other fields: {[u.field for u in wrong_field]}")
-    updates: dict = {"unsupported": others + list(parsed.unsupported)}
+    resolved = {request_wording(r) for r in parsed.resolved_requests}
+    kept = [u for u in own if request_wording(u.requested) not in resolved]
+    new = [u for u in parsed.unsupported if u.key() not in {k.key() for k in kept}]
+    updates: dict = {"unsupported": others + kept + new}
     if parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)
@@ -153,11 +172,14 @@ class Session:
     idea: str
     spec: StrategySpec
     turns: list[dict] = dataclass_field(default_factory=list)
-    seen: dict = dataclass_field(default_factory=dict)  # unsupported requests, by key
+    # Every unsupported request seen, as is: the log's own grouping merges repeats and
+    # keeps every field and detail, so nothing is deduplicated away here.
+    seen: list[UnsupportedRequest] = dataclass_field(default_factory=list)
 
     def note_unsupported(self) -> None:
         for item in self.spec.unsupported:
-            self.seen.setdefault(item.key(), item)
+            if item not in self.seen:
+                self.seen.append(item)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -180,18 +202,34 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
     turn, and every distinct unsupported request seen is logged once at the end."""
     client = client or GeminiClient()
     path = session_path or sessions_dir() / (
-        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + ".json")
+        # Microseconds, so two sessions started together can't share a transcript file.
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ") + ".json")
     session = Session(idea, extraction.extract(idea, client).parsed)
     session.note_unsupported()
+    # `uses` came from the model, not the trader: an uncatalogued id in it is the model's
+    # slip, dropped here rather than asked about (a genuine ask lives in `unsupported`).
+    bad_ids = [u for u in dict.fromkeys(session.spec.uses) if u not in catalogue.IDS]
+    if bad_ids:
+        say(f"Dropped from `uses`, not in the catalogue: {', '.join(bad_ids)}")
+        session.spec = session.spec.model_copy(
+            update={"uses": [u for u in session.spec.uses if u in catalogue.IDS]})
     session.save(path)
     skip: set[str] = set()
     stalls: dict[str, int] = {}
+
+    def stalled(field: str) -> None:
+        # Twice in a row without movement (an identical re-parse, or a reply refused
+        # both times) means asking again won't help — the first live session burned 75k
+        # tokens re-asking one size question before this guard existed.
+        stalls[field] = stalls.get(field, 0) + 1
+        if stalls[field] >= 2:
+            skip.add(field)
+            say(f"`{field}` isn't converging; skipping it — it stays an open gap.")
+
     try:
         for _ in range(max_turns):
             question = next_question(session.spec, frozenset(skip))
             if question is None:
-                say("The spec is complete." if not skip
-                    else f"Done, except the skipped questions ({', '.join(sorted(skip))}).")
                 break
             answer = ask(question.text)
             if answer is None or not answer.strip():
@@ -203,29 +241,31 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 say(f"That answer couldn't be read into the spec ({e}); asking again.")
                 session.turns.append({"field": question.field, "question": question.text,
                                       "answer": answer, "error": str(e)})
+                session.save(path)
+                stalled(question.field)
                 continue
             session.note_unsupported()
             session.turns.append({"field": question.field, "question": question.text, "answer": answer})
             session.save(path)
-            # An answer that leaves the field's gaps exactly as they were hasn't moved
-            # anything; twice in a row means asking again won't either (the demo session
-            # burned 90k tokens re-asking one size question before this guard existed).
             after = next_question(session.spec, frozenset(skip))
             if after is not None and after.field == question.field and after.gaps == question.gaps:
-                stalls[question.field] = stalls.get(question.field, 0) + 1
-                if stalls[question.field] >= 2:
-                    skip.add(question.field)
-                    say(f"`{question.field}` isn't converging; skipping it — it stays an open gap.")
+                stalled(question.field)
             else:
                 stalls.pop(question.field, None)
-        else:
+        remaining = find_gaps(session.spec)
+        if not remaining:
+            say("The spec is complete.")
+        elif next_question(session.spec, frozenset(skip)) is not None:
             say(f"Stopping after {max_turns} answers; the open questions are kept in the transcript.")
+        else:
+            say("Done with the questions; still open: "
+                + "; ".join(f"{g.field}: {g.reason}" for g in remaining))
     finally:
         session.save(path)
         if session.seen:
-            logged = StrategySpec(name=session.spec.name, unsupported=list(session.seen.values()))
+            logged = StrategySpec(name=session.spec.name, unsupported=list(session.seen))
             log_unsupported(logged, idea=idea, path=log_path)
-    say(f"Transcript: {path}")
+        say(f"Transcript: {path}")
     return session.spec
 
 
@@ -236,7 +276,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if (args.idea is None) == (args.file is None):
         parser.error("give the idea as an argument or with --file, not both")
-    idea = args.file.read_text().strip() if args.file else args.idea
+    idea = (args.file.read_text() if args.file else args.idea).strip()
+    if not idea:
+        parser.error("the idea is empty")
 
     def ask(text: str) -> str | None:
         print(f"\n{text}")

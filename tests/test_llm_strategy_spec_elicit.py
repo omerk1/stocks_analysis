@@ -99,15 +99,29 @@ def test_a_null_value_leaves_the_field_and_the_gap():
     assert out.control is None and find_gaps(out)
 
 
-def test_the_answers_unsupported_entries_replace_the_fields_own():
+def test_dropping_an_unsupported_entry_takes_an_explicit_resolution():
     spec = _spec(timeframe=None, unsupported=[
         INTRADAY, UnsupportedRequest(requested="earnings", field="supporting_signals",
                                      reason="unsupported_data")])
     q = next_question(spec)  # about timeframe: the unsupported request plus missing
-    out = apply_answer(spec, q, "fine, daily bars then", StubClient([{"value": "daily"}]))
+    # The model answers the value but doesn't name the request: it is kept, not dropped.
+    out = apply_answer(spec, q, "the pattern is on daily charts", StubClient([{"value": "daily"}]))
     assert out.timeframe == "daily"
-    # The resolved intraday request is gone; the other field's entry is untouched.
+    assert sorted(u.requested for u in out.unsupported) == ["15-minute bars", "earnings"]
+    # Named (wording folded), it goes; the other field's entry is untouched either way.
+    out = apply_answer(spec, q, "fine, daily bars then — forget the 15 minute part",
+                       StubClient([{"value": "daily", "resolved_requests": ["15 Minute bars"]}]))
+    assert out.timeframe == "daily"
     assert [u.requested for u in out.unsupported] == ["earnings"]
+
+
+def test_a_new_entry_is_added_alongside_the_kept_ones():
+    spec = _spec(timeframe=None, unsupported=[INTRADAY])
+    q = next_question(spec)
+    reply = {"value": None,
+             "unsupported": [{"requested": "tick charts", "field": "timeframe", "reason": "unsupported_data"}]}
+    out = apply_answer(spec, q, "tick charts then?", StubClient([reply]))
+    assert sorted(u.requested for u in out.unsupported) == ["15-minute bars", "tick charts"]
 
 
 def test_an_entry_for_another_field_is_refused():
@@ -156,19 +170,42 @@ def test_stopping_early_keeps_the_open_gaps_in_the_transcript(tmp_path, monkeypa
     assert any("control" in g for g in saved["gaps_remaining"])
 
 
-def test_unreadable_answers_reask_and_a_stuck_session_stops(tmp_path, monkeypatch):
+def test_unreadable_answers_count_toward_the_stall_guard(tmp_path, monkeypatch):
+    # Two refused replies in a row skip the field like two stalled parses would:
+    # re-asking re-spends tokens either way.
     _extraction_stub(monkeypatch, _spec(direction=None))
     stray = {"value": None, "unsupported": [{"requested": "x", "field": "trigger", "reason": "other"}]}
-    client = StubClient([stray] * 3)
+    client = StubClient([stray] * 2)
     said = []
     spec = elicit("idea", client, ask=lambda q: "gibberish", say=said.append,
-                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl", max_turns=3)
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl", max_turns=10)
     assert spec.direction is None
-    assert sum("asking again" in s for s in said) == 3
-    assert any("Stopping after 3 answers" in s for s in said)
+    assert sum("asking again" in s for s in said) == 2
+    assert any("isn't converging" in s for s in said)
+    assert any(s.startswith("Done with the questions; still open: direction") for s in said)
     saved = json.loads((tmp_path / "s.json").read_text())
-    assert [t["field"] for t in saved["turns"]] == ["direction"] * 3
+    # Error turns are saved too: a killed session keeps the error strings.
+    assert [t["field"] for t in saved["turns"]] == ["direction"] * 2
     assert all("error" in t for t in saved["turns"])
+
+
+def test_the_last_allowed_answer_completing_the_spec_says_so(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(direction=None))
+    said = []
+    spec = elicit("idea", StubClient([{"value": "long"}]), ask=lambda q: "long", say=said.append,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl", max_turns=1)
+    assert spec.direction == "long"
+    assert "The spec is complete." in said and not any("Stopping after" in s for s in said)
+
+
+def test_uncatalogued_uses_ids_are_dropped_with_a_notice(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(uses=["indicator:rsi", "indicator:stochastic"]))
+    said = []
+    spec = elicit("idea", StubClient([]), ask=lambda q: None, say=said.append,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert spec.uses == ["indicator:rsi"]
+    assert any("indicator:stochastic" in s and "Dropped" in s for s in said)
+    assert "The spec is complete." in said  # no gap left behind by the model's slip
 
 
 def test_every_distinct_unsupported_request_is_logged_once(tmp_path, monkeypatch):
@@ -200,7 +237,7 @@ def test_a_field_that_stops_converging_is_skipped_not_relooped(tmp_path, monkeyp
     spec = elicit("idea", client, ask=lambda q: "away 1 ATR, touch a quarter", say=said.append,
                   session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
     assert any("isn't converging" in s for s in said)
-    assert any("except the skipped questions (size)" in s for s in said)
+    assert any(s.startswith("Done with the questions; still open: size") for s in said)
     assert spec.control is not None  # the loop moved on and finished the rest
     assert [g.field for g in find_gaps(spec)] == ["size"]  # kept as an open gap
 
@@ -211,8 +248,9 @@ def test_next_question_skips_given_fields():
     assert next_question(spec, frozenset({"direction", "control"})) is None
 
 
-def test_cli_rejects_zero_or_two_idea_sources(capsys):
-    with pytest.raises(SystemExit):
-        el.main([])
-    with pytest.raises(SystemExit):
-        el.main(["idea", "--file", "x.txt"])
+def test_cli_rejects_zero_two_or_empty_idea_sources(tmp_path, capsys):
+    empty = tmp_path / "empty.txt"
+    empty.write_text("  \n")
+    for argv in ([], ["idea", "--file", "x.txt"], [""], ["--file", str(empty)]):
+        with pytest.raises(SystemExit):
+            el.main(argv)
