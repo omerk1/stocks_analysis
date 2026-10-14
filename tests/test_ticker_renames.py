@@ -260,20 +260,26 @@ def test_create_tables_adds_the_window_columns_to_an_older_table():
     assert {"valid_from", "valid_to"} <= columns
 
 
-def test_importable_without_the_polygon_package(monkeypatch):
+def test_importable_without_the_polygon_package():
     """apply_renames/price_ticker_map readers must not need `polygon` (backlog
-    2026-10-06): only the CLI constructs a PolygonClient, via a lazy import."""
-    import importlib
+    2026-10-06): only the CLI constructs a PolygonClient, via a lazy import.
+    A fresh interpreter with the package blocked, so a transitive `import
+    polygon` anywhere in the module's import chain fails too (an in-process
+    sys.modules shuffle would miss dependencies the test session cached)."""
+    import subprocess
     import sys
+    from pathlib import Path
 
-    name = "src.foundation.data_processing.ticker_renames"
-    monkeypatch.delitem(sys.modules, name, raising=False)
-    monkeypatch.delitem(sys.modules, "src.foundation.data_processing.polygon_client", raising=False)
-    monkeypatch.setitem(sys.modules, "polygon", None)  # makes `import polygon` fail
-    module = importlib.import_module(name)
-    assert callable(module.apply_renames)
-    monkeypatch.undo()
-    importlib.import_module(name)  # restore the real module for other tests
+    code = (
+        "import sys; sys.modules['polygon'] = None\n"
+        "from src.foundation.data_processing.ticker_renames import apply_renames\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_study_universe_uses_the_shared_apply_renames():

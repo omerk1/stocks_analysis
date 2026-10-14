@@ -41,6 +41,7 @@ import re
 import sqlite3
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -48,8 +49,6 @@ from dotenv import load_dotenv
 from src.foundation.data_processing import db
 from src.foundation.data_processing import sec_companyfacts as sec
 from src.foundation.utils.config_loader import load_config
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # the client needs the `polygon` package; only the decision
     # tooling (main/run) constructs one, so readers of apply_renames/
@@ -347,6 +346,12 @@ def main():
         print(f"cik_verified set on {backfill_cik_verified(conn)} rows")
         conn.close()
         return
+    try:  # deliberately lazy: everything above (and apply_renames readers) works without it
+        from src.foundation.data_processing.polygon_client import PolygonClient
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "Deciding renames asks Polygon for historical listings -- `pip install polygon-api-client` first."
+        ) from exc
     sec_dir = Path(config.data_paths.raw) / "sec"
     submissions = sec_dir / "submissions.zip"
     if not submissions.exists():
@@ -355,8 +360,6 @@ def main():
             "Renames aren't decided without the former-name check."
         )
     cik_map = sec.load_cik_map(sec_dir / "company_tickers.json")
-    from src.foundation.data_processing.polygon_client import PolygonClient
-
     table = run(conn, PolygonClient(), cik_map, submissions, args.indices.split(","), args.since,
                 args.refresh, args.relookup)
     print(table["status"].value_counts().to_string())
