@@ -209,6 +209,10 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
             raise ValueError(f"case #{n} needs to be an object with an 'id'")
         cid = item["id"]
         try:
+            unknown_keys = set(item) - {"id", "golden", "idea", "fields", "unsupported", "notes",
+                                        "extra_flags_ok"}
+            if unknown_keys:  # a misspelled key would otherwise silently do nothing
+                raise ValueError(f"unknown keys {sorted(unknown_keys)}")
             if ("golden" in item) == ("idea" in item):
                 raise ValueError("needs exactly one of 'golden' or 'idea'")
             if "golden" in item and item["golden"] not in golden:
@@ -311,6 +315,7 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
     totals = dict.fromkeys(OUTCOMES, 0)
     caught = required = 0
     misses: list[str] = []
+    waived: list[str] = []
     for s in scores:
         n_required = s.caught + len(s.missed)
         caught, required = caught + s.caught, required + n_required
@@ -327,14 +332,19 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
                 want = exp.values if exp.form == "values" else exp.form
                 misses.append(f"  {s.case_id} {f}: {o} (expected {want!r})")
         misses.extend(f"  {s.case_id} flag missed: {m!r}" for m in s.missed)
-        label = "extra flag (waived)" if s.waived else "unexpected flag"
-        misses.extend(f"  {s.case_id} {label}: {u!r}" for u in s.unexpected)
+        if s.waived:  # not penalties, so not under "misses:", but a spray stays visible
+            waived.extend(f"  {s.case_id}: {u!r}" for u in s.unexpected)
+        else:
+            misses.extend(f"  {s.case_id} unexpected flag: {u!r}" for u in s.unexpected)
     lines.append(f"{'totals':<32} {totals['correct']:>7} {totals['left_blank']:>6} "
                  f"{totals['invented']:>8} {totals['wrong']:>5} {totals['unscored']:>8}  "
                  f"{caught}/{required}")
     if misses:
         lines.append("misses:")
         lines.extend(misses)
+    if waived:
+        lines.append("waived extras:")
+        lines.extend(waived)
     return lines
 
 

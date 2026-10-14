@@ -67,6 +67,9 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "unsupported": ["earnings"]},
                    {**ok, "fields": sorted(ok["fields"])},
                    None,
+                   # A misspelled key must not silently do nothing.
+                   {**ok, "extra_flag_ok": True},
+                   {**ok, "extra_flags_ok": "true"},
                    # Exactly one idea text per case, an id, and a real golden reference.
                    {**ok, "golden": "ma_touch_bounce"},
                    {k: v for k, v in ok.items() if k != "id"},
@@ -190,7 +193,9 @@ def test_extra_flags_ok_waives_unexpected_but_not_required():
     assert score.missed == ("intraday",)
     lines = "\n".join(summarise([score], [waived]))
     assert "0/1 +1\n" in lines + "\n" and "+1!" not in lines  # shown, not a penalty
-    assert "extra flag (waived)" in lines
+    # Visible under its own header, not as a miss.
+    assert "waived extras:\n  w: 'Earnings  Surprise filter'" in lines
+    assert "flag: 'Earnings" not in lines
 
 
 # --- the prompt and the call ------------------------------------------------------
