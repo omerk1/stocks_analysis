@@ -120,6 +120,39 @@ def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: l
     return pd.concat(frames, ignore_index=True)
 
 
+def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: dict[str, str]) -> pd.Series:
+    """`members["market_cap"]` with each configured secondary share class's
+    cap set to NaN on every date its primary also has one -- i.e. the
+    secondary is excluded from that date's weighted aggregates exactly like
+    a member with no cap data (`_weighted_fraction`), because the primary
+    already carries the whole company's cap
+    (`BreadthConfig.share_class_secondaries`: the share-count source
+    reports company-total shares under both class tickers, so keeping both
+    double-counts the company). On a date where the primary has no cap --
+    not a member, no bar, no share count yet -- the secondary keeps its
+    own, so the company never silently drops out. Runs before
+    `_drop_cap_outliers` so the outlier median isn't computed over the
+    duplicate either.
+    """
+    caps = members["market_cap"]
+    for secondary, primary in secondary_to_primary.items():
+        primary_dates = members.loc[(members["ticker"] == primary) & caps.notna(), "date"]
+        if primary_dates.empty:
+            continue
+        duplicate = (
+            (members["ticker"] == secondary) & caps.notna() & members["date"].isin(set(primary_dates))
+        )
+        if not duplicate.any():
+            continue
+        logger.info(
+            "cap-weighted breadth: excluded %d %s member-days whose market cap duplicates %s's "
+            "(one company, two share classes, company-total share counts under each)",
+            int(duplicate.sum()), secondary, primary,
+        )
+        caps = caps.mask(duplicate)
+    return caps
+
+
 def _drop_cap_outliers(members: pd.DataFrame, ratio: float | None, min_members: int) -> pd.Series:
     """`members["market_cap"]` with any cap above `ratio` x that date's
     median member cap set to NaN -- i.e. that member is excluded from that
@@ -271,6 +304,7 @@ def compute_breadth(
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
+        members["market_cap"] = _mask_duplicate_share_classes(members, config.share_class_secondaries)
         members["weight"] = _drop_cap_outliers(
             members, config.cap_outlier_ratio, config.cap_outlier_min_members
         )
