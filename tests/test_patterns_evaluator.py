@@ -452,10 +452,9 @@ def test_control_forward_returns_sign_follows_traded_direction():
     bars = _trend_bars()
     bull = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=120.0)
     bear = _match(direction=Direction.BEARISH, breakout_bar=200, entry_price=120.0)
-    config = evaluator.get_preset("daily")
 
-    bull_ctrl = evaluator.control_forward_returns(bars, bull, (10,), config)[10]
-    bear_ctrl = evaluator.control_forward_returns(bars, bear, (10,), config)[10]
+    bull_ctrl = evaluator.control_forward_returns(bars, bull, (10,))[10]
+    bear_ctrl = evaluator.control_forward_returns(bars, bear, (10,))[10]
     assert bull_ctrl is not None and bull_ctrl > 0
     assert bear_ctrl == pytest.approx(-bull_ctrl)
 
@@ -470,19 +469,18 @@ def test_control_forward_returns_uses_next_open_entry_mechanics():
         "open": [99.0] * n, "high": [100.3] * n, "low": [98.7] * n, "close": [100.0] * n, "volume": 1000.0,
     })
     match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=99.0)
-    ctrl = evaluator.control_forward_returns(bars, match, (5,), evaluator.get_preset("daily"))[5]
+    ctrl = evaluator.control_forward_returns(bars, match, (5,))[5]
     assert ctrl == pytest.approx((100.0 - 99.0) / 99.0)
 
 
 def test_control_forward_returns_none_without_enough_control_bars_or_open_column():
-    config = evaluator.get_preset("daily")
     thin = _trend_bars(n=15)
     match = _match(direction=Direction.BULLISH, breakout_bar=10, entry_price=101.0)
-    assert evaluator.control_forward_returns(thin, match, (5,), config)[5] is None
+    assert evaluator.control_forward_returns(thin, match, (5,))[5] is None
 
     no_open = pd.DataFrame({"close": [100.0] * 400})
     match2 = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=100.0)
-    assert evaluator.control_forward_returns(no_open, match2, (5,), config)[5] is None
+    assert evaluator.control_forward_returns(no_open, match2, (5,))[5] is None
 
 
 def test_control_forward_returns_none_for_a_non_positive_horizon():
@@ -490,7 +488,7 @@ def test_control_forward_returns_none_for_a_non_positive_horizon():
     # rather than index past the array end or wrap to earlier bars.
     bars = _trend_bars()
     match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=120.0)
-    out = evaluator.control_forward_returns(bars, match, (0, -5, 10), evaluator.get_preset("daily"))
+    out = evaluator.control_forward_returns(bars, match, (0, -5, 10))
     assert out[0] is None
     assert out[-5] is None
     assert out[10] is not None
@@ -508,7 +506,7 @@ def test_control_forward_returns_draws_only_from_before_the_pattern():
         "open": closes, "high": closes + 0.3, "low": closes - 0.3, "close": closes, "volume": 1000.0,
     })
     match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=100.0)
-    ctrl = evaluator.control_forward_returns(bars, match, (10,), evaluator.get_preset("daily"))[10]
+    ctrl = evaluator.control_forward_returns(bars, match, (10,))[10]
     assert ctrl == pytest.approx(0.0)
 
 
@@ -561,10 +559,19 @@ def test_summarize_n_dates_counts_distinct_breakout_dates():
     row = summarize(outcomes, horizons=(5,)).loc["vcp"]
     assert row["n"] == 3
     assert row["n_dates"] == 2  # three rows, two distinct event dates -- the effective N
+    # Invariant #8's cost hook: 3 signals over the 1-day span of the
+    # group's breakout dates, annualized.
+    assert row["signals_per_year"] == pytest.approx(3 / (1 / 365.25))
 
-    # Hand-built outcomes with no dates report None, never a fake count.
+    # Hand-built outcomes with no dates report None, never a fake count --
+    # and one undated row poisons the whole group (otherwise n=2/n_dates=1
+    # would read as "2 rows on 1 date" when a row simply had no date).
     undated = [PatternOutcome("d", "T", "vcp", "bullish", "hit_target", 10, {5: 0.1})]
     assert summarize(undated, horizons=(5,)).loc["vcp", "n_dates"] is None
+    mixed = [outcomes[0], undated[0]]
+    mixed_row = summarize(mixed, horizons=(5,)).loc["vcp"]
+    assert mixed_row["n_dates"] is None
+    assert mixed_row["signals_per_year"] is None
 
 
 def test_compute_outcomes_sets_breakout_date_from_a_datetime_index():

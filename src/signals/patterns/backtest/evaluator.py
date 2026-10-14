@@ -138,9 +138,12 @@ def forward_return_pct(bars: pd.DataFrame, match: PatternMatch, horizon_bars: in
     # The finiteness/positivity guard mirrors control_forward_returns' --
     # a NaN entry (bars that never went through validate_bars) must come
     # back None, not a NaN that slips past summarize's `is not None`
-    # filters and poisons every stat in the row.
+    # filters and poisons every stat in the row. The h >= 1 guard likewise:
+    # a CLI-supplied zero/negative horizon would read an exit at or before
+    # the entry and print a plausible-looking non-return.
     if (
-        target_idx >= len(bars)
+        horizon_bars < 1
+        or target_idx >= len(bars)
         or match.entry_price is None
         or not np.isfinite(match.entry_price)
         or match.entry_price <= 0
@@ -166,8 +169,11 @@ def _find_target_hit_bar(bars: pd.DataFrame, match: PatternMatch, config: Patter
     # Same horizon bound `lifecycle._walk_post_breakout` used to set
     # HIT_TARGET in the first place -- searching further than the lifecycle
     # did could only find a bar the lifecycle never considered, which would
-    # report a hit date for a match it never actually credited.
-    formation_bars = match.pivots[-1].bar_index - match.pivots[0].bar_index if match.pivots else 0
+    # report a hit date for a match it never actually credited. max/min,
+    # not last/first: pivot order isn't guaranteed chronological.
+    formation_bars = (
+        max(p.bar_index for p in match.pivots) - min(p.bar_index for p in match.pivots) if match.pivots else 0
+    )
     horizon_end = match.breakout_bar + lifecycle.resolution_horizon_bars(formation_bars, config)
     for i in range(match.breakout_bar + 1, min(len(bars), horizon_end + 1)):
         hit = lows[i] <= target if is_bearish else highs[i] >= target
@@ -268,26 +274,34 @@ def had_throwback(bars: pd.DataFrame, match: PatternMatch, target_hit_bar: int) 
     is_bearish = match.direction == Direction.BEARISH
     trigger_at = _reconstruct_trigger_at(match)
     closes = bars["close"].to_numpy()
-    fallback_level = float(closes[match.breakout_bar])
+    if trigger_at is None:
+        if match.breakout_bar >= len(closes):
+            # A stored match replayed against a truncated frame: the scan
+            # window below is empty anyway, so there is no close to read
+            # and nothing to classify.
+            return False
+        fallback_level = float(closes[match.breakout_bar])
+        trigger_at = lambda _i: fallback_level  # noqa: E731
     for i in range(match.breakout_bar + 1, target_hit_bar):
-        level = trigger_at(i) if trigger_at is not None else fallback_level
+        level = trigger_at(i)
         close = float(closes[i])
         if (close >= level) if is_bearish else (close <= level):
             return True
     return False
 
 
-# Matched-control parameters: how far (in bars) around the breakout the
-# control entry bars are drawn from, and the minimum number of control
-# entries required before a control value is reported at all -- below it
-# the control is None rather than a noisy handful of bars pretending to
-# be a baseline.
+# Matched-control parameters: how many bars immediately BEFORE the
+# pattern's first pivot the control entries are drawn from (never bars
+# during or after the pattern -- see control_forward_returns' docstring),
+# and the minimum number of control trades required before a control value
+# is reported at all -- below it the control is None rather than a noisy
+# handful of bars pretending to be a baseline.
 CONTROL_WINDOW_BARS = 126
 CONTROL_MIN_N = 20
 
 
 def control_forward_returns(
-    bars: pd.DataFrame, match: PatternMatch, horizons: Sequence[int], config: PatternConfig,
+    bars: pd.DataFrame, match: PatternMatch, horizons: Sequence[int],
 ) -> dict[int, float | None]:
     """Matched-control forward return per horizon, for reporting each
     outcome as a delta rather than a bare conditional mean (the repo-wide
@@ -327,8 +341,14 @@ def control_forward_returns(
         return {h: None for h in horizons}
     opens = bars["open"].to_numpy(dtype=float)
     closes = bars["close"].to_numpy(dtype=float)
-    n = len(bars)
-    footprint_start = match.pivots[0].bar_index if match.pivots else match.breakout_bar
+    # min(), not pivots[0]: nothing guarantees a detector appends its
+    # pivots chronologically, and a later-first list would let control
+    # trades overlap the formation.
+    footprint_start = min(p.bar_index for p in match.pivots) if match.pivots else match.breakout_bar
+    # Clamped so every control index stays inside `bars` even for a stored
+    # match replayed against a truncated frame (j + h < footprint_start
+    # then bounds entry and exit alike).
+    footprint_start = min(footprint_start, len(bars))
     j = np.arange(max(0, footprint_start - CONTROL_WINDOW_BARS), footprint_start)
     sign = -1.0 if match.direction == Direction.BEARISH else 1.0
 
@@ -374,7 +394,7 @@ def compute_outcomes(
         # an outcome with no measurable pattern leg at all (no entry, or
         # every horizon right-censored) skips the window scan entirely.
         control_returns = (
-            control_forward_returns(bars, match, horizons, config)
+            control_forward_returns(bars, match, horizons)
             if any(r is not None for r in forward_returns.values())
             else {h: None for h in horizons}
         )
@@ -448,16 +468,21 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
     return claim, and have no meaningful no-pattern counterpart.
 
     `n_dates` is the effective N: distinct breakout *dates* in the group
-    (None when outcomes carry no dates -- hand-built frames). Breakouts
-    cluster on market-wide days, so n alone overstates the evidence; read
-    every count against it.
+    (None unless every outcome carries a date -- a partially dated group
+    must not read as "n rows on k dates"). Breakouts cluster on
+    market-wide days, so n alone overstates the evidence; read every count
+    against it. `signals_per_year` (n over the span of the group's
+    breakout dates) is the cost hook the repo's invariant #8 requires next
+    to any gross return: every return column here, the excess included, is
+    gross of costs, and a trading claim multiplies signals_per_year by a
+    per-trade cost before reading the excess as evidence.
     """
     percentile_labels = [f"p{int(p * 100)}" for p in DEFAULT_PERCENTILES]
     if not outcomes:
         return pd.DataFrame(
             columns=[
-                "n", "n_dates", "hit_target_rate", "failed_breakout_rate", "unresolved_rate",
-                "still_open_rate", "throwback_rate",
+                "n", "n_dates", "signals_per_year", "hit_target_rate", "failed_breakout_rate",
+                "unresolved_rate", "still_open_rate", "throwback_rate",
             ]
             + [f"mean_return_{h}b" for h in horizons]
             + [f"median_return_{h}b" for h in horizons]
@@ -485,10 +510,24 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
         # excluded from both sides of the ratio, not silently counted as
         # "no throwback" by staying in the denominator alone.
         throwback_resolved = [o.throwback for o in group if o.throwback is not None]
-        dates = {o.breakout_date for o in group if o.breakout_date is not None}
+        # All-or-None: a partially dated group would report "n rows on k
+        # dates" when the missing rows simply carried no date -- an honest
+        # effective N needs every row to have one.
+        all_dated = all(o.breakout_date is not None for o in group)
+        dates = {o.breakout_date for o in group} if all_dated else set()
+        if all_dated and len(dates) > 1:
+            span_years = (max(dates) - min(dates)).days / 365.25
+            signals_per_year = n / span_years if span_years > 0 else None
+        else:
+            signals_per_year = None
         row = {
             "n": n,
-            "n_dates": len(dates) if dates else None,
+            "n_dates": len(dates) if all_dated else None,
+            # Invariant #8's cost hook: the excess columns are GROSS of
+            # costs; any trading claim multiplies this by a per-trade cost
+            # before being read as evidence. None when the group spans
+            # fewer than two distinct dated breakouts.
+            "signals_per_year": signals_per_year,
             "hit_target_rate": n_hit_target / n,
             "failed_breakout_rate": sum(o.status == PatternStatus.INVALIDATED_FAILED_BREAKOUT.value for o in group) / n,
             # Broke out, ran its full resolution horizon, resolved to
@@ -592,6 +631,11 @@ def main():
         # even before the percentile/std columns were added.
         pd.set_option("display.max_columns", 100)
         print(summary.round(4).to_string())
+        print(
+            "\nAll return columns (excess included) are GROSS of costs; weigh any excess against "
+            "signals_per_year x your per-trade cost before reading it as evidence (CLAUDE.md invariant #8). "
+            "Read n against n_dates: breakouts cluster, and distinct dates are the real observation count."
+        )
 
     raw_conn.close()
 
