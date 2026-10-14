@@ -154,13 +154,24 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     wrong_field = [u for u in parsed.unsupported if u.field != question.field]
     if wrong_field:  # the model may only speak for the asked field
         raise ReplyError(f"unsupported entries for other fields: {[u.field for u in wrong_field]}")
-    # A naming resolves every entry whose wording it contains: the model may echo the
-    # question's whole displayed line ("'15-minute bars': unsupported timeframe"), and
-    # the trader resolves by their words, not by the model's reason classification —
-    # one wording filed under two reasons is one ask, dropped together.
-    resolved = [request_wording(r) for r in parsed.resolved_requests]
-    kept = [u for u in own if not any(request_wording(u.requested) in r for r in resolved)]
-    new = [u for u in parsed.unsupported if u.key() not in {k.key() for k in kept}]
+    # Each naming resolves the entry it best matches: the longest wording it contains.
+    # That lets the model echo the question's whole displayed line ("'15-minute bars':
+    # unsupported timeframe") without the naming also sweeping away a shorter unrelated
+    # ask ("news" must survive "news sentiment score" being dropped). One wording filed
+    # under two reasons is one ask and drops together: the trader resolves by their
+    # words, not by the model's reason classification.
+    wordings = {request_wording(u.requested) for u in own}
+    resolved = set()
+    for naming in (request_wording(r) for r in parsed.resolved_requests):
+        contained = [w for w in wordings if w in naming]
+        if contained:
+            resolved.add(max(contained, key=len))
+    kept = [u for u in own if request_wording(u.requested) not in resolved]
+    # A resolved ask the model confusedly also re-returns (often as the echoed display
+    # line) doesn't come back under a mangled wording.
+    new = [u for u in parsed.unsupported
+           if u.key() not in {k.key() for k in kept}
+           and not any(r in request_wording(u.requested) for r in resolved)]
     updates: dict = {"unsupported": others + kept + new}
     if parsed.value is not None:
         updates[question.field] = parsed.value
@@ -267,18 +278,19 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
         elif stopped:
             pass  # the stop already said it; the transcript carries the open questions
         elif next_question(session.spec, frozenset(skip)) is not None:
-            say(f"Stopping after {answered} answers; the open questions are kept in the transcript.")
+            say(f"Stopping after {answered} answer{'s' if answered != 1 else ''}; "
+                "the open questions are kept in the transcript.")
         else:
             say("Done with the questions; still open: "
                 + "; ".join(f"{g.field}: {g.reason}" for g in remaining))
     finally:
         try:
             session.save(path)
-        finally:  # the log line and the pointer survive even a failing save
+        finally:  # the pointer, then the log line, survive even a failing save
+            say(f"Transcript: {path}")
             if session.seen:
                 logged = StrategySpec(name=session.spec.name, unsupported=list(session.seen))
                 log_unsupported(logged, idea=idea, path=log_path)
-            say(f"Transcript: {path}")
     return session.spec
 
 

@@ -119,6 +119,26 @@ def test_dropping_an_unsupported_entry_takes_an_explicit_resolution():
     assert [u.requested for u in out.unsupported] == ["earnings"]
 
 
+def test_a_naming_resolves_its_best_match_not_every_substring():
+    news = UnsupportedRequest(requested="news", field="timeframe", reason="unsupported_data")
+    score = UnsupportedRequest(requested="news sentiment score", field="timeframe",
+                               reason="unsupported_data")
+    spec = _spec(timeframe=None, unsupported=[news, score])
+    out = apply_answer(spec, next_question(spec), "drop the sentiment score part",
+                       StubClient([{"value": None, "resolved_requests": ["news sentiment score"]}]))
+    assert [u.requested for u in out.unsupported] == ["news"]  # the shorter ask survives
+
+
+def test_a_resolved_ask_rereturned_by_the_model_stays_resolved():
+    spec = _spec(timeframe=None, unsupported=[INTRADAY])
+    echo = {"requested": "'15-minute bars': unsupported timeframe", "field": "timeframe",
+            "reason": "unsupported_timeframe"}
+    out = apply_answer(spec, next_question(spec), "drop it",
+                       StubClient([{"value": None, "resolved_requests": ["15-minute bars"],
+                                    "unsupported": [echo]}]))
+    assert out.unsupported == []
+
+
 def test_one_wording_under_two_reasons_is_one_ask_and_resolves_together():
     # The trader resolves by their words, not by the model's reason classification.
     spec = _spec(timeframe=None, unsupported=[
@@ -192,14 +212,14 @@ def test_hitting_the_turn_cap_reports_the_real_answer_count(tmp_path, monkeypatc
     said = []
     elicit("idea", StubClient([{"value": "long"}]), ask=lambda q: "long", say=said.append,
            session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl", max_turns=1)
-    assert any("Stopping after 1 answers" in s for s in said)
+    assert any("Stopping after 1 answer;" in s for s in said)
 
 
 def test_the_log_and_pointer_survive_a_failing_transcript_save(tmp_path, monkeypatch):
     _extraction_stub(monkeypatch, _spec(timeframe=None, unsupported=[INTRADAY]))
     said = []
     log = tmp_path / "log.jsonl"
-    with pytest.raises(IsADirectoryError):
+    with pytest.raises(OSError):  # IsADirectoryError here; PermissionError on Windows
         elicit("idea", StubClient([]), ask=lambda q: None, say=said.append,
                session_path=tmp_path, log_path=log)  # the "file" is a directory
     assert any("Transcript:" in s for s in said)
