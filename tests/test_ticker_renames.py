@@ -266,18 +266,20 @@ def test_importable_without_the_polygon_package():
     A fresh interpreter with the package blocked, so a transitive `import
     polygon` anywhere in the module's import chain fails too (an in-process
     sys.modules shuffle would miss dependencies the test session cached)."""
+    import os
     import subprocess
     import sys
     from pathlib import Path
 
+    root = Path(__file__).resolve().parents[1]
     code = (
         "import sys; sys.modules['polygon'] = None\n"
         "from src.foundation.data_processing.ticker_renames import apply_renames\n"
     )
+    env = dict(os.environ, PYTHONPATH=str(root))  # don't rely on cwd landing on sys.path
     proc = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=Path(__file__).resolve().parents[1],
-        capture_output=True, text=True,
+        cwd=root, env=env, capture_output=True, text=True, timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
 

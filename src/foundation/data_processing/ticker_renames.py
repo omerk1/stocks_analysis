@@ -349,6 +349,9 @@ def main():
     try:  # deliberately lazy: everything above (and apply_renames readers) works without it
         from src.foundation.data_processing.polygon_client import PolygonClient
     except ModuleNotFoundError as exc:
+        if exc.name != "polygon":  # some other module genuinely missing -- don't misattribute it
+            raise
+        conn.close()
         raise SystemExit(
             "Deciding renames asks Polygon for historical listings -- `pip install polygon-api-client` first."
         ) from exc
