@@ -165,8 +165,8 @@ def request_wording(requested: str) -> str:
 class RequestGroup:
     """One distinct request: the first wording given, every field it was filed under, and
     the details given under each field (only fields that have one), in order, without
-    repeats. `details` is `(field, details)` pairs rather than a dict, so a frozen group
-    can't be changed by one reader under another; read it with `details_for`."""
+    repeats. `details` is `(field, details)` pairs rather than a dict, so a group stays
+    hashable like the rest of its fields; read it with `details_for`."""
 
     requested: str
     reason: UnsupportedReason

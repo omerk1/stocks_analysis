@@ -18,11 +18,14 @@ import argparse
 import json
 import warnings
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import get_args
 
 from src.llm.paths import llm_data_dir, locked
-from src.llm.strategy_spec.schema import StrategySpec, group_unsupported, request_wording
+from src.llm.strategy_spec.schema import (
+    SpecField, StrategySpec, UnsupportedReason, group_unsupported, request_wording)
 
 LOG_NAME = "unsupported_requests.jsonl"
 
@@ -42,8 +45,7 @@ def log_unsupported(spec: StrategySpec, idea: str | None = None, path: Path | No
     if now.utcoffset() is None:
         raise ValueError("`now` must be timezone-aware")
     time = now.astimezone(timezone.utc).isoformat(timespec="seconds")
-    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, "requested": g.requested,
-                         "reason": g.reason, "fields": list(g.fields),
+    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **asdict(g),
                          "details": {f: list(d) for f, d in g.details}}) for g in groups]
     path = path or default_log_path()
     # Locked like the Gemini ledger: sessions in other worktrees append to the same file.
@@ -77,14 +79,15 @@ def _time(row: dict) -> datetime:
 
 
 def _readable(row) -> bool:
-    """A line a reader can rely on: wording, reason, at least one field, an aware time, and
-    `details` as `{field: [details]}`, every key one of the line's fields and every
-    detail text."""
-    if not (isinstance(row, dict) and isinstance(row.get("requested"), str) and isinstance(row.get("reason"), str)
+    """A line a reader can rely on: wording, a known reason, at least one known field, an
+    aware time, and `details` (optional, since the summary doesn't use it) as
+    `{field: [details]}`, every key one of the line's fields and every detail text."""
+    if not (isinstance(row, dict) and isinstance(row.get("requested"), str)
+            and row.get("reason") in get_args(UnsupportedReason)
             and isinstance(row.get("fields"), list) and row["fields"]
-            and all(isinstance(f, str) for f in row["fields"]) and isinstance(row.get("time"), str)):
+            and all(f in get_args(SpecField) for f in row["fields"]) and isinstance(row.get("time"), str)):
         return False
-    details = row.get("details")
+    details = row.get("details", {})
     if not (isinstance(details, dict) and set(details) <= set(row["fields"])
             and all(isinstance(d, list) and d and all(isinstance(x, str) for x in d) for d in details.values())):
         return False

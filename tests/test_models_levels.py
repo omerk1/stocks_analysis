@@ -5,10 +5,10 @@ speed copy of the same function."""
 
 import ast
 import dataclasses
-import fcntl
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -410,28 +410,28 @@ def test_build_is_resumable_and_reruns_merge_into_the_manifest(tmp_path):
 
 def test_the_manifest_merge_holds_the_lock_under_its_existing_name(tmp_path, monkeypatch):
     # Builds agree on the lock by its file name: a build running older code locks this one.
-    lock_path = tmp_path / "manifest.json.lock"
-    held = []
-    merge = level_cache._merge_manifest
+    # (That the lock excludes other processes is `tests/test_file_lock.py`'s to check.)
+    held, merged_under = [], []
+    real_lock, real_merge = level_cache.file_lock, level_cache._merge_manifest
 
-    def checked_merge(*a):
-        with lock_path.open("w") as other:  # as another process would try it
-            try:
-                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                held.append(False)
-                fcntl.flock(other, fcntl.LOCK_UN)
-            except BlockingIOError:
-                held.append(True)
-        return merge(*a)
+    @contextmanager
+    def spy_lock(path):
+        with real_lock(path):
+            held.append(path)
+            yield
+            held.pop()
 
-    monkeypatch.setattr(level_cache, "_merge_manifest", checked_merge)
+    def spy_merge(*a):
+        merged_under.append(list(held))
+        return real_merge(*a)
+
+    monkeypatch.setattr(level_cache, "file_lock", spy_lock)
+    monkeypatch.setattr(level_cache, "_merge_manifest", spy_merge)
     c = raw_db.get_connection(":memory:")
     raw_db.create_tables(c)
-    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
-                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
-    level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None)
+    level_cache.build_level_cache(c, [], tmp_path, "2021-12-31", workers=1, progress=None)
     c.close()
-    assert held == [True]  # the merge ran under that lock
+    assert merged_under == [[tmp_path / "manifest.json.lock"]]
 
 
 def test_a_run_of_some_sources_keeps_the_others_records(tmp_path, monkeypatch):
