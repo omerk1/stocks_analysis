@@ -80,20 +80,33 @@ def test_add_pattern_context_flag_requires_breakout_date_column():
 
 
 def test_attach_breakout_dates_maps_bar_index_and_verifies_entry_price(monkeypatch):
+    # opens deliberately differ from closes so the verification provably
+    # reads the next bar's OPEN (the one-bar-lag fill the lifecycle stores
+    # as entry_price), not any close.
     dates = pd.bdate_range("2020-01-01", periods=10)
-    bars = pd.DataFrame({"close": np.arange(10, dtype=float) + 100.0}, index=pd.Index(dates, name="timestamp"))
+    bars = pd.DataFrame(
+        {"open": np.arange(10, dtype=float) + 200.0, "close": np.arange(10, dtype=float) + 100.0},
+        index=pd.Index(dates, name="timestamp"),
+    )
     monkeypatch.setattr(
         "src.foundation.market_common.data.load_and_validate", lambda conn, ticker, tf, as_of=None, **kw: (bars, None)
     )
     patterns = pd.DataFrame({
-        "ticker": ["A", "A", "A"],
-        "breakout_bar": [3, 5, 50],
-        "entry_price": [103.0, 999.0, 100.0],  # index 5's close is 105, not 999 -> unverified
+        "ticker": ["A", "A", "A", "A", "A"],
+        "breakout_bar": [3, 5, 50, 9, 2],
+        # row 0: open[4]=204 -> verified. row 1: open[6]=206, not 999 ->
+        # unverified. row 2: out of range. row 3: breakout on the last bar
+        # has no next open -- a NULL entry_price in the store -- excluded.
+        # row 4: close[2]=102 would have verified under the old
+        # close-of-breakout-bar semantics; open[3]=203 is what counts now.
+        "entry_price": [204.0, 999.0, 100.0, None, 102.0],
     })
     result = pc.attach_breakout_dates(patterns, raw_conn=None, as_of="2021-12-31")
     assert result.loc[0, "breakout_date"] == dates[3]
     assert pd.isna(result.loc[1, "breakout_date"])
     assert pd.isna(result.loc[2, "breakout_date"])
+    assert pd.isna(result.loc[3, "breakout_date"])
+    assert pd.isna(result.loc[4, "breakout_date"])
 
 
 def test_add_pattern_context_flag_empty_patterns_is_all_false():

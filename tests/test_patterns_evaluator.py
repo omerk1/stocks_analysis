@@ -321,9 +321,16 @@ def test_run_backtest_end_to_end_against_real_double_top_fixture(conn):
     assert row["n"] == 1
     assert row["hit_target_rate"] == pytest.approx(1.0)
     assert row["n_resolved_5b"] == 1
-    assert row["mean_return_5b"] == pytest.approx((118.0 - 103.0) / 118.0)  # bearish: price fall is a positive return
+    # Entry is the open of bar 24 (115.0, the bar after the breakout), NOT
+    # the breakout bar's own close (118.0) -- the pre-fix same-bar entry
+    # banked the 118->115 close-to-open move no trader could capture.
+    assert row["mean_return_5b"] == pytest.approx((115.0 - 103.0) / 115.0)  # bearish: price fall is a positive return
     assert row["n_resolved_10b"] == 0
     assert row["mean_return_10b"] is None
+    # 30 bars leave fewer than CONTROL_MIN_N eligible control entries once
+    # the pattern's own footprint is excluded -- the control reports None
+    # (n_excess 0) rather than a baseline built from a handful of bars.
+    assert row["n_excess_5b"] == 0
 
 
 def test_run_backtest_skips_ticker_below_min_bars(conn):
@@ -415,6 +422,83 @@ def test_summarize_empty_frame_carries_the_new_return_columns():
         "p90_return_10b", "n_resolved_10b",
     ):
         assert name in cols
+
+
+def _trend_bars(n: int = 400, slope: float = 0.1) -> pd.DataFrame:
+    closes = 100.0 + slope * np.arange(n)
+    return pd.DataFrame({
+        "open": closes - 0.02, "high": closes + 0.3, "low": closes - 0.3, "close": closes, "volume": 1000.0,
+    })
+
+
+def test_control_forward_returns_sign_follows_traded_direction():
+    # Steady uptrend: entering long on any nearby day gains, entering short
+    # loses -- the control must be signed by the pattern's traded direction,
+    # same as forward_return_pct.
+    bars = _trend_bars()
+    bull = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=120.0)
+    bear = _match(direction=Direction.BEARISH, breakout_bar=200, entry_price=120.0)
+    config = evaluator.get_preset("daily")
+
+    bull_ctrl = evaluator.control_forward_returns(bars, bull, (10,), config)[10]
+    bear_ctrl = evaluator.control_forward_returns(bars, bear, (10,), config)[10]
+    assert bull_ctrl is not None and bull_ctrl > 0
+    assert bear_ctrl == pytest.approx(-bull_ctrl)
+
+
+def test_control_forward_returns_uses_next_open_entry_mechanics():
+    # Flat closes with opens offset below them: open[j+1]=99.0, close[j+h]=
+    # 100.0 for every j, so the control return is exactly the open->close
+    # gap -- nonzero only if the control enters at the OPEN of j+1, the
+    # same one-bar-lag fill the pattern trade uses.
+    n = 400
+    bars = pd.DataFrame({
+        "open": [99.0] * n, "high": [100.3] * n, "low": [98.7] * n, "close": [100.0] * n, "volume": 1000.0,
+    })
+    match = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=99.0)
+    ctrl = evaluator.control_forward_returns(bars, match, (5,), evaluator.get_preset("daily"))[5]
+    assert ctrl == pytest.approx((100.0 - 99.0) / 99.0)
+
+
+def test_control_forward_returns_none_without_enough_control_bars_or_open_column():
+    config = evaluator.get_preset("daily")
+    thin = _trend_bars(n=15)
+    match = _match(direction=Direction.BULLISH, breakout_bar=10, entry_price=101.0)
+    assert evaluator.control_forward_returns(thin, match, (5,), config)[5] is None
+
+    no_open = pd.DataFrame({"close": [100.0] * 400})
+    match2 = _match(direction=Direction.BULLISH, breakout_bar=200, entry_price=100.0)
+    assert evaluator.control_forward_returns(no_open, match2, (5,), config)[5] is None
+
+
+def test_compute_outcomes_populates_control_returns():
+    bars = _trend_bars()
+    match = _match(direction=Direction.BULLISH, status=PatternStatus.HIT_TARGET,
+                    breakout_bar=200, entry_price=float(bars["open"].iloc[201]))
+    [outcome] = compute_outcomes([match], bars, horizons=(10,))
+    assert outcome.control_returns[10] is not None
+    # Pattern leg and control leg share mechanics, so on a uniform trend the
+    # delta is ~0 -- the control strips out exactly the drift confound.
+    assert outcome.forward_returns[10] - outcome.control_returns[10] == pytest.approx(0.0, abs=1e-3)
+
+
+def test_summarize_reports_excess_median_over_resolved_pairs_only():
+    outcomes = [
+        PatternOutcome("a", "T", "vcp", "bullish", "hit_target", 10, {5: 0.10}, control_returns={5: 0.02}),
+        PatternOutcome("b", "T", "vcp", "bullish", "hit_target", 12, {5: 0.06}, control_returns={5: 0.02}),
+        # Control unresolved -- excluded from the excess, still in the raw mean.
+        PatternOutcome("c", "T", "vcp", "bullish", "hit_target", 14, {5: 0.50}, control_returns={5: None}),
+    ]
+    row = summarize(outcomes, horizons=(5,)).loc["vcp"]
+    assert row["n_excess_5b"] == 2
+    assert row["excess_median_5b"] == pytest.approx(0.06)  # median of (0.08, 0.04)
+    assert row["n_resolved_5b"] == 3
+
+
+def test_summarize_empty_frame_carries_the_excess_columns():
+    cols = summarize([], horizons=(10,)).columns
+    assert "excess_median_10b" in cols
+    assert "n_excess_10b" in cols
 
 
 def test_pattern_outcome_carries_confidence_from_the_match():
