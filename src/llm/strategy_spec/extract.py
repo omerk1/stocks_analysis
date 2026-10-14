@@ -65,15 +65,41 @@ you were given. The spec will be tested on historical data exactly as you fill i
 
 - Fill in only what the idea states, in words or numbers. Leave a field null (or an \
 empty list) rather than guess: every blank field becomes a question back to the trader, \
-which is the point. No defaults — don't assume daily bars, a long side, or a horizon.
+which is the point. No defaults, no conventions, no best practice — don't assume daily \
+bars, a long side, close prices, next-open execution, a horizon, or standard metrics. \
+The platform applies its own execution conventions; stating them is not your job.
+- Null means "the idea didn't say". A description holds the trader's own words, never \
+your commentary — if the idea doesn't mention a section, the whole section stays null \
+instead of a description that says it wasn't mentioned. `not_applicable` is true only \
+when the idea itself rules the section out in so many words (say, "this is a single-bar \
+event, there's nothing to form"); silence is null, never `not_applicable`. That holds \
+even when your own market knowledge says a section obviously doesn't apply — if the \
+idea didn't say it, leave it null and the trader confirms it in the follow-up, not you.
+- The reverse too: when the idea does state something, in words alone, capture those \
+words in that section's description — don't leave a mentioned section null just \
+because it carries no numbers.
+- Don't infer the timeframe: "the 200-day moving average" names an indicator's lookback, \
+not the chart's bars. Fill `timeframe` only when the idea says what bars it works on.
 - Numbers only where the idea gives them. "A tight range" goes in the description with \
-the numeric bounds left null.
+the numeric bounds left null; "the next few months" is not a number of bars, so \
+`horizons_bars` stays empty. If you catch yourself choosing among plausible figures, \
+the answer is null.
+- A comparison belongs in `control` only when the idea states one. Never design a \
+control yourself, however obvious a good one would be — the catalogue's control entries \
+describe what the platform could offer, they are not defaults to pick from.
 - The capability catalogue below is everything the platform can compute. If the idea \
 needs anything outside it — data, an indicator, a pattern, a timeframe, an execution \
 style, a kind of control or metric — add an entry to `unsupported` (`requested` in the \
 trader's own words, the spec `field` it belongs to, a `reason`) and leave that field \
-empty. Never substitute the nearest supported thing.
-- `uses` lists the catalogue ids the spec is built from, and nothing else.
+empty. Never substitute the nearest supported thing, and never write the unsupported \
+thing into the spec as if it existed: an indicator or pattern the catalogue doesn't \
+list goes in `unsupported` (reason `unknown_indicator` / `unknown_detector`), not into \
+a trigger description or `uses`. Pick the most specific reason; `other` is a last \
+resort. But vague is not unsupported: something the platform can compute that the idea \
+just hasn't quantified ("a few months out", "a meaningful pullback") is a blank field \
+to ask about, not an `unsupported` entry.
+- `uses` lists the catalogue ids the spec is built from — ids that appear in the \
+catalogue below, nothing else.
 - `name` is a short name for the idea.
 
 """

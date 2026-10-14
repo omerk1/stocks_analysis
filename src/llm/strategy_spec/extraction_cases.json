@@ -89,9 +89,10 @@
     "unsupported": [
       {"has": "15-minute", "reason": "unsupported_timeframe"},
       {"has": "", "reason": "unsupported_timeframe", "optional": true},
-      {"has": "", "reason": "unsupported_execution", "optional": true}
+      {"has": "", "reason": "unsupported_execution", "optional": true},
+      {"has": "", "reason": "other", "optional": true}
     ],
-    "notes": "Nothing here is testable on daily bars. The one required flag is the 15-minute timeframe; more flags about the first hour, the intraday entry, the stop or the same-day exit are fine but not required."
+    "notes": "Nothing here is testable on daily bars. The one required flag is the 15-minute timeframe; since every part of the idea is genuinely unsupported, any further flag is fine whatever its label, so 'other' is optional here too."
   },
   {
     "id": "options_sweep_volume",
