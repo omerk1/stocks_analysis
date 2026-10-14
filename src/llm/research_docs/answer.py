@@ -95,7 +95,9 @@ def cited(text: str) -> list[int]:
     for group in re.findall(rf"\[({item}(?:\s*,\s*{item})*)\]", text):
         for part in group.split(","):
             lo, _, hi = re.sub(r"\s", "", part).replace("\u2013", "-").partition("-")
-            for n in range(int(lo), int(hi or lo) + 1):
+            lo, hi = sorted((int(lo), int(hi or lo)))
+            # a short span is a citation range; a long one ([2010-2021]) keeps just its ends
+            for n in range(lo, hi + 1) if hi - lo <= TOP_K else (lo, hi):
                 if n not in out:
                     out.append(n)
     return out

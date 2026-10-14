@@ -42,6 +42,7 @@ def test_the_prompt_keeps_an_experiment_rows_ids_that_live_in_metadata():
     ("Both [2][1], again [1].", [2, 1]),
     ("Listed [1, 3].", [1, 3]),
     ("A range [1-3], another [4\u20135].", [1, 2, 3, 4, 5]),
+    ("Reversed [3-2], a span [2010-2021], huge [1-10000000].", [2, 3, 2010, 2021, 1, 10000000]),
     ("No citation, and a year [2021 is not one] nor is [a].", []),
 ])
 def test_cited_reads_every_citation_form(text, want):
