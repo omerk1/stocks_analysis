@@ -16,10 +16,11 @@ confluence knowable at that event's own `confirmed_at`
 detector ran on.
 
 Everything stays inside the development window: the analysis keeps events
-confirmed between DEV_START and DEV_END (the build caches the stored
-table's full history; the report applies both bounds), and outcome
-tabulations stop at OUTCOME_END so the 20-bar outcome window cannot cross
-the holdout. Exploratory output — input for designing
+confirmed between DEV_START and DEV_END (the build caches everything
+confirmed <= DEV_END, full pre-2010 history included; the report applies
+the DEV_START lower bound and drops p2 years before 2010 so the strata
+and era labels agree with it), and outcome tabulations stop at
+OUTCOME_END so the 20-bar outcome window cannot cross the holdout. Exploratory output — input for designing
 a real test, never a finding.
 
 Usage:
@@ -257,7 +258,10 @@ def _report_variant(df: pd.DataFrame, name: str, hi: pd.Series, lo: pd.Series, c
         )
         if ci and r["n_hi"] > 0:
             lo_ci, hi_ci = bootstrap_dates_ci(df, hi, lo, col)
-            line += f"   95% CI [{lo_ci:+.4f}, {hi_ci:+.4f}] (date-clustered bootstrap)"
+            if np.isnan(lo_ci):
+                line += "   95% CI unavailable (degenerate draws)"
+            else:
+                line += f"   95% CI [{lo_ci:+.4f}, {hi_ci:+.4f}] (date-clustered bootstrap)"
         print(line)
     for era, sub in df.groupby(df["year"] >= ERA_SPLIT_YEAR):
         r = stratified_delta(sub, hi[sub.index], lo[sub.index], "max_favorable_move_atr")
@@ -275,10 +279,13 @@ def report() -> None:
     # is measured before any analysis filter.
     has_pit = events["pit_confluence"].notna()
     inflated_all = (events["confluence_count"] > events["pit_confluence"])[has_pit].mean()
-    # The cache holds every stored event (detection runs over full vendor
-    # history); the study's development window starts at DEV_START, so the
-    # analysis applies the lower bound the upper bound came with.
-    keep = has_pit & (events["confirmed_at"] >= DEV_START)
+    # The cache holds every event confirmed <= DEV_END (detection runs
+    # over full vendor history, so pre-2010 rows are included); the
+    # study's development window starts at DEV_START, so the analysis
+    # applies the lower bound the upper bound came with — on confirmed_at,
+    # and on p2 year too, so the p2-year strata and era labels can't hold
+    # a boundary sliver of 2009 p2 dates confirmed in early 2010.
+    keep = has_pit & (events["confirmed_at"] >= DEV_START) & (events["year"] >= 2010)
     n_predev = int((~keep).sum())
     events = events[keep]
     events, n_whole, n_window = drop_disputed(

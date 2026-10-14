@@ -67,7 +67,11 @@ def test_chain_split_when_bridging_member_is_not_yet_confirmed():
 def test_matches_pit_confluence_filtered_to_each_events_confirmation():
     # The defining equivalence, on randomized events: every event's count
     # equals pit_confluence on the frame filtered to confirmed_at <= its
-    # own confirmed_at.
+    # own confirmed_at. Since the implementation now delegates to
+    # pit_confluence, this is an indexing/filtering check, not a
+    # cross-implementation one — the clustering semantics themselves are
+    # pinned by the two hand-computed tests above and by
+    # tests/test_divergences_context.py's pit_confluence suite.
     rng = np.random.default_rng(7)
     rows = []
     for i in range(160):
