@@ -412,6 +412,16 @@ def test_dual_class_secondary_stands_in_when_the_primarys_cap_is_a_scale_error(c
     assert result["pct_above_sma3"].iloc[2] == pytest.approx(1200 / (1200 + 170000))
 
 
+def test_a_reciprocal_share_class_mapping_fails_loudly(conn):
+    # {"A": "B", "B": "A"} would mask against already-masked caps and can
+    # drop the company entirely -- refuse it instead of computing wrong.
+    _dual_class_setup(conn, secondary_shares=10_000)
+
+    config = _config(weighting="cap", share_class_secondaries={"AAB": "AAA", "AAA": "AAB"})
+    with pytest.raises(ValueError, match="both secondary and primary"):
+        compute_breadth(conn, "test_idx", config)
+
+
 def test_equal_weighting_still_counts_both_share_classes(conn):
     # Both classes are genuine index constituents; the mapping only fixes
     # the cap double-count, never the equal-weight constituent count.

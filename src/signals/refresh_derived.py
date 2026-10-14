@@ -120,6 +120,10 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
     there.
     """
     n = len(REFRESH_STEPS)
+    # Rows from runs recorded after this moment are a concurrent writer's,
+    # not stale -- the sweep must leave them alone (see
+    # derived_db.delete_rows_from_other_runs).
+    refresh_started = pd.Timestamp.now("UTC").isoformat()
     data_skips = False
     kinds_stored: set[str] = set()
     kinds_incomplete: set[str] = set()  # skipped for no data, or excluded by --from-step
@@ -169,7 +173,9 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
                 "invocation, so old rows can't be told from not-recomputed ones"
             )
             continue
-        deleted = derived_db.delete_rows_from_other_runs(derived_conn, table, keep)
+        deleted = derived_db.delete_rows_from_other_runs(
+            derived_conn, table, keep, started_before=refresh_started
+        )
         print(f"sweep {table}: deleted {deleted:,} stale rows from earlier runs")
 
     return not data_skips
@@ -202,18 +208,21 @@ def main():
     finally:
         raw_conn.close()
         derived_conn.close()
-    if not no_data_skips:
-        print("refresh finished with steps skipped for missing data -- those tables are NOT fresh", file=sys.stderr)
-        sys.exit(1)
     if args.start is not None or args.end is not None:
-        print("windowed refresh complete: only the --start/--end window was recomputed; no sweep ran")
+        context = "windowed run: only the --start/--end window was recomputed; no sweep ran"
     elif args.from_step > 1:
-        print(
-            f"resume complete: steps {args.from_step}..{len(REFRESH_STEPS)} recomputed; "
+        context = (
+            f"resume: steps {args.from_step}..{len(REFRESH_STEPS)} recomputed; "
             "withheld sweeps need one full run without --from-step"
         )
     else:
-        print("refresh complete: every table-slice recomputed and swept")
+        context = None
+    if not no_data_skips:
+        if context is not None:
+            print(context, file=sys.stderr)
+        print("refresh finished with steps skipped for missing data -- those tables are NOT fresh", file=sys.stderr)
+        sys.exit(1)
+    print(context if context is not None else "refresh complete: every table-slice recomputed and swept")
 
 
 if __name__ == "__main__":

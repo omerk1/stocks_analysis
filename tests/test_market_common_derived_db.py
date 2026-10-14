@@ -124,6 +124,27 @@ def test_delete_rows_from_other_runs_leaves_other_tables_alone(sweep_conn):
     assert len(rs_store.read_sector_relative_strength(sweep_conn, "Technology")) == 1
 
 
+def test_delete_rows_from_other_runs_spares_a_concurrent_writers_rows(sweep_conn):
+    dates = pd.bdate_range("2020-01-01", periods=1)
+    old_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "DELISTED", old_id)
+    cutoff = pd.Timestamp.now("UTC").isoformat()
+    keep_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "AAPL", keep_id)
+    # Another session's run, recorded after the cutoff and absent from the
+    # keep list -- its rows are current, not stale, and must survive.
+    concurrent_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "MSFT", concurrent_id)
+
+    deleted = derived_db.delete_rows_from_other_runs(
+        sweep_conn, "relative_strength", [keep_id], started_before=cutoff
+    )
+
+    assert deleted == 1
+    remaining = {row[0] for row in sweep_conn.execute("SELECT DISTINCT ticker FROM relative_strength")}
+    assert remaining == {"AAPL", "MSFT"}
+
+
 def test_delete_rows_from_other_runs_refuses_an_empty_keep_list_and_unlisted_tables(sweep_conn):
     with pytest.raises(ValueError, match="empty"):
         derived_db.delete_rows_from_other_runs(sweep_conn, "relative_strength", [])

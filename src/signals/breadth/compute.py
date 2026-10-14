@@ -138,6 +138,13 @@ def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: d
     a second copy of one genuine cap among hundreds of members, which
     barely moves a median, vs. silently losing the company entirely.
     """
+    tangled = set(secondary_to_primary) & set(secondary_to_primary.values())
+    if tangled:
+        raise ValueError(
+            f"share_class_secondaries lists {sorted(tangled)} as both secondary and primary -- "
+            "a reciprocal or chained mapping masks against already-masked caps and can drop "
+            "the company from cap-weighted breadth entirely; pick one primary per company"
+        )
     caps = members["market_cap"]
     for secondary, primary in secondary_to_primary.items():
         primary_dates = members.loc[(members["ticker"] == primary) & caps.notna(), "date"]
