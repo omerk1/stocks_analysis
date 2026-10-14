@@ -33,10 +33,12 @@ import logging
 import sys
 from dataclasses import dataclass
 
+import pandas as pd
+
 from src.foundation.market_common import derived_db
 from src.signals.breadth import cli as breadth_cli
 from src.signals.breadth import store as breadth_store
-from src.signals.breadth.config import BreadthConfig
+from src.signals.breadth.config import WEIGHTING_CHOICES, BreadthConfig
 from src.signals.relative_strength import cli as rs_cli
 from src.signals.relative_strength import store as rs_store
 from src.signals.relative_strength.config import RelativeStrengthConfig
@@ -51,22 +53,32 @@ class Step:
     tier: str | None = None  # rs_stock only
 
 
-# Fixed order, so --from-step numbers stay meaningful across runs: the
-# four breadth slices first (fastest feedback), then the two stock RS
-# tiers over both indices, then the sector tier. Known trade-off: the
-# equal and cap steps for one index recompute the same price/indicator
-# panel; worth sharing only if the breadth half ever dominates the run.
-REFRESH_STEPS: tuple[Step, ...] = (
-    Step("breadth", "breadth sp500 equal", index_name="sp500", weighting="equal"),
-    Step("breadth", "breadth nasdaq100 equal", index_name="nasdaq100", weighting="equal"),
-    Step("breadth", "breadth sp500 cap", index_name="sp500", weighting="cap"),
-    Step("breadth", "breadth nasdaq100 cap", index_name="nasdaq100", weighting="cap"),
-    Step("rs_stock", "rs stock-vs-market sp500", index_name="sp500", tier="stock-vs-market"),
-    Step("rs_stock", "rs stock-vs-market nasdaq100", index_name="nasdaq100", tier="stock-vs-market"),
-    Step("rs_stock", "rs stock-vs-sector sp500", index_name="sp500", tier="stock-vs-sector"),
-    Step("rs_stock", "rs stock-vs-sector nasdaq100", index_name="nasdaq100", tier="stock-vs-sector"),
-    Step("rs_sector", "rs sector-vs-market"),
-)
+def _build_steps() -> tuple[Step, ...]:
+    """Derived from the two configs' own `indices`, not a second hand-kept
+    index list: the sweep treats every run_id outside this invocation as
+    stale, so a slice the module CLIs can produce but this list doesn't
+    cover would have its history DELETED by the sweep. Deriving both from
+    one source removes that divergence. Fixed order so --from-step numbers
+    stay meaningful: breadth slices first (fastest feedback), then the two
+    stock RS tiers over both indices, then the sector tier. Known
+    trade-off: the equal and cap steps for one index recompute the same
+    price/indicator panel; worth sharing only if the breadth half ever
+    dominates the run.
+    """
+    breadth = [
+        Step("breadth", f"breadth {index} {weighting}", index_name=index, weighting=weighting)
+        for weighting in WEIGHTING_CHOICES
+        for index in BreadthConfig().indices
+    ]
+    rs_stock = [
+        Step("rs_stock", f"rs {tier} {index}", index_name=index, tier=tier)
+        for tier in ("stock-vs-market", "stock-vs-sector")
+        for index in RelativeStrengthConfig().indices
+    ]
+    return (*breadth, *rs_stock, Step("rs_sector", "rs sector-vs-market"))
+
+
+REFRESH_STEPS: tuple[Step, ...] = _build_steps()
 
 # Which steps must ALL have run (and stored rows) in this invocation
 # before each table may be swept of other runs' rows.
@@ -91,22 +103,26 @@ def _run_step(step: Step, raw_conn, derived_conn, start, end):
 
 
 def _latest_date(frame) -> str:
-    if "date" in frame.columns:
-        return str(frame["date"].max().date())
-    return str(frame.index.max().date())  # breadth frames are date-indexed
+    # pd.Timestamp() rather than .date() on the raw max: the shared runner
+    # contract doesn't pin the date dtype, and a string-dated frame must
+    # not crash the banner of a step that already stored its rows.
+    values = frame["date"] if "date" in frame.columns else frame.index
+    return str(pd.Timestamp(values.max()).date())
 
 
 def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1) -> bool:
-    """Run steps `from_step`..9 in order, then (full-history runs only)
+    """Run steps `from_step`.. in order, then (full-history runs only)
     sweep each table whose feeding steps all stored rows here. Returns True
-    when every step ran and stored rows (i.e. the tables are fully fresh),
-    False when any step was skipped for having no data. Raises on the first
+    when no step was skipped for lack of data -- steps excluded by
+    `from_step` don't count against it (the caller chose that; the per-
+    table sweep gating still accounts for them). Raises on the first
     failing step after naming it and the --from-step number that resumes
     there.
     """
     n = len(REFRESH_STEPS)
+    data_skips = False
     kinds_stored: set[str] = set()
-    kinds_incomplete: set[str] = set()  # skipped here, or excluded by --from-step
+    kinds_incomplete: set[str] = set()  # skipped for no data, or excluded by --from-step
     run_ids: dict[str, list[str]] = {kind: [] for kinds in _SWEEP_REQUIRES.values() for kind in kinds}
 
     for step in REFRESH_STEPS[: from_step - 1]:
@@ -128,11 +144,14 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
             raise
         if skip_reason is not None:
             print(f"[{number}/{n}] {step.label} SKIPPED -- {skip_reason}")
+            data_skips = True
             kinds_incomplete.add(step.kind)
             continue
         kinds_stored.add(step.kind)
-        if step.kind in run_ids:
-            run_ids[step.kind].append(run_id)
+        # Every kind must be in run_ids (i.e. in _SWEEP_REQUIRES): a kind
+        # the sweep doesn't know about would otherwise store rows the keep
+        # lists omit -- toward deletion. KeyError here is the loud failure.
+        run_ids[step.kind].append(run_id)
         print(f"[{number}/{n}] {step.label} done: {len(frame):,} rows through {_latest_date(frame)}")
 
     if start is not None or end is not None:
@@ -140,7 +159,7 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
             "sweep: SKIPPED for all tables -- a windowed run's new run_ids only cover "
             "--start/--end, so sweeping would delete every row outside the window"
         )
-        return not kinds_incomplete
+        return not data_skips
 
     for table, required_kinds in _SWEEP_REQUIRES.items():
         keep = [rid for kind in required_kinds for rid in run_ids[kind]]
@@ -153,7 +172,7 @@ def run_refresh(raw_conn, derived_conn, start=None, end=None, from_step: int = 1
         deleted = derived_db.delete_rows_from_other_runs(derived_conn, table, keep)
         print(f"sweep {table}: deleted {deleted:,} stale rows from earlier runs")
 
-    return not kinds_incomplete
+    return not data_skips
 
 
 def main():
@@ -179,14 +198,22 @@ def main():
 
     raw_conn, derived_conn = derived_db.bootstrap_cli(_create_tables)
     try:
-        fully_fresh = run_refresh(raw_conn, derived_conn, args.start, args.end, args.from_step)
+        no_data_skips = run_refresh(raw_conn, derived_conn, args.start, args.end, args.from_step)
     finally:
         raw_conn.close()
         derived_conn.close()
-    if not fully_fresh:
-        print("refresh finished with skipped steps -- the skipped tables are NOT fresh", file=sys.stderr)
+    if not no_data_skips:
+        print("refresh finished with steps skipped for missing data -- those tables are NOT fresh", file=sys.stderr)
         sys.exit(1)
-    print("refresh complete: all seven table-slices recomputed")
+    if args.start is not None or args.end is not None:
+        print("windowed refresh complete: only the --start/--end window was recomputed; no sweep ran")
+    elif args.from_step > 1:
+        print(
+            f"resume complete: steps {args.from_step}..{len(REFRESH_STEPS)} recomputed; "
+            "withheld sweeps need one full run without --from-step"
+        )
+    else:
+        print("refresh complete: every table-slice recomputed and swept")
 
 
 if __name__ == "__main__":

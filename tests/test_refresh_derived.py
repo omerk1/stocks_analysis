@@ -160,9 +160,11 @@ def test_resuming_past_an_rs_step_blocks_the_stock_sweep_but_not_the_others(monk
     _plant_stale_rows(derived_conn)
     _patch_runners(monkeypatch, derived_conn, calls=calls)
 
-    fully_fresh = refresh_derived.run_refresh(None, derived_conn, from_step=6)
+    no_data_skips = refresh_derived.run_refresh(None, derived_conn, from_step=6)
 
-    assert not fully_fresh
+    # Excluding steps by --from-step is the caller's choice, not a data
+    # failure -- the return value only reports skips for missing data.
+    assert no_data_skips
     assert calls[0] == "rs stock-vs-market nasdaq100"
     assert "DELISTED" in _values(derived_conn)
     assert "2019-12-31" in _values(derived_conn, "breadth", "date")

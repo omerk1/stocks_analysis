@@ -148,7 +148,10 @@ def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: d
         )
         if not duplicate.any():
             continue
-        logger.info(
+        # warning, not info: the module CLIs configure no logging, and
+        # Python's last-resort handler only shows WARNING+ -- same
+        # "logged, never silent" treatment as _drop_cap_outliers.
+        logger.warning(
             "cap-weighted breadth: excluded %d %s member-days whose market cap duplicates %s's "
             "(one company, two share classes, company-total share counts under each)",
             int(duplicate.sum()), secondary, primary,
