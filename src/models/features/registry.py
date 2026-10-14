@@ -259,7 +259,9 @@ def compute_registered(
     one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker;
     `context` is what panel sources read besides bars (default: every ticker
     passed is a member, no sectors)."""
-    context = replace(context if context is not None else market.PanelContext(), splits=splits)
+    context = context if context is not None else market.PanelContext()
+    if splits or context.splits is None:  # the splits passed here (the gate perturbs them) win
+        context = replace(context, splits=splits)
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:

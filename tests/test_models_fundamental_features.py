@@ -80,10 +80,47 @@ def test_eps_surprise_sees_through_a_split_and_drops_scale_errors():
     pd.testing.assert_series_equal(out["sue_eps"], plain["sue_eps"], rtol=1e-5)
     assert out["sue_eps"].notna().any()
 
-    broken = rows.copy()
-    broken.loc[15, "value"] = 3.0e-9  # a scale error in the last quarter: dropped, not a huge surprise
-    out = F.panel_features(BARS, PanelContext(fundamentals=broken, splits=splits))
-    assert _at(out, available[15], "sue_eps") == _at(out, available[14], "sue_eps")  # the previous quarter's
+    income = _rows("net_income", eps * 10, available, tag="NetIncomeLoss", ends=ends)
+    for bad in (3.0e-9, as_filed[15] / 1000):  # out of range, and a /1000 slip inside it
+        broken = rows.copy()
+        broken.loc[15, "value"] = bad
+        out = F.panel_features(BARS, PanelContext(fundamentals=pd.concat([broken, income]), splits=splits))
+        # dropped, not a huge surprise: the previous quarter's value stays
+        assert _at(out, available[15], "sue_eps") == _at(out, available[14], "sue_eps")
+
+    # through the registry: the splits it's given reach the panel source
+    from src.models.features import baseline, registry
+    specs = tuple(registry.model_specs(group="fundamentals"))
+    via = registry.compute_registered({baseline.FEATURE_BASIS: BARS}, splits, specs, rank=False,
+                                      context=PanelContext(fundamentals=rows))
+    np.testing.assert_allclose(via["sue_eps"], plain["sue_eps"], rtol=1e-5)
+
+
+def test_fourth_quarter_eps_is_derived_from_the_year_and_spin_offs_are_not_splits():
+    ends = pd.date_range("2019-03-31", "2020-12-31", freq="QE")
+    available = pd.DatetimeIndex([e + pd.Timedelta(days=35) for e in ends])
+    quarters = _rows("eps_diluted", [1, 1, 1, 1, 2, 2, 2], available, tag="EarningsPerShareDiluted", ends=ends)
+    quarters = quarters.drop(index=3)  # Q4 2019 not tagged
+    year = _rows("eps_diluted", [4.5], [available[3]], period_type="year", tag="EarningsPerShareDiluted",
+                 ends=ends[3:4])
+    eps = F.eps_quarters(pd.concat([quarters, year], ignore_index=True), None,
+                         pd.DataFrame(columns=["ticker", "period_end", "ni", "ni_at"]))
+    q4 = eps[eps["period_end"] == ends[3]]
+    assert q4[["eps", "eps_at"]].values.tolist() == [[1.5, available[3]]]  # 4.5 - 3 x 1
+    # a quarter filed after the year (here a late Q4 report) doesn't undo the derived one
+    late = _rows("eps_diluted", [9.0], [available[6]], tag="EarningsPerShareDiluted", ends=ends[3:4])
+    again = F.eps_quarters(pd.concat([quarters, year, late], ignore_index=True), None,
+                           pd.DataFrame(columns=["ticker", "period_end", "ni", "ni_at"]))
+    pd.testing.assert_frame_equal(again, eps)
+
+    assert all(map(F.is_share_split, (2.0, 4.0, 0.25, 1.5, 7.0, 1 / 3)))
+    assert not any(map(F.is_share_split, (1.324, 0.0, -2.0)))
+
+
+def test_revenue_acceleration_needs_consecutive_quarters():
+    rows = _rows("revenue", [100, 100, 100, 100, 110, 120, 125, 125], AVAILABLE).drop(index=6)
+    out = _features(rows)
+    assert np.isnan(_at(out, AVAILABLE[7], "rev_growth_accel"))  # Q3 2020 missing: no previous quarter
 
 
 def test_revenue_acceleration_is_the_change_in_year_over_year_growth():

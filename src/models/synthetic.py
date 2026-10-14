@@ -235,8 +235,8 @@ def synthetic_filings(bars: pd.DataFrame, seed: int = 0,
         # every other ticker, so the switch meets all three fiscal year-ends
         tags = np.where((i % 2 == 0) & (np.arange(n) >= n // 2), "SalesRevenueGoodsNet", "Revenues")
         later = np.ones(n)
-        for when, ratio in (splits or {}).get(ticker, pd.DataFrame(columns=["execution_date", "ratio"])).itertuples(
-                index=False):
+        mine = (splits or {}).get(ticker)
+        for when, ratio in ([] if mine is None else zip(mine["execution_date"], mine["ratio"])):
             later = later * np.where(available < pd.Timestamp(when), ratio, 1.0)
         for concept, period_type, values, tag in (
             ("revenue", "quarter", revenue, tags), ("net_income", "quarter", income, "NetIncomeLoss"),

@@ -78,6 +78,8 @@ def build_feature_cache(
     for basis in sorted({registry.SOURCES[s.source].basis for s in bar_specs}, key=lambda b: b.value):
         bars[basis] = dataset.read_bars_bulk(conn, names, basis, first, end, fallback=_fallback(basis))
         sources[basis.value] = bars[basis].attrs["price_sources"]
+    # Eligible names only: the panel's per-share columns (sue_eps) for the other members
+    # go unadjusted, harmless while only eligible rows are kept and nothing aggregates them.
     split_sources = dataset.resolve_sources(conn, tickers, dataset.UNIVERSE_BASIS, _fallback(dataset.UNIVERSE_BASIS))
     splits = dataset._read_splits_bulk(conn, split_sources)
 
