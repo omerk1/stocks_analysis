@@ -47,14 +47,16 @@ from typing import Callable, Literal
 import pandas as pd
 
 from src.llm.strategy_spec.schema import StrategySpec
+from src.signals.moving_averages.features import ma as ma_features
 from src.signals.moving_averages.features import touch
 
 RELAX_FACTOR = 1.5
 
-# The MA columns the cached panel carries (family_lookback). The spec has no structured
-# slot for the MA length — it lives in prose — so which MA to ground against is a run
-# option, disclosed in the rubric.
-MA_COLUMNS = tuple(f"{family}_{k}" for family in ("sma", "ema") for k in (20, 50, 150, 200))
+# The MA columns the cached panel carries (family_lookback), from the panel's own grid
+# so a grid change can't leave this list stale. The spec has no structured slot for the
+# MA length — it lives in prose — so which MA to ground against is a run option,
+# disclosed in the rubric.
+MA_COLUMNS = tuple(f"{family}_{k}" for family in ma_features.FAMILIES for k in ma_features.LOOKBACKS)
 DEFAULT_MA = "sma_200"
 
 Source = Literal["spec", "default", "run option"]
@@ -114,11 +116,17 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     if dist_col not in panel.columns:
         raise GroundingError(f"panel has no {dist_col!r} column — not a feature panel?")
 
+    if spec.timeframe == "weekly":
+        raise GroundingError("the feature panel is daily; grounding a weekly idea isn't built yet")
     size = spec.size
     if size is not None and size.normalisation not in (None, "atr"):
         raise GroundingError(
             f"this finder measures distance from the MA in ATR; the spec's size is in "
             f"{size.normalisation!r} — restate the size in ATR or ground by hand")
+    if size is not None and size.normalisation is None and (size.min is not None or size.max is not None):
+        raise GroundingError(
+            "the spec's size has numbers but no units (normalisation is unset) — "
+            "finish elicitation before grounding")
     if spec.trigger is not None and spec.trigger.price_basis == "intraday":
         raise GroundingError("the feature panel is close-based; an intraday trigger can't be grounded here")
 
@@ -134,6 +142,11 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         away = touch.AWAY_THRESHOLD
         rubric.append(RubricLine("away distance", f">= {away:g} ATR from the MA", "default",
                                  "your spec didn't state this as a number"))
+    if size is not None and size.max is not None:
+        # A stated structured bound the detector can't apply is disclosed, never dropped.
+        rubric.append(RubricLine("away distance upper bound", "NOT APPLIED", "default",
+                                 f"your spec caps the size at {size.max:g}, but the detector "
+                                 "has no away-distance cap — instances may exceed it"))
     touch_tol = touch.TOUCH_THRESHOLD
     rubric.append(RubricLine("touch tolerance", f"within {touch_tol:g} ATR of the MA", "default",
                              "no structured slot yet — if your idea states one, check the charts against it"))
@@ -153,6 +166,17 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         if signal.role == "filter":
             rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
                                      "no structured mapping yet — instances ignore this filter"))
+    for rule in spec.invalidation:
+        # An after-entry rule is about the trade, not the setup; a before-entry rule
+        # excludes setups, so not acting on it must be said out loud or rejections get
+        # misattributed to the trigger definition. "NOT READ", not "not applied": the
+        # finder can't know whether the rule's prose restates a parameter above (the
+        # golden spec's does — its rule is the touch window) or adds a real exclusion.
+        if rule.phase == "before_entry":
+            rubric.append(RubricLine(f"invalidation (before entry): {rule.description}",
+                                     "NOT READ", "default",
+                                     "rule text isn't read — if it restates a parameter above "
+                                     "it is already applied; anything else is ignored"))
 
     working = panel[["ticker", "date"]].copy()
     working["dist"] = _unlagged(panel, dist_col)

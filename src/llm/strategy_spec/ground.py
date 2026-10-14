@@ -32,8 +32,9 @@ the elicitation loop on the named field and grounding again. Two consecutive cle
 
 Transcripts live under `data/llm/grounding_sessions/<timestamp>/` in the main checkout
 (git-ignored, same convention as elicitation sessions): the charts, `session.json`
-(rewritten after every verdict, so a killed session keeps what it had), and the spec with
-its examples filled in.
+(rewritten after every verdict, so a killed session keeps what it had — and **blind**
+while verdicts are being collected, since it sits next to the charts; see
+`Session.save`), and the spec with its examples filled in.
 
 CLI: `python -m src.llm.strategy_spec.ground <spec-or-elicitation-transcript.json>`.
 Tests drive the loop with scripted answers and a synthetic panel; nothing here calls an
@@ -149,7 +150,14 @@ class Session:
     seed: int
     shown: list[Shown] = dataclass_field(default_factory=list)
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path, blind: bool = True) -> None:
+        """`blind` (the default, used while verdicts are being collected) leaves each
+        instance's truth — match or near-miss, and which constraint fails — out of the
+        on-disk file: it sits in the same directory as the charts the trader is told to
+        open, and one glance at an unblinded file would tell them which instances to
+        reject, making the near-miss probe measure nothing. The full record is written
+        once the loop is over (the reveal says it all anyway); a session killed mid-loop
+        can recover the truth by re-running the finder with the recorded seed."""
         answered = [s for s in self.shown if s.verdict is not None]
         path.write_text(json.dumps({
             "detector": self.detector,
@@ -158,13 +166,13 @@ class Session:
             "seed": self.seed,
             "shown": [{
                 "ticker": s.candidate.ticker, "date": str(s.candidate.date.date()),
-                "kind": "near_miss" if s.candidate.fails else "match",
-                "fails": s.candidate.fails, "chart": s.chart,
-                "verdict": s.verdict, "comment": s.comment,
+                **({} if blind else {"kind": "near_miss" if s.candidate.fails else "match",
+                                     "fails": s.candidate.fails}),
+                "chart": s.chart, "verdict": s.verdict, "comment": s.comment,
             } for s in self.shown],
-            "clean_round": (
+            **({} if blind else {"clean_round": (
                 bool(answered) and len(answered) == len(self.shown)
-                and all(s.verdict is (s.candidate.fails is None) for s in answered)),
+                and all(s.verdict is (s.candidate.fails is None) for s in answered))}),
         }, indent=1) + "\n")
 
 
@@ -216,10 +224,15 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
                     "near_misses_found": len(result.near_misses), "window": window},
         seed=seed)
 
-    display = panel[["ticker", "date", "open", "high", "low", "close"]].copy()
-    display["ma_display"] = _unlagged(panel, ma)
+    # Only the shown tickers' rows, grouped once — not a full-panel scan per chart.
+    shown_tickers = {c.ticker for c in shown_candidates}
+    display = panel.loc[panel["ticker"].isin(shown_tickers),
+                        ["ticker", "date", "open", "high", "low", "close", ma]].copy()
+    display["ma_display"] = _unlagged(display, ma)
+    bars_by_ticker = {ticker: frame.reset_index(drop=True)
+                      for ticker, frame in display.groupby("ticker", sort=False)}
     for n, candidate in enumerate(shown_candidates, start=1):
-        bars = display[display["ticker"] == candidate.ticker].reset_index(drop=True)
+        bars = bars_by_ticker[candidate.ticker]
         figure = charts.instance_chart(
             charts.chart_window(bars, candidate.date), "ma_display", _ma_label(ma),
             candidate.date, f"{candidate.ticker} — {candidate.date.date()}")
@@ -253,6 +266,7 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
             say("Stopping here; verdicts so far are kept in the session file.")
             break
 
+    session.save(out_dir / "session.json", blind=False)  # verdicts are in; the truth can land on disk
     _reveal(session, say)
     answered = [s for s in session.shown if s.verdict is not None]
     spec = spec.model_copy(update={"examples": [

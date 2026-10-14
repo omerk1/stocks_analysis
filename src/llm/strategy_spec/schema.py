@@ -138,7 +138,7 @@ class Control(_Section):
 
 
 class Example(_Section):
-    """A historical instance the user accepted or rejected (step 4; not checked yet)."""
+    """A historical instance the user accepted or rejected (filled by `ground.py`)."""
 
     ticker: Text
     date: Text

@@ -122,7 +122,20 @@ def test_a_clean_round_is_recognised(tmp_path):
 
 
 def test_the_loop_is_blind_until_the_reveal(tmp_path):
-    result, prompts, said, session = run(tmp_path, lambda text: "y")
+    # The on-disk session file sits next to the charts: while verdicts are being
+    # collected it must not carry each instance's truth, or one glance tells the
+    # trader which instances to reject.
+    def peeking_answer(text):
+        on_disk = json.loads((tmp_path / "session.json").read_text())
+        # The population's near-miss *count* is fine (the 6+3 design is no secret);
+        # per-instance truth is not.
+        assert all("kind" not in row and "fails" not in row for row in on_disk["shown"])
+        assert "clean_round" not in on_disk
+        return "y"
+
+    result, prompts, said, session = run(tmp_path, peeking_answer)
+    final = json.loads((tmp_path / "session.json").read_text())
+    assert [row["kind"] for row in final["shown"]]  # unblinded once the loop is over
     for prompt, shown in zip(prompts, session["shown"]):
         assert "near" not in prompt.lower() and "fails" not in prompt.lower()
         assert "near" not in shown["chart"].lower()

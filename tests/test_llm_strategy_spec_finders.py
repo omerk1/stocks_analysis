@@ -12,7 +12,7 @@ import pytest
 
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import GroundingError, find_first_touch
-from src.llm.strategy_spec.schema import Signal, Size, StrategySpec, Trigger
+from src.llm.strategy_spec.schema import Rule, Signal, Size, StrategySpec, Trigger
 
 QUIET = [0.5] * 10  # not away even relaxed (< 1.0/1.5), not a touch even relaxed (> 0.375)
 
@@ -101,9 +101,28 @@ def test_rubric_discloses_every_default_and_unapplied_filter():
     assert "filter: volume" not in rubric  # a score isn't a filter; nothing was skipped
 
 
+def test_a_stated_upper_bound_and_before_entry_rules_are_disclosed():
+    constrained = spec(
+        size=Size(normalisation="atr", min=1.0, max=2.0),
+        invalidation=[Rule(description="skip if earnings within 5 days", phase="before_entry"),
+                      Rule(description="close back through the MA", phase="after_entry")])
+    rubric = {r.parameter: r for r in find_first_touch(constrained, panel({"AAA": MATCH})).rubric}
+    upper = rubric["away distance upper bound"]
+    assert upper.value == "NOT APPLIED" and "2" in upper.detail  # stated, not silently dropped
+    before = rubric["invalidation (before entry): skip if earnings within 5 days"]
+    assert before.value == "NOT READ"
+    assert not any("close back through" in key for key in rubric)  # after-entry: the trade, not the setup
+
+
 def test_refusals_name_the_problem():
     with pytest.raises(GroundingError, match="ATR"):
         find_first_touch(spec(size=Size(normalisation="pct", min=5.0)), panel({"AAA": MATCH}))
+    with pytest.raises(GroundingError, match="weekly"):
+        find_first_touch(spec(timeframe="weekly"), panel({"AAA": MATCH}))
+    with pytest.raises(GroundingError, match="no units"):
+        # Numbers without a normalisation must never silently fall to the default away
+        # distance (the rubric would then falsely claim no number was stated).
+        find_first_touch(spec(size=Size(min=2.0, description="2 ATR above")), panel({"AAA": MATCH}))
     with pytest.raises(GroundingError, match="intraday"):
         find_first_touch(spec(trigger=Trigger(description="touch", price_basis="intraday")),
                          panel({"AAA": MATCH}))
