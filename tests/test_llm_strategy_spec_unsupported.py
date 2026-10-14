@@ -25,24 +25,27 @@ def test_log_appends_one_line_per_request(tmp_path):
     assert len(rows) == 3
     assert rows[1] == {"time": "2026-10-13T12:00:00+00:00", "spec_name": "idea", "idea": "buy beats",
                        "requested": "Earnings surprise", "reason": "unsupported_data",
-                       "fields": ["supporting_signals"], "details": ["no earnings data"]}
-    assert rows[2]["idea"] is None and rows[2]["details"] == []
+                       "fields": ["supporting_signals"], "details": {"supporting_signals": ["no earnings data"]}}
+    assert rows[2]["idea"] is None and rows[2]["details"] == {}
 
 
 def test_one_request_under_two_fields_is_one_line_with_both(tmp_path):
     path = tmp_path / "log.jsonl"
     again = {**INTRADAY, "requested": "15-Minute  bars", "field": "trigger", "detail": "intraday entry"}
-    assert unsupported.log_unsupported(_spec(INTRADAY, again, EARNINGS), path=path) == 2
+    bars = {**INTRADAY, "detail": "every bar"}
+    assert unsupported.log_unsupported(_spec(INTRADAY, again, EARNINGS, bars), path=path) == 2
     first = json.loads(path.read_text().splitlines()[0])
     assert first["requested"] == "15-minute bars"
-    assert first["fields"] == ["timeframe", "trigger"] and first["details"] == ["intraday entry"]
+    assert first["fields"] == ["timeframe", "trigger"]
+    # Each detail stays with the field it was given for.
+    assert first["details"] == {"timeframe": ["every bar"], "trigger": ["intraday entry"]}
 
 
 def test_a_same_field_repeat_keeps_its_detail(tmp_path):
     path = tmp_path / "log.jsonl"
     unsupported.log_unsupported(_spec(INTRADAY, {**INTRADAY, "detail": "intraday entry"}), path=path)
     row = json.loads(path.read_text())
-    assert row["fields"] == ["timeframe"] and row["details"] == ["intraday entry"]
+    assert row["fields"] == ["timeframe"] and row["details"] == {"timeframe": ["intraday entry"]}
 
 
 def test_time_is_stored_in_utc_and_naive_time_is_refused(tmp_path):
@@ -68,11 +71,24 @@ def test_damaged_line_is_skipped_with_a_warning(tmp_path):
         f.write('{"time": "2026-10-13T00:00:00", "requested": "x", "reason": "other", "fields": ["trigger"]}\n')
         f.write('{"time": "2026-10-13T00:00:00+00:00", "requested": "x", "reason": "other", "fields": []}\n')
         f.write('{"time": "2026-10-13T00:00:00+00:00", "requested": "x", "reason": "other", "fields": [null]}\n')
+        ok = '{"time": "2026-10-13T00:00:00+00:00", "requested": "x", "reason": "other", "fields": ["trigger"]'
+        f.write(ok + "}\n")  # no details: still counted, the summary doesn't need them
+        for bad in ('["a flat list"]', '{"trigger": "a string"}', '{"trigger": [null]}', '{"trigger": []}',
+                    '{"timeframe": ["not one of its fields"]}'):
+            f.write(f'{ok}, "details": {bad}}}\n')
+        f.write(ok + ', "details": null}\n')  # one shape for details: a dict, or no key
+        good = json.loads(ok + "}")
+        for bad in ({"reason": 5}, {"reason": " "}, {"requested": ""}, {"fields": [""]},
+                    {"details": {"trigger": ["  "]}}):
+            f.write(json.dumps({**good, **bad}) + "\n")
+        # Shape only: a reason or field today's schema doesn't have still counts.
+        f.write(ok.replace('"other"', '"since_renamed"') + "}\n")
+        f.write(ok.replace('"trigger"', '"old_field"') + "}\n")
     unsupported.log_unsupported(_spec(EARNINGS), path=path)
     with pytest.warns(UserWarning, match="unreadable line") as caught:
         rows = unsupported.read_log(path)
-    assert sum("unreadable line" in str(w.message) for w in caught) == 5
-    assert [r["requested"] for r in rows] == ["15-minute bars", "Earnings surprise"]
+    assert sum("unreadable line" in str(w.message) for w in caught) == 16
+    assert [r["requested"] for r in rows] == ["15-minute bars", "x", "x", "x", "Earnings surprise"]
     assert all(isinstance(r["time"], str) for r in rows)  # rows as stored
 
 
