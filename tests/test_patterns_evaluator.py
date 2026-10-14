@@ -556,12 +556,16 @@ def test_summarize_n_dates_counts_distinct_breakout_dates():
         PatternOutcome("b", "U", "vcp", "bullish", "hit_target", 10, {5: 0.2}, breakout_date=day),
         PatternOutcome("c", "V", "vcp", "bullish", "hit_target", 12, {5: 0.3}, breakout_date=day + pd.Timedelta(days=1)),
     ]
-    row = summarize(outcomes, horizons=(5,)).loc["vcp"]
+    row = summarize(outcomes, horizons=(5,), years=12.0).loc["vcp"]
     assert row["n"] == 3
     assert row["n_dates"] == 2  # three rows, two distinct event dates -- the effective N
-    # Invariant #8's cost hook: 3 signals over the 1-day span of the
-    # group's breakout dates, annualized.
-    assert row["signals_per_year"] == pytest.approx(3 / (1 / 365.25))
+    # Invariant #8's cost hook, denominated in the SCANNED history the
+    # caller passes -- never the group's own date span, which clustering
+    # (here: 1 day) would shrink until the rate inflates a thousandfold.
+    assert row["signals_per_year"] == pytest.approx(3 / 12.0)
+
+    # Without a scanned-history span there is no honest rate.
+    assert summarize(outcomes, horizons=(5,)).loc["vcp", "signals_per_year"] is None
 
     # Hand-built outcomes with no dates report None, never a fake count --
     # and one undated row poisons the whole group (otherwise n=2/n_dates=1
@@ -569,9 +573,7 @@ def test_summarize_n_dates_counts_distinct_breakout_dates():
     undated = [PatternOutcome("d", "T", "vcp", "bullish", "hit_target", 10, {5: 0.1})]
     assert summarize(undated, horizons=(5,)).loc["vcp", "n_dates"] is None
     mixed = [outcomes[0], undated[0]]
-    mixed_row = summarize(mixed, horizons=(5,)).loc["vcp"]
-    assert mixed_row["n_dates"] is None
-    assert mixed_row["signals_per_year"] is None
+    assert summarize(mixed, horizons=(5,)).loc["vcp", "n_dates"] is None
 
 
 def test_compute_outcomes_sets_breakout_date_from_a_datetime_index():

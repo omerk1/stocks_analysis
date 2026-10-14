@@ -33,6 +33,7 @@ named here in full so the choice is auditable, not silently arrived at.
 from __future__ import annotations
 
 import sqlite3
+import warnings
 
 import pandas as pd
 
@@ -137,6 +138,18 @@ def attach_breakout_dates(
         # where .abs() raises instead of propagating NaN.
         entry = pd.to_numeric(group["entry_price"], errors="coerce")
         verified = (next_opens - entry).abs() <= price_tolerance * entry.abs().clip(lower=1.0)
+        if len(group) and not verified.any():
+            # Fail-closed must not be silent: an all-False flag downstream
+            # is indistinguishable from "no patterns qualified". A whole
+            # ticker verifying 0 rows is the signature of a table stored
+            # under the pre-2026-10-14 close-of-breakout-bar semantics (or
+            # bars re-ingested since the run) -- rerun the patterns
+            # backfill.
+            warnings.warn(
+                f"pattern_context: 0 of {len(group)} stored pattern rows for {ticker} verified against the "
+                "next bar's open -- stale entry_price semantics or re-ingested bars; rerun the patterns backfill.",
+                stacklevel=2,
+            )
         working.loc[group.index, "breakout_date"] = dates.where(verified)
     working["breakout_date"] = pd.to_datetime(working["breakout_date"])
     return working

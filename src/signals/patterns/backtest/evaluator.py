@@ -336,7 +336,11 @@ def control_forward_returns(
     None for a horizon when fewer than `CONTROL_MIN_N` control trades fit
     (short pre-pattern history, or a horizon close to the window length),
     when the horizon isn't a positive bar count, or when `bars` carries no
-    "open" column (hand-built test frames)."""
+    "open" column (hand-built test frames). Known limit: a match without
+    pivots has no knowable formation start, so its window anchors at the
+    breakout bar and the formation itself can contaminate the control --
+    every real detector persists pivots, so this only touches hand-built
+    matches."""
     if "open" not in bars.columns or match.breakout_bar is None:
         return {h: None for h in horizons}
     opens = bars["open"].to_numpy(dtype=float)
@@ -411,7 +415,9 @@ def compute_outcomes(
     return outcomes
 
 
-def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS) -> pd.DataFrame:
+def summarize(
+    outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_HORIZONS, years: float | None = None,
+) -> pd.DataFrame:
     """One row per pattern_type: sample size, target-hit / failed-breakout
     / unresolved / still-open rates (of matches that broke out), throwback
     rate (of matches that hit target, how many first retraced through the
@@ -471,11 +477,14 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
     (None unless every outcome carries a date -- a partially dated group
     must not read as "n rows on k dates"). Breakouts cluster on
     market-wide days, so n alone overstates the evidence; read every count
-    against it. `signals_per_year` (n over the span of the group's
-    breakout dates) is the cost hook the repo's invariant #8 requires next
-    to any gross return: every return column here, the excess included, is
+    against it. `signals_per_year` (n over `years`, the calendar span of
+    history the caller scanned -- deliberately NOT the group's own date
+    span, which clustering shrinks until the rate inflates by orders of
+    magnitude) is the cost hook the repo's invariant #8 requires next to
+    any gross return: every return column here, the excess included, is
     gross of costs, and a trading claim multiplies signals_per_year by a
-    per-trade cost before reading the excess as evidence.
+    per-trade cost before reading the excess as evidence. None when
+    `years` isn't supplied.
     """
     percentile_labels = [f"p{int(p * 100)}" for p in DEFAULT_PERCENTILES]
     if not outcomes:
@@ -510,24 +519,22 @@ def summarize(outcomes: list[PatternOutcome], horizons: Sequence[int] = DEFAULT_
         # excluded from both sides of the ratio, not silently counted as
         # "no throwback" by staying in the denominator alone.
         throwback_resolved = [o.throwback for o in group if o.throwback is not None]
-        # All-or-None: a partially dated group would report "n rows on k
-        # dates" when the missing rows simply carried no date -- an honest
-        # effective N needs every row to have one.
-        all_dated = all(o.breakout_date is not None for o in group)
+        # All-or-None: a partially dated group (NaT included) would report
+        # "n rows on k dates" when the missing rows simply carried no date
+        # -- an honest effective N needs every row to have one.
+        all_dated = all(pd.notna(o.breakout_date) for o in group)
         dates = {o.breakout_date for o in group} if all_dated else set()
-        if all_dated and len(dates) > 1:
-            span_years = (max(dates) - min(dates)).days / 365.25
-            signals_per_year = n / span_years if span_years > 0 else None
-        else:
-            signals_per_year = None
         row = {
             "n": n,
             "n_dates": len(dates) if all_dated else None,
             # Invariant #8's cost hook: the excess columns are GROSS of
             # costs; any trading claim multiplies this by a per-trade cost
-            # before being read as evidence. None when the group spans
-            # fewer than two distinct dated breakouts.
-            "signals_per_year": signals_per_year,
+            # before being read as evidence. Denominated in the SCANNED
+            # history (`years`, from the caller), never the group's own
+            # date span -- clustered breakouts would shrink that span and
+            # inflate the rate by orders of magnitude. None when the
+            # caller didn't say how much history was scanned.
+            "signals_per_year": (n / years) if years is not None and years > 0 else None,
             "hit_target_rate": n_hit_target / n,
             "failed_breakout_rate": sum(o.status == PatternStatus.INVALIDATED_FAILED_BREAKOUT.value for o in group) / n,
             # Broke out, ran its full resolution horizon, resolved to
@@ -576,6 +583,8 @@ def run_backtest(
     (e.g. `validate_bars` raising on a corrupt row) shouldn't abort a
     `--all` run and lose every other ticker's already-computed outcomes."""
     all_outcomes: list[PatternOutcome] = []
+    span_start: pd.Timestamp | None = None
+    span_end: pd.Timestamp | None = None
     for ticker in tickers:
         try:
             bars, _report = data_mod.load_and_validate(raw_conn, ticker, timeframe, basis=config.price_basis)
@@ -583,9 +592,15 @@ def run_backtest(
                 continue
             matches = scan_bars(bars, ticker, timeframe, config)
             all_outcomes.extend(compute_outcomes(matches, bars, horizons, config))
+            # The union span of everything scanned -- the denominator for
+            # signals_per_year (invariant #8's cost hook), which must be
+            # the searched history, never the found breakouts' own span.
+            span_start = bars.index[0] if span_start is None else min(span_start, bars.index[0])
+            span_end = bars.index[-1] if span_end is None else max(span_end, bars.index[-1])
         except Exception as exc:
             print(f"{ticker} [{timeframe.value}]: FAILED -- {exc}")
-    return summarize(all_outcomes, horizons)
+    years = (span_end - span_start).days / 365.25 if span_start is not None and span_end > span_start else None
+    return summarize(all_outcomes, horizons, years=years)
 
 
 def main():
@@ -626,7 +641,7 @@ def main():
     else:
         pd.set_option("display.width", 220)
         # 12 columns per horizon (mean/median/winsorized/std/risk_adj/4
-        # percentiles/excess_median/n_excess/n_resolved) plus 7 count/rate
+        # percentiles/excess_median/n_excess/n_resolved) plus 8 count/rate
         # columns -- the old cap of 20 truncated the default 3 horizons
         # even before the percentile/std columns were added.
         pd.set_option("display.max_columns", 100)

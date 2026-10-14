@@ -126,7 +126,10 @@ def test_attach_breakout_dates_all_null_entry_prices_fail_closed_not_raise(monke
         "breakout_bar": [3, 5],
         "entry_price": pd.Series([None, None], dtype=object),
     })
-    result = pc.attach_breakout_dates(patterns, raw_conn=None, as_of="2021-12-31")
+    # A ticker verifying 0 rows also warns -- stale-semantics rows failing
+    # closed must not be indistinguishable from "no patterns qualified".
+    with pytest.warns(UserWarning, match="0 of 2 stored pattern rows"):
+        result = pc.attach_breakout_dates(patterns, raw_conn=None, as_of="2021-12-31")
     assert result["breakout_date"].isna().all()
 
 
