@@ -360,3 +360,31 @@ identical across every round's rerun.)*
   p2 just outside the interval) — but no plausible widening moves ~30% to ~90%, so
   the independence conclusion stands. The outcome deltas are bare rates and carry no
   claim.
+
+## 2026-10-14 — confluence vs outcome (the Done #44 follow-up): no coherent favorable effect
+
+One look (`python -m src.analysis.divergence_confluence_outcome`): does multi-indicator
+confluence predict better resolution? Decision-time counts, not the stored full-run
+`confluence_count` (which exceeds what was knowable at confirmation on 5.3% of events —
+a later-confirming indicator joins the cluster retroactively); deltas vs solo divergences
+matched on direction × form × indicator × p2-year; PIT S&P 500/NDX members; confirmed
+≤ 2021-11-30; disputed tickers/windows excluded.
+
+- Headline (PIT confluence ≥2 vs solo, 23.7k rows on 4,335 distinct p2 dates vs 42.1k solo):
+  MFE delta **+0.037 ATR**, date-clustered 95% CI [−0.001, +0.080] — spans zero, and against
+  a ~4.4–5.4 ATR median MFE even the CI top is ~1.5% relative. Invalidation delta **+0.66pp**
+  (CI [−0.19pp, +1.61pp]) — confluent events fail *slightly more*, not less.
+- Not era-stable (2010–15 +0.048, 2016–21 +0.009; the =2 variant flips sign in the late era),
+  not cell-uniform (bullish/hidden −0.045), and the all-ticker aggregate flips negative
+  (−0.079) — the members-only positive point estimate doesn't generalize.
+- Triple confluence (=3 vs solo, only 798 dates): MFE +0.167 ATR — but invalidation is ALSO
+  +1.4pp, and the =2 neighbor sits at +0.023. A lone bright cell whose favorable and adverse
+  outcomes rise together reads as event-window volatility/range expansion, not directional
+  edge; named noise per the plateau discipline.
+- Balance check (within the same strata): confluent events have smaller `price_move_atr`
+  (−0.95) and shorter `duration_bars` (−2.3), so residual selection differences survive the
+  matching — one more reason not to read the +0.037 as real.
+- Argue-against settled the question Done #44 left open: **no basis to feed confluence into
+  `strength`** — if anything the stored full-run count overstates agreement at decision time.
+  Any PIT consumer of confluence must re-cluster (the script's
+  `pit_confluence_at_confirmation`); the stored column is a full-run fact only.
