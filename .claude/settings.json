@@ -12,7 +12,27 @@
       "Bash(python3 -m src.signals.moving_averages.cli validate-synth *)",
       "Bash(black --check *)",
       "Bash(bash scripts/cleanup_merged.sh)",
-      "Bash(bash scripts/cleanup_merged.sh *)"
+      "Bash(bash scripts/cleanup_merged.sh *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push -u origin feat/*)",
+      "Bash(gh pr create *)"
+    ],
+    "deny": [
+      "Bash(git push -u origin feat/* *)",
+      "Bash(git push *:**)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push * refs/*)",
+      "Bash(git push --all*)",
+      "Bash(git push * --all*)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)"
     ],
     "ask": [
       "Edit(**/scripts/cleanup_merged.sh)",
