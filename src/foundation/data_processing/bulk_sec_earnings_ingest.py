@@ -42,39 +42,55 @@ CALENDAR_TICKER = "SPY"
 
 def resolve(conn: sqlite3.Connection, tickers: list[str], cik_map: dict[str, int]) -> tuple[dict, Counter]:
     """{price ticker: (cik, cik_source, valid_from, valid_to)} for `tickers`,
-    and a tally of members that couldn't be tied to a CIK."""
+    and a tally of members that couldn't be tied to a CIK: `unverified_cik`
+    (a CIK whose name check failed) or `no_cik` (none found at all).
+
+    When two members land on one price ticker (FB and META), the more
+    specific source wins, whatever the order of `tickers`."""
     renames = db.read_ticker_renames(conn, matched_only=False).set_index("old_ticker")
     reuse = db.read_symbol_reuse(conn).set_index("ticker")
     out, skipped = {}, Counter()
+
+    def put(ticker, entry):
+        if ticker not in out or _PRECEDENCE[entry[1]] < _PRECEDENCE[out[ticker][1]]:
+            out[ticker] = entry
+
     for t in tickers:
         if t in renames.index:
             r = renames.loc[t]
-            if r["cik_verified"] != 1 or pd.isna(r["cik"]):
+            if pd.isna(r["cik"]):
+                skipped["no_cik"] += 1
+            elif r["cik_verified"] != 1:
                 skipped["unverified_cik"] += 1
             elif r["status"] == "matched":
-                out[r["new_ticker"]] = (int(r["cik"]), "ticker_renames", None, None)
+                put(r["new_ticker"], (int(r["cik"]), "ticker_renames", None, None))
             else:
-                out[t] = (int(r["cik"]), "ticker_renames", r["valid_from"], r["valid_to"])
+                put(t, (int(r["cik"]), "ticker_renames", r["valid_from"], r["valid_to"]))
         elif t in reuse.index and reuse.loc[t, "status"] not in ("same_company", "same_cik_name_differs"):
             r = reuse.loc[t]
-            if r["status"] == "reused" and r["cik_verified"] == 1 and pd.notna(r["polygon_cik"]):
-                out[t] = (int(r["polygon_cik"]), "symbol_reuse", r["valid_from"], r["valid_to"])
-            else:
+            if r["status"] != "reused" or pd.isna(r["polygon_cik"]):
+                skipped["no_cik"] += 1
+            elif r["cik_verified"] != 1:
                 skipped["unverified_cik"] += 1
+            else:
+                put(t, (int(r["polygon_cik"]), "symbol_reuse", r["valid_from"], r["valid_to"]))
         elif sec.to_sec_ticker(t) in cik_map:
-            out.setdefault(t, (cik_map[sec.to_sec_ticker(t)], "sec_ticker_file", None, None))
+            put(t, (cik_map[sec.to_sec_ticker(t)], "sec_ticker_file", None, None))
         else:
             skipped["no_cik"] += 1
     return out, skipped
 
 
-def ticker_rows(zf: zipfile.ZipFile, available: set[str], cik: int, cik_source: str, valid_from, valid_to,
-                sessions: pd.DatetimeIndex) -> pd.DataFrame:
+_PRECEDENCE = {"ticker_renames": 0, "symbol_reuse": 1, "sec_ticker_file": 2}
+
+
+def ticker_rows(parsed, cik: int, cik_source: str, valid_from, valid_to, sessions: pd.DatetimeIndex) -> pd.DataFrame:
     """The rows to store for one ticker: its CIK's, then each predecessor's
-    for the periods before the earliest one found so far."""
+    for the periods before the earliest one found so far. `parsed(cik)` gives
+    a CIK's announcements; `filer_cik` is the CIK whose filing each row is."""
     parts, earliest = [], None
     for c in (cik, *se.PREDECESSOR_CIKS.get(cik, ())):
-        found = se.announcements(se.company_filings(zf, available, c))
+        found = parsed(c).assign(filer_cik=c)
         if earliest is not None:
             found = found[found["period_end"] < earliest]
         if len(found):
@@ -93,10 +109,22 @@ def ticker_rows(zf: zipfile.ZipFile, available: set[str], cik: int, cik_source: 
 
 
 def ingest(conn: sqlite3.Connection, zf: zipfile.ZipFile, resolved: dict, sessions: pd.DatetimeIndex) -> Counter:
+    """Rows are per price ticker, so share classes of one company (GOOG and
+    GOOGL) each get the company's announcements: count events by
+    (cik, period_end), not by row."""
+    if len(sessions) == 0:
+        raise ValueError(f"No session calendar: {CALENDAR_TICKER} has no bars")
     available = set(zf.namelist())
+    cache: dict[int, pd.DataFrame] = {}
+
+    def parsed(cik: int) -> pd.DataFrame:
+        if cik not in cache:
+            cache[cik] = se.announcements(se.company_filings(zf, available, cik))
+        return cache[cik]
+
     tally: Counter = Counter()
     for ticker, (cik, cik_source, valid_from, valid_to) in sorted(resolved.items()):
-        rows = ticker_rows(zf, available, cik, cik_source, valid_from, valid_to, sessions)
+        rows = ticker_rows(parsed, cik, cik_source, valid_from, valid_to, sessions)
         db.replace_earnings_announcements(conn, ticker, rows)
         tally["stored" if len(rows) else "no_announcements"] += 1
         tally["rows"] += len(rows)
@@ -106,23 +134,30 @@ def ingest(conn: sqlite3.Connection, zf: zipfile.ZipFile, resolved: dict, sessio
 def reaction_gaps(conn: sqlite3.Connection, start: str = "2009-01-01", end: str = "2021-12-31") -> pd.DataFrame:
     """Median |open / previous close - 1| on the session before, on, and after
     each stored reaction date, by source and timing. If reaction dates are
-    right, the gap peaks on day 0. Bars on the traded (split-only) basis."""
+    right, the gap peaks on day 0. Bars on the traded (split-only) basis, one
+    source per ticker (yfinance, else Tiingo); one event per company period,
+    so share classes aren't counted twice."""
     ann = pd.read_sql_query(
-        "SELECT ticker, reaction_date, source, timing FROM earnings_announcements "
-        "WHERE reaction_date BETWEEN ? AND ?", conn, params=[start, end])
+        "SELECT ticker, cik, period_end, reaction_date, source, timing FROM earnings_announcements "
+        "WHERE reaction_date BETWEEN ? AND ? ORDER BY ticker", conn, params=[start, end])
+    ann = ann.drop_duplicates(["cik", "period_end"])
     out = []
     for ticker, group in ann.groupby("ticker"):
-        bars = pd.read_sql_query(
-            "SELECT substr(timestamp, 1, 10) AS date, open, close FROM bars_1d WHERE ticker = ? AND source IN (?, ?) "
-            "ORDER BY timestamp", conn, params=[ticker, db.YFINANCE_SPLIT_ONLY, db.TIINGO_SPLIT_ONLY])
-        bars = bars.drop_duplicates("date").reset_index(drop=True)
-        if len(bars) < 2:
+        for source in (db.YFINANCE_SPLIT_ONLY, db.TIINGO_SPLIT_ONLY):
+            bars = pd.read_sql_query(
+                "SELECT substr(timestamp, 1, 10) AS date, open, close FROM bars_1d WHERE ticker = ? AND source = ? "
+                "ORDER BY timestamp", conn, params=[ticker, source])
+            if len(bars):
+                break
+        if len(bars) < 3:
             continue
         gap = (bars["open"] / bars["close"].shift(1) - 1).abs().to_numpy()
         pos = pd.Index(bars["date"]).get_indexer(group["reaction_date"])
         ok = (pos >= 2) & (pos + 1 < len(bars))  # all three days have a gap
         out.append(pd.DataFrame({"source": group["source"].to_numpy()[ok], "timing": group["timing"].to_numpy()[ok],
                                  **{offset: gap[pos[ok] + offset] for offset in (-1, 0, 1)}}))
+    if not out:
+        return pd.DataFrame()
     gaps = pd.concat(out, ignore_index=True).dropna()
     by = gaps.groupby(["source", "timing"])
     table = by[[-1, 0, 1]].median().mul(100).round(2)

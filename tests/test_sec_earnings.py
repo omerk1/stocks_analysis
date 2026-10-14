@@ -119,9 +119,12 @@ def test_resolve_prefers_verified_decisions_over_the_current_ticker_file(conn):
     db.upsert_symbol_reuse(conn, {"ticker": "CPB", "status": "same_cik_name_differs", "polygon_cik": 6})
     cik_map = {"META": 1, "BBT": 99, "BEAM": 5, "CPB": 6, "BRK-B": 7}
 
-    resolved, skipped = ingest.resolve(conn, ["FB", "META", "GONE", "YHOO", "BBT", "BEAM", "CPB", "BRK.B", "NONE"],
-                                       cik_map)
+    cik_map["META"] = 11  # today's file disagrees: the verified rename must still win, in either order
+    members = ["META", "FB", "GONE", "YHOO", "BBT", "BEAM", "CPB", "BRK.B", "NONE"]
 
+    resolved, skipped = ingest.resolve(conn, members, cik_map)
+
+    assert ingest.resolve(conn, members[::-1], cik_map)[0] == resolved
     assert resolved == {
         "META": (1, "ticker_renames", None, None),
         "GONE": (2, "ticker_renames", "2010-01-01", "2015-06-30"),
@@ -129,7 +132,7 @@ def test_resolve_prefers_verified_decisions_over_the_current_ticker_file(conn):
         "CPB": (6, "sec_ticker_file", None, None),
         "BRK.B": (7, "sec_ticker_file", None, None),
     }
-    assert skipped == {"unverified_cik": 2, "no_cik": 1}
+    assert skipped == {"unverified_cik": 1, "no_cik": 2}  # YHOO's CIK failed its name check; BEAM, NONE have none
 
 
 def test_ingest_keeps_rows_inside_the_window_follows_predecessors_and_replaces(conn, tmp_path, monkeypatch):
@@ -151,7 +154,14 @@ def test_ingest_keeps_rows_inside_the_window_follows_predecessors_and_replaces(c
     new = stored[stored["ticker"] == "NEW"]
     assert new["period_end"].tolist() == ["2020-03-31", "2020-09-30"]
     assert new["accession"].tolist() == ["a1", "d1"]
+    assert new["cik"].tolist() == [8, 8] and new["filer_cik"].tolist() == [7, 8]  # a1 is the predecessor's filing
     assert new["timing"].tolist() == ["before_open", "after_close"]
     assert new["reaction_date"].tolist() == ["2020-04-15", "2020-10-21"]
     assert new["accepted_at"].iloc[0] == "2020-04-15T10:45:00+00:00"
     assert rerun.drop(columns="ticker").equals(new.drop(columns="ticker").reset_index(drop=True))
+
+
+def test_ingest_refuses_an_empty_calendar_and_the_gap_check_handles_an_empty_table(conn, tmp_path):
+    with zipfile.ZipFile(_zip(tmp_path, {7: Q1})) as zf, pytest.raises(ValueError, match="calendar"):
+        ingest.ingest(conn, zf, {"X": (7, "sec_ticker_file", None, None)}, pd.DatetimeIndex([]))
+    assert ingest.reaction_gaps(conn).empty

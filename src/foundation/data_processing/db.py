@@ -288,13 +288,18 @@ _TIINGO_LISTINGS_COLUMNS = ["ticker", "status", "ref_name", "tiingo_name", "tiin
 # became public. `accession`/`accepted_at` are the item 2.02 8-K's, or the
 # 10-Q/10-K's own when no 8-K was filed in time (`source` says which).
 # `accepted_at` is UTC; `reaction_date` is the first session whose bar can
-# reflect it. `cik_source` says how the ticker was tied to the CIK.
+# reflect it. `cik_source` says how the ticker was tied to the company's
+# current `cik`; `filer_cik` is the CIK that made the filing (a predecessor's
+# for history from before a reorganisation). Rows are per price ticker, so
+# share classes (GOOG, GOOGL) repeat a company's rows: count events by
+# (cik, period_end).
 _EARNINGS_ANNOUNCEMENTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS earnings_announcements (
     ticker TEXT NOT NULL,
     period_end TEXT NOT NULL,
     cik INTEGER NOT NULL,
     cik_source TEXT NOT NULL,
+    filer_cik INTEGER,
     report_form TEXT NOT NULL,
     report_filed TEXT NOT NULL,
     accession TEXT NOT NULL,
@@ -306,8 +311,11 @@ CREATE TABLE IF NOT EXISTS earnings_announcements (
     PRIMARY KEY (ticker, period_end)
 );
 """
-_EARNINGS_ANNOUNCEMENTS_COLUMNS = ["ticker", "period_end", "cik", "cik_source", "report_form", "report_filed",
-                                   "accession", "source", "accepted_at", "timing", "reaction_date", "extra_filings"]
+_EARNINGS_ANNOUNCEMENTS_COLUMNS = ["ticker", "period_end", "cik", "cik_source", "filer_cik", "report_form",
+                                   "report_filed", "accession", "source", "accepted_at", "timing", "reaction_date",
+                                   "extra_filings"]
+# Added after the table was first created (2026-10-14); `create_tables` adds them.
+_EARNINGS_ANNOUNCEMENTS_ADDED_COLUMNS = {"filer_cik": "INTEGER"}
 
 
 def create_tables(conn: sqlite3.Connection) -> None:
@@ -331,6 +339,10 @@ def create_tables(conn: sqlite3.Connection) -> None:
     for column, kind in _TICKER_RENAMES_ADDED_COLUMNS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} {kind}")
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(earnings_announcements)")}
+    for column, kind in _EARNINGS_ANNOUNCEMENTS_ADDED_COLUMNS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE earnings_announcements ADD COLUMN {column} {kind}")
     conn.commit()
 
 
@@ -954,6 +966,7 @@ def replace_earnings_announcements(conn: sqlite3.Connection, ticker: str, rows: 
             out[column] = [_serialize_date(v) for v in out[column]]
         out["accepted_at"] = [pd.Timestamp(v).isoformat() for v in out["accepted_at"]]
         out["cik"] = out["cik"].astype(int)
+        out["filer_cik"] = out["filer_cik"].astype(int)
         out["extra_filings"] = out["extra_filings"].astype(int)
         conn.executemany(
             f"INSERT INTO earnings_announcements ({', '.join(_EARNINGS_ANNOUNCEMENTS_COLUMNS)}) "

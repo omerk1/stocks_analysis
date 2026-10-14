@@ -16,6 +16,12 @@ report was filed. With no such 8-K, the report itself is the announcement
 (`source` = its form), which can be days or weeks later than the actual
 release -- consumers that need the exact day should drop those rows.
 
+The first 8-K in the window is the first public word on the period's results,
+but not always the main release: ~7% of periods (2010-2021, 300-company
+sample) have more than one, and in ~5% the first comes 7+ days before the
+last -- a preliminary announcement, or a presentation after the release. Which
+one it is can't be told from the index; `extra_filings` flags these periods.
+
 Timing comes from the acceptance time (UTC in the file, converted to New York
 time): before 09:30 on a session day, during the session, after 16:00, or on a
 non-session day. `reaction_date` is the first session whose bar can reflect
