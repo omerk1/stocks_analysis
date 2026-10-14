@@ -132,7 +132,8 @@ def test_resolve_prefers_verified_decisions_over_the_current_ticker_file(conn):
         "CPB": (6, "sec_ticker_file", None, None),
         "BRK.B": (7, "sec_ticker_file", None, None),
     }
-    assert skipped == {"unverified_cik": 1, "no_cik": 2}  # YHOO's CIK failed its name check; BEAM, NONE have none
+    # YHOO's CIK failed its name check; BEAM, NONE have none; META's file CIK lost to the rename
+    assert skipped == {"unverified_cik": 1, "no_cik": 2, "shadowed": 1}
 
 
 def test_ingest_keeps_rows_inside_the_window_follows_predecessors_and_replaces(conn, tmp_path, monkeypatch):

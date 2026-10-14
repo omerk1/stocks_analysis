@@ -299,7 +299,7 @@ CREATE TABLE IF NOT EXISTS earnings_announcements (
     period_end TEXT NOT NULL,
     cik INTEGER NOT NULL,
     cik_source TEXT NOT NULL,
-    filer_cik INTEGER,
+    filer_cik INTEGER NOT NULL,
     report_form TEXT NOT NULL,
     report_filed TEXT NOT NULL,
     accession TEXT NOT NULL,
@@ -314,9 +314,6 @@ CREATE TABLE IF NOT EXISTS earnings_announcements (
 _EARNINGS_ANNOUNCEMENTS_COLUMNS = ["ticker", "period_end", "cik", "cik_source", "filer_cik", "report_form",
                                    "report_filed", "accession", "source", "accepted_at", "timing", "reaction_date",
                                    "extra_filings"]
-# Added after the table was first created (2026-10-14); `create_tables` adds them.
-_EARNINGS_ANNOUNCEMENTS_ADDED_COLUMNS = {"filer_cik": "INTEGER"}
-
 
 def create_tables(conn: sqlite3.Connection) -> None:
     for table in TABLES:
@@ -339,10 +336,6 @@ def create_tables(conn: sqlite3.Connection) -> None:
     for column, kind in _TICKER_RENAMES_ADDED_COLUMNS.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE ticker_renames ADD COLUMN {column} {kind}")
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(earnings_announcements)")}
-    for column, kind in _EARNINGS_ANNOUNCEMENTS_ADDED_COLUMNS.items():
-        if column not in existing:
-            conn.execute(f"ALTER TABLE earnings_announcements ADD COLUMN {column} {kind}")
     conn.commit()
 
 

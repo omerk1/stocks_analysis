@@ -15,8 +15,9 @@ Tying a member's ticker to a CIK, most specific first:
    SEC's ticker file would give the symbol's current holder.
 3. SEC's ticker file (today's symbols), whole history.
 
-Each ticker's rows are deleted and rewritten in one transaction, so a rerun
-against a newer download never leaves stale rows. `--check` prints coverage
+Each resolved ticker's rows are deleted and rewritten in one transaction, so
+a rerun against a newer download never leaves stale rows for it; stored
+tickers the run didn't resolve are listed, not deleted. `--check` prints coverage
 and the reaction-gap check from what's stored, without re-ingesting.
 """
 
@@ -43,7 +44,8 @@ CALENDAR_TICKER = "SPY"
 def resolve(conn: sqlite3.Connection, tickers: list[str], cik_map: dict[str, int]) -> tuple[dict, Counter]:
     """{price ticker: (cik, cik_source, valid_from, valid_to)} for `tickers`,
     and a tally of members that couldn't be tied to a CIK: `unverified_cik`
-    (a CIK whose name check failed) or `no_cik` (none found at all).
+    (a CIK whose name check failed) or `no_cik` (none found at all), plus
+    `shadowed` (a price symbol two members tie to different CIKs).
 
     When two members land on one price ticker (FB and META), the more
     specific source wins, whatever the order of `tickers`."""
@@ -52,6 +54,8 @@ def resolve(conn: sqlite3.Connection, tickers: list[str], cik_map: dict[str, int
     out, skipped = {}, Counter()
 
     def put(ticker, entry):
+        if ticker in out and out[ticker][0] != entry[0]:
+            skipped["shadowed"] += 1  # two companies for one price symbol; the more specific source wins
         if ticker not in out or _PRECEDENCE[entry[1]] < _PRECEDENCE[out[ticker][1]]:
             out[ticker] = entry
 
@@ -134,31 +138,28 @@ def ingest(conn: sqlite3.Connection, zf: zipfile.ZipFile, resolved: dict, sessio
 def reaction_gaps(conn: sqlite3.Connection, start: str = "2009-01-01", end: str = "2021-12-31") -> pd.DataFrame:
     """Median |open / previous close - 1| on the session before, on, and after
     each stored reaction date, by source and timing. If reaction dates are
-    right, the gap peaks on day 0. Bars on the traded (split-only) basis, one
-    source per ticker (yfinance, else Tiingo); one event per company period,
-    so share classes aren't counted twice."""
+    right, the gap peaks on day 0. Bars on the traded (split-only) basis, from
+    whichever source has more of them for the ticker (never mixed); one event
+    per company period, so share classes aren't counted twice."""
     ann = pd.read_sql_query(
         "SELECT ticker, cik, period_end, reaction_date, source, timing FROM earnings_announcements "
         "WHERE reaction_date BETWEEN ? AND ? ORDER BY ticker", conn, params=[start, end])
-    ann = ann.drop_duplicates(["cik", "period_end"])
     out = []
     for ticker, group in ann.groupby("ticker"):
-        for source in (db.YFINANCE_SPLIT_ONLY, db.TIINGO_SPLIT_ONLY):
-            bars = pd.read_sql_query(
-                "SELECT substr(timestamp, 1, 10) AS date, open, close FROM bars_1d WHERE ticker = ? AND source = ? "
-                "ORDER BY timestamp", conn, params=[ticker, source])
-            if len(bars):
-                break
+        bars = max((db.read_bars(conn, "bars_1d", ticker, s) for s in (db.YFINANCE_SPLIT_ONLY, db.TIINGO_SPLIT_ONLY)),
+                   key=len)
         if len(bars) < 3:
             continue
         gap = (bars["open"] / bars["close"].shift(1) - 1).abs().to_numpy()
-        pos = pd.Index(bars["date"]).get_indexer(group["reaction_date"])
+        pos = bars.index.normalize().get_indexer(pd.to_datetime(group["reaction_date"]))
         ok = (pos >= 2) & (pos + 1 < len(bars))  # all three days have a gap
-        out.append(pd.DataFrame({"source": group["source"].to_numpy()[ok], "timing": group["timing"].to_numpy()[ok],
+        out.append(pd.DataFrame({"ticker": ticker, "cik": group["cik"].to_numpy()[ok],
+                                 "period_end": group["period_end"].to_numpy()[ok],
+                                 "source": group["source"].to_numpy()[ok], "timing": group["timing"].to_numpy()[ok],
                                  **{offset: gap[pos[ok] + offset] for offset in (-1, 0, 1)}}))
     if not out:
         return pd.DataFrame()
-    gaps = pd.concat(out, ignore_index=True).dropna()
+    gaps = pd.concat(out, ignore_index=True).dropna().drop_duplicates(["cik", "period_end"])
     by = gaps.groupby(["source", "timing"])
     table = by[[-1, 0, 1]].median().mul(100).round(2)
     table["n"] = by.size()
@@ -201,7 +202,12 @@ def main():
             tally = ingest(conn, zf, resolved, sessions)
         print(f"{len(tickers)} members -> {len(resolved)} price tickers: stored {tally['stored']} "
               f"({tally['rows']} rows), none found {tally['no_announcements']}; skipped -- "
-              f"unverified CIK {skipped['unverified_cik']}, no SEC ticker match {skipped['no_cik']}")
+              f"CIK failed its name check {skipped['unverified_cik']}, no CIK {skipped['no_cik']}; "
+              f"{skipped['shadowed']} members tie a price symbol to a second company (more specific source kept)")
+        stale = sorted(set(db.read_earnings_announcements(conn)["ticker"]) - set(resolved))
+        if stale:
+            print(f"{len(stale)} stored tickers not resolved this run (rows kept; --indices narrower, or a "
+                  f"decision changed -- delete them by hand if so): {', '.join(stale[:20])}")
     pd.set_option("display.width", 200)
     print(coverage(conn).to_string())
     print(reaction_gaps(conn).to_string())
