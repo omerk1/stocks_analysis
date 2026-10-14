@@ -361,30 +361,37 @@ identical across every round's rerun.)*
   the independence conclusion stands. The outcome deltas are bare rates and carry no
   claim.
 
-## 2026-10-14 — confluence vs outcome (the Done #44 follow-up): no coherent favorable effect
+## 2026-10-14 — confluence vs outcome (the Done #44 follow-up): any-confluence null; triple agreement a lone candidate
 
 One look (`python -m src.analysis.divergence_confluence_outcome`): does multi-indicator
 confluence predict better resolution? Decision-time counts, not the stored full-run
 `confluence_count` (which exceeds what was knowable at confirmation on 5.3% of events —
 a later-confirming indicator joins the cluster retroactively); deltas vs solo divergences
-matched on direction × form × indicator × p2-year; PIT S&P 500/NDX members; confirmed
-≤ 2021-11-30; disputed tickers/windows excluded.
+matched on direction × form × indicator × p2-year; PIT S&P 500/NDX members; dev window on
+both ends (confirmed 2010-01-01..2021-11-30, the 20-bar outcome buffer; the first cut of
+this pass missed the lower bound and silently included pre-2010 history — caught in code
+review before the PR, all numbers below are the corrected run); disputed tickers/windows
+excluded. CIs are date-clustered bootstrap and likely somewhat narrow (clustering is on
+identical p2 dates; neighboring dates' 20-bar outcome windows overlap).
 
-- Headline (PIT confluence ≥2 vs solo, 23.7k rows on 4,335 distinct p2 dates vs 42.1k solo):
-  MFE delta **+0.037 ATR**, date-clustered 95% CI [−0.001, +0.080] — spans zero, and against
-  a ~4.4–5.4 ATR median MFE even the CI top is ~1.5% relative. Invalidation delta **+0.66pp**
-  (CI [−0.19pp, +1.61pp]) — confluent events fail *slightly more*, not less.
-- Not era-stable (2010–15 +0.048, 2016–21 +0.009; the =2 variant flips sign in the late era),
-  not cell-uniform (bullish/hidden −0.045), and the all-ticker aggregate flips negative
-  (−0.079) — the members-only positive point estimate doesn't generalize.
-- Triple confluence (=3 vs solo, only 798 dates): MFE +0.167 ATR — but invalidation is ALSO
-  +1.4pp, and the =2 neighbor sits at +0.023. A lone bright cell whose favorable and adverse
-  outcomes rise together reads as event-window volatility/range expansion, not directional
-  edge; named noise per the plateau discipline.
-- Balance check (within the same strata): confluent events have smaller `price_move_atr`
-  (−0.95) and shorter `duration_bars` (−2.3), so residual selection differences survive the
-  matching — one more reason not to read the +0.037 as real.
-- Argue-against settled the question Done #44 left open: **no basis to feed confluence into
-  `strength`** — if anything the stored full-run count overstates agreement at decision time.
-  Any PIT consumer of confluence must re-cluster (the script's
-  `pit_confluence_at_confirmation`); the stored column is a full-run fact only.
+- Headline (PIT confluence ≥2 vs solo, 13.6k rows on 2,127 distinct p2 dates vs 24.2k solo):
+  MFE delta **+0.057 ATR**, 95% CI [−0.007, +0.116] — spans zero, ~2% relative at the CI top
+  against a ~4.4–5.4 ATR median MFE. Invalidation **+0.40pp** (CI [−0.89, +1.57pp]) — if
+  anything confluent events fail marginally more. Not era-stable (2010–15 +0.104 vs 2016–21
+  +0.009), not cell-uniform (bullish/hidden −0.014), and the all-ticker aggregate flips
+  negative (−0.048). The =2 variant is the same picture (+0.031, CI [−0.027, +0.084], late-era
+  sign flip). **"Some confluence" predicts nothing — the Done #44 call: no basis to feed
+  confluence into `strength`.**
+- The one candidate: **all-three-indicators agreement** (=3 vs solo, 1,251 rows on only 440
+  dates): MFE **+0.308 ATR**, CI [+0.089, +0.480], era-stable (+0.34 / +0.27), all four
+  direction×form cells positive, and invalidation moves the right way (−2.3pp, CI spans
+  zero) — favorable up AND failures down argues against a pure volatility tilt. Against it:
+  the =2 neighbor sits 10× lower (no plateau — a lone bright threshold), 440 dates, a likely-
+  narrow CI, one of several uncorrected looks, and the balance check shows confluent events
+  differ in observables within strata (`price_move_atr` −0.95, `duration_bars` −1.7), so
+  selection survives the matching. Track A: **not a finding**; promotable only via a
+  pre-registered test (natural home: a model feature + the trading scorecard, per LRP §3)
+  if the user wants it.
+- Lasting constraint for any consumer: the stored `confluence_count`/`agreeing_indicators`
+  are FULL-RUN facts; a PIT consumer must re-cluster (the script's
+  `pit_confluence_at_confirmation`, which delegates to `context.pit_confluence`).

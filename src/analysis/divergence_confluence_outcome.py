@@ -15,9 +15,11 @@ confluence knowable at that event's own `confirmed_at`
 `context.pit_confluence`), against the same per-ticker vendor bars the
 detector ran on.
 
-Everything stays inside the development window: events are confirmed
-<= DEV_END, outcome tabulations stop at OUTCOME_END so the 20-bar outcome
-window cannot cross the holdout. Exploratory output — input for designing
+Everything stays inside the development window: the analysis keeps events
+confirmed between DEV_START and DEV_END (the build caches the stored
+table's full history; the report applies both bounds), and outcome
+tabulations stop at OUTCOME_END so the 20-bar outcome window cannot cross
+the holdout. Exploratory output — input for designing
 a real test, never a finding.
 
 Usage:
@@ -44,7 +46,9 @@ from src.foundation.market_common import data as data_mod
 from src.foundation.market_common import derived_db
 from src.foundation.market_common.models import Timeframe
 from src.signals.divergences.config import VENDOR_FALLBACK, DivergenceConfig
+from src.signals.divergences.context import pit_confluence
 from src.signals.divergences.store import builder_sources
+from src.signals.divergences.study_universe import DEV_START
 
 logger = logging.getLogger(__name__)
 
@@ -85,46 +89,20 @@ def pit_confluence_at_confirmation(
     counts = pd.Series(1, index=events.index, dtype=int)
     if events.empty:
         return counts
-    locs = bar_index.get_indexer(pd.DatetimeIndex(pd.to_datetime(events["p2_date"])))
-    pos = pd.Series(locs, index=events.index)
-    located = events.loc[pos[pos >= 0].index]
-
-    for _, group in located.groupby(["direction", "form"]):
-        order = pos.loc[group.index].sort_values().index
-        p = pos.loc[order].to_numpy()
-        c = pd.to_datetime(group.loc[order, "confirmed_at"]).to_numpy()
-        inds = group.loc[order, "indicator"].to_numpy()
-        m = len(order)
-        out = np.ones(m, dtype=int)
-        for i in range(m):
-            visible = c <= c[i]
-            members = {inds[i]}
-            # Walk out from i over visible members; the chain breaks when
-            # the gap between consecutive visible positions exceeds the
-            # pairing window — exactly pit_confluence's walk on the
-            # confirmed_at-filtered frame.
-            prev = p[i]
-            for k in range(i - 1, -1, -1):
-                if not visible[k]:
-                    continue
-                if prev - p[k] > pairing_window:
-                    break
-                members.add(inds[k])
-                prev = p[k]
-            prev = p[i]
-            for k in range(i + 1, m):
-                if not visible[k]:
-                    continue
-                if p[k] - prev > pairing_window:
-                    break
-                members.add(inds[k])
-                prev = p[k]
-            out[i] = len(members)
-        counts.loc[order] = out
+    # Delegate the clustering itself to the canonical pit_confluence, one
+    # call per distinct confirmation time (each event reads its count off
+    # the call for its own time) — correct by construction, so a future
+    # change to the pairing rule cannot desynchronize a hand-rolled copy.
+    # O(distinct times x events), build-time only, cached.
+    confirmed = pd.to_datetime(events["confirmed_at"])
+    for t in confirmed.sort_values().unique():
+        at_t = confirmed.index[confirmed == t]
+        visible = events[confirmed <= t]
+        counts.loc[at_t] = pit_confluence(visible, bar_index, pairing_window).loc[at_t]
     return counts
 
 
-def build(args: argparse.Namespace) -> None:
+def build() -> None:
     """Attach a PIT confluence count (and PIT index membership) to every
     dev-window daily divergence and cache the result. Reads both DBs,
     writes only the parquet."""
@@ -142,7 +120,7 @@ def build(args: argparse.Namespace) -> None:
         raw_conn, derived_conn, tickers, config.price_basis, VENDOR_FALLBACK, "daily"
     )
     pit = pd.Series(np.nan, index=events.index)
-    done = failed = 0
+    done = failed = empty = 0
     for ticker, group in events.groupby("ticker"):
         if ticker in flagged:
             continue
@@ -152,6 +130,7 @@ def build(args: argparse.Namespace) -> None:
                 source=sources[ticker],
             )
             if len(bars) == 0:
+                empty += 1
                 continue
             pit.loc[group.index] = pit_confluence_at_confirmation(
                 group, bars.index, config.pairing_window
@@ -176,7 +155,8 @@ def build(args: argparse.Namespace) -> None:
     n_skipped = int(events["pit_confluence"].isna().sum())
     print(
         f"cached {len(events)} events -> {EVENTS_PARQUET}\n"
-        f"tickers: {done} processed, {len(flagged)} vendor-flagged, {failed} failed; "
+        f"tickers: {done} processed, {len(flagged)} vendor-flagged, {failed} failed, "
+        f"{empty} with no bars (of {len(tickers)}); "
         f"{n_skipped} events without a PIT count (excluded at report time)"
     )
     raw_conn.close()
@@ -197,8 +177,12 @@ def stratified_delta(
         sub.groupby(STRATA + ["_hi"], observed=True)[value_col]
         .agg(["mean", "count"])
         .unstack("_hi")
-        .dropna()  # a cell missing either group contributes nothing
     )
+    # A subset with no hi (or no lo) rows anywhere unstacks to one-sided
+    # columns; dropna then only prunes cells missing either group.
+    if agg.empty or ("mean", True) not in agg.columns or ("mean", False) not in agg.columns:
+        return {"delta": np.nan, "n_hi": 0, "n_lo": 0, "dates_hi": 0}
+    agg = agg.dropna()
     if agg.empty:
         return {"delta": np.nan, "n_hi": 0, "n_lo": 0, "dates_hi": 0}
     n_hi = agg[("count", True)]
@@ -220,7 +204,13 @@ def bootstrap_dates_ci(
     """95% CI for `stratified_delta`, resampling p2 DATES with replacement
     (events cluster on dates — invariant #6 — so rows are not independent;
     dates are the resampling unit). Point estimates are computed on
-    date-level sums so each draw is a groupby, not a re-walk."""
+    date-level sums so each draw is a groupby, not a re-walk.
+
+    Known limit: clustering is on identical p2 dates only, while outcomes
+    are 20-bar windows — neighboring dates' windows overlap, so this CI
+    understates serial dependence and is likely somewhat narrow. Fine for
+    reading a null (a wider CI only strengthens it); a positive result
+    read off this CI would need a multi-day block bootstrap first."""
     mask = (hi | lo) & df[value_col].notna()
     sub = df[mask].copy()
     sub["_hi"] = hi[mask]
@@ -241,14 +231,19 @@ def bootstrap_dates_ci(
             d.groupby(STRATA + ["_hi"], observed=True)[["ws", "wn"]]
             .sum()
             .unstack("_hi")
-            .dropna()
         )
+        # A draw can resample away one whole group (one-sided columns).
+        if agg.empty or ("ws", True) not in agg.columns or ("ws", False) not in agg.columns:
+            continue
+        agg = agg.dropna()
         if agg.empty:
             continue
         mean_hi = agg[("ws", True)] / agg[("wn", True)]
         mean_lo = agg[("ws", False)] / agg[("wn", False)]
         w = agg[("wn", True)] / agg[("wn", True)].sum()
         out.append(float(((mean_hi - mean_lo) * w).sum()))
+    if not out:
+        return float("nan"), float("nan")
     return float(np.percentile(out, 2.5)), float(np.percentile(out, 97.5))
 
 
@@ -273,17 +268,26 @@ def _report_variant(df: pd.DataFrame, name: str, hi: pd.Series, lo: pd.Series, c
         print(f"    {d}/{f}: MFE delta {r['delta']:+.4f}  (n_hi {r['n_hi']}, {r['dates_hi']} dates)")
 
 
-def report(args: argparse.Namespace) -> None:
+def report() -> None:
     events = pd.read_parquet(EVENTS_PARQUET)
     n0 = len(events)
-    events = events[events["pit_confluence"].notna()]
-    n_nopit = n0 - len(events)
+    # The look-ahead share is a property of the whole stored table, so it
+    # is measured before any analysis filter.
+    has_pit = events["pit_confluence"].notna()
+    inflated_all = (events["confluence_count"] > events["pit_confluence"])[has_pit].mean()
+    # The cache holds every stored event (detection runs over full vendor
+    # history); the study's development window starts at DEV_START, so the
+    # analysis applies the lower bound the upper bound came with.
+    keep = has_pit & (events["confirmed_at"] >= DEV_START)
+    n_predev = int((~keep).sum())
+    events = events[keep]
     events, n_whole, n_window = drop_disputed(
         events.assign(entry_date=pd.to_datetime(events["confirmed_at"]).dt.strftime("%Y-%m-%d"))
     )
     events = events.reset_index(drop=True)
-    print(f"events: {n0} cached, {n_nopit} without PIT count, "
+    print(f"events: {n0} cached, {n_predev} without a PIT count or confirmed before {DEV_START}, "
           f"{n_whole} on whole-history-disputed tickers, {n_window} near a disputed day")
+    print(f"stored count exceeds the decision-time count on {inflated_all:.1%} of ALL cached events")
 
     # Outcome subset: the 20-bar outcome window must not cross the holdout,
     # and the headline universe is PIT index members (as the R/R sweep's) —
@@ -296,18 +300,16 @@ def report(args: argparse.Namespace) -> None:
     print(f"outcome-eligible (confirmed <= {OUTCOME_END}): {len(oc)}; "
           f"PIT members: {int(oc['pit_member'].sum())}")
 
-    print("\n== look-ahead in the stored column (all outcome-eligible events) ==")
+    print("\n== PIT vs stored count (outcome-eligible, dev window) ==")
     tab = pd.crosstab(oc["pit_confluence"].astype(int), oc["confluence_count"])
     print(tab.rename_axis(index="PIT count", columns="stored (full-run) count"))
-    inflated = oc["confluence_count"] > oc["pit_confluence"]
-    print(f"stored count exceeds the decision-time count on {inflated.mean():.1%} of events")
 
     members = oc[oc["pit_member"]].copy()
     pit = members["pit_confluence"].astype(int)
     print(f"\n== matched deltas, PIT members (strata: {' x '.join(STRATA)}) ==")
     _report_variant(members, "PIT confluence >= 2 vs == 1 (headline)", pit >= 2, pit == 1, ci=True)
-    _report_variant(members, "PIT confluence == 2 vs == 1 (neighbor)", pit == 2, pit == 1, ci=False)
-    _report_variant(members, "PIT confluence == 3 vs == 1 (neighbor)", pit == 3, pit == 1, ci=False)
+    _report_variant(members, "PIT confluence == 2 vs == 1 (neighbor)", pit == 2, pit == 1, ci=True)
+    _report_variant(members, "PIT confluence == 3 vs == 1 (neighbor)", pit == 3, pit == 1, ci=True)
 
     pit_all = oc["pit_confluence"].astype(int)
     r = stratified_delta(oc, pit_all >= 2, pit_all == 1, "max_favorable_move_atr")
@@ -329,9 +331,9 @@ def main() -> None:
     parser.add_argument("command", choices=["build", "report"])
     args = parser.parse_args()
     if args.command == "build":
-        build(args)
+        build()
     else:
-        report(args)
+        report()
 
 
 if __name__ == "__main__":
