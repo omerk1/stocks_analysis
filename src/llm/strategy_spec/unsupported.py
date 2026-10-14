@@ -77,21 +77,23 @@ def _time(row: dict) -> datetime:
     return datetime.fromisoformat(row["time"])
 
 
+def _is_text(x) -> bool:
+    """A non-blank string, as the spec's own text fields are."""
+    return isinstance(x, str) and bool(x.strip())
+
+
 def _readable(row) -> bool:
     """A line a reader can rely on: wording, reason, at least one field, an aware time, and
     `details` (optional, since the summary doesn't use it) as `{field: [details]}`, every
     key one of the line's fields and every detail text. Shape only: reasons and fields
     aren't checked against today's schema, so old lines still count after it changes."""
-    def text(x) -> bool:
-        return isinstance(x, str) and bool(x.strip())
-
-    if not (isinstance(row, dict) and text(row.get("requested")) and text(row.get("reason"))
+    if not (isinstance(row, dict) and _is_text(row.get("requested")) and _is_text(row.get("reason"))
             and isinstance(row.get("fields"), list) and row["fields"]
-            and all(text(f) for f in row["fields"]) and isinstance(row.get("time"), str)):
+            and all(_is_text(f) for f in row["fields"]) and _is_text(row.get("time"))):
         return False
     details = row.get("details", {})
     if not (isinstance(details, dict) and set(details) <= set(row["fields"])
-            and all(isinstance(d, list) and d and all(isinstance(x, str) for x in d) for d in details.values())):
+            and all(isinstance(d, list) and d and all(_is_text(x) for x in d) for d in details.values())):
         return False
     try:
         return _time(row).utcoffset() is not None
