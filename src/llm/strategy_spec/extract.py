@@ -72,8 +72,8 @@ applies its own conventions, and filling them in from habit is not your job.
 - Null means "the idea didn't say". A description holds the trader's own words, never \
 your commentary — if the idea doesn't mention a section, the whole section stays null \
 instead of a description that says it wasn't mentioned. `not_applicable` is true only \
-when the idea itself rules the section out in so many words (say, "this is a single-bar \
-event, there's nothing to form"); silence is null, never `not_applicable`. That holds \
+when the idea itself rules the section out in so many words (say, "there's no pattern \
+to measure here, it happens on one bar"); silence is null, never `not_applicable`. That holds \
 even when your own market knowledge says a section obviously doesn't apply — if the \
 idea didn't say it, leave it null and the trader confirms it in the follow-up, not you.
 - The reverse too: when the idea does state something, in words alone, capture those \
@@ -164,7 +164,7 @@ class Case:
     fields: dict[str, Expectation]
     flags: tuple[ExpectedFlag, ...]
     # True on an idea where nothing is testable, so any flag beyond the required ones is
-    # acceptable whatever its wording or reason label: nothing counts as unexpected.
+    # acceptable whatever its wording or reason label: extras are shown but not penalised.
     extra_flags_ok: bool = False
 
 
@@ -224,11 +224,14 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
             if any(f.has and not request_wording(f.has) for f in flags):
                 # "_" folds to nothing, and an empty wording means "match any".
                 raise ValueError("has a flag wording that folds to nothing")
+            extra_ok = item.get("extra_flags_ok", False)
+            if not isinstance(extra_ok, bool):
+                raise ValueError(f"extra_flags_ok must be true or false, not {extra_ok!r}")
         except ValueError as e:
             raise ValueError(f"case {cid!r}: {e}") from e
         except (KeyError, TypeError, AttributeError) as e:  # an authoring mistake names its case
             raise ValueError(f"case {cid!r}: {type(e).__name__}: {e}") from e
-        cases.append(Case(cid, idea, fields, flags, item.get("extra_flags_ok", False)))
+        cases.append(Case(cid, idea, fields, flags, extra_ok))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
     return cases
@@ -282,6 +285,7 @@ class CaseScore:
     missed: tuple[str, ...]  # required flags that didn't appear
     caught: int  # required flags that did
     unexpected: tuple[str, ...]  # flagged requests matching no expected entry
+    waived: bool = False  # the case accepts extras: `unexpected` is shown, not penalised
 
     def count(self, outcome: str) -> int:
         return sum(1 for o in self.outcomes.values() if o == outcome)
@@ -293,10 +297,10 @@ def score_case(spec: StrategySpec, case: Case) -> CaseScore:
     required = [f for f in case.flags if not f.optional]
     missed = tuple(f.has for f in required
                    if not any(f.matches(g.requested, g.reason) for g in groups))
-    unexpected = () if case.extra_flags_ok else tuple(
-        g.requested for g in groups
-        if not any(f.matches(g.requested, g.reason) for f in case.flags))
-    return CaseScore(case.id, outcomes, missed, len(required) - len(missed), unexpected)
+    unexpected = tuple(g.requested for g in groups
+                       if not any(f.matches(g.requested, g.reason) for f in case.flags))
+    return CaseScore(case.id, outcomes, missed, len(required) - len(missed), unexpected,
+                     waived=case.extra_flags_ok)
 
 
 def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
@@ -310,7 +314,9 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
     for s in scores:
         n_required = s.caught + len(s.missed)
         caught, required = caught + s.caught, required + n_required
-        flag_note = f"{s.caught}/{n_required}" + (f" +{len(s.unexpected)}!" if s.unexpected else "")
+        # "+N!" is a penalty; "+N" alone means the case waives extras but they stay visible.
+        extra = f" +{len(s.unexpected)}" + ("" if s.waived else "!") if s.unexpected else ""
+        flag_note = f"{s.caught}/{n_required}" + extra
         lines.append(f"{s.case_id:<32} {s.count('correct'):>7} {s.count('left_blank'):>6} "
                      f"{s.count('invented'):>8} {s.count('wrong'):>5} {s.count('unscored'):>8}  {flag_note}")
         for outcome in OUTCOMES:
@@ -321,7 +327,8 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
                 want = exp.values if exp.form == "values" else exp.form
                 misses.append(f"  {s.case_id} {f}: {o} (expected {want!r})")
         misses.extend(f"  {s.case_id} flag missed: {m!r}" for m in s.missed)
-        misses.extend(f"  {s.case_id} unexpected flag: {u!r}" for u in s.unexpected)
+        label = "extra flag (waived)" if s.waived else "unexpected flag"
+        misses.extend(f"  {s.case_id} {label}: {u!r}" for u in s.unexpected)
     lines.append(f"{'totals':<32} {totals['correct']:>7} {totals['left_blank']:>6} "
                  f"{totals['invented']:>8} {totals['wrong']:>5} {totals['unscored']:>8}  "
                  f"{caught}/{required}")
