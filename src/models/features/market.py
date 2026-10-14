@@ -58,12 +58,16 @@ class PanelContext:
     fundamentals, earnings: rows of the `fundamentals` and
         `earnings_announcements` tables (`fundamentals.load_tables`) for the
         company-financials columns; None = those columns are NaN.
+    splits: ticker -> (execution_date, ratio), set by `registry.compute_registered`
+        from the splits it is given (so the leakage gate's future split reaches
+        it); the per-share columns use it.
     """
     membership: pd.DataFrame | None = None
     sectors: pd.Series | None = None
     benchmark: str = BENCHMARK
     fundamentals: pd.DataFrame | None = None
     earnings: pd.DataFrame | None = None
+    splits: dict | None = None
 
 
 def members_from_intervals(intervals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:

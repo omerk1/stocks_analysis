@@ -209,7 +209,8 @@ def synthetic_bars(
     return pd.concat(parts, ignore_index=True)
 
 
-def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+def synthetic_filings(bars: pd.DataFrame, seed: int = 0,
+                      splits: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(fundamentals, earnings) rows shaped like the `fundamentals` and
     `earnings_announcements` tables (`features.fundamentals.load_tables`) for
     every ticker of `bars`: quarters while it's listed (fiscal years ending in
@@ -217,7 +218,9 @@ def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, 
     ended but isn't filed yet), results out 20-35 days after the quarter ends
     and the 10-Q 0-20 days later; net income and revenue per quarter, equity
     and long-term debt at each quarter end. Every other ticker switches its
-    revenue tag halfway to a narrower one (a measure change)."""
+    revenue tag halfway to a narrower one (a measure change). Diluted EPS is
+    net income over 10 shares, reported, like a real filer, in the share basis
+    of its filing day: scaled by every split in `splits` executed after it."""
     rng = np.random.default_rng(seed)
     fund, earn = [], []
     for i, (ticker, g) in enumerate(bars.groupby("ticker", sort=True)):
@@ -231,8 +234,13 @@ def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, 
         income = revenue * rng.normal(0.08, 0.06, n)
         # every other ticker, so the switch meets all three fiscal year-ends
         tags = np.where((i % 2 == 0) & (np.arange(n) >= n // 2), "SalesRevenueGoodsNet", "Revenues")
+        later = np.ones(n)
+        for when, ratio in (splits or {}).get(ticker, pd.DataFrame(columns=["execution_date", "ratio"])).itertuples(
+                index=False):
+            later = later * np.where(available < pd.Timestamp(when), ratio, 1.0)
         for concept, period_type, values, tag in (
             ("revenue", "quarter", revenue, tags), ("net_income", "quarter", income, "NetIncomeLoss"),
+            ("eps_diluted", "quarter", income / 10 * later, "EarningsPerShareDiluted"),
             ("equity", "instant", revenue * rng.normal(3.0, 0.5, n), "StockholdersEquity"),
             ("long_term_debt", "instant", revenue * rng.uniform(0.5, 2.0, n), "LongTermDebt"),
         ):

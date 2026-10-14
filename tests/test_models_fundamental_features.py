@@ -67,6 +67,33 @@ def test_sue_scales_the_year_over_year_change_by_the_spread_of_earlier_changes()
     assert np.isnan(_at(out, available[6] + pd.offsets.BDay(1), "sue_net_income"))
 
 
+def test_eps_surprise_sees_through_a_split_and_drops_scale_errors():
+    ends = pd.date_range("2017-03-31", "2020-12-31", freq="QE")
+    eps = np.array([1.0, 1.1, 1.2, 1.3, 1.1, 1.3, 1.2, 1.6, 1.3, 1.2, 1.5, 1.5, 1.4, 2.0, 1.4, 3.0])
+    available = pd.DatetimeIndex([e + pd.Timedelta(days=35) for e in ends])
+    split = pd.Timestamp("2019-08-15")  # a 4-for-1 split: filings after it report a quarter of the EPS
+    as_filed = np.where(available > split, eps / 4, eps)
+    rows = _rows("eps_diluted", as_filed, available, tag="EarningsPerShareDiluted", ends=ends)
+    splits = {"AAA": pd.DataFrame({"execution_date": [split], "ratio": [4.0]})}
+    out = F.panel_features(BARS, PanelContext(fundamentals=rows, splits=splits))
+    plain = _features(_rows("eps_diluted", eps, available, tag="EarningsPerShareDiluted", ends=ends))
+    pd.testing.assert_series_equal(out["sue_eps"], plain["sue_eps"], rtol=1e-5)
+    assert out["sue_eps"].notna().any()
+
+    broken = rows.copy()
+    broken.loc[15, "value"] = 3.0e-9  # a scale error in the last quarter: dropped, not a huge surprise
+    out = F.panel_features(BARS, PanelContext(fundamentals=broken, splits=splits))
+    assert _at(out, available[15], "sue_eps") == _at(out, available[14], "sue_eps")  # the previous quarter's
+
+
+def test_revenue_acceleration_is_the_change_in_year_over_year_growth():
+    rows = _rows("revenue", [100, 100, 100, 100, 110, 120, 125, 125], AVAILABLE)
+    out = _features(rows)
+    assert np.isnan(_at(out, AVAILABLE[4], "rev_growth_accel"))  # no growth for the quarter before
+    assert _at(out, AVAILABLE[5], "rev_growth_accel") == pytest.approx(0.2 - 0.1)
+    assert _at(out, AVAILABLE[7], "rev_growth_accel") == pytest.approx(0.0)
+
+
 def test_net_margin_needs_four_quarters_and_debt_to_equity_needs_positive_equity():
     revenue = _rows("revenue", [100, 100, 100, 100, 100], AVAILABLE)
     income = _rows("net_income", [10, 20, 30, 40, 50], AVAILABLE, tag="NetIncomeLoss")
@@ -122,7 +149,8 @@ def test_the_gate_catches_a_value_used_from_its_quarter_end(monkeypatch):
     assert ((f["period_end"] <= cut) & (f["available_date"] > cut)).any()  # filings straddle the cut
     real = F.quarter_features
     monkeypatch.setattr(F, "quarter_features",
-                        lambda fundamentals: {k: v.assign(known_at=v["period_end"]) for k, v in real(fundamentals).items()})
+                        lambda fundamentals, splits=None: {k: v.assign(known_at=v["period_end"])
+                                                           for k, v in real(fundamentals, splits).items()})
     result = gates.leakage_gate(bars, splits, cut, context=context)
     assert result["leaks"]["future_filings"]
 

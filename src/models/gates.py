@@ -474,7 +474,7 @@ def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     bars.loc[before, _price_cols()] = bars.loc[before, _price_cols()].to_numpy() / 0.25
     bars.loc[before, "volume"] = bars.loc[before, "volume"].to_numpy() * 0.25
     splits = {ticker: pd.DataFrame({"execution_date": [when], "ratio": [0.25]})}
-    fundamentals, earnings = synthetic_filings(bars[bars["ticker"] != market.BENCHMARK], seed=seed)
+    fundamentals, earnings = synthetic_filings(bars[bars["ticker"] != market.BENCHMARK], seed=seed, splits=splits)
     context = market.PanelContext(membership=membership.reset_index(drop=True), sectors=sectors,
                                   fundamentals=fundamentals, earnings=earnings)
     return {PriceBasis.TOTAL_RETURN: bars, PriceBasis.TRADED: bars.copy()}, splits, cut, context

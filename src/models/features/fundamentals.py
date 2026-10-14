@@ -13,11 +13,22 @@ dated before a filing.
 - `sue_net_income`: standardized unexpected earnings against the company's
   own history (no analyst consensus): net income minus the same quarter a
   year earlier, over the standard deviation of that change across the
-  previous 8 quarters (at least 4). Net income, not EPS: the stored EPS is as
-  filed, so it jumps at splits and carries scale errors.
+  previous 8 quarters (at least 4).
+- `sue_eps`: the same on diluted EPS, which adds what net income misses --
+  buybacks and dilution. Stored EPS is as filed, so it's first put on one
+  share basis with the ticker's splits (`PanelContext.splits`): each value
+  divided by every split executed after its filing. That basis uses later
+  splits, but a SUE is a ratio and every value in one quarter's window gets
+  the same factor from the splits after that quarter's filing, so the result
+  equals a computation with only the splits known then. Values under 0.001
+  or over 1,000 in absolute terms are dropped as XBRL scale errors (BBWI's
+  2010-2015 run, WMT's Q4 FY2020).
 - `rev_growth_yoy`: revenue over the same quarter a year earlier, minus 1;
   only when both measure the same thing (the same XBRL tag, or two of the
   total-revenue tags in `REVENUE_FAMILY`) and are positive.
+- `rev_growth_accel`: this quarter's `rev_growth_yoy` minus the previous
+  quarter's -- whether growth is speeding up, without the seasonality a plain
+  quarter-over-quarter change carries.
 - `net_margin_ttm`: trailing four quarters' net income over their revenue.
 - `debt_to_equity`: long-term debt (current maturities included, else the
   noncurrent part) over equity, at the latest balance-sheet date; NaN when
@@ -36,8 +47,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income", "rev_growth_yoy",
-           "net_margin_ttm", "debt_to_equity")
+COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income", "sue_eps", "rev_growth_yoy",
+           "rev_growth_accel", "net_margin_ttm", "debt_to_equity")
+EPS_PLAUSIBLE = (1e-3, 1e3)  # |EPS| outside this is an XBRL scale error (0 is kept)
+QUARTER_GAP = (80, 100)  # days between consecutive quarter ends
 YEAR_AGO_DAYS, YEAR_AGO_TOLERANCE = 365, 15
 SUE_WINDOW, SUE_MIN = 8, 4
 MAX_AGE_DAYS = 200
@@ -86,16 +99,54 @@ def _rolling(s: pd.Series, by: pd.Series, window: int, how: str, min_periods: in
     return out.reset_index(level=0, drop=True).sort_index()
 
 
-def _quarters(fundamentals: pd.DataFrame) -> pd.DataFrame:
-    """One row per (ticker, quarter end) with net income and revenue, their
-    availability and revenue's tag; sorted by ticker, period_end."""
+def split_adjusted(rows: pd.DataFrame, splits: dict[str, pd.DataFrame] | None) -> pd.DataFrame:
+    """Per-share `value`s divided by the ratio of every split of their ticker
+    executed after their `available_date` (a filing already reports in the
+    share basis of its day): all on the basis after the last split."""
+    rows = rows.copy()
+    for ticker, s in (splits or {}).items():
+        if s is None or s.empty:
+            continue
+        mine = (rows["ticker"] == ticker).to_numpy()
+        if not mine.any():
+            continue
+        s = s.sort_values("execution_date")
+        when = pd.to_datetime(s["execution_date"]).astype("datetime64[ns]").to_numpy()
+        after = np.r_[np.cumprod(s["ratio"].to_numpy(dtype=float)[::-1])[::-1], 1.0]  # product of splits from i on
+        i = np.searchsorted(when, rows.loc[mine, "available_date"].to_numpy(), side="right")
+        rows.loc[mine, "value"] = rows.loc[mine, "value"].to_numpy() / after[i]
+    return rows
+
+
+def _quarters(fundamentals: pd.DataFrame, splits: dict[str, pd.DataFrame] | None = None) -> pd.DataFrame:
+    """One row per (ticker, quarter end) with net income, revenue and diluted
+    EPS (split-adjusted, scale errors dropped), their availability and
+    revenue's tag; sorted by ticker, period_end."""
     q = fundamentals[fundamentals["period_type"] == "quarter"]
-    parts = []
-    for concept, short in (("net_income", "ni"), ("revenue", "rev")):
-        c = _in_order(q.loc[q["concept"] == concept, ["ticker", "period_end", "value", "available_date", "tag"]])
-        parts.append(c.rename(columns={"value": short, "available_date": f"{short}_at", "tag": f"{short}_tag"}))
-    out = parts[0].merge(parts[1], on=["ticker", "period_end"], how="outer")
+    cols = ["ticker", "period_end", "value", "available_date", "tag"]
+    eps = q.loc[q["concept"] == "eps_diluted", cols]
+    size = eps["value"].abs()
+    eps = split_adjusted(eps[(size == 0) | size.between(*EPS_PLAUSIBLE)], splits)
+    out = None
+    for short, rows in (("ni", q.loc[q["concept"] == "net_income", cols]),
+                        ("rev", q.loc[q["concept"] == "revenue", cols]), ("eps", eps)):
+        part = _in_order(rows).rename(columns={"value": short, "available_date": f"{short}_at", "tag": f"{short}_tag"})
+        out = part if out is None else out.merge(part, on=["ticker", "period_end"], how="outer")
     return out.sort_values(["ticker", "period_end"], ignore_index=True)
+
+
+def _sue(q: pd.DataFrame, prev: pd.DataFrame, value: str) -> pd.DataFrame:
+    """Events for the SUE of column `value` (`<value>_at` its availability)."""
+    at = f"{value}_at"
+    change = q[value] - prev[value]
+    spread = _rolling(change.groupby(q["ticker"]).shift(1), q["ticker"], SUE_WINDOW, "std", SUE_MIN)
+    # everything read: this quarter, its year-ago, and the window's quarters and year-agos;
+    # an event exists only once the quarter's own value is known (a quarter with revenue
+    # but no net income yet mustn't count as known from its inputs' dates)
+    read_at = pd.concat([q[at], prev[at]], axis=1).max(axis=1)
+    known_at = _rolling_max_dates(read_at, q["ticker"], SUE_WINDOW + 1).where(q[at].notna())
+    return pd.DataFrame({"ticker": q["ticker"], "period_end": q["period_end"], "known_at": known_at,
+                         "value": change / spread.where(spread > 0)})
 
 
 def _rolling_max_dates(s: pd.Series, by: pd.Series, window: int) -> pd.Series:
@@ -103,34 +154,37 @@ def _rolling_max_dates(s: pd.Series, by: pd.Series, window: int) -> pd.Series:
     return pd.to_datetime(_rolling(as_int, by, window, "max", 1))
 
 
-def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def quarter_features(fundamentals: pd.DataFrame,
+                     splits: dict[str, pd.DataFrame] | None = None) -> dict[str, pd.DataFrame]:
     """Per feature, its events: (ticker, period_end, known_at, value), one per
     quarter or balance-sheet date. `known_at` is the latest availability of
-    every value the feature read."""
+    every value the feature read. `splits`: ticker -> (execution_date, ratio),
+    for EPS."""
     fundamentals = _ns(fundamentals, ["period_end", "available_date"])  # date arithmetic below assumes ns
-    q = _quarters(fundamentals)
+    q = _quarters(fundamentals, splits)
     events = {}
     if len(q):
-        prev = _year_ago(q, ["ni", "ni_at", "rev", "rev_at", "rev_tag"])
+        prev = _year_ago(q, ["ni", "ni_at", "rev", "rev_at", "rev_tag", "eps", "eps_at"])
         # SUE: the change vs a year earlier, scaled by the spread of the previous changes
-        change = q["ni"] - prev["ni"]
-        spread = _rolling(change.groupby(q["ticker"]).shift(1), q["ticker"], SUE_WINDOW, "std", SUE_MIN)
-        sue = (change / spread.where(spread > 0))
-        # everything read: this quarter, its year-ago, and the window's quarters and year-agos
-        read_at = pd.concat([q["ni_at"], prev["ni_at"]], axis=1).max(axis=1)
-        # an event exists only once the quarter's own value is known (a quarter with
-        # revenue but no net income yet mustn't count as known from its inputs' dates)
-        sue_at = _rolling_max_dates(read_at, q["ticker"], SUE_WINDOW + 1).where(q["ni_at"].notna())
-        events["sue_net_income"] = pd.DataFrame({"ticker": q["ticker"], "period_end": q["period_end"],
-                                                 "known_at": sue_at, "value": sue})
+        events["sue_net_income"] = _sue(q, prev, "ni")
+        events["sue_eps"] = _sue(q, prev, "eps")
 
         family = lambda tags: tags.map(lambda t: REVENUE_FAMILY.get(t, t), na_action="ignore")
         same_tag = q["rev_tag"].notna() & (family(q["rev_tag"]) == family(prev["rev_tag"]))
         growth = (q["rev"] / prev["rev"] - 1).where(same_tag & (q["rev"] > 0) & (prev["rev"] > 0))
-        events["rev_growth_yoy"] = pd.DataFrame({
-            "ticker": q["ticker"], "period_end": q["period_end"],
-            "known_at": pd.concat([q["rev_at"], prev["rev_at"]], axis=1).max(axis=1).where(q["rev_at"].notna()),
-            "value": growth})
+        growth_at = pd.concat([q["rev_at"], prev["rev_at"]], axis=1).max(axis=1).where(q["rev_at"].notna())
+        events["rev_growth_yoy"] = pd.DataFrame({"ticker": q["ticker"], "period_end": q["period_end"],
+                                                 "known_at": growth_at, "value": growth})
+        # acceleration: vs the previous quarter's growth (rows with revenue, consecutive quarters)
+        has_rev = q["rev_at"].notna()
+        g = pd.DataFrame({"ticker": q["ticker"], "period_end": q["period_end"], "growth": growth,
+                          "at": growth_at})[has_rev]
+        before = g.groupby("ticker")[["period_end", "growth", "at"]].shift(1)
+        consecutive = (g["period_end"] - before["period_end"]).dt.days.between(*QUARTER_GAP)
+        events["rev_growth_accel"] = pd.DataFrame({
+            "ticker": g["ticker"], "period_end": g["period_end"],
+            "known_at": pd.concat([g["at"], before["at"]], axis=1).max(axis=1),
+            "value": (g["growth"] - before["growth"]).where(consecutive)})
 
         by = q["ticker"]
         both = q["ni"].notna() & q["rev"].notna()
@@ -203,7 +257,7 @@ def earnings_features(rows: pd.DataFrame, earnings: pd.DataFrame) -> pd.DataFram
     return out
 
 
-CONCEPTS_READ = ("net_income", "revenue", "equity", "long_term_debt", "long_term_debt_noncurrent")
+CONCEPTS_READ = ("net_income", "revenue", "eps_diluted", "equity", "long_term_debt", "long_term_debt_noncurrent")
 
 
 def load_tables(conn, tickers: list[str], end) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -237,7 +291,7 @@ def panel_features(bars: pd.DataFrame, ctx) -> pd.DataFrame:
         out[["days_since_earnings", "days_to_earnings_expected"]] = earnings_features(
             rows, _ns(ctx.earnings, ["period_end", "reaction_date"]))
     if ctx.fundamentals is not None and len(ctx.fundamentals):
-        for col, events in quarter_features(_ns(ctx.fundamentals, ["period_end", "available_date"])).items():
+        for col, events in quarter_features(ctx.fundamentals, ctx.splits).items():
             out[col] = _as_of(rows, events)
     out[list(COLUMNS)] = out[list(COLUMNS)].astype("float32")
     return out

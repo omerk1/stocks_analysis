@@ -189,7 +189,10 @@ FEATURES = _entries("feature", "", _REG, {
                                  "same quarter's)",
     "sue_net_income": "earnings surprise: net income vs the same quarter a year earlier, in units of its "
                       "usual change",
+    "sue_eps": "earnings-per-share surprise: EPS vs the same quarter a year earlier, in units of its usual "
+               "change (split-adjusted)",
     "rev_growth_yoy": "revenue growth vs the same quarter a year earlier",
+    "rev_growth_accel": "revenue growth acceleration: this quarter's year-over-year growth minus last quarter's",
     "net_margin_ttm": "net margin over the trailing four quarters",
     "debt_to_equity": "long-term debt over equity",
 })

@@ -166,13 +166,18 @@ Simple, well-known ones only, all computed point-in-time:
 - Registered in the model's feature registry like any other feature.
 
 **As built (2026-10-14), part one (valuation is the second):** `src/models/features/fundamentals.py`,
-registered as group `fundamentals` (prior null: untested here). Six columns:
+registered as group `fundamentals` (prior null: untested here). Eight columns. Plain
+quarter-over-quarter growth (revenue or EPS) is left out on purpose: it mostly measures
+seasonality, and EPS percent growth blows up near zero; acceleration and the EPS surprise
+replace them.
 
 | Column | What it is |
 |---|---|
 | `days_since_earnings` | business days since the last earnings reaction date |
 | `days_to_earnings_expected` | business days to the *expected* next one: the same quarter's reaction a year earlier + 52 weeks, 0 when overdue. Never the realized date |
 | `sue_net_income` (+ rank) | the surprise against the company's own history: net income minus the same quarter a year earlier, over the standard deviation of the previous 8 such changes (at least 4). Net income, not EPS, because stored EPS isn't split-adjusted |
+| `sue_eps` (+ rank) | the same on diluted EPS, which adds buybacks and dilution (corr 0.85 with the net-income version on 20 large caps). EPS is put on one share basis with the splits table; since a SUE is a ratio and every value in a quarter's window gets the same factor from later splits, this equals using only the splits known at the time. \|EPS\| under 0.001 or over 1,000 is dropped as a scale error |
+| `rev_growth_accel` | this quarter's YoY revenue growth minus the previous quarter's: whether growth is speeding up. Stands in for quarter-over-quarter growth, which mostly measures seasonality |
 | `rev_growth_yoy` (+ rank) | revenue vs the same quarter a year earlier; only when both measure the same thing: the same tag, or two total-revenue tags, since ASC 606 moved nearly every filer between them in 2018 |
 | `net_margin_ttm` | trailing four quarters' net income over their revenue |
 | `debt_to_equity` | long-term debt (total, else noncurrent) over equity; NaN for non-positive equity or no debt tag |

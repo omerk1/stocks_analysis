@@ -26,7 +26,7 @@ Not yet here (§7, for the ablation step): grouping beyond this file's
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import pandas as pd
@@ -181,8 +181,12 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("days_to_earnings_expected", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
                 note="the expected date (a year after the same quarter's), never the realized one"),
     FeatureSpec("sue_net_income", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True,
-                note="net income, not EPS: stored EPS isn't split-adjusted"),
+                note="net income: leaves out buybacks and dilution, which sue_eps carries"),
+    FeatureSpec("sue_eps", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True,
+                note="diluted EPS on one share basis via the splits; scale errors dropped"),
     FeatureSpec("rev_growth_yoy", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True),
+    FeatureSpec("rev_growth_accel", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
+                note="change in YoY growth vs the previous quarter; the seasonality-free stand-in for QoQ"),
     FeatureSpec("net_margin_ttm", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
     FeatureSpec("debt_to_equity", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
@@ -255,7 +259,7 @@ def compute_registered(
     one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker;
     `context` is what panel sources read besides bars (default: every ticker
     passed is a member, no sectors)."""
-    context = context if context is not None else market.PanelContext()
+    context = replace(context if context is not None else market.PanelContext(), splits=splits)
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:
