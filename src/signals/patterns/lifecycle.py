@@ -111,7 +111,14 @@ def _walk_post_breakout(
     closes = df["close"].to_numpy()
 
     match.breakout_bar = breakout_bar
-    match.entry_price = float(closes[breakout_bar])
+    # One-bar lag: the breakout is only knowable on `breakout_bar`'s close,
+    # so the earliest executable entry is the *next* bar's open. The close
+    # of the breakout bar itself is a signal level, not a fill -- measuring
+    # returns from it silently banks the close-to-open move no trader
+    # acting on that close can capture. A breakout on the last visible bar
+    # has no next open yet, so the trade has no entry (None), not a
+    # same-close fallback.
+    match.entry_price = float(df["open"].to_numpy()[breakout_bar + 1]) if breakout_bar + 1 < n else None
     rel_vol = volume_mod.rel_volume(float(volume.iloc[breakout_bar]), float(volume_sma_series.iloc[breakout_bar]))
     match.volume_confirmed = rel_vol is not None and rel_vol >= config.breakout_volume_mult
 
@@ -178,6 +185,8 @@ def apply_lifecycle(
     end of `df`, resolving `match.status` (and, once a breakout is found,
     `match.breakout_bar`/`match.entry_price`/`match.volume_confirmed`) in
     place. Returns `match` for convenience; also mutates it.
+    `match.entry_price` is the open of the bar *after* the breakout bar
+    (one-bar lag; None when the breakout bar is the last visible bar).
 
     `match.direction` decides which side is "the breakout": BEARISH breaks
     *below* `trigger_at` (a close under `trigger_at(i) * (1 -
