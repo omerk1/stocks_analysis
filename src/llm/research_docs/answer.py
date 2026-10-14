@@ -34,14 +34,14 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from llama_index.core.schema import NodeWithScore
+from llama_index.core.schema import MetadataMode, NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import Budget, GeminiClient, Usage
 from src.llm.research_docs.retrieve import TOP_K, cite
 
 PURPOSE = "research_docs.answer"
-BUDGET = Budget(max_input_tokens=8_000, max_output_tokens=1_000)
+BUDGET = Budget(max_input_tokens=8_000, max_output_tokens=2_000)
 
 SYSTEM = """\
 You answer questions about one trading-research project, using only the numbered sources
@@ -79,18 +79,25 @@ class Answered:
 
 
 def build_prompt(question: str, sources: Sequence[NodeWithScore]) -> str:
-    """The question, then each source as `[n] where it's from` and its text."""
-    blocks = [f"[{n}] {cite(h.node)}\n{h.node.get_content().strip()}" for n, h in enumerate(sources, 1)]
+    """The question, then each source as `[n] where it's from` and its text. The text is
+    what the embedding model and re-ranker saw: an experiment row's `tier` and `outcome`
+    live in its metadata (`chunk.ROW_ID_COLUMNS`), not its plain text."""
+    blocks = [f"[{n}] {cite(h.node)}\n{h.node.get_content(metadata_mode=MetadataMode.EMBED).strip()}"
+              for n, h in enumerate(sources, 1)]
     return f"Question: {question}\n\nSources:\n\n" + "\n\n".join(blocks)
 
 
 def cited(text: str) -> list[int]:
-    """Source numbers cited in `text`, in order of first appearance: [2], [1][4], [1, 3]."""
+    """Source numbers cited in `text`, in order of first appearance: [2], [1][4], [1, 3],
+    [1-3]."""
     out: list[int] = []
-    for group in re.findall(r"\[(\d+(?:\s*,\s*\d+)*)\]", text):
-        for n in (int(x) for x in group.split(",")):
-            if n not in out:
-                out.append(n)
+    item = r"\d+(?:\s*[-\u2013]\s*\d+)?"
+    for group in re.findall(rf"\[({item}(?:\s*,\s*{item})*)\]", text):
+        for part in group.split(","):
+            lo, _, hi = re.sub(r"\s", "", part).replace("\u2013", "-").partition("-")
+            for n in range(int(lo), int(hi or lo) + 1):
+                if n not in out:
+                    out.append(n)
     return out
 
 

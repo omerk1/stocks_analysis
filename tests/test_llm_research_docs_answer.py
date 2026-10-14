@@ -27,14 +27,21 @@ class FakeClient:
 def test_the_prompt_numbers_each_source_with_where_it_comes_from():
     prompt = build_prompt("Why was B5 dropped?", SOURCES)
     assert prompt.startswith("Question: Why was B5 dropped?")
-    assert "[1] docs/x.md > Baselines\nB5 was dropped as too fragile." in prompt
-    assert "[2] docs/x.md > #79\nEntry #79 retired B1." in prompt
+    assert "[1] docs/x.md > Baselines\n" in prompt and "B5 was dropped as too fragile." in prompt
+    assert "[2] docs/x.md > #79\n" in prompt and "Entry #79 retired B1." in prompt
+
+
+def test_the_prompt_keeps_an_experiment_rows_ids_that_live_in_metadata():
+    row = _hit("r", "point_estimate: -0.004", {"cell_id": "dist_h21", "tier": "3", "outcome": "weak"})
+    prompt = build_prompt("What tier did dist_h21 get?", [row])
+    assert "tier: 3" in prompt and "outcome: weak" in prompt and "point_estimate: -0.004" in prompt
 
 
 @pytest.mark.parametrize("text, want", [
     ("Fragile [1]. Retired [2].", [1, 2]),
     ("Both [2][1], again [1].", [2, 1]),
     ("Listed [1, 3].", [1, 3]),
+    ("A range [1-3], another [4\u20135].", [1, 2, 3, 4, 5]),
     ("No citation, and a year [2021 is not one] nor is [a].", []),
 ])
 def test_cited_reads_every_citation_form(text, want):
