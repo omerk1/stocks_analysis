@@ -60,6 +60,28 @@ touches research or the model.
 - **Payoff right away:** an "earnings inside the horizon" flag for the model, and a
   measurement of how much barrier noise comes from earnings gaps.
 
+**As built (2026-10-14):** `sec_earnings.py` + `bulk_sec_earnings_ingest.py`, table
+`earnings_announcements`. Two changes from the outline above, both found in the data:
+
+- **Anchored on the quarterly report, not on every item 2.02 8-K.** Banks and insurers
+  also file item 2.02 for mid-quarter conference presentations (PNC: 8–16 a year). So
+  each row is one 10-Q/10-K period, and its announcement is the first item 2.02 8-K
+  between the period end and the report's filing day, falling back to the report itself
+  (flagged in `source`) when there is none. This also answers the 10-Q/10-K fallback
+  question below.
+- **Predecessor CIKs.** A holding-company reorganisation moves a company to a new CIK
+  (Alphabet, Disney, Cigna, BlackRock, Exxon...), and SEC's ticker file gives only
+  today's. A hand-checked map (`PREDECESSOR_CIKS`) adds the earlier history.
+
+Not covered: foreign filers (20-F/6-K, no 10-Q: Baidu, JD, ASML...) and delisted members
+without a verified CIK, the same gap the share counts and sectors have.
+
+**Look-ahead warning for whoever builds the flag:** a realized announcement date is
+future information on any day before it. A model feature must use the *expected* next
+date as known on the day (e.g. the same quarter last year + one year, or the last
+reaction date + the company's usual spacing); realized dates are for labels and
+diagnostics only.
+
 ### 2. Fundamentals table
 
 - Quarterly and annual facts from `companyfacts.zip`: revenue, EPS (basic and diluted),
@@ -132,6 +154,6 @@ EDGAR).
 
 - Table layout: one long facts table (ticker, concept, period, filed, value) or wide
   per-quarter rows?
-- Does step 1 also pick up 10-Q/10-K filing dates as a fallback when no item 2.02 8-K
-  exists (smaller filers)?
+- ~~Does step 1 also pick up 10-Q/10-K filing dates as a fallback when no item 2.02 8-K
+  exists?~~ Yes, flagged in `source` (step 1, "As built").
 - Universe: S&P 500 + Nasdaq-100 first (the modeling universe), or everything EDGAR has?
