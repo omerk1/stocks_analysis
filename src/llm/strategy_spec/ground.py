@@ -6,8 +6,8 @@ What one session does: dispatch the spec's detector (`spec.uses`) to a finder
 (`finders.py`), report the search rubric (every parameter actually applied and where it
 came from) and the population size (how often the definition fires, on how many distinct
 dates — 40,000 firings on 55 dates means the definition is a regime, not a setup), sample
-a handful of matches plus near-misses, chart each one (`charts.py`, truncated right after
-the trigger), collect accept/reject verdicts **blind** — near-misses are interleaved
+a handful of matches plus near-misses, chart each one (`charts.py`, ending on the trigger
+bar), collect accept/reject verdicts **blind** — near-misses are interleaved
 unlabelled, or the trader would know to reject them — then reveal, and record verdicts in
 `spec.examples` (the slot waiting in the schema since step 1).
 
@@ -44,6 +44,7 @@ API or needs the network.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import random
 from dataclasses import dataclass, field as dataclass_field
@@ -55,7 +56,7 @@ import pandas as pd
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import charts
 from src.llm.strategy_spec.finders import (
-    DEFAULT_MA, FINDERS, Candidate, FinderResult, GroundingError, MA_COLUMNS, _unlagged)
+    DEFAULT_MA, FINDERS, Candidate, FinderResult, GroundingError, MA_COLUMNS, shift_to_signal_bar)
 from src.llm.strategy_spec.schema import Example, StrategySpec
 from src.models.dataset import check_holdout
 
@@ -151,13 +152,14 @@ class Session:
     shown: list[Shown] = dataclass_field(default_factory=list)
 
     def save(self, path: Path, blind: bool = True) -> None:
-        """`blind` (the default, used while verdicts are being collected) leaves each
-        instance's truth — match or near-miss, and which constraint fails — out of the
-        on-disk file: it sits in the same directory as the charts the trader is told to
-        open, and one glance at an unblinded file would tell them which instances to
-        reject, making the near-miss probe measure nothing. The full record is written
-        once the loop is over (the reveal says it all anyway); a session killed mid-loop
-        can recover the truth by re-running the finder with the recorded seed."""
+        """An instance's truth — match or near-miss, and which constraint fails — is
+        written to disk only for instances the trader has already judged, and only once
+        the loop is over (`blind=False`): the file sits in the same directory as the
+        charts the trader is told to open, and one glance at an unblinded row would tell
+        them to reject that instance, making the near-miss probe measure nothing. An
+        instance never judged keeps its truth off disk even in the final save, so a
+        session stopped early (or killed) doesn't pre-burn the sample for a later blind
+        round; the reveal only speaks about answered instances anyway."""
         answered = [s for s in self.shown if s.verdict is not None]
         path.write_text(json.dumps({
             "detector": self.detector,
@@ -166,8 +168,9 @@ class Session:
             "seed": self.seed,
             "shown": [{
                 "ticker": s.candidate.ticker, "date": str(s.candidate.date.date()),
-                **({} if blind else {"kind": "near_miss" if s.candidate.fails else "match",
-                                     "fails": s.candidate.fails}),
+                **({} if blind or s.verdict is None
+                   else {"kind": "near_miss" if s.candidate.fails else "match",
+                         "fails": s.candidate.fails}),
                 "chart": s.chart, "verdict": s.verdict, "comment": s.comment,
             } for s in self.shown],
             **({} if blind else {"clean_round": (
@@ -193,7 +196,13 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
         raise GroundingError("the panel is empty — nothing to ground against")
     check_holdout(panel["date"].max())
     finder_id = pick_finder(spec, detector)
-    result: FinderResult = FINDERS[finder_id](spec, panel, ma=ma)
+    finder = FINDERS[finder_id]
+    # A run option goes only to a finder that declares it: `ma` means nothing to a
+    # future pattern or divergence finder, and each finder's rubric states what it
+    # actually applied, so an undeclared option isn't silently influential either way.
+    declared = inspect.signature(finder).parameters
+    options = {name: value for name, value in {"ma": ma}.items() if name in declared}
+    result: FinderResult = finder(spec, panel, **options)
 
     say("Search rubric — what was actually applied:")
     for line in result.rubric:
@@ -228,7 +237,7 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     shown_tickers = {c.ticker for c in shown_candidates}
     display = panel.loc[panel["ticker"].isin(shown_tickers),
                         ["ticker", "date", "open", "high", "low", "close", ma]].copy()
-    display["ma_display"] = _unlagged(display, ma)
+    display["ma_display"] = shift_to_signal_bar(display, ma)
     bars_by_ticker = {ticker: frame.reset_index(drop=True)
                       for ticker, frame in display.groupby("ticker", sort=False)}
     for n, candidate in enumerate(shown_candidates, start=1):
@@ -266,7 +275,7 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
             say("Stopping here; verdicts so far are kept in the session file.")
             break
 
-    session.save(out_dir / "session.json", blind=False)  # verdicts are in; the truth can land on disk
+    session.save(out_dir / "session.json", blind=False)  # answered instances' truth can land on disk
     _reveal(session, say)
     answered = [s for s in session.shown if s.verdict is not None]
     spec = spec.model_copy(update={"examples": [

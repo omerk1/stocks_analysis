@@ -154,6 +154,10 @@ def test_stopping_early_keeps_what_was_answered(tmp_path):
     assert verdicts.count(True) == 1 and verdicts.count(None) == 2
     assert len(result.examples) == 1
     assert session["clean_round"] is False  # an unfinished round is never clean
+    # The unanswered instances' truth stays off disk even in the final save — the same
+    # sample may be judged blind in a later round.
+    for row in session["shown"]:
+        assert ("kind" in row and "fails" in row) is (row["verdict"] is not None)
 
 
 def test_unparseable_answers_stop_the_session(tmp_path):

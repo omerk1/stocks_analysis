@@ -21,12 +21,15 @@ never probe — a trader who accepts a near-miss is saying a number in the spec 
 the single most informative answer grounding can produce. The construction — run the same
 detection once per single-relaxed parameter, subtract the strict set — guarantees exactly
 this much: the instance qualifies under the spec with that one parameter relaxed, and not
-under the spec as stated. Each `fails` label claims only what that guarantees. For the
-touch tolerance and the touch window the relaxation changes nothing else, so the label
-can say precisely what the bar did; relaxing the away distance moves the away-run
-boundaries themselves, so interactions are possible and its label says "qualifies only
-when ... is relaxed", no more. For the same reason one instance can in principle appear
-in two rings; near-misses are deduplicated on (ticker, date), first ring kept.
+under the spec as stated. Each `fails` label claims only what that guarantees. The
+touch-window label can say precisely what the bar did (a run's first touch is unique, so
+widening the window changes nothing else). A relaxed touch tolerance can pull a run's
+first touch onto an earlier bar while the same run still fires strictly a few bars later
+— that bar says nothing about the tolerance, so the touch ring drops anything with a
+strict event close behind it. Relaxing the away distance moves the away-run boundaries
+themselves, so interactions are possible and its label says "qualifies only when ... is
+relaxed", no more. One instance can in principle appear in two rings; near-misses are
+deduplicated on (ticker, date), first ring kept.
 
 One finder per catalogue detector id, registered in `FINDERS`; this first slice covers
 `detector:ma.first_touch` (the golden spec, and what the first live elicitation session
@@ -35,12 +38,13 @@ converged on). It runs on the cached MA feature panel (`features/panel.py`), who
 shifts them back one bar (`groupby(ticker).shift(-1)`) so an instance's date is the
 **signal bar itself** — the close the trader must judge on a chart. That is a display
 alignment, not a bypass of the one-bar-lag invariant: grounding computes no forward
-outcome and pairs no label, and the charts are truncated right after the trigger
-(`charts.py`) precisely so no outcome information exists to leak.
+outcome and pairs no label, and the charts end on the trigger bar itself (`charts.py`)
+precisely so no outcome information exists to leak.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Literal
 
@@ -95,9 +99,13 @@ class FinderResult:
     rubric: tuple[RubricLine, ...]
 
 
-def _unlagged(panel: pd.DataFrame, column: str) -> pd.Series:
-    """The panel's one-bar-lagged `column` shifted back onto its own bar (see module
-    docstring: instance dates must be the signal bar the trader judges)."""
+def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
+    """The panel's one-bar-lagged `column` shifted back onto its own bar, for grounding
+    display and detection ONLY (see module docstring: instance dates must be the signal
+    bar the trader judges, and grounding computes no outcome). **Never pair the result
+    with a forward return or label** — that reintroduces same-bar execution, the exact
+    silent failure the repo's central one-bar lag (`features/panel.py::apply_lag`,
+    CLAUDE.md invariant #2) exists to prevent."""
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
@@ -116,6 +124,10 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     if dist_col not in panel.columns:
         raise GroundingError(f"panel has no {dist_col!r} column — not a feature panel?")
 
+    if spec.timeframe is None:
+        raise GroundingError("the spec doesn't state a timeframe — finish elicitation before "
+                             "grounding (the panel here is daily; a weekly idea must not be "
+                             "silently grounded as a daily one)")
     if spec.timeframe == "weekly":
         raise GroundingError("the feature panel is daily; grounding a weekly idea isn't built yet")
     size = spec.size
@@ -131,6 +143,7 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         raise GroundingError("the feature panel is close-based; an intraday trigger can't be grounded here")
 
     rubric: list[RubricLine] = []
+    rubric.append(RubricLine("timeframe", "daily bars", "spec"))
     family, _, lookback = ma.partition("_")
     rubric.append(RubricLine("moving average", f"{family.upper()} {lookback}", "run option",
                              "the spec has no structured slot for the MA; pick with --ma"))
@@ -158,9 +171,15 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     # rises to it (resistance, the short side). touch_positions reports the sign of the
     # distance at the end of the away run: +1 is from above.
     signs = {"long": (1.0,), "short": (-1.0,), "both": (1.0, -1.0), None: (1.0, -1.0)}[spec.direction]
+    sides = {1.0: "from above (support test)", -1.0: "from below (resistance test)"}
+    shown_sides = " and ".join(sides[s] for s in signs)
     if spec.direction is not None:
-        sides = {1.0: "from above (support test)", -1.0: "from below (resistance test)"}
-        rubric.append(RubricLine("direction", " and ".join(sides[s] for s in signs), "spec"))
+        rubric.append(RubricLine("direction", shown_sides, "spec"))
+    else:
+        # Grounding both sides is itself an applied choice — a long-only trader must
+        # see it, or their from-below rejections get misread as a trigger problem.
+        rubric.append(RubricLine("direction", shown_sides, "default",
+                                 "your spec didn't state a direction — both sides are shown"))
 
     for signal in spec.supporting_signals:
         if signal.role == "filter":
@@ -179,10 +198,14 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
                                      "it is already applied; anything else is ignored"))
 
     working = panel[["ticker", "date"]].copy()
-    working["dist"] = _unlagged(panel, dist_col)
+    working["dist"] = shift_to_signal_bar(panel, dist_col)
+    dates_by_ticker = {ticker: frame["date"].to_numpy()
+                       for ticker, frame in working.groupby("ticker", sort=False)}
 
-    def events(away_threshold: float, touch_threshold: float, max_days_to_touch: int) -> set[tuple[str, pd.Timestamp]]:
-        found: set[tuple[str, pd.Timestamp]] = set()
+    def events(away_threshold: float, touch_threshold: float, max_days_to_touch: int) -> dict[str, set[int]]:
+        """Qualifying bar positions per ticker (positions, not dates, so rings can
+        reason about how far apart two events on one ticker are)."""
+        found: dict[str, set[int]] = {}
         for ticker, frame in working.groupby("ticker", sort=False):
             # The unlag shift leaves each ticker's last row NaN (and warmup NaNs stay
             # leading, which `state_run_id` supports); trim the tail — a bar with no
@@ -193,25 +216,46 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
                 continue
             positions, direction = touch.touch_positions(
                 dist.iloc[:last_valid + 1], away_threshold, touch_threshold, max_days_to_touch)
-            dates = frame["date"].to_numpy()
-            found.update((ticker, pd.Timestamp(dates[p])) for p, s in zip(positions, direction) if s in signs)
+            kept = {int(p) for p, s in zip(positions, direction) if s in signs}
+            if kept:
+                found[ticker] = kept
         return found
 
     strict = events(away, touch_tol, max_days)
-    relaxed_days = round(max_days * RELAX_FACTOR)
+
+    def minus_strict(ring: dict[str, set[int]]) -> dict[str, set[int]]:
+        return {t: kept for t, ps in ring.items() if (kept := ps - strict.get(t, set()))}
+
+    touch_ring = minus_strict(events(away, touch_tol * RELAX_FACTOR, max_days))
+    # A relaxed tolerance can pull a run's first touch onto an earlier bar while the
+    # same run still fires strictly a few bars later — that bar is not evidence the
+    # tolerance is misplaced, so anything with a strict event close behind it (within
+    # the touch window, which bounds how far apart two touches of one run can be) is
+    # dropped rather than shown as a near-miss.
+    touch_ring = {t: kept for t, ps in touch_ring.items()
+                  if (kept := {p for p in ps
+                               if not any(p < s <= p + max_days for s in strict.get(t, ()))})}
+    away_ring = minus_strict(events(away / RELAX_FACTOR, touch_tol, max_days))
+    relaxed_days = math.ceil(max_days * RELAX_FACTOR)  # ceil: never a sub-×1.5 ring mislabelled as the standard one
+    days_ring = minus_strict(events(away, touch_tol, relaxed_days))
+
     rings = [
-        (events(away, touch_tol * RELAX_FACTOR, max_days),
+        (touch_ring,
          f"touch tolerance: comes within {touch_tol * RELAX_FACTOR:g} ATR of the MA, not within {touch_tol:g}"),
-        (events(away / RELAX_FACTOR, touch_tol, max_days),
+        (away_ring,
          f"away distance: qualifies only when 'away' is relaxed to >= {away / RELAX_FACTOR:g} ATR "
          f"(your spec: >= {away:g})"),
-        (events(away, touch_tol, relaxed_days),
+        (days_ring,
          f"touch window: touches {max_days + 1}-{relaxed_days} bars after the away run ends, not within {max_days}"),
     ]
-    matches = tuple(Candidate(t, d) for t, d in sorted(strict))
+
+    def dated(by_ticker: dict[str, set[int]]) -> list[tuple[str, pd.Timestamp]]:
+        return sorted((t, pd.Timestamp(dates_by_ticker[t][p])) for t, ps in by_ticker.items() for p in ps)
+
+    matches = tuple(Candidate(t, d) for t, d in dated(strict))
     seen: dict[tuple[str, pd.Timestamp], str] = {}
     for ring, fails in rings:
-        for key in sorted(ring - strict):
+        for key in dated(ring):
             seen.setdefault(key, fails)
     near_misses = tuple(Candidate(t, d, fails) for (t, d), fails in seen.items())
     return FinderResult(matches, near_misses, tuple(rubric))

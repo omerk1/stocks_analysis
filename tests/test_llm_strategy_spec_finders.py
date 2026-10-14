@@ -40,7 +40,7 @@ def panel(ticker_dists: dict[str, list[float]], start: str = "2015-01-02") -> pd
 
 
 def spec(**overrides) -> StrategySpec:
-    fields = dict(direction="both", size=Size(normalisation="atr", min=1.0),
+    fields = dict(direction="both", timeframe="daily", size=Size(normalisation="atr", min=1.0),
                   uses=["detector:ma.first_touch"])
     return StrategySpec(**{**fields, **overrides})
 
@@ -70,11 +70,29 @@ def test_each_ring_yields_its_near_miss_and_no_match():
     assert len(result.near_misses) == len({(c.ticker, c.date) for c in result.near_misses})
 
 
-def test_direction_filters_sides():
+def test_direction_filters_sides_and_an_unstated_direction_is_disclosed():
     both = panel({"UP": MATCH, "DN": SHORT_MATCH})
     assert {c.ticker for c in find_first_touch(spec(direction="long"), both).matches} == {"UP"}
     assert {c.ticker for c in find_first_touch(spec(direction="short"), both).matches} == {"DN"}
     assert {c.ticker for c in find_first_touch(spec(), both).matches} == {"UP", "DN"}
+    # direction=None grounds both sides, but as a disclosed default — a long-only
+    # trader's from-below rejections must not get misread as a trigger problem.
+    result = find_first_touch(spec(direction=None), both)
+    assert {c.ticker for c in result.matches} == {"UP", "DN"}
+    direction = next(r for r in result.rubric if r.parameter == "direction")
+    assert direction.source == "default" and "didn't state a direction" in direction.detail
+    assert next(r for r in find_first_touch(spec(), both).rubric
+                if r.parameter == "direction").source == "spec"
+
+
+def test_a_relaxed_touch_in_a_run_that_still_fires_strictly_is_not_a_near_miss():
+    # Day 2 after the run comes within 0.3 (relaxed tolerance only), day 4 within 0.1
+    # (strict): the run fires under the spec as stated, so the 0.3 bar says nothing
+    # about the tolerance and must not be shown as a near-miss.
+    sequence = QUIET + [2.0] * 5 + [0.3, 0.5, 0.1] + QUIET
+    result = find_first_touch(spec(), panel({"AAA": sequence}))
+    assert [(c.ticker, c.date) for c in result.matches] == [("AAA", signal_date(sequence, 0.1))]
+    assert result.near_misses == ()
 
 
 def test_spec_away_distance_is_applied_and_credited_to_the_spec():
@@ -119,6 +137,10 @@ def test_refusals_name_the_problem():
         find_first_touch(spec(size=Size(normalisation="pct", min=5.0)), panel({"AAA": MATCH}))
     with pytest.raises(GroundingError, match="weekly"):
         find_first_touch(spec(timeframe="weekly"), panel({"AAA": MATCH}))
+    with pytest.raises(GroundingError, match="doesn't state a timeframe"):
+        # None must not silently become daily: a weekly trader's spec straight out of
+        # extraction would otherwise ground as a daily idea.
+        find_first_touch(spec(timeframe=None), panel({"AAA": MATCH}))
     with pytest.raises(GroundingError, match="no units"):
         # Numbers without a normalisation must never silently fall to the default away
         # distance (the rubric would then falsely claim no number was stated).

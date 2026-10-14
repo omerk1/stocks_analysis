@@ -1,12 +1,14 @@
 """Charts for grounding instances (step 4, `docs/strategy-agent/idea.md` workflow step 2):
 candlesticks, the moving average (or other spec geometry), and a marker on the trigger
-bar — and, deliberately, **nothing after `FORWARD_BARS` bars past the trigger**.
+bar — and, deliberately, **nothing after the trigger bar**.
 
 The truncation is the point, not a styling choice. Examples define the idea; they must
 carry zero outcome information. If the trader sees how an instance turned out, "yes,
 that's my setup" quietly becomes "yes, that one worked", and the definition starts
-fitting winners before any test runs (the selection risk `idea.md` names). Two bars of
-aftermath are enough to see the trigger bar close; five would start to show the outcome.
+fitting winners before any test runs (the selection risk `idea.md` names). The finders
+put an instance's date on the signal bar itself, so that bar's close — the trigger — is
+fully visible at the chart's edge, and even one later bar would already show the
+execution open and the first day of the forward return.
 
 Charts are also **blind to near-miss status**: a near-miss gets the same title, filename
 shape and styling as a match (`ground.py` interleaves them unlabelled), otherwise the
@@ -23,7 +25,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 LOOKBACK_BARS = 90  # context before the trigger: the away run and some history
-FORWARD_BARS = 2    # after the trigger: the trigger close is visible, the outcome is not
+FORWARD_BARS = 0    # the chart ends ON the trigger bar: its close is the signal, and any later bar leaks outcome
 
 # Same convention as patterns/gaps plotting: no weekend voids in the x axis.
 _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
