@@ -128,8 +128,10 @@ def _zips(tmp_path, facts_by_cik, filings_by_cik):
     return zipfile.ZipFile(facts_path), zipfile.ZipFile(sub_path)
 
 
-def test_ingest_follows_predecessors_per_concept_keeps_the_window_and_replaces(conn, tmp_path, monkeypatch):
-    successor = _company({"Revenues": [_fact("q3", 45, "2020-09-30", "2020-07-01")]})
+def test_ingest_takes_predecessor_reports_before_the_successor_keeps_the_window_and_replaces(
+        conn, tmp_path, monkeypatch):
+    successor = _company({"Revenues": [_fact("q3", 45, "2020-09-30", "2020-07-01"),
+                                       _fact("q3", 11, "2020-03-31", "2020-01-01")]})  # a restated comparative
     predecessor = _company({"Revenues": [_fact("q1", 10, "2020-03-31", "2020-01-01"),
                                          _fact("q3", 44, "2020-09-30", "2020-07-01")],  # a subsidiary's own report
                             "StockholdersEquity": [_fact("q2", 500, "2020-06-30")]})
@@ -146,8 +148,9 @@ def test_ingest_follows_predecessors_per_concept_keeps_the_window_and_replaces(c
     assert (tally["stored"], tally["no_values"], tally["rows"]) == (2, 1, 5)
     new = stored[stored["ticker"] == "NEW"]
     assert new[["concept", "period_end", "value", "filer_cik"]].values.tolist() == [
-        ["equity", "2020-06-30", 500, 7],  # no successor value for this concept: all of the predecessor's
-        ["revenue", "2020-03-31", 10, 7], ["revenue", "2020-09-30", 45, 8]]
+        ["equity", "2020-06-30", 500, 7],
+        ["revenue", "2020-03-31", 10, 7],  # the predecessor's first report, not the successor's comparative
+        ["revenue", "2020-09-30", 45, 8]]  # the predecessor's report from the successor's time on is ignored
     assert new["available_date"].tolist() == ["2020-07-30", "2020-05-01", "2020-10-30"]  # before open / after close
     assert new["cik"].unique().tolist() == [8]
     old = stored[stored["ticker"] == "OLD"]  # only what was accepted inside its window

@@ -8,8 +8,8 @@ and `company_tickers.json` from `<raw data dir>/sec`.
 
 Tickers are tied to CIKs exactly as for the earnings dates
 (`bulk_sec_earnings_ingest.resolve`, same precedence and validity windows),
-and a predecessor CIK (`sec_earnings.PREDECESSOR_CIKS`) fills each concept's
-periods before the earliest one found under the current CIK. A ticker with a
+and a predecessor CIK (`sec_earnings.PREDECESSOR_CIKS`) adds what it filed
+before the current CIK's first filing (see `ticker_rows`). A ticker with a
 validity window keeps only values accepted inside it.
 
 Each resolved ticker's rows are deleted and rewritten in one transaction;
@@ -41,23 +41,26 @@ ADDITIVE = [c for c, (_, _, additive, _) in sf.CONCEPTS.items() if additive]
 
 
 def ticker_rows(parsed, cik: int, cik_source: str, valid_from, valid_to, sessions: pd.DatetimeIndex) -> pd.DataFrame:
-    """The rows to store for one ticker: its CIK's values, then each
-    predecessor's for the periods before the earliest one found so far, per
-    concept and period type. `parsed(cik)` gives a CIK's `sf.fundamentals`."""
-    key = ["concept", "period_type"]
+    """The rows to store for one ticker: its CIK's values plus each
+    predecessor's from filings accepted before the newer CIK's first one,
+    earliest report per period winning. Not a cut by period: the successor's
+    first reports repeat the predecessor's periods as comparatives, a year or
+    more after the predecessor first reported them (Alphabet's 2016 10-K vs
+    Google's for 2014). Not unrestricted either: some predecessors keep filing
+    as subsidiaries (Apache), with their own, different numbers. `parsed(cik)`
+    gives a CIK's `sf.fundamentals`."""
     parts = []
     for c in (cik, *se.PREDECESSOR_CIKS.get(cik, ())):
         found = parsed(c).assign(filer_cik=c)
         if parts:
-            so_far = pd.concat(parts).groupby(key, as_index=False)["period_end"].min()
-            found = found.merge(so_far.rename(columns={"period_end": "earliest"}), on=key, how="left")
-            found = found[found["earliest"].isna() | (found["period_end"] < found["earliest"])].drop(
-                columns="earliest")
+            found = found[found["accepted_at"] < pd.concat(parts)["accepted_at"].min()]
         if len(found):
             parts.append(found)
     if not parts:
         return pd.DataFrame()
-    rows = pd.concat(parts, ignore_index=True)
+    rows = (pd.concat(parts, ignore_index=True).sort_values("accepted_at", kind="stable")
+            .drop_duplicates(["concept", "period_type", "period_end"])
+            .sort_values(["concept", "period_type", "period_end"]).reset_index(drop=True))
     rows = rows[earnings.inside_window(rows["accepted_at"], valid_from, valid_to)].reset_index(drop=True)
     available = se.classify_timing(rows["accepted_at"], sessions)["reaction_date"]
     return rows.assign(available_date=available, cik=cik, cik_source=cik_source)
