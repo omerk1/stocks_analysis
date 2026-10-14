@@ -43,7 +43,8 @@ def log_unsupported(spec: StrategySpec, idea: str | None = None, path: Path | No
     if now.utcoffset() is None:
         raise ValueError("`now` must be timezone-aware")
     time = now.astimezone(timezone.utc).isoformat(timespec="seconds")
-    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea, **asdict(g)}) for g in groups]
+    lines = [json.dumps({"time": time, "spec_name": spec.name, "idea": idea,
+                         **asdict(g), "details": dict(g.details)}) for g in groups]
     path = path or default_log_path()
     # Locked like the Gemini ledger: sessions in other worktrees append to the same file.
     with locked(path), path.open("a") as f:
@@ -76,10 +77,12 @@ def _time(row: dict) -> datetime:
 
 
 def _readable(row) -> bool:
-    """A line `summarise` can use: wording, reason, at least one field, an aware time."""
+    """A line `summarise` can use: wording, reason, at least one field, an aware time, and
+    `details` (when present) as `{field: [details]}`, so a reader can rely on its shape."""
     if not (isinstance(row, dict) and isinstance(row.get("requested"), str) and isinstance(row.get("reason"), str)
             and isinstance(row.get("fields"), list) and row["fields"]
-            and all(isinstance(f, str) for f in row["fields"]) and isinstance(row.get("time"), str)):
+            and all(isinstance(f, str) for f in row["fields"]) and isinstance(row.get("time"), str)
+            and isinstance(row.get("details", {}), dict)):
         return False
     try:
         return _time(row).utcoffset() is not None

@@ -165,12 +165,13 @@ def request_wording(requested: str) -> str:
 class RequestGroup:
     """One distinct request: the first wording given, every field it was filed under, and
     the details given under each field (only fields that have one), in order, without
-    repeats."""
+    repeats. `details` is `(field, details)` pairs rather than a dict, so a group stays
+    immutable and hashable; `dict(group.details)` reads it by field."""
 
     requested: str
     reason: UnsupportedReason
     fields: tuple[SpecField, ...]
-    details: dict[SpecField, tuple[str, ...]]
+    details: tuple[tuple[SpecField, tuple[str, ...]], ...]
 
 
 def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
@@ -185,7 +186,7 @@ def group_unsupported(items: list[UnsupportedRequest]) -> list[RequestGroup]:
         if item.detail:
             details.setdefault(request_wording(item.detail), item.detail)
     return [RequestGroup(first.requested, first.reason, tuple(fields),
-                         {f: tuple(d.values()) for f, d in fields.items() if d})
+                         tuple((f, tuple(d.values())) for f, d in fields.items() if d))
             for first, fields in groups.values()]
 
 
@@ -303,7 +304,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     # with only that field's details; a repeat within a field is one gap.
     for group in group_unsupported(spec.unsupported):
         for field in group.fields:
-            details = group.details.get(field)
+            details = dict(group.details).get(field)
             detail = f" ({'; '.join(details)})" if details else ""
             add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 

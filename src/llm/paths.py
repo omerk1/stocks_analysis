@@ -8,14 +8,16 @@ requests instead of each worktree keeping its own.
 from __future__ import annotations
 
 import subprocess
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from src.foundation.utils.file_lock import file_lock
 
 
-def locked(path: Path):
-    """An exclusive lock on `path` (through a `.lock` file next to it), so processes in
-    different worktrees don't interleave their writes. Unix only (`fcntl`).
+def locked(path: Path) -> AbstractContextManager[None]:
+    """A context manager holding an exclusive lock on `path` (through a `.lock` file next
+    to it, see `file_lock`), so processes in different worktrees don't interleave their
+    writes. Unix only (`fcntl`).
 
     The lock file replaces the suffix (`gemini_usage.jsonl` -> `gemini_usage.lock`): that
     name is the one older code locks, and two names for one ledger would be two locks."""

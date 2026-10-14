@@ -407,6 +407,18 @@ def test_build_is_resumable_and_reruns_merge_into_the_manifest(tmp_path):
     assert sum(second["rows"].values()) > 0
 
 
+def test_the_manifest_merge_holds_the_lock_under_its_existing_name(tmp_path, monkeypatch):
+    # Builds agree on the lock by its file name: a build running older code locks this one.
+    taken = []
+    real = level_cache.file_lock
+    monkeypatch.setattr(level_cache, "file_lock", lambda p: taken.append(p) or real(p))
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    level_cache.build_level_cache(c, [], tmp_path, "2021-12-31", workers=1, progress=None)
+    c.close()
+    assert taken == [tmp_path / "manifest.json.lock"]
+
+
 def test_a_run_of_some_sources_keeps_the_others_records(tmp_path, monkeypatch):
     c = raw_db.get_connection(":memory:")
     raw_db.create_tables(c)

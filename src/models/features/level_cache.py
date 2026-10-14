@@ -50,6 +50,9 @@ from src.models.features import levels
 # Bump when `level_snapshots.snapshots`' output for the same inputs changes.
 SNAPSHOT_VERSION = 1
 MANIFEST = "manifest.json"
+# The name overlapping builds agree on: changing it lets a build running old code and one
+# running new code both merge the manifest at once.
+MANIFEST_LOCK = f"{MANIFEST}.lock"
 FINGERPRINT_KEY = b"level_snapshot_fingerprint"
 FIRST_BAR = "1900-01-01"  # anchors (all-time highs, old gaps) need the whole history
 
@@ -274,7 +277,7 @@ def build_level_cache(
     finally:
         if pool is not None:
             pool.shutdown()
-    with file_lock(root / f"{MANIFEST}.lock"):  # read-merge-write: an overlapping build's records aren't lost
+    with file_lock(root / MANIFEST_LOCK):  # read-merge-write: an overlapping build's records aren't lost
         return _merge_manifest(root, done, failed, missing, price_sources, configs, sources, end, open_holdout,
                                basis, seconds)
 
