@@ -65,15 +65,43 @@ you were given. The spec will be tested on historical data exactly as you fill i
 
 - Fill in only what the idea states, in words or numbers. Leave a field null (or an \
 empty list) rather than guess: every blank field becomes a question back to the trader, \
-which is the point. No defaults — don't assume daily bars, a long side, or a horizon.
-- Numbers only where the idea gives them. "A tight range" goes in the description with \
-the numeric bounds left null.
+which is the point. No defaults, no conventions, no best practice — don't assume daily \
+bars, a long side, close prices, next-open execution, a horizon, or standard metrics. \
+Record a price basis or execution when the idea states one; otherwise the platform \
+applies its own conventions, and filling them in from habit is not your job.
+- Null means "the idea didn't say". A description holds the trader's own words, never \
+your commentary — if the idea doesn't mention a section, the whole section stays null \
+instead of a description that says it wasn't mentioned. `not_applicable` is true only \
+when the idea itself rules the section out in so many words (say, "there's no pattern \
+to measure here, it happens on one bar"); silence is null, never `not_applicable`. That holds \
+even when your own market knowledge says a section obviously doesn't apply — if the \
+idea didn't say it, leave it null and the trader confirms it in the follow-up, not you.
+- The reverse too: when the idea does state something, in words alone, capture those \
+words in that section's description — don't leave a mentioned section null just \
+because it carries no numbers.
+- Don't infer the timeframe: an indicator's lookback (a 30-day average, say) is not by \
+itself the chart's bar size. Fill `timeframe` only when the idea says what bars it \
+works on.
+- Numbers only where the idea gives them. "Barely moving" goes in the description with \
+the numeric bounds left null; "over the long run" is not a number of bars, so \
+`horizons_bars` stays empty. If you catch yourself choosing among plausible figures, \
+the answer is null.
+- A comparison belongs in `control` only when the idea states one. Never design a \
+control yourself, however obvious a good one would be — the catalogue's control entries \
+describe what the platform could offer, they are not defaults to pick from.
 - The capability catalogue below is everything the platform can compute. If the idea \
 needs anything outside it — data, an indicator, a pattern, a timeframe, an execution \
 style, a kind of control or metric — add an entry to `unsupported` (`requested` in the \
 trader's own words, the spec `field` it belongs to, a `reason`) and leave that field \
-empty. Never substitute the nearest supported thing.
-- `uses` lists the catalogue ids the spec is built from, and nothing else.
+empty. Never substitute the nearest supported thing, and never write the unsupported \
+thing into the spec as if it existed: an indicator or pattern the catalogue doesn't \
+list goes in `unsupported` (reason `unknown_indicator` / `unknown_detector`), not into \
+a trigger description or `uses`. Pick the most specific reason; `other` is a last \
+resort. But vague is not unsupported: something the platform can compute that the idea \
+just hasn't quantified ("over the long run", "a decent-sized move") is a blank field \
+to ask about, not an `unsupported` entry.
+- `uses` lists the catalogue ids the spec is built from — ids that appear in the \
+catalogue below, nothing else.
 - `name` is a short name for the idea.
 
 """
@@ -135,6 +163,9 @@ class Case:
     idea: str
     fields: dict[str, Expectation]
     flags: tuple[ExpectedFlag, ...]
+    # True on an idea where nothing is testable, so any flag beyond the required ones is
+    # acceptable whatever its wording or reason label: extras are shown but not penalised.
+    extra_flags_ok: bool = False
 
 
 def _validated(field: str, value):
@@ -178,6 +209,10 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
             raise ValueError(f"case #{n} needs to be an object with an 'id'")
         cid = item["id"]
         try:
+            unknown_keys = set(item) - {"id", "golden", "idea", "fields", "unsupported", "notes",
+                                        "extra_flags_ok"}
+            if unknown_keys:  # a misspelled key would otherwise silently do nothing
+                raise ValueError(f"unknown keys {sorted(unknown_keys)}")
             if ("golden" in item) == ("idea" in item):
                 raise ValueError("needs exactly one of 'golden' or 'idea'")
             if "golden" in item and item["golden"] not in golden:
@@ -193,11 +228,14 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
             if any(f.has and not request_wording(f.has) for f in flags):
                 # "_" folds to nothing, and an empty wording means "match any".
                 raise ValueError("has a flag wording that folds to nothing")
+            extra_ok = item.get("extra_flags_ok", False)
+            if not isinstance(extra_ok, bool):
+                raise ValueError(f"extra_flags_ok must be true or false, not {extra_ok!r}")
         except ValueError as e:
             raise ValueError(f"case {cid!r}: {e}") from e
         except (KeyError, TypeError, AttributeError) as e:  # an authoring mistake names its case
             raise ValueError(f"case {cid!r}: {type(e).__name__}: {e}") from e
-        cases.append(Case(cid, idea, fields, flags))
+        cases.append(Case(cid, idea, fields, flags, extra_ok))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
     return cases
@@ -251,6 +289,7 @@ class CaseScore:
     missed: tuple[str, ...]  # required flags that didn't appear
     caught: int  # required flags that did
     unexpected: tuple[str, ...]  # flagged requests matching no expected entry
+    waived: bool = False  # the case accepts extras: `unexpected` is shown, not penalised
 
     def count(self, outcome: str) -> int:
         return sum(1 for o in self.outcomes.values() if o == outcome)
@@ -264,7 +303,8 @@ def score_case(spec: StrategySpec, case: Case) -> CaseScore:
                    if not any(f.matches(g.requested, g.reason) for g in groups))
     unexpected = tuple(g.requested for g in groups
                        if not any(f.matches(g.requested, g.reason) for f in case.flags))
-    return CaseScore(case.id, outcomes, missed, len(required) - len(missed), unexpected)
+    return CaseScore(case.id, outcomes, missed, len(required) - len(missed), unexpected,
+                     waived=case.extra_flags_ok)
 
 
 def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
@@ -275,10 +315,13 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
     totals = dict.fromkeys(OUTCOMES, 0)
     caught = required = 0
     misses: list[str] = []
+    waived: list[str] = []
     for s in scores:
         n_required = s.caught + len(s.missed)
         caught, required = caught + s.caught, required + n_required
-        flag_note = f"{s.caught}/{n_required}" + (f" +{len(s.unexpected)}!" if s.unexpected else "")
+        # "+N!" is a penalty; "+N" alone means the case waives extras but they stay visible.
+        extra = f" +{len(s.unexpected)}" + ("" if s.waived else "!") if s.unexpected else ""
+        flag_note = f"{s.caught}/{n_required}" + extra
         lines.append(f"{s.case_id:<32} {s.count('correct'):>7} {s.count('left_blank'):>6} "
                      f"{s.count('invented'):>8} {s.count('wrong'):>5} {s.count('unscored'):>8}  {flag_note}")
         for outcome in OUTCOMES:
@@ -289,13 +332,19 @@ def summarise(scores: list[CaseScore], cases: list[Case]) -> list[str]:
                 want = exp.values if exp.form == "values" else exp.form
                 misses.append(f"  {s.case_id} {f}: {o} (expected {want!r})")
         misses.extend(f"  {s.case_id} flag missed: {m!r}" for m in s.missed)
-        misses.extend(f"  {s.case_id} unexpected flag: {u!r}" for u in s.unexpected)
+        if s.waived:  # not penalties, so not under "misses:", but a spray stays visible
+            waived.extend(f"  {s.case_id}: {u!r}" for u in s.unexpected)
+        else:
+            misses.extend(f"  {s.case_id} unexpected flag: {u!r}" for u in s.unexpected)
     lines.append(f"{'totals':<32} {totals['correct']:>7} {totals['left_blank']:>6} "
                  f"{totals['invented']:>8} {totals['wrong']:>5} {totals['unscored']:>8}  "
                  f"{caught}/{required}")
     if misses:
         lines.append("misses:")
         lines.extend(misses)
+    if waived:
+        lines.append("waived extras:")
+        lines.extend(waived)
     return lines
 
 

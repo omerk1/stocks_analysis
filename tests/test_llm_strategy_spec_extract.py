@@ -29,6 +29,9 @@ def test_cases_load_and_cover_every_spec_field():
         assert by_id[gid].idea == description
     # At least one fully supported idea, to catch false flags.
     assert any(not c.flags for c in cases)
+    # The untestable idea waives extra flags; the JSON-to-Case wiring must carry it.
+    assert by_id["opening_range_breakout"].extra_flags_ok
+    assert not by_id["atr_gap_up"].extra_flags_ok
     # Most new ideas carry a required flag.
     assert sum(1 for c in cases if any(not f.optional for f in c.flags)) >= 4
 
@@ -64,6 +67,9 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "unsupported": ["earnings"]},
                    {**ok, "fields": sorted(ok["fields"])},
                    None,
+                   # A misspelled key must not silently do nothing.
+                   {**ok, "extra_flag_ok": True},
+                   {**ok, "extra_flags_ok": "true"},
                    # Exactly one idea text per case, an id, and a real golden reference.
                    {**ok, "golden": "ma_touch_bounce"},
                    {k: v for k, v in ok.items() if k != "id"},
@@ -175,6 +181,21 @@ def test_an_unexpected_flag_on_a_supported_idea_is_reported():
     clean = Case("clean", "idea", CASE.fields, ())
     score = score_case(_flagged(EARNINGS), clean)
     assert score.unexpected == ("Earnings  Surprise filter",)
+
+
+def test_extra_flags_ok_waives_unexpected_but_not_required():
+    # On an idea where nothing is testable, any extra flag is fine whatever its label —
+    # it stays visible but isn't a penalty, and the required flags still have to appear.
+    waived = Case("w", "idea", CASE.fields, (ExpectedFlag("intraday", "unsupported_timeframe"),),
+                  extra_flags_ok=True)
+    score = score_case(_flagged(EARNINGS), waived)
+    assert score.waived and score.unexpected == ("Earnings  Surprise filter",)
+    assert score.missed == ("intraday",)
+    lines = "\n".join(summarise([score], [waived]))
+    assert "0/1 +1\n" in lines + "\n" and "+1!" not in lines  # shown, not a penalty
+    # Visible under its own header, not as a miss.
+    assert "waived extras:\n  w: 'Earnings  Surprise filter'" in lines
+    assert "flag: 'Earnings" not in lines
 
 
 # --- the prompt and the call ------------------------------------------------------

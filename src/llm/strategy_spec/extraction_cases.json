@@ -68,8 +68,11 @@
       "secondary_metrics": "blank",
       "control": "blank"
     },
-    "unsupported": [{"has": "earnings", "reason": "unsupported_data"}],
-    "notes": "The gap itself is testable; tying it to earnings day and the 5% beat is not. 'Without closing below the pre-earnings high' can be read as part of the trigger or as a before-entry kill."
+    "unsupported": [
+      {"has": "earnings", "reason": "unsupported_data"},
+      {"has": "estimates", "reason": "unsupported_data", "optional": true}
+    ],
+    "notes": "The gap itself is testable; tying it to earnings day and the 5% beat is not. 'Without closing below the pre-earnings high' can be read as part of the trigger or as a before-entry kill. Flagging the estimates as their own entry is the same ask split in two, fine but not required."
   },
   {
     "id": "opening_range_breakout",
@@ -86,12 +89,9 @@
       "secondary_metrics": "blank",
       "control": "blank"
     },
-    "unsupported": [
-      {"has": "15-minute", "reason": "unsupported_timeframe"},
-      {"has": "", "reason": "unsupported_timeframe", "optional": true},
-      {"has": "", "reason": "unsupported_execution", "optional": true}
-    ],
-    "notes": "Nothing here is testable on daily bars. The one required flag is the 15-minute timeframe; more flags about the first hour, the intraday entry, the stop or the same-day exit are fine but not required."
+    "unsupported": [{"has": "15-minute", "reason": "unsupported_timeframe"}],
+    "extra_flags_ok": true,
+    "notes": "Nothing here is testable on daily bars. The one required flag is the 15-minute timeframe; since every part of the idea is genuinely unsupported, any further flag is acceptable whatever its wording or reason label."
   },
   {
     "id": "options_sweep_volume",
