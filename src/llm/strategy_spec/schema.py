@@ -43,6 +43,7 @@ historical instances is step 4, and it needs the data tools.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal
@@ -159,11 +160,14 @@ class UnsupportedRequest(_Section):
 
 
 def request_wording(requested: str) -> str:
-    """One wording for grouping and matching: lowercased, hyphens and underscores to
-    spaces, spacing collapsed — "15-minute bars" and "15 Minute bars" are one request.
-    Every other symbol is kept: "VIX > 30" and "VIX < 30", or "10%" and "$10", are
-    different asks and must not merge."""
-    return " ".join(requested.lower().replace("-", " ").replace("_", " ").split())
+    """One wording for grouping and matching: lowercased, spacing collapsed, a hyphen
+    joining words folded to a space ("15-minute bars" is "15 Minute bars"; the minus in
+    "< -2" survives, it doesn't join two words), and sentence punctuation stripped from
+    the ends ("intraday bars." is "intraday bars"). Meaning-bearing symbols stay:
+    "VIX > 30" and "VIX < 30", or "10%" and "$10", are different asks and must not
+    merge."""
+    folded = re.sub(r"(?<=[a-z0-9])-(?=[a-z0-9])", " ", requested.lower().replace("_", " "))
+    return " ".join(folded.split()).strip(".,;:!?'\"() ")
 
 
 @dataclass(frozen=True)

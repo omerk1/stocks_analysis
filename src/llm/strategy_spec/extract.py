@@ -109,14 +109,19 @@ class Expectation:
 
 @dataclass(frozen=True)
 class ExpectedFlag:
-    has: str  # a substring of the request's wording (case and punctuation ignored); "" = any
+    has: str  # tokens to find in the request's wording (case and hyphenation ignored); "" = any
     reason: UnsupportedReason
     optional: bool = False
 
     def matches(self, requested: str, reason: str) -> bool:
-        # `request_wording` folds hyphens on both sides, so "15-minute" finds "the 15
-        # minute chart"; other symbols ("10%") must appear as typed.
-        return self.reason == reason and request_wording(self.has) in request_wording(requested)
+        """Reason equal, and the wording contains `has` as consecutive tokens, each a
+        prefix of the request's token: "sweep" finds "sweeps" and "15-minute" finds
+        "the 15 minute chart", while "10%" matches neither "110%" nor a bare "10"."""
+        if self.reason != reason:
+            return False
+        has, words = request_wording(self.has).split(), request_wording(requested).split()
+        return any(all(w.startswith(h) for h, w in zip(has, words[i:i + len(has)]))
+                   for i in range(len(words) - len(has) + 1))
 
 
 @dataclass(frozen=True)
@@ -181,12 +186,12 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
             if any(f.reason not in get_args(UnsupportedReason) for f in flags):
                 raise ValueError("has an unknown reason")
             if any(f.has and not request_wording(f.has) for f in flags):
-                # "-" folds to nothing and would match every request with that reason.
+                # "." folds to nothing and would match every request with that reason.
                 raise ValueError("has a flag wording that folds to nothing")
-        except KeyError as e:  # an authoring mistake names its case
-            raise ValueError(f"case {cid!r} is missing {e}") from None
         except ValueError as e:
             raise ValueError(f"case {cid!r}: {e}") from e
+        except (KeyError, TypeError, AttributeError) as e:  # an authoring mistake names its case
+            raise ValueError(f"case {cid!r}: {type(e).__name__}: {e}") from None
         cases.append(Case(cid, idea, fields, flags))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
