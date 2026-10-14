@@ -123,7 +123,9 @@ def test_unsupported_request_blocks_and_keeps_the_users_words():
 
 def test_a_repeated_unsupported_request_is_kept_once_per_field():
     first = UnsupportedRequest(requested="15-minute bars", field="timeframe", reason="unsupported_timeframe")
-    same = UnsupportedRequest(requested="15-Minute  Bars", field="timeframe", reason="unsupported_timeframe")
+    # Case, spacing, word-joining hyphens and end punctuation don't make a new request;
+    # meaning-bearing symbols do (see test_request_wording_keeps_meaning_bearing_symbols).
+    same = UnsupportedRequest(requested="15 Minute  Bars.", field="timeframe", reason="unsupported_timeframe")
     other_field = UnsupportedRequest(requested="15-minute bars", field="trigger", reason="unsupported_timeframe")
     spec = _complete(unsupported=[first, same, other_field])
     assert [(g.field, g.kind) for g in find_gaps(spec)] == [("timeframe", "unsupported"), ("trigger", "unsupported")]
@@ -153,6 +155,18 @@ def test_unsupported_gaps_sit_in_field_order_among_the_others_with_one_wording()
     assert [(g.field, g.kind) for g in gaps] == [
         ("timeframe", "unsupported"), ("trigger", "unsupported"), ("control", "missing")]
     assert {g.reason for g in gaps[:2]} == {"'15-minute bars': unsupported timeframe"}
+
+
+def test_request_wording_keeps_meaning_bearing_symbols():
+    from src.llm.strategy_spec.schema import request_wording
+
+    assert request_wording("15-Minute  Bars.") == request_wording("15 minute bars")
+    assert request_wording('unusual "options" flow.') == request_wording("(unusual) options flow")
+    # A minus sign isn't a hyphen, and comparison symbols change the ask.
+    assert request_wording("z-score < -2") != request_wording("z-score < 2")
+    assert request_wording("VIX > 30") != request_wording("VIX < 30")
+    assert request_wording("a move of 10%") != request_wording("a move of $10")
+    assert request_wording("...") not in ("", request_wording("??"))  # junk stays apart
 
 
 def test_unsupported_timeframe_also_leaves_the_field_missing():

@@ -169,11 +169,14 @@ class GeminiClient:
         purpose: str,
         system: str | None = None,
         response_schema: type[BaseModel] | None = None,
+        temperature: float | None = None,
     ) -> Reply:
         """One budgeted call. `purpose` labels the ledger line (e.g. "strategy_spec.extract").
 
         With `response_schema`, Gemini is asked for JSON in that shape and the reply is
         validated into it (`Reply.parsed`); a reply that doesn't validate raises.
+        `temperature=0` makes replies more repeatable — not deterministic, so anything
+        that depends on repeatability still has to run twice and compare.
         """
         import httpx
         from google.genai import errors, types
@@ -192,6 +195,7 @@ class GeminiClient:
 
         config = types.GenerateContentConfig(
             system_instruction=system,
+            temperature=temperature,
             max_output_tokens=b.max_output_tokens,
             thinking_config=types.ThinkingConfig(thinking_budget=b.thinking_budget),
             response_mime_type="application/json" if schema else None,

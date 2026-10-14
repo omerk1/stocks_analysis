@@ -4,7 +4,7 @@ list is the development backlog: what users ask for that doesn't exist yet.
 
 The log is `data/llm/unsupported_requests.jsonl` in the main checkout (git-ignored, found
 through git like the Gemini usage ledger). Each spec writes one JSON line per distinct
-request: the same wording (case and spacing ignored) and reason filed under two fields is
+request: the same wording (as `request_wording` folds it) and reason filed under two fields is
 one line listing both fields, with each detail under the field it was given for
 (`"details": {"trigger": ["intraday entry"]}`), so the summary counts ideas asking,
 not how often the LLM repeated itself. "Intraday bars" and "intraday bars" count together,
@@ -105,17 +105,20 @@ def summarise(rows: list[dict], top: int = 20) -> list[str]:
     """The `top` most-requested (wording, reason) pairs, most requested first: how many
     ideas asked, the reason, the fields it was filed under, the last day it was asked
     (UTC), and the wording."""
-    groups: dict[tuple[str, str], dict] = defaultdict(lambda: {"count": 0, "fields": set(), "last": None})
+    groups: dict[tuple[str, str], dict] = defaultdict(
+        lambda: {"count": 0, "fields": set(), "last": None, "wording": None})
     for r in rows:
         g = groups[(request_wording(r["requested"]), r["reason"])]
         g["count"] += 1
         g["fields"].update(r["fields"])
+        # Shown as the user first put it, collapsed onto one line.
+        g["wording"] = g["wording"] or " ".join(r["requested"].split())
         t = _time(r)
         g["last"] = t if g["last"] is None else max(g["last"], t)
     ranked = sorted(groups.items(), key=lambda kv: (-kv[1]["count"], kv[0]))[:top]
     return [f"{g['count']:>4}  {reason:<22} {','.join(sorted(g['fields'])):<20} "
-            f"last {g['last'].astimezone(timezone.utc).date()}  {requested}"
-            for (requested, reason), g in ranked]
+            f"last {g['last'].astimezone(timezone.utc).date()}  {g['wording']}"
+            for (_, reason), g in ranked]
 
 
 def main(argv: list[str] | None = None) -> None:
