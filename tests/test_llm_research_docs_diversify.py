@@ -39,6 +39,16 @@ def test_a_candidate_without_a_stored_vector_fails_with_a_clear_message():
         mmr(HITS + [_hit("zz", 1.0)], VECTORS, k=3)
 
 
+@pytest.mark.parametrize("vectors, hits", [
+    ({**VECTORS, "c": [0.0, 0.0, 0.0]}, HITS),  # an empty embedding
+    ({**VECTORS, "c": [1.0, 0.0]}, HITS),  # a vector of the wrong length
+    (VECTORS, HITS[:3] + [NodeWithScore(node=HITS[3].node, score=None)]),  # no score
+])
+def test_a_bad_vector_or_score_fails_instead_of_turning_into_nan(vectors, hits):
+    with pytest.raises(ValueError):
+        mmr(hits, vectors, k=3)
+
+
 def test_vectors_need_not_be_unit_length():
     unit = {**VECTORS, "b": [0.6, 0.8, 0.0]}  # b now shares some direction with a
     longer = {**unit, "b": [3.0, 4.0, 0.0]}  # same direction, 5x the length

@@ -60,9 +60,8 @@ LAMBDA = 0.75  # module docstring has why
 
 
 def _scale(values: np.ndarray) -> np.ndarray:
-    if values.size == 0 or values.max() == values.min():
-        return np.zeros_like(values)
-    return (values - values.min()) / (values.max() - values.min())
+    span = np.ptp(values) if values.size else 0.0
+    return (values - values.min()) / span if span > 0 else np.zeros_like(values)
 
 
 def mmr(hits: Sequence[NodeWithScore], vectors: Mapping[str, Sequence[float]],
@@ -77,21 +76,28 @@ def mmr(hits: Sequence[NodeWithScore], vectors: Mapping[str, Sequence[float]],
         raise LookupError(f"no stored vector for {len(missing)} candidate(s), e.g. {missing[0]}: "
                           "the docstore and vector store disagree, rebuild the index")
     n = len(hits)
-    rel = _scale(np.array([h.score for h in hits], dtype=float))
-    vecs = np.array([vectors[h.node.node_id] for h in hits], dtype=float)
-    vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)  # so the dot product is the cosine
+    try:  # a None score or a ragged vector would otherwise become a silent NaN
+        scores = np.array([h.score for h in hits], dtype=float)
+        vecs = np.array([vectors[h.node.node_id] for h in hits], dtype=float)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"candidates need a score and same-length vectors: {e}") from None
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+    if not (np.isfinite(scores).all() and np.isfinite(vecs).all() and (norms > 0).all()):
+        raise ValueError("a candidate has a missing score or an empty vector; rebuild the index")
+    rel = _scale(scores)
+    vecs /= norms  # so the dot product is the cosine
     upper = np.triu_indices(n, 1)  # each pair once; a chunk's similarity to itself doesn't count
     sim = np.zeros((n, n))
     sim[upper] = _scale((vecs @ vecs.T)[upper])
     sim += sim.T
     closest = np.zeros(n)  # similarity to the closest picked chunk
+    taken = np.zeros(n, dtype=bool)
     picked: list[int] = []
-    left = list(range(n))
-    while left and len(picked) < k:
-        # max() keeps the first of equal values: a tie goes to the re-ranker's order
-        best = max(left, key=lambda i: lam * rel[i] - (1 - lam) * closest[i])
+    for _ in range(min(k, n)):
+        # argmax returns the first of equal values: a tie goes to the re-ranker's order
+        best = int(np.argmax(np.where(taken, -np.inf, lam * rel - (1 - lam) * closest)))
         picked.append(best)
-        left.remove(best)
+        taken[best] = True
         closest = np.maximum(closest, sim[best])
     return [hits[i] for i in picked]
 
