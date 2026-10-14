@@ -43,7 +43,13 @@ def test_a_case_missing_a_field_or_with_a_bad_expectation_is_rejected(tmp_path):
                    {**ok, "fields": {**ok["fields"], "direction": "described"}},
                    {**ok, "fields": {**ok["fields"], "size": {"values": {"min_bars": 3}}}},
                    {**ok, "fields": {**ok["fields"], "size": {"values": {}}}},
-                   {**ok, "unsupported": [{"has": "x", "reason": "too hard"}]}):
+                   {**ok, "unsupported": [{"has": "x", "reason": "too hard"}]},
+                   # Expected values the schema would reject make a case unwinnable.
+                   {**ok, "fields": {**ok["fields"], "direction": {"value": "lonh"}}},
+                   {**ok, "fields": {**ok["fields"], "size": {"values": {"normalisation": "ATR"}}}},
+                   # Exactly one idea text per case, and a golden reference must exist.
+                   {**ok, "golden": "ma_touch_bounce"},
+                   {k: v for k, v in {**ok, "golden": "no_such_idea"}.items() if k != "idea"}):
         path.write_text(json.dumps([broken]))
         with pytest.raises(ValueError):
             load_cases(path)
@@ -61,6 +67,8 @@ def _spec(**kw):
 
 def test_blank_expected():
     assert score_field("duration", _spec(), Expectation("blank")) == "correct"
+    # Gemini often writes {"description": null, ...} for "nothing": that's empty, not invented.
+    assert score_field("duration", _spec(duration=Duration()), Expectation("blank")) == "correct"
     assert score_field("duration", _spec(duration=Duration(not_applicable=True)),
                        Expectation("blank")) == "invented"
     assert score_field("direction", _spec(direction="long"), Expectation("blank")) == "invented"
@@ -69,9 +77,12 @@ def test_blank_expected():
 def test_described_expected():
     exp = Expectation("described")
     assert score_field("size", _spec(), exp) == "left_blank"
+    assert score_field("size", _spec(size=Size()), exp) == "left_blank"  # all-null section
     assert score_field("size", _spec(size=Size(description="a tight coil")), exp) == "correct"
-    # Words were given, numbers weren't: a number here was invented.
+    # Words were given, numbers weren't: a number here was invented — zero included
+    # (0.0 == False, so a careless check would read an invented 0 as unset).
     assert score_field("size", _spec(size=Size(description="a tight coil", min=1.0)), exp) == "invented"
+    assert score_field("size", _spec(size=Size(description="a tight coil", min=0.0)), exp) == "invented"
     assert score_field("trigger", _spec(trigger=Trigger(description="breaks out", execution="next_open")),
                        exp) == "invented"
 
@@ -114,6 +125,10 @@ CASE = Case("c", "idea", {f: Expectation("either") for f in get_args(SpecField)}
 def test_flags_matched_by_wording_substring_and_reason():
     score = score_case(_flagged(EARNINGS), CASE)
     assert score.caught == 1 and score.missed == () and score.unexpected == ()
+    # Punctuation doesn't break the match: "15-minute" finds "the 15 minute chart".
+    flag = ExpectedFlag("15-minute", "unsupported_timeframe")
+    assert flag.matches("the 15 minute chart", "unsupported_timeframe")
+    assert not flag.matches("the 5 minute chart", "unsupported_timeframe")
     # The same words under the wrong reason don't count.
     score = score_case(_flagged({**EARNINGS, "reason": "unknown_metric"}), CASE)
     assert score.missed == ("earnings",) and score.unexpected == ("Earnings  Surprise filter",)
@@ -192,14 +207,24 @@ def test_eval_saves_replies_and_score_rereads_them(tmp_path):
     assert score_dir(out, cases=cases) == scores
 
 
-def test_score_dir_rejects_an_unknown_case_or_an_empty_run(tmp_path):
+def test_score_dir_rejects_an_unknown_case_or_a_partial_run(tmp_path):
     (tmp_path / "x.json").write_text(json.dumps({"case": "mystery", "spec": {}}))
     with pytest.raises(ValueError, match="mystery"):
         score_dir(tmp_path, cases=_two_cases())
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    with pytest.raises(ValueError, match="no saved replies"):
-        score_dir(empty, cases=_two_cases())
+    # A run that died mid-way isn't scored: its totals would look like an improvement.
+    partial = tmp_path / "partial"
+    partial.mkdir()
+    (partial / "a.json").write_text(json.dumps({"case": "a", "spec": {}}))
+    with pytest.raises(ValueError, match="missing replies for: b"):
+        score_dir(partial, cases=_two_cases())
+
+
+def test_two_eval_runs_in_the_same_second_dont_overwrite_each_other(tmp_path):
+    cases = _two_cases()
+    now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+    run_eval(client=FakeClient([_spec(), _spec()]), cases=cases, out_dir=tmp_path, now=now)
+    with pytest.raises(FileExistsError):
+        run_eval(client=FakeClient([_spec(), _spec()]), cases=cases, out_dir=tmp_path, now=now)
 
 
 def test_summary_table_counts_and_spells_out_misses():

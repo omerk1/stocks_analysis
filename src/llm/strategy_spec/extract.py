@@ -40,17 +40,20 @@ test ideas aren't user demand.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import get_args
 
+from pydantic import BaseModel, ValidationError
+
 from src.llm.gemini import GeminiClient, Reply
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    SpecField, StrategySpec, UnsupportedReason, group_unsupported, load_golden_specs, request_wording)
+    SpecField, StrategySpec, UnsupportedReason, group_unsupported, load_golden_specs)
 
 PURPOSE = "strategy_spec.extract"
 RUNS_DIR_NAME = "extraction_runs"
@@ -85,6 +88,7 @@ _SCALARS = ("direction", "timeframe")
 OUTCOMES = ("correct", "left_blank", "invented", "wrong", "unscored")
 
 
+@functools.cache
 def build_system() -> str:
     """The prompt's fixed part: the rules, then the capability catalogue."""
     return RULES + catalogue.render()
@@ -103,14 +107,20 @@ class Expectation:
     values: object = None  # for "values": a scalar, a list of horizons, or {attr: value}
 
 
+def _fold(text: str) -> str:
+    """Wording for matching: lowercased, punctuation to spaces, spacing collapsed, so
+    "15-minute" matches "the 15 minute chart"."""
+    return " ".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
+
+
 @dataclass(frozen=True)
 class ExpectedFlag:
-    has: str  # a substring of the request's wording (case and spacing ignored); "" = any
+    has: str  # a substring of the request's wording (case and punctuation ignored); "" = any
     reason: UnsupportedReason
     optional: bool = False
 
     def matches(self, requested: str, reason: str) -> bool:
-        return self.reason == reason and request_wording(self.has) in request_wording(requested)
+        return self.reason == reason and _fold(self.has) in _fold(requested)
 
 
 @dataclass(frozen=True)
@@ -121,19 +131,30 @@ class Case:
     flags: tuple[ExpectedFlag, ...]
 
 
+def _validated(field: str, value) -> None:
+    """Expected values must be ones the schema accepts, or the case is unwinnable."""
+    try:
+        StrategySpec(**{field: value})
+    except ValidationError as e:
+        raise ValueError(f"bad expected value for {field}: {value!r}") from e
+
+
 def _expectation(field: str, raw) -> Expectation:
     if raw in ("blank", "described", "either"):
         if raw == "described" and field in _SCALARS + ("horizons_bars",):
             raise ValueError(f"{field} has no description to check")
         return Expectation(raw)
     if isinstance(raw, dict) and set(raw) == {"value"} and field in _SCALARS:
+        _validated(field, raw["value"])
         return Expectation("values", raw["value"])
     if isinstance(raw, dict) and set(raw) == {"values"}:
         if field == "horizons_bars" and isinstance(raw["values"], list):
+            _validated(field, raw["values"])
             return Expectation("values", raw["values"])
         if field in QUANT_ATTRS and isinstance(raw["values"], dict) and raw["values"]:
             unknown = set(raw["values"]) - set(QUANT_ATTRS[field])
             if not unknown:
+                _validated(field, raw["values"])
                 return Expectation("values", raw["values"])
     raise ValueError(f"bad expectation for {field}: {raw!r}")
 
@@ -144,33 +165,55 @@ def load_cases(path: Path = CASES_PATH) -> list[Case]:
     with path.open() as f:
         raw = json.load(f)
     for item in raw:
+        cid = item.get("id", "?")
+        if ("golden" in item) == ("idea" in item):
+            raise ValueError(f"case {cid!r} needs exactly one of 'golden' or 'idea'")
+        if "golden" in item and item["golden"] not in golden:
+            raise ValueError(f"case {cid!r}: no golden spec named {item['golden']!r}")
         idea = golden[item["golden"]] if "golden" in item else item["idea"]
         if set(item["fields"]) != set(get_args(SpecField)):
-            raise ValueError(f"case {item['id']!r} must cover every spec field exactly once")
+            raise ValueError(f"case {cid!r} must cover every spec field exactly once")
         fields = {f: _expectation(f, v) for f, v in item["fields"].items()}
         flags = tuple(ExpectedFlag(f["has"], f["reason"], f.get("optional", False))
                       for f in item["unsupported"])
         if any(f.reason not in get_args(UnsupportedReason) for f in flags):
-            raise ValueError(f"case {item['id']!r} has an unknown reason")
+            raise ValueError(f"case {cid!r} has an unknown reason")
         cases.append(Case(item["id"], idea, fields, flags))
     if len({c.id for c in cases}) != len(cases):
         raise ValueError("case ids must be unique")
     return cases
 
 
+def _set(value) -> bool:
+    """A sub-value the extractor chose. 0 and 0.0 count (`0 == False`, so a membership
+    test against False would hide an invented zero); None and False don't."""
+    return value is not None and value is not False
+
+
+def _empty(got) -> bool:
+    """Nothing recorded: null, an empty list, or a section with every sub-value at its
+    default — Gemini's structured output often writes {"description": null, ...} where
+    it means "nothing", and that validates into a default section, not None."""
+    if got is None or got == []:
+        return True
+    # Every sub-value at its default. (Not `got == type(got)()`: a section with a
+    # required field, like Control, has no default instance to compare against.)
+    return isinstance(got, BaseModel) and not got.model_dump(exclude_defaults=True)
+
+
 def score_field(field: str, spec: StrategySpec, exp: Expectation) -> str:
     """One scored field -> an outcome from OUTCOMES."""
     got = getattr(spec, field)
-    empty = got is None or got == []
     if exp.form == "either":
         return "unscored"
     if exp.form == "blank":
-        return "correct" if empty else "invented"
-    if empty:
+        return "correct" if _empty(got) else "invented"
+    if _empty(got):
         return "left_blank"
     if exp.form == "described":
-        # Words were given, numbers and choices weren't: any set here was invented.
-        if any(getattr(got, a) not in (None, False) for a in QUANT_ATTRS.get(field, ())):
+        # Words were given, numbers and choices weren't: any set here was invented. What
+        # remains is words alone (an all-default section already counted as empty).
+        if any(_set(getattr(got, a)) for a in QUANT_ATTRS.get(field, ())):
             return "invented"
         return "correct"
     if field in _SCALARS:
@@ -249,7 +292,8 @@ def run_eval(client: GeminiClient | None = None, cases: list[Case] | None = None
     client = client or GeminiClient()
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     out = (out_dir or default_runs_dir()) / stamp
-    out.mkdir(parents=True, exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.mkdir()  # two runs in the same second must not silently overwrite each other
     scores = []
     for case in cases:
         reply = extract(case.idea, client)
@@ -261,19 +305,20 @@ def run_eval(client: GeminiClient | None = None, cases: list[Case] | None = None
 
 
 def score_dir(run_dir: Path, cases: list[Case] | None = None) -> list[CaseScore]:
-    """Re-score a saved run, free: the replies are already on disk."""
+    """Re-score a saved run, free: the replies are already on disk. A partial run (an
+    eval that died mid-way) is refused — its totals would look like an improvement."""
     cases = cases if cases is not None else load_cases()
     by_id = {c.id: c for c in cases}
-    scores = []
+    specs: dict[str, StrategySpec] = {}
     for file in sorted(run_dir.glob("*.json")):
         data = json.loads(file.read_text())
-        case = by_id.get(data.get("case"))
-        if case is None:
+        if data.get("case") not in by_id:
             raise ValueError(f"{file}: no case named {data.get('case')!r}")
-        scores.append(score_case(StrategySpec.model_validate(data["spec"]), case))
-    if not scores:
-        raise ValueError(f"no saved replies in {run_dir}")
-    return scores
+        specs[data["case"]] = StrategySpec.model_validate(data["spec"])
+    missing = [c.id for c in cases if c.id not in specs]
+    if missing:
+        raise ValueError(f"{run_dir} is missing replies for: {', '.join(missing)}")
+    return [score_case(specs[c.id], c) for c in cases]  # answer-key order, like eval
 
 
 def main(argv: list[str] | None = None) -> None:
