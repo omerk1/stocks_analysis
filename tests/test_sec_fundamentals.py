@@ -69,6 +69,14 @@ def test_reported_quarter_beats_derived_and_per_share_values_are_never_derived()
     assert out.loc[out["concept"] == "eps_diluted", "period_end"].tolist() == [pd.Timestamp("2020-03-31")]
 
 
+def test_a_full_year_under_quarter_dates_is_dropped_even_in_a_later_filings_comparatives():
+    tags = {"Revenues": [_fact("k", 70, "2020-12-31", "2020-01-01"),
+                         _fact("q1b", 70, "2020-12-31", "2020-01-01"),  # comparative: not the year's first report
+                         _fact("q1b", 70, "2020-12-31", "2020-10-01")]}  # the same year under Q4 dates
+    out = sf.fundamentals(sf.company_facts(_company(tags)), _accepted("k", "q1b"))
+    assert out[["period_type", "value", "accession"]].values.tolist() == [["year", 70, "k"]]
+
+
 def test_first_reported_value_wins_over_restatements_and_ties_go_to_tag_order_or_largest_revenue():
     tags = {
         # Q1 2020 first reported in q1, restated in next year's q1b
@@ -96,7 +104,8 @@ def test_first_reported_value_wins_over_restatements_and_ties_go_to_tag_order_or
 def test_only_periodic_reports_usd_and_known_filings_count():
     tags = {"Revenues": [_fact("q1", 100, "2020-03-31", "2020-01-01"),
                          _fact("q1", 1, "2020-03-31") | {"start": "2020-01-01", "form": "8-K"},
-                         _fact("unknown", 5, "2020-06-30", "2020-04-01")],
+                         _fact("unknown", 5, "2020-06-30", "2020-04-01"),
+                         _fact("q1", 7, "2019-12-31", "2019-13-45")],  # an unparsable start isn't a balance date
             "StockholdersEquity": [_fact("q1", 500, "2020-03-31")]}
     out = sf.fundamentals(sf.company_facts(_company(tags)), _accepted("q1"))
     assert out[["concept", "period_type", "value"]].values.tolist() == [
@@ -136,16 +145,21 @@ def test_ingest_takes_predecessor_reports_before_the_successor_keeps_the_window_
                                          _fact("q3", 44, "2020-09-30", "2020-07-01")],  # a subsidiary's own report
                             "StockholdersEquity": [_fact("q2", 500, "2020-06-30")]})
     monkeypatch.setitem(se.PREDECESSOR_CIKS, 8, (7,))
-    facts_zf, sub_zf = _zips(tmp_path, {8: successor, 7: predecessor}, {8: ["q3"], 7: ["q1", "q2", "q3"]})
+    monkeypatch.setitem(se.PREDECESSOR_CIKS, 10, (7,))  # a successor with a 10-Q but no tagged values
+    facts_zf, sub_zf = _zips(tmp_path, {8: successor, 7: predecessor},
+                             {8: ["q3"], 7: ["q1", "q2", "q3"], 10: ["q2"]})
     with facts_zf, sub_zf:
         tally = ingest.ingest(conn, facts_zf, sub_zf, {"NEW": (8, "sec_ticker_file", None, None),
                                                        "OLD": (7, "ticker_renames", "2020-06-01", "2020-12-31"),
-                                                       "NONE": (9, "sec_ticker_file", None, None)}, SESSIONS)
+                                                       "NONE": (9, "sec_ticker_file", None, None),
+                                                       "BARE": (10, "sec_ticker_file", None, None)}, SESSIONS)
         stored = db.read_fundamentals(conn)
         ingest.ingest(conn, facts_zf, sub_zf, {"NEW": (8, "sec_ticker_file", None, None)}, SESSIONS)
         rerun = db.read_fundamentals(conn, "NEW")
 
-    assert (tally["stored"], tally["no_values"], tally["rows"]) == (2, 1, 5)
+    assert (tally["stored"], tally["no_values"], tally["rows"]) == (3, 1, 6)
+    # cut at the successor's first 10-Q, not at its first tagged value
+    assert stored.loc[stored["ticker"] == "BARE", "accession"].tolist() == ["q1"]
     new = stored[stored["ticker"] == "NEW"]
     assert new[["concept", "period_end", "value", "filer_cik"]].values.tolist() == [
         ["equity", "2020-06-30", 500, 7],
@@ -159,6 +173,7 @@ def test_ingest_takes_predecessor_reports_before_the_successor_keeps_the_window_
 
 
 def test_checks_add_up_quarters_and_measure_coverage(conn, tmp_path):
+    assert ingest.quarters_vs_year(conn).empty  # nothing stored yet
     facts_zf, sub_zf = _zips(tmp_path, {7: _company({"Revenues": YTD})}, {7: ["q1", "q2", "q3", "k"]})
     with facts_zf, sub_zf:
         ingest.ingest(conn, facts_zf, sub_zf, {"X": (7, "sec_ticker_file", None, None)}, SESSIONS)

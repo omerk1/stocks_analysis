@@ -63,7 +63,10 @@ CONCEPTS: dict[str, tuple[bool, str, bool, tuple[str, ...]]] = {
 # Within one filing, the largest of these concepts' values wins over tag order:
 # some filers put a partial figure under `Revenues` next to the full one under
 # another tag (Conagra FY2014: $2.2B vs $17.7B), and a part is never larger than
-# the total.
+# the total. The cost: where a gross and a net figure are both tagged
+# (`Revenues` vs `RevenuesNetOfInterestExpense`), gross wins, and a filing with
+# only one of them can switch the measure. Measured 2010-2021: 6 companies file
+# both, mostly 1-13% apart; for one (Zions) `Revenues` is the partial one.
 LARGEST_WINS = ("revenue",)
 
 FORMS = ("10-Q", "10-K", "10-QT", "10-KT", "10-Q/A", "10-K/A", "10-QT/A", "10-KT/A")
@@ -89,6 +92,8 @@ def company_facts(company: dict | None) -> pd.DataFrame:
     for column in ("start", "end", "filed"):
         facts[column] = pd.to_datetime(facts[column], errors="coerce")
     facts["value"] = pd.to_numeric(facts["value"], errors="coerce")
+    # a span whose start doesn't parse would otherwise pass for a balance-sheet date
+    facts = facts[facts["concept"].map(lambda c: CONCEPTS[c][0]).astype(bool) | facts["start"].notna()]
     return facts.dropna(subset=["end", "filed", "value"])
 
 
@@ -129,21 +134,22 @@ def fundamentals(facts: pd.DataFrame, accepted: pd.Series) -> pd.DataFrame:
     facts = facts[facts["end"] < facts["accepted_at"].dt.tz_convert(None).dt.normalize()]
     if facts.empty:
         return pd.DataFrame(columns=OUT_COLUMNS)
+    period_type = _period_type((facts["end"] - facts["start"]).dt.days).where(facts["start"].notna(), "instant")
+    facts = facts.assign(period_type=period_type, derived=0)
+    # a "quarter" equal to the same filing's year ending that day is the year under a mistyped
+    # start date (Oracle's 10-Ks: full-year revenue tagged as the fourth quarter); checked before
+    # keeping first reports, so a later filing's comparative still finds its year
+    year_keys = ["concept", "end", "accession", "value"]
+    years = facts.loc[facts["period_type"] == "year", year_keys].drop_duplicates()
+    as_year = facts[year_keys].merge(years, how="left", indicator=True)["_merge"].eq("both").to_numpy()
+    facts = facts[~((facts["period_type"] == "quarter").to_numpy() & as_year & (facts["value"] != 0).to_numpy())]
     # first report of each period under each tag
     facts = facts.sort_values("accepted_at").drop_duplicates(["concept", "tag", "start", "end"])
-    instant = facts["start"].isna()
-    durations = facts[~instant].assign(period_type=lambda d: _period_type((d["end"] - d["start"]).dt.days),
-                                       derived=0)
-    # a "quarter" equal to the same filing's year ending that day is the year under a mistyped
-    # start date (Oracle's 10-Ks: full-year revenue tagged as the fourth quarter)
-    year_keys = ["concept", "end", "accession", "value"]
-    years = durations.loc[durations["period_type"] == "year", year_keys].drop_duplicates()
-    as_year = durations[year_keys].merge(years, how="left", indicator=True)["_merge"].eq("both").to_numpy()
-    durations = durations[~((durations["period_type"] == "quarter").to_numpy() & as_year
-                            & (durations["value"] != 0).to_numpy())]
+    instant = facts["period_type"] == "instant"
+    durations = facts[~instant]
     additive = durations["concept"].map(lambda c: CONCEPTS[c][2]).astype(bool)
     candidates = pd.concat([
-        facts[instant].assign(period_type="instant", derived=0),
+        facts[instant],
         durations[durations["period_type"] != "cumulative"],
         _derived_quarters(durations.loc[additive]),
     ], ignore_index=True)

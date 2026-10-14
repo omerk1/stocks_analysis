@@ -42,20 +42,24 @@ ADDITIVE = [c for c, (_, _, additive, _) in sf.CONCEPTS.items() if additive]
 
 def ticker_rows(parsed, cik: int, cik_source: str, valid_from, valid_to, sessions: pd.DatetimeIndex) -> pd.DataFrame:
     """The rows to store for one ticker: its CIK's values plus each
-    predecessor's from filings accepted before the newer CIK's first one,
-    earliest report per period winning. Not a cut by period: the successor's
-    first reports repeat the predecessor's periods as comparatives, a year or
-    more after the predecessor first reported them (Alphabet's 2016 10-K vs
-    Google's for 2014). Not unrestricted either: some predecessors keep filing
-    as subsidiaries (Apache), with their own, different numbers. `parsed(cik)`
-    gives a CIK's `sf.fundamentals`."""
-    parts = []
+    predecessor's from filings accepted before the first 10-Q/10-K of any
+    newer CIK in the chain, earliest report per period winning. Not a cut by
+    period: the successor's first reports repeat the predecessor's periods as
+    comparatives, a year or more after the predecessor first reported them
+    (Alphabet's 2016 10-K vs Google's for 2014). Not unrestricted either: some
+    predecessors keep filing as subsidiaries (Apache), with their own,
+    different numbers. `parsed(cik)` gives a CIK's `sf.fundamentals` and the
+    acceptance time of its first periodic report (NaT if none)."""
+    parts, cutoff = [], pd.NaT
     for c in (cik, *se.PREDECESSOR_CIKS.get(cik, ())):
-        found = parsed(c).assign(filer_cik=c)
-        if parts:
-            found = found[found["accepted_at"] < pd.concat(parts)["accepted_at"].min()]
+        values, first_report = parsed(c)
+        found = values.assign(filer_cik=c)
+        if pd.notna(cutoff):
+            found = found[found["accepted_at"] < cutoff]
         if len(found):
             parts.append(found)
+        if pd.notna(first_report):
+            cutoff = first_report if pd.isna(cutoff) else min(cutoff, first_report)
     if not parts:
         return pd.DataFrame()
     rows = (pd.concat(parts, ignore_index=True).sort_values("accepted_at", kind="stable")
@@ -73,17 +77,19 @@ def ingest(conn: sqlite3.Connection, facts_zf: zipfile.ZipFile, submissions_zf: 
     if len(sessions) == 0:
         raise ValueError(f"No session calendar: {earnings.CALENDAR_TICKER} has no bars")
     facts_available, submissions_available = set(facts_zf.namelist()), set(submissions_zf.namelist())
-    cache: dict[int, pd.DataFrame] = {}
+    cache: dict[int, tuple[pd.DataFrame, pd.Timestamp]] = {}
     tally: Counter = Counter()
 
-    def parsed(cik: int) -> pd.DataFrame:
+    def parsed(cik: int) -> tuple[pd.DataFrame, pd.Timestamp]:
         if cik not in cache:
             company = sec.read_company(facts_zf, cik) if f"CIK{cik:010d}.json" in facts_available else None
             facts = sf.company_facts(company)
-            accepted = sf.accepted_times(se.company_filings(submissions_zf, submissions_available, cik))
+            filings = se.company_filings(submissions_zf, submissions_available, cik)
+            accepted = sf.accepted_times(filings)
             known = facts["accession"].map(accepted).notna().sum() if len(facts) and len(accepted) else 0
             tally["facts_without_filing"] += len(facts) - int(known)
-            cache[cik] = sf.fundamentals(facts, accepted)
+            first_report = filings.loc[filings["form"].isin(sf.FORMS), "accepted_at"].min()
+            cache[cik] = (sf.fundamentals(facts, accepted), first_report)
         return cache[cik]
 
     for ticker, (cik, cik_source, valid_from, valid_to) in sorted(resolved.items()):
@@ -140,12 +146,12 @@ def quarters_vs_year(conn: sqlite3.Connection, start: str = "2010-01-01", end: s
         ok = (full["total"] - full["value"]).abs() <= tolerance * full["value"].abs()
         out.append({"concept": concept, "years": len(ys), "four_quarters": len(full),
                     "adds_up": round(float(ok.mean()), 3) if len(full) else np.nan})
-    return pd.DataFrame(out).set_index("concept")
+    return pd.DataFrame(out, columns=["concept", "years", "four_quarters", "adds_up"]).set_index("concept")
 
 
 def lag_after_announcement(conn: sqlite3.Connection, start: str = "2010-01-01",
                            end: str = "2021-12-31") -> pd.DataFrame:
-    """Sessions between the earnings reaction date and the day net income
+    """Calendar days between the earnings reaction date and the day net income
     becomes available, by announcement source: the 10-Q/10-K usually follows
     the press release by days or weeks, never precedes it."""
     ann = pd.read_sql_query(

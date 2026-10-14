@@ -983,24 +983,32 @@ def read_symbol_reuse(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query("SELECT * FROM symbol_reuse ORDER BY ticker", conn)
 
 
-def replace_earnings_announcements(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
-    """Delete `ticker`'s `earnings_announcements` rows and insert `rows`
-    (columns as in the schema, minus ticker) in one transaction."""
-    conn.execute("DELETE FROM earnings_announcements WHERE ticker = ?", (ticker,))
+def _replace_ticker_rows(conn: sqlite3.Connection, table: str, columns: list[str], ticker: str,
+                         rows: pd.DataFrame, dates: tuple[str, ...], ints: tuple[str, ...]) -> None:
+    """Delete `ticker`'s rows of `table` and insert `rows` (`columns` minus
+    ticker) in one transaction. `dates` are stored as days, `accepted_at` as an
+    ISO timestamp, `ints` as integers."""
+    conn.execute(f"DELETE FROM {table} WHERE ticker = ?", (ticker,))
     if not rows.empty:
-        out = rows.assign(ticker=ticker)[_EARNINGS_ANNOUNCEMENTS_COLUMNS].copy()
-        for column in ("period_end", "report_filed", "reaction_date"):
+        out = rows.assign(ticker=ticker)[columns].copy()
+        for column in dates:
             out[column] = [_serialize_date(v) for v in out[column]]
         out["accepted_at"] = [pd.Timestamp(v).isoformat() for v in out["accepted_at"]]
-        out["cik"] = out["cik"].astype(int)
-        out["filer_cik"] = out["filer_cik"].astype(int)
-        out["extra_filings"] = out["extra_filings"].astype(int)
+        for column in ints:
+            out[column] = out[column].astype(int)
         conn.executemany(
-            f"INSERT INTO earnings_announcements ({', '.join(_EARNINGS_ANNOUNCEMENTS_COLUMNS)}) "
-            f"VALUES ({', '.join('?' * len(_EARNINGS_ANNOUNCEMENTS_COLUMNS))})",
+            f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
             out.astype(object).where(out.notna(), None).itertuples(index=False, name=None),
         )
     conn.commit()
+
+
+def replace_earnings_announcements(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
+    """Delete `ticker`'s `earnings_announcements` rows and insert `rows`
+    (columns as in the schema, minus ticker) in one transaction."""
+    _replace_ticker_rows(conn, "earnings_announcements", _EARNINGS_ANNOUNCEMENTS_COLUMNS, ticker, rows,
+                         dates=("period_end", "report_filed", "reaction_date"),
+                         ints=("cik", "filer_cik", "extra_filings"))
 
 
 def read_earnings_announcements(conn: sqlite3.Connection, ticker: str | None = None) -> pd.DataFrame:
@@ -1013,21 +1021,10 @@ def read_earnings_announcements(conn: sqlite3.Connection, ticker: str | None = N
 def replace_fundamentals(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
     """Delete `ticker`'s `fundamentals` rows and insert `rows` (columns as in
     the schema, minus ticker) in one transaction."""
-    conn.execute("DELETE FROM fundamentals WHERE ticker = ?", (ticker,))
-    if not rows.empty:
-        out = rows.assign(ticker=ticker)[_FUNDAMENTALS_COLUMNS].copy()
-        for column in ("period_end", "period_start", "filed", "available_date"):
-            out[column] = [_serialize_date(v) if pd.notna(v) else None for v in out[column]]
-        out["accepted_at"] = [pd.Timestamp(v).isoformat() for v in out["accepted_at"]]
-        out["value"] = out["value"].astype(float)
-        for column in ("derived", "cik", "filer_cik"):
-            out[column] = out[column].astype(int)
-        conn.executemany(
-            f"INSERT INTO fundamentals ({', '.join(_FUNDAMENTALS_COLUMNS)}) "
-            f"VALUES ({', '.join('?' * len(_FUNDAMENTALS_COLUMNS))})",
-            out.astype(object).where(out.notna(), None).itertuples(index=False, name=None),
-        )
-    conn.commit()
+    _replace_ticker_rows(conn, "fundamentals", _FUNDAMENTALS_COLUMNS, ticker,
+                         rows.astype({"value": float}) if len(rows) else rows,
+                         dates=("period_end", "period_start", "filed", "available_date"),
+                         ints=("derived", "cik", "filer_cik"))
 
 
 def read_fundamentals(conn: sqlite3.Connection, ticker: str | None = None,

@@ -113,7 +113,7 @@ ticker-to-CIK rules as step 1. Choices and what the data forced:
 - **When a value is known:** acceptance time from `submissions.zip`, not the facts file's
   filing date. `available_date` is the first session whose close may use the value. It is
   usually days after the press release, because the XBRL comes with the 10-Q/10-K: median
-  6 sessions after the earnings reaction date, 90th percentile 26.
+  6 calendar days after the earnings reaction date, 90th percentile 26.
 - **Derived quarters:** a quarter missing as a three-month value is the difference of two
   year-to-date values with the same start and tag (`derived` = 1). This covers 73% of
   operating cash flow quarters and 8–15% of income items, mostly fourth quarters. EPS is
@@ -122,7 +122,7 @@ ticker-to-CIK rules as step 1. Choices and what the data forced:
   2012-02-29 reporting a quarter to 2012-03-31) is dropped. So is a "quarter" equal to the
   same filing's full year (Oracle tags full-year revenue as Q4).
 - **Predecessor CIKs:** a predecessor's reports count when they were filed before the
-  successor's first filing. So Google's own 2014 10-K is used, not Alphabet's 2016
+  successor's first 10-Q/10-K. So Google's own 2014 10-K is used, not Alphabet's 2016
   comparative, and Apache's post-2021 subsidiary reports are not.
 
 Checks (`--check`, run on 2026-10-14):
