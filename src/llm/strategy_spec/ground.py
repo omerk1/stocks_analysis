@@ -44,7 +44,6 @@ API or needs the network.
 from __future__ import annotations
 
 import argparse
-import inspect
 import json
 import random
 from dataclasses import dataclass, field as dataclass_field
@@ -55,8 +54,11 @@ import pandas as pd
 
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import charts
+# FINDERS and pick_finder moved to finders.py (shared with look.py) and stay re-exported
+# here: callers and tests address the grounding step through this module.
 from src.llm.strategy_spec.finders import (
-    DEFAULT_MA, FINDERS, Candidate, FinderResult, GroundingError, MA_COLUMNS, shift_to_signal_bar)
+    DEFAULT_MA, FINDERS, Candidate, FinderResult, GroundingError, MA_COLUMNS,
+    dispatch, pick_finder, shift_to_signal_bar)
 from src.llm.strategy_spec.schema import Example, StrategySpec
 from src.models.dataset import check_holdout
 
@@ -70,21 +72,6 @@ def load_spec(path: Path) -> StrategySpec:
     """A spec from a bare spec JSON or an elicitation transcript (its `spec` key)."""
     raw = json.loads(path.read_text())
     return StrategySpec.model_validate(raw["spec"] if "idea" in raw and "spec" in raw else raw)
-
-
-def pick_finder(spec: StrategySpec, override: str | None = None) -> str:
-    """The detector id to ground with: the override, else the first entry of the spec's
-    `uses` that has a finder. Refuses clearly rather than approximating."""
-    if override is not None:
-        if override not in FINDERS:
-            raise GroundingError(f"no finder for {override!r}; built so far: {', '.join(FINDERS)}")
-        return override
-    found = next((u for u in spec.uses if u in FINDERS), None)
-    if found is None:
-        raise GroundingError(
-            f"none of the spec's detectors ({', '.join(spec.uses) or 'none listed'}) has a "
-            f"finder yet; built so far: {', '.join(FINDERS)}")
-    return found
 
 
 def sample(candidates: tuple[Candidate, ...], k: int, rng: random.Random,
@@ -200,22 +187,7 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     if panel.empty:
         raise GroundingError("the panel is empty — nothing to ground against")
     check_holdout(panel["date"].max())
-    finder_id = pick_finder(spec, detector)
-    finder = FINDERS[finder_id]
-    # A run option goes only to a finder that declares it: `ma` means nothing to a
-    # future pattern or divergence finder. An option the user explicitly passed to a
-    # finder that doesn't take it is said out loud, never silently dropped.
-    declared = inspect.signature(finder).parameters
-    options = {}
-    if ma is not None:
-        if "ma" in declared:
-            options["ma"] = ma  # only an explicit choice is passed: None means the finder's own default
-        else:
-            say(f"Note: {finder_id} takes no moving-average option; --ma {ma} is ignored.")
-    result: FinderResult = finder(spec, panel, **options)
-    if detector is not None and finder_id not in spec.uses:
-        say(f"Note: {finder_id} isn't among the spec's own detectors "
-            f"({', '.join(spec.uses) or 'none listed'}) — grounding it anyway, as asked.")
+    finder_id, result = dispatch(spec, panel, detector=detector, ma=ma, note=say)
 
     say("Search rubric — what was actually applied:")
     for line in result.rubric:
