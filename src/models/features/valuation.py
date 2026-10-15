@@ -33,12 +33,14 @@ does. Like the filings values, a share count goes stale `fundamentals.MAX_AGE_DA
 
 The share change must not read a split as dilution, but the vendors' splits
 also hold spin-offs' price factors (EBAY 2.376 for PayPal, NI, YUM, HPE),
-which leave the count alone. So a split between the two counts is taken out
-only where it explains their change: where the change less the split's log
-ratio is smaller than the change itself. That also handles a filing that still
-reports the pre-split count (no bridge needed), and uses only the splits
-executed by the later count's date, never a later one. It misreads a real
-change about half a split's size (+-20% across a 3-for-2).
+which leave the count alone. So a split between the two counts (or up to
+`STALE_FILING_DAYS` before the year-ago one) is taken out only where it
+explains their change: where the change less the split's log ratio is
+smaller than the change itself. That also handles a filing, on either side,
+that still reports the pre-split count (no bridge needed), and uses only the
+splits executed by the later count's date, never a later one. It misreads a
+real change about half a split's size (+-20% across a 3-for-2). Both counts
+come from the same source (`load_shares`' SEC or yfinance).
 """
 
 from __future__ import annotations
@@ -52,6 +54,7 @@ from src.models.features import fundamentals as F
 
 COLUMNS = ("earnings_yield", "sales_yield", "book_to_market", "share_change_yoy")
 SHARE_CHANGE_DAYS, SHARE_CHANGE_TOLERANCE = 365, 30
+STALE_FILING_DAYS = 120  # a filing up to this long after a split may still report the pre-split count
 
 
 def _series(g: pd.DataFrame) -> pd.Series:
@@ -60,7 +63,7 @@ def _series(g: pd.DataFrame) -> pd.Series:
 
 
 def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """(ticker, date, shares_outstanding) dated up to `end`: SEC EDGAR's
+    """(ticker, date, shares_outstanding, source) dated up to `end`: SEC EDGAR's
     counts, and yfinance's on a date where SEC filed nothing in the
     `fundamentals.MAX_AGE_DAYS` before (decided on the filing dates alone, so
     from the past only: SEC's series stops early for many multi-class
@@ -72,7 +75,7 @@ def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) 
     as at the SEC ingest). That cleaning judges a ticker's whole series up
     to `end`, with hindsight, and the leakage gate can't see it (it perturbs
     the loaded counts): accepted as a data fix like the SEC ingest's."""
-    columns = ["ticker", "date", "shares_outstanding"]
+    columns = ["ticker", "date", "shares_outstanding", "source"]
     marks = ", ".join("?" * len(tickers))
     raw = pd.read_sql_query(
         f"SELECT ticker, source, date, shares_outstanding FROM shares_outstanding "
@@ -90,9 +93,12 @@ def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) 
             yf = drop_scale_runs(yf, split_factor=factor(yf))
         if len(sec):
             sec = drop_scale_runs(sec, split_factor=factor(sec), reference=reference)
-        s = pd.concat([sec, yf]).sort_index()
-        kept.append(pd.DataFrame({"ticker": ticker, "date": s.index, "shares_outstanding": s.to_numpy()}))
-    return pd.concat(kept, ignore_index=True)[columns] if kept else pd.DataFrame(columns=columns)
+        for source, s in ((db.SEC_EDGAR, sec), (db.YFINANCE, yf)):
+            kept.append(pd.DataFrame({"ticker": ticker, "date": s.index, "shares_outstanding": s.to_numpy(),
+                                      "source": source}))
+    if not kept:
+        return pd.DataFrame(columns=columns)
+    return pd.concat(kept, ignore_index=True).sort_values(["ticker", "date"], kind="stable", ignore_index=True)[columns]
 
 
 def _shares_known(shares: pd.DataFrame, splits: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -111,7 +117,13 @@ def _shares_known(shares: pd.DataFrame, splits: dict[str, pd.DataFrame]) -> pd.D
     if not parts:
         return pd.DataFrame(columns=["ticker", "dated", "shares", "basis", "known_at"])
     out = F._ns(pd.concat(parts, ignore_index=True), ["dated"])
-    return out.assign(known_at=out["dated"] + pd.offsets.BDay(1))
+    return out.assign(known_at=_known_from(out["dated"]))
+
+
+def _known_from(dated: pd.Series) -> pd.Series:
+    """A count dated d is usable from the next session: the date carries no
+    time, and the filing may come after the close."""
+    return dated + pd.offsets.BDay(1)
 
 
 def market_caps(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd.DataFrame]) -> pd.Series:
@@ -137,14 +149,21 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
     """For each (ticker, date) row: `share_change_yoy` from the latest count
     known that day (NaN once it's stale) and the count dated
     `SHARE_CHANGE_DAYS` before it, within `SHARE_CHANGE_TOLERANCE` days, less
-    each split between them that explains their change (module docstring)."""
-    known = _shares_known(shares, {})  # as filed: no bridge, the splits are judged below
-    known = known[known["shares"] > 0].reset_index(drop=True)
-    counts = known[["ticker", "dated", "known_at"]].assign(level=np.log(known["shares"]))
+    each split between them that explains their change (module docstring).
+    Both counts from the same source: SEC's and yfinance's differ for
+    multi-class issuers (one class vs all), so the hand-off would read as a
+    change."""
+    # as filed, no bridge: the splits are judged below
+    s = shares[shares["shares_outstanding"] > 0]
+    s = s.assign(source=s["source"] if "source" in s else "", dated=pd.to_datetime(s["date"]).astype("M8[ns]"))
+    s = s.drop_duplicates(["ticker", "source", "dated"], keep="last")
+    counts = pd.DataFrame({"ticker": s["ticker"].to_numpy(), "source": s["source"].to_numpy(),
+                           "dated": s["dated"].to_numpy(), "known_at": _known_from(s["dated"]).to_numpy(),
+                           "level": np.log(s["shares_outstanding"].to_numpy(dtype=float))})
     left = counts.assign(target=counts["dated"] - pd.Timedelta(days=SHARE_CHANGE_DAYS), row=np.arange(len(counts)))
-    right = counts[["ticker", "dated", "level"]].rename(columns={"dated": "target", "level": "level_ago"})
+    right = counts[["ticker", "source", "dated", "level"]].rename(columns={"dated": "target", "level": "level_ago"})
     right = right.assign(dated_ago=right["target"])
-    m = pd.merge_asof(left.sort_values("target"), right.sort_values("target"), on="target", by="ticker",
+    m = pd.merge_asof(left.sort_values("target"), right.sort_values("target"), on="target", by=["ticker", "source"],
                       direction="nearest", tolerance=pd.Timedelta(days=SHARE_CHANGE_TOLERANCE)).sort_values("row")
     change = (m["level"] - m["level_ago"]).to_numpy()
     for ticker, at in m.groupby("ticker", sort=False).indices.items():
@@ -153,7 +172,9 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
         ago, now, c = m["dated_ago"].to_numpy()[at], m["dated"].to_numpy()[at], change[at]
         for when, ratio in market_cap._split_ratio_events(splits.get(ticker)).items():  # chronological
             less = c - np.log(ratio)
-            c = np.where((ago < when) & (now >= when) & (np.abs(less) < np.abs(c)), less, c)
+            # from STALE_FILING_DAYS before the year-ago count: it may still report the pre-split count
+            between = (ago < when + np.timedelta64(STALE_FILING_DAYS, "D")) & (now >= when)
+            c = np.where(between & (np.abs(less) < np.abs(c)), less, c)
         change[at] = c
     events = pd.DataFrame({"ticker": m["ticker"].to_numpy(), "known_at": m["known_at"].to_numpy(),
                            "period_end": m["dated"].to_numpy(), "value": change})

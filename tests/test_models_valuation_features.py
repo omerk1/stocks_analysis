@@ -117,8 +117,7 @@ def test_the_gate_catches_a_share_count_used_on_its_filing_day(monkeypatch):
     moved = shares["ticker"] == shares["ticker"].iloc[-1]
     nearest = shares.loc[moved, "date"].iloc[(shares.loc[moved, "date"] - cut).abs().argmin()]
     shares.loc[moved, "date"] += cut - nearest
-    real = V._shares_known
-    monkeypatch.setattr(V, "_shares_known", lambda s, sp: real(s, sp).assign(known_at=lambda f: f["dated"]))
+    monkeypatch.setattr(V, "_known_from", lambda dated: dated)
     from dataclasses import replace
     result = gates.leakage_gate(bars, splits, cut, context=replace(context, shares=shares))
     assert {"earnings_yield", "share_change_yoy"} <= set(result["leaks"]["future_filings"])
@@ -150,6 +149,23 @@ def test_a_split_between_the_two_counts_is_not_dilution():
     out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
     assert out.loc["2020-03-17"] == pytest.approx(0.0)
     assert out.loc["2020-06-16"] == pytest.approx(np.log(210 / 200))
+
+
+def test_a_stale_year_ago_filing_after_a_split_is_not_dilution():
+    # a 2-for-1 on 2019-03-01; the 2019-03-15 filing still reports 100, the
+    # one a year later 210 after issuing 10
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-03-01")], "ratio": [2.0]})}
+    shares = _shares(["2019-03-15", "2020-03-16"], [100.0, 210.0])
+    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
+    assert out.loc["2020-03-17"] == pytest.approx(np.log(210 / 200))
+
+
+def test_share_change_compares_counts_from_the_same_source():
+    # SEC's class-A count a year ago, yfinance's all-class count now: no change to read
+    shares = _shares(["2019-03-01", "2020-03-02"], [100.0, 130.0]).assign(source=[db.SEC_EDGAR, db.YFINANCE])
+    assert _features(_bars(), None, shares)["share_change_yoy"].isna().all()
+    same = shares.assign(source=db.YFINANCE)
+    assert _at(_features(_bars(), None, same), "2020-03-03", "share_change_yoy") == pytest.approx(np.log(1.3))
 
 
 def test_a_spin_off_factor_booked_as_a_split_is_not_buybacks():

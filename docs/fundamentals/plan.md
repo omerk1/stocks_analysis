@@ -276,8 +276,13 @@ surprise that the net-income one misses.
   PayPal, NI, YUM, HPE), which leave the count alone. Dividing every count by its splits
   turned those into fake buybacks of 40–65%. A split between the two counts is therefore
   taken out only where it explains their change better than no split does. That also
-  handles a filing that still reports the pre-split count (no bridge needed). It uses only
-  splits executed by the later count's date. **Limits:** a real change about half a split's
+  handles a filing, on either side, that still reports the pre-split count (no bridge
+  needed; splits up to 120 days before the year-ago count are judged too). It uses only
+  splits executed by the later count's date.
+- **Same source:** both counts come from SEC, or both from yfinance. For multi-class
+  issuers SEC can carry one class and yfinance all of them, so a change across the
+  hand-off was an artifact (CMCSA +14% in 2016, MA +12% in 2010). After a hand-off the
+  column is NaN for a year. **Limits:** a real change about half a split's
   size is misread (±20% across a 3-for-2); a vendor factor that merges a reverse split with
   a spin-off leaves a residual (MSI 2011: −41%); a reused symbol compares two companies
   (FOX/FOXA 2019–2020: −66%).
@@ -293,13 +298,13 @@ surprise that the net-income one misses.
   - Buybacks: AAPL −4% to −8% a year from 2014, ORCL to −16% (2019), AZO −5% to −12%.
   - Dilution: AAL +115% (US Airways, 2014), BMY +38% (Celgene), CCL +62% (2021 raises),
     TSLA +23% (SolarCity).
-  - On S&P member rows: median −0.7% a year; 1st percentile −14%, 99th +46% (stock
+  - On S&P member rows: median −0.7% a year; 1st percentile −14%, 99th +45% (stock
     mergers). 43–56% of rows show net buybacks over 1% (2011–2020), 14–20% dilution over 1%.
   - The largest values are real issuance: AIG's 2011 recapitalisation, JCI–Tyco, LUMN's
     acquisitions, the 2021 cruise-line raises.
 - **Coverage on S&P 500 member rows** (all 643 members with bars): 23% in 2010 (it needs a
-  year of counts, and SEC's start in 2009), 63–78% 2011–2016, 82–86% 2017–2019, 91–93%
-  2020–2021. The gaps come from the share-count table: 121 members never get a value, many
+  year of counts, and SEC's start in 2009), 63–78% 2011–2016, 81–85% 2017–2019, 90–92%
+  2020–2021. The gaps come from the share-count table: 122 members never get a value, many
   with no count at all (EA, K, HOLX, AVB).
 - **Found, not fixed (backlog):** the same spin-off factors inflate the market cap.
   `market_caps` carries a count across them and bridges the filings after them as stale,
