@@ -169,7 +169,11 @@ def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
     keys = ["ticker", "period_end"]
     pick = lambda c: _in_order(inst.loc[inst["concept"] == c, [*keys, "value", "available_date"]]).set_index(keys)
     equity, debt, debt_nc = pick("equity"), pick("long_term_debt"), pick("long_term_debt_noncurrent")
-    debt = debt.combine_first(debt_nc)  # with current maturities when tagged, else the noncurrent part
+    # with current maturities when tagged, else the noncurrent part; a total first
+    # reported later (a comparative in next year's 10-K) doesn't replace a noncurrent
+    # value already known, or a filing after t would decide what counted on t
+    nc_at = debt_nc["available_date"].reindex(debt.index)
+    debt = debt[nc_at.isna() | (debt["available_date"] <= nc_at)].combine_first(debt_nc)
     bs = equity.join(debt, how="inner", lsuffix="_eq", rsuffix="_debt").reset_index()
     events["debt_to_equity"] = pd.DataFrame({
         "ticker": bs["ticker"], "period_end": bs["period_end"],

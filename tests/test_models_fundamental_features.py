@@ -98,6 +98,19 @@ def test_net_margin_needs_four_quarters_and_debt_to_equity_needs_positive_equity
     assert _at(out, AVAILABLE[2], "debt_to_equity") == pytest.approx(0.75)  # the total wins over noncurrent
 
 
+def test_a_total_debt_reported_later_doesnt_replace_a_known_noncurrent_one():
+    # the total first tagged as a comparative a year later (IP's 2018 10-K vs its 2019 one):
+    # the noncurrent value known on the filing day stays, with or without that later filing
+    ends = QUARTER_ENDS[:1]
+    equity = _rows("equity", [200], AVAILABLE[:1], period_type="instant", ends=ends)
+    debt_nc = _rows("long_term_debt_noncurrent", [100], AVAILABLE[:1], period_type="instant", ends=ends)
+    debt = _rows("long_term_debt", [300], [AVAILABLE[4]], period_type="instant", ends=ends)
+    with_later = _features(pd.concat([equity, debt_nc, debt], ignore_index=True))
+    without = _features(pd.concat([equity, debt_nc], ignore_index=True))
+    pd.testing.assert_series_equal(with_later["debt_to_equity"], without["debt_to_equity"])
+    assert _at(with_later, AVAILABLE[0], "debt_to_equity") == pytest.approx(0.5)
+
+
 def test_earnings_timing_uses_past_reactions_only():
     reactions = pd.to_datetime(["2019-04-25", "2019-07-25", "2019-10-24", "2020-01-30", "2020-04-30"])
     earnings = pd.DataFrame({"ticker": "AAA", "period_end": QUARTER_ENDS[:5], "reaction_date": reactions})
