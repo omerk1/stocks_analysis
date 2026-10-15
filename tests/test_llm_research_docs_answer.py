@@ -60,6 +60,10 @@ def test_check_flags_a_made_up_source_and_an_uncited_in_docs_answer():
     ("One [1]. Two [2].", ["One [1].", "Two [2]."]),
     ("One. [1] Two.[2][1] Three!", ["One [1].", "Two[2][1].", "Three!"]),
     ("Sharpe 0.18, e.g. the picks [1]. Next [2].", ["Sharpe 0.18, e.g. the picks [1].", "Next [2]."]),
+    ("Filters, e.g. RSI, worked [1]. Sharpe 0.4 vs. 0.2 [2].", ["Filters, e.g. RSI, worked [1].",
+                                                                "Sharpe 0.4 vs. 0.2 [2]."]),
+    ("Findings:\n\n1. A holds [1].\n- B holds\nC holds [2]", ["A holds [1].", "B holds", "C holds [2]"]),
+    ('It stays "locked." [1] It was never opened.', ['It stays "locked [1]."', "It was never opened."]),
 ])
 def test_sentences_keep_citations_written_after_the_full_stop(text, want):
     assert sentences(text) == want

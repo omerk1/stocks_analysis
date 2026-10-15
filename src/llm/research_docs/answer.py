@@ -105,12 +105,21 @@ def cited(text: str) -> list[int]:
     return out
 
 
+LIST_MARKER = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+SENTENCE_END = re.compile(  # a stop, maybe a closing quote, then space; not after an abbreviation
+    r"(?<!e\.g\.)(?<!i\.e\.)(?<!vs\.)(?<!etc\.)(?<!cf\.)(?<=[.!?])\s+(?=[^a-z])|(?<=[.!?][\"')])\s+(?=[^a-z])")
+
+
 def sentences(text: str) -> list[str]:
-    """`text` split into sentences. Citations written after a full stop ("Fact. [1]") are
-    moved in front of it ("Fact [1].") so they stay with their sentence. A stop followed by
-    a lowercase word ("e.g. the") doesn't split."""
-    text = re.sub(r"([.!?])((?:\s*\[[^\]]*\])+)", r"\2\1", text.strip())
-    return [s for s in re.split(r"(?<=[.!?])\s+(?=[^a-z])", text) if s]
+    """`text` split into sentences: every line (a list item, say) on its own, then at full
+    stops. Citations written after a stop ("Fact. [1]", '"locked." [1]') are moved in front
+    of it so they stay with their sentence. List markers are dropped, and so are pieces that
+    state nothing: no letters, or a lead-in ending in a colon ("Findings:")."""
+    out: list[str] = []
+    for line in text.splitlines():
+        line = re.sub(r"([.!?][\"')]*)((?:\s*\[[^\]]*\])+)", r"\2\1", LIST_MARKER.sub("", line).strip())
+        out += [s for s in SENTENCE_END.split(line) if re.search(r"[A-Za-z]", s) and not s.endswith(":")]
+    return out
 
 
 def check(answer: Answer, n_sources: int) -> list[str]:
