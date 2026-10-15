@@ -193,6 +193,9 @@ FEATURES = _entries("feature", "", _REG, {
     "rev_growth_accel": "revenue growth acceleration: this quarter's year-over-year growth minus last quarter's",
     "net_margin_ttm": "net margin over the trailing four quarters",
     "debt_to_equity": "long-term debt over equity",
+    "earnings_yield": "earnings yield (E/P): trailing four quarters' net income over market cap",
+    "sales_yield": "sales yield (S/P): trailing four quarters' revenue over market cap",
+    "book_to_market": "book-to-market: equity over market cap",
 })
 
 _CTL = "src.signals.moving_averages.stats.controls"
