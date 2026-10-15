@@ -3,7 +3,7 @@ from llama_index.core.schema import NodeWithScore, TextNode
 
 from src.llm.gemini import Reply, Usage
 from src.llm.research_docs.answer import (PURPOSE, SYSTEM, Answer, answer, build_prompt, check, cited,
-                                          format_answered)
+                                          format_answered, sentences)
 
 
 def _hit(nid: str, text: str, meta: dict) -> NodeWithScore:
@@ -54,6 +54,24 @@ def test_check_flags_a_made_up_source_and_an_uncited_in_docs_answer():
     assert check(Answer(in_docs=True, answer="Fragile [3]."), 2) == ["cites [3], but only [1]-[2] were given"]
     assert check(Answer(in_docs=True, answer="Fragile."), 2) == ["says the docs answer it but cites no source"]
     assert check(Answer(in_docs=False, answer="The docs don't say."), 2) == []  # no citation needed
+
+
+@pytest.mark.parametrize("text, want", [
+    ("One [1]. Two [2].", ["One [1].", "Two [2]."]),
+    ("One. [1] Two.[2][1] Three!", ["One [1].", "Two[2][1].", "Three!"]),
+    ("Sharpe 0.18, e.g. the picks [1]. Next [2].", ["Sharpe 0.18, e.g. the picks [1].", "Next [2]."]),
+])
+def test_sentences_keep_citations_written_after_the_full_stop(text, want):
+    assert sentences(text) == want
+
+
+def test_check_flags_each_uncited_sentence_of_an_in_docs_answer():
+    # the real reply that stretched a source on short selling into one on short interest
+    stretched = ("The sources do not explicitly state whether short interest has been tested. "
+                 "However, they mention that shorting needs a borrow check [2].")
+    assert check(Answer(in_docs=True, answer=stretched), 5) == [
+        "sentence 1 cites no source: 'The sources do not explicitly state whether short interest has been tested.'"]
+    assert check(Answer(in_docs=False, answer=stretched), 5) == []
 
 
 def test_answer_sends_sources_with_the_rules_as_structured_temperature_zero_call():

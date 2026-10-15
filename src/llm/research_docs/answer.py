@@ -16,7 +16,9 @@ to answer from those sources alone.
   (`Answer`): `in_docs` is the model's verdict, `answer` the text. When the sources don't
   answer, it says so and what they do cover, instead of stretching them.
 - **What's checked here, and what isn't.** `check` is mechanical: every [n] must name one
-  of the sources shown, and an answer that claims to be in the docs must cite something.
+  of the sources shown, and in an answer that claims to be in the docs, every sentence must
+  cite something. (A "not in the docs" reply may open with an uncited "the sources don't
+  say", so its sentences aren't checked.)
   Whether source n actually *supports* the sentence citing it, and whether the answer is
   right, takes a judge reading both: that's the evaluation step, not this one.
 
@@ -103,13 +105,24 @@ def cited(text: str) -> list[int]:
     return out
 
 
+def sentences(text: str) -> list[str]:
+    """`text` split into sentences. Citations written after a full stop ("Fact. [1]") are
+    moved in front of it ("Fact [1].") so they stay with their sentence. A stop followed by
+    a lowercase word ("e.g. the") doesn't split."""
+    text = re.sub(r"([.!?])((?:\s*\[[^\]]*\])+)", r"\2\1", text.strip())
+    return [s for s in re.split(r"(?<=[.!?])\s+(?=[^a-z])", text) if s]
+
+
 def check(answer: Answer, n_sources: int) -> list[str]:
-    """Mechanical problems with the citations: numbers that name no source, and an
-    in-docs answer that cites nothing."""
+    """Mechanical problems with the citations: numbers that name no source, and, in an
+    in-docs answer, a sentence without a citation (or no citation at all)."""
     nums = cited(answer.answer)
     problems = [f"cites [{n}], but only [1]-[{n_sources}] were given" for n in nums if not 1 <= n <= n_sources]
     if answer.in_docs and not nums:
         problems.append("says the docs answer it but cites no source")
+    elif answer.in_docs:
+        problems += [f"sentence {i} cites no source: {s!r}"
+                     for i, s in enumerate(sentences(answer.answer), 1) if not cited(s)]
     return problems
 
 
