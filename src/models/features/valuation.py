@@ -13,10 +13,9 @@ profitable company instead of being dropped.
 
 The market cap is the price that traded on t times the share count known on
 t, never an adjusted price level: the close on the traded basis is
-split-adjusted, so a split after t would rescale it, and it is multiplied
-back by the ratios of the splits after t (`history_breaks.unadjusted_close`;
-`market_caps` folds that into the count). The two cancel exactly, which the leakage gate's `future_split` perturbation
-checks. A share count is known from the session after its filing date (the
+split-adjusted (a split after t rescales it), so `market_caps` puts the count
+on the same split basis instead, and a later split rescales the two in
+opposite ways. The leakage gate's `future_split` perturbation checks that. A share count is known from the session after its filing date (the
 date carries no time, and a filing accepted after the close isn't usable on
 that close). A count is carried across the splits executed since its date
 (each known from its execution day), and a filing that still reports the
@@ -46,13 +45,14 @@ def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) 
     counts, and yfinance's on a date where SEC filed nothing in the
     `fundamentals.MAX_AGE_DAYS` before (decided on the filing dates alone, so
     from the past only: SEC's series stops early for many multi-class
-    issuers, V and MA in 2010). Then scale errors and placeholders are
-    dropped per source (`share_counts.drop_scale_runs`, as
-    `market_cap.reconcile_market_cap` does at load time). That cleaning
-    judges a ticker's whole series up to `end`, with hindsight, and the
-    leakage gate can't see it (it perturbs the loaded counts): accepted as a
-    data fix like the SEC ingest's, since it only drops counts ~1,000x off
-    the rest on a split-consistent basis, which no real count is."""
+    issuers, V and MA in 2010; a bad SEC filing that the cleaning below
+    drops still holds yfinance off for those days: a gap, never a wrong
+    count). Then scale errors (~1e3/1e6 off) and placeholders (under
+    1/1,000 of their neighbours) are dropped per source
+    (`share_counts.drop_scale_runs`, SEC's judged against yfinance's counts
+    as at the SEC ingest). That cleaning judges a ticker's whole series up
+    to `end`, with hindsight, and the leakage gate can't see it (it perturbs
+    the loaded counts): accepted as a data fix like the SEC ingest's."""
     columns = ["ticker", "date", "shares_outstanding"]
     marks = ", ".join("?" * len(tickers))
     raw = pd.read_sql_query(
@@ -63,13 +63,14 @@ def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) 
     for ticker, g in raw.groupby("ticker", sort=False):
         sec, yf = _series(g[g["source"] == db.SEC_EDGAR]), _series(g[g["source"] == db.YFINANCE])
         factor = lambda s: market_cap.split_factor(s.index, splits.get(ticker))
+        reference = yf if len(yf) else None  # all of yfinance's, before the hand-off filter
         if len(sec) and len(yf):
             last_sec = pd.Series(sec.index, index=sec.index).reindex(yf.index, method="ffill")
             yf = yf[~((yf.index - last_sec).dt.days <= F.MAX_AGE_DAYS).to_numpy()]
         if len(yf):
             yf = drop_scale_runs(yf, split_factor=factor(yf))
         if len(sec):
-            sec = drop_scale_runs(sec, split_factor=factor(sec))
+            sec = drop_scale_runs(sec, split_factor=factor(sec), reference=reference)
         s = pd.concat([sec, yf]).sort_index()
         kept.append(pd.DataFrame({"ticker": ticker, "date": s.index, "shares_outstanding": s.to_numpy()}))
     return pd.concat(kept, ignore_index=True)[columns] if kept else pd.DataFrame(columns=columns)

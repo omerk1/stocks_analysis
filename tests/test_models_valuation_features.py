@@ -83,7 +83,21 @@ def test_no_shares_or_filings_gives_nan_columns():
     assert out[list(V.COLUMNS)].isna().all().all()
 
 
-def test_the_gate_catches_an_adjusted_price_level(monkeypatch):
+def test_no_quarterly_filings_gives_nan_yields_and_book_to_market_still_works():
+    equity = _filings("equity", [500, 500, 500, 500, 500], period_type="instant")
+    out = _features(_bars(), equity, _shares(["2020-01-02", "2020-07-01", "2021-01-04"], [100.0] * 3))
+    assert out["earnings_yield"].isna().all() and out["sales_yield"].isna().all()
+    assert _at(out, AVAILABLE[4], "book_to_market") == pytest.approx(0.5)
+
+
+def test_compute_registered_refuses_splits_set_on_the_context():
+    from src.models.features import registry
+
+    with pytest.raises(ValueError, match="splits"):
+        registry.compute_registered({}, {}, (), context=PanelContext(splits={}))
+
+
+def test_the_gate_catches_a_cap_from_the_adjusted_close_and_the_count_as_filed(monkeypatch):
     from src.models import gates
 
     bars, splits, cut, context = gates.synthetic_leakage_inputs()
