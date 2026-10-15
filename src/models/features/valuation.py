@@ -1,10 +1,19 @@
 """Valuation model features (`docs/fundamentals/plan.md`, step 3, part two):
-company financials over the market cap. Row t = close of t.
+company financials over the market cap, and the change in the share count.
+Row t = close of t.
 
 - `earnings_yield`: trailing four quarters' net income over market cap (E/P).
 - `sales_yield`: trailing four quarters' revenue over market cap (S/P).
 - `book_to_market`: equity at the latest balance-sheet date over market cap;
   NaN when equity isn't positive.
+- `share_change_yoy`: log of the latest known share count over the count
+  dated a year before it (the nearest within `SHARE_CHANGE_TOLERANCE` days):
+  positive is dilution, negative buybacks. The part of an EPS change that
+  net income misses (`fundamentals.sue_net_income`). A log ratio, not a
+  percentage: halving and doubling are equally large, and a stock-funded
+  merger that multiplies the count doesn't swamp the scale. Mergers and
+  spin-offs stay in: issuing stock to buy a company is dilution, and a
+  spin-off leaves the parent's count alone.
 
 Yields rather than P/E and P/S: a P/E is undefined at zero earnings and flips
 from the most expensive to the cheapest end as earnings cross zero, while
@@ -21,6 +30,15 @@ that close). A count is carried across the splits executed since its date
 (each known from its execution day), and a filing that still reports the
 pre-split count after a split is bridged as `market_cap.reconcile_market_cap`
 does. Like the filings values, a share count goes stale `fundamentals.MAX_AGE_DAYS` after its date.
+
+The share change must not read a split as dilution, but the vendors' splits
+also hold spin-offs' price factors (EBAY 2.376 for PayPal, NI, YUM, HPE),
+which leave the count alone. So a split between the two counts is taken out
+only where it explains their change: where the change less the split's log
+ratio is smaller than the change itself. That also handles a filing that still
+reports the pre-split count (no bridge needed), and uses only the splits
+executed by the later count's date, never a later one. It misreads a real
+change about half a split's size (+-20% across a 3-for-2).
 """
 
 from __future__ import annotations
@@ -32,7 +50,8 @@ from src.foundation.data_processing import db, market_cap
 from src.foundation.data_processing.share_counts import drop_scale_runs
 from src.models.features import fundamentals as F
 
-COLUMNS = ("earnings_yield", "sales_yield", "book_to_market")
+COLUMNS = ("earnings_yield", "sales_yield", "book_to_market", "share_change_yoy")
+SHARE_CHANGE_DAYS, SHARE_CHANGE_TOLERANCE = 365, 30
 
 
 def _series(g: pd.DataFrame) -> pd.Series:
@@ -114,14 +133,44 @@ def market_caps(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd.D
     return pd.Series(np.where(fresh, cap, np.nan), index=rows.index)
 
 
+def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd.DataFrame]) -> pd.Series:
+    """For each (ticker, date) row: `share_change_yoy` from the latest count
+    known that day (NaN once it's stale) and the count dated
+    `SHARE_CHANGE_DAYS` before it, within `SHARE_CHANGE_TOLERANCE` days, less
+    each split between them that explains their change (module docstring)."""
+    known = _shares_known(shares, {})  # as filed: no bridge, the splits are judged below
+    known = known[known["shares"] > 0].reset_index(drop=True)
+    counts = known[["ticker", "dated", "known_at"]].assign(level=np.log(known["shares"]))
+    left = counts.assign(target=counts["dated"] - pd.Timedelta(days=SHARE_CHANGE_DAYS), row=np.arange(len(counts)))
+    right = counts[["ticker", "dated", "level"]].rename(columns={"dated": "target", "level": "level_ago"})
+    right = right.assign(dated_ago=right["target"])
+    m = pd.merge_asof(left.sort_values("target"), right.sort_values("target"), on="target", by="ticker",
+                      direction="nearest", tolerance=pd.Timedelta(days=SHARE_CHANGE_TOLERANCE)).sort_values("row")
+    change = (m["level"] - m["level_ago"]).to_numpy()
+    for ticker, at in m.groupby("ticker", sort=False).indices.items():
+        if ticker not in splits:
+            continue
+        ago, now, c = m["dated_ago"].to_numpy()[at], m["dated"].to_numpy()[at], change[at]
+        for when, ratio in market_cap._split_ratio_events(splits.get(ticker)).items():  # chronological
+            less = c - np.log(ratio)
+            c = np.where((ago < when) & (now >= when) & (np.abs(less) < np.abs(c)), less, c)
+        change[at] = c
+    events = pd.DataFrame({"ticker": m["ticker"].to_numpy(), "known_at": m["known_at"].to_numpy(),
+                           "period_end": m["dated"].to_numpy(), "value": change})
+    return F._as_of(rows, events)
+
+
 def panel_features(bars: pd.DataFrame, ctx) -> pd.DataFrame:
     """Every column for every (ticker, date) row of `bars` (long, the traded
     basis): a `registry.PanelSource`. Reads `ctx.fundamentals`, `ctx.shares`
-    and `ctx.splits`; NaN where a ticker has none."""
+    and `ctx.splits`; NaN where a ticker has none (the share change needs no
+    filings)."""
     rows = F._ns(bars[["ticker", "date", "close"]].sort_values(["ticker", "date"], ignore_index=True), ["date"])
     out = rows[["ticker", "date"]].copy()
     for col in COLUMNS:
         out[col] = np.nan
+    if ctx.shares is not None and len(ctx.shares):
+        out["share_change_yoy"] = share_changes(rows, ctx.shares, ctx.splits or {})
     if ctx.shares is not None and len(ctx.shares) and ctx.fundamentals is not None and len(ctx.fundamentals):
         cap = market_caps(rows, ctx.shares, ctx.splits or {})
         cap = cap.where(cap > 0)
