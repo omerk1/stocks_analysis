@@ -20,8 +20,8 @@ pass/fail logic can't drift apart.
    future split (rescales earlier adjusted prices and volumes, and is added
    to the splits table), a future dividend (rescales earlier total-return
    prices), a delisting right after `cut` (later bars removed) and, for the
-   company-financials columns, every filing after `cut` rewritten
-   (`perturb_filings`). Nothing dated <= `cut` may move. Three planted
+   company-financials columns, every filing and share count after `cut`
+   rewritten (`perturb_filings`). Nothing dated <= `cut` may move. Three planted
    canaries -- one reading tomorrow's close, one an adjusted price level, one
    a quarter's net income from its period end instead of its filing -- must
    be caught.
@@ -49,6 +49,7 @@ from src.models.baselines import ConstantModel
 from src.models.features import fundamentals as fund_features
 from src.models.features import market
 from src.models.features import registry as reg
+from src.models.features import valuation
 from src.models.inference import BootstrapResult, paired_loss_diff, per_date_diff
 from src.models.labels.barriers import BarrierCell, barrier_labels, v1_grid
 from src.models.learners import BoostedModel, BoostingConfig, fit_predict
@@ -63,6 +64,7 @@ from src.models.synthetic import (
     shuffle_within_date,
     synthetic_bars,
     synthetic_filings,
+    synthetic_shares,
 )
 
 GATE_CI = 0.99
@@ -267,7 +269,8 @@ PERTURBATIONS = {"future_path": perturb_path, "future_split": perturb_split, "fu
 
 
 def perturb_filings(context: market.PanelContext, cut, seed=0) -> market.PanelContext:
-    """Everything filed after `cut` rewritten: values rescaled at random (sign
+    """Everything filed after `cut` rewritten (share counts from `cut` on,
+    whose date is a filing date with no time): values rescaled at random (sign
     flips included) -- among them quarters that ended before `cut` but were
     filed after it, the case a column reading a value from its period end
     gets wrong -- every other such row dropped, reaction dates moved, and per
@@ -299,6 +302,13 @@ def perturb_filings(context: market.PanelContext, cut, seed=0) -> market.PanelCo
         e.loc[after, "reaction_date"] = moved.where(moved > cut, cut + pd.Timedelta(days=1))
         late = late_reports(e, "reaction_date", ["ticker"])
         out["earnings"] = pd.concat([e[~after | (np.arange(len(e)) % 2 == 0)], late], ignore_index=True)
+    if context.shares is not None:
+        # a count dated `cut` itself is filed that day, after the close perhaps: not known on `cut`
+        sh = context.shares.copy()
+        after = sh["date"] >= cut
+        sh.loc[after, "shares_outstanding"] = sh.loc[after, "shares_outstanding"] * rng.choice(
+            [0.5, 3.0], int(after.sum()))
+        out["shares"] = sh[~after | (np.arange(len(sh)) % 2 == 0)].reset_index(drop=True)
     return replace(context, **out)
 
 
@@ -475,8 +485,9 @@ def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     bars.loc[before, "volume"] = bars.loc[before, "volume"].to_numpy() * 0.25
     splits = {ticker: pd.DataFrame({"execution_date": [when], "ratio": [0.25]})}
     fundamentals, earnings = synthetic_filings(bars[bars["ticker"] != market.BENCHMARK], seed=seed)
+    shares = synthetic_shares(bars[bars["ticker"] != market.BENCHMARK], splits, seed=seed)
     context = market.PanelContext(membership=membership.reset_index(drop=True), sectors=sectors,
-                                  fundamentals=fundamentals, earnings=earnings)
+                                  fundamentals=fundamentals, earnings=earnings, shares=shares)
     return {PriceBasis.TOTAL_RETURN: bars, PriceBasis.TRADED: bars.copy()}, splits, cut, context
 
 
@@ -498,9 +509,11 @@ def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
     sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
     panel_bars = bars[reg.SOURCES["market"].basis]
     fundamentals, earnings = fund_features.load_tables(conn, tickers, end)
+    splits = dataset._read_splits_bulk(conn, sources)
     context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars), sectors=sectors,
-                                  fundamentals=fundamentals, earnings=earnings)
-    return bars, dataset._read_splits_bulk(conn, sources), sources, context
+                                  fundamentals=fundamentals, earnings=earnings,
+                                  shares=valuation.load_shares(conn, tickers, end, splits))
+    return bars, splits, sources, context
 
 
 # ---------------------------------------------------------------- gate 4

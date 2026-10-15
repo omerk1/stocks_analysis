@@ -209,6 +209,26 @@ def synthetic_bars(
     return pd.concat(parts, ignore_index=True)
 
 
+def synthetic_shares(bars: pd.DataFrame, splits: dict[str, pd.DataFrame], seed: int = 0) -> pd.DataFrame:
+    """Share counts shaped like `valuation.load_shares`: one per ~quarter
+    while a ticker is listed, drifting slowly, as filed (a split rescales the
+    count from its execution date), with the first filing after each split
+    still reporting the pre-split count (the filing lag the market cap
+    bridges)."""
+    rng = np.random.default_rng(seed)
+    parts = []
+    for ticker, g in bars.groupby("ticker", sort=True):
+        dates = pd.date_range(g["date"].min() + pd.Timedelta(days=40), g["date"].max(), freq="91D")
+        # ~50 x 20 = a cap of ~1,000 against quarterly revenue of ~100
+        counts = 20 * np.exp(np.cumsum(rng.normal(0.002, 0.01, len(dates))))
+        sp = splits.get(ticker)
+        for when, ratio in ([] if sp is None else zip(sp["execution_date"], sp["ratio"])):
+            after = np.flatnonzero(dates >= when)
+            counts[after[1:]] *= ratio  # the first filing after the split is stale
+        parts.append(pd.DataFrame({"ticker": ticker, "date": dates, "shares_outstanding": counts}))
+    return pd.concat(parts, ignore_index=True)
+
+
 def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(fundamentals, earnings) rows shaped like the `fundamentals` and
     `earnings_announcements` tables (`features.fundamentals.load_tables`) for

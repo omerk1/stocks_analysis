@@ -1,7 +1,7 @@
 # Company financials: earnings, fundamentals, guidance — plan
 
-Status (2026-10-14): steps 1 (earnings dates) and 2 (fundamentals table) built, step 3
-(features) built except valuation, see their "As built" notes; steps 4–5 not started. The order and scope below are a starting point to
+Status (2026-10-15): steps 1 (earnings dates), 2 (fundamentals table) and 3 (features,
+valuation included) built, see their "As built" notes; steps 4–5 not started. The order and scope below are a starting point to
 revisit after each step, not commitments.
 
 ## One-liner
@@ -165,7 +165,7 @@ Simple, well-known ones only, all computed point-in-time:
 - Quality: margins and their trend, debt to equity.
 - Registered in the model's feature registry like any other feature.
 
-**As built (2026-10-14), part one (valuation is the second):** `src/models/features/fundamentals.py`,
+**As built (2026-10-14), part one (valuation is part two, below):** `src/models/features/fundamentals.py`,
 registered as group `fundamentals` (prior null: untested here). Seven columns. Plain
 quarter-over-quarter growth is left out on purpose (it mostly measures seasonality;
 acceleration replaces it), and so is an EPS surprise: a SUE is a ratio, so on EPS it equals
@@ -215,9 +215,42 @@ Coverage on S&P 500 member rows (150-ticker sample, 81 with bars in the window):
 - net margin: 90–95%;
 - debt to equity: 70–78%.
 
-**Part two, not built:** valuation (P/E, P/S, earnings yield). It needs a point-in-time
-market cap on the traded basis, and a column must not read an adjusted price level; the
-gate's split canary exists for exactly that.
+**As built (2026-10-15), part two, valuation:** `src/models/features/valuation.py`, its own
+panel source on the traded basis, same group and prior. Three ranked columns:
+
+| Column | What it is |
+|---|---|
+| `earnings_yield` (+ rank) | trailing four quarters' net income over market cap (E/P) |
+| `sales_yield` (+ rank) | trailing four quarters' revenue over market cap (S/P) |
+| `book_to_market` (+ rank) | equity at the latest balance-sheet date over market cap; NaN for non-positive equity |
+
+- **Yields, not P/E and P/S:** a P/E is undefined at zero earnings and flips from the most
+  expensive end to the cheapest as earnings cross zero; E/P runs through zero, so a loss
+  maker ranks below every profitable company instead of dropping out. Book-to-market is
+  added because it is the classic value measure and the equity is already loaded.
+- **Market cap = the price that traded × the share count known that day.** The traded-basis
+  close is split-adjusted, so it is multiplied back by the splits after the day; the two
+  cancel, which the gate's `future_split` checks (a test plants an adjusted price level and
+  the gate catches it). A count is carried across splits since its filing date, and a
+  filing that still reports the pre-split count is bridged, so AAPL's 2014 split leaves the
+  cap continuous.
+- **Share counts:** usable from the session after their date (the date has no time, so the
+  filing may come after the close; a test plants a same-day use and the gate's
+  `future_filings`, which now rewrites counts from the cut on, catches it). Stale after 200
+  days. SEC EDGAR first; yfinance only on a date where SEC has none from the previous 200
+  days. That is decided from the past only, and it restores 76 tickers whose SEC series
+  stops early (multi-class issuers: V, MA, CMCSA, F, NKE). Scale errors are dropped at load,
+  as `market_cap.reconcile_market_cap` does.
+- **Checks:** the gate passes on synthetic data (3 seeds) and on 20 real tickers. Values on
+  2019-12-31: P/E AAPL 23.6, MSFT 29.3, JPM 12.5, AMZN 80.7. The largest day-to-day jumps are
+  on earnings days. Medians on S&P member rows: E/P 0.05, S/P 0.56, B/M 0.34.
+- **Coverage on S&P 500 member rows** (the same 150-ticker sample): E/P 81–95% from 2012,
+  S/P 76–89%, B/M 79–87%; 2010–2011 are thinner (trailing twelve months need four XBRL
+  quarters).
+  Gaps: multi-class issuers before yfinance's counts start (~late 2015), and filers whose
+  revenue tag isn't read (XOM).
+- **Known limit:** the share count is the company's, so each class of a multi-class
+  company carries the whole company's cap (GOOG and GOOGL, as in cap-weighted breadth).
 
 ### 4. Research questions
 
