@@ -64,6 +64,7 @@ def test_check_flags_a_made_up_source_and_an_uncited_in_docs_answer():
                                                                 "Sharpe 0.4 vs. 0.2 [2]."]),
     ("Findings:\n\n1. A holds [1].\n- B holds\nC holds [2]", ["A holds [1].", "B holds", "C holds [2]"]),
     ('It stays "locked." [1] It was never opened.', ['It stays "locked [1]."', "It was never opened."]),
+    ("A holds.\n[1]\n**Yes.** Next [2].", ["A holds [1].", "Yes.", "Next [2]."]),
 ])
 def test_sentences_keep_citations_written_after_the_full_stop(text, want):
     assert sentences(text) == want

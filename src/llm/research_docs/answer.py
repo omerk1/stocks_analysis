@@ -114,7 +114,9 @@ def sentences(text: str) -> list[str]:
     """`text` split into sentences: every line (a list item, say) on its own, then at full
     stops. Citations written after a stop ("Fact. [1]", '"locked." [1]') are moved in front
     of it so they stay with their sentence. List markers are dropped, and so are pieces that
-    state nothing: no letters, or a lead-in ending in a colon ("Findings:")."""
+    state nothing: no letters, or a lead-in ending in a colon ("Findings:"). Bold markers
+    (**) are dropped, and a line of citations alone joins the line before it."""
+    text = re.sub(r"\s*\n(?=\s*(?:\[[^\]]*\]\s*)+(?:\n|$))", " ", text.replace("**", ""))
     out: list[str] = []
     for line in text.splitlines():
         line = re.sub(r"([.!?][\"')]*)((?:\s*\[[^\]]*\])+)", r"\2\1", LIST_MARKER.sub("", line).strip())
