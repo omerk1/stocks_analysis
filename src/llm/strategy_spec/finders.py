@@ -116,7 +116,8 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
-def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA) -> FinderResult:
+def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA,
+                     near_misses: bool = True) -> FinderResult:
     """Instances of "first touch of a moving average after being away" in `panel`
     (a `features/panel.py` panel, sorted by ticker and date).
 
@@ -124,6 +125,11 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
     (that's what the golden spec quantifies); everything else — touch tolerance, the
     window for the touch, the MA itself — has no structured slot today and falls back
     to the study's defaults, each disclosed in the rubric.
+
+    `near_misses=False` skips the three relaxed ring passes (most of the detection
+    cost) for callers that only consume matches, like the exploratory look. Matches,
+    the rubric and the refusals — the degeneracy guard included, so grounding and the
+    look refuse the same specs — are identical either way.
     """
     if ma not in MA_COLUMNS:
         raise GroundingError(f"unknown moving average {ma!r}; one of {', '.join(MA_COLUMNS)}")
@@ -258,6 +264,14 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
 
     strict = events(away, touch_tol, max_days)
 
+    def dated(by_ticker: dict[str, set[int]]) -> list[tuple[str, pd.Timestamp]]:
+        return sorted((t, pd.Timestamp(dates_by_ticker[t][p])) for t, ps in by_ticker.items() for p in ps)
+
+    matches = tuple(Candidate(t, d) for t, d in dated(strict))
+    if not near_misses:
+        return FinderResult(matches, (), tuple(rubric),
+                            overlay_column=ma, overlay_name=f"{family.upper()} {lookback}")
+
     def minus_strict(ring: dict[str, set[int]]) -> dict[str, set[int]]:
         return {t: kept for t, ps in ring.items() if (kept := ps - strict.get(t, set()))}
 
@@ -287,10 +301,6 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
          f"touch window: touches {max_days + 1}-{relaxed_days} bars after the away run ends, not within {max_days}"),
     ]
 
-    def dated(by_ticker: dict[str, set[int]]) -> list[tuple[str, pd.Timestamp]]:
-        return sorted((t, pd.Timestamp(dates_by_ticker[t][p])) for t, ps in by_ticker.items() for p in ps)
-
-    matches = tuple(Candidate(t, d) for t, d in dated(strict))
     seen: dict[tuple[str, pd.Timestamp], str] = {}
     for ring, fails in rings:
         for key in dated(ring):
@@ -323,7 +333,7 @@ def pick_finder(spec: StrategySpec, override: str | None = None) -> str:
 
 
 def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = None,
-             ma: str | None = None, note=print) -> tuple[str, FinderResult]:
+             ma: str | None = None, near_misses: bool = True, note=print) -> tuple[str, FinderResult]:
     """Pick the finder and run it — shared by grounding (`ground.py`) and the exploratory
     look (`look.py`), so the two steps can't drift on what a spec dispatches to. A run
     option goes only to a finder that declares it (`ma` means nothing to a future pattern
@@ -339,6 +349,10 @@ def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = 
             options["ma"] = ma  # only an explicit choice is passed: None means the finder's own default
         else:
             note(f"Note: {finder_id} takes no moving-average option; --ma {ma} is ignored.")
+    if not near_misses and "near_misses" in declared:
+        # Purely a cost switch for callers that only consume matches; a finder without
+        # the parameter simply does the full work.
+        options["near_misses"] = False
     result = finder(spec, panel, **options)
     if detector is not None and finder_id not in spec.uses:
         note(f"Note: {finder_id} isn't among the spec's own detectors "

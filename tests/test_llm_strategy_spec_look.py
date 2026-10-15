@@ -16,7 +16,7 @@ import pytest
 from src.llm.strategy_spec import look as look_mod
 from src.llm.strategy_spec.finders import GroundingError, find_first_touch
 from src.llm.strategy_spec.look import event_mask, look, verdict
-from src.llm.strategy_spec.schema import Control, Rule, Size, StrategySpec
+from src.llm.strategy_spec.schema import Control, Example, Rule, Size, StrategySpec
 from src.models.dataset import HoldoutError
 
 QUIET = [0.5] * 10
@@ -121,6 +121,7 @@ def test_planted_effect_is_recovered_against_the_matched_control(tmp_path):
     assert json.loads((session / "result.json").read_text())["cells"][0]["verdict"] == cell["verdict"]
     report = (session / "report.md").read_text()
     assert "TRACK A" in report and "Search rubric" in report
+    assert "hit rate 100% (" in report  # a rate, not a signed excess
     draft = (session / "prereg_draft.md").read_text()
     assert "Kill criterion" in draft and "TODO" in draft and "never dead" in draft
     assert result["prereg_draft"] == "prereg_draft.md"
@@ -136,10 +137,15 @@ def test_no_effect_looks_dead_and_earns_no_draft(tmp_path):
     assert not (tmp_path / "session" / "prereg_draft.md").exists()
 
 
-def test_direction_both_is_tested_per_side_and_none_is_refused(tmp_path):
+def test_direction_both_is_tested_per_side_with_uncontaminated_controls(tmp_path):
+    # SHT fires from below on the SAME dates as EVT's long events, with a planted -2%
+    # forward return. Those rows must be excluded from the long side's control pool —
+    # left in, the date-matched control mean would be dragged to -0.25% and the long
+    # delta inflated to ~2.25%: the pooled-cancellation confound re-imported through
+    # the control side of the split.
     frame = panel({
         "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, 0.02)),
-        "SHT": ([-x for x in EVENT_SEQ], None),
+        "SHT": ([-x for x in EVENT_SEQ], planted_close(len(EVENT_SEQ), SIGNAL_IDX, -0.02)),
         **{name: ([0.5] * len(EVENT_SEQ), None) for name in CONTEXT
            if name not in ("EVT", "SHT")},
     })
@@ -149,6 +155,9 @@ def test_direction_both_is_tested_per_side_and_none_is_refused(tmp_path):
     assert by_side["long"]["n_events"] == N_SIGNALS   # EVT fires from above only
     assert by_side["short"]["n_events"] == N_SIGNALS  # SHT from below only
     assert result["population"]["long"]["matches"] == N_SIGNALS
+    assert by_side["long"]["delta_c1"] == pytest.approx(0.02, abs=1e-9)
+    assert by_side["long"]["delta_c2"] == pytest.approx(0.02, abs=1e-9)
+    assert by_side["short"]["delta_c1"] == pytest.approx(-0.02, abs=1e-9)
     with pytest.raises(GroundingError, match="direction"):
         look(spec(direction=None), frame, say=lambda _: None)
 
@@ -157,6 +166,12 @@ def test_refusals_name_the_problem(tmp_path):
     frame = effect_panel()
     with pytest.raises(GroundingError, match="horizons_bars"):
         look(spec(horizons_bars=[]), frame, say=lambda _: None)
+    # A horizon below 1 bar would report a PAST return as the forward outcome (the
+    # shift's sign flips); a duplicate double-counts its cell. Both refused.
+    with pytest.raises(GroundingError, match="at least 1 bar"):
+        look(spec(horizons_bars=[-5]), frame, say=lambda _: None)
+    with pytest.raises(GroundingError, match="listed once"):
+        look(spec(horizons_bars=[5, 5]), frame, say=lambda _: None)
     with pytest.raises(GroundingError, match="not a feature panel"):
         look(spec(), frame.drop(columns=["mom_12_1"]), say=lambda _: None)
     with pytest.raises(GroundingError, match="empty"):
@@ -181,6 +196,14 @@ def test_rubric_discloses_every_unapplied_field_and_the_cost_source(tmp_path):
     })
     result, _ = run_look(constrained, frame, tmp_path)
     rubric = {r["parameter"]: r for r in result["rubric"]}
+    # A spec with no judged examples was never grounded — the look says so rather than
+    # silently testing a definition no one confirmed on charts.
+    assert rubric["grounding"]["value"] == "NOT CONFIRMED"
+    grounded, _ = run_look(
+        constrained.model_copy(update={"examples": [Example(ticker="EVT", date="2015-01-20",
+                                                            matches=True)]}),
+        frame, tmp_path / "grounded")
+    assert {r["parameter"]: r for r in grounded["rubric"]}["grounding"]["source"] == "spec"
     assert rubric["entry timing"]["source"] == "default"       # the one-bar lag, stated
     assert rubric["outcome"]["source"] == "spec"               # horizons are the trader's
     assert rubric["your stated control"]["value"] == "NOT APPLIED"
@@ -208,6 +231,18 @@ def test_verdict_is_three_way_and_never_calls_underpowered_dead():
     # Excludes zero but can't clear the hurdle, and doesn't fit inside the band either.
     assert verdict(0.01, 0.10, hurdle=0.05, sign=1).startswith("inconclusive")
     assert verdict(float("nan"), float("nan"), hurdle=0.02, sign=1).startswith("inconclusive")
+
+
+def test_finder_skips_the_near_miss_rings_when_asked():
+    # The look only consumes matches; near_misses=False must change nothing about them
+    # (or the refusals — the degeneracy guard runs either way), only skip the ring cost.
+    frame = effect_panel()
+    full = find_first_touch(spec(), frame)
+    lean = find_first_touch(spec(), frame, near_misses=False)
+    assert lean.matches == full.matches and lean.rubric == full.rubric
+    assert lean.near_misses == ()
+    with pytest.raises(GroundingError, match="degenerates"):
+        find_first_touch(spec(size=Size(normalisation="atr", min=0.3)), frame, near_misses=False)
 
 
 def test_waterfall_runs_on_one_common_row_set(tmp_path):

@@ -9,3 +9,8 @@ relevant PREREGISTRATION file, and run by a human; this log never carries that r
 Kept separate from the MA study's own `docs/features/moving-averages/EXPLORATION_LOG.md`
 on purpose: that log is the study's history of its modules; this one is the agent's
 history of trader-stated ideas, whatever feature family they land on.
+
+## 2026-10-15
+
+- 2026-10-15 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.03% [-0.10%,+0.03%] effN 2089d — inconclusive; session data/llm/look_sessions/20261015T071052_887038Z
+- 2026-10-15 [look] First touch of a moving average after being away (short): h5 ΔC2 -0.01% [-0.08%,+0.07%] effN 2061d — inconclusive; session data/llm/look_sessions/20261015T071052_887038Z

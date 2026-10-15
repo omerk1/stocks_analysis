@@ -140,13 +140,19 @@ def verdict(ci_low_ann: float, ci_high_ann: float, hurdle: float, sign: int) -> 
     return "inconclusive (CI neither clears the cost band nor fits inside it)"
 
 
-def cell(working: pd.DataFrame, event: pd.Series, side: str, horizon: int,
-         cost_round_trip: float, seed: int, panel_years: float, panel_tickers: int) -> dict:
+def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side: str,
+         horizon: int, cost_round_trip: float, seed: int, panel_years: float,
+         panel_tickers: int) -> dict:
     """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
-    the bootstrap CI on C2, effective N, shape, cost hurdle and verdict."""
+    the bootstrap CI on C2, effective N, shape, cost hurdle and verdict. `other_events`
+    (the other side's event rows, when a "both" spec is split) is excluded from the row
+    population entirely: those rows carry the setup's own expected return in the opposite
+    direction, and leaving them in the control pool would re-import the pooled-
+    cancellation confound the per-side split exists to avoid."""
     value_col = fwd_col(horizon)
     frame = working[["ticker", "date", value_col, *C2_MATCH_COLS]].copy()
     frame["__event"] = event.to_numpy()
+    frame = frame.loc[~other_events]
     # One row population for all three tiers (DESIGN §6.1 / PREREGISTRATION's "Waterfall
     # row set"): otherwise shrinkage is confounded with sample composition.
     frame = frame[c2_eligible_mask(frame, "__event", value_col, list(C2_MATCH_COLS))]
@@ -198,6 +204,11 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
     """The look's own rubric lines, appended to the finder's: everything the test
     applies, and every spec field it deliberately does NOT act on, said out loud."""
     lines = [
+        RubricLine("grounding", f"{len(spec.examples)} judged example(s) on the spec", "spec")
+        if spec.examples else
+        RubricLine("grounding", "NOT CONFIRMED", "default",
+                   "spec.examples is empty — no grounding round's verdicts are recorded, "
+                   "so this look tests a definition never confirmed on charts"),
         RubricLine("entry timing", "signal close (bar t) → outcomes from the next bar (t+1)",
                    "default", "the repo's one-bar lag — you can't trade the close that "
                    "formed the signal"),
@@ -210,7 +221,8 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
     if split_sides:
         lines.append(RubricLine("direction split", "long and short tested separately", "default",
                                 "your spec says both — the two sides carry opposite expected "
-                                "signs, and pooling them would cancel a real effect"))
+                                "signs, and pooling them would cancel a real effect; each "
+                                "side's control pool also excludes the other side's event rows"))
     if spec.control is not None:
         lines.append(RubricLine("your stated control", "NOT APPLIED", "default",
                                 f'no structured mapping yet for "{spec.control.description}" — '
@@ -239,12 +251,13 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
 
 
 def _format_cell(row: dict) -> str:
-    pct = lambda x: "nan" if pd.isna(x) else f"{x * 100:+.2f}%"
+    pct = lambda x: "nan" if pd.isna(x) else f"{x * 100:+.2f}%"   # signed: deltas only
+    rate = lambda x: "nan" if pd.isna(x) else f"{x * 100:.0f}%"   # a probability, not an excess
     return (f"h={row['horizon']}: ΔC0 {pct(row['delta_c0'])} → ΔC1 {pct(row['delta_c1'])} → "
             f"ΔC2 {pct(row['delta_c2'])} [{pct(row['ci_low'])}, {pct(row['ci_high'])}] "
             f"({row['n_events']} events, {row['n_dates']} dates, effective N "
             f"{row['effective_n_dates']} dates, {row['n_tickers']} tickers); "
-            f"hit rate {pct(row['hit_rate'])} (ΔC2 {pct(row['hit_rate_delta_c2'])}), "
+            f"hit rate {rate(row['hit_rate'])} (ΔC2 {pct(row['hit_rate_delta_c2'])}), "
             f"win/loss {row['win_loss_ratio']:.2f}, skew {row['skew']:.2f}; "
             f"annualized {pct(row['delta_c2_annualized'])} "
             f"[{pct(row['ci_low_annualized'])}, {pct(row['ci_high_annualized'])}] vs cost hurdle "
@@ -309,6 +322,12 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         raise GroundingError("the spec states no horizons_bars — finish elicitation before "
                              "testing (the horizon is the one outcome decision, and it is "
                              "the trader's, not a default's)")
+    if any(h < 1 for h in spec.horizons_bars) or len(set(spec.horizons_bars)) < len(spec.horizons_bars):
+        # The same validity rules schema.find_gaps flags: a horizon below 1 bar would
+        # silently report a PAST return as the forward outcome (forward_return shifts by
+        # -horizon), and a duplicate double-counts its cell everywhere downstream.
+        raise GroundingError("the spec's horizons_bars are invalid — each horizon must be "
+                             "at least 1 bar and listed once; finish elicitation before testing")
     if spec.direction is None:
         raise GroundingError("the spec doesn't state a direction — finish elicitation before "
                              "testing (the two sides of a setup carry opposite expected "
@@ -336,6 +355,7 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
     for n, side in enumerate(sides):
         side_spec = spec if spec.direction == side else spec.model_copy(update={"direction": side})
         finder_id, results[side] = dispatch(side_spec, panel, detector=detector, ma=ma,
+                                            near_misses=False,  # the look only consumes matches
                                             note=out if n == 0 else (lambda _: None))
 
     # The displayed finder rubric is the first side's run. When a "both" spec is split,
@@ -364,8 +384,11 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
             f"{len({c.date for c in matches})} distinct dates, {window[0]} to {window[1]}.")
 
     working = add_context(panel, horizons)
-    cells = [cell(working, event_by_side[side], side, h, cost_round_trip, seed,
-                  panel_years, panel_tickers)
+    any_event = pd.Series(False, index=panel.index)
+    for mask in event_by_side.values():
+        any_event |= mask
+    cells = [cell(working, event_by_side[side], any_event & ~event_by_side[side], side, h,
+                  cost_round_trip, seed, panel_years, panel_tickers)
              for side in sides for h in horizons]
 
     out()
