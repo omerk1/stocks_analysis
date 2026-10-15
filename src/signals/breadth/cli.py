@@ -24,16 +24,18 @@ from src.foundation.market_common import derived_db
 
 
 def run_for_index(raw_conn, derived_conn, index_name: str, config: BreadthConfig, start, end):
+    """Returns (breadth, skip_reason, run_id) -- run_id is None exactly when
+    skip_reason isn't (nothing was stored, so no run was recorded)."""
     breadth = compute_breadth(raw_conn, index_name, config, start=start, end=end)
     if breadth.empty:
-        return breadth, "no membership/price/market-cap data for this index"
+        return breadth, "no membership/price/market-cap data for this index", None
 
     run_id = derived_db.record_run(
         derived_conn, "breadth", index_name, "daily", end,
         json.dumps(dataclasses.asdict(config)), 0, False,
     )
     store.upsert_breadth(derived_conn, index_name, breadth, run_id, weighting=config.weighting)
-    return breadth, None
+    return breadth, None, run_id
 
 
 def main():
@@ -65,7 +67,7 @@ def main():
     index_names = config.indices if args.index == "all" else [args.index]
 
     for index_name in index_names:
-        breadth, skip_reason = run_for_index(raw_conn, derived_conn, index_name, config, args.start, args.end)
+        breadth, skip_reason, _ = run_for_index(raw_conn, derived_conn, index_name, config, args.start, args.end)
         if skip_reason is not None:
             print(f"{index_name}: SKIPPED -- {skip_reason}")
             continue

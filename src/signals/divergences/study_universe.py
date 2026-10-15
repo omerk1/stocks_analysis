@@ -5,10 +5,9 @@ Track-B scripts -- the study's event and control pools both pass through
 this filter, which is exactly where two silently-diverging copies would
 produce plausible wrong pools.
 
-The rename mapping is mirrored from ticker_renames.apply_renames rather
-than imported: that module imports polygon_client at module level, which
-not every environment's `polygon` package satisfies (flagged repo-wide as
-a lazy-import discussion item).
+The rename mapping comes from ticker_renames.apply_renames; that module's
+polygon_client dependency is now lazy (constructed only by its own CLI), so
+importing the helper no longer needs the `polygon` package.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ import sqlite3
 import pandas as pd
 
 from src.foundation.data_processing import db
+from src.foundation.data_processing.ticker_renames import apply_renames
 
 INDEX_NAMES = ["sp500", "nasdaq100"]
 
@@ -30,35 +30,12 @@ DEV_START = "2010-01-01"
 DEV_END = "2021-12-31"
 
 
-def apply_renames_local(conn: sqlite3.Connection, membership: pd.DataFrame) -> pd.DataFrame:
-    """Line-for-line mirror of ticker_renames.apply_renames (see module
-    docstring for why it isn't imported): each renamed symbol becomes its
-    price symbol, only on rows whose interval overlaps the rename's
-    verified [valid_from, valid_to] window."""
-    renames = db.read_ticker_renames(conn)
-    out = membership.copy()
-    if renames.empty or out.empty:
-        return out
-    start = pd.to_datetime(out["start_date"])
-    end = pd.to_datetime(out["end_date"]).fillna(pd.Timestamp.max)
-    for r in renames.itertuples(index=False):
-        if pd.isna(r.valid_from) or pd.isna(r.valid_to):
-            continue
-        hit = (
-            (out["ticker"] == r.old_ticker)
-            & (start <= pd.Timestamp(r.valid_to))
-            & (end >= pd.Timestamp(r.valid_from))
-        )
-        out.loc[hit, "ticker"] = r.new_ticker
-    return out
-
-
 def membership_intervals(raw_conn: sqlite3.Connection) -> dict[str, list[tuple]]:
     """{price symbol: [(start, end), ...]} over all study indices,
     rename-aware, delisted members included (end = interval end, never
     today)."""
     intervals = pd.concat(
-        [apply_renames_local(raw_conn, db.read_index_membership(raw_conn, name)) for name in INDEX_NAMES],
+        [apply_renames(raw_conn, db.read_index_membership(raw_conn, name)) for name in INDEX_NAMES],
         ignore_index=True,
     )
     intervals["start"] = pd.to_datetime(intervals["start_date"])

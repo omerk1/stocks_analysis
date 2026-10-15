@@ -1,7 +1,8 @@
 # Company financials: earnings, fundamentals, guidance — plan
 
-Status: plan outline (2026-10-14). Nothing built. The order and scope below are a starting
-point to revisit after each step, not commitments.
+Status (2026-10-15): steps 1 (earnings dates), 2 (fundamentals table) and 3 (features,
+valuation included) built, see their "As built" notes; steps 4–5 not started. The order and scope below are a starting point to
+revisit after each step, not commitments.
 
 ## One-liner
 
@@ -96,6 +97,63 @@ diagnostics only.
 - Checks: coverage per member per quarter, hand-check a handful of companies against
   their filings.
 
+**As built (2026-10-14):** `sec_fundamentals.py` + `bulk_sec_fundamentals_ingest.py`, table
+`fundamentals`: one long table, one row per (ticker, concept, period type, period end), with
+the period type quarter, fiscal year, or instant (balance-sheet date). Same universe and
+ticker-to-CIK rules as step 1. Choices and what the data forced:
+
+- **Concepts:** revenue, gross profit, operating income, net income, EPS basic and diluted,
+  operating cash flow, cash, equity, and debt as two concepts: `long_term_debt` (current
+  maturities included) and `long_term_debt_noncurrent`. These are not interchangeable and
+  there's no reliable "total debt" tag. Tags and their order are in `sec_fundamentals.CONCEPTS`.
+- **First-reported value per period,** across all of the concept's tags: the earliest filing
+  wins. Within one filing, tag order breaks ties, except for revenue, where the largest value
+  wins. Some filers put a partial figure under `Revenues` next to the full one (Conagra
+  FY2014: $2.2B vs $17.7B).
+- **When a value is known:** acceptance time from `submissions.zip`, not the facts file's
+  filing date. `available_date` is the first session whose close may use the value. It is
+  usually days after the press release, because the XBRL comes with the 10-Q/10-K: median
+  6 calendar days after the earnings reaction date, 90th percentile 26.
+- **Derived quarters:** a quarter missing as a three-month value is the difference of two
+  year-to-date values with the same start and tag (`derived` = 1). This covers 73% of
+  operating cash flow quarters and 8–15% of income items, mostly fourth quarters. EPS is
+  never derived.
+- **XBRL errors handled:** a fact whose period ends after its own filing (REG's 10-K of
+  2012-02-29 reporting a quarter to 2012-03-31) is dropped. So is a "quarter" equal to the
+  same filing's full year (Oracle tags full-year revenue as Q4).
+- **Predecessor CIKs:** a predecessor's reports count when they were filed before the
+  successor's first 10-Q/10-K. So Google's own 2014 10-K is used, not Alphabet's 2016
+  comparative, and Apache's post-2021 subsidiary reports are not.
+
+Checks (`--check`, run on 2026-10-14):
+
+- **Coverage of step 1's company periods, 2010–2021:**
+  - net income, operating cash flow, cash, equity: 96–100%;
+  - revenue: 88–91% before 2017, 96–98% after. Banks without a revenue tag are uncovered;
+  - EPS: ~91%, falling to 76% in 2021 once 10-Ks stopped carrying quarterly data, and EPS
+    is never derived;
+  - operating income: 77%; gross profit: 46% (many companies don't report it);
+  - long-term debt: 22–50% (current maturities included) or 56–71% (noncurrent).
+- **Four quarters vs the fiscal year:** they add up within 1% for 94% (revenue) to 99%
+  (operating cash flow) of fiscal years. Most misses are expected, not bugs: quarters as
+  first reported vs a year recast after a spin-off or sale (Arconic 2016, SAIC 2014,
+  Delphi 2017, McGraw-Hill 2012). About 1% are more than 20% off.
+- **Hand checks against the filings:** Apple, Microsoft (June fiscal year), JPMorgan (derived
+  Q4), Exxon and Google (predecessor CIKs), Walmart.
+
+Known problems, left for step 3 to handle:
+
+- **Per-share values are as filed:** they jump at splits (Apple Q3→Q4 FY2020: $2.58, then
+  $0.73 after the 4:1 split) and carry the filer's scale errors. About 0.15% of EPS values
+  are off by 10^4–10^9: BBWI 2010–2015, WMT Q4 FY2020, BRO. Features must split-adjust EPS
+  and sanity-check it, or use net income per share from the share-count table.
+- **Tags can still mix across periods** (a narrower tag in one filing, the full one in the
+  next). `tag` is stored, so growth features can require the same tag a year earlier.
+- **In ~0.1% of quarters the 10-Q was accepted 1–3 days before the press-release 8-K.**
+  There the 10-Q was the first public report, so step 1's date is slightly late. The same
+  happens in two reorganisation quarters (Eaton Q3 2012, ICE Q2 2013): step 1 takes the
+  successor's report, but the predecessor's came out up to two weeks earlier.
+
 ### 3. Features
 
 Simple, well-known ones only, all computed point-in-time:
@@ -106,6 +164,96 @@ Simple, well-known ones only, all computed point-in-time:
 - Valuation: P/E and P/S, using the market cap already computed from SEC share counts.
 - Quality: margins and their trend, debt to equity.
 - Registered in the model's feature registry like any other feature.
+
+**As built (2026-10-14), part one (valuation is part two, below):** `src/models/features/fundamentals.py`,
+registered as group `fundamentals` (prior null: untested here). Seven columns. Plain
+quarter-over-quarter growth is left out on purpose (it mostly measures seasonality;
+acceleration replaces it), and so is an EPS surprise: a SUE is a ratio, so on EPS it equals
+the net-income one up to share-count changes (corr 0.985 on 20 large caps), while as-filed
+EPS needs split adjustment, a derived Q4 and scale-error cleaning that kept producing edge
+cases (tried and dropped 2026-10-14). Buybacks/dilution belong in a share-count-change feature.
+
+| Column | What it is |
+|---|---|
+| `days_since_earnings` | business days since the last earnings reaction date |
+| `days_to_earnings_expected` | business days to the *expected* next one: the same quarter's reaction a year earlier + 52 weeks, 0 when overdue. Never the realized date |
+| `sue_net_income` (+ rank) | the surprise against the company's own history: net income minus the same quarter a year earlier, over the standard deviation of the previous 8 such changes (at least 4). Net income, not EPS: see above for why |
+| `rev_growth_accel` | this quarter's YoY revenue growth minus the previous quarter's: whether growth is speeding up. Stands in for quarter-over-quarter growth, which mostly measures seasonality |
+| `rev_growth_yoy` (+ rank) | revenue vs the same quarter a year earlier; only when both measure the same thing: the same tag, or two total-revenue tags, since ASC 606 moved nearly every filer between them in 2018 |
+| `net_margin_ttm` | trailing four quarters' net income over their revenue |
+| `debt_to_equity` | long-term debt (total, else noncurrent) over equity; NaN for non-positive equity or no debt tag |
+
+How point-in-time is enforced:
+
+- **When a value counts:** from its `available_date` (the reaction date, for the earnings
+  columns).
+- **Every input counts:** a feature's value counts only once *all* its inputs are known,
+  including the year-ago quarter and the window's quarters. A quarter whose own value isn't
+  known yet produces nothing.
+- **Late reports are ignored:** a late report of an old quarter (or a late earnings
+  announcement for an old period) is dropped before anything is computed, so it can't
+  change, after the fact, which quarter counted as "a year earlier".
+- **Values go stale:** a quarter's value is NaN once the quarter ended more than 200 days
+  before.
+- **Leakage gate:** it gets a `future_filings` perturbation that rewrites every filing after
+  the cut: values, deleted rows, moved reaction dates, and a late report of a mid-history
+  period for both tables. It also gets a canary that reads net income by period end
+  instead of filing date.
+  - **Straddling quarters:** the synthetic filings use December, January and February
+    fiscal years, so some quarters end before the cut and are filed after it. That's the
+    case a period-end leak gets wrong, and a test plants such a leak and checks the gate
+    catches it.
+  - **Two leaks caught in the first version, both fixed:** a late report changed which
+    quarter matched as "a year earlier"; and a quarter with revenue filed but net income
+    not yet filed counted as known from its inputs' dates.
+  - **Passes** on synthetic data (3 seeds) and on 20 real tickers.
+
+Coverage on S&P 500 member rows (150-ticker sample, 81 with bars in the window):
+- earnings timing: 94–100%;
+- SUE: 90–99% from 2012 (it needs three years of quarters, so 2010–2011 are thin);
+- revenue growth: 87–94%;
+- net margin: 90–95%;
+- debt to equity: 70–78%.
+
+**As built (2026-10-15), part two, valuation:** `src/models/features/valuation.py`, its own
+panel source on the traded basis, same group and prior. Three ranked columns:
+
+| Column | What it is |
+|---|---|
+| `earnings_yield` (+ rank) | trailing four quarters' net income over market cap (E/P) |
+| `sales_yield` (+ rank) | trailing four quarters' revenue over market cap (S/P) |
+| `book_to_market` (+ rank) | equity at the latest balance-sheet date over market cap; NaN for non-positive equity |
+
+- **Yields, not P/E and P/S:** a P/E is undefined at zero earnings and flips from the most
+  expensive end to the cheapest as earnings cross zero; E/P runs through zero, so a loss
+  maker ranks below every profitable company instead of dropping out. Book-to-market is
+  added because it is the classic value measure and the equity is already loaded.
+- **Market cap = the price that traded × the share count known that day.** The traded-basis
+  close is split-adjusted, so it is multiplied back by the splits after the day; the two
+  cancel, which the gate's `future_split` checks (a test plants an adjusted price level and
+  the gate catches it). A count is carried across splits since its filing date, and a
+  filing that still reports the pre-split count is bridged, so AAPL's 2014 split leaves the
+  cap continuous.
+- **Share counts:** usable from the session after their date (the date has no time, so the
+  filing may come after the close; a test plants a same-day use and the gate's
+  `future_filings`, which now rewrites counts from the cut on, catches it). Stale after 200
+  days. SEC EDGAR first; yfinance only on a date where SEC has none from the previous 200
+  days. That is decided from the past only, and it restores 76 tickers whose SEC series
+  stops early (multi-class issuers: V, MA, CMCSA, F, NKE). Scale errors (~1e3/1e6 off) and
+  placeholders are dropped at load (`share_counts.drop_scale_runs`, SEC judged against
+  yfinance as at ingest). That cleaning judges the whole series with hindsight, and the gate
+  can't see it (it perturbs counts after loading). It's accepted as a data fix like the SEC
+  ingest's own.
+- **Checks:** the gate passes on synthetic data (3 seeds) and on 20 real tickers. Values on
+  2019-12-31: P/E AAPL 23.6, MSFT 29.3, JPM 12.5, AMZN 80.7. The largest day-to-day jumps are
+  on earnings days. Medians on S&P member rows: E/P 0.05, S/P 0.56, B/M 0.34.
+- **Coverage on S&P 500 member rows** (the same 150-ticker sample): E/P 81–95% from 2012,
+  S/P 76–89%, B/M 79–87%; 2010–2011 are thinner (trailing twelve months need four XBRL
+  quarters).
+  Gaps: multi-class issuers before yfinance's counts start (~late 2015), and filers whose
+  revenue tag isn't read (XOM).
+- **Known limit:** the share count is the company's, so each class of a multi-class
+  company carries the whole company's cap (GOOG and GOOGL, as in cap-weighted breadth).
 
 ### 4. Research questions
 
@@ -152,8 +300,9 @@ EDGAR).
 
 ## Open questions
 
-- Table layout: one long facts table (ticker, concept, period, filed, value) or wide
-  per-quarter rows?
+- ~~Table layout: one long facts table (ticker, concept, period, filed, value) or wide
+  per-quarter rows?~~ Long (step 2, "As built"); features pivot what they need.
 - ~~Does step 1 also pick up 10-Q/10-K filing dates as a fallback when no item 2.02 8-K
   exists?~~ Yes, flagged in `source` (step 1, "As built").
-- Universe: S&P 500 + Nasdaq-100 first (the modeling universe), or everything EDGAR has?
+- ~~Universe: S&P 500 + Nasdaq-100 first (the modeling universe), or everything EDGAR has?~~
+  All-time S&P 500 + Nasdaq-100 members for both steps (`--indices` widens it).

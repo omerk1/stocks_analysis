@@ -33,6 +33,7 @@ named here in full so the choice is auditable, not silently arrived at.
 from __future__ import annotations
 
 import sqlite3
+import warnings
 
 import pandas as pd
 
@@ -103,9 +104,14 @@ def attach_breakout_dates(
     """Adds `breakout_date`: the timestamp of `breakout_bar`, a positional
     index into the bars `patterns.scanner.detect` scanned -- i.e.
     `market_common.data.load_and_validate(conn, ticker, "1d", as_of=as_of)`
-    in the same order. Verified per row: the bar's close must equal the
-    stored `entry_price` (which the lifecycle sets to `closes[breakout_bar]`);
-    rows that don't verify get `breakout_date = NaT` and are excluded by
+    in the same order. Verified per row: the *next* bar's open must equal
+    the stored `entry_price` (which the lifecycle sets to
+    `opens[breakout_bar + 1]`, the one-bar-lag fill; it was
+    `closes[breakout_bar]` before 2026-10-14, so rows stored by an older
+    run fail verification rather than silently matching -- rerun the
+    patterns backfill instead). Rows that don't verify -- including a NULL
+    `entry_price`, stored when the breakout printed on the last bar of that
+    run's history -- get `breakout_date = NaT` and are excluded by
     `add_pattern_context_flag` rather than guessed at. Holdout-safe: bars
     are loaded up to `as_of` only.
     """
@@ -118,13 +124,32 @@ def attach_breakout_dates(
         # the bars the patterns scanner read, so these must be the same series.
         bars, _ = load_and_validate(raw_conn, ticker, "1d", as_of=as_of, basis=MODULE_PRICE_BASIS["patterns"])
         idx = group["breakout_bar"].astype(int).to_numpy()
-        in_range = (idx >= 0) & (idx < len(bars))
+        # The entry fill lives on the bar after the breakout bar, so both
+        # must be in range for a row to verify.
+        in_range = (idx >= 0) & (idx + 1 < len(bars))
         dates = pd.Series(pd.NaT, index=group.index, dtype="datetime64[ns]")
-        closes = pd.Series(float("nan"), index=group.index)
+        next_opens = pd.Series(float("nan"), index=group.index)
         if in_range.any():
             dates.loc[group.index[in_range]] = pd.to_datetime(bars.index.to_numpy()[idx[in_range]])
-            closes.loc[group.index[in_range]] = bars["close"].to_numpy()[idx[in_range]]
-        verified = (closes - group["entry_price"]).abs() <= price_tolerance * group["entry_price"].abs().clip(lower=1.0)
+            next_opens.loc[group.index[in_range]] = bars["open"].to_numpy()[idx[in_range] + 1]
+        # NaN entry_price (stored NULL: breakout on the run's last bar) or a
+        # NaN next_open compares False here -- fail-closed, same as before.
+        # to_numeric: an all-NULL column arrives object-dtype (None values),
+        # where .abs() raises instead of propagating NaN.
+        entry = pd.to_numeric(group["entry_price"], errors="coerce")
+        verified = (next_opens - entry).abs() <= price_tolerance * entry.abs().clip(lower=1.0)
+        if len(group) and not verified.any():
+            # Fail-closed must not be silent: an all-False flag downstream
+            # is indistinguishable from "no patterns qualified". A whole
+            # ticker verifying 0 rows is the signature of a table stored
+            # under the pre-2026-10-14 close-of-breakout-bar semantics (or
+            # bars re-ingested since the run) -- rerun the patterns
+            # backfill.
+            warnings.warn(
+                f"pattern_context: 0 of {len(group)} stored pattern rows for {ticker} verified against the "
+                "next bar's open -- stale entry_price semantics or re-ingested bars; rerun the patterns backfill.",
+                stacklevel=2,
+            )
         working.loc[group.index, "breakout_date"] = dates.where(verified)
     working["breakout_date"] = pd.to_datetime(working["breakout_date"])
     return working

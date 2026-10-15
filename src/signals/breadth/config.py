@@ -15,6 +15,18 @@ def _default_indices() -> list[str]:
     return ["sp500", "nasdaq100"]
 
 
+def _default_share_class_secondaries() -> dict[str, str]:
+    # secondary ticker -> primary ticker, one entry per dual-class pair
+    # whose share-count source reports the WHOLE company's shares under
+    # each class's own ticker (verified for Alphabet: GOOG and GOOGL both
+    # carry ~12.08B shares, the company total), so cap-weighting both
+    # members counts the company twice. Only add a pair after checking
+    # `shares_outstanding` really is the company total under both symbols
+    # -- if the source reports per-class counts (classes then legitimately
+    # sum to the company), listing the pair here would *under*-count it.
+    return {"GOOG": "GOOGL"}
+
+
 # Every breadth metric is really a weighted aggregate over an index's
 # constituents -- "equal" weights every member 1.0 (today's original
 # behavior, exactly reproduced -- see compute.py), "cap" weights each
@@ -60,3 +72,11 @@ class BreadthConfig:
     # outlier itself (two members: never flagged), and such dates are too
     # thin for cap weighting to mean much anyway (mid-2009: 13 of 499).
     cap_outlier_min_members: int = 20
+    # Cap-weighted only: dual-class pairs whose per-ticker share count is
+    # really the whole company's (see _default_share_class_secondaries).
+    # On dates where the primary has a cap, the secondary is excluded from
+    # the weighted aggregates (the primary already carries the full
+    # company); where the primary has none, the secondary stands in.
+    # Equal weighting is untouched: both classes are genuine index
+    # constituents, so "% of constituents" legitimately counts each.
+    share_class_secondaries: dict[str, str] = field(default_factory=_default_share_class_secondaries)

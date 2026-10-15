@@ -1,6 +1,8 @@
+import pandas as pd
 import pytest
 
 from src.foundation.market_common import derived_db
+from src.signals.relative_strength import store as rs_store
 
 
 @pytest.fixture
@@ -74,3 +76,77 @@ def test_readonly_uri_connection_cannot_write(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         ro.execute("INSERT INTO t VALUES (1)")
     ro.close()
+
+
+def _rs_rows(conn, dates, ticker, run_id):
+    frame = pd.DataFrame(
+        [{"ticker": ticker, "date": d, "benchmark": "SPY", "rs_ratio": 1.0, "rs_mansfield": 1.0,
+          "rs_weighted_return": 0.1, "rs_rating": 50.0} for d in dates]
+    )
+    rs_store.upsert_relative_strength(conn, "vs_market", frame, run_id)
+
+
+@pytest.fixture
+def sweep_conn(conn):
+    rs_store.create_relative_strength_tables(conn)
+    return conn
+
+
+def test_delete_rows_from_other_runs_sweeps_stale_and_null_run_ids(sweep_conn):
+    dates = pd.bdate_range("2020-01-01", periods=2)
+    # AAPL recomputed by the new run; DELISTED only exists under the old
+    # run (its bars are gone, so a fresh run never overwrites its keys).
+    _rs_rows(sweep_conn, dates, "DELISTED", "old-run")
+    _rs_rows(sweep_conn, dates, "AAPL", "new-market")
+    sweep_conn.execute(
+        "INSERT INTO relative_strength (ticker, date, comparison, run_id) VALUES ('NULLROW', '2020-01-02', 'vs_market', NULL)"
+    )
+
+    deleted = derived_db.delete_rows_from_other_runs(sweep_conn, "relative_strength", ["new-market"])
+
+    assert deleted == 3  # DELISTED x 2 dates + the NULL-run_id row
+    remaining = sweep_conn.execute("SELECT DISTINCT ticker, run_id FROM relative_strength").fetchall()
+    assert {row[0] for row in remaining} == {"AAPL"}
+    assert {row[1] for row in remaining} == {"new-market"}
+
+
+def test_delete_rows_from_other_runs_leaves_other_tables_alone(sweep_conn):
+    dates = pd.bdate_range("2020-01-01", periods=1)
+    sector = pd.DataFrame(
+        [{"sector": "Technology", "date": dates[0], "benchmark": "SPY", "rs_ratio": 1.0,
+          "rs_mansfield": 1.0, "rs_weighted_return": 0.1, "rs_rating": 50.0}]
+    )
+    rs_store.upsert_sector_relative_strength(sweep_conn, sector, "old-run")
+    _rs_rows(sweep_conn, dates, "AAPL", "new-run")
+
+    derived_db.delete_rows_from_other_runs(sweep_conn, "relative_strength", ["new-run"])
+
+    assert len(rs_store.read_sector_relative_strength(sweep_conn, "Technology")) == 1
+
+
+def test_delete_rows_from_other_runs_spares_a_concurrent_writers_rows(sweep_conn):
+    dates = pd.bdate_range("2020-01-01", periods=1)
+    old_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "DELISTED", old_id)
+    cutoff = pd.Timestamp.now("UTC").isoformat()
+    keep_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "AAPL", keep_id)
+    # Another session's run, recorded after the cutoff and absent from the
+    # keep list -- its rows are current, not stale, and must survive.
+    concurrent_id = derived_db.record_run(sweep_conn, "relative_strength", "sp500", "daily", None, "{}", 0, False)
+    _rs_rows(sweep_conn, dates, "MSFT", concurrent_id)
+
+    deleted = derived_db.delete_rows_from_other_runs(
+        sweep_conn, "relative_strength", [keep_id], started_before=cutoff
+    )
+
+    assert deleted == 1
+    remaining = {row[0] for row in sweep_conn.execute("SELECT DISTINCT ticker FROM relative_strength")}
+    assert remaining == {"AAPL", "MSFT"}
+
+
+def test_delete_rows_from_other_runs_refuses_an_empty_keep_list_and_unlisted_tables(sweep_conn):
+    with pytest.raises(ValueError, match="empty"):
+        derived_db.delete_rows_from_other_runs(sweep_conn, "relative_strength", [])
+    with pytest.raises(ValueError, match="not sweepable"):
+        derived_db.delete_rows_from_other_runs(sweep_conn, "runs", ["run-1"])

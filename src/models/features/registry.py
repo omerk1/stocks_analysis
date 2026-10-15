@@ -15,7 +15,12 @@ rescales every earlier adjusted price, so a column at t may depend on price
 A `PanelSource` instead computes from every ticker's bars at once, plus a
 `market.PanelContext` (point-in-time membership, sectors, the benchmark): the
 market-wide and sector-relative columns. The leakage gate perturbs all of its
-inputs' bars the same way, so it is covered like any other source.
+inputs' bars the same way, so it is covered like any other source. The
+company-financials columns (`fundamentals.py`) are a panel source too, read
+from the context's filings tables; the gate's `future_filings` perturbation
+covers those. Valuation (`valuation.py`) divides filings by a market cap from
+the traded close and the context's share counts; panel sources get this
+call's splits in the context, so `future_split` reaches it.
 
 Not yet here (§7, for the ablation step): grouping beyond this file's
 `group`, and the ablation order.
@@ -23,16 +28,16 @@ Not yet here (§7, for the ablation step): grouping beyond this file's
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 
 import pandas as pd
 
 from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
-from src.foundation.market_common.price_basis import PriceBasis
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 from src.models import dataset
-from src.models.features import baseline, ma_family, market
+from src.models.features import baseline, fundamentals, ma_family, market, valuation
 from src.models.features import indicators as indicator_features
 from src.models.labels.barriers import ATR_PERIOD
 
@@ -66,8 +71,9 @@ class FeatureSpec:
     shape: str
     prior: str | None            # None for controls (baselines) and non-model columns
     source: str | None           # key into SOURCES; None = not computed from bars
-    warmup_bars: int             # bars up to and including the first defined value; 0 = never NaN
-                                 # (market_wide: counted on the benchmark's bars)
+    warmup_bars: int             # bars up to and including the first defined value; 0 = never NaN,
+                                 # or not set by bars (filings-based columns); market_wide: counted
+                                 # on the benchmark's bars
     ranked: bool = False         # a per-date percentile `<name>_rank` is also a model column
     note: str = ""
 
@@ -114,6 +120,10 @@ SOURCES: dict[str, Source | PanelSource] = {
     "ma_family": Source(baseline.FEATURE_BASIS, _ma_family),
     "indicators": Source(baseline.FEATURE_BASIS, _indicators),
     "market": PanelSource(baseline.FEATURE_BASIS, market.panel_features),
+    # bars only give the (ticker, date) rows; the values come from the context's filings tables
+    "fundamentals": PanelSource(baseline.FEATURE_BASIS, fundamentals.panel_features),
+    # market cap = the traded close (unadjusted for splits after t) x the share count known on t
+    "valuation": PanelSource(MODULE_PRICE_BASIS["market_cap"], valuation.panel_features),
     "liquidity": Source(dataset.UNIVERSE_BASIS, _liquidity),
     "universe": Source(dataset.UNIVERSE_BASIS, _universe),
     "decision": Source(dataset.LABEL_BASIS, _decision),
@@ -167,6 +177,24 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("sector_rel_mom_63", "relative", MODEL, "dense", "null", "market", 64,
                 note="vs the sector members' median; sector is current-state (inherits its leak)"),
     FeatureSpec("sector_rank_mom_63", "relative", MODEL, "dense", "null", "market", 64),
+    # Company financials (docs/fundamentals/plan.md step 3, 2026-10-14): from the
+    # fundamentals and earnings tables, defined from a ticker's first usable
+    # filing (warmup 0: not a bar count). Untested here, so prior null; the
+    # literature's post-earnings drift is what step 4 tests.
+    FeatureSpec("days_since_earnings", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
+    FeatureSpec("days_to_earnings_expected", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
+                note="the expected date (a year after the same quarter's), never the realized one"),
+    FeatureSpec("sue_net_income", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True,
+                note="net income, not EPS: same number up to share-count changes, without EPS's data problems"),
+    FeatureSpec("rev_growth_yoy", "fundamentals", MODEL, "event", "null", "fundamentals", 0, ranked=True),
+    FeatureSpec("rev_growth_accel", "fundamentals", MODEL, "event", "null", "fundamentals", 0,
+                note="change in YoY growth vs the previous quarter; the seasonality-free stand-in for QoQ"),
+    FeatureSpec("net_margin_ttm", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
+    FeatureSpec("debt_to_equity", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
+    FeatureSpec("earnings_yield", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True,
+                note="E/P, not P/E: continuous through zero earnings"),
+    FeatureSpec("sales_yield", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
+    FeatureSpec("book_to_market", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
@@ -238,6 +266,8 @@ def compute_registered(
     `context` is what panel sources read besides bars (default: every ticker
     passed is a member, no sectors)."""
     context = context if context is not None else market.PanelContext()
+    if context.splits is not None:
+        raise ValueError("PanelContext.splits is filled from compute_registered's `splits`; pass them there")
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:
@@ -246,7 +276,7 @@ def compute_registered(
     for name, cols in by_source.items():
         source = sources[name]
         if isinstance(source, PanelSource):
-            frame = source.compute(bars[source.basis], context)[["ticker", "date", *cols]]
+            frame = source.compute(bars[source.basis], replace(context, splits=splits))[["ticker", "date", *cols]]
             out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
             continue
         parts = []

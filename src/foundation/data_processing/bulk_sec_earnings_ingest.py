@@ -101,15 +101,20 @@ def ticker_rows(parsed, cik: int, cik_source: str, valid_from, valid_to, session
             earliest = found["period_end"].min()
         parts.append(found)
     rows = pd.concat(parts, ignore_index=True).sort_values("period_end").dropna(subset=["accepted_at"])
-    accepted_day = rows["accepted_at"].dt.tz_convert(se.MARKET_TZ).dt.tz_localize(None).dt.normalize()
-    keep = pd.Series(True, index=rows.index)
+    rows = rows[inside_window(rows["accepted_at"], valid_from, valid_to)].reset_index(drop=True)
+    return pd.concat([rows, se.classify_timing(rows["accepted_at"], sessions)], axis=1).assign(
+        cik=cik, cik_source=cik_source)
+
+
+def inside_window(accepted_at: pd.Series, valid_from, valid_to) -> pd.Series:
+    """Accepted (New York day) inside a ticker's [valid_from, valid_to]; None is open-ended."""
+    accepted_day = accepted_at.dt.tz_convert(se.MARKET_TZ).dt.tz_localize(None).dt.normalize()
+    keep = pd.Series(True, index=accepted_at.index)
     if valid_from is not None:
         keep &= accepted_day >= pd.Timestamp(valid_from)
     if valid_to is not None:
         keep &= accepted_day <= pd.Timestamp(valid_to)
-    rows = rows[keep].reset_index(drop=True)
-    return pd.concat([rows, se.classify_timing(rows["accepted_at"], sessions)], axis=1).assign(
-        cik=cik, cik_source=cik_source)
+    return keep
 
 
 def ingest(conn: sqlite3.Connection, zf: zipfile.ZipFile, resolved: dict, sessions: pd.DatetimeIndex) -> Counter:

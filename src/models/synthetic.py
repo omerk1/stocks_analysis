@@ -207,3 +207,56 @@ def synthetic_bars(
             "volume": rng.lognormal(14.5, 0.4, m),
         }))
     return pd.concat(parts, ignore_index=True)
+
+
+def synthetic_shares(bars: pd.DataFrame, splits: dict[str, pd.DataFrame], seed: int = 0) -> pd.DataFrame:
+    """Share counts shaped like `valuation.load_shares`: one per ~quarter
+    while a ticker is listed, drifting slowly, as filed (a split rescales the
+    count from its execution date), with the first filing after each split
+    still reporting the pre-split count (the filing lag the market cap
+    bridges)."""
+    rng = np.random.default_rng(seed)
+    parts = []
+    for ticker, g in bars.groupby("ticker", sort=True):
+        dates = pd.date_range(g["date"].min() + pd.Timedelta(days=40), g["date"].max(), freq="91D")
+        # ~50 x 20 = a cap of ~1,000 against quarterly revenue of ~100
+        counts = 20 * np.exp(np.cumsum(rng.normal(0.002, 0.01, len(dates))))
+        sp = splits.get(ticker)
+        for when, ratio in ([] if sp is None else zip(sp["execution_date"], sp["ratio"])):
+            after = np.flatnonzero(dates >= when)
+            counts[after[1:]] *= ratio  # the first filing after the split is stale
+        parts.append(pd.DataFrame({"ticker": ticker, "date": dates, "shares_outstanding": counts}))
+    return pd.concat(parts, ignore_index=True)
+
+
+def synthetic_filings(bars: pd.DataFrame, seed: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(fundamentals, earnings) rows shaped like the `fundamentals` and
+    `earnings_announcements` tables (`features.fundamentals.load_tables`) for
+    every ticker of `bars`: quarters while it's listed (fiscal years ending in
+    December, January or February by ticker, so on any date some quarter has
+    ended but isn't filed yet), results out 20-35 days after the quarter ends
+    and the 10-Q 0-20 days later; net income and revenue per quarter, equity
+    and long-term debt at each quarter end. Every other ticker switches its
+    revenue tag halfway to a narrower one (a measure change)."""
+    rng = np.random.default_rng(seed)
+    fund, earn = [], []
+    for i, (ticker, g) in enumerate(bars.groupby("ticker", sort=True)):
+        ends = pd.date_range(g["date"].min(), g["date"].max(), freq=("QE-DEC", "QE-JAN", "QE-FEB")[i % 3])
+        n = len(ends)
+        if not n:
+            continue
+        reaction = ends + pd.to_timedelta(rng.integers(20, 36, n), unit="D")
+        available = reaction + pd.to_timedelta(rng.integers(0, 21, n), unit="D")
+        revenue = 100.0 * np.exp(np.cumsum(rng.normal(0.01, 0.05, n))) * (1 + 0.1 * np.sin(np.arange(n) * np.pi / 2))
+        income = revenue * rng.normal(0.08, 0.06, n)
+        # every other ticker, so the switch meets all three fiscal year-ends
+        tags = np.where((i % 2 == 0) & (np.arange(n) >= n // 2), "SalesRevenueGoodsNet", "Revenues")
+        for concept, period_type, values, tag in (
+            ("revenue", "quarter", revenue, tags), ("net_income", "quarter", income, "NetIncomeLoss"),
+            ("equity", "instant", revenue * rng.normal(3.0, 0.5, n), "StockholdersEquity"),
+            ("long_term_debt", "instant", revenue * rng.uniform(0.5, 2.0, n), "LongTermDebt"),
+        ):
+            fund.append(pd.DataFrame({"ticker": ticker, "concept": concept, "period_type": period_type,
+                                      "period_end": ends, "value": values, "tag": tag, "available_date": available}))
+        earn.append(pd.DataFrame({"ticker": ticker, "period_end": ends, "reaction_date": reaction}))
+    return pd.concat(fund, ignore_index=True), pd.concat(earn, ignore_index=True)
