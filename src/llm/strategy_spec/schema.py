@@ -36,8 +36,10 @@ so with `not_applicable=True`, which is an answer, not a gap.
 `uses` names the capability catalogue entries (`catalogue.py`) the spec is built from.
 The catalogue lists what can be computed, and goes into the extraction prompt (step 2c).
 
-Visual examples (`examples`) are part of the spec but not checked yet: grounding in
-historical instances is step 4, and it needs the data tools.
+Visual examples (`examples`) are filled by the grounding session (step 4, `ground.py`):
+real historical instances found by deterministic code (`finders.py`), judged by the
+trader on charts, verdicts recorded here. They aren't checked by `find_gaps` — an
+ungrounded spec is complete but unconfirmed, not gapped.
 """
 
 from __future__ import annotations
@@ -136,7 +138,7 @@ class Control(_Section):
 
 
 class Example(_Section):
-    """A historical instance the user accepted or rejected (step 4; not checked yet)."""
+    """A historical instance the user accepted or rejected (filled by `ground.py`)."""
 
     ticker: Text
     date: Text
