@@ -222,6 +222,8 @@ zero). So encode crossovers as state plus state age (`features/crossover.py` /
 - ⚠ **Earnings dates: not in the database.** This is the largest single gap for a
   barrier model, because an earnings gap jumps straight through both barriers. Either
   source earnings dates or flag the "earnings inside the horizon" risk explicitly.
+  *Update 2026-10-14: sourced (Done #137) and in the registry as group `fundamentals`
+  (Done #145), with `days_to_earnings_expected` as the horizon flag.*
 
 ---
 
@@ -301,9 +303,8 @@ before it (ablation), not by being on the list.
         trend/extension features, where the evidence is.
       Open: how level strength is weighted, and whether one strong level outweighs
       several weak ones.
-- [ ] **Earnings dates: missing for now**, logged in `docs/backlog.md`. Source identified:
-      SEC `submissions.zip` (8-K item 2.02 filings), downloaded 2026-09-30 into
-      `data/raw/sec/`; the ingest itself is not built yet.
+- [x] **Earnings dates** → ingested from SEC `submissions.zip` (Done #137), model
+      features (Done #145).
 - [x] **AVP** → built (`signals/volume_profile`, #110).
 
 ---
@@ -368,7 +369,7 @@ before it (ablation), not by being on the list.
   HYG (2007+)/LQD for a credit proxy, IEF/TLT/SHY for rates, GLD, UUP. None were loaded
   before, although `relative_strength` expects SPY. Side effect to know about: signal CLIs'
   `--all` (`SELECT DISTINCT ticker FROM bars_1d`) now include these ETFs too.
-- **Earnings dates:** absent (§3).
+- **Earnings dates:** absent (§3). *Filled 2026-10-14: Done #137, #145.*
 - **Survivorship-free prices: partly filled.** Tiingo's free tier supplies 132 delisted
   members (Done #82, #83). Still open in `docs/backlog.md`: the 101 Tiingo can't serve
   (EODHD, one month ~$20), or a bias bound next to every reported probability.
