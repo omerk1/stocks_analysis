@@ -266,6 +266,8 @@ def compute_registered(
     `context` is what panel sources read besides bars (default: every ticker
     passed is a member, no sectors)."""
     context = context if context is not None else market.PanelContext()
+    if context.splits is not None:
+        raise ValueError("PanelContext.splits is filled from compute_registered's `splits`; pass them there")
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:

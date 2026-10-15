@@ -186,7 +186,10 @@ def valuation_inputs(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
     q = _quarters(fundamentals)
     events = {}
     for short, name in (("ni", "net_income_ttm"), ("rev", "revenue_ttm")):
-        part = q[q[f"{short}_at"].notna()]
+        part = q[q[f"{short}_at"].notna()] if len(q) else q
+        if part.empty:
+            events[name] = pd.DataFrame(columns=["ticker", "period_end", "known_at", "value"])
+            continue
         by = part["ticker"]
         span = (part["period_end"] - part.groupby("ticker")["period_end"].shift(3)).dt.days
         events[name] = pd.DataFrame({

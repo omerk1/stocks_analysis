@@ -87,7 +87,8 @@ def test_the_gate_catches_an_adjusted_price_level(monkeypatch):
     from src.models import gates
 
     bars, splits, cut, context = gates.synthetic_leakage_inputs()
-    monkeypatch.setattr(V, "unadjusted_close", lambda b, s: b["close"])
+    real = V._shares_known  # the count left as filed: the cap is the adjusted close x it
+    monkeypatch.setattr(V, "_shares_known", lambda s, sp: real(s, sp).assign(basis=1.0))
     result = gates.leakage_gate(bars, splits, cut, context=context)
     assert "earnings_yield" in result["leaks"]["future_split"]
 

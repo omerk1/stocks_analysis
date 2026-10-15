@@ -240,7 +240,10 @@ panel source on the traded basis, same group and prior. Three ranked columns:
   days. SEC EDGAR first; yfinance only on a date where SEC has none from the previous 200
   days. That is decided from the past only, and it restores 76 tickers whose SEC series
   stops early (multi-class issuers: V, MA, CMCSA, F, NKE). Scale errors are dropped at load,
-  as `market_cap.reconcile_market_cap` does.
+  as `market_cap.reconcile_market_cap` does. That cleaning judges the whole series with
+  hindsight, and the gate can't see it (it perturbs counts after loading). It's accepted as
+  a data fix like the SEC ingest's, because it only drops counts ~1,000x off the rest on a
+  split-consistent basis.
 - **Checks:** the gate passes on synthetic data (3 seeds) and on 20 real tickers. Values on
   2019-12-31: P/E AAPL 23.6, MSFT 29.3, JPM 12.5, AMZN 80.7. The largest day-to-day jumps are
   on earnings days. Medians on S&P member rows: E/P 0.05, S/P 0.56, B/M 0.34.

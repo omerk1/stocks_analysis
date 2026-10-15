@@ -14,15 +14,14 @@ profitable company instead of being dropped.
 The market cap is the price that traded on t times the share count known on
 t, never an adjusted price level: the close on the traded basis is
 split-adjusted, so a split after t would rescale it, and it is multiplied
-back by the ratios of the splits after t (`history_breaks.unadjusted_close`).
-The two cancel exactly, which the leakage gate's `future_split` perturbation
+back by the ratios of the splits after t (`history_breaks.unadjusted_close`;
+`market_caps` folds that into the count). The two cancel exactly, which the leakage gate's `future_split` perturbation
 checks. A share count is known from the session after its filing date (the
 date carries no time, and a filing accepted after the close isn't usable on
 that close). A count is carried across the splits executed since its date
 (each known from its execution day), and a filing that still reports the
 pre-split count after a split is bridged as `market_cap.reconcile_market_cap`
-does. Like the filings
-values, a share count goes stale `fundamentals.MAX_AGE_DAYS` after its date.
+does. Like the filings values, a share count goes stale `fundamentals.MAX_AGE_DAYS` after its date.
 """
 
 from __future__ import annotations
@@ -32,7 +31,6 @@ import pandas as pd
 
 from src.foundation.data_processing import db, market_cap
 from src.foundation.data_processing.share_counts import drop_scale_runs
-from src.foundation.market_common.history_breaks import unadjusted_close
 from src.models.features import fundamentals as F
 
 COLUMNS = ("earnings_yield", "sales_yield", "book_to_market")
@@ -45,13 +43,16 @@ def _series(g: pd.DataFrame) -> pd.Series:
 
 def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) -> pd.DataFrame:
     """(ticker, date, shares_outstanding) dated up to `end`: SEC EDGAR's
-    counts, and yfinance's on a date where SEC has none from the
-    `fundamentals.MAX_AGE_DAYS` before (a choice from the past only: SEC's
-    series stops early for many multi-class issuers, V and MA in 2010).
-    Scale errors and placeholders dropped per source
-    (`share_counts.drop_scale_runs`, as `market_cap.reconcile_market_cap`
-    does at load time); that judges a ticker's whole series up to `end`, a
-    data fix like the SEC ingest's, not information a feature reads."""
+    counts, and yfinance's on a date where SEC filed nothing in the
+    `fundamentals.MAX_AGE_DAYS` before (decided on the filing dates alone, so
+    from the past only: SEC's series stops early for many multi-class
+    issuers, V and MA in 2010). Then scale errors and placeholders are
+    dropped per source (`share_counts.drop_scale_runs`, as
+    `market_cap.reconcile_market_cap` does at load time). That cleaning
+    judges a ticker's whole series up to `end`, with hindsight, and the
+    leakage gate can't see it (it perturbs the loaded counts): accepted as a
+    data fix like the SEC ingest's, since it only drops counts ~1,000x off
+    the rest on a split-consistent basis, which no real count is."""
     columns = ["ticker", "date", "shares_outstanding"]
     marks = ", ".join("?" * len(tickers))
     raw = pd.read_sql_query(
@@ -62,12 +63,13 @@ def load_shares(conn, tickers: list[str], end, splits: dict[str, pd.DataFrame]) 
     for ticker, g in raw.groupby("ticker", sort=False):
         sec, yf = _series(g[g["source"] == db.SEC_EDGAR]), _series(g[g["source"] == db.YFINANCE])
         factor = lambda s: market_cap.split_factor(s.index, splits.get(ticker))
+        if len(sec) and len(yf):
+            last_sec = pd.Series(sec.index, index=sec.index).reindex(yf.index, method="ffill")
+            yf = yf[~((yf.index - last_sec).dt.days <= F.MAX_AGE_DAYS).to_numpy()]
         if len(yf):
             yf = drop_scale_runs(yf, split_factor=factor(yf))
         if len(sec):
-            sec = drop_scale_runs(sec, split_factor=factor(sec), reference=yf if len(yf) else None)
-            last_sec = pd.Series(sec.index, index=sec.index).reindex(yf.index, method="ffill")
-            yf = yf[~((yf.index - last_sec).dt.days <= F.MAX_AGE_DAYS).to_numpy()]
+            sec = drop_scale_runs(sec, split_factor=factor(sec))
         s = pd.concat([sec, yf]).sort_index()
         kept.append(pd.DataFrame({"ticker": ticker, "date": s.index, "shares_outstanding": s.to_numpy()}))
     return pd.concat(kept, ignore_index=True)[columns] if kept else pd.DataFrame(columns=columns)
@@ -80,8 +82,7 @@ def _shares_known(shares: pd.DataFrame, splits: dict[str, pd.DataFrame]) -> pd.D
     across the splits between its date and a later day."""
     parts = []
     for ticker, g in shares.groupby("ticker", sort=False):
-        s = g.set_index("date")["shares_outstanding"].dropna().sort_index()
-        s = s[~s.index.duplicated(keep="last")]
+        s = _series(g)
         events = market_cap._split_ratio_events(splits.get(ticker))
         if len(events):
             s = market_cap._bridge_filing_lag(s, events)
@@ -97,23 +98,19 @@ def market_caps(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd.D
     """For each (ticker, date, close) row (close on the traded basis): the
     traded close times the latest share count known that day, carried
     across any split since that count's date (until the next filing a
-    2-for-1 would otherwise halve the cap); NaN without a fresh count."""
-    price = rows["close"].astype(float).copy()
-    for ticker in set(rows["ticker"]) & set(splits):
-        mine = rows["ticker"] == ticker
-        price[mine] = unadjusted_close(rows.loc[mine].set_index("date"), splits[ticker]).to_numpy()
-    # the split factor on each day (traded / adjusted close): splits after it
-    day_basis = pd.Series(1.0, index=rows.index)
-    for ticker in set(rows["ticker"]) & set(splits):
-        mine = rows["ticker"] == ticker
-        day_basis[mine] = market_cap.split_factor(rows.loc[mine, "date"], splits[ticker]).to_numpy()
+    2-for-1 would otherwise halve the cap); NaN without a fresh count.
+
+    Traded close = close x f(t) and the carried count = count x f(d) / f(t),
+    with f the split factor (`market_cap.split_factor`, the splits after a
+    date) and d the count's date, so the cap is close x count x f(d): both
+    on today's split basis, which a later split rescales in opposite ways."""
     known = _shares_known(shares, splits).sort_values("known_at", kind="stable")
     left = rows[["ticker", "date"]].assign(row=np.arange(len(rows))).sort_values("date", kind="stable")
     m = pd.merge_asof(left, known[["ticker", "known_at", "dated", "shares", "basis"]], left_on="date",
                       right_on="known_at", by="ticker", direction="backward").sort_values("row")
     fresh = (m["date"] - m["dated"]).dt.days <= F.MAX_AGE_DAYS
-    count = (m["shares"] * m["basis"]).to_numpy() / day_basis.to_numpy()  # the splits between: known by then
-    return pd.Series(price.to_numpy() * np.where(fresh, count, np.nan), index=rows.index)
+    cap = rows["close"].to_numpy(dtype=float) * (m["shares"] * m["basis"]).to_numpy(dtype=float)
+    return pd.Series(np.where(fresh, cap, np.nan), index=rows.index)
 
 
 def panel_features(bars: pd.DataFrame, ctx) -> pd.DataFrame:
