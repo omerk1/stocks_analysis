@@ -19,9 +19,12 @@ pass/fail logic can't drift apart.
    recomputed after perturbing everything after `cut`: the future path, a
    future split (rescales earlier adjusted prices and volumes, and is added
    to the splits table), a future dividend (rescales earlier total-return
-   prices) and a delisting right after `cut` (later bars removed). Nothing
-   dated <= `cut` may move. Two planted canaries -- one
-   reading tomorrow's close, one an adjusted price level -- must be caught.
+   prices), a delisting right after `cut` (later bars removed) and, for the
+   company-financials columns, every filing after `cut` rewritten
+   (`perturb_filings`). Nothing dated <= `cut` may move. Three planted
+   canaries -- one reading tomorrow's close, one an adjusted price level, one
+   a quarter's net income from its period end instead of its filing -- must
+   be caught.
 4. `purge_gate` -- real `barrier_labels` windows (holidays, delistings) for
    every v1 horizon, both fold schemes with their inner folds, with and
    without embargo; then `fit_predict` traced with a recording model: no row
@@ -34,7 +37,7 @@ bug, not on one draw in ten.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -43,6 +46,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
 from src.models.baselines import ConstantModel
+from src.models.features import fundamentals as fund_features
 from src.models.features import market
 from src.models.features import registry as reg
 from src.models.inference import BootstrapResult, paired_loss_diff, per_date_diff
@@ -58,6 +62,7 @@ from src.models.synthetic import (
     planted_panel,
     shuffle_within_date,
     synthetic_bars,
+    synthetic_filings,
 )
 
 GATE_CI = 0.99
@@ -260,20 +265,76 @@ def perturb_delisting(bars, splits, cut, seed=0):
 PERTURBATIONS = {"future_path": perturb_path, "future_split": perturb_split, "future_dividend": perturb_dividend,
                  "future_delisting": perturb_delisting}
 
+
+def perturb_filings(context: market.PanelContext, cut, seed=0) -> market.PanelContext:
+    """Everything filed after `cut` rewritten: values rescaled at random (sign
+    flips included) -- among them quarters that ended before `cut` but were
+    filed after it, the case a column reading a value from its period end
+    gets wrong -- every other such row dropped, reaction dates moved, and per
+    ticker a late report of a period in the middle of the history just before
+    `cut` (an out-of-order report, for the fundamentals and the earnings
+    dates). Rows known by `cut` are untouched."""
+    rng = np.random.default_rng(seed)
+    cut = pd.Timestamp(cut)
+
+    def late_reports(frame: pd.DataFrame, known: str, keys: list[str]) -> pd.DataFrame:
+        # the last period known by `cut`, reported again 45 days earlier (a period that
+        # doesn't exist yet), right after `cut`
+        last = frame[frame[known] <= cut].sort_values("period_end").groupby(keys).tail(1)
+        return last.assign(period_end=last["period_end"] - pd.Timedelta(days=45),
+                           **{known: cut + pd.Timedelta(days=2)})
+
+    out = {}
+    if context.fundamentals is not None:
+        f = context.fundamentals.copy()
+        after = f["available_date"] > cut
+        f.loc[after, "value"] = f.loc[after, "value"] * rng.choice([-3.0, -0.5, 0.25, 4.0], int(after.sum()))
+        late = late_reports(f, "available_date", ["ticker", "concept", "period_type"])
+        f = f[~after | (np.arange(len(f)) % 2 == 0)]
+        out["fundamentals"] = pd.concat([f, late.assign(value=late["value"] * 7 + 1)], ignore_index=True)
+    if context.earnings is not None:
+        e = context.earnings.copy()
+        after = e["reaction_date"] > cut
+        moved = e.loc[after, "reaction_date"] - pd.Timedelta(days=9)
+        e.loc[after, "reaction_date"] = moved.where(moved > cut, cut + pd.Timedelta(days=1))
+        late = late_reports(e, "reaction_date", ["ticker"])
+        out["earnings"] = pd.concat([e[~after | (np.arange(len(e)) % 2 == 0)], late], ignore_index=True)
+    return replace(context, **out)
+
+
+# Perturbations of the panel context (filings), not of bars.
+CONTEXT_PERTURBATIONS = {"future_filings": perturb_filings}
+
+
+def _filed_by_period_end(bars: pd.DataFrame, ctx: market.PanelContext) -> pd.DataFrame:
+    """Canary: net income as of its quarter's *end*, ignoring when it was filed."""
+    rows = bars[["ticker", "date"]].sort_values(["ticker", "date"], ignore_index=True)
+    if ctx.fundamentals is None:
+        return rows.assign(net_income_by_period_end=np.nan)
+    ni = ctx.fundamentals[(ctx.fundamentals["concept"] == "net_income")
+                          & (ctx.fundamentals["period_type"] == "quarter")]
+    ev = ni[["ticker", "period_end", "value"]].sort_values("period_end")
+    m = pd.merge_asof(rows.assign(row=np.arange(len(rows))).sort_values("date"), ev, left_on="date",
+                      right_on="period_end", by="ticker").sort_values("row")
+    return rows.assign(net_income_by_period_end=m["value"].to_numpy())
+
 # Canaries: columns that leak on purpose, so the gate is shown to bite.
 CANARY_SOURCES = {
     "canary_next_close": reg.Source(PriceBasis.TOTAL_RETURN,
                                     lambda b, s: pd.DataFrame({"peek_next_close": b["close"].shift(-1) / b["close"]})),
     "canary_price_level": reg.Source(PriceBasis.TOTAL_RETURN,
                                      lambda b, s: pd.DataFrame({"adjusted_close_level": b["close"]})),
+    "canary_filed_early": reg.PanelSource(PriceBasis.TOTAL_RETURN, _filed_by_period_end),
 }
 CANARIES = (
     reg.FeatureSpec("peek_next_close", "canary", reg.MODEL, "dense", None, "canary_next_close", 0),
     reg.FeatureSpec("adjusted_close_level", "canary", reg.MODEL, "dense", None, "canary_price_level", 0),
+    reg.FeatureSpec("net_income_by_period_end", "canary", reg.MODEL, "event", None, "canary_filed_early", 0),
 )
 # Which perturbation each canary must be caught by.
 CANARY_CAUGHT_BY = {"peek_next_close": ("future_path", "future_delisting"),
-                    "adjusted_close_level": ("future_split", "future_dividend")}
+                    "adjusted_close_level": ("future_split", "future_dividend"),
+                    "net_income_by_period_end": ("future_filings",)}
 
 
 def _changed_columns(before: pd.DataFrame, after: pd.DataFrame, cut: pd.Timestamp) -> dict[str, int]:
@@ -328,20 +389,33 @@ def leakage_gate(
     context: market.PanelContext | None = None,
 ) -> dict:
     """`bars`: one long frame per basis the registry's sources read (the
-    synthetic gate passes the same walk on both); `context`: membership and
-    sectors for the panel sources (the perturbations don't touch it: it isn't
-    bar-derived). Recomputes every source under each perturbation."""
+    synthetic gate passes the same walk on both); `context`: membership,
+    sectors and filings for the panel sources (only `future_filings` touches
+    it, its filings). Recomputes every source under each bar perturbation, and
+    the panel sources under `future_filings` (only they read the context: a
+    per-ticker source that read filings would go unchecked)."""
     cut = pd.Timestamp(cut)
     specs = registry + CANARIES
     sources = {**reg.SOURCES, **CANARY_SOURCES}
     base = reg.compute_registered(bars, splits, specs, sources, context=context)
     registered = {s.name for s in registry} | {f"{s.name}_rank" for s in registry if s.ranked}
     leaks, canaries = {}, {}
-    for name, perturb in PERTURBATIONS.items():
-        pbars, psplits = perturb(bars, splits, cut, seed)
-        changed = _changed_columns(base, reg.compute_registered(pbars, psplits, specs, sources, context=context), cut)
+
+    def record(name: str, before: pd.DataFrame, after: pd.DataFrame) -> None:
+        changed = _changed_columns(before, after, cut)
         leaks[name] = {c: n for c, n in changed.items() if c in registered or c == "<row set>"}
         canaries[name] = sorted(c for c in changed if c not in registered)
+
+    for name, perturb in PERTURBATIONS.items():
+        pbars, psplits = perturb(bars, splits, cut, seed)
+        record(name, base, reg.compute_registered(pbars, psplits, specs, sources, context=context))
+    # Only panel sources read the context: recompute those, compare their columns.
+    panel = tuple(s for s in specs if isinstance(sources.get(s.source), reg.PanelSource))
+    for name, perturb in CONTEXT_PERTURBATIONS.items() if panel else ():
+        pcontext = perturb(context if context is not None else market.PanelContext(), cut, seed)
+        after = reg.compute_registered(bars, splits, panel, sources, context=pcontext)
+        recomputed = [c for c in after.columns if c not in ("ticker", "date")]
+        record(name, base, base.drop(columns=recomputed).merge(after, on=["ticker", "date"], how="left"))
 
     # The future-path perturbation must move labels that look across the cut.
     label_bars = bars[dataset.LABEL_BASIS]
@@ -400,7 +474,9 @@ def synthetic_leakage_inputs(n_tickers: int = 12, seed: int = 0):
     bars.loc[before, _price_cols()] = bars.loc[before, _price_cols()].to_numpy() / 0.25
     bars.loc[before, "volume"] = bars.loc[before, "volume"].to_numpy() * 0.25
     splits = {ticker: pd.DataFrame({"execution_date": [when], "ratio": [0.25]})}
-    context = market.PanelContext(membership=membership.reset_index(drop=True), sectors=sectors)
+    fundamentals, earnings = synthetic_filings(bars[bars["ticker"] != market.BENCHMARK], seed=seed)
+    context = market.PanelContext(membership=membership.reset_index(drop=True), sectors=sectors,
+                                  fundamentals=fundamentals, earnings=earnings)
     return {PriceBasis.TOTAL_RETURN: bars, PriceBasis.TRADED: bars.copy()}, splits, cut, context
 
 
@@ -421,7 +497,9 @@ def real_leakage_inputs(conn, tickers: list[str], start: str, end: str):
     intervals = dataset.apply_renames(conn, db.read_index_membership(conn, "sp500"))
     sectors = db.read_ticker_sector(conn).set_index("ticker")["sector"]
     panel_bars = bars[reg.SOURCES["market"].basis]
-    context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars), sectors=sectors)
+    fundamentals, earnings = fund_features.load_tables(conn, tickers, end)
+    context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars), sectors=sectors,
+                                  fundamentals=fundamentals, earnings=earnings)
     return bars, dataset._read_splits_bulk(conn, sources), sources, context
 
 

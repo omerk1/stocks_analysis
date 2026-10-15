@@ -184,6 +184,15 @@ FEATURES = _entries("feature", "", _REG, {
     "adv_dec_10": "10-day advance/decline balance",
     "sector_rel_mom_63": "63-day momentum relative to the sector median",
     "sector_rank_mom_63": "63-day momentum rank within the sector",
+    "days_since_earnings": "trading days since the last earnings report",
+    "days_to_earnings_expected": "business days to the expected next earnings report (a year after the "
+                                 "same quarter's)",
+    "sue_net_income": "earnings surprise: net income vs the same quarter a year earlier, in units of its "
+                      "usual change",
+    "rev_growth_yoy": "revenue growth vs the same quarter a year earlier",
+    "rev_growth_accel": "revenue growth acceleration: this quarter's year-over-year growth minus last quarter's",
+    "net_margin_ttm": "net margin over the trailing four quarters",
+    "debt_to_equity": "long-term debt over equity",
 })
 
 _CTL = "src.signals.moving_averages.stats.controls"

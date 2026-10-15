@@ -1,7 +1,7 @@
 # Company financials: earnings, fundamentals, guidance — plan
 
-Status (2026-10-14): steps 1 (earnings dates) and 2 (fundamentals table) built, see their
-"As built" notes; steps 3–5 not started. The order and scope below are a starting point to
+Status (2026-10-14): steps 1 (earnings dates) and 2 (fundamentals table) built, step 3
+(features) built except valuation, see their "As built" notes; steps 4–5 not started. The order and scope below are a starting point to
 revisit after each step, not commitments.
 
 ## One-liner
@@ -164,6 +164,60 @@ Simple, well-known ones only, all computed point-in-time:
 - Valuation: P/E and P/S, using the market cap already computed from SEC share counts.
 - Quality: margins and their trend, debt to equity.
 - Registered in the model's feature registry like any other feature.
+
+**As built (2026-10-14), part one (valuation is the second):** `src/models/features/fundamentals.py`,
+registered as group `fundamentals` (prior null: untested here). Seven columns. Plain
+quarter-over-quarter growth is left out on purpose (it mostly measures seasonality;
+acceleration replaces it), and so is an EPS surprise: a SUE is a ratio, so on EPS it equals
+the net-income one up to share-count changes (corr 0.985 on 20 large caps), while as-filed
+EPS needs split adjustment, a derived Q4 and scale-error cleaning that kept producing edge
+cases (tried and dropped 2026-10-14). Buybacks/dilution belong in a share-count-change feature.
+
+| Column | What it is |
+|---|---|
+| `days_since_earnings` | business days since the last earnings reaction date |
+| `days_to_earnings_expected` | business days to the *expected* next one: the same quarter's reaction a year earlier + 52 weeks, 0 when overdue. Never the realized date |
+| `sue_net_income` (+ rank) | the surprise against the company's own history: net income minus the same quarter a year earlier, over the standard deviation of the previous 8 such changes (at least 4). Net income, not EPS: see above for why |
+| `rev_growth_accel` | this quarter's YoY revenue growth minus the previous quarter's: whether growth is speeding up. Stands in for quarter-over-quarter growth, which mostly measures seasonality |
+| `rev_growth_yoy` (+ rank) | revenue vs the same quarter a year earlier; only when both measure the same thing: the same tag, or two total-revenue tags, since ASC 606 moved nearly every filer between them in 2018 |
+| `net_margin_ttm` | trailing four quarters' net income over their revenue |
+| `debt_to_equity` | long-term debt (total, else noncurrent) over equity; NaN for non-positive equity or no debt tag |
+
+How point-in-time is enforced:
+
+- **When a value counts:** from its `available_date` (the reaction date, for the earnings
+  columns).
+- **Every input counts:** a feature's value counts only once *all* its inputs are known,
+  including the year-ago quarter and the window's quarters. A quarter whose own value isn't
+  known yet produces nothing.
+- **Late reports are ignored:** a late report of an old quarter (or a late earnings
+  announcement for an old period) is dropped before anything is computed, so it can't
+  change, after the fact, which quarter counted as "a year earlier".
+- **Values go stale:** a quarter's value is NaN once the quarter ended more than 200 days
+  before.
+- **Leakage gate:** it gets a `future_filings` perturbation that rewrites every filing after
+  the cut: values, deleted rows, moved reaction dates, and a late report of a mid-history
+  period for both tables. It also gets a canary that reads net income by period end
+  instead of filing date.
+  - **Straddling quarters:** the synthetic filings use December, January and February
+    fiscal years, so some quarters end before the cut and are filed after it. That's the
+    case a period-end leak gets wrong, and a test plants such a leak and checks the gate
+    catches it.
+  - **Two leaks caught in the first version, both fixed:** a late report changed which
+    quarter matched as "a year earlier"; and a quarter with revenue filed but net income
+    not yet filed counted as known from its inputs' dates.
+  - **Passes** on synthetic data (3 seeds) and on 20 real tickers.
+
+Coverage on S&P 500 member rows (150-ticker sample, 81 with bars in the window):
+- earnings timing: 94–100%;
+- SUE: 90–99% from 2012 (it needs three years of quarters, so 2010–2011 are thin);
+- revenue growth: 87–94%;
+- net margin: 90–95%;
+- debt to equity: 70–78%.
+
+**Part two, not built:** valuation (P/E, P/S, earnings yield). It needs a point-in-time
+market cap on the traded basis, and a column must not read an adjusted price level; the
+gate's split canary exists for exactly that.
 
 ### 4. Research questions
 
