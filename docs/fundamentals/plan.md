@@ -277,14 +277,16 @@ surprise that the net-income one misses.
   turned those into fake buybacks of 40–65%. A split between the two counts is therefore
   taken out only where it explains their change better than no split does. That also
   handles a filing, on either side, that still reports the pre-split count (no bridge
-  needed; splits up to 120 days before the year-ago count are judged too). It uses only
-  splits executed by the later count's date.
+  needed; a split up to 120 days before the year-ago count is judged too, if that count is
+  within 20% of the last pre-split one). It uses only splits executed by the later count's
+  date.
 - **Same source:** both counts come from SEC, or both from yfinance. For multi-class
   issuers SEC can carry one class and yfinance all of them, so a change across the
   hand-off was an artifact (CMCSA +14% in 2016, MA +12% in 2010). After a hand-off the
   column is NaN for a year. **Limits:** a real change about half a split's
   size is misread (±20% across a 3-for-2); a vendor factor that merges a reverse split with
-  a spin-off leaves a residual (MSI 2011: −41%); a reused symbol compares two companies
+  a spin-off leaves a residual (MSI 2011: −41%); two splits within the year are judged one
+  at a time, so one can take the other's ratio; a reused symbol compares two companies
   (FOX/FOXA 2019–2020: −66%).
 - **Leakage gate:** passes on synthetic data (3 seeds) and on the 20 real tickers. Two tests
   plant leaks and check the gate catches them: a count used on its filing date

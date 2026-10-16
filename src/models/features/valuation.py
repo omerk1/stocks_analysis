@@ -34,7 +34,8 @@ does. Like the filings values, a share count goes stale `fundamentals.MAX_AGE_DA
 The share change must not read a split as dilution, but the vendors' splits
 also hold spin-offs' price factors (EBAY 2.376 for PayPal, NI, YUM, HPE),
 which leave the count alone. So a split between the two counts (or up to
-`STALE_FILING_DAYS` before the year-ago one) is taken out only where it
+`STALE_FILING_DAYS` before a year-ago count that still reports the pre-split
+count) is taken out only where it
 explains their change: where the change less the split's log ratio is
 smaller than the change itself. That also handles a filing, on either side,
 that still reports the pre-split count (no bridge needed), and uses only the
@@ -150,12 +151,12 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
     known that day (NaN once it's stale) and the count dated
     `SHARE_CHANGE_DAYS` before it, within `SHARE_CHANGE_TOLERANCE` days, less
     each split between them that explains their change (module docstring).
-    Both counts from the same source: SEC's and yfinance's differ for
-    multi-class issuers (one class vs all), so the hand-off would read as a
-    change."""
+    Both counts from the same source (`shares` needs `load_shares`' source
+    column): SEC's and yfinance's differ for multi-class issuers (one class
+    vs all), so the hand-off would read as a change."""
     # as filed, no bridge: the splits are judged below
     s = shares[shares["shares_outstanding"] > 0]
-    s = s.assign(source=s["source"] if "source" in s else "", dated=pd.to_datetime(s["date"]).astype("M8[ns]"))
+    s = s.assign(dated=pd.to_datetime(s["date"]).astype("M8[ns]")).sort_values("dated", kind="stable")
     s = s.drop_duplicates(["ticker", "source", "dated"], keep="last")
     counts = pd.DataFrame({"ticker": s["ticker"].to_numpy(), "source": s["source"].to_numpy(),
                            "dated": s["dated"].to_numpy(), "known_at": _known_from(s["dated"]).to_numpy(),
@@ -166,14 +167,22 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
     m = pd.merge_asof(left.sort_values("target"), right.sort_values("target"), on="target", by=["ticker", "source"],
                       direction="nearest", tolerance=pd.Timedelta(days=SHARE_CHANGE_TOLERANCE)).sort_values("row")
     change = (m["level"] - m["level_ago"]).to_numpy()
+    by_ticker = counts.groupby("ticker", sort=False)
     for ticker, at in m.groupby("ticker", sort=False).indices.items():
         if ticker not in splits:
             continue
         ago, now, c = m["dated_ago"].to_numpy()[at], m["dated"].to_numpy()[at], change[at]
+        level_ago, source = m["level_ago"].to_numpy()[at], m["source"].to_numpy()[at]
+        mine = by_ticker.get_group(ticker)
         for when, ratio in market_cap._split_ratio_events(splits.get(ticker)).items():  # chronological
+            # a year-ago count dated up to STALE_FILING_DAYS after the split is judged too,
+            # if it still reports the pre-split count (as `market_cap._bridge_filing_lag` tells it)
+            before = mine[mine["dated"] < when].groupby("source")["level"].last()
+            pre = pd.Series(source).map(before).to_numpy(dtype=float)
+            stale = (ago < when + np.timedelta64(STALE_FILING_DAYS, "D")) & (
+                np.abs(level_ago - pre) < np.log(market_cap.FILING_LAG_TOLERANCE))
             less = c - np.log(ratio)
-            # from STALE_FILING_DAYS before the year-ago count: it may still report the pre-split count
-            between = (ago < when + np.timedelta64(STALE_FILING_DAYS, "D")) & (now >= when)
+            between = ((ago < when) | stale) & (now >= when)
             c = np.where(between & (np.abs(less) < np.abs(c)), less, c)
         change[at] = c
     events = pd.DataFrame({"ticker": m["ticker"].to_numpy(), "known_at": m["known_at"].to_numpy(),

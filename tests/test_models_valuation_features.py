@@ -22,7 +22,8 @@ def _filings(concept, values, period_type="quarter", ends=QUARTER_ENDS, availabl
 
 
 def _shares(dates, counts):
-    return pd.DataFrame({"ticker": "AAA", "date": pd.to_datetime(dates), "shares_outstanding": counts})
+    return pd.DataFrame({"ticker": "AAA", "date": pd.to_datetime(dates), "shares_outstanding": counts,
+                         "source": db.SEC_EDGAR})
 
 
 def _at(out, day, col):
@@ -114,7 +115,7 @@ def test_the_gate_catches_a_share_count_used_on_its_filing_day(monkeypatch):
     shares = context.shares.copy()
     shares.loc[shares.index[0], "date"] = cut  # one filing on the cut day itself
     # and one ticker's filings moved so one lands on the cut a year after another
-    moved = shares["ticker"] == shares["ticker"].iloc[-1]
+    moved = shares["ticker"] == sorted(shares["ticker"].unique())[2]  # SEC throughout (synthetic_shares)
     nearest = shares.loc[moved, "date"].iloc[(shares.loc[moved, "date"] - cut).abs().argmin()]
     shares.loc[moved, "date"] += cut - nearest
     monkeypatch.setattr(V, "_known_from", lambda dated: dated)
@@ -155,9 +156,17 @@ def test_a_stale_year_ago_filing_after_a_split_is_not_dilution():
     # a 2-for-1 on 2019-03-01; the 2019-03-15 filing still reports 100, the
     # one a year later 210 after issuing 10
     splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-03-01")], "ratio": [2.0]})}
-    shares = _shares(["2019-03-15", "2020-03-16"], [100.0, 210.0])
+    shares = _shares(["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 100.0, 210.0])
     out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
     assert out.loc["2020-03-17"] == pytest.approx(np.log(210 / 200))
+
+
+def test_growth_after_a_split_the_year_ago_count_already_reports_is_not_a_split():
+    # a 2-for-1 on 2019-01-15; 2019-03-15 already reports 200, then +50% issuance
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-01-15")], "ratio": [2.0]})}
+    shares = _shares(["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 200.0, 300.0])
+    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
+    assert out.loc["2020-03-17"] == pytest.approx(np.log(1.5))
 
 
 def test_share_change_compares_counts_from_the_same_source():
@@ -216,3 +225,4 @@ def test_load_shares_uses_yfinance_only_where_sec_is_stale():
         conn.execute("INSERT INTO shares_outstanding VALUES ('AAA', ?, 1e6, ?)", (day, source))
     out = V.load_shares(conn, ["AAA"], "2021-12-31", {})
     assert out["date"].dt.strftime("%Y-%m-%d").tolist() == ["2010-01-04", "2011-01-03", "2011-02-01"]
+    assert out["source"].tolist() == [db.SEC_EDGAR, db.YFINANCE, db.SEC_EDGAR]

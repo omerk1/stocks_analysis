@@ -214,10 +214,13 @@ def synthetic_shares(bars: pd.DataFrame, splits: dict[str, pd.DataFrame], seed: 
     while a ticker is listed, drifting slowly, as filed (a split rescales the
     count from its execution date), with the first filing after each split
     still reporting the pre-split count (the filing lag the market cap
-    bridges)."""
+    bridges). Every other ticker hands off from SEC to yfinance halfway, with
+    yfinance counting 10% more (all classes vs one)."""
+    from src.foundation.data_processing import db
+
     rng = np.random.default_rng(seed)
     parts = []
-    for ticker, g in bars.groupby("ticker", sort=True):
+    for i, (ticker, g) in enumerate(bars.groupby("ticker", sort=True)):
         dates = pd.date_range(g["date"].min() + pd.Timedelta(days=40), g["date"].max(), freq="91D")
         # ~50 x 20 = a cap of ~1,000 against quarterly revenue of ~100
         counts = 20 * np.exp(np.cumsum(rng.normal(0.002, 0.01, len(dates))))
@@ -225,7 +228,10 @@ def synthetic_shares(bars: pd.DataFrame, splits: dict[str, pd.DataFrame], seed: 
         for when, ratio in ([] if sp is None else zip(sp["execution_date"], sp["ratio"])):
             after = np.flatnonzero(dates >= when)
             counts[after[1:]] *= ratio  # the first filing after the split is stale
-        parts.append(pd.DataFrame({"ticker": ticker, "date": dates, "shares_outstanding": counts}))
+        handed_off = (i % 2 == 1) & (np.arange(len(dates)) >= len(dates) // 2)
+        parts.append(pd.DataFrame({"ticker": ticker, "date": dates,
+                                   "shares_outstanding": np.where(handed_off, counts * 1.1, counts),
+                                   "source": np.where(handed_off, db.YFINANCE, db.SEC_EDGAR)}))
     return pd.concat(parts, ignore_index=True)
 
 
