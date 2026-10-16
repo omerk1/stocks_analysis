@@ -128,8 +128,15 @@ def test_no_column_on_a_day_depends_on_a_later_bar(walk):
     cut = walk.index[-12]
     part = lf.ticker_features(walk.loc[:cut], None, TICKER, root=None, snapshot_start=start)
     assert full.loc[start:cut].notna().any().all(), "fixture should define every column somewhere"
-    assert (full.dtypes == "float32").all(), "features are float32, like every other model feature"
     pd.testing.assert_frame_equal(full.loc[:cut], part, check_freq=False)
+
+
+def test_columns_are_float32_with_or_without_a_snapshot(walk):
+    held = lf.ticker_features(walk, None, TICKER, root=None, snapshot_start=_late_start(walk))
+    none = lf.ticker_features(walk, None, TICKER, root=None, snapshot_start=walk.index[-1] + pd.Timedelta(days=7))
+    assert none.isna().all().all()
+    for out in (held, none):
+        assert list(out.columns) == list(lf.COLUMNS) and (out.dtypes == "float32").all()
 
 
 def test_the_snapshot_cache_is_a_speed_copy(tmp_path, walk, monkeypatch):

@@ -210,9 +210,9 @@ def features(clean: pd.DataFrame, daily: pd.DataFrame, taken, configs: dict) -> 
     close = clean["close"].to_numpy(dtype=float)
     atr = indicators.atr(clean, ATR_PERIOD).to_numpy(dtype=float)
     taken = np.sort(pd.DatetimeIndex(taken).to_numpy())
-    out = pd.DataFrame(np.nan, index=index, columns=list(COLUMNS))
+    values = np.full((len(index), len(COLUMNS)), np.nan, dtype="float32")
     if not len(taken):  # no day holds a snapshot: nothing is defined
-        return out
+        return pd.DataFrame(values, index=index, columns=list(COLUMNS))
     pos = index.get_indexer(pd.DatetimeIndex(daily["date"]))
     w = weights(daily, index)
     c, a = close[pos], atr[pos]
@@ -230,8 +230,7 @@ def features(clean: pd.DataFrame, daily: pd.DataFrame, taken, configs: dict) -> 
     pos, d, w, src, sources = pos[ok], d[ok], w[ok], src[ok], sources[ok]
     starts = np.searchsorted(pos, np.arange(len(index)), side="left")
     ends = np.searchsorted(pos, np.arange(len(index)), side="right")
-    values = np.full((len(index), len(COLUMNS)), np.nan)
-    col = {name: j for j, name in enumerate(COLUMNS)}
+    col ={name: j for j, name in enumerate(COLUMNS)}
     for i in np.flatnonzero(defined):
         sl = slice(starts[i], ends[i])
         di, wi, si, names = d[sl], w[sl], src[sl], sources[sl]
@@ -278,8 +277,7 @@ def features(clean: pd.DataFrame, daily: pd.DataFrame, taken, configs: dict) -> 
                 row[col[f"vp_ease_up_{u}"]] = _vp_share(edges, total, ci, ci + u * ai)
             for k in EASE_DN:
                 row[col[f"vp_ease_dn_{k}"]] = _vp_share(edges, total, ci - k * ai, ci)
-    out.loc[:, :] = values
-    return out
+    return pd.DataFrame(values, index=index, columns=list(COLUMNS))  # float32, like every model feature
 
 
 def ticker_features(
@@ -304,4 +302,4 @@ def ticker_features(
     days = clean.index[levels.held_snapshot(taken.to_numpy(), clean.index.to_numpy()) >= 0] if len(taken) \
         else clean.index[:0]
     daily = levels.daily_levels(clean, splits, snaps, days, taken, configs)
-    return features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index)).astype("float32")
+    return features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index))
