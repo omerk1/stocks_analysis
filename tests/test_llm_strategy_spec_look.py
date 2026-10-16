@@ -119,8 +119,8 @@ def test_planted_effect_is_recovered_against_the_matched_control(tmp_path):
     assert cell["ci_low"] > 0
     assert cell["effective_n_dates"] == N_SIGNALS
     assert cell["hit_rate"] == pytest.approx(1.0)
-    # Annualized vs the 10 bps hurdle at ~1.7 signals/ticker-year: alive, and said so
-    # in Track A words.
+    # A +2% per-event delta clears the ±0.10% per-event round-trip cost band in the
+    # stated direction: alive, and said so in Track A words.
     assert cell["verdict"].startswith("looks alive")
     assert any("TRACK A" in line for line in said)
     # Artifacts: result.json round-trips, report.md carries what was said, the alive
@@ -195,6 +195,11 @@ def test_refusals_name_the_problem(tmp_path):
     beyond["date"] = beyond["date"] + pd.DateOffset(years=10)
     with pytest.raises(HoldoutError):
         look(spec(), beyond, say=lambda _: None)
+    # A zero or negative cost band would make "looks dead" unreachable and "alive" free.
+    with pytest.raises(GroundingError, match="cost-bps must be positive"):
+        look(spec(), frame, cost_bps=-5.0, say=lambda _: None)
+    with pytest.raises(GroundingError, match="cost-bps must be positive"):
+        look(spec(), frame, cost_bps=0.0, say=lambda _: None)
 
 
 def test_rubric_discloses_every_unapplied_field_and_the_cost_source(tmp_path):
@@ -219,6 +224,13 @@ def test_rubric_discloses_every_unapplied_field_and_the_cost_source(tmp_path):
                                                             matches=True)]}),
         frame, tmp_path / "grounded")
     assert {r["parameter"]: r for r in grounded["rubric"]}["grounding"]["source"] == "spec"
+    # A grounding round that rejected everything is worse than no grounding: the rubric
+    # must not count those rows as confirmation.
+    refused, _ = run_look(
+        constrained.model_copy(update={"examples": [Example(ticker="EVT", date="2015-01-20",
+                                                            matches=False)]}),
+        frame, tmp_path / "refused")
+    assert {r["parameter"]: r for r in refused["rubric"]}["grounding"]["value"] == "REJECTED"
     assert rubric["entry timing"]["source"] == "default"       # the one-bar lag, stated
     assert rubric["outcome"]["source"] == "spec"               # horizons are the trader's
     assert rubric["your stated control"]["value"] == "NOT APPLIED"

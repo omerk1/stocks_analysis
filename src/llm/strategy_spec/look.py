@@ -165,21 +165,21 @@ def contamination_mask(working: pd.DataFrame, any_event: pd.Series, horizon: int
             .gt(0))
 
 
-def cell(working: pd.DataFrame, event: pd.Series, contaminated: pd.Series, side: str,
+def cell(base: pd.DataFrame, event: pd.Series, contaminated: pd.Series, side: str,
          horizon: int, cost_round_trip: float, seed: int, ticker_years: float) -> dict:
     """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
     the bootstrap CI on C2, effective N, shape (in the trade's direction), per-event
-    cost and verdict. `contaminated` rows (see `contamination_mask`) leave the control
-    pool; this side's own event rows are kept — they fired, and their outcome is
-    whatever it is."""
+    cost and verdict. `base` is the per-horizon column slice (ticker/date/forward
+    return/match columns — shared by both sides, sliced once in `look`); `contaminated`
+    rows (see `contamination_mask`) leave the control pool; this side's own event rows
+    are kept — they fired, and their outcome is whatever it is."""
     value_col = fwd_col(horizon)
     # Turnover counts every signal taken — a trader pays the round trip even for a
     # terminal-bar signal with no measurable outcome (the delisted tickers invariant #4
     # keeps in), and regardless of whether the C2 strata can score it (momentum warmup
     # drops ~7% of fired events on real data).
     fired = int(event.sum())
-    frame = working[["ticker", "date", value_col, *C2_MATCH_COLS]].copy()
-    frame["__event"] = event.to_numpy()
+    frame = base.assign(__event=event.to_numpy())
     frame = frame.loc[frame["__event"] | ~contaminated]
     # One row population for all three tiers (DESIGN §6.1 / PREREGISTRATION's "Waterfall
     # row set"): otherwise shrinkage is confounded with sample composition.
@@ -231,14 +231,27 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
                 dropped_last_bar: int, split_sides: bool) -> list[RubricLine]:
     """The look's own rubric lines, appended to the finder's: everything the test
     applies, and every spec field it deliberately does NOT act on, said out loud."""
+    accepted = sum(1 for e in spec.examples if e.matches)
+    rejected = len(spec.examples) - accepted
+    if accepted:
+        # Counting rows alone would present a grounding round that REJECTED the
+        # definition as confirmation — the verdicts are what grounding produced.
+        grounding = RubricLine(
+            "grounding", f"{accepted} accepted / {rejected} rejected judged example(s)", "spec",
+            "example rows don't record the detector or MA they were judged under — "
+            "if this run overrides either, the confirmation may not transfer")
+    elif rejected:
+        grounding = RubricLine(
+            "grounding", "REJECTED", "default",
+            f"all {rejected} judged examples were rejected — the trader said this "
+            "definition is NOT what they meant; fix the spec before reading any test of it")
+    else:
+        grounding = RubricLine(
+            "grounding", "NOT CONFIRMED", "default",
+            "spec.examples is empty — no grounding round's verdicts are recorded, "
+            "so this look tests a definition never confirmed on charts")
     lines = [
-        RubricLine("grounding", f"{len(spec.examples)} judged example(s) on the spec", "spec",
-                   "example rows don't record the detector or MA they were judged under — "
-                   "if this run overrides either, the confirmation may not transfer")
-        if spec.examples else
-        RubricLine("grounding", "NOT CONFIRMED", "default",
-                   "spec.examples is empty — no grounding round's verdicts are recorded, "
-                   "so this look tests a definition never confirmed on charts"),
+        grounding,
         RubricLine("entry timing", "signal close (bar t) → outcomes from the next bar (t+1)",
                    "default", "the repo's one-bar lag — you can't trade the close that "
                    "formed the signal"),
@@ -247,12 +260,15 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
         RubricLine("control", "C1 date-matched; C2 date + momentum tercile + vol tercile + sector",
                    "default", "the platform's standard tiers (DESIGN §6.1); the C2 delta "
                    "carries the CI and the verdict"),
+        RubricLine("control pool", "rows of an event ticker within h-1 bars of any of its "
+                   "events are excluded", "default",
+                   "their forward windows share the event's move — left in, a same-side "
+                   "neighbour attenuates the delta and an other-side one inflates it"),
     ]
     if split_sides:
         lines.append(RubricLine("direction split", "long and short tested separately", "default",
                                 "your spec says both — the two sides carry opposite expected "
-                                "signs, and pooling them would cancel a real effect; each "
-                                "side's control pool also excludes the other side's event rows"))
+                                "signs, and pooling them would cancel a real effect"))
     if spec.control is not None:
         lines.append(RubricLine("your stated control", "NOT APPLIED", "default",
                                 f'no structured mapping yet for "{spec.control.description}" — '
@@ -379,6 +395,10 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         raise GroundingError("the spec doesn't state a direction — finish elicitation before "
                              "testing (the two sides of a setup carry opposite expected "
                              "signs; a pooled delta would cancel them)")
+    if cost_bps is not None and cost_bps <= 0:
+        # A zero or negative band makes "looks dead" unreachable and "looks alive" free.
+        raise GroundingError(f"--cost-bps must be positive, got {cost_bps:g} — the per-event "
+                             "cost is the verdict's economic-relevance band")
 
     horizons = list(spec.horizons_bars)
     sides = ["long", "short"] if spec.direction == "both" else [spec.direction]
@@ -438,10 +458,11 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
     any_event = pd.Series(False, index=panel.index)
     for mask in event_by_side.values():
         any_event |= mask
-    # One contamination pass per horizon — the mask is side-independent (see
-    # contamination_mask), and it's the heaviest per-cell operation on a real panel.
+    # One contamination pass and one column slice per horizon — both side-independent
+    # (see contamination_mask), and the heaviest per-cell work on a real panel.
     contaminated = {h: contamination_mask(working, any_event, h) for h in horizons}
-    cells = [cell(working, event_by_side[side], contaminated[h], side, h,
+    base = {h: working[["ticker", "date", fwd_col(h), *C2_MATCH_COLS]] for h in horizons}
+    cells = [cell(base[h], event_by_side[side], contaminated[h], side, h,
                   cost_round_trip, seed, ticker_years)
              for side in sides for h in horizons]
 
@@ -496,10 +517,8 @@ def sessions_dir() -> Path:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from src.foundation.utils.config_loader import load_config
-    from src.llm.strategy_spec.ground import load_spec
+    from src.llm.strategy_spec.ground import load_spec, read_cli_panel
     from src.models.dataset import HOLDOUT_END, HoldoutError
-    from src.signals.moving_averages.features.panel import read_panel
 
     parser = argparse.ArgumentParser(prog="python -m src.llm.strategy_spec.look")
     parser.add_argument("spec", type=Path, help="a spec JSON, or an elicitation transcript")
@@ -516,19 +535,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--end", default=None, help=f"YYYY-MM-DD, at most {HOLDOUT_END.date()} (the default)")
     args = parser.parse_args(argv)
 
-    end = args.end or str(HOLDOUT_END.date())
-    try:
-        check_holdout(end)
-    except HoldoutError as e:  # the carefully worded refusal, not a stack dump
-        raise SystemExit(str(e))
-    panel_dir = args.panel_dir or (
-        Path(load_config().data_paths.features) / "moving_averages" / "ma_panel")
-    panel = read_panel(panel_dir, start=args.start, end=end)
-    if panel.empty:
-        if not any(panel_dir.glob("year=*")):
-            raise SystemExit(f"no panel at {panel_dir} — run the moving_averages build-panel command first")
-        raise SystemExit(f"the cached panel at {panel_dir} has no rows between "
-                         f"{args.start or 'its start'} and {end} — check --start/--end")
+    panel = read_cli_panel(args.panel_dir, args.start, args.end)
 
     try:
         look(load_spec(args.spec), panel, ma=args.ma, detector=args.detector,

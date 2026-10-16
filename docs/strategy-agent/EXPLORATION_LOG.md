@@ -29,3 +29,4 @@ clustered events no longer attenuate each other); supersedes the lines above.
 
 - 2026-10-16 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.02% [-0.10%,+0.05%] effN 2080d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z
 - 2026-10-16 [look] First touch of a moving average after being away (short): h5 ΔC2 +0.00% [-0.07%,+0.09%] effN 2056d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z
+- 2026-10-16 [look] First touch (both sides), 2019–2020 sub-window only — a CLI plumbing check, not a fresh question: long h5 ΔC2 +0.02% [-0.15%,+0.19%] effN 369d, short +0.14% [-0.05%,+0.36%] effN 392d, both inconclusive (expected at a sixth of the data); session data/llm/look_sessions/20261016T122350_937461Z

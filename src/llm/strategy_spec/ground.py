@@ -51,6 +51,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from pydantic import ValidationError
 
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import charts
@@ -69,9 +70,44 @@ INVALID_ANSWER_LIMIT = 3  # unparseable answers in a row before the session stop
 
 
 def load_spec(path: Path) -> StrategySpec:
-    """A spec from a bare spec JSON or an elicitation transcript (its `spec` key)."""
-    raw = json.loads(path.read_text())
-    return StrategySpec.model_validate(raw["spec"] if "idea" in raw and "spec" in raw else raw)
+    """A spec from a bare spec JSON or an elicitation transcript (its `spec` key).
+    A missing, malformed or schema-invalid file is a `GroundingError`, so both CLIs
+    (grounding and the look) keep their refusals-are-one-liners contract."""
+    try:
+        raw = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise GroundingError(f"no spec file at {path}")
+    except json.JSONDecodeError as e:
+        raise GroundingError(f"{path} isn't valid JSON: {e}")
+    try:
+        return StrategySpec.model_validate(raw["spec"] if "idea" in raw and "spec" in raw else raw)
+    except ValidationError as e:
+        raise GroundingError(f"{path} isn't a valid spec: {e}")
+
+
+def read_cli_panel(panel_dir: Path | None, start: str | None, end: str | None) -> pd.DataFrame:
+    """The shared CLI tail of grounding and the look: default the end date to the
+    holdout boundary (refusing anything past it), resolve the cached panel dir, read
+    it, and refuse emptiness with a reason — one implementation, so the two CLIs'
+    refusal wording and defaults can't drift (the same reason `dispatch` is shared)."""
+    from src.foundation.utils.config_loader import load_config
+    from src.models.dataset import HOLDOUT_END, HoldoutError
+    from src.signals.moving_averages.features.panel import read_panel
+
+    end = end or str(HOLDOUT_END.date())
+    try:
+        check_holdout(end)
+    except HoldoutError as e:  # the carefully worded refusal, not a stack dump
+        raise SystemExit(str(e))
+    panel_dir = panel_dir or (
+        Path(load_config().data_paths.features) / "moving_averages" / "ma_panel")
+    panel = read_panel(panel_dir, start=start, end=end)
+    if panel.empty:
+        if not any(panel_dir.glob("year=*")):
+            raise SystemExit(f"no panel at {panel_dir} — run the moving_averages build-panel command first")
+        raise SystemExit(f"the cached panel at {panel_dir} has no rows between "
+                         f"{start or 'its start'} and {end} — check --start/--end")
+    return panel
 
 
 def sample(candidates: tuple[Candidate, ...], k: int, rng: random.Random,
@@ -325,9 +361,7 @@ def _reveal(session: Session, say) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    from src.foundation.utils.config_loader import load_config
     from src.models.dataset import HOLDOUT_END, HoldoutError
-    from src.signals.moving_averages.features.panel import read_panel
 
     parser = argparse.ArgumentParser(prog="python -m src.llm.strategy_spec.ground")
     parser.add_argument("spec", type=Path, help="a spec JSON, or an elicitation transcript")
@@ -342,19 +376,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--end", default=None, help=f"YYYY-MM-DD, at most {HOLDOUT_END.date()} (the default)")
     args = parser.parse_args(argv)
 
-    end = args.end or str(HOLDOUT_END.date())
-    try:
-        check_holdout(end)
-    except HoldoutError as e:  # the carefully worded refusal, not a stack dump
-        raise SystemExit(str(e))
-    panel_dir = args.panel_dir or (
-        Path(load_config().data_paths.features) / "moving_averages" / "ma_panel")
-    panel = read_panel(panel_dir, start=args.start, end=end)
-    if panel.empty:
-        if not any(panel_dir.glob("year=*")):
-            raise SystemExit(f"no panel at {panel_dir} — run the moving_averages build-panel command first")
-        raise SystemExit(f"the cached panel at {panel_dir} has no rows between "
-                         f"{args.start or 'its start'} and {end} — check --start/--end")
+    panel = read_cli_panel(args.panel_dir, args.start, args.end)
 
     def ask(text: str) -> str | None:
         print(f"\n{text}")
