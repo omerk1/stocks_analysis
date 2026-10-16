@@ -36,7 +36,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from llama_index.core.schema import MetadataMode, NodeWithScore
+from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import Budget, GeminiClient, Usage
@@ -80,12 +80,16 @@ class Answered:
     usage: Usage
 
 
+def source_text(node: BaseNode) -> str:
+    """A source's text as the model is shown it."""
+    return node.get_content(metadata_mode=MetadataMode.EMBED).strip()
+
+
 def build_prompt(question: str, sources: Sequence[NodeWithScore]) -> str:
     """The question, then each source as `[n] where it's from` and its text. The text is
     what the embedding model and re-ranker saw: an experiment row's `tier` and `outcome`
     live in its metadata (`chunk.ROW_ID_COLUMNS`), not its plain text."""
-    blocks = [f"[{n}] {cite(h.node)}\n{h.node.get_content(metadata_mode=MetadataMode.EMBED).strip()}"
-              for n, h in enumerate(sources, 1)]
+    blocks = [f"[{n}] {cite(h.node)}\n{source_text(h.node)}" for n, h in enumerate(sources, 1)]
     return f"Question: {question}\n\nSources:\n\n" + "\n\n".join(blocks)
 
 

@@ -1,0 +1,1186 @@
+{
+ "answers": {
+  "03910293c6f5af58": {
+   "id": "short_interest",
+   "note": "This is unanswerable, yet the answer asserts that short interest 'has not been tested' as if the docs said so, and stretches the borrow-feasibility passage into a related claim, instead of saying the docs don't cover it.",
+   "verdict": "wrong"
+  },
+  "06b3223803907da1": {
+   "id": "dead_vs_inconclusive",
+   "note": "Dead means the whole CI sits inside the relevance floor. Inconclusive means the CI spans zero but extends past the floor (underpowered). Matches the golds.",
+   "verdict": "correct"
+  },
+  "09da24536c1cf2f3": {
+   "id": "yfinance_end",
+   "note": "Correctly says yfinance end is exclusive unlike Polygon, and that both client paths shift end by a day to match Polygon's inclusive semantics.",
+   "verdict": "correct"
+  },
+  "0be8988822e4a976": {
+   "id": "holiday_calendar",
+   "note": "Correctly says resampling uses pure calendar logic with no holiday awareness, holiday-shortened weeks just get the days present, and a real market calendar is the fix.",
+   "verdict": "correct"
+  },
+  "116c898c7560ad7a": {
+   "id": "lrp_level_fields",
+   "note": "Lists all eight fields (price, zone, source, strength percentile, age, touches, state, prior) and the rule that position decides resistance vs support.",
+   "verdict": "correct"
+  },
+  "12346ce11b6c9964": {
+   "id": "golden_cross",
+   "note": "Gives the inconclusive verdict versus same-state matched controls, with point estimate and CI spanning zero, matching the EXPERIMENTS.csv gold.",
+   "verdict": "correct"
+  },
+  "170645169bd89ef2": {
+   "id": "lrp_tested",
+   "note": "Explains the idea (direction plus clear air from unified levels in ATR units) and correctly says it is a proposed formulation, not built and not tested. The test-plan detail is accurate.",
+   "verdict": "correct"
+  },
+  "1818580c9410ff46": {
+   "id": "windows_horizons",
+   "note": "Gives the modeling window (2010-2021) and modeling horizons (10/21/42/63, 5 diagnostic, 126 later), but omits the MA study's lookback grid (3-250 daily, weekly/monthly) and its label horizons (1, 3, 5, 10, 21, 63, 126, 252).",
+   "parts_covered": [
+    3
+   ],
+   "verdict": "partial"
+  },
+  "2ad40f12e1a7fb9d": {
+   "id": "e1_result",
+   "note": "Says the sources don't give the result, but the golds do: E1 was inconclusive (no trial BH-significant, every CI spans zero), so the MA groups were dropped from v1. The answer was only shown the pre-registration draft.",
+   "verdict": "wrong"
+  },
+  "2b0be4e3429c40c3": {
+   "id": "double_top_first",
+   "note": "Gives the gold reason: simpler 3-pivot shape that reuses the neckline/measured-move logic H&S needs, with less to build first. Omits the 'prove the full vertical slice end-to-end' motive, but done.md #48 states the same core reason.",
+   "verdict": "correct"
+  },
+  "30c26debe42c930e": {
+   "id": "price_basis_choice",
+   "note": "Two bases: total_return for returns and traded for levels and market caps, with the reasons (dividend drift, rescaling) and the module table. Matches the golds.",
+   "verdict": "correct"
+  },
+  "30d29d0dcdcefaa9": {
+   "id": "macd_beyond_spread",
+   "note": "Says it is not redundant: correlations of +0.30/-0.25 against the 0.89 bar, and an incremental IC whose CI barely excludes zero, called marginal and contrary to the prior. It leaves out that it fails FDR and that the reversal confound caps it at Tier 3, both minor here.",
+   "verdict": "correct"
+  },
+  "34025cab342fd130": {
+   "id": "ichimoku",
+   "note": "Correctly says the sources don't cover Ichimoku, without stretching a related source into an answer.",
+   "verdict": "correct"
+  },
+  "382876be81589f03": {
+   "id": "slope_pctile_by_id",
+   "note": "Gives the outcome: Tier 2, U-shaped (flat slope trails both tails by ~0.25%/21d, ~3%/yr gross), and it survives FDR at rank 2 of 107. Matches the golds.",
+   "verdict": "correct"
+  },
+  "4cba9e79faf08dec": {
+   "id": "retest_continuation",
+   "note": "Covers the gap-fill analysis (deeper fills precede weaker continuation/reversal) but misses the SMA50 break-and-retest study (held retest underperforms, -2.08% at 63d, FDR survivor) and the order-block first-retest hold-rate test.",
+   "parts_covered": [
+    3
+   ],
+   "verdict": "partial"
+  },
+  "4ef0b33799bc56f0": {
+   "id": "low_52w",
+   "note": "Numbers (126d +2.50%, 63d +0.96%, reversal control +2.64%) are right, but it answers a flat 'yes' and drops the key qualifiers: Tier 3, misses whole-grid FDR (p=0.0047 vs 0.0037), 63d fails cost, residual momentum and survivorship exposure.",
+   "verdict": "partial"
+  },
+  "547e244306caa378": {
+   "id": "shares_before_2015",
+   "note": "SEC EDGAR companyfacts XBRL via sec_companyfacts.py/bulk_sec_shares_ingest.py, back to ~2009-2011, with yfinance starting 2015, exactly as in done #60.",
+   "verdict": "correct"
+  },
+  "5c106af0e6027431": {
+   "id": "ic_sweep_best",
+   "note": "Gives the right number (mean IC +0.0385, dist_from_52w_low@126d, ~2x next best) but drops the gold's verdict that this is weak in absolute terms (every cell in the 348-cell sweep is weak; top-25 mostly 0.018-0.022).",
+   "verdict": "partial"
+  },
+  "66f35cac4e1a382e": {
+   "id": "sharpe_used",
+   "note": "Covers the scorecard's portfolio Sharpe correctly (0.18-0.58 vs the market, then 0.45-0.92 after EV/ATR ranking). It misses the analysis side: the outcome-statistics toolkit deliberately uses an un-annualized risk_adjusted_return instead of Sharpe, and the MA design calls for a deflated Sharpe ratio.",
+   "parts_covered": [
+    1
+   ],
+   "verdict": "partial"
+  },
+  "6a2ce8b561246a30": {
+   "id": "reclaim_volume",
+   "note": "Gives the verdict: dollar volume points the opposite way (low-volume reclaims outperform) and relative volume is inconclusive. It leaves out the caveat that dollar volume is a size proxy (the Tier-3 cap) and the -0.870% number, but nothing it says is wrong.",
+   "verdict": "correct"
+  },
+  "6c2660fa1f0aa293": {
+   "id": "lag_where",
+   "note": "Correctly names features/panel.py::apply_lag as the central place and that a row is the state on its tradeable day; extra divergence-context/leakage-test context is tangential but not wrong.",
+   "verdict": "correct"
+  },
+  "6ecab0a2d2e5a47c": {
+   "id": "cost_assumption",
+   "miss": "retrieval",
+   "miss_note": "Hand-check: the measured-turnover x 10 bps convention the judge found missing is in golds that weren't retrieved; source 4's 10 bps is the design formula's example, so retrieval.",
+   "miss_sources": "b7871f8d9b3ede8b",
+   "note": "Gives DESIGN §6.10's formula and tiered slippage, which is one gold. It misses the convention the study actually used everywhere: measured turnover x 10 bps round trip with linear x252/H annualisation (REPORT §2, ma_study_insights). It also omits the modeling side's 10 and 25 bps levels.",
+   "verdict": "partial"
+  },
+  "72e0a33b0fb96917": {
+   "id": "stoch_divergence",
+   "note": "Says correctly that Stochastic/CCI divergences are deliberately out of scope, to be revisited only with a Track-B reason.",
+   "verdict": "correct"
+  },
+  "7eb7cbb42cb822e2": {
+   "id": "holdout_window",
+   "note": "States the Phase 0 audit finding that active-ticker history mostly starts in 2010+, so the window was moved to what the data supports; matches both golds.",
+   "verdict": "correct"
+  },
+  "8bd72822cb9f2173": {
+   "id": "data_limitations",
+   "miss": "retrieval",
+   "miss_note": "Hand-check: the limitations the judge found missing are sections of the same file that weren't in the top 5; five sections can't hold the whole list, so retrieval.",
+   "miss_sources": "a23a1539eb150ddf",
+   "note": "Covers delisted fetchability (Polygon 2-year limit, Tiingo backfill), the dividend-adjustment mismatch, index-membership sources and share-class symbols. It misses much of limitations.md: no trading calendar, the is_partial heuristic, no intraday on the Polygon free tier, the yfinance rate limit and bars_1h not wired up.",
+   "verdict": "partial"
+  },
+  "8e566e78162ead94": {
+   "id": "m22_kill",
+   "note": "Lists all six confirmation gates accurately.",
+   "verdict": "correct"
+  },
+  "8f4bec4c73567406": {
+   "id": "chunk_size",
+   "note": "Gives the reason: bge-small (step 3's embedder) truncates at 512 tokens. The extra detail about two overlong chunks comes from #104 and is accurate.",
+   "verdict": "correct"
+  },
+  "8fd94f0181d120f5": {
+   "id": "harness_folds",
+   "note": "Covers walk-forward yearly test folds 2014-2021, expanding (primary) vs sliding, purge, 21-day embargo and nested inner folds. Matches §4.",
+   "verdict": "correct"
+  },
+  "9e4b4543e52b4fdf": {
+   "id": "zone_start",
+   "note": "Correct cause (first_touch from earliest event, bootstrap bar emits no event so defining pivot skipped) and fix (min pivot timestamp), plus the sorted-by-price latent bug.",
+   "verdict": "correct"
+  },
+  "a41e40c47d55f1c4": {
+   "id": "sma200_placebo",
+   "note": "Says correctly that 200 is not special: the neighbours 187/193/207/213 have near-identical spreads and overlapping CIs, so the lookback is a trend length. It doesn't mention that the focal CI spans zero (inconclusive), but the verdict on the comparison is right.",
+   "verdict": "correct"
+  },
+  "a9e06fd23f868605": {
+   "id": "id_dist_pct_sma200",
+   "note": "Reports both the M4 and M11 rows with the right point estimates and CIs, the inconclusive outcome and that cost was not tested.",
+   "verdict": "correct"
+  },
+  "aefe42d919846cf7": {
+   "id": "model_running",
+   "miss": "retrieval",
+   "miss_note": "Hand-check: none of the 5 sources mentions the scorecard run the judge found missing (it lives in a done.md gold that wasn't retrieved), so retrieval.",
+   "miss_sources": "bf79444d68f67e94",
+   "note": "Mentions the E1 run and its inconclusive verdict. It misses the combined-model trading scorecard run (done #110: model vs market and B4, no clear edge, worse per unit of risk), which is the main 'model running' gold.",
+   "verdict": "partial"
+  },
+  "b06120c5bbd313a4": {
+   "id": "id_placebo_ema21",
+   "note": "Real focal effect, but no different from the EMA19/23 neighbours, so logged no_effect with the decisive test failed (the folklore-confirmed shape). Matches the golds; it omits the 2026-10-07 flagged-not-relabeled note, which is minor.",
+   "verdict": "correct"
+  },
+  "b3bdaf6fe8869f8a": {
+   "id": "crypto_scope",
+   "note": "Correctly cites the explicit v1 non-goal and its reason.",
+   "verdict": "correct"
+  },
+  "bd50fb992272bd30": {
+   "id": "bearish_stack",
+   "note": "Correctly says no, bearish stacks show positive control-adjusted 21d returns (+0.444% standalone, +1.011% incremental, +0.275% reversal-controlled), Tier 3 with survivorship caveat; omits the FDR miss and reversal-controlled cost failure, which are minor.",
+   "verdict": "correct"
+  },
+  "bf3c1976d5eea14f": {
+   "id": "earnings_financials",
+   "judge_note": "Answers 'Yes' but then only describes a plan to ingest financials. It misses the gold: what actually exists is share counts from SEC companyfacts (done #60), which source 4 itself says is the only thing read so far. As a result it implies reported financials are in the data.",
+   "note": "Hand-check against the current docs: the 'yes' is right (filings and earnings dates have been ingested since), but it rests on a plan section, describes the data as planned rather than built, and omits the earnings dates. Three of the four golds are newer than the index build, so the judge saw only the share-count gold and none of them was retrieved: a stale-index miss, not the ranker.",
+   "verdict": "partial"
+  },
+  "c2bf926d4564efcf": {
+   "id": "divergence_registered",
+   "note": "Describes the DC-B3/B4 draft that was closed without running; the registered experiment that ran (DC-B1/DC-B2) ended with all six cells Inconclusive (CIs span zero and extend far past the +/-20 bps band), which the answer never mentions.",
+   "verdict": "wrong"
+  },
+  "c32ebcbd71c61988": {
+   "id": "holdout_opened",
+   "note": "Correctly states the 2022+ holdout was never opened and remains locked.",
+   "verdict": "correct"
+  },
+  "c562c9dac479ea6d": {
+   "id": "sr_line_limits",
+   "note": "Only the diagonal drift-vs-half_width rule (a minimum effective angle, candidate gold: source 1) is given. It misses the max slope cap (max_diagonal_slope_atr_per_bar), the proximity*recency relevance gate and zone_width_atr as the width knob.",
+   "parts_covered": [
+    2
+   ],
+   "verdict": "partial"
+  },
+  "cc6c065376ab1880": {
+   "id": "sma20_bounce",
+   "note": "States the M20 read: no forward-return information beyond a same-size move, a slight reversal not continuation, and not an entry feature. The phrasing about the resistance-rejection short is slightly garbled but not wrong.",
+   "verdict": "correct"
+  },
+  "e10623d8d9e3f80c": {
+   "id": "order_blocks_status",
+   "note": "Correctly says closed, not shipping, after the prototype/backtest gate lost to pivot clustering; doc kept as record.",
+   "verdict": "correct"
+  },
+  "e3df2e14752e339c": {
+   "id": "order_blocks",
+   "note": "No: the backtest showed order blocks lose to pivot clustering and the investigation is closed. Matches the gold verdict, though it gives no hold-rate or return numbers.",
+   "verdict": "correct"
+  },
+  "fd2d65a54ed1a506": {
+   "id": "divergence_trend_filter",
+   "judge_note": "Says the docs don't cover it. The golds do: the divergence-context study (DC-B1/B2) tested RSI regular divergence conditioned on structural context, and all six cells were inconclusive. Source 1 (the DC-B1/B2 event set) was shown and was ignored.",
+   "note": "Says the docs don't cover it; the golds do (the divergence-context study conditioned RSI regular divergence on the move before it; all six cells inconclusive). No gold was retrieved: source 1 is that study's event-set section, which names the test but holds no result, so the most a reply could add is that the closest study exists.",
+   "verdict": "wrong"
+  }
+ },
+ "support": {
+  "008a2490a248c577": {
+   "id": "holiday_calendar",
+   "note": "Source 1 states the pure calendar logic and the last weekday on/before nominal end rule.",
+   "sentence": "The `_resample` function in `src/data_processing/resample.py` uses pure calendar logic to determine if a week or month is \"closed,\" based on the last weekday on or before the period's nominal end [1].",
+   "verdict": "supported"
+  },
+  "052af816c6824d71": {
+   "id": "macd_beyond_spread",
+   "note": "[3][5] say the result is contrary to DESIGN's ~75% prior of redundancy with M3/M6.",
+   "sentence": "This outcome contradicted the prior expectation that MACD would be redundant with M3/M6's MA-spread features [3][5].",
+   "verdict": "supported"
+  },
+  "0709daaf951fc1d1": {
+   "id": "price_basis_choice",
+   "note": "Matches [1]'s third bullet.",
+   "sentence": "In contrast, `traded` history only changes when a stock splits, which is rare and visible [1].",
+   "verdict": "supported"
+  },
+  "09df907de938fcd5": {
+   "id": "stoch_divergence",
+   "note": "Source 1: 'revisit only with a Track-B reason'.",
+   "sentence": "The project will only revisit them if there is a specific Track-B reason to do so [1].",
+   "verdict": "supported"
+  },
+  "0b06ed99887f210e": {
+   "id": "id_placebo_ema21",
+   "note": "Matches [2]'s hypothesis text.",
+   "sentence": "The experiment aimed to test if EMA21's `dist_pct` decile spread was a distinguishable outlier compared to statistically near-identical neighbor lookbacks EMA{19,23} [2].",
+   "verdict": "supported"
+  },
+  "0e975e0f447915cd": {
+   "id": "holiday_calendar",
+   "note": "Source 1: fix needs an actual market calendar to know expected trading days and flag short counts.",
+   "sentence": "The project notes that properly fixing this would require an actual market calendar to identify expected trading days and flag discrepancies [1].",
+   "verdict": "supported"
+  },
+  "1273c01ee6940aa6": {
+   "id": "windows_horizons",
+   "note": "Source 2: 126-day horizons are 'a separate, later grid'.",
+   "sentence": "A separate grid for 126-day horizons will be considered later [2].",
+   "verdict": "supported"
+  },
+  "147c7cef67b36c4b": {
+   "id": "id_dist_pct_sma200",
+   "note": "Source 2: 'not tested -- CI includes zero before cost is even applied'.",
+   "sentence": "The cost verdict is also \"not_tested\" because the CI includes zero before cost is applied [2].",
+   "verdict": "supported"
+  },
+  "156e42448f499a09": {
+   "id": "sma20_bounce",
+   "note": "[1] answers the 'touched, bounced, buy?' question with 'no' for SMA20 among others.",
+   "sentence": "No, buying a bounce off the 20-day average is not a good entry signal [1].",
+   "verdict": "supported"
+  },
+  "1837602954799a33": {
+   "id": "holdout_window",
+   "note": "[1] states the hygiene audit found active-ticker history mostly starting 2010+, so 2000-2016 wasn't usable; [2] confirms.",
+   "sentence": "The locked holdout starts in 2022 instead of 2017 because a hygiene audit found that active-ticker history in the loaded data mostly begins in 2010 or later, making the original 2000-2016/2017+ split unusable for the development window [1][2].",
+   "verdict": "supported"
+  },
+  "1a03836604d0f90f": {
+   "id": "yfinance_end",
+   "note": "Source says both YFinanceClient._fetch and bulk_yfinance_ingest.py's _fetch_batch shift end forward one day for Polygon-like inclusive semantics.",
+   "sentence": "However, `YFinanceClient._fetch` and `bulk_yfinance_ingest.py` shift the `end` date forward by one day before calling yfinance to ensure inclusive-end semantics, matching Polygon's behavior [1].",
+   "verdict": "supported"
+  },
+  "1b7861673c745316": {
+   "id": "m22_kill",
+   "note": "Criterion 2 in [1].",
+   "sentence": "The DiD vs plain bounce's CI also had to exclude zero in the same direction [1].",
+   "verdict": "supported"
+  },
+  "1ccad1401558069f": {
+   "id": "sharpe_used",
+   "note": "Source 1: Sharpe 0.18-0.58; source 2: portfolio Sharpe 0.45-0.92.",
+   "sentence": "For example, initial picks had a Sharpe of 0.18–0.58, while a later result showed a portfolio Sharpe of 0.45–0.92 [1][2].",
+   "verdict": "supported"
+  },
+  "1e32e63bfdf3a0ee": {
+   "id": "divergence_registered",
+   "note": "Source 2: never frozen or executed, no prerequisite built, no outcome read.",
+   "sentence": "It was never frozen or executed, and no prerequisite was built, nor any outcome read [2].",
+   "verdict": "supported"
+  },
+  "1f99df008a57ed07": {
+   "id": "zone_start",
+   "note": "Source 1 gives the min(...) fix and the price-sorted pivots[0] issue.",
+   "sentence": "The fix involved using `min(p.timestamp for p in candidate.pivots)` directly, as `candidate.pivots` is sorted by price, not time, so `pivots[0]` was not a reliable way to get the chronologically first pivot [1].",
+   "verdict": "supported"
+  },
+  "23423feab1e88305": {
+   "id": "order_blocks",
+   "note": "[2]: 'this line of investigation is closed, not paused'.",
+   "sentence": "The investigation into order blocks is considered closed [2].",
+   "verdict": "supported"
+  },
+  "23ac04e405feacf6": {
+   "id": "dead_vs_inconclusive",
+   "note": "[5]: CI includes zero but extends beyond the floor, 'the data couldn't tell'.",
+   "sentence": "An \"inconclusive\" result, or \"underpowered\" result, means the CI includes zero but extends beyond the floor, indicating that the data could not definitively determine an effect [5].",
+   "verdict": "supported"
+  },
+  "24bfceaf1112be83": {
+   "id": "ic_sweep_best",
+   "note": "Source 2: further above the 52-week low means higher forward return.",
+   "sentence": "This feature indicates that being further above the 52-week low correlates with higher forward returns [2].",
+   "verdict": "supported"
+  },
+  "25842e32cedf4082": {
+   "id": "zone_start",
+   "note": "Source 1: the zone started several weeks after an obvious nearby peak.",
+   "sentence": "This made zones visually appear to start several weeks after an obvious nearby peak [1].",
+   "verdict": "supported"
+  },
+  "25a0588e7099ca32": {
+   "id": "price_basis_choice",
+   "note": "[5] lists these modules, divergences included, as traded.",
+   "sentence": "Most price-level modules, such as gaps, AVWAP, volume profile, SR lines, Fibonacci, market structure, patterns, and divergences, use the `traded` basis [5].",
+   "verdict": "supported"
+  },
+  "28451d589142d7ab": {
+   "id": "lrp_tested",
+   "note": "[2] gives the ablation order.",
+   "sentence": "Ablations will be tested in order: per-source distances, then aggregates, then barrier-conditional, and finally pressure [2].",
+   "verdict": "supported"
+  },
+  "29c233738d13eab3": {
+   "id": "low_52w",
+   "note": "Sources 2 and 5 say it gets stronger as horizon lengthens from 21d to 126d.",
+   "sentence": "This feature gets stronger as the horizon lengthens from 21d to 126d [2][5].",
+   "verdict": "supported"
+  },
+  "2af715f48fc0d586": {
+   "id": "sr_line_limits",
+   "note": "Matches [1]'s rejection rule.",
+   "sentence": "A diagonal candidate is rejected if its total drift (`|slope| * inlier bar-index span`) does not exceed its `half_width`, meaning its price does not move outside its own noise-tolerance band across its claimed lifetime [1].",
+   "verdict": "supported"
+  },
+  "2ca97266d1814c35": {
+   "id": "dead_vs_inconclusive",
+   "note": "[3] calls such rows 'underpowered, not demonstrated nulls'; [5] matches.",
+   "sentence": "In essence, a dead result demonstrates no effect, while an inconclusive result means the study was underpowered to make a clear determination [3][5].",
+   "verdict": "supported"
+  },
+  "3003fbc178b69cfd": {
+   "id": "m22_kill",
+   "note": "Criterion 5 in [1].",
+   "sentence": "All six K/R/W perturbations had to maintain the DiD's sign, and at least five of the six had to keep its CI off zero [1].",
+   "verdict": "supported"
+  },
+  "32b04d4ff87f6567": {
+   "id": "retest_continuation",
+   "note": "Source 2 states this negative correlation and its interpretation.",
+   "sentence": "Analysis showed a statistically significant negative correlation between fill depth/completeness and subsequent direction-adjusted forward returns, indicating that deeper/faster/more-complete fills tend to precede weaker continuation or outright reversal, rather than continuation in the original direction [2].",
+   "verdict": "supported"
+  },
+  "33289e1cfb2b2d48": {
+   "id": "harness_folds",
+   "note": "Source 2: a test that no train label window intersects a test date; source 3's purge gate.",
+   "sentence": "The harness enforces that no training label window intersects a test date [2][3].",
+   "verdict": "supported"
+  },
+  "333b932a3e382f0c": {
+   "id": "shares_before_2015",
+   "note": "[1] Done #60: SEC EDGAR shares back to ~2009-2011 from companyfacts.zip and company_tickers.json.",
+   "sentence": "Share-count history before 2015 comes from SEC EDGAR, specifically from the SEC's bulk XBRL `companyfacts.zip` and `company_tickers.json` files [1].",
+   "verdict": "supported"
+  },
+  "336cfa70e4f208cd": {
+   "id": "m22_kill",
+   "note": "Criterion 3 in [1].",
+   "sentence": "Every adjacent horizon's DiD needed to have the same sign [1].",
+   "verdict": "supported"
+  },
+  "38beca906d256bf6": {
+   "id": "id_dist_pct_sma200",
+   "note": "Source 1 numbers match exactly.",
+   "sentence": "For Module M11, the point estimate is -0.006182 with a confidence interval of [-0.025284, 0.016633], and the CI excludes zero is False [1].",
+   "verdict": "supported"
+  },
+  "3b85cf04887ff36f": {
+   "id": "divergence_registered",
+   "note": "Source 2: 'DRAFT, CLOSED WITHOUT RUN'.",
+   "sentence": "The divergence-context registered experiment (DC-B3 / DC-B4) was closed without being run [2].",
+   "verdict": "supported"
+  },
+  "3d08dd3ec53fb9e0": {
+   "id": "earnings_financials",
+   "note": "[3]: stored as-of the filed date, first-reported value kept.",
+   "sentence": "These facts are stored as-of the filed date, keeping the first-reported value [3].",
+   "verdict": "supported"
+  },
+  "3e628477b9f6839e": {
+   "id": "chunk_size",
+   "note": "Source 2: 2 chunks run past 512 (533/525) by bge's tokenizer, which counts more than chunk.py did.",
+   "sentence": "Although the embedder truncates at 512 tokens, two chunks still run past this limit (533/525 tokens) and lose their tail, as bge's own tokenizer counts them differently than `chunk.py` [2].",
+   "verdict": "supported"
+  },
+  "3e86418f3e86a4ea": {
+   "id": "lrp_tested",
+   "note": "[4] states resistance/support is decided by where price is at t.",
+   "sentence": "Whether a level is considered resistance or support depends on the price at time *t*, not the source's label [4].",
+   "verdict": "supported"
+  },
+  "3ed8c52030a142d1": {
+   "id": "ic_sweep_best",
+   "note": "Source 2: 'roughly 2x the next-best cell's magnitude'.",
+   "sentence": "The next best cell's magnitude was roughly half of this value [2].",
+   "verdict": "supported"
+  },
+  "40166bec5e6ec7e0": {
+   "id": "data_limitations",
+   "note": "[1]: 132 delisted members with Tiingo bars, read by the modeling dataset only.",
+   "sentence": "However, 132 delisted S&P 500 / Nasdaq-100 members have bars from Tiingo's free tier, which are used by the modeling dataset [1].",
+   "verdict": "supported"
+  },
+  "41ef82eeab03ae3c": {
+   "id": "golden_cross",
+   "note": "[1] frames M3 as whether the golden-cross event adds information beyond the 50>200 state.",
+   "sentence": "The project aims to determine if the event of a golden cross adds marginal information beyond the state where the 50-day MA is already above the 200-day MA [1].",
+   "verdict": "supported"
+  },
+  "423774e2cdc7ddf8": {
+   "id": "cost_assumption",
+   "note": "[4]: 'Every claim that implies trading gets a cost annotation'.",
+   "sentence": "This calculation is applied to every claim that implies trading [4].",
+   "verdict": "supported"
+  },
+  "424db935836787b2": {
+   "id": "windows_horizons",
+   "note": "Source 1 gives the modeling window as 2010-2021; source 3 cites 2010-2021 coverage.",
+   "sentence": "The history window for analysis and modeling is 2010–2021 [1][3].",
+   "verdict": "supported"
+  },
+  "43b093623155c5d5": {
+   "id": "lrp_tested",
+   "note": "[2] is the 'How it gets tested' section.",
+   "sentence": "However, a testing methodology has been outlined [2].",
+   "verdict": "supported"
+  },
+  "4554490498420da5": {
+   "id": "sma200_placebo",
+   "note": "Source 3 plateau_check says exactly this.",
+   "sentence": "The point estimates for the C2 spread of all five lookbacks were near-identical, and their confidence intervals fully overlapped, showing a textbook plateau [3].",
+   "verdict": "supported"
+  },
+  "461732f11cda64f3": {
+   "id": "double_top_first",
+   "note": "[3] says double top was chosen first since its 3-pivot shape reuses the neckline/measured-move logic H&S needs, with less to build first.",
+   "sentence": "The double top/bottom detector was built before head and shoulders because it was chosen as the first pattern due to its simpler 3-pivot shape, which allowed for the reuse of neckline and measured-move logic that Head & Shoulders also requires, but with less initial development work [3].",
+   "verdict": "supported"
+  },
+  "4a38e4deea3cb0e1": {
+   "id": "macd_beyond_spread",
+   "note": "[3] gives +0.8948% with CI [+0.0023%, +1.8718%]; [5] says 'real but marginal'.",
+   "sentence": "Additionally, its incremental IC over the control block was +0.8948%, with a confidence interval of [+0.0023%, +1.8718%], which excludes zero, indicating a real but marginal incremental effect [3][5].",
+   "verdict": "supported"
+  },
+  "4a79c2b5aeb30a72": {
+   "id": "m22_kill",
+   "note": "Criterion 6 in [1] with matching numbers.",
+   "sentence": "Finally, the cell could not be below the effective-N floor, which required 200 retest events, 30 dates, 30 tickers, and at least 30 dates contributing a matched retest contrast at C2+rev [1].",
+   "verdict": "supported"
+  },
+  "4c0e6732c78e9f79": {
+   "id": "order_blocks_status",
+   "note": "Sources 2 and 1: kept as a record, not a pending plan; the investigation is closed.",
+   "sentence": "The investigation is closed, and the documentation is kept as a record rather than a pending implementation plan [2][1].",
+   "verdict": "supported"
+  },
+  "4f6c416e5c9114d2": {
+   "id": "price_basis_choice",
+   "note": "[5] gives moving_averages, relative_strength, breadth, modeling labels and baseline features as total_return.",
+   "sentence": "Modules that measure returns, like moving averages, relative strength, breadth, and modeling labels/features, use `total_return` [5].",
+   "verdict": "supported"
+  },
+  "4fae353c76d35096": {
+   "id": "lrp_tested",
+   "note": "[1] says disagreement with equal prior_factor is a finding to log.",
+   "sentence": "The model's own use of source weights will be logged if it disagrees with the equal `prior_factor` [1].",
+   "verdict": "supported"
+  },
+  "566e7029f80c8ac7": {
+   "id": "shares_before_2015",
+   "note": "[1] names sec_companyfacts.py and bulk_sec_shares_ingest.py.",
+   "sentence": "This data is ingested using `sec_companyfacts.py` and `bulk_sec_shares_ingest.py` [1].",
+   "verdict": "supported"
+  },
+  "5733ff391bf1ff80": {
+   "id": "lrp_tested",
+   "note": "[2] lists the B4 baseline components.",
+   "sentence": "Testing will involve a baseline (B4) consisting of momentum, reversal, realized volatility, extension tercile, and the v1 MA block [2].",
+   "verdict": "supported"
+  },
+  "578cf12f8c278fb7": {
+   "id": "price_basis_choice",
+   "note": "Matches [3]'s rule table.",
+   "sentence": "The project uses two price bases: `total_return` (split- and dividend-adjusted) for anything measuring returns, and `traded` (split-only adjusted) for anything placing a price level or calculating market caps [3].",
+   "verdict": "supported"
+  },
+  "5879f12c6f9e88ef": {
+   "id": "id_placebo_ema21",
+   "note": "Sources say the cell was 'killed at the neighbor-diff step' while the effect stays real ('a real effect that has nothing to do with which exact lookback'); saying the effect itself was 'nullified' misstates this.",
+   "sentence": "Although its individual confidence interval (CI) excluded zero, indicating a real focal effect, this effect was nullified at the neighbor-difference step [1][2][4].",
+   "verdict": "partial"
+  },
+  "588128f386bc40cd": {
+   "id": "slope_pctile_by_id",
+   "note": "Source 5 lists `slope_log_21_sma_50` (rank) as supported, not `slope_pctile_21_sma_50` by name.",
+   "sentence": "This feature is supported in the validation harness [5].",
+   "verdict": "partial"
+  },
+  "5ae418f9724c6245": {
+   "id": "lrp_level_fields",
+   "note": "Source 1's field table lists all of these fields with matching meanings.",
+   "sentence": "Each price level in the least resistance path design carries information about its price at time *t*, the price band it occupies, its source, its strength as a trailing percentile within its source, its age (bars since formation), the number of times price has tested and held it, its state (fresh, tested, flipped, or dead), and its prior evidence (weak or null) [1].",
+   "verdict": "supported"
+  },
+  "5b150fed581fb4b7": {
+   "id": "lag_where",
+   "note": "Source 1 is an ideas-inbox proposal ('best enforced as code plus tests'); it does not say the project enforces this or that the shared leakage test exists.",
+   "sentence": "The project enforces one-bar lag as code plus tests, including a shared leakage test that perturbs data after time *t* and asserts features at *t* are unchanged [1].",
+   "verdict": "unsupported"
+  },
+  "5c7d06d0bde61ec0": {
+   "id": "low_52w",
+   "note": "Source 1's hypothesis is stated verbatim.",
+   "sentence": "The hypothesis was that a stock's position in its trailing 252-day range predicts 63d and 126d returns [1].",
+   "verdict": "supported"
+  },
+  "5c960de37ed07633": {
+   "id": "data_limitations",
+   "note": "Matches [1].",
+   "sentence": "Delisted tickers: Not all delisted tickers in the reference table are fetchable through Polygon's 2-year historical entitlement; only those delisted within approximately the last two years have retrievable history [1].",
+   "verdict": "supported"
+  },
+  "5ebdc8ec4f07f912": {
+   "id": "golden_cross",
+   "note": "[1] gives the comparison against randomly sampled comparable-duration 50>200 days; [4] gives the 21d forward return.",
+   "sentence": "The hypothesis being tested is whether the forward 21-day return on the day of a golden cross differs from randomly sampled days where the 50-day average has been above the 200-day average for a comparable duration [1][4].",
+   "verdict": "supported"
+  },
+  "5ff2860dbcb223a4": {
+   "id": "holdout_opened",
+   "note": "Source 1: 'the 2022+ holdout was never opened'.",
+   "sentence": "No, the 2022+ holdout has not been opened yet [1].",
+   "verdict": "supported"
+  },
+  "60a5985c1a5e2c93": {
+   "id": "short_interest",
+   "note": "Text matches source 2, but it concerns short-sale borrow for MA-study short-side findings, not short interest as a feature; presented as an answer to a neighbouring topic.",
+   "sentence": "However, the project notes that any short-side claim requires a borrow-feasibility check before it can be considered meaningful [2].",
+   "verdict": "partial"
+  },
+  "628d9dff2cef3e18": {
+   "id": "reclaim_volume",
+   "note": "[1] relative_volume/50 is -0.117% [-0.430%, +0.184%], CI spans zero; [5] also spans zero.",
+   "sentence": "For relative volume, the results for the 50-day average are inconclusive, with the confidence interval spanning zero [1][5].",
+   "verdict": "supported"
+  },
+  "6297002226017920": {
+   "id": "windows_horizons",
+   "note": "Sources 1 and 4 give H in {10,21,42,63} with 5 as a diagnostic.",
+   "sentence": "The horizons checked are H ∈ {10, 21, 42, 63} trading days, with H = 5 used as a diagnostic only [1][4].",
+   "verdict": "supported"
+  },
+  "66d0c9fb806acf35": {
+   "id": "data_limitations",
+   "note": "Matches [5]'s caveat on .U, .W/.Bw and .T suffixes.",
+   "sentence": "This fix is confirmed for ordinary share classes, but not for all dotted suffixes Polygon uses, such as `.U` (units), `.W`/`.Bw` (warrants), and `.T` (foreign listings) [5].",
+   "verdict": "supported"
+  },
+  "66e6d9e91f595bb4": {
+   "id": "earnings_financials",
+   "note": "[3] says derive quarterly values where only YTD or annual figures are filed.",
+   "sentence": "The project also aims to derive quarterly values where only year-to-date or annual figures are filed [3].",
+   "verdict": "supported"
+  },
+  "67369cb670a41ec8": {
+   "id": "cost_assumption",
+   "note": "[4] gives this exact example.",
+   "sentence": "For example, a 5-EMA crossover rule generating approximately 50 round trips per year at 10 bps each carries a 5%/yr hurdle [4].",
+   "verdict": "supported"
+  },
+  "6a33e20314be3352": {
+   "id": "holdout_opened",
+   "note": "Source 2: stays locked under the same discipline, just at a different boundary date.",
+   "sentence": "It remains locked under the same discipline as originally specified, though the boundary date was adjusted [2].",
+   "verdict": "supported"
+  },
+  "6ab94983b3d3f022": {
+   "id": "divergence_registered",
+   "note": "Source 2 says this nearly verbatim.",
+   "sentence": "The section is kept as a record that the hypothesis was considered, designed, and sized [2].",
+   "verdict": "supported"
+  },
+  "6ad282407ec985fc": {
+   "id": "golden_cross",
+   "note": "Point estimate and CI match row 106 exactly; CI spans zero.",
+   "sentence": "The point estimate for the difference in returns is -0.000702, with a confidence interval spanning zero (-0.002865 to 0.001771), indicating that the test is inconclusive [4].",
+   "verdict": "supported"
+  },
+  "6cd40c335a67cd86": {
+   "id": "lrp_tested",
+   "note": "[3] says per-date features in ATR units.",
+   "sentence": "These levels are then summarized into a small set of per-date features, measured in ATR units [3].",
+   "verdict": "supported"
+  },
+  "6d058fe803b31c47": {
+   "id": "lag_where",
+   "note": "Source 4 names features/panel.py::apply_lag; source 5 calls it 'the one central apply_lag'.",
+   "sentence": "The one-bar lag is applied centrally in `features/panel.py::apply_lag` [4][5].",
+   "verdict": "supported"
+  },
+  "6e5d77fa67a92dd6": {
+   "id": "data_limitations",
+   "note": "Matches [3].",
+   "sentence": "There isn't a single upstream authority for composite membership like Polygon is for price/reference data [3].",
+   "verdict": "supported"
+  },
+  "6f9940f5725638ba": {
+   "id": "harness_folds",
+   "note": "Source 1: drop training rows with label_end_date >= test_start.",
+   "sentence": "A purge step removes training rows where the label end date is greater than or equal to the test start date [1].",
+   "verdict": "supported"
+  },
+  "75e83a06f4113983": {
+   "id": "bearish_stack",
+   "note": "Source 1's reversal-control number matches.",
+   "sentence": "Even with a reversal control, the result is +0.275% [+0.009%, +0.547%] [1].",
+   "verdict": "supported"
+  },
+  "763c798e7fd2822c": {
+   "id": "data_limitations",
+   "note": "Matches [2].",
+   "sentence": "Polygon and yfinance \"close\" prices disagree for dividend payers: yfinance back-adjusts historical closes for dividends, while Polygon's `adjusted=True` only adjusts for splits [2].",
+   "verdict": "supported"
+  },
+  "77728f701c8e99a6": {
+   "id": "lrp_tested",
+   "note": "[5] says the three-verdict rule stays for any pre-registered test including the planned trading test.",
+   "sentence": "The three-verdict rule will be applied for any pre-registered test, including the planned pre-registered trading test of the full feature set [5].",
+   "verdict": "supported"
+  },
+  "782347a975d614a1": {
+   "id": "bearish_stack",
+   "note": "Source 1 gives Tier 3 with 'a universe with no delistings'; source 3 gives the survivorship cap.",
+   "sentence": "This `stack_fully_bearish` finding is classified as Tier 3 [1], partly due to survivorship bias concerns if delisted securities are not included in the data [2][3].",
+   "verdict": "supported"
+  },
+  "7a0ad8a5f89f100a": {
+   "id": "golden_cross",
+   "note": "Row 106 outcome is inconclusive_wide_ci for the 50/200 golden cross cell.",
+   "sentence": "The project's research on whether a golden cross of the 50-day over the 200-day average predicts returns is inconclusive [4].",
+   "verdict": "supported"
+  },
+  "7b276c6d7209ab21": {
+   "id": "sma20_bounce",
+   "note": "[1] says the resistance-rejection short is followed by higher returns.",
+   "sentence": "The resistance-rejection short is followed by higher returns [1].",
+   "verdict": "supported"
+  },
+  "7c49beeab4f861ca": {
+   "id": "stoch_divergence",
+   "note": "Source 1 'Out of scope (deliberate)' lists Stochastic/CCI divergence.",
+   "sentence": "Divergences on Stochastic and CCI are deliberately out of scope for the divergence-context study [1].",
+   "verdict": "supported"
+  },
+  "7ce574be18ccdb5f": {
+   "id": "id_dist_pct_sma200",
+   "note": "Source 2 numbers match exactly.",
+   "sentence": "For Module M4, the point estimate is -0.001602 with a confidence interval of [-0.005312, 0.002444], and the CI excludes zero is False [2].",
+   "verdict": "supported"
+  },
+  "7e0933d16b5a8cb5": {
+   "id": "earnings_financials",
+   "note": "[2] lists revenue, EPS, margins, cash, debt from companyfacts.zip.",
+   "sentence": "This data includes reported financials such as revenue, EPS, margins, cash, and debt, sourced from `companyfacts.zip` [2][3].",
+   "verdict": "supported"
+  },
+  "7f47c1a25ccfb94e": {
+   "id": "harness_folds",
+   "note": "Source 1: expanding primary, sliding last 3 years secondary.",
+   "sentence": "The primary scheme is expanding, where training occurs on all data prior to the fold, while a secondary sliding scheme trains on the last three years [1].",
+   "verdict": "supported"
+  },
+  "874d398c6e6742d0": {
+   "id": "ichimoku",
+   "note": "[1][4] describe four TA modules being built (with unit tests passing), not tested as signals; 'testing of four new TA modules' stretches what is said.",
+   "sentence": "The sources discuss the testing of four new TA modules: gaps, divergences, fibonacci, and AVWAP [1][4].",
+   "verdict": "partial"
+  },
+  "8955e1020c4fb616": {
+   "id": "order_blocks_status",
+   "note": "'Closed, not shipping' is supported, but source 2 says nothing about the backlog.",
+   "sentence": "The order blocks feature is not done and is not in the backlog; its status is \"Closed, not shipping\" [2].",
+   "verdict": "partial"
+  },
+  "8a73d27f5b8e3f27": {
+   "id": "price_basis_choice",
+   "note": "[5] gives market caps as traded.",
+   "sentence": "Market caps also use `traded` [5].",
+   "verdict": "supported"
+  },
+  "8e9bcb8a64941e1d": {
+   "id": "data_limitations",
+   "note": "Matches [5].",
+   "sentence": "`bulk_yfinance_ingest.py` translates `.` to `-` for API calls, but bars are stored under the original Polygon-style ticker [5].",
+   "verdict": "supported"
+  },
+  "9093a339adfd5913": {
+   "id": "model_running",
+   "note": "[2] records run-experiment E1 from 2026-10-07 to 2026-10-08 on whether MA features add information over B4.",
+   "sentence": "Yes, an experiment named \"E1\" was run from 2026-10-07 to 2026-10-08 to determine if MA features add information over B4 [2].",
+   "verdict": "supported"
+  },
+  "920b20c819ad965a": {
+   "id": "price_basis_choice",
+   "note": "Matches [1]'s first two bullets.",
+   "sentence": "The `traded` basis was chosen for price levels because dividend adjustment moves old levels away from where they really were, with the error growing over time, and the entire dividend-adjusted history rescales with every new dividend [1].",
+   "verdict": "supported"
+  },
+  "9255875ac9aaf3d4": {
+   "id": "harness_folds",
+   "note": "Source 1: walk-forward, yearly test folds 2014-2021.",
+   "sentence": "The validation harness splits train/test for the combined model using outer folds that are walk-forward with yearly test folds from 2014 to 2021 [1].",
+   "verdict": "supported"
+  },
+  "9465e7b6f1311c74": {
+   "id": "m22_kill",
+   "note": "Criterion 4 in [1].",
+   "sentence": "At least two of the other three moving averages had to show a same-signed DiD at that direction and horizon [1].",
+   "verdict": "supported"
+  },
+  "9b9b4e64a905d3f2": {
+   "id": "low_52w",
+   "note": "Source 1's 126d numbers match exactly.",
+   "sentence": "Results showed a positive effect: for 126d, the return was +2.50% [+1.10%, +4.02%], and with a reversal control, it was +2.64% [1].",
+   "verdict": "supported"
+  },
+  "9bd8595c5c58c804": {
+   "id": "zone_start",
+   "note": "Source 1 describes the bootstrap bar and the skipped defining pivot.",
+   "sentence": "The `events.py` walk deliberately doesn't emit an event for the first bar it uses to bootstrap which side price is on, meaning the very peak/trough pivot that defined the level was silently skipped [1].",
+   "verdict": "supported"
+  },
+  "9d8eba0b90166052": {
+   "id": "sr_line_limits",
+   "note": "[1]'s section is about near-flat diagonals duplicating horizontal lines, fixed by this rule.",
+   "sentence": "This prevents near-flat diagonal candidates from duplicating horizontal lines [1].",
+   "verdict": "supported"
+  },
+  "a00e692110d515f1": {
+   "id": "double_top_first",
+   "note": "[1] lists the same sliding-window structure, unchanged lifecycle.py, and same score-component shape.",
+   "sentence": "Head & Shoulders was designed as a close sibling to the double top/bottom, reusing its sliding-window-over-strictly-alternating-pivots structure, `lifecycle.py` state machine, and score-component shape [1].",
+   "verdict": "supported"
+  },
+  "a45933afd417b125": {
+   "id": "model_running",
+   "note": "[2]: 'Verdict: both groups inconclusive.'",
+   "sentence": "The verdict for both groups in this experiment was inconclusive [2].",
+   "verdict": "supported"
+  },
+  "a5f7cf5f443c21b7": {
+   "id": "sma200_placebo",
+   "note": "Source 1 states the folklore conclusion only conditionally in the design ('If the whole neighbourhood performs identically'), not as a result.",
+   "sentence": "This suggests that articles about \"the magic 200-day\" are folklore [1].",
+   "verdict": "partial"
+  },
+  "a8e53ef304855c39": {
+   "id": "id_placebo_ema21",
+   "note": "[1][3]: built by a forked agent on analysis/placebo-7-5, verified by the coordinator.",
+   "sentence": "The experiment was built and run by a forked agent on the `analysis/placebo-7-5` branch and verified by the coordinator [1][3].",
+   "verdict": "supported"
+  },
+  "a91a003a24a6f19e": {
+   "id": "earnings_financials",
+   "note": "[1] is a plan ('Bring company financials into the database'); it does not back the 'Yes' that such data is already held.",
+   "sentence": "Yes, the project plans to bring company financials into the database, including what each company reported when it reported results [1].",
+   "verdict": "partial"
+  },
+  "aa710a095cb151a3": {
+   "id": "data_limitations",
+   "note": "Matches [5].",
+   "sentence": "Polygon and yfinance use different ticker symbols for share classes: Polygon uses `.` for share classes (e.g., `BF.A`), while yfinance uses `-` (e.g., `BF-A`) [5].",
+   "verdict": "supported"
+  },
+  "aa7d34723cd1c82e": {
+   "id": "cost_assumption",
+   "note": "[4] gives the formula for every claim implying trading.",
+   "sentence": "When judging whether a signal is tradeable, the cost assumption used is `signals_per_year × (spread/2 + commission + slippage)` [4].",
+   "verdict": "supported"
+  },
+  "ad1fecb632f1dc58": {
+   "id": "lrp_tested",
+   "note": "[3] states which way is easier and how much clear air.",
+   "sentence": "The Least Resistance Path (LRP) idea aims to determine the easier direction for a ticker on a given date and the amount of \"clear air\" before the price encounters an obstacle [3].",
+   "verdict": "supported"
+  },
+  "ad623f8d25837d3a": {
+   "id": "holiday_calendar",
+   "note": "Source 1: holiday-shortened week treated the same; row gets whatever days are present.",
+   "sentence": "This means that a holiday-shortened week is treated the same as a normal week, and the resulting data will only include the days actually present [1].",
+   "verdict": "supported"
+  },
+  "ad97cd2196c93b5e": {
+   "id": "sma200_placebo",
+   "note": "Source 2: lookback is a trend-length parameter, not a watched level; never treat the 200-day as special; neighbours include 193/207.",
+   "sentence": "No, the 200-day average is not special compared to nearby lookbacks like 193 or 207 days [2].",
+   "verdict": "supported"
+  },
+  "ae77b0ebe0b4fba5": {
+   "id": "e1_result",
+   "note": "[1][2] list hypothesis, motivating evidence, baseline, metric, folds, kill criterion and trial budget for E1, and no result.",
+   "sentence": "They describe the hypothesis, motivating evidence, baseline, metrics, folds, kill criteria, and trial budget for the E1 experiment, which was designed to answer this question [1][2].",
+   "verdict": "supported"
+  },
+  "af14739c20c3f002": {
+   "id": "lrp_tested",
+   "note": "[4] table lists those fields.",
+   "sentence": "Each level includes details such as price, zone, source, strength, age, touches, state, and prior [4].",
+   "verdict": "supported"
+  },
+  "b24590480fa49bd3": {
+   "id": "data_limitations",
+   "note": "[3]: 'Nasdaq-100 coverage starts 2015-01-01'.",
+   "sentence": "The Nasdaq-100 coverage starts from 2015-01-01 [3].",
+   "verdict": "supported"
+  },
+  "b48a83ccc15dda88": {
+   "id": "crypto_scope",
+   "note": "[1] lists options, futures, crypto, FX as v1 non-goals because universe design and confounds differ enough to warrant separate work.",
+   "sentence": "These asset classes were explicitly stated as non-goals due to differing universe design and confounds, warranting separate work [1].",
+   "verdict": "supported"
+  },
+  "b49314476ec4428c": {
+   "id": "sma20_bounce",
+   "note": "[1] states no forward-return information at 5-63 days beyond a same-size move, small signal points to reversal.",
+   "sentence": "A confirmed bounce off the SMA20 carries no forward-return information at 5–63 days beyond a same-size move anywhere, and the small signal that exists points to a reversal of the bounce, not continuation [1].",
+   "verdict": "supported"
+  },
+  "b613ead29a7cc2f6": {
+   "id": "chunk_size",
+   "note": "Source 1: over 384 tokens re-split '(bge-small, step 3's embedder, truncates at 512)'.",
+   "sentence": "Research-doc chunks are capped at 384 tokens because the `bge-small` embedder, used in step 3, truncates at 512 tokens [1].",
+   "verdict": "supported"
+  },
+  "b78d55dd03eed87d": {
+   "id": "holdout_opened",
+   "note": "The 2010-2021 window and the hiking-cycle holdout are stated, but no source says the holdout was 'intentionally kept separate to observe a different macro regime'.",
+   "sentence": "The study's development window covered 2010–2021, and the 2022+ holdout was intentionally kept separate to observe a different macro regime, specifically a hiking cycle [1][3][4].",
+   "verdict": "partial"
+  },
+  "b89618291a7f24a8": {
+   "id": "id_placebo_ema21",
+   "note": "[1] quotes the folklore-confirmed shape 'the whole neighbourhood performs identically'.",
+   "sentence": "This confirmed the folklore-confirmed shape that \"the whole neighbourhood performs identically\" [1].",
+   "verdict": "supported"
+  },
+  "b8a587ae2726d5b4": {
+   "id": "lrp_tested",
+   "note": "[2] gives these metrics with date-block bootstrap CIs.",
+   "sentence": "The metrics for testing include out-of-sample Brier improvement per barrier cell and top-k-per-day precision after costs, with date-block bootstrap CIs [2].",
+   "verdict": "supported"
+  },
+  "b9a6333e8018771a": {
+   "id": "holiday_calendar",
+   "note": "Source 1: 'It has no concept of market holidays.'",
+   "sentence": "No, weekly and monthly resampling does not account for market holidays [1].",
+   "verdict": "supported"
+  },
+  "ba2026618e44294a": {
+   "id": "sma200_placebo",
+   "note": "Sources 2-3 give the neighbour set, near-identical results/plateau, and the trend-length-not-watched-level conclusion.",
+   "sentence": "The study found that the 200-day Simple Moving Average (SMA) and its neighbors (187, 193, 207, and 213 days) performed identically, indicating that the lookback is a trend-length parameter rather than a watched level [1][2][3].",
+   "verdict": "supported"
+  },
+  "bae0f8acd83d445e": {
+   "id": "order_blocks",
+   "note": "[1] gives a different evidence standard and the same output shape.",
+   "sentence": "While order blocks represent a different evidence standard for validating a zone compared to the existing S/R engine, they produce the same output shape (a horizontal price zone with support/resistance semantics) [1].",
+   "verdict": "supported"
+  },
+  "be3e8389e998eacc": {
+   "id": "harness_folds",
+   "note": "Source 1: about a year of warmup from 2010, 2011-2013 first training window.",
+   "sentence": "Features require about a year of warmup from 2010, with 2011–2013 as the initial training window [1].",
+   "verdict": "supported"
+  },
+  "c60e9b5f43ec2c2f": {
+   "id": "low_52w",
+   "note": "The CIs and IC exist, but the flat 'Yes, predicts' overstates it: source 1 rates it Tier 3, says 'FDR: 126d misses' and that 63d fails cost.",
+   "sentence": "Yes, the distance a stock sits above its 52-week low (`dist_from_52w_low`) predicts longer-horizon returns, specifically at 63-day and 126-day horizons [1][2][5].",
+   "verdict": "partial"
+  },
+  "c6e68e7ac67e6978": {
+   "id": "lag_where",
+   "note": "Source 3: 'Entry: open of the bar after confirmed_at'.",
+   "sentence": "For example, entry for the divergence-context study is at the open of the bar after `confirmed_at` [3].",
+   "verdict": "supported"
+  },
+  "c87b521018ea6ae7": {
+   "id": "sr_line_limits",
+   "note": "[1]: new SRConfig.diagonal_min_drift_to_half_width (default 1.0).",
+   "sentence": "The `SRConfig.diagonal_min_drift_to_half_width` is set to 1.0 by default to enforce this [1].",
+   "verdict": "supported"
+  },
+  "c8f8ca4230469e66": {
+   "id": "holdout_window",
+   "note": "[2] says the window was shrunk for this reason; [1] says the split is what the loaded data supports.",
+   "sentence": "The window was shrunk for this reason, and the 2022-01-01 holdout date reflects what the loaded data actually supports [1][2].",
+   "verdict": "supported"
+  },
+  "c919e25ab960382f": {
+   "id": "data_limitations",
+   "note": "[4]: naive or mixed use will systematically distort backtested returns for dividend payers.",
+   "sentence": "This can lead to a systematic distortion of backtested returns for dividend-paying names if not handled consistently [4].",
+   "verdict": "supported"
+  },
+  "caf34e97ccaf4d37": {
+   "id": "harness_folds",
+   "note": "Source 1: inner folds for hyperparameters and stacking family scores; outer fold never sees a model tuned on it.",
+   "sentence": "Nested inner folds are used for hyperparameter tuning and stacking family scores, ensuring the outer fold never sees a model or score tuned on it [1].",
+   "verdict": "supported"
+  },
+  "cb858dcf78f8a304": {
+   "id": "zone_start",
+   "note": "Source 1: first_touch was computed from the earliest event rather than the earliest pivot.",
+   "sentence": "S/R zones appeared to start later than the peak that created them because the zone's start (`first_touch`) was computed from the earliest *event* rather than the earliest *pivot* [1].",
+   "verdict": "supported"
+  },
+  "cbfb3b7804e9428a": {
+   "id": "chunk_size",
+   "note": "Source 1: median 319 tokens, max 376.",
+   "sentence": "The median chunk size is 319 tokens, with a maximum of 376 tokens [1].",
+   "verdict": "supported"
+  },
+  "cc682fbd0188d6d5": {
+   "id": "id_dist_pct_sma200",
+   "note": "Both rows have outcome inconclusive_ci_spans_zero_edge_above_floor for M11 and M4.",
+   "sentence": "The `dist_pct_sma_200_h21` result is \"inconclusive_ci_spans_zero_edge_above_floor\" for both Module M11 and Module M4 [1][2].",
+   "verdict": "supported"
+  },
+  "cd4485ea14ee55a1": {
+   "id": "yfinance_end",
+   "note": "Source states yfinance end is exclusive while Polygon's is inclusive.",
+   "sentence": "No, the `end` date in a yfinance download is not included by default; it is exclusive, unlike Polygon's `end` parameter which is inclusive [1].",
+   "verdict": "supported"
+  },
+  "cf2b3d37d1b363ca": {
+   "id": "macd_beyond_spread",
+   "note": "[3][4][5] give +0.30/-0.25 correlations, well below the 0.89 bar, not clustered.",
+   "sentence": "The MACD histogram was found not to be clustered with the MA-spread family, as its correlations with `dist_pct_sma_50` (+0.30) and `slope_log_21_sma_50` (−0.25) were well below the 0.89 non-redundancy bar [3][4][5].",
+   "verdict": "supported"
+  },
+  "d2f8c8f5add39454": {
+   "id": "lag_where",
+   "note": "Source 4: 'a row is the state on its tradeable day'.",
+   "sentence": "This lag ensures that a row represents the state on its tradeable day [4].",
+   "verdict": "supported"
+  },
+  "d412c6292f76f59d": {
+   "id": "lrp_level_fields",
+   "note": "Source 2: above the close is resistance, below is support, decided by where price is at t.",
+   "sentence": "Whether a level acts as resistance or support is determined by its position relative to the current price at *t*: levels above the close are resistance, and levels below are support [2].",
+   "verdict": "supported"
+  },
+  "d61636182bea194b": {
+   "id": "id_placebo_ema21",
+   "note": "Matches [2]'s plateau_check text.",
+   "sentence": "However, the plateau check passed, showing that EMA21 and its two neighbors had near-identical C2 spread point estimates, all individually CI-excluding-zero, and their pairwise differences were indistinguishable from zero [2].",
+   "verdict": "supported"
+  },
+  "dca868cec988fa5c": {
+   "id": "lrp_tested",
+   "note": "[3] lists those meta objects folded into one common level shape.",
+   "sentence": "It achieves this by integrating various \"meta\" objects like S/R lines, fibs, AVWAPs, gaps, volume profile, market structure, patterns, and MAs into a unified \"level\" shape [3].",
+   "verdict": "supported"
+  },
+  "dee6ea1ca7ea27ff": {
+   "id": "data_limitations",
+   "note": "[4] says Polygon matched Alpha Vantage (unadjusted) exactly over a ~100-day window; 'split-only adjusted' is not stated in [4], and the short-window qualifier is dropped.",
+   "sentence": "Polygon's split-only adjusted data matches Alpha Vantage exactly [4].",
+   "verdict": "partial"
+  },
+  "e0156ab34dff4421": {
+   "id": "id_dist_pct_sma200",
+   "note": "Source 1: cost_verdict 'not_tested (CI spans zero)'.",
+   "sentence": "The cost verdict is \"not_tested\" because the CI spans zero [1].",
+   "verdict": "supported"
+  },
+  "e1ce92bb3b1a2402": {
+   "id": "order_blocks",
+   "note": "Matches [4]'s recommendation.",
+   "sentence": "The recommendation was to prototype and backtest order blocks to see if they identified zones that held up better than the existing pivot clustering method, and if not, they would not be worth a separate feature [4].",
+   "verdict": "supported"
+  },
+  "e2740675c91c58a6": {
+   "id": "lrp_tested",
+   "note": "[3] status: proposed formulation, 2026-09-29, not built, not tested.",
+   "sentence": "The LRP formulation is currently a proposed formulation as of 2026-09-29 and has not yet been built or tested [3].",
+   "verdict": "supported"
+  },
+  "e632775fc9a393c6": {
+   "id": "id_placebo_ema21",
+   "note": "[1][2] outcome no_effect; [2] decisive_test_status: failed.",
+   "sentence": "The `placebo_ema21_h21` experiment had an outcome of \"no_effect\" and a decisive test status of \"failed\" [1][2].",
+   "verdict": "supported"
+  },
+  "e66b4f50d6376c6e": {
+   "id": "dead_vs_inconclusive",
+   "note": "[1] defines demonstrated null as the entire CI inside the pre-registered economic-relevance floor, ruling out an effect big enough to matter.",
+   "sentence": "A \"dead\" result, also referred to as a \"demonstrated null,\" means that the entire confidence interval (CI) falls within the pre-registered economic-relevance floor, affirmatively ruling out an effect large enough to matter [1].",
+   "verdict": "supported"
+  },
+  "e724edd5b86a7beb": {
+   "id": "double_top_first",
+   "note": "[2] says the full plan, including why this order, was worked out interactively before any code.",
+   "sentence": "The full plan and build order were worked out interactively before any code was written [2].",
+   "verdict": "supported"
+  },
+  "e7c8c6fdc7cc7e14": {
+   "id": "order_blocks",
+   "note": "[2]'s section heading says order blocks lose to pivot clustering, don't ship; [4] describes the pivot-clustering comparison.",
+   "sentence": "No, order blocks should not be added as their own support/resistance source because a prototype and backtest showed they performed worse than pivot clustering, which is the existing method for finding horizontal zones [2][4].",
+   "verdict": "supported"
+  },
+  "e86b8eca033bcee7": {
+   "id": "lrp_tested",
+   "note": "[3] says every weight and threshold is a fixed prior chosen before outcomes.",
+   "sentence": "All weights and thresholds are fixed priors chosen before looking at outcomes [3].",
+   "verdict": "supported"
+  },
+  "e9011ac0343b3c23": {
+   "id": "lag_where",
+   "note": "Sources 3 and 5 both cite invariant #2.",
+   "sentence": "It is also referred to as repo invariant #2 [3][5].",
+   "verdict": "supported"
+  },
+  "e9211217e56ad26e": {
+   "id": "bearish_stack",
+   "note": "The numbers match source 1, but it never states the horizon ('next month' is not in [1]) and never says these stocks are 'not worse bets'.",
+   "sentence": "Stocks trading below all their moving averages, stacked bearishly (price < SMA20 < 50 < 150 < 200), are not worse bets over the next month; in fact, they show a positive standalone return of +0.444% [+0.142%, +0.748%] and an incremental return of +1.011% [+0.359%, +1.682%] over `above_sma_50` [1].",
+   "verdict": "partial"
+  },
+  "ec9e3e7c62e3dc0e": {
+   "id": "divergence_trend_filter",
+   "note": "Source 1 is an RSI divergence study (not 'RSI alone'), and source 2 is a confluence_count field build, not a study of RSI divergence in confluence.",
+   "sentence": "They do cover studies on RSI alone [1], RSI combined with moving average features [5], and RSI divergence in confluence with other indicators [2].",
+   "verdict": "partial"
+  },
+  "ece9f50e9a4dd300": {
+   "id": "slope_pctile_by_id",
+   "note": "Source 1: U-shaped, middle minus tails negative.",
+   "sentence": "The result was U-shaped, with middle deciles performing worse than tail deciles [1].",
+   "verdict": "supported"
+  },
+  "ed06214d6acd693d": {
+   "id": "low_52w",
+   "note": "Source 1's 63d number matches.",
+   "sentence": "For 63d, the return was +0.96% [+0.13%, +1.84%] [1].",
+   "verdict": "supported"
+  },
+  "ed7a38912384a127": {
+   "id": "ic_sweep_best",
+   "note": "Sources 1 and 2 name dist_from_52w_low@126d with mean IC +0.0385 (0.038) as the largest.",
+   "sentence": "The strongest feature in the wide IC sweep had a mean IC of +0.0385, which was `dist_from_52w_low`@126d [1][2].",
+   "verdict": "supported"
+  },
+  "ee351651a64459d5": {
+   "id": "divergence_registered",
+   "note": "Source 2: the only numbers computed were the blind sizing counts.",
+   "sentence": "The only numbers computed were blind sizing counts [2].",
+   "verdict": "supported"
+  },
+  "eea4f0f0385eb378": {
+   "id": "retest_continuation",
+   "note": "Source 1 describes reaction_atr_after_close/bars_to_reaction_peak as the move back in the original direction after close.",
+   "sentence": "Specifically, for gaps, it measured `reaction_atr_after_close` and `bars_to_reaction_peak` to check for a move back in the gap's original direction after it closed [1].",
+   "verdict": "supported"
+  },
+  "f0ab1ee9b7fc30a1": {
+   "id": "sma20_bounce",
+   "note": "[3] says 'bounced off the MA' is not an entry feature.",
+   "sentence": "The study found that \"bounced off the MA\" is not an entry feature [3].",
+   "verdict": "supported"
+  },
+  "f23514fc743100f1": {
+   "id": "cost_assumption",
+   "note": "[4] gives 5/15/40 bps tiered by ADV decile.",
+   "sentence": "Slippage is tiered by ADV decile: 5 bps for U1, 15 bps for U2, and 40 bps for the illiquid tail [4].",
+   "verdict": "supported"
+  },
+  "f4dceacfe175db4e": {
+   "id": "slope_pctile_by_id",
+   "note": "Source 3: p=0.00005, rank 2 of 107, survives at q=0.05.",
+   "sentence": "It survived FDR testing with a p-value of 0.00005 and a rank of 2 out of 107 tests [3].",
+   "verdict": "supported"
+  },
+  "f4fb36baddc9adde": {
+   "id": "reclaim_volume",
+   "note": "[1] table shows dollar_volume/50 at -0.870% with CI excluding zero; [3] states bottom tercile outperforms top.",
+   "sentence": "Reclaims in the bottom dollar-volume tercile outperform reclaims in the top dollar-volume tercile for the 50-day average, meaning lower-liquidity reclaims do better [1][3].",
+   "verdict": "supported"
+  },
+  "f79691e4f436a4e4": {
+   "id": "m22_kill",
+   "note": "[1] lists six criteria, the first being delta_retest's C2+rev CI excluding zero in the hypothesised direction.",
+   "sentence": "A break-and-retest cell was confirmed if it passed six criteria: `delta_retest`'s C2+rev CI had to exclude zero in the hypothesized direction [1].",
+   "verdict": "supported"
+  },
+  "f9b5ad986b7403af": {
+   "id": "sharpe_used",
+   "note": "Sources 1-2 report picks' Sharpe vs the market basket and random-k.",
+   "sentence": "The project documentation mentions Sharpe values in the context of evaluating model performance and comparing it against market baskets and random-k portfolios [1][2].",
+   "verdict": "supported"
+  },
+  "fa101347351deb56": {
+   "id": "slope_pctile_by_id",
+   "note": "Source 2 states Tier-2 feature, flat slope trails both tails by ~0.25%/21d, ~3%/yr gross.",
+   "sentence": "The feature `slope_pctile_21_sma_50` was found to be a Tier 2 feature, indicating that flat-slope stocks trail extreme tails by approximately 0.25% per 21 days, which is about 3% per year gross [2].",
+   "verdict": "supported"
+  },
+  "fe295ee518f343fb": {
+   "id": "shares_before_2015",
+   "note": "[1] says back to ~2009-2011 and that yfinance history starts in 2015 for almost every ticker.",
+   "sentence": "This source provides shares outstanding back to approximately 2009-2011, significantly extending the coverage beyond yfinance, which typically starts in 2015 for most tickers [1][5].",
+   "verdict": "supported"
+  },
+  "ff039a9120c2f831": {
+   "id": "order_blocks_status",
+   "note": "Source 2 says 'failed decisively'; source 5 gives the loss to pivot clustering.",
+   "sentence": "A prototype and backtest were conducted, and the feature \"failed decisively\" when compared to pivot clustering [2][5].",
+   "verdict": "supported"
+  },
+  "ff6351fd72989e2d": {
+   "id": "harness_folds",
+   "note": "Source 1: 21-day embargo on both sides, only the nested inner folds here.",
+   "sentence": "An embargo of 21 trading days is applied on both sides for nested inner folds [1].",
+   "verdict": "supported"
+  }
+ }
+}
