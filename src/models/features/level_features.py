@@ -230,7 +230,7 @@ def features(clean: pd.DataFrame, daily: pd.DataFrame, taken, configs: dict) -> 
     pos, d, w, src, sources = pos[ok], d[ok], w[ok], src[ok], sources[ok]
     starts = np.searchsorted(pos, np.arange(len(index)), side="left")
     ends = np.searchsorted(pos, np.arange(len(index)), side="right")
-    col ={name: j for j, name in enumerate(COLUMNS)}
+    col = {name: j for j, name in enumerate(COLUMNS)}
     for i in np.flatnonzero(defined):
         sl = slice(starts[i], ends[i])
         di, wi, si, names = d[sl], w[sl], src[sl], sources[sl]
@@ -302,4 +302,5 @@ def ticker_features(
     days = clean.index[levels.held_snapshot(taken.to_numpy(), clean.index.to_numpy()) >= 0] if len(taken) \
         else clean.index[:0]
     daily = levels.daily_levels(clean, splits, snaps, days, taken, configs)
-    return features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index))
+    out = features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index))
+    return out.astype("float32", copy=False)  # the registry's contract, whatever features() returns

@@ -136,7 +136,8 @@ def test_columns_are_float32_with_or_without_a_snapshot(walk):
     none = lf.ticker_features(walk, None, TICKER, root=None, snapshot_start=walk.index[-1] + pd.Timedelta(days=7))
     assert none.isna().all().all()
     for out in (held, none):
-        assert list(out.columns) == list(lf.COLUMNS) and (out.dtypes == "float32").all()
+        assert out.index.equals(walk.index) and list(out.columns) == list(lf.COLUMNS)
+        assert (out.dtypes == "float32").all()
 
 
 def test_the_snapshot_cache_is_a_speed_copy(tmp_path, walk, monkeypatch):
