@@ -1,0 +1,236 @@
+=== ITEM 1
+QUESTION: Why are support and resistance levels kept on split-only prices rather than dividend-adjusted ones?
+CHUNK:
+- **A pilot on ~100 random tickers:** 5× less training data, top-5 instead of top-20
+  (CIs about 2× wider), and S1b would need its own rerun on the subset. It could only
+  show a large effect.
+
+Round numbers depend on the price level, so they are computed from the unadjusted
+close; on adjusted prices the future-split perturbation would fail them. Patterns and
+§2.4 stay in step 3. Divergences likely need no weekly runs either: stored events plus
+`pit_confluence()` are point-in-time (§2.4 constraint 1).
+
+**The comparison:** step 2's scorecard compares against a run with the same other
+columns, so the difference is the levels alone. Step 2b's indicator features (#208) were
+registered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,
+otherwise a rerun on the same columns.
+
+---
+
+=== ITEM 2
+QUESTION: What came of slope_pctile_21_sma_50?
+CHUNK:
+- **supported:** `slope_log_21_sma_50` (rank) and `ribbon_agreement_state`;
+- **weak:** `dist_z_sma_20`, `dist_from_52w_low`, `stack_fully_bearish`,
+  `log_dollar_volume_20d` (rank), `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`,
+  `slope_log_63_sma_50` and `adx_14`. The last three priors were assigned when E1 was
+  planned.
+
+Changes from §2.2:
+- the absolute-slope column is dropped (it's for linear models; the learner is a tree);
+- MACD is its histogram over the close (price units fail the leakage gate);
+- dollar volume is a per-date rank, not a tercile;
+- ADX is the level, not the regime bucket.
+
+**Indicators and market regime (combined-model step 2b, 2026-10-10).** The lean list, one
+column per idea (`IDEAS.md` §2's near-copy rule), every prior null:
+- **volatility** (`features/indicators.py`): `bb_width_pctile` (Bollinger 20/2 width as a
+  trailing 252-day percentile), `atr_ratio_5_63`, `rvol_21_pctile_252`;
+- **volume:** `rel_volume_20` (rank), `updown_volume_20` (signed volume share, OBV's 20-day
+  change made scale-free);
+
+=== ITEM 3
+QUESTION: Does how far a stock sits above its 52-week low predict longer-horizon returns?
+CHUNK:
+SMA50 > SMA150 and SMA50 > SMA200
+5. Price > SMA50
+6. Price ≥ 30% above the 52-week low (the more common formulation — stated precisely
+   here so it isn't left ambiguous at analysis time)
+7. Price within 25% of the 52-week high
+8. RS rank ≥ 70
+
+**Method:**
+(a) **`stack_perm`** — a new categorical feature over the 4-way ordering of
+{SMA20, SMA50, SMA150, SMA200} vs. price, built from the existing lagged `above_sma_k`
+boolean columns already in the panel (reused inputs, new combination logic — this is
+not `features/state.py`, which is run-length-only). C0/C1/C2 deltas on `fwd_ret_21` per
+non-empty permutation category vs. baseline, same approach as M1.
+(b) **Full 2⁸ = 256-subset ablation** of the 8 boolean criteria (each built lagged,
+invariant #9-compliant) on `fwd_ret_21`, C1/C2 controls. Computationally cheap once the
+8 columns exist — vectorized boolean combination, no per-ticker loop, float32, per
+CLAUDE.md's style rules. Decomposed via a linear/Shapley-style attribution per
+criterion, as DESIGN specifies, **not** read as 256 individual hypothesis tests.
+
+**Horizon:** 21 trading days only.
+
+=== ITEM 4
+QUESTION: In the least resistance path design, what information does each price level carry?
+CHUNK:
+- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are
+  ~0.3–0.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed
+  when features are built, never stored. With the feature cache and one scorecard run,
+  step 2 adds ~1.5–2 GB.
+
+**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,
+AVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,
+52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market
+structure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the
+cheap set shows something on the scorecard; the cache is per source, so adding them
+redoes nothing. Two alternatives were rejected:
+- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent
+  before knowing whether levels help at all.
+
+=== ITEM 5
+QUESTION: In the least resistance path design, what information does each price level carry?
+CHUNK:
+- **A pilot on ~100 random tickers:** 5× less training data, top-5 instead of top-20
+  (CIs about 2× wider), and S1b would need its own rerun on the subset. It could only
+  show a large effect.
+
+Round numbers depend on the price level, so they are computed from the unadjusted
+close; on adjusted prices the future-split perturbation would fail them. Patterns and
+§2.4 stay in step 3. Divergences likely need no weekly runs either: stored events plus
+`pit_confluence()` are point-in-time (§2.4 constraint 1).
+
+**The comparison:** step 2's scorecard compares against a run with the same other
+columns, so the difference is the levels alone. Step 2b's indicator features (#208) were
+registered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,
+otherwise a rerun on the same columns.
+
+---
+
+=== ITEM 6
+QUESTION: In the least resistance path design, what information does each price level carry?
+CHUNK:
+- **Delisted tickers get no levels from today's detectors.** Only `divergences.detect`
+  takes `source=`; the level detectors read the primary vendor only, so a Tiingo-only
+  ticker loads no bars and is skipped without an error. The timing passed the resolved
+  vendor in through a shim, and every delisted call then returned levels. The builder
+  needs a `source=` parameter on each detector it uses, resolved by
+  `price_basis.resolve_sources`, as divergences already does.
+- **The cost is the detector, not the read:** loading bars is 2–22% of a call.
+  Per-call cost grows 1.1–1.6× from 2010 to 2021 (each call re-reads all history), which
+  is mild, so no lookback cap is needed.
+- **Gaps need no weekly runs.** `gap_states` (tested equal to `detect(as_of=...)`)
+  gives each gap's exact state on any date from one full-history detection. It is daily,
+  so gaps are never stale.
+
+=== ITEM 7
+QUESTION: In the least resistance path design, what information does each price level carry?
+CHUNK:
+## 4. Point-in-time computation — the real cost
+
+The stored signal tables are **current-state**: a later run overwrites what the detector
+believed earlier. For example, `pattern_matches` can't answer "what did we believe on
+day D". All eight detectors support `as_of`, so levels must be **regenerated as of each
+date**, never read from the tables.
+
+Plan:
+- **Weekly snapshots:** each detector runs `as_of` every Friday for every ticker in the
+  universe. That gives the level set, with states as of that day.
+- **Daily roll-forward:** between snapshots, levels are fixed. Daily work is only price,
+  ATR, the time-varying level prices (AVWAP from its anchor, diagonal lines from
+  slope/intercept), and the state changes triggered by that day's bar (a close through a
+  level flips or kills it). Stale by at most 4 days for *new* levels, never leaky.
+- **First task before building:** time one detector's full `as_of` history on ~20
+  tickers, then extrapolate to the universe × 12 years × 52 snapshots. If it's too slow,
+  drop to fewer sources for v1 (S/R lines, gaps, AVWAP, structure are the cheapest
+  candidates) rather than cutting the point-in-time rule.
+
+=== ITEM 8
+QUESTION: What was the outcome of the divergence-context registered experiment?
+CHUNK:
+**Module/track:** divergence-context, Track B. Second (and, per the disposition below,
+final) registered experiment of this study.
+**Promoted from:** EXPLORATION_LOG 2026-10-11 hidden-forms prep looks (Done #119) —
+both prep gates the "Hidden forms" section above required: (a) hidden is independent
+information, not the regular cells' complement (only 29–34% of hidden events carry a
+mirrored-direction regular counterpart inside their pivot interval; hidden-alone cells
+~1,490–1,530 PIT dev dates); (b) the pivot-to-pivot retrace fraction is a well-defined
+hidden-geometry scalar (100% defined, mechanically bounded in (0,1), smooth) where the
+v0 63-bar impulse was shown misfit (retrace_frac > 1 on 66%/76% of defined hidden rows).
+
+**Hypothesis.** Hidden divergence is a continuation claim. For hidden divergences,
+forward outcomes after a *shallow* counter-move (trend barely dented — the textbook
+"strong trend" continuation setup) differ from outcomes after a *deep* counter-move
+(trend nearly given back), beyond what the same hidden-geometry structures show
+*without* a divergence. DC-B3 = bearish (downtrend, lower-high pairs), DC-B4 = bullish
+(uptrend, higher-low pairs).
+
+=== ITEM 9
+QUESTION: What was the outcome of the divergence-context registered experiment?
+CHUNK:
+## DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?
+
+> **STATUS: DRAFT, CLOSED WITHOUT RUN** (user decision 2026-10-12 — see the
+> disposition section at the end). Never frozen, never executed: no prerequisite was
+> built, no outcome was read; the only numbers ever computed were the blind sizing
+> counts. The section is kept whole as the record that the hypothesis was considered,
+> designed, and sized. Reviving it would be a new dated section referencing this one,
+> not a reopening. Nothing in this section alters any DC-B1/B2 text above.
+
+**Module/track:** divergence-context, Track B. Second (and, per the disposition below,
+final) registered experiment of this study.
+
+=== ITEM 10
+QUESTION: What was the outcome of the divergence-context registered experiment?
+CHUNK:
+- **Pre-committed disposition if no cell is Alive:** the hidden Track-B line closes —
+  **no power addendum will be proposed** (the paragraph above is that analysis, done
+  at registration instead of after the readout), and the hidden-fit retrace fraction
+  routes to the combined-model feature track as a continuous feature (IDEAS F6 /
+  LRP §2.4, whose constraint 2 already mandates hidden/regular form separation). The
+  experiment is decision-complete at registration: every outcome has a pre-named
+  next step.
+
+=== ITEM 11
+QUESTION: Did trading divergences with stops and profit targets show an edge after costs?
+CHUNK:
+- Cost: 10 vs 20 bps moves no region's adjusted R by more than 0.002 R. Events and their
+  matched controls pay the same cost, so it nets out of the delta; net-of-cost levels
+  are in the report.
+- Argue-against:
+  - The bearish positives are still "events lose less than controls": shorting with a
+    stop above loses ~0.19–0.25 R net in this bull window.
+  - The bullish/pullback edge is concentrated in 2010–15.
+  - The 44 delisting-exit events average +0.29 R net. A delisting is often an
+    acquisition at a premium, not a failure, so the newly exercised path doesn't only
+    add distress.
+  - With ~324 cells, a sign-stable near-miss of this size is what winner's curse
+    produces.
+
+=== ITEM 12
+QUESTION: When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?
+CHUNK:
+- **#115** [llm] — **Research-docs RAG eval set v2: 59 questions, unanswerable and multi-part questions, golds completed by pooling, a held-out test split (`src/llm/research_docs/evaluate.py`, `eval_questions.json`).** Follow-up to #109, whose 22 questions were small, written by one author, and only as complete as that author's memory. Added: 20 questions covering experiment-table rows, exact ids, status, out-of-scope topics and 3 the docs don't answer; 10 by an agent shown only the doc file names; 7 by the user, written blind. Unanswerable questions (`"answerable": false`, no gold) show their top similarity score but stay out of hit@k; the report gives each kind's score range, and they overlap (answerable 0.63–0.83, unanswerable 0.70–0.76), so a score cutoff alone can't spot an off-topic question. Multi-part questions list `parts`, one gold list per piece of the answer, and rank where the last part is found; the report scores them on the full answer and on the first part found. Golds were completed by pooling: the top 5 of vector search and of a BM25 keyword search for every question, 481 chunks not already in a gold, each judged once (four agents, every yes re-checked by hand); 25 were added and 4 rejected.
+
+=== ITEM 13
+QUESTION: When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?
+CHUNK:
+Code review: a request group's details are `(field, details)` pairs read through `details_for(field)`, not a dict, so a group stays hashable; a log line is skipped with a warning if its `details` isn't `{field: [text, ...]}` with every key one of its fields or its wording, reason, a field or a detail is blank (a line without a `details` key still counts, since the summary doesn't use it; reasons and fields are checked for shape only, so old lines still count after the schema changes); the log's keys are written out by hand rather than taken from the class, so the file format doesn't change by accident; both lock names are pinned by tests, the level cache's by a spy checking the manifest merge runs while that lock is held (that the lock excludes other processes is `tests/test_file_lock.py`'s check). Not changed: the lock still has no timeout, so a holder that hangs blocks the others (as both old copies did). Tests: 4 new (the lock is held inside the block and released after, also when it raises; the LLM ledger's and the level cache's lock file names), 4 updated (the three log-line tests for the new `details` shape, and the damaged-line test with eleven more cases). Two level-cache tests in `tests/test_models_levels.py` already fail on main (an `anchor_date` dtype mismatch after the parquet round trip), unrelated and left as they are.
+
+=== ITEM 14
+QUESTION: When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?
+CHUNK:
+That gives one gap per field (in field order, carrying only the details given for that field) and one log line per idea, so the summary counts ideas, not LLM repeats. The spec's own list keeps the LLM's output as written. The log is written under the same file lock as the Gemini ledger (the lock file name is unchanged, so code before and after this change takes the same lock); times are stored in UTC, a naive one is refused, "last asked" compares parsed times, not strings, and a line with no fields or non-text fields is skipped with a warning; `uses` ids are stripped like every other text field; the long-only drawdown metric says so, so a short idea's drawdown goes to `unsupported`; the no-heavy-imports check runs in a fresh interpreter instead of grepping the source. No Gemini calls (the extraction prompt is step 2c). Tests: 128 new (100 of them one per catalogue entry, checking its implementation imports).
+
+=== ITEM 15
+QUESTION: When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?
+CHUNK:
+- **#133** [llm] — **Two follow-ups from #132's review: each detail in the unsupported-requests log stays with its field, and one shared file lock (`src/foundation/utils/file_lock.py`).** A log line now stores `"details": {"trigger": ["intraday entry"]}` instead of one flat list for every field the request was filed under, so a detail given for the entry rule isn't read as one about the timeframe; the log didn't exist yet, so no old lines needed converting. `group_unsupported` keeps details per field, which also shortens `find_gaps` (it no longer regroups per field). The `fcntl` lock code that `src/llm/paths.py` and `src/models/features/level_cache.py` each had is now one `file_lock(lock_path)` in `src/foundation/utils/` (so the model code doesn't import from `src/llm`); each caller keeps its own lock file name (`gemini_usage.lock`, `manifest.json.lock`), so code before and after this change takes the same lock.
+
+=== ITEM 16
+QUESTION: Why are the research-doc chunks capped at 384 tokens?
+CHUNK:
+- **#115** [llm] — **Research-docs RAG eval set v2: 59 questions, unanswerable and multi-part questions, golds completed by pooling, a held-out test split (`src/llm/research_docs/evaluate.py`, `eval_questions.json`).** Follow-up to #109, whose 22 questions were small, written by one author, and only as complete as that author's memory. Added: 20 questions covering experiment-table rows, exact ids, status, out-of-scope topics and 3 the docs don't answer; 10 by an agent shown only the doc file names; 7 by the user, written blind. Unanswerable questions (`"answerable": false`, no gold) show their top similarity score but stay out of hit@k; the report gives each kind's score range, and they overlap (answerable 0.63–0.83, unanswerable 0.70–0.76), so a score cutoff alone can't spot an off-topic question. Multi-part questions list `parts`, one gold list per piece of the answer, and rank where the last part is found; the report scores them on the full answer and on the first part found. Golds were completed by pooling: the top 5 of vector search and of a BM25 keyword search for every question, 481 chunks not already in a gold, each judged once (four agents, every yes re-checked by hand); 25 were added and 4 rejected.
+
+=== ITEM 17
+QUESTION: Why are the research-doc chunks capped at 384 tokens?
+CHUNK:
+- **#127** [llm] — **Research-docs RAG step 7b: a cross-encoder re-ranks hybrid search's top 30 (`src/llm/research_docs/rerank.py`, `evaluate.py --method rerank`).** The embedding model is a bi-encoder: question and chunk are embedded separately, so chunks are embedded once at build time and a search is one dot product per chunk, but each chunk's vector was made without seeing the question. A cross-encoder reads the question and one chunk together and outputs one relevance score, so every question word can be compared with every chunk word. That is more accurate but can't be precomputed: each pair is a full model run at question time. So it runs after retrieval: hybrid's top 30 (depth fixed before any run), re-scored, best k kept. Its ceiling is hybrid's hit@30, 0.90 on dev (4 questions never reach the top 30). Two local models under the Intel Mac's torch 2.2 cap, via sentence-transformers' `CrossEncoder`, scores taken as a tensor (the numpy path fails under numpy 2, as in the embedder): `cross-encoder/ms-marco-MiniLM-L-6-v2` (22M parameters, the default) and `BAAI/bge-reranker-base` (278M). Each chunk is scored as the embedder saw it, heading trail and row ids included.
+
+=== ITEM 18
+QUESTION: Why are the research-doc chunks capped at 384 tokens?
+CHUNK:
+- **#124** [llm, infra] — **Gemini key set up; LLM guardrails decided before the first call (`docs/strategy-agent/idea.md` "LLM guardrails", `.env.example`).** `GOOGLE_API_KEY` (Google AI Studio) checked with a model listing, which costs no tokens: 45 models that can generate text, including the 2.5 Flash/Pro and 3.x previews. `.env.example` gets the key and is grouped by purpose (market data, macro, LLM). Two decisions for step 2 of the strategy agent, also binding on the research-docs search's answer step: (1) **token budget**: a Flash-class model by default, the prompt counted before each call against a per-call cap, capped output and thinking budget (2.5 models think by default and thinking is billed as output), every call's usage in a local ledger under `data/llm/` with a daily cap that stops the agent, tests on a stub client; (2) **unsupported requests**: a capability catalogue in code, an `unsupported` list on the spec (the user's words plus the reason) that the LLM must use instead of mapping a request to the nearest thing that exists, the user told plainly, every such request logged locally and summarised as a development backlog, and answer-key ideas with unsupported requests to score it. Nothing built yet; `google-genai` gets installed with step 2.
+

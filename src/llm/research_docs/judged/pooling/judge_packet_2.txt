@@ -1,0 +1,199 @@
+=== ITEM 19
+QUESTION: Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?
+CHUNK:
+## 1. Executive summary
+- **One Tier-2 result, no Tier 1.** Stocks whose 50-day SMA slope is at a cross-sectional
+  extreme, rising or falling, outperform stocks with a flat slope. The effect is 0.25% per
+  21 days, with a 90% CI of [0.15%, 0.35%]. It holds in each tail separately, under a
+  reversal control, with large moves excluded, and across seeds. It clears cost at
+  20 bps. That is about 3% a year gross: a feature, not a strategy.
+- **An FDR survivor that fails its plateau (M22, 2026-10-01).** After a break above SMA50, a
+  held retest is followed by 63-day returns 2.08% below an ordinary SMA50 bounce, and the cell
+  survives FDR at q=0.05. The pre-registered neighbour check cut it to Tier 3: SMA47 spans zero,
+  SMA53 is about half the size, and a coarser match spans zero. The sign is consistent; the
+  size is not.
+
+=== ITEM 20
+QUESTION: Should order blocks be added as their own support/resistance source?
+CHUNK:
+- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are
+  ~0.3–0.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed
+  when features are built, never stored. With the feature cache and one scorecard run,
+  step 2 adds ~1.5–2 GB.
+
+**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,
+AVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,
+52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market
+structure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the
+cheap set shows something on the scorecard; the cache is per source, so adding them
+redoes nothing. Two alternatives were rejected:
+- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent
+  before knowing whether levels help at all.
+
+=== ITEM 21
+QUESTION: What kinds of alerts should the notification service send?
+CHUNK:
+## LLM
+- **LLM ideation, ideas 2–4 — open (`docs/ideation/llm_agentic_workflows.md`, Done #98).** Idea 1 (research-docs RAG) is built and evaluated (Done #99, #102, #104, #106, #109, #115). Still open, in the agreed order: (2) a read-only tool-calling agent over the DB with the holdout lock inside the tools (LangGraph or plain tool use), the next one; (3) plain-language reasons on model alerts, built on idea 2's tools, waits for a fitted model that produces alerts; (4) search over SEC filing text for live alert context only, later (the filing text still has to be fetched from EDGAR). LLM output stays out of anything backtested.
+
+=== ITEM 22
+QUESTION: Did we test Ichimoku cloud signals?
+CHUNK:
+Time for those runs, old to new: S/R 7.1 to 5.6 s, AVWAP 5.4 to 4.0, volume profile 4.8 to 3.0, market structure 20.7 to 9.2, fibonacci 20.3 to 13.4, divergences 36.2 to 20.2, patterns 62.2 to 53.7 (a lightly loaded machine, one run each). For the level-snapshot build (#125) this means about 1.3–1.6x on its three sources. Also found while timing: the snapshot path is no slower per call than the detector itself (AVWAP 0.25 s vs 0.32 s on CSX); the smoke build's 5x overrun was CPU sharing (2 physical cores, 4 workers, another run going), so the full build goes on an otherwise idle machine. No DB writes. Tests: the detector and market_common suites pass (656; the one failure, `test_sr_lines_plotting` cutoff marker, fails on main too).
+
+=== ITEM 23
+QUESTION: how is the one-bar lag applied and where in the code does it happen?
+CHUNK:
+- **Pattern backtest enters on the breakout bar's own close (found 2026-10-11, strategy agent step 1, Done #118).** `src/signals/patterns/lifecycle.py` sets `entry_price` to the close that confirms the breakout and `src/signals/patterns/backtest/evaluator.py` measures forward returns from it: same-bar execution, against the repo's one-bar lag. It also reports bare outcome rates with no matched control. Its returns include the move from the breakout close to the next open, which a trader acting on that close can't capture; fix (enter at the next open, add a control) before reading pattern outcomes as evidence.
+
+=== ITEM 24
+QUESTION: what cost assumption do we use when judging whether a signal is tradeable?
+CHUNK:
+## Out of scope
+
+- Judging whether an idea is good: the tests do that.
+- Tuning parameters to fit the examples.
+- Live trading or alerts.
+
+=== ITEM 25
+QUESTION: did we ever try RSI divergence combined with a trend filter, and what happened?
+CHUNK:
+- **Context scalar: the hidden-fit retrace fraction** — counter-move / trend-leg,
+  derived at analysis time from the stored scalars:
+  `leg2_gain_pct × (1 + interpeak_retrace_pct) / interpeak_retrace_pct` for LOW pairs
+  (bullish), the `(1 − interpeak_retrace_pct)` variant for HIGH pairs (bearish); NaN
+  wherever an input is NaN or the trend leg is ≤ 1e-6 of p1's close (invariant #9) —
+  the formula and NaN/eps discipline of
+  `src.analysis.divergence_hidden_prep.hidden_fit_retrace_frac`, with that function's
+  hidden-form domain mask replaced, for control pairs (which carry no `form`), by the
+  strict pair-geometry filter in the Controls section. Undefined rows are excluded
+  and counted. Measured definedness on this base, blind: events 100.0% (the Done #119
+  prep), control pairs 100.0% (`src/analysis/divergence_dcb3b4_sizing.py`, committed
+  with this draft).
+
+=== ITEM 26
+QUESTION: what's the least resistance path idea and has it been tested?
+CHUNK:
+- **Source weights:** if the model's own use of §2.1 disagrees with §1.2's equal
+  `prior_factor`, that's a finding to log. Only the next dated revision of this document
+  may change the priors. They're never tuned against test folds.
+
+=== ITEM 27
+QUESTION: what's the least resistance path idea and has it been tested?
+CHUNK:
+- **The three-verdict rule stays** for any pre-registered test. That includes the
+  planned pre-registered trading test of the full feature set: its relevance band is set
+  in its `PREREGISTRATION.md` entry before it runs.
+- **Scope of step 2:** the level sources only. Patterns (§1.1) and all of §2.4 pressure
+  are step 3, under §2.4's constraints. The v1 source list and its cost come from §4's
+  timing (see the §4 addendum).
+
+---
+
+=== ITEM 28
+QUESTION: how does the validation harness split train/test for the combined model?
+CHUNK:
+The gate caught one tie: two windows of cent prices can hold the same values, so their widths
+or vols tie exactly. Pandas' running-sum rolling std breaks the tie in float after a later
+split or dividend, and a trailing percentile rank would then depend on it. Values are rounded
+to 9 decimals before ranking; the same goes for the cross-sectionally ranked
+`rel_volume_20` and the sector returns, where two names can tie exactly. The cache's panel
+source reads every name that was a member of the universe's indices in the window (recorded
+as `panel_membership_indices`); the per-ticker sources are still computed on the eligible names only.
+
+**Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 × close):
+ADX's "which move is larger", the ribbon's "slope > 0" and the stack's ordering. Quoted
+(cent-rounded) prices tie exactly, and a later split or dividend breaks such ties in
+floating point. A strict comparison would then make the value at *t* depend on corporate
+actions after *t*. The real-bar smoke run caught it on ADX (Tiingo's cent prices; up to 3.9
+ADX points). The gate's synthetic bars are now cent-rounded, so the synthetic gate catches
+this class too.
+
+`features/cache.py` builds one cache of every registered model column for a universe's
+eligible rows, ranked per date over those rows (`python -m src.models.cli build-features`).
+
+=== ITEM 29
+QUESTION: Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?
+CHUNK:
+Each chunk is scored as the embedder saw it, heading trail and row ids included. Pooling rule (#115): both models' top 5 on both splits, minus golds and chunks already judged (no record of the "no" verdicts survives and node ids change on a rebuild, so judged means: in the current vector, keyword or hybrid top 5 for that question, matched by chunk text): 152 chunks, judged by fresh agents shown only the question and the chunk; 30 yes, each checked by hand, 19 added as golds with a verbatim phrase (11 rejected: design motivation rather than the result, a different bug from the one asked about, another cell's row, a passing mention, a note made stale by a later doc, a mechanism named without saying where it lives). The new golds move vector's hit@10 0.76 → 0.80 (MRR 0.53 → 0.54) and leave hybrid's numbers unchanged. Dev (41 answerable), hit@1 / @3 / @5 / @10 / MRR: vector 0.44 / 0.56 / 0.63 / 0.80 / 0.54; hybrid 0.44 / 0.68 / 0.76 / 0.80 / 0.58; MiniLM re-rank 0.61 / 0.78 / 0.85 / 0.85 / 0.70; bge re-rank 0.56 / 0.78 / 0.80 / 0.88 / 0.67.
+
+=== ITEM 30
+QUESTION: Do we have any financial data from companies' earning reports?
+CHUNK:
+## Why
+
+- **Earnings dates are the largest known gap for the model.** An earnings gap jumps
+  straight through both barriers of a triple-barrier label, and today nothing can flag
+  "earnings inside the horizon" (`docs/modeling/IDEAS.md`, "Earnings dates" in §3 and §7).
+- **The model only sees prices.** Growth, surprise and valuation are an independent
+  source of information: the classic academic effects (post-earnings drift, value,
+  quality) come from here, not from charts.
+- **The raw data is already on disk and nearly unused.** `data/raw/sec/submissions.zip`
+  (~1.6 GB, every filer's filing index) and `data/raw/sec/companyfacts.zip` (~1.4 GB,
+  every XBRL fact). Today only share counts are read from them (Done #60).
+
+=== ITEM 31
+QUESTION: Do we have any financial data from companies' earning reports?
+CHUNK:
+## Data sources
+
+| What | Source | Point-in-time | Notes |
+|---|---|---|---|
+| Earnings dates | `submissions.zip`: 8-K filings with item 2.02 (results of operations) | yes, acceptance time | local, free; covers delisted filers |
+| Reported financials | `companyfacts.zip`: XBRL facts (revenue, EPS, margins, cash, debt, ...) | yes, `filed` date per fact | ~2009–2011 onward (XBRL mandatory for all filers by 2011) |
+| Guidance | 8-K item 2.02 exhibit 99.1 (the press release), item 7.01 updates | yes, acceptance time | free text, must be fetched from EDGAR and extracted (step 5) |
+| Analyst consensus | none free | — | so "surprise" is measured against the company's own history |
+
+=== ITEM 32
+QUESTION: Do we have any financial data from companies' earning reports?
+CHUNK:
+## One-liner
+
+Bring company financials into the database: when each company reported results,
+what it reported, and what it said about the future. All of it point-in-time, so the
+model and the research can use it without look-ahead.
+
+=== ITEM 33
+QUESTION: Do we have any financial data from companies' earning reports?
+CHUNK:
+- **Paid alternatives, not checked yet:** structured guidance datasets exist (LSEG I/B/E/S,
+  FactSet, S&P Capital IQ at institutional prices; Benzinga at retail prices, possibly via
+  Polygon as an add-on). Pricing, history depth and point-in-time quality unverified.
+
+=== ITEM 34
+QUESTION: Do we have any financial data from companies' earning reports?
+CHUNK:
+### 2. Fundamentals table
+
+- Quarterly and annual facts from `companyfacts.zip`: revenue, EPS (basic and diluted),
+  gross and operating income, net income, operating cash flow, cash, total debt,
+  equity.
+- Stored as-of the filed date, first-reported value kept.
+- **Most of the work is tag normalization:** the same concept appears under several XBRL
+  tags (e.g. several revenue tags) that vary across companies and years. Keep an explicit
+  mapping table with its own coverage report.
+- Derive quarterly values where only year-to-date or annual figures are filed
+  (Q4 = annual − 9-month YTD).
+- Checks: coverage per member per quarter, hand-check a handful of companies against
+  their filings.
+
+=== ITEM 35
+QUESTION: Do we consider Sharpe value in our model and/or analysis?
+CHUNK:
+## Ground rules
+
+- **Point-in-time by filing time.** Every value is available only from its EDGAR
+  acceptance timestamp onward. A filing accepted after the close is usable at the
+  next day's open, never the same bar.
+- **First-reported values, not restated ones.** Companies revise past numbers in later
+  filings; using the revised value is look-ahead. Keep each value as it was first filed,
+  and keep later revisions as separate rows if needed.
+- **Delisted companies stay in.** EDGAR covers them; drop none.
+- **Holdout and trial rules from the modeling thread apply** to anything that reaches a
+  model or a test (`docs/modeling/VALIDATION_HARNESS.md`).
+
+=== ITEM 36
+QUESTION: Do we have any model running yet?
+CHUNK:
+**Decided: v1 is the cheap set on the full universe** (S/R, AVWAP, VP, gaps + MA, 52-week high/low, round numbers; ~10 h, ~1.5–2 GB), market structure and fibonacci added only if it shows something; a 100-ticker pilot was rejected (5× less training data, 2× wider CIs, S1b rerun needed). §3 addendum: level groups go into the combined model and are judged on the trading scorecard; ablations are diagnostics; the three-verdict rule stays for any pre-registered test. Docs only; the snapshot builder and features are the next PRs.
+
