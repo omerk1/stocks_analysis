@@ -181,10 +181,11 @@ def test_refusals_name_the_problem(tmp_path):
     with pytest.raises(GroundingError, match="horizons_bars"):
         look(spec(horizons_bars=[]), frame, say=lambda _: None)
     # A horizon below 1 bar would report a PAST return as the forward outcome (the
-    # shift's sign flips); a duplicate double-counts its cell. Both refused.
+    # shift's sign flips); a duplicate double-counts its cell. Both refused, with the
+    # rules read from schema.find_gaps so the look can't drift from the elicitation loop.
     with pytest.raises(GroundingError, match="at least 1 bar"):
         look(spec(horizons_bars=[-5]), frame, say=lambda _: None)
-    with pytest.raises(GroundingError, match="listed once"):
+    with pytest.raises(GroundingError, match="listed twice"):
         look(spec(horizons_bars=[5, 5]), frame, say=lambda _: None)
     with pytest.raises(GroundingError, match="not a feature panel"):
         look(spec(), frame.drop(columns=["mom_12_1"]), say=lambda _: None)
@@ -282,6 +283,15 @@ def test_cost_hurdle_counts_fired_events_not_only_c2_scorable_ones(tmp_path):
     assert cell_["n_events"] == N_SIGNALS - 1 and cell_["n_events_fired"] == N_SIGNALS
     # Ticker-years from actual row coverage (rows/252), not window-years × ticker count.
     assert cell_["signals_per_ticker_year"] == pytest.approx(N_SIGNALS / (len(frame) / 252))
+    # A terminal signal with no measurable outcome (a delisting inside the horizon)
+    # still fired — the trader paid that round trip, so it stays in the turnover count
+    # even though no cell statistic can score it.
+    truncated = effect_panel(step=0.02, n_signals=6)
+    last_event_date = truncated["date"].sort_values().unique()[seq_and_signals(6)[1][-1] + 2]
+    truncated = truncated[truncated["date"] <= last_event_date]
+    result, _ = run_look(spec(), truncated, tmp_path / "truncated")
+    (cell_,) = result["cells"]
+    assert cell_["n_events_fired"] == 6 and cell_["n_events"] == 5
 
 
 def test_too_few_dates_still_reports_real_effective_n_and_valid_json(tmp_path):

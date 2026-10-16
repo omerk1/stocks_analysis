@@ -70,7 +70,7 @@ import pandas as pd
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec.finders import (
     DEFAULT_MA, GroundingError, MA_COLUMNS, RubricLine, dispatch)
-from src.llm.strategy_spec.schema import StrategySpec
+from src.llm.strategy_spec.schema import StrategySpec, find_gaps
 from src.models.dataset import check_holdout
 from src.signals.moving_averages.labels.forward_returns import forward_return
 from src.signals.moving_averages.stats.controls import (
@@ -148,34 +148,39 @@ def verdict(ci_low: float, ci_high: float, cost: float, sign: int) -> str:
     return "inconclusive (CI neither clears the per-event cost nor fits inside it)"
 
 
-def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side: str,
-         horizon: int, cost_round_trip: float, seed: int, ticker_years: float) -> dict:
-    """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
-    the bootstrap CI on C2, effective N, shape (in the trade's direction), per-event
-    cost and verdict. The control pool excludes every row of an event ticker whose own
-    h-bar forward window overlaps ANY event's outcome window: an other-side neighbour
+def contamination_mask(working: pd.DataFrame, any_event: pd.Series, horizon: int) -> pd.Series:
+    """Rows whose own `horizon`-bar forward window overlaps ANY event's outcome window
+    on the same ticker — the control pool must exclude them: an other-side neighbour
     carries the opposite expected move (the pooled-cancellation confound the per-side
     split exists to avoid — the signal bar alone carries (h-1)/h of it), and a same-side
     neighbour carries the same-signed move, dragging the control mean toward the event
     mean and attenuating a real delta (events cluster, so this is common). Overlap
     exists for rows within h-1 bars either side of an event row; a centered rolling max
-    flags exactly that set. This side's own event rows are kept: they fired, and their
-    outcome is whatever it is."""
+    flags exactly that set. Depends only on (events, horizon), so a "both" spec's two
+    sides share one mask per horizon."""
+    window = 2 * horizon - 1
+    return (any_event.astype(float)
+            .groupby(working["ticker"], sort=False)
+            .transform(lambda s: s.rolling(window, center=True, min_periods=1).max())
+            .gt(0))
+
+
+def cell(working: pd.DataFrame, event: pd.Series, contaminated: pd.Series, side: str,
+         horizon: int, cost_round_trip: float, seed: int, ticker_years: float) -> dict:
+    """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
+    the bootstrap CI on C2, effective N, shape (in the trade's direction), per-event
+    cost and verdict. `contaminated` rows (see `contamination_mask`) leave the control
+    pool; this side's own event rows are kept — they fired, and their outcome is
+    whatever it is."""
     value_col = fwd_col(horizon)
+    # Turnover counts every signal taken — a trader pays the round trip even for a
+    # terminal-bar signal with no measurable outcome (the delisted tickers invariant #4
+    # keeps in), and regardless of whether the C2 strata can score it (momentum warmup
+    # drops ~7% of fired events on real data).
+    fired = int(event.sum())
     frame = working[["ticker", "date", value_col, *C2_MATCH_COLS]].copy()
     frame["__event"] = event.to_numpy()
-    any_event = frame["__event"] | other_events.to_numpy()
-    window = 2 * horizon - 1
-    contaminated = (any_event.astype(float)
-                    .groupby(frame["ticker"], sort=False)
-                    .transform(lambda s: s.rolling(window, center=True, min_periods=1).max())
-                    .gt(0))
     frame = frame.loc[frame["__event"] | ~contaminated]
-    # The cost hurdle counts what fired and was tradeable (a valid forward return),
-    # BEFORE control eligibility: a trader pays for every signal taken, not only for
-    # the ones the C2 strata can score (momentum warmup drops ~a fifth on real data —
-    # an eligibility-based count would understate the hurdle and flatter the verdict).
-    fired = int((frame["__event"] & frame[value_col].notna()).sum())
     # One row population for all three tiers (DESIGN §6.1 / PREREGISTRATION's "Waterfall
     # row set"): otherwise shrinkage is confounded with sample composition.
     frame = frame[c2_eligible_mask(frame, "__event", value_col, list(C2_MATCH_COLS))]
@@ -216,9 +221,6 @@ def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side:
     row["win_loss_ratio"] = shape["win_loss_ratio"]
     row["skew"] = float(shape["skew"]) if pd.notna(shape["skew"]) else float("nan")
 
-    # Turnover context off everything that FIRED with a tradeable outcome, over ticker-
-    # years of actual coverage (rows/252 — a window-years × tickers denominator would
-    # count a delisted ticker's missing years as live, understating the turnover).
     row["signals_per_ticker_year"] = fired / ticker_years if ticker_years else float("nan")
     row["cost_round_trip"] = cost_round_trip
     row["verdict"] = verdict(row["ci_low"], row["ci_high"], cost_round_trip, sign)
@@ -279,10 +281,11 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
 
 
 def _jsonable(value):
-    """NaN → null, recursively: `json.dumps` would otherwise emit bare `NaN` tokens
-    (valid Python, invalid JSON) whenever a cell's CI couldn't be bootstrapped, and the
-    whole session artifact would refuse to parse anywhere outside Python."""
-    if isinstance(value, float) and math.isnan(value):
+    """Non-finite floats (NaN, ±inf) → null, recursively: `json.dumps` would otherwise
+    emit bare `NaN`/`Infinity` tokens (valid Python, invalid JSON) — a cell with an
+    un-bootstrappable CI, or a bad zero-close bar turning a forward return infinite,
+    would make the whole session artifact refuse to parse anywhere outside Python."""
+    if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):
         return {k: _jsonable(v) for k, v in value.items()}
@@ -363,16 +366,15 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         if needed not in panel.columns:
             raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
     check_holdout(panel["date"].max())
-    if not spec.horizons_bars:
-        raise GroundingError("the spec states no horizons_bars — finish elicitation before "
-                             "testing (the horizon is the one outcome decision, and it is "
-                             "the trader's, not a default's)")
-    if any(h < 1 for h in spec.horizons_bars) or len(set(spec.horizons_bars)) < len(spec.horizons_bars):
-        # The same validity rules schema.find_gaps flags: a horizon below 1 bar would
-        # silently report a PAST return as the forward outcome (forward_return shifts by
-        # -horizon), and a duplicate double-counts its cell everywhere downstream.
-        raise GroundingError("the spec's horizons_bars are invalid — each horizon must be "
-                             "at least 1 bar and listed once; finish elicitation before testing")
+    # The horizon rules live in schema.find_gaps, in one place — a horizon below 1 bar
+    # would silently report a PAST return as the forward outcome (forward_return shifts
+    # by -horizon), a duplicate double-counts its cell, and a missing list means the one
+    # outcome decision was never made. It is the trader's decision, not a default's.
+    horizon_gaps = [g for g in find_gaps(spec) if g.field == "horizons_bars"]
+    if horizon_gaps:
+        raise GroundingError("the spec's horizons_bars aren't ready — "
+                             + "; ".join(g.reason for g in horizon_gaps)
+                             + " — finish elicitation before testing")
     if spec.direction is None:
         raise GroundingError("the spec doesn't state a direction — finish elicitation before "
                              "testing (the two sides of a setup carry opposite expected "
@@ -418,21 +420,28 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         out(f"  - {line.parameter}: {line.value}  [{line.source}]{detail}")
 
     window = (str(panel["date"].min().date()), str(panel["date"].max().date()))
-    # Ticker-years of ACTUAL coverage (rows / 252, stats/costs.py's own convention):
-    # window-years × ticker-count would count a delisted or late-listed ticker's missing
-    # years as live and understate the turnover (invariant #4 keeps those tickers in).
+    # Ticker-years of actual coverage: panel rows / 252. Unlike window-years × ticker
+    # count, this doesn't book a delisted or late-listed ticker's missing years as live
+    # (invariant #4 keeps those tickers in). It still includes each ticker's indicator
+    # warmup bars, where no finder could fire — which finder-specific columns warm up is
+    # not knowable generically here — so the printed turnover is slightly understated
+    # (~7% on the real panel); it is context next to the per-event verdict, not a gate.
     ticker_years = len(panel) / 252
     panel_tickers = int(panel["ticker"].nunique())
     for side in sides:
         matches = results[side].matches
         out(f"Population ({side}): the definition fires {len(matches)} times on "
-            f"{len({c.date for c in matches})} distinct dates, {window[0]} to {window[1]}.")
+            f"{len({c.date for c in matches})} distinct signal dates, {window[0]} to "
+            f"{window[1]} (cells below count their next-bar event rows, one bar later).")
 
     working = add_context(panel, horizons)
     any_event = pd.Series(False, index=panel.index)
     for mask in event_by_side.values():
         any_event |= mask
-    cells = [cell(working, event_by_side[side], any_event & ~event_by_side[side], side, h,
+    # One contamination pass per horizon — the mask is side-independent (see
+    # contamination_mask), and it's the heaviest per-cell operation on a real panel.
+    contaminated = {h: contamination_mask(working, any_event, h) for h in horizons}
+    cells = [cell(working, event_by_side[side], contaminated[h], side, h,
                   cost_round_trip, seed, ticker_years)
              for side in sides for h in horizons]
 
