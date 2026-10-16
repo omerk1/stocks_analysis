@@ -22,7 +22,8 @@ def _filings(concept, values, period_type="quarter", ends=QUARTER_ENDS, availabl
 
 
 def _shares(dates, counts):
-    return pd.DataFrame({"ticker": "AAA", "date": pd.to_datetime(dates), "shares_outstanding": counts})
+    return pd.DataFrame({"ticker": "AAA", "date": pd.to_datetime(dates), "shares_outstanding": counts,
+                         "source": db.SEC_EDGAR})
 
 
 def _at(out, day, col):
@@ -113,11 +114,104 @@ def test_the_gate_catches_a_share_count_used_on_its_filing_day(monkeypatch):
     bars, splits, cut, context = gates.synthetic_leakage_inputs()
     shares = context.shares.copy()
     shares.loc[shares.index[0], "date"] = cut  # one filing on the cut day itself
-    real = V._shares_known
-    monkeypatch.setattr(V, "_shares_known", lambda s, sp: real(s, sp).assign(known_at=lambda f: f["dated"]))
+    # and one ticker's filings moved so one lands on the cut a year after another
+    sec_only = shares.groupby("ticker")["source"].agg(lambda s: (s == db.SEC_EDGAR).all())
+    moved = shares["ticker"] == sec_only[sec_only].index[0]  # one source throughout: a year-ago match
+    nearest = shares.loc[moved, "date"].iloc[(shares.loc[moved, "date"] - cut).abs().argmin()]
+    shares.loc[moved, "date"] += cut - nearest
+    monkeypatch.setattr(V, "_known_from", lambda dated: dated)
     from dataclasses import replace
     result = gates.leakage_gate(bars, splits, cut, context=replace(context, shares=shares))
-    assert result["leaks"]["future_filings"]
+    assert {"earnings_yield", "share_change_yoy"} <= set(result["leaks"]["future_filings"])
+
+
+def test_share_change_is_the_log_count_vs_a_year_before_from_the_next_session():
+    shares = _shares(["2019-03-01", "2019-06-03", "2020-03-02", "2020-06-01"], [100.0, 100.0, 90.0, 110.0])
+    out = _features(_bars(), None, shares).set_index("date")["share_change_yoy"]
+    assert np.isnan(out.loc["2020-03-02"])  # filed that day; the one known before is stale
+    assert out.loc["2020-03-03"] == pytest.approx(np.log(0.9))  # a buyback: negative
+    assert out.loc["2020-06-01"] == pytest.approx(np.log(0.9))
+    assert out.loc["2020-06-02"] == pytest.approx(np.log(1.1))  # dilution: positive
+    # stale 200 days after 2020-06-01, like the counts in the market cap
+    assert out.loc["2020-12-18"] == out.loc["2020-12-18"] and np.isnan(out.loc["2020-12-21"])
+
+
+def test_share_change_needs_a_count_within_the_tolerance_of_a_year_before():
+    # 2019-04-22 is 50 days off a year before 2020-03-02
+    shares = _shares(["2019-04-22", "2020-03-02"], [100.0, 90.0])
+    out = _features(_bars(), None, shares)
+    assert out["share_change_yoy"].isna().all()
+
+
+def test_a_split_between_the_two_counts_is_not_dilution():
+    # a 2-for-1 on 2020-03-02; the first filing after it still reports the
+    # pre-split count (bridged to 200), the next one 210 after issuing 10
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2020-03-02")], "ratio": [2.0]})}
+    shares = _shares(["2019-03-15", "2019-06-14", "2020-03-16", "2020-06-15"], [100.0, 100.0, 100.0, 210.0])
+    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
+    assert out.loc["2020-03-17"] == pytest.approx(0.0)
+    assert out.loc["2020-06-16"] == pytest.approx(np.log(210 / 200))
+
+
+def test_a_stale_year_ago_filing_after_a_split_is_not_dilution():
+    # a 2-for-1 on 2019-03-01; the 2019-03-15 filing still reports 100, the
+    # one a year later 210 after issuing 10
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-03-01")], "ratio": [2.0]})}
+    for dates, counts in ((["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 100.0, 210.0]),
+                          (["2019-03-15", "2020-03-16"], [100.0, 210.0])):  # with no pre-split count too
+        out = _features(_bars(), None, _shares(dates, counts), splits).set_index("date")["share_change_yoy"]
+        assert out.loc["2020-03-17"] == pytest.approx(np.log(210 / 200))
+
+
+def test_share_counts_without_a_source_are_refused():
+    shares = _shares(["2019-03-01", "2020-03-02"], [100.0, 90.0]).drop(columns="source")
+    with pytest.raises(ValueError, match="source"):
+        _features(_bars(), None, shares)
+
+
+def test_growth_after_a_split_the_year_ago_count_already_reports_is_not_a_split():
+    # a 2-for-1 on 2019-01-15; 2019-03-15 already reports 200, then +50% issuance
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-01-15")], "ratio": [2.0]})}
+    shares = _shares(["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 200.0, 300.0])
+    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
+    assert out.loc["2020-03-17"] == pytest.approx(np.log(1.5))
+
+
+def test_share_change_compares_counts_from_the_same_source():
+    # SEC's class-A count a year ago, yfinance's all-class count now: no change to read
+    shares = _shares(["2019-03-01", "2020-03-02"], [100.0, 130.0]).assign(source=[db.SEC_EDGAR, db.YFINANCE])
+    assert _features(_bars(), None, shares)["share_change_yoy"].isna().all()
+    same = shares.assign(source=db.YFINANCE)
+    assert _at(_features(_bars(), None, same), "2020-03-03", "share_change_yoy") == pytest.approx(np.log(1.3))
+
+
+def test_a_spin_off_factor_booked_as_a_split_is_not_buybacks():
+    # the vendor books a spin-off as a 2.376 "split" (EBAY, 2015); the count
+    # doesn't move with it, and isn't divided by it
+    splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-12-02")], "ratio": [2.376]})}
+    shares = _shares(["2019-03-01", "2020-03-02"], [100.0, 95.0])
+    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
+    assert out.loc["2020-03-03"] == pytest.approx(np.log(0.95))
+
+
+def test_the_gate_catches_a_share_change_on_two_split_bases(monkeypatch):
+    # the latest count carried to day t's split basis (as the market cap
+    # does), the year-ago one left on the data's final basis: off by the
+    # splits after t
+    from src.foundation.data_processing import market_cap
+    from src.models import gates
+
+    bars, splits, cut, context = gates.synthetic_leakage_inputs()
+    real = V.share_changes
+
+    def two_bases(rows, shares, splits):
+        after_t = pd.concat([market_cap.split_factor(g["date"], splits.get(t)).set_axis(g.index)
+                             for t, g in rows.groupby("ticker")])
+        return real(rows, shares, splits) - np.log(after_t.reindex(rows.index))
+
+    monkeypatch.setattr(V, "share_changes", two_bases)
+    result = gates.leakage_gate(bars, splits, cut, context=context)
+    assert "share_change_yoy" in result["leaks"]["future_split"]
 
 
 def test_load_shares_reads_nothing_after_end():
@@ -139,3 +233,4 @@ def test_load_shares_uses_yfinance_only_where_sec_is_stale():
         conn.execute("INSERT INTO shares_outstanding VALUES ('AAA', ?, 1e6, ?)", (day, source))
     out = V.load_shares(conn, ["AAA"], "2021-12-31", {})
     assert out["date"].dt.strftime("%Y-%m-%d").tolist() == ["2010-01-04", "2011-01-03", "2011-02-01"]
+    assert out["source"].tolist() == [db.SEC_EDGAR, db.YFINANCE, db.SEC_EDGAR]

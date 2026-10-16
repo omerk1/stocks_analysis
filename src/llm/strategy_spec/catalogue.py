@@ -196,6 +196,8 @@ FEATURES = _entries("feature", "", _REG, {
     "earnings_yield": "earnings yield (E/P): trailing four quarters' net income over market cap",
     "sales_yield": "sales yield (S/P): trailing four quarters' revenue over market cap",
     "book_to_market": "book-to-market: equity over market cap",
+    "share_change_yoy": "change in shares outstanding over the past year (log, split-adjusted): positive is "
+                        "dilution, negative is buybacks",
 })
 
 _CTL = "src.signals.moving_averages.stats.controls"
