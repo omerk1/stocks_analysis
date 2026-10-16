@@ -14,15 +14,18 @@ honest look reports, per (side, horizon) cell:
   separates the setup from "this stock already rose". The shrinkage is the headline.
 - a block-bootstrap CI on the C2 delta, with effective N = distinct dates (events
   cluster; 40,000 rows on 55 dates is 55 observations), next to raw counts.
-- distribution shape (hit rate vs control, win/loss magnitude, skew) — descriptive only,
-  CLAUDE.md invariant #10: no CI, no kill criterion.
-- the cost hurdle (`signals_per_year × round-trip cost`) printed next to the annualized
-  gross delta, never behind it (invariant #8).
-- a three-way verdict in Track A words: *looks alive* (CI clears the hurdle in the stated
-  direction), *looks dead* (the whole CI sits inside the ±hurdle band — an effect big
-  enough to matter is affirmatively ruled out), else *inconclusive* — a CI spanning zero
-  but reaching past the band is underpowered, never dead. A CI clearing the hurdle
-  *against* the stated direction is called out as inverted, not buried.
+- distribution shape (hit rate vs control, win/loss magnitude, skew), reported in the
+  trade's direction — descriptive only, CLAUDE.md invariant #10: no CI, no kill criterion.
+- the per-event round-trip cost printed next to the per-event gross delta, never behind
+  it (invariant #8) — per-event vs per-event is the fair comparison for an event signal
+  (each signal pays the cost once and earns the delta once; see `verdict`), with the
+  signals-per-ticker-year turnover alongside for scale.
+- a three-way verdict in Track A words: *looks alive* (CI clears the per-event cost in
+  the stated direction), *looks dead* (the whole CI sits inside the ±cost band — an
+  effect big enough to pay for its own trade is affirmatively ruled out), else
+  *inconclusive* — a CI spanning zero but reaching past the band is underpowered, never
+  dead. A CI clearing the cost *against* the stated direction is called out as inverted,
+  not buried.
 
 Events come from the same finder grounding used (`finders.py`), on the **other
 alignment**: grounding un-lags so a chart's trigger date is the signal bar; the look
@@ -72,7 +75,7 @@ from src.models.dataset import check_holdout
 from src.signals.moving_averages.labels.forward_returns import forward_return
 from src.signals.moving_averages.stats.controls import (
     c0_delta, c1_delta, c2_eligible_mask, cross_sectional_bucket, stratum_deltas)
-from src.signals.moving_averages.stats.costs import annualize, ci_clears_cost, cost_hurdle
+from src.signals.moving_averages.stats.costs import ci_clears_cost
 from src.signals.moving_averages.stats.inference import InsufficientBlocksError, block_bootstrap_delta
 from src.signals.moving_averages.stats.shape import distribution_shape, hit_rate_deltas
 
@@ -123,49 +126,51 @@ def add_context(panel: pd.DataFrame, horizons: list[int]) -> pd.DataFrame:
     return working
 
 
-def verdict(ci_low_ann: float, ci_high_ann: float, hurdle: float, sign: int) -> str:
-    """The three-way exploratory verdict on one cell, from the annualized C2 CI and the
-    annual cost hurdle. Dead means the WHOLE CI sits inside the ±hurdle band (an effect
-    big enough to matter is affirmatively ruled out); a CI that spans zero but reaches
+def verdict(ci_low: float, ci_high: float, cost: float, sign: int) -> str:
+    """The three-way exploratory verdict on one cell: the per-event C2 delta's CI
+    against the per-event round-trip cost — the fair units for an event signal, where
+    each signal pays the cost once and earns the delta once (annualizing both by
+    signals-per-year cancels out; the study's ×252/horizon convention belongs to
+    always-in-position state signals and would inflate the gross side ~252/(h×spy)-fold
+    here). Dead means the WHOLE CI sits inside the ±cost band (an effect big enough to
+    pay for its own trade is affirmatively ruled out); a CI that spans zero but reaches
     past the band is inconclusive/underpowered, never dead (the three-verdict rule,
-    CLAUDE.md "Before running any analysis"). A CI that clears the hurdle against the
+    CLAUDE.md "Before running any analysis"). A CI that clears the cost against the
     spec's stated direction is reported as inverted, not hidden in inconclusive."""
-    if pd.isna(ci_low_ann) or pd.isna(ci_high_ann):
+    if pd.isna(ci_low) or pd.isna(ci_high):
         return "inconclusive (not enough distinct dates to bootstrap)"
-    if ci_clears_cost(ci_low_ann, ci_high_ann, hurdle):
-        if (1 if ci_low_ann > 0 else -1) == sign:
+    if ci_clears_cost(ci_low, ci_high, cost):
+        if (1 if ci_low > 0 else -1) == sign:
             return "looks alive (exploratory — not a finding)"
-        return "looks inverted (CI clears the hurdle AGAINST the stated direction)"
-    if max(abs(ci_low_ann), abs(ci_high_ann)) <= hurdle:
-        return "looks dead (whole CI inside the cost band)"
-    return "inconclusive (CI neither clears the cost band nor fits inside it)"
+        return "looks inverted (CI clears the per-event cost AGAINST the stated direction)"
+    if max(abs(ci_low), abs(ci_high)) <= cost:
+        return "looks dead (whole CI inside the per-event cost band)"
+    return "inconclusive (CI neither clears the per-event cost nor fits inside it)"
 
 
 def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side: str,
-         horizon: int, cost_round_trip: float, seed: int, panel_years: float,
-         panel_tickers: int) -> dict:
+         horizon: int, cost_round_trip: float, seed: int, ticker_years: float) -> dict:
     """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
-    the bootstrap CI on C2, effective N, shape, cost hurdle and verdict. `other_events`
-    (the other sides' event rows, when a "both" spec is split) marks rows whose setup
-    carries the opposite expected move; leaving them — or their neighbours — in the
-    control pool re-imports the pooled-cancellation confound the per-side split exists
-    to avoid."""
+    the bootstrap CI on C2, effective N, shape (in the trade's direction), per-event
+    cost and verdict. The control pool excludes every row of an event ticker whose own
+    h-bar forward window overlaps ANY event's outcome window: an other-side neighbour
+    carries the opposite expected move (the pooled-cancellation confound the per-side
+    split exists to avoid — the signal bar alone carries (h-1)/h of it), and a same-side
+    neighbour carries the same-signed move, dragging the control mean toward the event
+    mean and attenuating a real delta (events cluster, so this is common). Overlap
+    exists for rows within h-1 bars either side of an event row; a centered rolling max
+    flags exactly that set. This side's own event rows are kept: they fired, and their
+    outcome is whatever it is."""
     value_col = fwd_col(horizon)
     frame = working[["ticker", "date", value_col, *C2_MATCH_COLS]].copy()
     frame["__event"] = event.to_numpy()
-    if other_events.any():
-        # Not just the event rows: any row of that ticker whose own h-bar forward window
-        # overlaps an other-side event's outcome window shares part of the opposite-
-        # signed move (the signal bar itself carries (h-1)/h of it). Overlap exists for
-        # rows within h-1 bars either side of the event row — a centered rolling max
-        # flags exactly that set. This side's own event rows are kept: they fired, and
-        # their outcome is whatever it is.
-        window = 2 * horizon - 1
-        contaminated = (other_events.astype(float)
-                        .groupby(frame["ticker"], sort=False)
-                        .transform(lambda s: s.rolling(window, center=True, min_periods=1).max())
-                        .gt(0))
-        frame = frame.loc[frame["__event"] | ~contaminated]
+    any_event = frame["__event"] | other_events.to_numpy()
+    window = 2 * horizon - 1
+    contaminated = (any_event.astype(float)
+                    .groupby(frame["ticker"], sort=False)
+                    .transform(lambda s: s.rolling(window, center=True, min_periods=1).max())
+                    .gt(0))
+    frame = frame.loc[frame["__event"] | ~contaminated]
     # The cost hurdle counts what fired and was tradeable (a valid forward return),
     # BEFORE control eligibility: a trader pays for every signal taken, not only for
     # the ones the C2 strata can score (momentum warmup drops ~a fifth on real data —
@@ -198,27 +203,25 @@ def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side:
     row["ci_high"] = boot["ci_high"]
     row["effective_n_dates"] = int(boot["n_dates"])
 
-    shape = distribution_shape(events)
-    hits = (hit_rate_deltas(frame, "__event", value_col, match_cols=list(C2_MATCH_COLS))
+    # Shape in the TRADE's direction: a short setup's hit rate is P(the stock fell),
+    # and its wins are price drops — raw-return shape would print a working short as a
+    # failing one right next to an alive verdict on the negative delta.
+    sign = HYPOTHESISED_SIGN[side]
+    shape = distribution_shape(events * sign)
+    frame["_signed"] = frame[value_col] * sign
+    hits = (hit_rate_deltas(frame, "__event", "_signed", match_cols=list(C2_MATCH_COLS))
             if len(events) else {})
     row["hit_rate"] = hits.get("hit_rate", float("nan"))
     row["hit_rate_delta_c2"] = hits.get("hit_rate_delta_c2", float("nan"))
     row["win_loss_ratio"] = shape["win_loss_ratio"]
     row["skew"] = float(shape["skew"]) if pd.notna(shape["skew"]) else float("nan")
 
-    # Signals per ticker-year, measured off everything that FIRED with a tradeable
-    # outcome (the modules' convention, e.g. bounce_entry.py), and the §6.10 hurdle next
-    # to the annualized gross delta — the annualization is a labeled linear
-    # approximation (stats/costs.py).
-    spy = fired / (panel_years * panel_tickers) if panel_years and panel_tickers else float("nan")
-    hurdle = cost_hurdle(spy, cost_round_trip)
-    row["signals_per_ticker_year"] = spy
-    row["cost_hurdle_annual"] = hurdle
-    row["delta_c2_annualized"] = annualize(row["delta_c2"], horizon=horizon)
-    row["ci_low_annualized"] = annualize(row["ci_low"], horizon=horizon)
-    row["ci_high_annualized"] = annualize(row["ci_high"], horizon=horizon)
-    row["verdict"] = verdict(row["ci_low_annualized"], row["ci_high_annualized"],
-                             hurdle, HYPOTHESISED_SIGN[side])
+    # Turnover context off everything that FIRED with a tradeable outcome, over ticker-
+    # years of actual coverage (rows/252 — a window-years × tickers denominator would
+    # count a delisted ticker's missing years as live, understating the turnover).
+    row["signals_per_ticker_year"] = fired / ticker_years if ticker_years else float("nan")
+    row["cost_round_trip"] = cost_round_trip
+    row["verdict"] = verdict(row["ci_low"], row["ci_high"], cost_round_trip, sign)
     return row
 
 
@@ -263,10 +266,10 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
                                 "hit rate, win/loss magnitude and skew are always reported; "
                                 "other metrics have no mapping yet"))
     lines.append(RubricLine(
-        "cost", f"{cost_bps if cost_bps is not None else ROUND_TRIP_COST_BPS:g} bps per "
-        "round trip × signals per ticker-year",
+        "cost", f"±{cost_bps if cost_bps is not None else ROUND_TRIP_COST_BPS:g} bps per "
+        "round trip, compared per event",
         "run option" if cost_bps is not None else "default",
-        None if cost_bps is not None else "the study's M1 convention (DESIGN §6.10); "
+        None if cost_bps is not None else "the study's M1 cost figure (DESIGN §6.10); "
         "override with --cost-bps"))
     if dropped_last_bar:
         lines.append(RubricLine("excluded signals",
@@ -297,11 +300,10 @@ def _format_cell(row: dict) -> str:
             f"{row['n_dates']} dates, effective N "
             f"{row['effective_n_dates']} dates, {row['n_tickers']} tickers); "
             f"hit rate {rate(row['hit_rate'])} (ΔC2 {pct(row['hit_rate_delta_c2'])}), "
-            f"win/loss {row['win_loss_ratio']:.2f}, skew {row['skew']:.2f}; "
-            f"annualized {pct(row['delta_c2_annualized'])} "
-            f"[{pct(row['ci_low_annualized'])}, {pct(row['ci_high_annualized'])}] vs cost hurdle "
-            f"{pct(row['cost_hurdle_annual'])}/yr at {row['signals_per_ticker_year']:.2f} "
-            f"signals per ticker-year → {row['verdict']}")
+            f"win/loss {row['win_loss_ratio']:.2f}, skew {row['skew']:.2f} — all in the "
+            f"trade's direction; vs per-event cost ±{row['cost_round_trip'] * 100:.2f}% "
+            f"round trip ({row['signals_per_ticker_year']:.2f} signals per ticker-year) "
+            f"→ {row['verdict']}")
 
 
 def _log_line(spec: StrategySpec, detector: str, side: str, cells: list[dict], out_dir: Path) -> str:
@@ -318,9 +320,9 @@ def _log_line(spec: StrategySpec, detector: str, side: str, cells: list[dict], o
 def _prereg_draft(spec: StrategySpec, detector: str, alive: list[dict], window: tuple[str, str],
                   cost_bps: float, out_dir: Path) -> str:
     cells = "\n".join(
-        f"  - {c['side']}, h={c['horizon']}: ΔC2 {c['delta_c2'] * 100:+.2f}% "
-        f"(annualized {c['delta_c2_annualized'] * 100:+.2f}%/yr vs hurdle "
-        f"{c['cost_hurdle_annual'] * 100:.2f}%/yr)" for c in alive)
+        f"  - {c['side']}, h={c['horizon']}: ΔC2 {c['delta_c2'] * 100:+.2f}% per event "
+        f"[{c['ci_low'] * 100:+.2f}%, {c['ci_high'] * 100:+.2f}%] vs ±{c['cost_round_trip'] * 100:.2f}% "
+        f"round-trip cost" for c in alive)
     return f"""# Pre-registration draft — {spec.name or detector} (NOT registered)
 
 Generated by the exploratory look at `{out_dir}`. That look is Track A: its numbers are
@@ -336,10 +338,11 @@ entry to the relevant PREREGISTRATION file, and only then run.**
 {cells}
 - Primary cell: TODO — pick ONE (side, horizon) before running; every extra cell is an
   extra test and goes into N_tests.
-- Kill criterion: dead iff the whole {CI_LEVEL:.0%} CI of the annualized C2 delta sits
-  inside the economic-relevance band ±(signals_per_ticker_year × {cost_bps:g} bps round
-  trip), re-measured on the Track B run itself. A CI spanning zero that reaches past the
-  band is inconclusive/underpowered, never dead (the three-verdict rule).
+- Kill criterion: dead iff the whole {CI_LEVEL:.0%} CI of the per-event C2 delta sits
+  inside the economic-relevance band ±{cost_bps:g} bps (the round-trip cost each signal
+  pays — per-event delta vs per-event cost is the fair comparison for an event signal).
+  A CI spanning zero that reaches past the band is inconclusive/underpowered, never dead
+  (the three-verdict rule).
 - Control tier: C2 (date + momentum tercile + vol tercile + sector), block bootstrap with
   block length ≥ 2× horizon, effective N = distinct dates.
 - Scope: development window only ({window[0]} to {window[1]}); the cached MA feature
@@ -356,6 +359,9 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
     also written as `report.md`."""
     if panel.empty:
         raise GroundingError("the panel is empty — nothing to test against")
+    for needed in ("ticker", "date", "close", *CONTEXT_COLS):
+        if needed not in panel.columns:
+            raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
     check_holdout(panel["date"].max())
     if not spec.horizons_bars:
         raise GroundingError("the spec states no horizons_bars — finish elicitation before "
@@ -371,9 +377,6 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         raise GroundingError("the spec doesn't state a direction — finish elicitation before "
                              "testing (the two sides of a setup carry opposite expected "
                              "signs; a pooled delta would cancel them)")
-    for needed in CONTEXT_COLS:
-        if needed not in panel.columns:
-            raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
 
     horizons = list(spec.horizons_bars)
     sides = ["long", "short"] if spec.direction == "both" else [spec.direction]
@@ -415,7 +418,10 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         out(f"  - {line.parameter}: {line.value}  [{line.source}]{detail}")
 
     window = (str(panel["date"].min().date()), str(panel["date"].max().date()))
-    panel_years = (panel["date"].max() - panel["date"].min()).days / 365.25
+    # Ticker-years of ACTUAL coverage (rows / 252, stats/costs.py's own convention):
+    # window-years × ticker-count would count a delisted or late-listed ticker's missing
+    # years as live and understate the turnover (invariant #4 keeps those tickers in).
+    ticker_years = len(panel) / 252
     panel_tickers = int(panel["ticker"].nunique())
     for side in sides:
         matches = results[side].matches
@@ -427,7 +433,7 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
     for mask in event_by_side.values():
         any_event |= mask
     cells = [cell(working, event_by_side[side], any_event & ~event_by_side[side], side, h,
-                  cost_round_trip, seed, panel_years, panel_tickers)
+                  cost_round_trip, seed, ticker_years)
              for side in sides for h in horizons]
 
     out()
@@ -458,7 +464,7 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         "detector": finder_id,
         "spec_name": spec.name,
         "window": list(window),
-        "panel": {"tickers": panel_tickers, "years": panel_years},
+        "panel": {"tickers": panel_tickers, "ticker_years": ticker_years},
         "seed": seed,
         "cost_round_trip_bps": cost_bps if cost_bps is not None else ROUND_TRIP_COST_BPS,
         "rubric": [{"parameter": r.parameter, "value": r.value, "source": r.source,
@@ -469,9 +475,10 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         "cells": cells,
         "prereg_draft": draft_name,
     }
+    out(f"Session: {out_dir}")
+    # Written last, so report.md really is "what was printed", session line included.
     (out_dir / "result.json").write_text(json.dumps(_jsonable(result), indent=1, default=str) + "\n")
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
-    out(f"Session: {out_dir}")
     return result
 
 

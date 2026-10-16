@@ -22,3 +22,10 @@ keeping the other side's near-event rows); supersedes the 2026-10-15 lines above
 
 - 2026-10-16 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.00% [-0.07%,+0.06%] effN 2087d — inconclusive; session data/llm/look_sessions/20261016T113826_636798Z
 - 2026-10-16 [look] First touch of a moving average after being away (short): h5 ΔC2 -0.04% [-0.11%,+0.05%] effN 2058d — inconclusive; session data/llm/look_sessions/20261016T113826_636798Z
+
+Re-run after the third review round (per-event delta vs per-event cost replaces the
+always-in-position annualization; the window exclusion became symmetric, so same-side
+clustered events no longer attenuate each other); supersedes the lines above.
+
+- 2026-10-16 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.02% [-0.10%,+0.05%] effN 2080d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z
+- 2026-10-16 [look] First touch of a moving average after being away (short): h5 ΔC2 +0.00% [-0.07%,+0.09%] effN 2056d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z

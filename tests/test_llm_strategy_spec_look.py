@@ -34,9 +34,10 @@ EVENT_SEQ, SIGNAL_IDX = seq_and_signals(N_SIGNALS)
 
 # Context values constant per ticker: per-date terciles are then the same every day, and
 # the event ticker shares its stratum with the two controls holding the same values.
-CONTEXT = {"EVT": (1.0, 1.0), "C1": (1.0, 1.0), "C2": (1.0, 1.0), "C3": (2.0, 2.0),
-           "C4": (2.0, 2.0), "C5": (3.0, 3.0), "C6": (3.0, 3.0), "C7": (4.0, 4.0),
-           "C8": (4.0, 4.0), "SHT": (4.0, 4.0)}
+CONTEXT = {"EVT": (1.0, 1.0), "EVT2": (1.0, 1.0), "C1": (1.0, 1.0), "C2": (1.0, 1.0),
+           "C3": (2.0, 2.0), "C4": (2.0, 2.0), "C5": (3.0, 3.0), "C6": (3.0, 3.0),
+           "C7": (4.0, 4.0), "C8": (4.0, 4.0), "SHT": (4.0, 4.0)}
+EVENT_TICKERS = ("EVT", "EVT2", "SHT")   # left out of the quiet-control fill below
 
 
 def planted_close(seq_len: int, signal_idx: list[int], step: float) -> list[float]:
@@ -75,7 +76,7 @@ def effect_panel(step: float = 0.02, n_signals: int = N_SIGNALS) -> pd.DataFrame
     quiet = [0.5] * len(seq)
     return panel({
         "EVT": (seq, planted_close(len(seq), idx, step)),
-        **{name: (quiet, None) for name in CONTEXT if name not in ("EVT", "SHT")},
+        **{name: (quiet, None) for name in CONTEXT if name not in EVENT_TICKERS},
     })
 
 
@@ -158,7 +159,7 @@ def test_direction_both_is_tested_per_side_with_uncontaminated_controls(tmp_path
         "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, 0.02)),
         "SHT": (sht_seq, planted_close(len(sht_seq), sht_idx, -0.02)),
         **{name: ([0.5] * len(EVENT_SEQ), None) for name in CONTEXT
-           if name not in ("EVT", "SHT")},
+           if name not in EVENT_TICKERS},
     })
     result, _ = run_look(spec(direction="both"), frame, tmp_path)
     by_side = {c["side"]: c for c in result["cells"]}
@@ -169,6 +170,8 @@ def test_direction_both_is_tested_per_side_with_uncontaminated_controls(tmp_path
     assert by_side["long"]["delta_c1"] == pytest.approx(0.02, abs=1e-9)
     assert by_side["long"]["delta_c2"] == pytest.approx(0.02, abs=1e-9)
     assert by_side["short"]["delta_c1"] == pytest.approx(-0.02, abs=1e-9)
+    # Shape is reported in the trade's direction: a working short setup's drops are hits.
+    assert by_side["short"]["hit_rate"] == pytest.approx(1.0)
     with pytest.raises(GroundingError, match="direction"):
         look(spec(direction=None), frame, say=lambda _: None)
 
@@ -203,7 +206,7 @@ def test_rubric_discloses_every_unapplied_field_and_the_cost_source(tmp_path):
     frame = panel({
         "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, 0.02)),
         **{name: ([0.5] * len(EVENT_SEQ), None) for name in CONTEXT
-           if name not in ("EVT", "SHT")},
+           if name not in EVENT_TICKERS},
     })
     result, _ = run_look(constrained, frame, tmp_path)
     rubric = {r["parameter"]: r for r in result["rubric"]}
@@ -234,14 +237,35 @@ def test_rubric_discloses_every_unapplied_field_and_the_cost_source(tmp_path):
 
 
 def test_verdict_is_three_way_and_never_calls_underpowered_dead():
-    assert verdict(0.05, 0.10, hurdle=0.02, sign=1).startswith("looks alive")
-    assert verdict(-0.10, -0.05, hurdle=0.02, sign=1).startswith("looks inverted")
-    assert verdict(-0.01, 0.01, hurdle=0.02, sign=1).startswith("looks dead")
+    assert verdict(0.05, 0.10, cost=0.02, sign=1).startswith("looks alive")
+    assert verdict(-0.10, -0.05, cost=0.02, sign=1).startswith("looks inverted")
+    assert verdict(-0.01, 0.01, cost=0.02, sign=1).startswith("looks dead")
     # Spans zero but reaches past the band: underpowered, never dead (three-verdict rule).
-    assert verdict(-0.01, 0.10, hurdle=0.02, sign=1).startswith("inconclusive")
+    assert verdict(-0.01, 0.10, cost=0.02, sign=1).startswith("inconclusive")
     # Excludes zero but can't clear the hurdle, and doesn't fit inside the band either.
-    assert verdict(0.01, 0.10, hurdle=0.05, sign=1).startswith("inconclusive")
-    assert verdict(float("nan"), float("nan"), hurdle=0.02, sign=1).startswith("inconclusive")
+    assert verdict(0.01, 0.10, cost=0.05, sign=1).startswith("inconclusive")
+    assert verdict(float("nan"), float("nan"), cost=0.02, sign=1).startswith("inconclusive")
+
+
+def test_clustered_same_side_events_do_not_attenuate_each_other(tmp_path):
+    # EVT2 fires two bars after EVT, same side, same planted +2%. Each ticker's rows
+    # near its OWN events land in the other's event-date strata as controls, and their
+    # forward windows carry the move — left in, the control mean is dragged toward the
+    # event mean and the pooled delta attenuates to ~+1.67%. The window exclusion is
+    # symmetric (not just other-side), so the delta stays exactly as planted.
+    evt2_seq = [0.5, 0.5] + EVENT_SEQ[:-2]
+    evt2_idx = [p + 2 for p in SIGNAL_IDX]
+    frame = panel({
+        "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, 0.02)),
+        "EVT2": (evt2_seq, planted_close(len(evt2_seq), evt2_idx, 0.02)),
+        **{name: ([0.5] * len(EVENT_SEQ), None) for name in CONTEXT
+           if name not in EVENT_TICKERS},
+    })
+    result, _ = run_look(spec(), frame, tmp_path)
+    (cell_,) = result["cells"]
+    assert cell_["n_events"] == 2 * N_SIGNALS
+    assert cell_["delta_c1"] == pytest.approx(0.02, abs=1e-9)
+    assert cell_["delta_c2"] == pytest.approx(0.02, abs=1e-9)
 
 
 def test_cost_hurdle_counts_fired_events_not_only_c2_scorable_ones(tmp_path):
@@ -256,8 +280,8 @@ def test_cost_hurdle_counts_fired_events_not_only_c2_scorable_ones(tmp_path):
     result, _ = run_look(spec(), frame, tmp_path)
     (cell_,) = result["cells"]
     assert cell_["n_events"] == N_SIGNALS - 1 and cell_["n_events_fired"] == N_SIGNALS
-    years = (frame["date"].max() - frame["date"].min()).days / 365.25
-    assert cell_["signals_per_ticker_year"] == pytest.approx(N_SIGNALS / (years * 9))
+    # Ticker-years from actual row coverage (rows/252), not window-years × ticker count.
+    assert cell_["signals_per_ticker_year"] == pytest.approx(N_SIGNALS / (len(frame) / 252))
 
 
 def test_too_few_dates_still_reports_real_effective_n_and_valid_json(tmp_path):
