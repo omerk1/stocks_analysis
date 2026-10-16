@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import inspect
 import json
 import os
 import sys
@@ -50,9 +49,9 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from llama_index.core.schema import BaseNode, NodeWithScore
+from llama_index.core.schema import BaseNode, NodeWithScore, TextNode
 
-from src.llm.gemini import GeminiClient
+from src.llm.gemini import DEFAULT_MODEL, GeminiClient
 from src.llm.paths import llm_data_dir
 from src.llm.research_docs.answer import (BUDGET, SYSTEM, Answer, answer, build_prompt, cited, sentences,
                                           source_text)
@@ -71,11 +70,18 @@ def _sha(*texts: str) -> str:
     return hashlib.sha256("\n\x00\n".join(" ".join(t.split()) for t in texts).encode()).hexdigest()[:16]
 
 
+PROBE = NodeWithScore(node=TextNode(id_="probe", text="Probe text.", metadata={"path": "p.md", "section": "S"}),
+                      score=1.0)
+
+
 def prompt_id() -> str:
-    """Which instructions wrote an answer: the system prompt, the message template
-    (`build_prompt`'s source) and the reply schema, hashed exactly. Unlike `_sha`,
-    whitespace counts here: the model sees it. (The model itself is `main`'s default.)"""
-    parts = (SYSTEM, inspect.getsource(build_prompt), json.dumps(Answer.model_json_schema(), sort_keys=True))
+    """Which instructions wrote an answer: the system prompt, a probe message as the model
+    would get it (`build_prompt` on a fixed question and source, so the template, the
+    citation label and the source rendering all count, and a docstring edit doesn't), the
+    reply schema and the default model, hashed exactly. Unlike `_sha`, whitespace counts
+    here: the model sees it."""
+    parts = (SYSTEM, build_prompt("Probe question?", [PROBE]), json.dumps(Answer.model_json_schema(), sort_keys=True),
+             DEFAULT_MODEL)
     return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
 
 
@@ -109,9 +115,10 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
     skipped, so an interrupted run resumes instead of paying again; a file written by
     different instructions is refused, so one run can't mix two prompts."""
     done = json.loads(out.read_text()) if out.exists() else []
-    if other := sorted({str(r.get("prompt")) for r in done} - {prompt_id()}):
-        raise ValueError(f"{out} holds answers from another prompt ({', '.join(other)}); use a new --out")
     have = {r["id"] for r in done}
+    other = sorted({r.get("prompt") or "unrecorded" for r in done} - {prompt_id()})
+    if other and any(q["id"] not in have for q in questions):
+        raise ValueError(f"{out} holds answers from another prompt ({', '.join(other)}); use a new --out")
     for q in questions:
         if q["id"] in have:
             continue
@@ -219,7 +226,7 @@ def miss(r: dict, verdict: str, judged: str | None = None) -> str | None:
 def score(rows: list[dict], ledger: dict) -> str:
     """The per-question table and the totals. Questions or sentences without a verdict
     are counted as unjudged, never as passes."""
-    prompts = sorted({str(r.get("prompt")) for r in rows})
+    prompts = sorted({r.get("prompt") or "unrecorded" for r in rows})
     lines = [f"prompt: {', '.join(prompts)}" + (" (MIXED: rows from different prompts)" if len(prompts) > 1 else ""),
              f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
     verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0

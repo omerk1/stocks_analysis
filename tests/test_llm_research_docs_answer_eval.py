@@ -66,7 +66,26 @@ def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path)
     with pytest.raises(ValueError, match="another prompt"):
         run([Q, MULTI], _find(GOLD), client, out)
     assert client.calls == 1
-    assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], {"support": {}, "answers": {}})
+    assert run([Q], _find(GOLD), client, out) == [row]  # nothing left to answer: no calls, so no refusal
+    empty = {"support": {}, "answers": {}}
+    assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], empty)
+    old = {k: v for k, v in row.items() if k != "prompt"}  # a row from before prompt ids
+    assert score([old], empty).startswith("prompt: unrecorded\n")
+
+
+def test_the_prompt_id_follows_what_the_model_sees_not_the_code(monkeypatch):
+    import src.llm.research_docs.answer_eval as answer_eval
+    before = answer_eval.prompt_id()
+    real = answer_eval.build_prompt
+
+    def same_message(question, sources):
+        """A reworded docstring the model never sees."""
+        return real(question, sources)
+
+    monkeypatch.setattr(answer_eval, "build_prompt", same_message)
+    assert answer_eval.prompt_id() == before
+    monkeypatch.setattr(answer_eval, "build_prompt", lambda q, s: real(q, s).replace("Sources:", "Excerpts:"))
+    assert answer_eval.prompt_id() != before
 
 
 def test_a_claim_key_follows_the_sentence_and_the_cited_text_not_the_source_number():
