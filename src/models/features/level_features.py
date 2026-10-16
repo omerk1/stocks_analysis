@@ -304,4 +304,4 @@ def ticker_features(
     days = clean.index[levels.held_snapshot(taken.to_numpy(), clean.index.to_numpy()) >= 0] if len(taken) \
         else clean.index[:0]
     daily = levels.daily_levels(clean, splits, snaps, days, taken, configs)
-    return features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index))
+    return features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index)).astype("float32")
