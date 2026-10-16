@@ -54,7 +54,15 @@ def test_run_records_each_answer_and_resumes_without_paying_again(tmp_path):
     assert client.calls == 3  # only the new question
 
 
-def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path):
+def test_the_prompt_id_names_the_clients_model(tmp_path):
+    import src.llm.research_docs.answer_eval as answer_eval
+    client = FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
+    client.model = "another-model"
+    [row] = run([Q], _find(GOLD), client, tmp_path / "run.json")
+    assert row["prompt"] == answer_eval.prompt_id("another-model") != answer_eval.prompt_id()
+
+
+def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path, capsys):
     import src.llm.research_docs.answer_eval as answer_eval
     out, client = tmp_path / "run.json", FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
     [row] = run([Q], _find(GOLD), client, out)
@@ -67,6 +75,7 @@ def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path)
         run([Q, MULTI], _find(GOLD), client, out)
     assert client.calls == 1
     assert run([Q], _find(GOLD), client, out) == [row]  # nothing left to answer: no calls, so no refusal
+    assert client.calls == 1 and "nothing was re-run" in capsys.readouterr().err
     empty = {"support": {}, "answers": {}}
     assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], empty)
     old = {k: v for k, v in row.items() if k != "prompt"}  # a row from before prompt ids

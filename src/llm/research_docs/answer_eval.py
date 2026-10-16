@@ -74,14 +74,15 @@ PROBE = NodeWithScore(node=TextNode(id_="probe", text="Probe text.", metadata={"
                       score=1.0)
 
 
-def prompt_id() -> str:
+def prompt_id(model: str = DEFAULT_MODEL) -> str:
     """Which instructions wrote an answer: the system prompt, a probe message as the model
-    would get it (`build_prompt` on a fixed question and source, so the template, the
-    citation label and the source rendering all count, and a docstring edit doesn't), the
-    reply schema and the default model, hashed exactly. Unlike `_sha`, whitespace counts
-    here: the model sees it."""
+    would get it (`build_prompt` on a fixed question and source, so the template and the
+    basic source rendering count, and a docstring edit doesn't), the reply schema and the
+    model, hashed exactly. Unlike `_sha`, whitespace counts here: the model sees it. Not
+    covered: generation settings (temperature, `BUDGET`) and how a real chunk's extra
+    metadata renders; the probe has only a path and a section."""
     parts = (SYSTEM, build_prompt("Probe question?", [PROBE]), json.dumps(Answer.model_json_schema(), sort_keys=True),
-             DEFAULT_MODEL)
+             model)
     return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
 
 
@@ -94,12 +95,13 @@ def retrieval(q: dict, nodes: list[BaseNode]) -> str:
     return "full" if full else "partial" if first else "none"
 
 
-def record(q: dict, a) -> dict:
-    """One answered question as stored in a run file. `a` is an `answer.Answered`."""
+def record(q: dict, a, prompt: str | None = None) -> dict:
+    """One answered question as stored in a run file. `a` is an `answer.Answered`;
+    `prompt` is `prompt_id` for the run's model (the default model's when not given)."""
     nodes = [h.node for h in a.sources]
     return {
         "id": q["id"], "type": q["type"], "question": q["question"], "answerable": answerable(q),
-        "prompt": prompt_id(),
+        "prompt": prompt or prompt_id(),
         "n_parts": len(parts(q)), "retrieval": retrieval(q, nodes),
         "in_docs": a.answer.in_docs, "answer": a.answer.answer, "problems": a.problems,
         "tokens": a.usage.total_tokens,
@@ -113,16 +115,20 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
         out: Path) -> list[dict]:
     """Answer each question, writing `out` after every one. Questions already in `out` are
     skipped, so an interrupted run resumes instead of paying again; a file written by
-    different instructions is refused, so one run can't mix two prompts."""
+    different instructions is refused, so one run can't mix two prompts (and a finished
+    one is returned with a warning, since nothing was re-run)."""
     done = json.loads(out.read_text()) if out.exists() else []
     have = {r["id"] for r in done}
-    other = sorted({r.get("prompt") or "unrecorded" for r in done} - {prompt_id()})
-    if other and any(q["id"] not in have for q in questions):
-        raise ValueError(f"{out} holds answers from another prompt ({', '.join(other)}); use a new --out")
+    pid = prompt_id(getattr(client, "model", DEFAULT_MODEL))
+    if other := sorted({r.get("prompt") or "unrecorded" for r in done} - {pid}):
+        msg = f"{out} holds answers from another prompt ({', '.join(other)})"
+        if any(q["id"] not in have for q in questions):
+            raise ValueError(msg + "; use a new --out")
+        print(f"warning: {msg}; nothing left to answer, so nothing was re-run", file=sys.stderr)
     for q in questions:
         if q["id"] in have:
             continue
-        done.append(record(q, answer(q["question"], find, client)))
+        done.append(record(q, answer(q["question"], find, client), pid))
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
