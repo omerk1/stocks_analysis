@@ -38,11 +38,23 @@ def test_identical_vendors_pass(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close, volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert r["passed"]
     assert r["gaps"]["median_gap_sd"].max() == pytest.approx(0.0, abs=1e-9)
     assert r["auc"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_the_level_columns_are_compared_on_a_sample(conn, paths):
+    for t, (close, volume) in paths.items():
+        _store(conn, t, "yfinance", close, volume)
+        _store(conn, t, "tiingo", close, volume)
+
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=8, level_weeks=2)
+
+    assert r["n_level_tickers"] == 8 and r["passed"]   # the AUC's folds need 5+ tickers
+    assert {"density_up_2", "near_up_round"} <= set(r["gaps"]["column"])
+    assert r["auc_levels"] == pytest.approx(0.5, abs=0.05)
 
 
 def test_a_vendor_wide_volume_scale_fails_though_ranks_agree(conn, paths):
@@ -52,7 +64,7 @@ def test_a_vendor_wide_volume_scale_fails_though_ranks_agree(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close, volume * 0.5)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     gaps = r["gaps"].set_index("column")
     assert gaps.loc["log_dollar_volume_20d_rank", "median_gap_sd"] == pytest.approx(0.0, abs=1e-9)
@@ -66,7 +78,7 @@ def test_a_tell_on_a_minority_of_tickers_fails_on_the_share_rule(conn, paths):
         noisy = close * (1 + rng.normal(0, 0.01, len(close))) if i < 2 else close
         _store(conn, t, "tiingo", noisy, volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert not r["passed"]
     assert any("of rows off by" in f for f in r["failures"])
@@ -87,7 +99,7 @@ def test_vendor_noise_in_closes_fails(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close * (1 + rng.normal(0, 0.01, len(close))), volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert not r["passed"]
     assert r["gaps"]["median_gap_sd"].max() >= vc.SAME_TICKER_MAX_GAP_SD

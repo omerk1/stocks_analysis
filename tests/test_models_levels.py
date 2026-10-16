@@ -154,7 +154,8 @@ def test_days_hold_the_latest_snapshot_and_avwap_moves_daily(bars, configs):
     days = bars.index[(bars.index >= t - pd.Timedelta(days=10)) & (bars.index <= t + pd.Timedelta(days=10))]
     out = levels.daily_levels(bars, None, snaps, days, dates, configs)
     av = out[out["source"] == "avwap"]
-    assert av["date"].min() == t  # nothing before the snapshot was taken
+    # A Friday holds its own snapshot; another week-end day only from the next day on.
+    assert av["date"].min() == (t if t.dayofweek == 4 else days[days > t][0])
     anchor = snaps["anchor_date"].iloc[0]
     for d in av["date"].unique():
         band = anchored_vwap_std(bars.loc[:d], anchor).iloc[-1]
@@ -164,14 +165,34 @@ def test_days_hold_the_latest_snapshot_and_avwap_moves_daily(bars, configs):
 
 
 def test_stale_anchors_are_dropped(bars, configs):
-    t = _as_of_dates(bars)[-1]
+    t = _as_of_dates(bars)[-2]
     snaps = levels.avwap_snapshots(bars, None, [t], configs["avwap"], TICKER)
     snaps.loc[snaps.index[0], "state"] = "stale"
-    out = levels.daily_levels(bars, None, snaps, [t], [t], configs)
+    out = levels.daily_levels(bars, None, snaps, [bars.index[bars.index > t][0]], [t], configs)
     assert (out["source"] == "avwap").sum() == len(snaps) - 1
 
 
 # ---------------------------------------------------------- bar-only sources
+
+
+def test_a_day_holds_no_snapshot_whose_taking_depends_on_a_later_bar(bars, configs):
+    """A Wednesday is its week's last bar only if the bars stop there: the
+    held snapshot can't depend on that."""
+    t = _as_of_dates(bars)[-2]
+    wed = bars.index[(bars.index > t) & (bars.index.dayofweek == 2)][0]
+    full = levels.snapshot_dates(bars.index, bars.index[0])
+    cut = levels.snapshot_dates(bars.loc[:wed].index, bars.index[0])
+    assert wed in cut and wed not in full
+    snaps = levels.avwap_snapshots(bars.loc[:wed], None, cut[-2:], configs["avwap"], TICKER)
+    a = levels.daily_levels(bars, None, snaps[snaps["snapshot"] < wed], [wed], full, configs)
+    b = levels.daily_levels(bars.loc[:wed], None, snaps, [wed], cut, configs)
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_a_friday_holds_its_own_snapshot_other_days_the_one_before():
+    taken = pd.DatetimeIndex(["2020-01-03", "2020-01-09", "2020-01-17"]).to_numpy()  # Fri, Thu (holiday Fri), Fri
+    days = pd.DatetimeIndex(["2020-01-02", "2020-01-03", "2020-01-06", "2020-01-09", "2020-01-13", "2020-01-17"])
+    assert list(levels.held_snapshot(taken, days.to_numpy())) == [-1, 0, 0, 0, 1, 2]
 
 
 def test_bar_levels_are_absent_not_zero_during_their_warmup(bars):
@@ -256,7 +277,7 @@ def test_a_week_with_no_rows_does_not_fall_back_to_the_week_before(bars, configs
     snaps = levels.avwap_snapshots(bars, None, dates[:1], configs["avwap"], TICKER)  # only the first week has rows
     out = levels.daily_levels(bars, None, snaps, bars.index[bars.index >= dates[0]], dates, configs)
     av = out[out["source"] == "avwap"]
-    assert av["date"].max() < dates[1]
+    assert av["date"].max() <= dates[1]  # held through the next snapshot's day, not after it
 
 
 def test_avwap_rolls_forward_on_the_configs_price_source(bars, configs):

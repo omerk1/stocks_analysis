@@ -317,6 +317,44 @@ columns, so the difference is the levels alone. Step 2b's indicator features (#2
 registered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,
 otherwise a rerun on the same columns.
 
+### Addendum (2026-10-15): the step 2 features as built
+
+Decided while building them, before any fit
+(`src/models/features/level_features.py`; registry groups `levels_nearest`,
+`levels_aggregate`, `levels_barrier`, every prior null). The text above stays as written;
+where the build had to pick something it didn't say, this is the pick.
+
+- **Only a Friday holds its own snapshot; any other day holds the one before.** Whether a
+  non-Friday is its week's last bar depends on whether a later bar exists: a ticker
+  delisted on a Wednesday gets a snapshot there, the same bars running on to Friday
+  don't (and a Thursday before a holiday is one only from the calendar). Holding that
+  day's own snapshot let a later bar change the cut day's levels (a test on bars cut
+  mid-week caught it; the gate's Friday cuts couldn't). New levels stay at most 4 days
+  late on a normal week (a week after a short one), never early.
+- **Strength percentile** (§1.2): mid-rank among the source's levels over the trailing
+  252 trading days, the day included. A level with no native strength yet (an AVWAP never
+  touched) gets 0.5. The bar sources keep their fixed strength (§1.1) instead of a
+  percentile of a constant.
+- **State** (§1.2): tested (1.2) is an S/R line with 2+ touches or a partly filled gap;
+  flipped (0.8) an S/R line that flipped; everything else fresh (1.0). Age is bars since
+  the level formed (an AVWAP or profile: its anchor); the bar sources have age 0.
+- **§2.1:** the 52-week high is never below the close and the low never above, so each
+  has one side; a level weight only for the four sources with a native strength. 22
+  columns.
+- **§2.2:** as written, with `density_*` also at h = 7 (below). 21 columns.
+- **§2.3 on a fixed grid**, the option §2.3 gives for a model that doesn't take the cell
+  as an input (the scorecard fits one model per cell on the same columns). The grid covers
+  the scorecard cells' scaled distances (U 2–6.9, D 1–3.5 ATR at H 21 and 63):
+  `target_on_wall` at U ∈ {2, 3, 5, 7}, `stop_below_floor` at D ∈ {1, 2, 3},
+  `vp_ease_up` at {2, 3, 5, 7}, `vp_ease_dn` at {1, 2, 3}. `obstacle_up(U)` and
+  `cushion_dn(D)` would be `density_up_h` / `density_dn_h` on the grid, so they aren't
+  repeated; h = 7 is added to the density list for the widest target. `vp_ease` uses the
+  latest-anchored profile the day holds, built on the bars up to that snapshot. 14 columns.
+- **Missingness** (invariant 9): every column is NaN where ATR(14) is undefined and up to
+  the first snapshot; a sum or count is 0 only where it is defined and empty.
+- **Total: 57 columns**, from the snapshot cache (#125) read on each ticker's whole
+  history.
+
 ---
 
 ## 5. Open questions

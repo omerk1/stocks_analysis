@@ -168,13 +168,14 @@ def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
     return 1 if run["failed"] else 0
 
 
-def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...]) -> int:
+def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
+                   levels: Path, workers: int) -> int:
     from src.models import dataset
     from src.models.features import cache
     conn = _read_only(db_path)
     try:
         universe = dataset.universe_mask(conn, start, end, indices=indices)
-        path = cache.build_feature_cache(conn, universe, out)
+        path = cache.build_feature_cache(conn, universe, out, levels_root=levels, workers=workers)
     finally:
         conn.close()
     features = cache.read_feature_cache(out)
@@ -238,6 +239,9 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  [pass: AUC <= {vc.SAME_TICKER_MAX_AUC}; "
           f"per column median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD, <= {vc.SAME_TICKER_MAX_SHARE_OFF:.0%} of rows "
           f"off by > 0.1 SD, <= {vc.SAME_TICKER_MAX_NAN_MISMATCH:.0%} one-vendor NaN]")
+    if s["auc_levels"] is not None:
+        print(f"  level columns: {s['n_level_tickers']} tickers, last {vc.LEVEL_WEEKS} weeks, "
+              f"vendor AUC {s['auc_levels']:.3f}")
     spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
     if spread:
         print(f"  no spread in the window (gap = share of rows that differ): {spread}")
@@ -353,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
+    feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
+                      help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
+    feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
     lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
     lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
@@ -412,7 +419,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
                             args.tickers, args.smoke)
     if args.command == "build-features":
-        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
+        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices), args.levels,
+                              args.workers)
     if args.command == "vendor-check":
         return vendor_check(args.db, args.features, args.start, args.end)
     return 2

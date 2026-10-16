@@ -66,6 +66,8 @@ from src.models.synthetic import (
 )
 
 GATE_CI = 0.99
+# The level detectors' snapshot weeks the leakage gate runs, ending at its cut.
+LEVEL_SNAPSHOT_WEEKS = 8
 GATE_N_BOOT = 2000
 TOP_KS = (5, 20)
 
@@ -386,17 +388,25 @@ def _warmup_mismatches(values: pd.DataFrame, registry, benchmark: str = market.B
 def leakage_gate(
     bars: dict[PriceBasis, pd.DataFrame], splits: dict[str, pd.DataFrame], cut: str | pd.Timestamp,
     registry: tuple[reg.FeatureSpec, ...] = reg.REGISTRY, seed: int = 0,
-    context: market.PanelContext | None = None,
+    context: market.PanelContext | None = None, levels_snapshot_weeks: int | None = LEVEL_SNAPSHOT_WEEKS,
 ) -> dict:
     """`bars`: one long frame per basis the registry's sources read (the
     synthetic gate passes the same walk on both); `context`: membership,
     sectors and filings for the panel sources (only `future_filings` touches
     it, its filings). Recomputes every source under each bar perturbation, and
     the panel sources under `future_filings` (only they read the context: a
-    per-ticker source that read filings would go unchecked)."""
+    per-ticker source that read filings would go unchecked).
+
+    The level source runs its detectors fresh (never from the snapshot cache)
+    from `levels_snapshot_weeks` before `cut`: the snapshots that could see
+    past the cut are the ones near it, and each earlier week would be minutes
+    more per ticker and run. Before that week the level columns are NaN on
+    every run alike. None: from the source's own first week."""
     cut = pd.Timestamp(cut)
     specs = registry + CANARIES
     sources = {**reg.SOURCES, **CANARY_SOURCES}
+    if levels_snapshot_weeks is not None:
+        sources["levels"] = reg.level_source(None, cut - pd.Timedelta(weeks=levels_snapshot_weeks))
     base = reg.compute_registered(bars, splits, specs, sources, context=context)
     registered = {s.name for s in registry} | {f"{s.name}_rank" for s in registry if s.ranked}
     leaks, canaries = {}, {}
