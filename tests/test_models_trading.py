@@ -60,7 +60,23 @@ def test_picks_take_each_dates_highest_ev():
     preds["p_neither"] = 1 - preds["p_up"] - preds["p_down"]
     frame = preds[["ticker", "date"]].assign(hit=1.0, ret=np.arange(6) / 100, atr=1.0, close_t=50.0)
     got = trading.picks(preds, frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, k=1)
-    assert list(got["ticker"]) == ["A", "B"]  # A and C tie on the 2nd: ticker breaks it
+    # A and C tie on the 2nd: the tie key decides, the same way every run
+    assert got["ticker"].iloc[1] == "B" and got["ticker"].iloc[0] in ("A", "C")
+    assert got.equals(trading.picks(preds, frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, k=1))
+
+
+def test_tied_scores_are_not_broken_by_ticker_name():
+    """A flat prediction (an isotonic plateau) must pick a different, neutral
+    set of names each day, not the alphabetically first ones every day."""
+    days = pd.bdate_range("2020-01-01", periods=200)
+    names = [f"T{i:02d}" for i in range(40)]
+    preds = pd.DataFrame({"ticker": np.tile(names, len(days)), "date": np.repeat(days, len(names)), "fold": 2020,
+                          "p_up": 0.4, "p_down": 0.3, "p_neither": 0.3})
+    frame = preds[["ticker", "date"]].assign(hit=0.0, ret=0.0, atr=1.0, close_t=50.0)
+    got = trading.picks(preds, frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, 5, "ev_atr", {2020: 0.0})
+    counts = got["ticker"].value_counts().reindex(names, fill_value=0)
+    # 1,000 picks over 40 names: ~25 each; by name, T00-T04 would take all 200 days
+    assert counts.max() < 50 and counts.loc[names[:5]].sum() < 250
 
 
 def _synthetic(shuffled: bool):
@@ -102,8 +118,12 @@ def test_the_scorecard_finds_a_planted_edge_and_nothing_in_noise(tmp_path, monke
     assert (tmp_path / "art" / r["trial_id"] / "predictions.parquet").exists()
     m = r["by_k"][5]
     if shuffled:
-        assert m["vs_market"]["ci_low"] < 0 < m["vs_market"]["ci_high"]
-        assert m["vs_reference"]["ci_low"] < 0 < m["vs_reference"]["ci_high"]
+        # Nothing in noise: within 2.6 bootstrap SEs of zero (a 99% two-sided
+        # band). Not "the 90% CI spans zero": with ~18 date blocks the CIs
+        # under-cover, and on noise they left out zero at about one readout
+        # in five (Done #152).
+        for other in ("market", "reference"):
+            assert abs(m[f"vs_{other}"]["point_estimate"]) < 2.6 * m[f"vs_{other}"]["boot_std"]
     else:
         assert m["vs_market"]["ci_low"] > 0 and m["vs_reference"]["ci_low"] > 0
         net = {s: m[s]["costs"][10]["expectancy"] for s in trading.STRATEGIES}
@@ -182,3 +202,75 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="other columns"):
         trading.rescore(replace(SMALL, model_columns=B4_COLUMNS), trial_log.read_trials(trials), features,
                         tmp_path, trials_path=trials, artifacts_root=art)
+
+
+def test_f2_compares_the_group_with_the_model_on_main_without_it():
+    """F2's column lists are frozen literals; pinned here to the registry's
+    groups as of the pre-registration (docs/fundamentals/PREREGISTRATION.md)."""
+    from src.models.features.registry import model_input, model_specs
+    sc = trading.PREREGISTERED["F2"]
+    groups = lambda *g: {model_input(s) for s in model_specs() if s.group in g}
+    assert set(sc.reference_columns) == groups("baseline", "ma", "volatility", "volume", "oscillator", "market",
+                                               "relative")
+    assert set(sc.model_columns) - set(sc.reference_columns) == groups("fundamentals")
+    assert len(sc.model_columns) == len(set(sc.model_columns)) == 41
+    assert (sc.track, sc.rank, sc.ci, sc.band, sc.verdict_k, sc.horizons) == ("B", "ev_atr", 0.99, 0.001, 20, (21, 63))
+    with pytest.raises(ValueError, match="verdict_k"):
+        replace(sc, ks=(5,))
+
+
+def test_three_verdicts():
+    assert trading.three_verdict(-0.0005, 0.0008, 0.001) == trading.DEAD
+    assert trading.three_verdict(-0.0005, 0.002, 0.001) == trading.INCONCLUSIVE
+    assert trading.three_verdict(0.0002, 0.0008, 0.001) == trading.DEAD  # inside the band, even off zero
+    assert trading.three_verdict(0.0002, 0.0015, 0.001) == trading.POSITIVE
+    assert trading.three_verdict(-0.003, -0.0011, 0.001) == trading.NEGATIVE
+    g = trading.group_verdict
+    assert g([trading.DEAD, trading.DEAD]) == trading.DEAD and g([trading.DEAD, trading.INCONCLUSIVE]) == trading.INCONCLUSIVE
+    assert g([trading.POSITIVE, trading.DEAD]) == trading.POSITIVE and g([trading.NEGATIVE, trading.POSITIVE]) == trading.MIXED
+
+
+def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, monkeypatch):
+    features, labels = _synthetic(shuffled=False)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: labels)
+    trials, art = tmp_path / "TRIALS.csv", tmp_path / "art"
+    sc = replace(SMALL, experiment_id="F2", track="B", band=0.001, verdict_k=5, ci=0.95)
+    [r] = trading.run_horizon(sc, 21, features, tmp_path, trials_path=trials, artifacts_root=art)
+    logged = trial_log.read_trials(trials)
+    assert logged.loc[0, "outcome"].startswith("Track B, verdict at close-scorecard")
+    with pytest.raises(ValueError, match="Track A"):
+        trading.close_scorecard(SMALL, logged, features, tmp_path, artifacts_root=art)
+    empty = trading.close_scorecard(sc, logged.iloc[:0], features, tmp_path, artifacts_root=art, require_clean=False)
+    assert empty["horizons"][21]["verdict"] == trading.INCONCLUSIVE and empty["horizons"][21]["missing_cells"]
+
+    monkeypatch.setattr(trading, "oos_predictions", lambda *a, **k: pytest.fail("closing must not refit"))
+    out = trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False)
+    h = out["horizons"][21]
+    # one cell: the pooled difference is that cell's model - reference
+    assert h["point_estimate"] == pytest.approx(r["by_k"][5]["vs_reference"]["point_estimate"])
+    assert h["verdict"] == trading.POSITIVE and h["ci_low"] > 0 and h["holm_positive"]
+    assert out["group_verdict"] == trading.POSITIVE and h["trial_ids"] == {"2/1.5": r["trial_id"]}
+    assert set(h["by_era"]) == {"2019-2019", "2020-2021"} and h["dates_missing_a_cell"] == 0
+    # the caveat sensitivity re-reads the same predictions with tickers unpickable
+    some = tuple(sorted(features["ticker"].unique())[:10])
+    without = trading.close_scorecard(sc, logged, features, tmp_path, exclude_tickers=some, artifacts_root=art,
+                                      require_clean=False)
+    assert without["horizons"][21]["point_estimate"] != h["point_estimate"]
+    # a first row from a dirty checkout voids the cell; it isn't replaced by a later one
+    [cell] = sc.cells(21)
+    spec = trading.trial_spec(sc, cell, features, labels)
+    assert trading.registered_trial(sc, logged.assign(git_dirty="True"), cell, spec) is None
+    assert trading.registered_trial(sc, logged, cell, spec, require_clean=False) == r["trial_id"]
+    assert trading.registered_trial(replace(sc, rank="ev_atr"), logged, cell, spec, require_clean=False) is None
+    # a cache rebuilt since the fit is refused, not scored silently
+    rebuilt = labels.copy()
+    rebuilt.attrs["manifest"] = {**labels.attrs["manifest"], "created": "later"}
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: rebuilt)
+    with pytest.raises(ValueError, match="labels_built"):
+        trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False)
+
+
+def test_tie_key_ignores_the_dates_storage_unit():
+    from src.models.metrics import tie_key
+    f = pd.DataFrame({"ticker": ["A", "B"], "date": pd.to_datetime(["2020-01-02", "2020-01-03"])})
+    assert (tie_key(f) == tie_key(f.assign(date=f["date"].astype("datetime64[us]")))).all()
