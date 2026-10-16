@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import json
 import os
 import sys
@@ -53,7 +54,8 @@ from llama_index.core.schema import BaseNode, NodeWithScore
 
 from src.llm.gemini import GeminiClient
 from src.llm.paths import llm_data_dir
-from src.llm.research_docs.answer import BUDGET, SYSTEM, answer, cited, sentences, source_text
+from src.llm.research_docs.answer import (BUDGET, SYSTEM, Answer, answer, build_prompt, cited, sentences,
+                                          source_text)
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
 from src.llm.research_docs.retrieve import cite
@@ -67,6 +69,14 @@ GOLD_CHUNKS = 6  # per gold, shown to the correctness judge
 
 def _sha(*texts: str) -> str:
     return hashlib.sha256("\n\x00\n".join(" ".join(t.split()) for t in texts).encode()).hexdigest()[:16]
+
+
+def prompt_id() -> str:
+    """Which instructions wrote an answer: the system prompt, the message template
+    (`build_prompt`'s source) and the reply schema, hashed exactly. Unlike `_sha`,
+    whitespace counts here: the model sees it. (The model itself is `main`'s default.)"""
+    parts = (SYSTEM, inspect.getsource(build_prompt), json.dumps(Answer.model_json_schema(), sort_keys=True))
+    return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
 
 
 def retrieval(q: dict, nodes: list[BaseNode]) -> str:
@@ -83,7 +93,7 @@ def record(q: dict, a) -> dict:
     nodes = [h.node for h in a.sources]
     return {
         "id": q["id"], "type": q["type"], "question": q["question"], "answerable": answerable(q),
-        "prompt": _sha(SYSTEM),  # which instructions wrote the answer, so a run can be traced to them
+        "prompt": prompt_id(),
         "n_parts": len(parts(q)), "retrieval": retrieval(q, nodes),
         "in_docs": a.answer.in_docs, "answer": a.answer.answer, "problems": a.problems,
         "tokens": a.usage.total_tokens,
@@ -96,8 +106,11 @@ def record(q: dict, a) -> dict:
 def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], client: GeminiClient,
         out: Path) -> list[dict]:
     """Answer each question, writing `out` after every one. Questions already in `out` are
-    skipped, so an interrupted run resumes instead of paying again."""
+    skipped, so an interrupted run resumes instead of paying again; a file written by
+    different instructions is refused, so one run can't mix two prompts."""
     done = json.loads(out.read_text()) if out.exists() else []
+    if other := sorted({str(r.get("prompt")) for r in done} - {prompt_id()}):
+        raise ValueError(f"{out} holds answers from another prompt ({', '.join(other)}); use a new --out")
     have = {r["id"] for r in done}
     for q in questions:
         if q["id"] in have:
@@ -206,7 +219,9 @@ def miss(r: dict, verdict: str, judged: str | None = None) -> str | None:
 def score(rows: list[dict], ledger: dict) -> str:
     """The per-question table and the totals. Questions or sentences without a verdict
     are counted as unjudged, never as passes."""
-    lines = [f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
+    prompts = sorted({str(r.get("prompt")) for r in rows})
+    lines = [f"prompt: {', '.join(prompts)}" + (" (MIXED: rows from different prompts)" if len(prompts) > 1 else ""),
+             f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
     verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0
     for r in rows:
         entry = ledger["answers"].get(answer_key(r), {})

@@ -54,11 +54,19 @@ def test_run_records_each_answer_and_resumes_without_paying_again(tmp_path):
     assert client.calls == 3  # only the new question
 
 
-def test_a_record_names_the_prompt_that_wrote_it(monkeypatch):
+def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path):
     import src.llm.research_docs.answer_eval as answer_eval
-    before = record(Q, _answered("Too fragile [1].", GOLD))["prompt"]
-    monkeypatch.setattr(answer_eval, "SYSTEM", answer_eval.SYSTEM + "\n- One more rule.")
-    assert record(Q, _answered("Too fragile [1].", GOLD))["prompt"] != before
+    out, client = tmp_path / "run.json", FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
+    [row] = run([Q], _find(GOLD), client, out)
+    assert row["prompt"] == answer_eval.prompt_id() and row["prompt"] == record(MULTI, _answered("x", GOLD))["prompt"]
+    assert score([row], {"support": {}, "answers": {}}).startswith(f"prompt: {row['prompt']}\n")
+    # only line breaks change: the model sees a different prompt, so the id changes
+    monkeypatch.setattr(answer_eval, "SYSTEM", answer_eval.SYSTEM.replace("\n", " "))
+    assert answer_eval.prompt_id() != row["prompt"]
+    with pytest.raises(ValueError, match="another prompt"):
+        run([Q, MULTI], _find(GOLD), client, out)
+    assert client.calls == 1
+    assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], {"support": {}, "answers": {}})
 
 
 def test_a_claim_key_follows_the_sentence_and_the_cited_text_not_the_source_number():
