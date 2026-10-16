@@ -34,7 +34,8 @@ correct from a source that isn't a gold is reported, as a candidate gold.
     python -m src.llm.research_docs.answer_eval score RUN      # scores from the ledger
 
 The baseline (2026-10-16, the step-6 prompt; ~95k tokens for 43 questions) is
-`judged/runs/dev_2026-10-16.json`; a prompt change is scored against it.
+`judged/runs/dev_2026-10-16.json`; a prompt change is scored against it. The step-6c
+prompt's run, on the same index, is `judged/runs/dev_2026-10-16_prompt.json`.
 """
 
 from __future__ import annotations

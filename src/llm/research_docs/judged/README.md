@@ -12,7 +12,8 @@ would be retrieved too.
   retrieval/generation split; it is pinned to the sources it was made for
   (`miss_sources`) and ignored after they change.
 - `runs/`: the answer runs those verdicts were made on (question, answer, the 5 sources
-  as shown, which sources match a gold). `dev_2026-10-16.json` is the baseline.
+  as shown, which sources match a gold). `dev_2026-10-16.json` is the baseline;
+  `dev_2026-10-16_prompt.json` the step-6c prompt on the same index (`docs/done.md` #152).
 - `pooling/`: the retrieval pooling record (`evaluate.py`), moved from the git-ignored
   `data/llm/`. `judged_top5_pre_rebuild_2026-10-14.json` holds every method's top 5 texts
   per question saved before the 2026-10-14 index rebuild (these count as judged afterwards);
