@@ -286,7 +286,10 @@ surprise that the net-income one misses.
   column is NaN for a year. **Limits:** a real change about half a split's
   size is misread (±20% across a 3-for-2); a vendor factor that merges a reverse split with
   a spin-off leaves a residual (MSI 2011: −41%); two splits within the year are judged one
-  at a time, so one can take the other's ratio; a reused symbol compares two companies
+  at a time, so one can take the other's ratio; after a split under 1.2× (a stock dividend)
+  or a spin-off factor, a year-ago count can't be told stale from caught up, so a real change
+  of about half the factor is cut (or, with no count before the split, the split is judged
+  anyway); a reused symbol compares two companies
   (FOX/FOXA 2019–2020: −66%).
 - **Leakage gate:** passes on synthetic data (3 seeds) and on the 20 real tickers. Two tests
   plant leaks and check the gate catches them: a count used on its filing date

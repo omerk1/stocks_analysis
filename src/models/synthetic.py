@@ -228,7 +228,7 @@ def synthetic_shares(bars: pd.DataFrame, splits: dict[str, pd.DataFrame], seed: 
         for when, ratio in ([] if sp is None else zip(sp["execution_date"], sp["ratio"])):
             after = np.flatnonzero(dates >= when)
             counts[after[1:]] *= ratio  # the first filing after the split is stale
-        handed_off = (i % 2 == 1) & (np.arange(len(dates)) >= len(dates) // 2)
+        handed_off = (i % 2 == 0) & (np.arange(len(dates)) >= len(dates) // 2)
         parts.append(pd.DataFrame({"ticker": ticker, "date": dates,
                                    "shares_outstanding": np.where(handed_off, counts * 1.1, counts),
                                    "source": np.where(handed_off, db.YFINANCE, db.SEC_EDGAR)}))

@@ -154,6 +154,8 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
     Both counts from the same source (`shares` needs `load_shares`' source
     column): SEC's and yfinance's differ for multi-class issuers (one class
     vs all), so the hand-off would read as a change."""
+    if "source" not in shares:
+        raise ValueError("share counts need load_shares' source column (SEC or yfinance)")
     # as filed, no bridge: the splits are judged below
     s = shares[shares["shares_outstanding"] > 0]
     s = s.assign(dated=pd.to_datetime(s["date"]).astype("M8[ns]")).sort_values("dated", kind="stable")
@@ -176,11 +178,12 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
         mine = by_ticker.get_group(ticker)
         for when, ratio in market_cap._split_ratio_events(splits.get(ticker)).items():  # chronological
             # a year-ago count dated up to STALE_FILING_DAYS after the split is judged too,
-            # if it still reports the pre-split count (as `market_cap._bridge_filing_lag` tells it)
+            # if it still reports the pre-split count (as `market_cap._bridge_filing_lag` tells
+            # it), or if there's no earlier count to tell
             before = mine[mine["dated"] < when].groupby("source")["level"].last()
             pre = pd.Series(source).map(before).to_numpy(dtype=float)
             stale = (ago < when + np.timedelta64(STALE_FILING_DAYS, "D")) & (
-                np.abs(level_ago - pre) < np.log(market_cap.FILING_LAG_TOLERANCE))
+                np.isnan(pre) | (np.abs(level_ago - pre) < np.log(market_cap.FILING_LAG_TOLERANCE)))
             less = c - np.log(ratio)
             between = ((ago < when) | stale) & (now >= when)
             c = np.where(between & (np.abs(less) < np.abs(c)), less, c)

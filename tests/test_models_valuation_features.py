@@ -115,7 +115,8 @@ def test_the_gate_catches_a_share_count_used_on_its_filing_day(monkeypatch):
     shares = context.shares.copy()
     shares.loc[shares.index[0], "date"] = cut  # one filing on the cut day itself
     # and one ticker's filings moved so one lands on the cut a year after another
-    moved = shares["ticker"] == sorted(shares["ticker"].unique())[2]  # SEC throughout (synthetic_shares)
+    sec_only = shares.groupby("ticker")["source"].agg(lambda s: (s == db.SEC_EDGAR).all())
+    moved = shares["ticker"] == sec_only[sec_only].index[0]  # one source throughout: a year-ago match
     nearest = shares.loc[moved, "date"].iloc[(shares.loc[moved, "date"] - cut).abs().argmin()]
     shares.loc[moved, "date"] += cut - nearest
     monkeypatch.setattr(V, "_known_from", lambda dated: dated)
@@ -156,9 +157,16 @@ def test_a_stale_year_ago_filing_after_a_split_is_not_dilution():
     # a 2-for-1 on 2019-03-01; the 2019-03-15 filing still reports 100, the
     # one a year later 210 after issuing 10
     splits = {"AAA": pd.DataFrame({"execution_date": [pd.Timestamp("2019-03-01")], "ratio": [2.0]})}
-    shares = _shares(["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 100.0, 210.0])
-    out = _features(_bars(), None, shares, splits).set_index("date")["share_change_yoy"]
-    assert out.loc["2020-03-17"] == pytest.approx(np.log(210 / 200))
+    for dates, counts in ((["2018-12-14", "2019-03-15", "2020-03-16"], [100.0, 100.0, 210.0]),
+                          (["2019-03-15", "2020-03-16"], [100.0, 210.0])):  # with no pre-split count too
+        out = _features(_bars(), None, _shares(dates, counts), splits).set_index("date")["share_change_yoy"]
+        assert out.loc["2020-03-17"] == pytest.approx(np.log(210 / 200))
+
+
+def test_share_counts_without_a_source_are_refused():
+    shares = _shares(["2019-03-01", "2020-03-02"], [100.0, 90.0]).drop(columns="source")
+    with pytest.raises(ValueError, match="source"):
+        _features(_bars(), None, shares)
 
 
 def test_growth_after_a_split_the_year_ago_count_already_reports_is_not_a_split():
