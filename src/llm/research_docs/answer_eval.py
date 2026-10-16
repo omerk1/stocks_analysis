@@ -21,7 +21,8 @@ the model (`evaluate.part_ranks` on the 5 sources shown): a **retrieval miss** w
 is and the answer is still wrong, or when the question is unanswerable and the model
 answered anyway. A "not in the docs" reply to an answerable question whose gold wasn't
 retrieved counts as a retrieval miss: the model did what it was told. The hand-check can
-override the split with a `miss` field and a note: a question's alternative golds count as
+override the split with a `miss` field and a note (stored with the sources it was made
+for, `sources_key`, and ignored once they change): a question's alternative golds count as
 one hit, so the answer can be "fully" retrieved by that rule and still be missing what the
 judge wanted from a gold that wasn't shown.
 
@@ -120,9 +121,13 @@ def claims(r: dict) -> list[dict]:
 
 
 def answer_key(r: dict) -> str:
-    """The question, the answer and the sources it was shown: the same answer from other
-    sources gets judged again, since its retrieval/generation split may differ."""
-    return _sha(r["id"], r["answer"], *(s["text"] for s in r["sources"]))
+    return _sha(r["id"], r["answer"])
+
+
+def sources_key(r: dict) -> str:
+    """The sources an answer was shown, in order. A hand-set `miss` is about them, so it
+    is stored with this key and applies only while the sources are the same."""
+    return _sha(*(s["text"] for s in r["sources"]))
 
 
 def load_ledger(path: Path = LEDGER) -> dict:
@@ -132,17 +137,18 @@ def load_ledger(path: Path = LEDGER) -> dict:
     bad = [k for k, v in ledger["support"].items() if v.get("verdict") not in SUPPORT]
     bad += [k for k, v in ledger["answers"].items()
             if v.get("verdict") not in CORRECTNESS or v.get("miss", "retrieval") not in MISSES
-            or ("miss" in v and v["verdict"] == "correct")]
+            or ("miss" in v and (v["verdict"] == "correct" or "miss_sources" not in v))]
     if bad:
         raise ValueError(f"ledger verdicts outside {SUPPORT} / {CORRECTNESS}, a miss outside {MISSES}, "
-                         f"or a miss on a correct answer: {', '.join(bad)}")
+                         f"or a miss on a correct answer or without `miss_sources`: {', '.join(bad)}")
     return ledger
 
 
 def gold_texts(q: dict, nodes: list[BaseNode], per_gold: int = GOLD_CHUNKS) -> list[list[dict]]:
     """Per part, the chunks matching each of its golds: at most `per_gold` per gold,
     since a metadata gold (an experiment id) can match hundreds of CSV rows. A chunk two
-    golds match is shown once; what was cut is said, not hidden."""
+    golds match is shown once, unless the first gold cut it (then its "+N more" line
+    counts it too); what was cut is said, not hidden."""
     out = []
     for p in parts(q):
         shown, seen = [], set()
@@ -199,19 +205,23 @@ def score(rows: list[dict], ledger: dict) -> str:
     """The per-question table and the totals. Questions or sentences without a verdict
     are counted as unjudged, never as passes."""
     lines = [f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
-    verdicts, misses, sup_all, unjudged, clean = {}, {}, [], [], 0
+    verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0
     for r in rows:
         entry = ledger["answers"].get(answer_key(r), {})
         v = entry.get("verdict")
         if v is None:
             unjudged.append(r["id"])
         verdicts[r["id"]] = v
-        misses[r["id"]] = miss(r, v, entry.get("miss")) if v else None
+        judged_miss = entry.get("miss") if entry.get("miss_sources") == sources_key(r) else None
+        misses[r["id"]] = miss(r, v, judged_miss) if v else None
         sup = [ledger["support"].get(c["key"], {}).get("verdict") for c in claims(r)]
         sup_all += sup
         ok = sum(s == "supported" for s in sup)
-        # an in-docs answer citing nothing isn't clean: that's `check`'s problem, not a pass
-        clean += ok == len(sup) and bool(sup or not r["in_docs"])
+        # over answers that cite something, all of it judged: an answer citing nothing has
+        # nothing to support (an uncited in-docs answer is `check`'s problem)
+        if sup and all(sup):
+            citing += 1
+            clean += ok == len(sup)
         lines.append(f"{r['id']:<24} {r['type']:<8} {r['retrieval']:<7} {str(r['in_docs'])[0]:<5} {v or '?':<8} "
                      f"{f'{ok}/{len(sup)}':<9} {(misses[r['id']] or '') if v else '?'}")
     judged = [r for r in rows if verdicts[r["id"]]]
@@ -228,7 +238,8 @@ def score(rows: list[dict], ledger: dict) -> str:
     known = [s for s in sup_all if s]
     lines.append(f"cited sentences: {len(sup_all)}, " + ", ".join(f"{known.count(v)} {v}" for v in SUPPORT)
                  + (f", {len(sup_all) - len(known)} unjudged" if len(known) < len(sup_all) else ""))
-    lines.append(f"answers with every cited sentence supported: {clean} of {len(rows)}")
+    lines.append(f"answers with every cited sentence supported: {clean} of {citing} that cite a source "
+                 "(and have every citation judged)")
     lines.append(f"mechanical citation problems (check): {sum(bool(r['problems']) for r in rows)} answers")
     if unjudged:
         lines.append(f"UNJUDGED answers: {', '.join(unjudged)}")

@@ -97,7 +97,9 @@ def test_a_hand_checked_miss_overrides_the_mechanical_split():
     r = record(Q, _answered("Too fragile [1].", GOLD))
     assert miss(r, "partial") == "generation" and miss(r, "partial", "retrieval") == "retrieval"
     assert miss(r, "correct", "retrieval") is None
-    out = score([r], {"support": {}, "answers": {answer_key(r): {"verdict": "partial", "miss": "retrieval"}}})
+    from src.llm.research_docs.answer_eval import sources_key
+    out = score([r], {"support": {}, "answers": {answer_key(r): {"verdict": "partial", "miss": "retrieval",
+                                                                 "miss_sources": sources_key(r)}}})
     assert "1 retrieval, 0 generation" in out
 
 
@@ -114,6 +116,9 @@ def test_the_ledger_refuses_a_verdict_outside_the_scale(tmp_path):
     path = tmp_path / "answers.json"
     path.write_text(json.dumps({"support": {"k": {"verdict": "yes"}}, "answers": {}}))
     with pytest.raises(ValueError, match="k"):
+        load_ledger(path)
+    path.write_text(json.dumps({"support": {}, "answers": {"b": {"verdict": "partial", "miss": "retrieval"}}}))
+    with pytest.raises(ValueError, match="b"):  # an override not pinned to its sources
         load_ledger(path)
     path.write_text(json.dumps({"support": {}, "answers": {"a": {"verdict": "partial", "miss": "breadth"}}}))
     with pytest.raises(ValueError, match="a"):
@@ -136,18 +141,27 @@ def test_a_chunk_cut_under_one_gold_still_shows_under_another():
     q = {"id": "x", "question": "?", "gold": [{"path": "docs/x.md", "cell_id": "c"},
                                                {"path": "docs/x.md", "contains": "row 2"}]}
     [shown] = gold_texts(q, rows, per_gold=1)
-    assert [s["text"].endswith(t) for s, t in zip(shown, ("row 0", "", "row 2"))] == [True, True, True]
-    assert "+2 more" in shown[1]["text"]
+    assert len(shown) == 3
+    assert shown[0]["text"].endswith("row 0") and "+2 more" in shown[1]["text"]
+    assert shown[2]["text"].endswith("row 2")
 
 
-def test_the_answer_key_changes_when_the_sources_do():
-    assert answer_key(record(Q, _answered("Too fragile [1].", GOLD))) != \
-        answer_key(record(Q, _answered("Too fragile [1].", GOLD, OTHER)))
+def test_a_hand_set_miss_applies_only_to_the_sources_it_was_made_for():
+    from src.llm.research_docs.answer_eval import sources_key
+    r = record(Q, _answered("Too fragile [1].", GOLD))
+    other = record(Q, _answered("Too fragile [1].", GOLD, OTHER))
+    assert answer_key(r) == answer_key(other)  # the correctness verdict carries over
+    ledger = {"support": {}, "answers": {answer_key(r): {"verdict": "partial", "miss": "retrieval",
+                                                         "miss_sources": sources_key(r)}}}
+    assert "1 retrieval, 0 generation" in score([r], ledger)
+    assert "0 retrieval, 1 generation" in score([other], ledger)
 
 
-def test_an_in_docs_answer_citing_nothing_is_not_counted_as_clean():
-    r = record(Q, _answered("Too fragile.", GOLD))
-    assert "every cited sentence supported: 0 of 1" in score([r], {"support": {}, "answers": {}})
+def test_only_answers_that_cite_something_count_toward_clean():
+    uncited = record(Q, _answered("Too fragile.", GOLD))
+    r = record(Q, _answered("Too fragile [1].", GOLD))
+    ledger = {"support": {claims(r)[0]["key"]: {"verdict": "supported"}}, "answers": {}}
+    assert "every cited sentence supported: 1 of 1 that cite" in score([uncited, r], ledger)
 
 
 def test_packets_refuse_a_row_whose_question_left_the_dev_split():

@@ -9,7 +9,8 @@ would be retrieved too.
   Every verdict was proposed by a fresh agent and checked by hand against the sources;
   a `judge_note` keeps the agent's wording where the hand-check rewrote a note, and a
   `miss` with its `miss_note` records where the hand-check overrode the mechanical
-  retrieval/generation split.
+  retrieval/generation split; it is pinned to the sources it was made for
+  (`miss_sources`) and ignored after they change.
 - `runs/`: the answer runs those verdicts were made on (question, answer, the 5 sources
   as shown, which sources match a gold). `dev_2026-10-16.json` is the baseline.
 - `pooling/`: the retrieval pooling record (`evaluate.py`), moved from the git-ignored

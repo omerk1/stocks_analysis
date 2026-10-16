@@ -1,54 +1,41 @@
 {
  "answers": {
-  "05543060503b3741": {
-   "id": "sma200_placebo",
-   "note": "Says correctly that 200 is not special: the neighbours 187/193/207/213 have near-identical spreads and overlapping CIs, so the lookback is a trend length. It doesn't mention that the focal CI spans zero (inconclusive), but the verdict on the comparison is right.",
-   "verdict": "correct"
-  },
-  "09fba70f794b0151": {
-   "id": "ichimoku",
-   "note": "Correctly says the sources don't cover Ichimoku, without stretching a related source into an answer.",
-   "verdict": "correct"
-  },
-  "0a29317b995ee69f": {
-   "id": "divergence_registered",
-   "note": "Describes the DC-B3/B4 draft that was closed without running; the registered experiment that ran (DC-B1/DC-B2) ended with all six cells Inconclusive (CIs span zero and extend far past the +/-20 bps band), which the answer never mentions.",
+  "03910293c6f5af58": {
+   "id": "short_interest",
+   "note": "This is unanswerable, yet the answer asserts that short interest 'has not been tested' as if the docs said so, and stretches the borrow-feasibility passage into a related claim, instead of saying the docs don't cover it.",
    "verdict": "wrong"
   },
-  "0c69b70016cb6bad": {
-   "id": "retest_continuation",
-   "note": "Covers the gap-fill analysis (deeper fills precede weaker continuation/reversal) but misses the SMA50 break-and-retest study (held retest underperforms, -2.08% at 63d, FDR survivor) and the order-block first-retest hold-rate test.",
-   "parts_covered": [
-    3
-   ],
-   "verdict": "partial"
-  },
-  "1199a55916a34c03": {
-   "id": "harness_folds",
-   "note": "Covers walk-forward yearly test folds 2014-2021, expanding (primary) vs sliding, purge, 21-day embargo and nested inner folds. Matches §4.",
+  "06b3223803907da1": {
+   "id": "dead_vs_inconclusive",
+   "note": "Dead means the whole CI sits inside the relevance floor. Inconclusive means the CI spans zero but extends past the floor (underpowered). Matches the golds.",
    "verdict": "correct"
   },
-  "17c8704800a6f23a": {
+  "09da24536c1cf2f3": {
+   "id": "yfinance_end",
+   "note": "Correctly says yfinance end is exclusive unlike Polygon, and that both client paths shift end by a day to match Polygon's inclusive semantics.",
+   "verdict": "correct"
+  },
+  "0be8988822e4a976": {
+   "id": "holiday_calendar",
+   "note": "Correctly says resampling uses pure calendar logic with no holiday awareness, holiday-shortened weeks just get the days present, and a real market calendar is the fix.",
+   "verdict": "correct"
+  },
+  "116c898c7560ad7a": {
    "id": "lrp_level_fields",
    "note": "Lists all eight fields (price, zone, source, strength percentile, age, touches, state, prior) and the rule that position decides resistance vs support.",
    "verdict": "correct"
   },
-  "1a5fd1e60556870e": {
-   "id": "lag_where",
-   "note": "Correctly names features/panel.py::apply_lag as the central place and that a row is the state on its tradeable day; extra divergence-context/leakage-test context is tangential but not wrong.",
+  "12346ce11b6c9964": {
+   "id": "golden_cross",
+   "note": "Gives the inconclusive verdict versus same-state matched controls, with point estimate and CI spanning zero, matching the EXPERIMENTS.csv gold.",
    "verdict": "correct"
   },
-  "1f1d772a7bce423d": {
-   "id": "bearish_stack",
-   "note": "Correctly says no, bearish stacks show positive control-adjusted 21d returns (+0.444% standalone, +1.011% incremental, +0.275% reversal-controlled), Tier 3 with survivorship caveat; omits the FDR miss and reversal-controlled cost failure, which are minor.",
+  "170645169bd89ef2": {
+   "id": "lrp_tested",
+   "note": "Explains the idea (direction plus clear air from unified levels in ATR units) and correctly says it is a proposed formulation, not built and not tested. The test-plan detail is accurate.",
    "verdict": "correct"
   },
-  "22ed2a43dffa5b94": {
-   "id": "id_dist_pct_sma200",
-   "note": "Reports both the M4 and M11 rows with the right point estimates and CIs, the inconclusive outcome and that cost was not tested.",
-   "verdict": "correct"
-  },
-  "28f1ad57e064cf64": {
+  "1818580c9410ff46": {
    "id": "windows_horizons",
    "note": "Gives the modeling window (2010-2021) and modeling horizons (10/21/42/63, 5 diagnostic, 126 later), but omits the MA study's lookback grid (3-250 daily, weekly/monthly) and its label horizons (1, 3, 5, 10, 21, 63, 126, 252).",
    "parts_covered": [
@@ -56,93 +43,60 @@
    ],
    "verdict": "partial"
   },
-  "2e77b3c6527dd477": {
-   "id": "divergence_trend_filter",
-   "judge_note": "Says the docs don't cover it. The golds do: the divergence-context study (DC-B1/B2) tested RSI regular divergence conditioned on structural context, and all six cells were inconclusive. Source 1 (the DC-B1/B2 event set) was shown and was ignored.",
-   "note": "Says the docs don't cover it; the golds do (the divergence-context study conditioned RSI regular divergence on the move before it; all six cells inconclusive). No gold was retrieved: source 1 is that study's event-set section, which names the test but holds no result, so the most a reply could add is that the closest study exists.",
+  "2ad40f12e1a7fb9d": {
+   "id": "e1_result",
+   "note": "Says the sources don't give the result, but the golds do: E1 was inconclusive (no trial BH-significant, every CI spans zero), so the MA groups were dropped from v1. The answer was only shown the pre-registration draft.",
    "verdict": "wrong"
   },
-  "2ed7bd9e778a5a88": {
-   "id": "low_52w",
-   "note": "Numbers (126d +2.50%, 63d +0.96%, reversal control +2.64%) are right, but it answers a flat 'yes' and drops the key qualifiers: Tier 3, misses whole-grid FDR (p=0.0047 vs 0.0037), 63d fails cost, residual momentum and survivorship exposure.",
-   "verdict": "partial"
-  },
-  "30404225e34b26bf": {
-   "id": "reclaim_volume",
-   "note": "Gives the verdict: dollar volume points the opposite way (low-volume reclaims outperform) and relative volume is inconclusive. It leaves out the caveat that dollar volume is a size proxy (the Tier-3 cap) and the -0.870% number, but nothing it says is wrong.",
+  "2b0be4e3429c40c3": {
+   "id": "double_top_first",
+   "note": "Gives the gold reason: simpler 3-pivot shape that reuses the neckline/measured-move logic H&S needs, with less to build first. Omits the 'prove the full vertical slice end-to-end' motive, but done.md #48 states the same core reason.",
    "verdict": "correct"
   },
-  "3b9d3d9a00568d96": {
-   "id": "golden_cross",
-   "note": "Gives the inconclusive verdict versus same-state matched controls, with point estimate and CI spanning zero, matching the EXPERIMENTS.csv gold.",
-   "verdict": "correct"
-  },
-  "3ee083e708a74feb": {
-   "id": "id_placebo_ema21",
-   "note": "Real focal effect, but no different from the EMA19/23 neighbours, so logged no_effect with the decisive test failed (the folklore-confirmed shape). Matches the golds; it omits the 2026-10-07 flagged-not-relabeled note, which is minor.",
-   "verdict": "correct"
-  },
-  "3f8ce6ade9f7ea7c": {
-   "id": "sr_line_limits",
-   "note": "Only the diagonal drift-vs-half_width rule (a minimum effective angle, candidate gold: source 1) is given. It misses the max slope cap (max_diagonal_slope_atr_per_bar), the proximity*recency relevance gate and zone_width_atr as the width knob.",
-   "parts_covered": [
-    2
-   ],
-   "verdict": "partial"
-  },
-  "43c0f25b74dec0af": {
-   "id": "model_running",
-   "miss": "retrieval",
-   "miss_note": "Hand-check: none of the 5 sources mentions the scorecard run the judge found missing (it lives in a done.md gold that wasn't retrieved), so retrieval.",
-   "note": "Mentions the E1 run and its inconclusive verdict. It misses the combined-model trading scorecard run (done #110: model vs market and B4, no clear edge, worse per unit of risk), which is the main 'model running' gold.",
-   "verdict": "partial"
-  },
-  "44e684fe13d931ab": {
-   "id": "crypto_scope",
-   "note": "Correctly cites the explicit v1 non-goal and its reason.",
-   "verdict": "correct"
-  },
-  "52b36eee2b924f46": {
-   "id": "slope_pctile_by_id",
-   "note": "Gives the outcome: Tier 2, U-shaped (flat slope trails both tails by ~0.25%/21d, ~3%/yr gross), and it survives FDR at rank 2 of 107. Matches the golds.",
-   "verdict": "correct"
-  },
-  "53d706799d0e6952": {
-   "id": "yfinance_end",
-   "note": "Correctly says yfinance end is exclusive unlike Polygon, and that both client paths shift end by a day to match Polygon's inclusive semantics.",
-   "verdict": "correct"
-  },
-  "5b65e20759f0881a": {
-   "id": "shares_before_2015",
-   "note": "SEC EDGAR companyfacts XBRL via sec_companyfacts.py/bulk_sec_shares_ingest.py, back to ~2009-2011, with yfinance starting 2015, exactly as in done #60.",
-   "verdict": "correct"
-  },
-  "67e35f966c173c96": {
+  "30c26debe42c930e": {
    "id": "price_basis_choice",
    "note": "Two bases: total_return for returns and traded for levels and market caps, with the reasons (dividend drift, rescaling) and the module table. Matches the golds.",
    "verdict": "correct"
   },
-  "751b20dd38560366": {
-   "id": "holdout_window",
-   "note": "States the Phase 0 audit finding that active-ticker history mostly starts in 2010+, so the window was moved to what the data supports; matches both golds.",
+  "30d29d0dcdcefaa9": {
+   "id": "macd_beyond_spread",
+   "note": "Says it is not redundant: correlations of +0.30/-0.25 against the 0.89 bar, and an incremental IC whose CI barely excludes zero, called marginal and contrary to the prior. It leaves out that it fails FDR and that the reversal confound caps it at Tier 3, both minor here.",
    "verdict": "correct"
   },
-  "7598084761adadce": {
-   "id": "sma20_bounce",
-   "note": "States the M20 read: no forward-return information beyond a same-size move, a slight reversal not continuation, and not an entry feature. The phrasing about the resistance-rejection short is slightly garbled but not wrong.",
+  "34025cab342fd130": {
+   "id": "ichimoku",
+   "note": "Correctly says the sources don't cover Ichimoku, without stretching a related source into an answer.",
    "verdict": "correct"
   },
-  "769bc22588973017": {
-   "id": "lrp_tested",
-   "note": "Explains the idea (direction plus clear air from unified levels in ATR units) and correctly says it is a proposed formulation, not built and not tested. The test-plan detail is accurate.",
+  "382876be81589f03": {
+   "id": "slope_pctile_by_id",
+   "note": "Gives the outcome: Tier 2, U-shaped (flat slope trails both tails by ~0.25%/21d, ~3%/yr gross), and it survives FDR at rank 2 of 107. Matches the golds.",
    "verdict": "correct"
   },
-  "7793815546d23016": {
-   "id": "order_blocks_status",
-   "note": "Correctly says closed, not shipping, after the prototype/backtest gate lost to pivot clustering; doc kept as record.",
+  "4cba9e79faf08dec": {
+   "id": "retest_continuation",
+   "note": "Covers the gap-fill analysis (deeper fills precede weaker continuation/reversal) but misses the SMA50 break-and-retest study (held retest underperforms, -2.08% at 63d, FDR survivor) and the order-block first-retest hold-rate test.",
+   "parts_covered": [
+    3
+   ],
+   "verdict": "partial"
+  },
+  "4ef0b33799bc56f0": {
+   "id": "low_52w",
+   "note": "Numbers (126d +2.50%, 63d +0.96%, reversal control +2.64%) are right, but it answers a flat 'yes' and drops the key qualifiers: Tier 3, misses whole-grid FDR (p=0.0047 vs 0.0037), 63d fails cost, residual momentum and survivorship exposure.",
+   "verdict": "partial"
+  },
+  "547e244306caa378": {
+   "id": "shares_before_2015",
+   "note": "SEC EDGAR companyfacts XBRL via sec_companyfacts.py/bulk_sec_shares_ingest.py, back to ~2009-2011, with yfinance starting 2015, exactly as in done #60.",
    "verdict": "correct"
   },
-  "8431bb5e6f695834": {
+  "5c106af0e6027431": {
+   "id": "ic_sweep_best",
+   "note": "Gives the right number (mean IC +0.0385, dist_from_52w_low@126d, ~2x next best) but drops the gold's verdict that this is weak in absolute terms (every cell in the 348-cell sweep is weak; top-25 mostly 0.018-0.022).",
+   "verdict": "partial"
+  },
+  "66f35cac4e1a382e": {
    "id": "sharpe_used",
    "note": "Covers the scorecard's portfolio Sharpe correctly (0.18-0.58 vs the market, then 0.45-0.92 after EV/ATR ranking). It misses the analysis side: the outcome-statistics toolkit deliberately uses an un-annualized risk_adjusted_return instead of Sharpe, and the MA design calls for a deflated Sharpe ratio.",
    "parts_covered": [
@@ -150,92 +104,139 @@
    ],
    "verdict": "partial"
   },
-  "8b1fe2b086b3ad10": {
-   "id": "zone_start",
-   "note": "Correct cause (first_touch from earliest event, bootstrap bar emits no event so defining pivot skipped) and fix (min pivot timestamp), plus the sorted-by-price latent bug.",
+  "6a2ce8b561246a30": {
+   "id": "reclaim_volume",
+   "note": "Gives the verdict: dollar volume points the opposite way (low-volume reclaims outperform) and relative volume is inconclusive. It leaves out the caveat that dollar volume is a size proxy (the Tier-3 cap) and the -0.870% number, but nothing it says is wrong.",
    "verdict": "correct"
   },
-  "8bfebe663f691988": {
-   "id": "double_top_first",
-   "note": "Gives the gold reason: simpler 3-pivot shape that reuses the neckline/measured-move logic H&S needs, with less to build first. Omits the 'prove the full vertical slice end-to-end' motive, but done.md #48 states the same core reason.",
+  "6c2660fa1f0aa293": {
+   "id": "lag_where",
+   "note": "Correctly names features/panel.py::apply_lag as the central place and that a row is the state on its tradeable day; extra divergence-context/leakage-test context is tangential but not wrong.",
    "verdict": "correct"
   },
-  "8efd4e57b080fb90": {
-   "id": "holdout_opened",
-   "note": "Correctly states the 2022+ holdout was never opened and remains locked.",
-   "verdict": "correct"
+  "6ecab0a2d2e5a47c": {
+   "id": "cost_assumption",
+   "miss": "retrieval",
+   "miss_note": "Hand-check: the measured-turnover x 10 bps convention the judge found missing is in golds that weren't retrieved; source 4's 10 bps is the design formula's example, so retrieval.",
+   "miss_sources": "b7871f8d9b3ede8b",
+   "note": "Gives DESIGN §6.10's formula and tiered slippage, which is one gold. It misses the convention the study actually used everywhere: measured turnover x 10 bps round trip with linear x252/H annualisation (REPORT §2, ma_study_insights). It also omits the modeling side's 10 and 25 bps levels.",
+   "verdict": "partial"
   },
-  "953e73abe86fceac": {
-   "id": "dead_vs_inconclusive",
-   "note": "Dead means the whole CI sits inside the relevance floor. Inconclusive means the CI spans zero but extends past the floor (underpowered). Matches the golds.",
-   "verdict": "correct"
-  },
-  "96ffcc89f0c6dfa4": {
-   "id": "m22_kill",
-   "note": "Lists all six confirmation gates accurately.",
-   "verdict": "correct"
-  },
-  "a1d6e3de76388ac1": {
-   "id": "macd_beyond_spread",
-   "note": "Says it is not redundant: correlations of +0.30/-0.25 against the 0.89 bar, and an incremental IC whose CI barely excludes zero, called marginal and contrary to the prior. It leaves out that it fails FDR and that the reversal confound caps it at Tier 3, both minor here.",
-   "verdict": "correct"
-  },
-  "ac3567aa10a235a7": {
-   "id": "e1_result",
-   "note": "Says the sources don't give the result, but the golds do: E1 was inconclusive (no trial BH-significant, every CI spans zero), so the MA groups were dropped from v1. The answer was only shown the pre-registration draft.",
-   "verdict": "wrong"
-  },
-  "b2309b6888bf7d19": {
+  "72e0a33b0fb96917": {
    "id": "stoch_divergence",
    "note": "Says correctly that Stochastic/CCI divergences are deliberately out of scope, to be revisited only with a Track-B reason.",
    "verdict": "correct"
   },
-  "be2b7a761f9e43a5": {
-   "id": "ic_sweep_best",
-   "note": "Gives the right number (mean IC +0.0385, dist_from_52w_low@126d, ~2x next best) but drops the gold's verdict that this is weak in absolute terms (every cell in the 348-cell sweep is weak; top-25 mostly 0.018-0.022).",
-   "verdict": "partial"
+  "7eb7cbb42cb822e2": {
+   "id": "holdout_window",
+   "note": "States the Phase 0 audit finding that active-ticker history mostly starts in 2010+, so the window was moved to what the data supports; matches both golds.",
+   "verdict": "correct"
   },
-  "c26986dc0f5ccd04": {
+  "8bd72822cb9f2173": {
    "id": "data_limitations",
    "miss": "retrieval",
    "miss_note": "Hand-check: the limitations the judge found missing are sections of the same file that weren't in the top 5; five sections can't hold the whole list, so retrieval.",
+   "miss_sources": "a23a1539eb150ddf",
    "note": "Covers delisted fetchability (Polygon 2-year limit, Tiingo backfill), the dividend-adjustment mismatch, index-membership sources and share-class symbols. It misses much of limitations.md: no trading calendar, the is_partial heuristic, no intraday on the Polygon free tier, the yfinance rate limit and bars_1h not wired up.",
    "verdict": "partial"
   },
-  "c61116a69b22cf3e": {
+  "8e566e78162ead94": {
+   "id": "m22_kill",
+   "note": "Lists all six confirmation gates accurately.",
+   "verdict": "correct"
+  },
+  "8f4bec4c73567406": {
    "id": "chunk_size",
    "note": "Gives the reason: bge-small (step 3's embedder) truncates at 512 tokens. The extra detail about two overlong chunks comes from #104 and is accurate.",
    "verdict": "correct"
   },
-  "da6c525f7288ee43": {
-   "id": "cost_assumption",
+  "8fd94f0181d120f5": {
+   "id": "harness_folds",
+   "note": "Covers walk-forward yearly test folds 2014-2021, expanding (primary) vs sliding, purge, 21-day embargo and nested inner folds. Matches §4.",
+   "verdict": "correct"
+  },
+  "9e4b4543e52b4fdf": {
+   "id": "zone_start",
+   "note": "Correct cause (first_touch from earliest event, bootstrap bar emits no event so defining pivot skipped) and fix (min pivot timestamp), plus the sorted-by-price latent bug.",
+   "verdict": "correct"
+  },
+  "a41e40c47d55f1c4": {
+   "id": "sma200_placebo",
+   "note": "Says correctly that 200 is not special: the neighbours 187/193/207/213 have near-identical spreads and overlapping CIs, so the lookback is a trend length. It doesn't mention that the focal CI spans zero (inconclusive), but the verdict on the comparison is right.",
+   "verdict": "correct"
+  },
+  "a9e06fd23f868605": {
+   "id": "id_dist_pct_sma200",
+   "note": "Reports both the M4 and M11 rows with the right point estimates and CIs, the inconclusive outcome and that cost was not tested.",
+   "verdict": "correct"
+  },
+  "aefe42d919846cf7": {
+   "id": "model_running",
    "miss": "retrieval",
-   "miss_note": "Hand-check: the measured-turnover x 10 bps convention the judge found missing is in golds that weren't retrieved; source 4's 10 bps is the design formula's example, so retrieval.",
-   "note": "Gives DESIGN §6.10's formula and tiered slippage, which is one gold. It misses the convention the study actually used everywhere: measured turnover x 10 bps round trip with linear x252/H annualisation (REPORT §2, ma_study_insights). It also omits the modeling side's 10 and 25 bps levels.",
+   "miss_note": "Hand-check: none of the 5 sources mentions the scorecard run the judge found missing (it lives in a done.md gold that wasn't retrieved), so retrieval.",
+   "miss_sources": "bf79444d68f67e94",
+   "note": "Mentions the E1 run and its inconclusive verdict. It misses the combined-model trading scorecard run (done #110: model vs market and B4, no clear edge, worse per unit of risk), which is the main 'model running' gold.",
    "verdict": "partial"
   },
-  "e0c47769615ab2e8": {
-   "id": "short_interest",
-   "note": "This is unanswerable, yet the answer asserts that short interest 'has not been tested' as if the docs said so, and stretches the borrow-feasibility passage into a related claim, instead of saying the docs don't cover it.",
-   "verdict": "wrong"
+  "b06120c5bbd313a4": {
+   "id": "id_placebo_ema21",
+   "note": "Real focal effect, but no different from the EMA19/23 neighbours, so logged no_effect with the decisive test failed (the folklore-confirmed shape). Matches the golds; it omits the 2026-10-07 flagged-not-relabeled note, which is minor.",
+   "verdict": "correct"
   },
-  "e92079b8d781fb53": {
+  "b3bdaf6fe8869f8a": {
+   "id": "crypto_scope",
+   "note": "Correctly cites the explicit v1 non-goal and its reason.",
+   "verdict": "correct"
+  },
+  "bd50fb992272bd30": {
+   "id": "bearish_stack",
+   "note": "Correctly says no, bearish stacks show positive control-adjusted 21d returns (+0.444% standalone, +1.011% incremental, +0.275% reversal-controlled), Tier 3 with survivorship caveat; omits the FDR miss and reversal-controlled cost failure, which are minor.",
+   "verdict": "correct"
+  },
+  "bf3c1976d5eea14f": {
    "id": "earnings_financials",
    "judge_note": "Answers 'Yes' but then only describes a plan to ingest financials. It misses the gold: what actually exists is share counts from SEC companyfacts (done #60), which source 4 itself says is the only thing read so far. As a result it implies reported financials are in the data.",
-   "miss": "retrieval",
-   "miss_note": "Stale index: the golds that hold the as-built status match no indexed chunk.",
    "note": "Hand-check against the current docs: the 'yes' is right (filings and earnings dates have been ingested since), but it rests on a plan section, describes the data as planned rather than built, and omits the earnings dates. Three of the four golds are newer than the index build, so the judge saw only the share-count gold and none of them was retrieved: a stale-index miss, not the ranker.",
    "verdict": "partial"
   },
-  "f026f96eecbcc6b6": {
-   "id": "holiday_calendar",
-   "note": "Correctly says resampling uses pure calendar logic with no holiday awareness, holiday-shortened weeks just get the days present, and a real market calendar is the fix.",
+  "c2bf926d4564efcf": {
+   "id": "divergence_registered",
+   "note": "Describes the DC-B3/B4 draft that was closed without running; the registered experiment that ran (DC-B1/DC-B2) ended with all six cells Inconclusive (CIs span zero and extend far past the +/-20 bps band), which the answer never mentions.",
+   "verdict": "wrong"
+  },
+  "c32ebcbd71c61988": {
+   "id": "holdout_opened",
+   "note": "Correctly states the 2022+ holdout was never opened and remains locked.",
    "verdict": "correct"
   },
-  "f71bf9bc68b02b51": {
+  "c562c9dac479ea6d": {
+   "id": "sr_line_limits",
+   "note": "Only the diagonal drift-vs-half_width rule (a minimum effective angle, candidate gold: source 1) is given. It misses the max slope cap (max_diagonal_slope_atr_per_bar), the proximity*recency relevance gate and zone_width_atr as the width knob.",
+   "parts_covered": [
+    2
+   ],
+   "verdict": "partial"
+  },
+  "cc6c065376ab1880": {
+   "id": "sma20_bounce",
+   "note": "States the M20 read: no forward-return information beyond a same-size move, a slight reversal not continuation, and not an entry feature. The phrasing about the resistance-rejection short is slightly garbled but not wrong.",
+   "verdict": "correct"
+  },
+  "e10623d8d9e3f80c": {
+   "id": "order_blocks_status",
+   "note": "Correctly says closed, not shipping, after the prototype/backtest gate lost to pivot clustering; doc kept as record.",
+   "verdict": "correct"
+  },
+  "e3df2e14752e339c": {
    "id": "order_blocks",
    "note": "No: the backtest showed order blocks lose to pivot clustering and the investigation is closed. Matches the gold verdict, though it gives no hold-rate or return numbers.",
    "verdict": "correct"
+  },
+  "fd2d65a54ed1a506": {
+   "id": "divergence_trend_filter",
+   "judge_note": "Says the docs don't cover it. The golds do: the divergence-context study (DC-B1/B2) tested RSI regular divergence conditioned on structural context, and all six cells were inconclusive. Source 1 (the DC-B1/B2 event set) was shown and was ignored.",
+   "note": "Says the docs don't cover it; the golds do (the divergence-context study conditioned RSI regular divergence on the move before it; all six cells inconclusive). No gold was retrieved: source 1 is that study's event-set section, which names the test but holds no result, so the most a reply could add is that the closest study exists.",
+   "verdict": "wrong"
   }
  },
  "support": {
