@@ -405,8 +405,8 @@ def leakage_gate(
     cut = pd.Timestamp(cut)
     specs = registry + CANARIES
     sources = {**reg.SOURCES, **CANARY_SOURCES}
-    if levels_snapshot_weeks is not None:
-        sources["levels"] = reg.level_source(None, cut - pd.Timedelta(weeks=levels_snapshot_weeks))
+    sources["levels"] = (reg.level_source(None) if levels_snapshot_weeks is None
+                         else reg.level_source(None, cut - pd.Timedelta(weeks=levels_snapshot_weeks)))
     base = reg.compute_registered(bars, splits, specs, sources, context=context)
     registered = {s.name for s in registry} | {f"{s.name}_rank" for s in registry if s.ranked}
     leaks, canaries = {}, {}

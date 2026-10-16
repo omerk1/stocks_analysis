@@ -277,7 +277,9 @@ def test_a_week_with_no_rows_does_not_fall_back_to_the_week_before(bars, configs
     snaps = levels.avwap_snapshots(bars, None, dates[:1], configs["avwap"], TICKER)  # only the first week has rows
     out = levels.daily_levels(bars, None, snaps, bars.index[bars.index >= dates[0]], dates, configs)
     av = out[out["source"] == "avwap"]
-    assert av["date"].max() <= dates[1]  # held through the next snapshot's day, not after it
+    # Week 1's rows end where week 2's (empty) snapshot is held: on its day if a Friday, else the next day.
+    held_from = dates[1] if dates[1].dayofweek == 4 else bars.index[bars.index > dates[1]][0]
+    assert av["date"].max() == bars.index[bars.index < held_from][-1]
 
 
 def test_avwap_rolls_forward_on_the_configs_price_source(bars, configs):

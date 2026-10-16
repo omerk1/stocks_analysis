@@ -182,6 +182,37 @@ def test_since_drops_early_rows_after_a_warm_computation():
     assert late["mom_12_1"].notna().any()   # warm: computed on the whole frame, then cut
 
 
+def test_the_feature_cache_reads_a_snapshot_cache_built_by_build_levels(tmp_path, monkeypatch):
+    """End to end: `build_level_cache` (build-levels) then `build_feature_cache`
+    with every registered column. The feature cache's full-history read must
+    match the snapshot build's, so nothing misses and no detector reruns."""
+    from src.foundation.data_processing import db
+    from src.models import dataset
+    conn = db.get_connection(":memory:")
+    db.create_tables(conn)
+    tickers = ["AAA", "BBB"]
+    for i, t in enumerate(tickers):
+        b = _bars(n=560, seed=20 + i, start="2019-11-01").assign(volume=1e6, is_partial=0)
+        for source in (db.YFINANCE, db.YFINANCE_SPLIT_ONLY):
+            db.upsert_bars(conn, "bars_1d", t, source, b)
+    db.replace_index_membership(conn, "sp500", pd.DataFrame(
+        [(t, "2015-01-01", None) for t in tickers], columns=["ticker", "start_date", "end_date"]))
+    end = "2021-12-31"
+    levels_root = tmp_path / "levels"
+    level_cache.build_level_cache(conn, tickers, levels_root, end, workers=1, progress=lambda s: None)
+
+    def no_detectors(*a, **k):
+        raise AssertionError("the feature cache must read the snapshot cache, not rerun the detectors")
+    monkeypatch.setattr(level_snapshots, "snapshots", no_detectors)
+    universe = dataset.universe_mask(conn, "2021-06-01", end)
+    cache.build_feature_cache(conn, universe, tmp_path / "features", levels_root=levels_root)
+    f = cache.read_feature_cache(tmp_path / "features")
+    assert f.attrs["manifest"]["level_cache_misses"] == [] and set(f["ticker"]) == set(tickers)
+    assert len(f) == int(universe["eligible"].sum())
+    assert f["density_up_2"].notna().all() and f["near_up_round"].notna().all()
+    conn.close()
+
+
 def test_the_feature_cache_finds_tickers_the_snapshot_cache_misses(tmp_path):
     short = _bars(n=160, seed=5, start="2010-01-01")
     long = short.rename_axis("date").reset_index().assign(ticker=TICKER)

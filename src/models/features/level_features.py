@@ -211,7 +211,7 @@ def features(clean: pd.DataFrame, daily: pd.DataFrame, taken, configs: dict) -> 
     atr = indicators.atr(clean, ATR_PERIOD).to_numpy(dtype=float)
     taken = np.sort(pd.DatetimeIndex(taken).to_numpy())
     out = pd.DataFrame(np.nan, index=index, columns=list(COLUMNS))
-    if daily.empty or not len(taken):
+    if not len(taken):  # no day holds a snapshot: nothing is defined
         return out
     pos = index.get_indexer(pd.DatetimeIndex(daily["date"]))
     w = weights(daily, index)
