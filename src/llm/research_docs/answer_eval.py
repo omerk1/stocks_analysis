@@ -53,7 +53,7 @@ from llama_index.core.schema import BaseNode, NodeWithScore
 
 from src.llm.gemini import GeminiClient
 from src.llm.paths import llm_data_dir
-from src.llm.research_docs.answer import BUDGET, answer, cited, sentences, source_text
+from src.llm.research_docs.answer import BUDGET, SYSTEM, answer, cited, sentences, source_text
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
 from src.llm.research_docs.retrieve import cite
@@ -83,6 +83,7 @@ def record(q: dict, a) -> dict:
     nodes = [h.node for h in a.sources]
     return {
         "id": q["id"], "type": q["type"], "question": q["question"], "answerable": answerable(q),
+        "prompt": _sha(SYSTEM),  # which instructions wrote the answer, so a run can be traced to them
         "n_parts": len(parts(q)), "retrieval": retrieval(q, nodes),
         "in_docs": a.answer.in_docs, "answer": a.answer.answer, "problems": a.problems,
         "tokens": a.usage.total_tokens,

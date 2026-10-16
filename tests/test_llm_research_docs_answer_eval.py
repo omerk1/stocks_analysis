@@ -54,6 +54,13 @@ def test_run_records_each_answer_and_resumes_without_paying_again(tmp_path):
     assert client.calls == 3  # only the new question
 
 
+def test_a_record_names_the_prompt_that_wrote_it(monkeypatch):
+    import src.llm.research_docs.answer_eval as answer_eval
+    before = record(Q, _answered("Too fragile [1].", GOLD))["prompt"]
+    monkeypatch.setattr(answer_eval, "SYSTEM", answer_eval.SYSTEM + "\n- One more rule.")
+    assert record(Q, _answered("Too fragile [1].", GOLD))["prompt"] != before
+
+
 def test_a_claim_key_follows_the_sentence_and_the_cited_text_not_the_source_number():
     a = record(Q, _answered("Too fragile [2]. Retired [1].", OTHER, GOLD))
     b = record(Q, _answered("Too fragile [1].", GOLD, OTHER))
