@@ -255,6 +255,66 @@ panel source on the traded basis, same group and prior. Three ranked columns:
 - **Known limit:** the share count is the company's, so each class of a multi-class
   company carries the whole company's cap (GOOG and GOOGL, as in cap-weighted breadth).
 
+**As built (2026-10-15), part three, share-count change:** one more ranked column in
+`valuation.py`, same group and prior. It covers buybacks and dilution, the part of an EPS
+surprise that the net-income one misses.
+
+| Column | What it is |
+|---|---|
+| `share_change_yoy` (+ rank) | log of the latest known share count over the count dated a year before it (the nearest within ±30 days); positive is dilution, negative buybacks |
+
+- **A year between two counts, not "the count known a year before t":** both counts are
+  then a fixed year apart (an annual rate, like `rev_growth_yoy`), and the value moves only
+  when a new count lands. NaN when the latest count is stale (200 days) or nothing is dated
+  within ±30 days of a year before it.
+- **Log, not percent:** halving and doubling are equally large, and a stock-funded merger
+  that multiplies the count doesn't swamp the scale. It is also the usual net-issuance
+  definition (Pontiff and Woodgate).
+- **Mergers and spin-offs stay in:** issuing stock to buy a company is dilution, and a
+  spin-off leaves the parent's count alone.
+- **Splits:** the vendors' split tables also hold spin-offs' price factors (EBAY 2.376 for
+  PayPal, NI, YUM, HPE), which leave the count alone. Dividing every count by its splits
+  turned those into fake buybacks of 40–65%. A split between the two counts is therefore
+  taken out only where it explains their change better than no split does. That also
+  handles a filing, on either side, that still reports the pre-split count (no bridge
+  needed; a split up to 120 days before the year-ago count is judged too, if that count is
+  within 20% of the last pre-split one). It uses only splits executed by the later count's
+  date.
+- **Same source:** both counts come from SEC, or both from yfinance. For multi-class
+  issuers SEC can carry one class and yfinance all of them, so a change across the
+  hand-off was an artifact (CMCSA +14% in 2016, MA +12% in 2010). After a hand-off the
+  column is NaN for a year. **Limits:** a real change about half a split's
+  size is misread (±20% across a 3-for-2); a vendor factor that merges a reverse split with
+  a spin-off leaves a residual (MSI 2011: −41%); two splits within the year are judged one
+  at a time, so one can take the other's ratio; after a split under 1.2× (a stock dividend)
+  or a spin-off factor, a year-ago count can't be told stale from caught up, so a real change
+  of about half the factor is cut (or, with no count before the split, the split is judged
+  anyway); a reused symbol compares two companies
+  (FOX/FOXA 2019–2020: −66%).
+- **Leakage gate:** passes on synthetic data (3 seeds) and on the 20 real tickers. Two tests
+  plant leaks and check the gate catches them: a count used on its filing date
+  (`future_filings`), and a change mixing two split bases, the latest count on day t's
+  basis and the year-ago one on the data's final basis (`future_split`).
+  - The real-ticker run also found a leak in `debt_to_equity`, now fixed. For IP's
+    2018-12-31 balance sheet, total debt was first reported as a comparative in the next
+    year's 10-K. It replaced the noncurrent figure known since 2019-02-21, so a filing after
+    t decided what counted on t.
+- **Checks (2010–2021):**
+  - Buybacks: AAPL −4% to −8% a year from 2014, ORCL to −16% (2019), AZO −5% to −12%.
+  - Dilution: AAL +115% (US Airways, 2014), BMY +38% (Celgene), CCL +62% (2021 raises),
+    TSLA +23% (SolarCity).
+  - On S&P member rows: median −0.7% a year; 1st percentile −14%, 99th +45% (stock
+    mergers). 43–56% of rows show net buybacks over 1% (2011–2020), 14–20% dilution over 1%.
+  - The largest values are real issuance: AIG's 2011 recapitalisation, JCI–Tyco, LUMN's
+    acquisitions, the 2021 cruise-line raises.
+- **Coverage on S&P 500 member rows** (all 643 members with bars): 23% in 2010 (it needs a
+  year of counts, and SEC's start in 2009), 63–78% 2011–2016, 81–85% 2017–2019, 90–92%
+  2020–2021. The gaps come from the share-count table: 122 members never get a value, many
+  with no count at all (EA, K, HOLX, AVB).
+- **Found, not fixed (backlog):** the same spin-off factors inflate the market cap.
+  `market_caps` carries a count across them and bridges the filings after them as stale,
+  so EBAY's cap reads 2.4× from mid-2015 to late 2017 and NI's 2.5× from 2015 to 2019.
+
 ### 4. Research questions
 
 Run under the usual protocol (matched control, effective N, costs, three-way verdict),
