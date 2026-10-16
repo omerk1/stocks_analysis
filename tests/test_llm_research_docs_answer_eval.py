@@ -128,3 +128,36 @@ def _missing():
 def _answered(text: str, *nodes):
     from src.llm.research_docs.answer import answer
     return answer("q", _find(*nodes), FakeClient(Answer(in_docs=True, answer=text)))
+
+
+def test_a_chunk_cut_under_one_gold_still_shows_under_another():
+    from src.llm.research_docs.answer_eval import gold_texts
+    rows = [_node(f"r{i}", f"row {i}", cell_id="c") for i in range(3)]
+    q = {"id": "x", "question": "?", "gold": [{"path": "docs/x.md", "cell_id": "c"},
+                                               {"path": "docs/x.md", "contains": "row 2"}]}
+    [shown] = gold_texts(q, rows, per_gold=1)
+    assert [s["text"].endswith(t) for s, t in zip(shown, ("row 0", "", "row 2"))] == [True, True, True]
+    assert "+2 more" in shown[1]["text"]
+
+
+def test_the_answer_key_changes_when_the_sources_do():
+    assert answer_key(record(Q, _answered("Too fragile [1].", GOLD))) != \
+        answer_key(record(Q, _answered("Too fragile [1].", GOLD, OTHER)))
+
+
+def test_an_in_docs_answer_citing_nothing_is_not_counted_as_clean():
+    r = record(Q, _answered("Too fragile.", GOLD))
+    assert "every cited sentence supported: 0 of 1" in score([r], {"support": {}, "answers": {}})
+
+
+def test_packets_refuse_a_row_whose_question_left_the_dev_split():
+    r = record(Q, _answered("Too fragile [1].", GOLD))
+    with pytest.raises(ValueError, match="b5"):
+        packets([r], {"support": {}, "answers": {}}, {}, [GOLD])
+
+
+def test_the_ledger_refuses_a_miss_on_a_correct_answer(tmp_path):
+    path = tmp_path / "answers.json"
+    path.write_text(json.dumps({"support": {}, "answers": {"a": {"verdict": "correct", "miss": "retrieval"}}}))
+    with pytest.raises(ValueError, match="a"):
+        load_ledger(path)

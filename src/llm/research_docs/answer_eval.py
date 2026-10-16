@@ -41,16 +41,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore
+from llama_index.core.schema import BaseNode, NodeWithScore
 
 from src.llm.gemini import GeminiClient
 from src.llm.paths import llm_data_dir
-from src.llm.research_docs.answer import BUDGET, answer, cited, sentences
+from src.llm.research_docs.answer import BUDGET, answer, cited, sentences, source_text
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
 from src.llm.research_docs.retrieve import cite
@@ -64,11 +65,6 @@ GOLD_CHUNKS = 6  # per gold, shown to the correctness judge
 
 def _sha(*texts: str) -> str:
     return hashlib.sha256("\n\x00\n".join(" ".join(t.split()) for t in texts).encode()).hexdigest()[:16]
-
-
-def source_text(node: BaseNode) -> str:
-    """A source as the model saw it (`answer.build_prompt`)."""
-    return node.get_content(metadata_mode=MetadataMode.EMBED).strip()
 
 
 def retrieval(q: dict, nodes: list[BaseNode]) -> str:
@@ -104,7 +100,9 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
         if q["id"] in have:
             continue
         done.append(record(q, answer(q["question"], find, client)))
-        out.write_text(json.dumps(done, indent=1, ensure_ascii=False))
+        tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
+        tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
+        os.replace(tmp, out)
         print(f"{len(done):>3}/{len(questions)} {q['id']} ({done[-1]['tokens']} tokens)", flush=True)
     return done
 
@@ -122,7 +120,9 @@ def claims(r: dict) -> list[dict]:
 
 
 def answer_key(r: dict) -> str:
-    return _sha(r["id"], r["answer"])
+    """The question, the answer and the sources it was shown: the same answer from other
+    sources gets judged again, since its retrieval/generation split may differ."""
+    return _sha(r["id"], r["answer"], *(s["text"] for s in r["sources"]))
 
 
 def load_ledger(path: Path = LEDGER) -> dict:
@@ -131,15 +131,16 @@ def load_ledger(path: Path = LEDGER) -> dict:
     ledger.setdefault("answers", {})
     bad = [k for k, v in ledger["support"].items() if v.get("verdict") not in SUPPORT]
     bad += [k for k, v in ledger["answers"].items()
-            if v.get("verdict") not in CORRECTNESS or v.get("miss", "retrieval") not in MISSES]
+            if v.get("verdict") not in CORRECTNESS or v.get("miss", "retrieval") not in MISSES
+            or ("miss" in v and v["verdict"] == "correct")]
     if bad:
-        raise ValueError(f"ledger verdicts outside {SUPPORT} / {CORRECTNESS}, or a miss outside {MISSES}: "
-                         f"{', '.join(bad)}")
+        raise ValueError(f"ledger verdicts outside {SUPPORT} / {CORRECTNESS}, a miss outside {MISSES}, "
+                         f"or a miss on a correct answer: {', '.join(bad)}")
     return ledger
 
 
 def gold_texts(q: dict, nodes: list[BaseNode], per_gold: int = GOLD_CHUNKS) -> list[list[dict]]:
-    """Per part, the indexed chunks matching each of its golds: at most `per_gold` per gold,
+    """Per part, the chunks matching each of its golds: at most `per_gold` per gold,
     since a metadata gold (an experiment id) can match hundreds of CSV rows. A chunk two
     golds match is shown once; what was cut is said, not hidden."""
     out = []
@@ -147,7 +148,7 @@ def gold_texts(q: dict, nodes: list[BaseNode], per_gold: int = GOLD_CHUNKS) -> l
         shown, seen = [], set()
         for g in p:
             hits = [n for n in nodes if matches(n, g) and n.node_id not in seen]
-            seen.update(n.node_id for n in hits)
+            seen.update(n.node_id for n in hits[:per_gold])  # a chunk cut here can still show under another gold
             shown += [{"cite": cite(n), "text": source_text(n)} for n in hits[:per_gold]]
             if len(hits) > per_gold:
                 shown.append({"cite": f"{g}", "text": f"(+{len(hits) - per_gold} more chunks matching this gold)"})
@@ -158,7 +159,10 @@ def gold_texts(q: dict, nodes: list[BaseNode], per_gold: int = GOLD_CHUNKS) -> l
 def packets(rows: list[dict], ledger: dict, questions: dict[str, dict], nodes: list[BaseNode]) -> dict:
     """What the ledger has no verdict for yet. `support`: question, sources and answer
     only, no golds. `correctness`: the answer with the gold chunks' text per part, and the
-    sources it was written from."""
+    sources it was written from. `nodes` are the docs chunked now, not the index: the
+    judge grades against the golds as the docs say them, even when the index is stale."""
+    if unknown := [r["id"] for r in rows if r["id"] not in questions]:
+        raise ValueError(f"run rows for questions not in the dev split (renamed or moved?): {', '.join(unknown)}")
     support, correctness = [], []
     for r in rows:
         todo = [c for c in claims(r) if c["key"] not in ledger["support"]]
@@ -195,7 +199,7 @@ def score(rows: list[dict], ledger: dict) -> str:
     """The per-question table and the totals. Questions or sentences without a verdict
     are counted as unjudged, never as passes."""
     lines = [f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
-    verdicts, misses, sup_all, unjudged = {}, {}, [], []
+    verdicts, misses, sup_all, unjudged, clean = {}, {}, [], [], 0
     for r in rows:
         entry = ledger["answers"].get(answer_key(r), {})
         v = entry.get("verdict")
@@ -206,6 +210,8 @@ def score(rows: list[dict], ledger: dict) -> str:
         sup = [ledger["support"].get(c["key"], {}).get("verdict") for c in claims(r)]
         sup_all += sup
         ok = sum(s == "supported" for s in sup)
+        # an in-docs answer citing nothing isn't clean: that's `check`'s problem, not a pass
+        clean += ok == len(sup) and bool(sup or not r["in_docs"])
         lines.append(f"{r['id']:<24} {r['type']:<8} {r['retrieval']:<7} {str(r['in_docs'])[0]:<5} {v or '?':<8} "
                      f"{f'{ok}/{len(sup)}':<9} {(misses[r['id']] or '') if v else '?'}")
     judged = [r for r in rows if verdicts[r["id"]]]
@@ -222,9 +228,7 @@ def score(rows: list[dict], ledger: dict) -> str:
     known = [s for s in sup_all if s]
     lines.append(f"cited sentences: {len(sup_all)}, " + ", ".join(f"{known.count(v)} {v}" for v in SUPPORT)
                  + (f", {len(sup_all) - len(known)} unjudged" if len(known) < len(sup_all) else ""))
-    clean = [r for r in judged if all(ledger["support"].get(c["key"], {}).get("verdict") == "supported"
-                                      for c in claims(r))]
-    lines.append(f"answers with every cited sentence supported: {len(clean)} of {len(judged)}")
+    lines.append(f"answers with every cited sentence supported: {clean} of {len(rows)}")
     lines.append(f"mechanical citation problems (check): {sum(bool(r['problems']) for r in rows)} answers")
     if unjudged:
         lines.append(f"UNJUDGED answers: {', '.join(unjudged)}")
@@ -245,19 +249,20 @@ def main() -> None:
     if args.command == "score":
         print(score(json.loads(args.run_file.read_text()), load_ledger()))
         return
+    from src.llm.research_docs.chunk import chunk_documents
+    from src.llm.research_docs.load import load_documents
+    current = chunk_documents(load_documents())
+    if args.command == "packets":
+        rows = json.loads(args.run_file.read_text())
+        print(json.dumps(packets(rows, load_ledger(), {q["id"]: q for q in questions}, current),
+                         indent=1, ensure_ascii=False))
+        return
     from src.llm.research_docs.index import embed_model, load_index
     index = load_index(embed_model())
     nodes = list(index.docstore.docs.values())
-    if args.command == "packets":
-        rows = json.loads(args.run_file.read_text())
-        print(json.dumps(packets(rows, load_ledger(), {q["id"]: q for q in questions}, nodes),
-                         indent=1, ensure_ascii=False))
-        return
     # As in evaluate.py: a gold the index can't match would score as a retrieval miss that
     # is really a stale index, and this run costs tokens, so refuse unless told otherwise.
-    from src.llm.research_docs.chunk import chunk_documents
-    from src.llm.research_docs.load import load_documents
-    unmatched = unmatched_golds(questions, nodes, chunk_documents(load_documents()))
+    unmatched = unmatched_golds(questions, nodes, current)
     if unmatched and not args.allow_stale:
         print("golds that match no indexed chunk:", *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit("rebuild the index, or pass --allow-stale and say so in the results")
