@@ -195,6 +195,8 @@ REGISTRY: tuple[FeatureSpec, ...] = (
                 note="E/P, not P/E: continuous through zero earnings"),
     FeatureSpec("sales_yield", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
     FeatureSpec("book_to_market", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
+    FeatureSpec("share_change_yoy", "fundamentals", MODEL, "event", "null", "valuation", 0, ranked=True,
+                note="log share count vs a year earlier, split-adjusted: + dilution, - buybacks"),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
