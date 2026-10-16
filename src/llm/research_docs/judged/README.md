@@ -16,7 +16,7 @@ would be retrieved too.
 - `pooling/`: the retrieval pooling record (`evaluate.py`), moved from the git-ignored
   `data/llm/`. `judged_top5_pre_rebuild_2026-10-14.json` holds every method's top 5 texts
   per question saved before the 2026-10-14 index rebuild (these count as judged afterwards);
-  `pool_rebuilt_2026-10-14.json` the unjudged chunks the rebuilt index surfaced;
-  `judge_packet_*.txt` those chunks as shown to the judges. Only the "yes" verdicts were
+  `pool_rebuilt_2026-10-14.json` the unjudged chunks the rebuilt index surfaced, which
+  were then judged. Only the "yes" verdicts were
   kept, as golds in `eval_questions.json`; a chunk in these files that isn't a gold was
   judged "no".
