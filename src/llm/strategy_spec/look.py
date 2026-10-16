@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -70,7 +71,7 @@ from src.llm.strategy_spec.schema import StrategySpec
 from src.models.dataset import check_holdout
 from src.signals.moving_averages.labels.forward_returns import forward_return
 from src.signals.moving_averages.stats.controls import (
-    c0_delta, c1_delta, c2_eligible_mask, cross_sectional_bucket)
+    c0_delta, c1_delta, c2_eligible_mask, cross_sectional_bucket, stratum_deltas)
 from src.signals.moving_averages.stats.costs import annualize, ci_clears_cost, cost_hurdle
 from src.signals.moving_averages.stats.inference import InsufficientBlocksError, block_bootstrap_delta
 from src.signals.moving_averages.stats.shape import distribution_shape, hit_rate_deltas
@@ -145,21 +146,38 @@ def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side:
          panel_tickers: int) -> dict:
     """One (side, horizon) cell: the C0→C1→C2 waterfall on the common eligible row set,
     the bootstrap CI on C2, effective N, shape, cost hurdle and verdict. `other_events`
-    (the other side's event rows, when a "both" spec is split) is excluded from the row
-    population entirely: those rows carry the setup's own expected return in the opposite
-    direction, and leaving them in the control pool would re-import the pooled-
-    cancellation confound the per-side split exists to avoid."""
+    (the other sides' event rows, when a "both" spec is split) marks rows whose setup
+    carries the opposite expected move; leaving them — or their neighbours — in the
+    control pool re-imports the pooled-cancellation confound the per-side split exists
+    to avoid."""
     value_col = fwd_col(horizon)
     frame = working[["ticker", "date", value_col, *C2_MATCH_COLS]].copy()
     frame["__event"] = event.to_numpy()
-    frame = frame.loc[~other_events]
+    if other_events.any():
+        # Not just the event rows: any row of that ticker whose own h-bar forward window
+        # overlaps an other-side event's outcome window shares part of the opposite-
+        # signed move (the signal bar itself carries (h-1)/h of it). Overlap exists for
+        # rows within h-1 bars either side of the event row — a centered rolling max
+        # flags exactly that set. This side's own event rows are kept: they fired, and
+        # their outcome is whatever it is.
+        window = 2 * horizon - 1
+        contaminated = (other_events.astype(float)
+                        .groupby(frame["ticker"], sort=False)
+                        .transform(lambda s: s.rolling(window, center=True, min_periods=1).max())
+                        .gt(0))
+        frame = frame.loc[frame["__event"] | ~contaminated]
+    # The cost hurdle counts what fired and was tradeable (a valid forward return),
+    # BEFORE control eligibility: a trader pays for every signal taken, not only for
+    # the ones the C2 strata can score (momentum warmup drops ~a fifth on real data —
+    # an eligibility-based count would understate the hurdle and flatter the verdict).
+    fired = int((frame["__event"] & frame[value_col].notna()).sum())
     # One row population for all three tiers (DESIGN §6.1 / PREREGISTRATION's "Waterfall
     # row set"): otherwise shrinkage is confounded with sample composition.
     frame = frame[c2_eligible_mask(frame, "__event", value_col, list(C2_MATCH_COLS))]
     events = frame.loc[frame["__event"], value_col].dropna()
 
     row: dict = {"side": side, "horizon": horizon,
-                 "n_events": int(len(events)),
+                 "n_events": int(len(events)), "n_events_fired": fired,
                  "n_dates": int(frame.loc[frame["__event"], "date"].nunique()),
                  "n_tickers": int(frame.loc[frame["__event"], "ticker"].nunique())}
     row["delta_c0"] = c0_delta(frame, "__event", value_col)
@@ -169,8 +187,12 @@ def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side:
                                      block_length=block_length_for(horizon),
                                      n_boot=N_BOOT, ci=CI_LEVEL, seed=seed)
     except InsufficientBlocksError:
-        boot = {"point_estimate": float("nan"), "ci_low": float("nan"),
-                "ci_high": float("nan"), "n_dates": 0}
+        # Too few distinct dates for a CI is not the same as no observations: report
+        # the C2 point and the real distinct-date count (invariant #6), with NaN CIs.
+        strata = stratum_deltas(frame, "__event", value_col, ["date", *C2_MATCH_COLS])
+        boot = {"point_estimate": float(strata["delta"].mean()) if len(strata) else float("nan"),
+                "ci_low": float("nan"), "ci_high": float("nan"),
+                "n_dates": int(strata["date"].nunique())}
     row["delta_c2"] = boot["point_estimate"]
     row["ci_low"] = boot["ci_low"]
     row["ci_high"] = boot["ci_high"]
@@ -184,10 +206,11 @@ def cell(working: pd.DataFrame, event: pd.Series, other_events: pd.Series, side:
     row["win_loss_ratio"] = shape["win_loss_ratio"]
     row["skew"] = float(shape["skew"]) if pd.notna(shape["skew"]) else float("nan")
 
-    # Signals per ticker-year, measured off this look's own events (the modules'
-    # convention, e.g. bounce_entry.py), and the §6.10 hurdle next to the annualized
-    # gross delta — the annualization is a labeled linear approximation (stats/costs.py).
-    spy = len(events) / (panel_years * panel_tickers) if panel_years and panel_tickers else float("nan")
+    # Signals per ticker-year, measured off everything that FIRED with a tradeable
+    # outcome (the modules' convention, e.g. bounce_entry.py), and the §6.10 hurdle next
+    # to the annualized gross delta — the annualization is a labeled linear
+    # approximation (stats/costs.py).
+    spy = fired / (panel_years * panel_tickers) if panel_years and panel_tickers else float("nan")
     hurdle = cost_hurdle(spy, cost_round_trip)
     row["signals_per_ticker_year"] = spy
     row["cost_hurdle_annual"] = hurdle
@@ -204,7 +227,9 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
     """The look's own rubric lines, appended to the finder's: everything the test
     applies, and every spec field it deliberately does NOT act on, said out loud."""
     lines = [
-        RubricLine("grounding", f"{len(spec.examples)} judged example(s) on the spec", "spec")
+        RubricLine("grounding", f"{len(spec.examples)} judged example(s) on the spec", "spec",
+                   "example rows don't record the detector or MA they were judged under — "
+                   "if this run overrides either, the confirmation may not transfer")
         if spec.examples else
         RubricLine("grounding", "NOT CONFIRMED", "default",
                    "spec.examples is empty — no grounding round's verdicts are recorded, "
@@ -250,12 +275,26 @@ def look_rubric(spec: StrategySpec, horizons: list[int], cost_bps: float | None,
     return lines
 
 
+def _jsonable(value):
+    """NaN → null, recursively: `json.dumps` would otherwise emit bare `NaN` tokens
+    (valid Python, invalid JSON) whenever a cell's CI couldn't be bootstrapped, and the
+    whole session artifact would refuse to parse anywhere outside Python."""
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
 def _format_cell(row: dict) -> str:
     pct = lambda x: "nan" if pd.isna(x) else f"{x * 100:+.2f}%"   # signed: deltas only
     rate = lambda x: "nan" if pd.isna(x) else f"{x * 100:.0f}%"   # a probability, not an excess
     return (f"h={row['horizon']}: ΔC0 {pct(row['delta_c0'])} → ΔC1 {pct(row['delta_c1'])} → "
             f"ΔC2 {pct(row['delta_c2'])} [{pct(row['ci_low'])}, {pct(row['ci_high'])}] "
-            f"({row['n_events']} events, {row['n_dates']} dates, effective N "
+            f"({row['n_events']} of {row['n_events_fired']} fired events C2-scorable, "
+            f"{row['n_dates']} dates, effective N "
             f"{row['effective_n_dates']} dates, {row['n_tickers']} tickers); "
             f"hit rate {rate(row['hit_rate'])} (ΔC2 {pct(row['hit_rate_delta_c2'])}), "
             f"win/loss {row['win_loss_ratio']:.2f}, skew {row['skew']:.2f}; "
@@ -430,7 +469,7 @@ def look(spec: StrategySpec, panel: pd.DataFrame, *, ma: str | None = None,
         "cells": cells,
         "prereg_draft": draft_name,
     }
-    (out_dir / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
+    (out_dir / "result.json").write_text(json.dumps(_jsonable(result), indent=1, default=str) + "\n")
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
     out(f"Session: {out_dir}")
     return result

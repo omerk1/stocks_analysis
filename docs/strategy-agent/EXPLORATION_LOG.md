@@ -14,3 +14,11 @@ history of trader-stated ideas, whatever feature family they land on.
 
 - 2026-10-15 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.03% [-0.10%,+0.03%] effN 2089d — inconclusive; session data/llm/look_sessions/20261015T071052_887038Z
 - 2026-10-15 [look] First touch of a moving average after being away (short): h5 ΔC2 -0.01% [-0.08%,+0.07%] effN 2061d — inconclusive; session data/llm/look_sessions/20261015T071052_887038Z
+
+## 2026-10-16
+
+Re-run after the review's control-contamination fix (a split spec's control pool was
+keeping the other side's near-event rows); supersedes the 2026-10-15 lines above.
+
+- 2026-10-16 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.00% [-0.07%,+0.06%] effN 2087d — inconclusive; session data/llm/look_sessions/20261016T113826_636798Z
+- 2026-10-16 [look] First touch of a moving average after being away (short): h5 ΔC2 -0.04% [-0.11%,+0.05%] effN 2058d — inconclusive; session data/llm/look_sessions/20261016T113826_636798Z

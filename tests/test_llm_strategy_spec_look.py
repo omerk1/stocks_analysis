@@ -13,7 +13,6 @@ import json
 import pandas as pd
 import pytest
 
-from src.llm.strategy_spec import look as look_mod
 from src.llm.strategy_spec.finders import GroundingError, find_first_touch
 from src.llm.strategy_spec.look import event_mask, look, verdict
 from src.llm.strategy_spec.schema import Control, Example, Rule, Size, StrategySpec
@@ -22,9 +21,16 @@ from src.models.dataset import HoldoutError
 QUIET = [0.5] * 10
 BURST = [2.0] * 5 + [0.1]      # an away run, then a clean touch on the 0.1 bar
 N_SIGNALS = 30
-EVENT_SEQ = QUIET + (BURST + QUIET) * N_SIGNALS   # one signal per block
-SIGNAL_IDX = [len(QUIET) + i * (len(BURST) + len(QUIET)) + 5 for i in range(N_SIGNALS)]
 HORIZON = 5
+
+
+def seq_and_signals(n_signals: int) -> tuple[list[float], list[int]]:
+    seq = QUIET + (BURST + QUIET) * n_signals     # one signal per block
+    idx = [len(QUIET) + i * (len(BURST) + len(QUIET)) + 5 for i in range(n_signals)]
+    return seq, idx
+
+
+EVENT_SEQ, SIGNAL_IDX = seq_and_signals(N_SIGNALS)
 
 # Context values constant per ticker: per-date terciles are then the same every day, and
 # the event ticker shares its stratum with the two controls holding the same values.
@@ -64,10 +70,11 @@ def panel(tickers: dict[str, tuple[list[float], list[float] | None]],
             .sort_values(["ticker", "date"]).reset_index(drop=True))
 
 
-def effect_panel(step: float = 0.02) -> pd.DataFrame:
-    quiet = [0.5] * len(EVENT_SEQ)
+def effect_panel(step: float = 0.02, n_signals: int = N_SIGNALS) -> pd.DataFrame:
+    seq, idx = seq_and_signals(n_signals)
+    quiet = [0.5] * len(seq)
     return panel({
-        "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, step)),
+        "EVT": (seq, planted_close(len(seq), idx, step)),
         **{name: (quiet, None) for name in CONTEXT if name not in ("EVT", "SHT")},
     })
 
@@ -138,14 +145,18 @@ def test_no_effect_looks_dead_and_earns_no_draft(tmp_path):
 
 
 def test_direction_both_is_tested_per_side_with_uncontaminated_controls(tmp_path):
-    # SHT fires from below on the SAME dates as EVT's long events, with a planted -2%
-    # forward return. Those rows must be excluded from the long side's control pool —
-    # left in, the date-matched control mean would be dragged to -0.25% and the long
-    # delta inflated to ~2.25%: the pooled-cancellation confound re-imported through
-    # the control side of the split.
+    # SHT fires from below one bar AFTER each of EVT's long signals, with a planted -2%
+    # forward move: SHT's signal-bar rows then land exactly on the long side's event
+    # dates, each carrying most of the short move in its own forward window. Everything
+    # of SHT's within a horizon of its events must leave the long side's control pool —
+    # excluding only the event rows (the first fix) still let these signal bars drag the
+    # date-matched control mean down and inflate the long delta: the pooled-cancellation
+    # confound re-imported through the control side of the split.
+    sht_seq = [-0.5] + [-x for x in EVENT_SEQ[:-1]]
+    sht_idx = [p + 1 for p in SIGNAL_IDX]
     frame = panel({
         "EVT": (EVENT_SEQ, planted_close(len(EVENT_SEQ), SIGNAL_IDX, 0.02)),
-        "SHT": ([-x for x in EVENT_SEQ], planted_close(len(EVENT_SEQ), SIGNAL_IDX, -0.02)),
+        "SHT": (sht_seq, planted_close(len(sht_seq), sht_idx, -0.02)),
         **{name: ([0.5] * len(EVENT_SEQ), None) for name in CONTEXT
            if name not in ("EVT", "SHT")},
     })
@@ -231,6 +242,37 @@ def test_verdict_is_three_way_and_never_calls_underpowered_dead():
     # Excludes zero but can't clear the hurdle, and doesn't fit inside the band either.
     assert verdict(0.01, 0.10, hurdle=0.05, sign=1).startswith("inconclusive")
     assert verdict(float("nan"), float("nan"), hurdle=0.02, sign=1).startswith("inconclusive")
+
+
+def test_cost_hurdle_counts_fired_events_not_only_c2_scorable_ones(tmp_path):
+    # Blank one event's momentum: it can't be C2-scored, but it fired and the trader
+    # pays for it — the hurdle must not shrink because the control bookkeeping did.
+    frame = effect_panel(step=0.02)
+    matches = find_first_touch(spec(), frame).matches
+    evt = frame[frame["ticker"] == "EVT"].reset_index(drop=True)
+    signal_pos = evt.index[evt["date"] == matches[1].date][0]
+    event_date = evt.loc[signal_pos + 1, "date"]
+    frame.loc[(frame["ticker"] == "EVT") & (frame["date"] == event_date), "mom_12_1"] = float("nan")
+    result, _ = run_look(spec(), frame, tmp_path)
+    (cell_,) = result["cells"]
+    assert cell_["n_events"] == N_SIGNALS - 1 and cell_["n_events_fired"] == N_SIGNALS
+    years = (frame["date"].max() - frame["date"].min()).days / 365.25
+    assert cell_["signals_per_ticker_year"] == pytest.approx(N_SIGNALS / (years * 9))
+
+
+def test_too_few_dates_still_reports_real_effective_n_and_valid_json(tmp_path):
+    # 4 event dates < the 10-row block floor: no CI, but the C2 point and the real
+    # distinct-date count are still reported (invariant #6 — 0 would be indistinguishable
+    # from no observations), the verdict is inconclusive, and result.json stays strict
+    # JSON (NaN must land as null, or nothing outside Python parses the artifact).
+    result, _ = run_look(spec(), effect_panel(step=0.02, n_signals=4), tmp_path)
+    (cell_,) = result["cells"]
+    assert cell_["delta_c2"] == pytest.approx(0.02, abs=1e-9)
+    assert pd.isna(cell_["ci_low"]) and cell_["effective_n_dates"] == 4
+    assert cell_["verdict"].startswith("inconclusive")
+    text = (tmp_path / "session" / "result.json").read_text()
+    parsed = json.loads(text, parse_constant=lambda c: pytest.fail(f"non-JSON constant {c}"))
+    assert parsed["cells"][0]["ci_low"] is None
 
 
 def test_finder_skips_the_near_miss_rings_when_asked():
