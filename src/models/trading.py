@@ -555,8 +555,9 @@ def pick_diagnostics(picked: dict[str, pd.DataFrame], features: pd.DataFrame, co
     """Descriptive, never a verdict: the model's and the reference's daily
     top-k overlap (share of the reference's names the model also picks), and
     per side the share of picks with every one of `columns` (the group the
-    model adds) filled, the mean share filled, and the share with an expected
-    earnings date inside the horizon (NaN without that column)."""
+    model adds) filled, the mean share filled, the share of picks with an
+    expected earnings date that have it inside the horizon, and the share
+    with none (NaN without that column)."""
     keys = ["ticker", "date"]
     both = picked["reference"][keys].merge(picked["model"][keys].assign(_m=True), on=keys, how="left")
     out = {"overlap": float(both["_m"].notna().groupby(both["date"]).mean().mean())}
@@ -565,8 +566,11 @@ def pick_diagnostics(picked: dict[str, pd.DataFrame], features: pd.DataFrame, co
     for side, p in picked.items():
         f = p[keys].merge(features[[*keys, *look]], on=keys, how="left")
         filled = f[columns].notna()
+        known = f[earn].dropna() if earn in f else pd.Series(dtype=float)
         out[side] = {"all_filled": float(filled.all(axis=1).mean()), "mean_filled": float(filled.mean(axis=1).mean()),
-                     "earnings_inside": float((f[earn] <= horizon).mean()) if earn in f else np.nan}
+                     # among picks with an expected date; the rest are unknown, not "outside"
+                     "earnings_inside": float((known <= horizon).mean()) if len(known) else np.nan,
+                     "earnings_unknown": float(f[earn].isna().mean()) if earn in f else np.nan}
     return out
 
 
@@ -609,6 +613,8 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         raise ValueError(f"{sc.experiment_id} is Track A: no verdict")
     check_features(sc, features)
     n_boot = sc.n_boot if n_boot is None else n_boot
+    if n_boot < sc.n_boot:
+        raise ValueError(f"n_boot {n_boot} is below the registered {sc.n_boot}: a precision check takes more draws")
     keep = (lambda p: ~p["ticker"].isin(exclude_tickers)) if exclude_tickers else None
     group = [c for c in sc.model_columns if c not in sc.reference_columns]
     horizons = {}

@@ -268,6 +268,8 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     more = trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False,
                                    n_boot=400)
     assert more["n_boot"] == 400 and more["horizons"][21]["point_estimate"] == h["point_estimate"]
+    with pytest.raises(ValueError, match="below the registered"):
+        trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False, n_boot=10)
     # the caveat sensitivity re-reads the same predictions with tickers unpickable
     some = tuple(sorted(features["ticker"].unique())[:10])
     without = trading.close_scorecard(sc, logged, features, tmp_path, exclude_tickers=some, artifacts_root=art,
@@ -289,6 +291,20 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: rebuilt)
     with pytest.raises(ValueError, match="labels_built"):
         trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False)
+
+
+def test_pick_diagnostics_by_hand():
+    d = pd.to_datetime(["2020-01-02", "2020-01-02", "2020-01-03", "2020-01-03"])
+    features = pd.DataFrame({"ticker": list("ABAB"), "date": d, "g": [1.0, np.nan, 1.0, 1.0],
+                             "days_to_earnings_expected": [5.0, np.nan, 30.0, 0.0]})
+    model = features[["ticker", "date"]].iloc[[0, 1, 2, 3]]
+    ref = features[["ticker", "date"]].iloc[[0, 2]]  # A both days; the model also has B
+    out = trading.pick_diagnostics({"model": model, "reference": ref}, features, ["g"], 21)
+    assert out["overlap"] == 1.0  # every reference name is also a model pick
+    assert out["model"]["all_filled"] == 0.75 and out["reference"]["all_filled"] == 1.0
+    # of the 3 model picks with an expected date, 2 are inside (5 and 0, overdue); 1 of 4 has none
+    assert out["model"]["earnings_inside"] == pytest.approx(2 / 3) and out["model"]["earnings_unknown"] == 0.25
+    assert out["reference"]["earnings_inside"] == 0.5
 
 
 def test_tie_key_ignores_the_dates_storage_unit():

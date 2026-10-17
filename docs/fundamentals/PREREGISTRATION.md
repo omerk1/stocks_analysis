@@ -245,8 +245,9 @@ registered and isn't dropped. The entry rule isn't met, and no seed rerun is run
     the group really changes the picks.
   - The model's picks have all 11 group columns filled 56% of the time at H21 (55% at
     H63), about the same as the reference's picks (56%, 55%).
-  - The model avoids earnings: at H21, 17% of its picks have an expected earnings
-    date inside the horizon, against 27% of the reference's (H63: 84% vs 86%). The
+  - The model avoids earnings: at H21, 18% of its picks with an expected earnings
+    date have it inside the horizon, against 28% of the reference's (H63: 88% vs
+    91%; 4–5% of picks have no expected date). The
     trades it swaps in do no better or worse on average. Whether earnings inside the
     horizon matter to the result is F3's question.
 

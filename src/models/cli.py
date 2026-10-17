@@ -372,7 +372,8 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
             continue
         print(f"  H{h}: {x['point_estimate']:+.4%} [{x['ci_low']:+.4%}, {x['ci_high']:+.4%}], n_dates {x['n_dates']} "
               f"({x['dates_missing_a_cell']} left out for a missing cell), p {x['p']:.3f} -> {x['verdict']}; "
-              f"Holm-positive {x['holm_positive']}, entry rule met {x['entry_rule_met']}")
+              f"Holm-positive {x['holm_positive']}, entry rule met {x['entry_rule_met']}"
+              + ("" if r["n_boot"] == r["registered_n_boot"] else " [precision check]"))
         print("    by era: " + ", ".join(f"{e} {v:+.4%}" for e, v in x["by_era"].items()))
         print("    by year: " + ", ".join(f"{y} {v:+.4%}" for y, v in x["by_year"].items()))
         print(f"    by cell ({x['cells_positive']}/{len(x['by_cell'])} positive): "
@@ -380,9 +381,13 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
         d = x["diagnostics"]["mean_over_cells"]
         print(f"    picks (descriptive, mean over cells): overlap {d['overlap']:.1%}; group columns all filled "
               f"model {d['model.all_filled']:.1%} / reference {d['reference.all_filled']:.1%}; expected earnings "
-              f"inside H{h} model {d['model.earnings_inside']:.1%} / reference {d['reference.earnings_inside']:.1%}")
+              f"inside H{h} (of picks with one) model {d['model.earnings_inside']:.1%} / reference "
+              f"{d['reference.earnings_inside']:.1%}, none model {d['model.earnings_unknown']:.1%} / reference "
+              f"{d['reference.earnings_unknown']:.1%}")
     rerun = " (on seeds " + ", ".join(map(str, r["seeds"])) + "; the pre-registered seed rerun decides entry)"
-    print(f"  group: {r['group_verdict']}; entry rule met: {r['entry_rule_met']}" + (rerun if r["entry_rule_met"] else ""))
+    tag = "" if r["n_boot"] == r["registered_n_boot"] else " [precision check, not the registered verdict]"
+    print(f"  group: {r['group_verdict']}; entry rule met: {r['entry_rule_met']}" + (rerun if r["entry_rule_met"] else "")
+          + tag)
     return 0
 
 
