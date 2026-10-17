@@ -67,7 +67,9 @@ SAME_TICKER_MAX_NAN_MISMATCH = 0.01
 LEVEL_TICKERS = 20
 LEVEL_WEEKS = 26
 # Snapshots before the compared weeks, so the weights' 252-day strength
-# percentile is as full as the cache's (26 weeks alone failed 13 weight columns).
+# percentile is as full as the cache's. Real data (2026-10-17) still fails 25
+# level columns at 5-12% of rows: the vendors' histories start years apart, so
+# the old anchors differ (LRP.md "Addendum (2026-10-15)", known limit).
 LEVEL_WARMUP_WEEKS = 52
 # Each vendor's bars on each basis, and the splits that go with them.
 VENDOR_SOURCES = {

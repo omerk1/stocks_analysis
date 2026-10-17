@@ -354,6 +354,21 @@ where the build had to pick something it didn't say, this is the pick.
   the first snapshot; a sum or count is 0 only where it is defined and empty.
 - **Total: 57 columns**, from the snapshot cache (#125) read on each ticker's whole
   history.
+- **Known limit, found by the same-ticker vendor check (2026-10-17): the levels depend on
+  how deep the vendor's history goes.** On 19 tickers, over the last 26 weeks of 2021, with
+  the detectors run as the cache runs them (whole history, a year of snapshots first), the
+  level columns don't fingerprint the vendor (vendor AUC 0.487), and every median gap is
+  ≤ 0.004 SD. But 25 columns have 5.1–11.6% of rows off by more than 0.1 SD, over the 5%
+  bar, and the nearest AVWAP above is missing on one vendor only on 3.4% of rows. Most are
+  the weighted, density and confluence columns; the plain nearest distances mostly pass.
+  The cause: for 273 of the 351 tickers stored on both vendors, the first bars are more
+  than 30 days apart (14.5 years on average), so the long-lived anchors (all-time highs,
+  old gaps, old pivots, AVWAPs from old events, the profiles) differ. With 26 weeks of
+  snapshots on a short history, 13 columns failed; the full history made it worse, not
+  better. Kept as built for the first scorecard run, the bar unchanged: a Tiingo-read
+  ticker's levels are those of its Tiingo history. The fix, if the levels earn one, is a
+  capped lookback (e.g. 10 years, so both vendors see the same depth), which changes the
+  features (an all-time high becomes a 10-year high) and needs `build-levels` rebuilt.
 
 ---
 
