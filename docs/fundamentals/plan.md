@@ -340,8 +340,8 @@ post-earnings drift, one PR each.
   picks that have an expected earnings date inside 21 days, with the next-best names
   swapped in: +0.03% per trade [−0.05%, +0.13%]. The 16- and 26-day windows agree.
   The flag changes the trade's shape, not its mean: more target and stop hits, fewer
-  timeouts. For the model that already sees the flag, a further exclusion is dead at
-  two of the three windows.
+  timeouts. For the model that already sees the flag (secondary), also inconclusive at
+  the registered window.
 - **Post-earnings drift:** after that.
 
 ### 5. Guidance (later, after a feasibility probe)

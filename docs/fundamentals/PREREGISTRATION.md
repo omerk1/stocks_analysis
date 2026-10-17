@@ -353,7 +353,8 @@ the stop.
 
 ### Result (2026-10-17 addendum)
 
-Run as registered: `python -m src.analysis.earnings_risk` at git 409f3ee. No refit: it
+Run as registered: `python -m src.analysis.earnings_risk` at git cd65ea0 (after the
+review fixes; the first run at 409f3ee gave the same verdicts). No refit: it
 uses F2's 18 archived trials (seed 0). 2,001 test dates (2014–2021), none missing a
 cell.
 
@@ -373,8 +374,9 @@ neither helps nor hurts by an amount this test can tell from zero or rule out.
   - ≤ 21: +0.026% [−0.039%, +0.109%], inconclusive;
   - ≤ 16: +0.032% [−0.015%, +0.098%], dead;
   - ≤ 26: +0.003% [−0.079%, +0.088%], dead.
-  The same at 10,000 draws. For the model that already uses the flag, a further
-  exclusion rule is ruled out at two of the three windows.
+  The same at 10,000 draws. The registered window is inconclusive. The neighbours
+  are only a fragility check, so their "dead" isn't a verdict; they just agree that
+  nothing big is there.
 
 **Readouts (descriptive, not verdicts):**
 
@@ -396,15 +398,15 @@ neither helps nor hurts by an amount this test can tell from zero or rule out.
 - **The reference already leans away from earnings:** 26.5% of its picks are inside,
   against 33.1% of all rows.
 - **The flag's accuracy, from the realized dates:**
-  - H21: 92% of "inside" rows really have the reaction inside the window, and 98% of
+  - H21: 91% of "inside" rows really have the reaction inside the window, and 99% of
     "outside" rows really don't.
-  - H63: 97% and 60%.
+  - H63: 96% and 90%.
+  Both count business days, as the flag does.
   The expected date is a good stand-in at 21 days.
 - **Per era (registered window):** 2014–17 +0.042%, 2018–21 +0.022%. 7 of 9 cells are
   positive.
 - **H63 (descriptive only):** 86% of the reference's picks are flagged inside.
-  Inside +1.64% vs outside +1.28% per trade, but the outside group (9%) is small and
-  its flag is 60% accurate.
+  Inside +1.64% vs outside +1.28% per trade, but the outside group (9%) is small.
 
 **Against this result:**
 
