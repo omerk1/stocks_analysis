@@ -70,7 +70,7 @@ def test_the_level_warmup_holds_a_full_strength_window_whatever_the_weekday():
                                             "2020-09-07", "2021-09-06", "2019-04-19", "2020-04-10", "2021-04-02",
                                             "2019-02-18", "2020-02-17", "2021-02-15", "2019-01-21", "2020-01-20",
                                             "2021-01-18"]))]
-    for wstart in days[(days >= "2021-06-01")][:5]:
+    for wstart in days[days >= "2021-01-01"]:   # every weekday of a year: each alignment and holiday spacing
         snap_start = wstart - pd.Timedelta(weeks=vc.LEVEL_WARMUP_WEEKS)
         first_held = levels.snapshot_dates(days, snap_start)[0]   # daily rows begin at the first held snapshot
         assert ((days >= first_held) & (days < wstart)).sum() >= lf.STRENGTH_WINDOW

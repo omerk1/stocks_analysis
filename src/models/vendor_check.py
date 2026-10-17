@@ -73,7 +73,8 @@ LEVEL_WEEKS = 26
 # used 52 weeks, which holidays and the Friday alignment can leave up to about a
 # week short at the window's start. Now: trading days to calendar days at
 # 365/252 (holidays included), plus a week for the alignment.
-LEVEL_WARMUP_WEEKS = -(-level_features.STRENGTH_WINDOW * 365 // (252 * 7)) + 1
+TRADING_DAYS_PER_YEAR = 252
+LEVEL_WARMUP_WEEKS = -(-level_features.STRENGTH_WINDOW * 365 // (TRADING_DAYS_PER_YEAR * 7)) + 1
 # Each vendor's bars on each basis, and the splits that go with them.
 VENDOR_SOURCES = {
     "yfinance": {PriceBasis.TOTAL_RETURN: db.YFINANCE, PriceBasis.TRADED: db.YFINANCE_SPLIT_ONLY},
@@ -346,7 +347,7 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_ticke
         lr = _compare(conn, sample, detector, wstart, end, seed, sources, bars_start=level_cache.FIRST_BAR)
         gaps = pd.concat([gaps, lr["gaps"]], ignore_index=True)
         not_compared, auc_levels, n_level = not_compared + lr["not_compared"], lr["auc"], len(sample)
-        level_window = {"start": wstart, "snapshot_start": snap_start}
+        level_window = {"start": wstart, "end": pd.Timestamp(end), "snapshot_start": snap_start}
     failures = gate_failures(gaps, r["auc"])
     if auc_levels is not None and not auc_levels <= SAME_TICKER_MAX_AUC:
         failures.append(f"level columns' vendor AUC {auc_levels:.3f} > {SAME_TICKER_MAX_AUC}")

@@ -243,7 +243,7 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
           f"off by > 0.1 SD, <= {vc.SAME_TICKER_MAX_NAN_MISMATCH:.0%} one-vendor NaN]")
     if s["auc_levels"] is not None:
         w = s["level_window"]
-        print(f"  level columns: {s['n_level_tickers']} tickers, {w['start'].date()}..{end} (detectors on the "
+        print(f"  level columns: {s['n_level_tickers']} tickers, {w['start'].date()}..{w['end'].date()} (detectors on the "
               f"whole history, snapshots from {w['snapshot_start'].date()}), vendor AUC {s['auc_levels']:.3f}")
     spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
     if spread:
