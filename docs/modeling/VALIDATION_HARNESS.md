@@ -613,8 +613,54 @@ Build order, one PR each, each with its own tests:
        after step 2–3, then the holdout.
    - **Step 2b (Track A, in parallel with step 2): indicator and market-regime features.**
      14 null-prior columns registered (§7): volatility regime, volume, RSI, SPY trend and vol,
-     point-in-time breadth, sector-relative momentum. Next: rebuild the cache, rerun
-     `vendor-check`, and run the scorecard (`--rank ev_atr`, H 21 and 63) as `S2` against S1b.
+     point-in-time breadth, sector-relative momentum. Cache rebuilt as
+     `data/models/features/sp500_s2` (same 1,368,478 rows and 641 tickers; the S1 columns
+     identical); `vendor-check` same-ticker passes (AUC 0.527, largest median gap 0.0099 SD
+     on `rel_volume_20_rank`, at most 3.3% of rows off). `run-scorecard --columns S2 --rank
+     ev_atr`, H 21 and 63, one seed: 18 `S2` rows (2026-10-11/12).
+     - **S1's fit doesn't reproduce, so the comparison is against a refit, `S1r`.** S1's
+       archived B4 predictions differ from today's refit (median |Δ P(+1)| 0.004–0.007 per
+       fold, max 0.12) with the same columns, cache values, row order, labels, trial spec,
+       seed, sklearn 1.5.1 and thread count, and even at S1's own commit; today's fit is
+       deterministic and gives S2's B4 exactly. Cause not found. `S1r` is the S1 column set
+       refitted on the S2 cache (`--columns S1 --experiment-id S1r`, 18 rows, 2026-10-17);
+       its B4 equals S2's, so S2 vs S1r differs only in the 14 columns.
+     - Paired comparisons below: `scripts/compare_scorecard_runs.py S2 S1r` (and `S1r S1b`),
+       which rebuilds both runs' picks from the archived predictions on one frame.
+     - **Refit noise is small.** S1r vs S1b: picks overlap 55–74%, the paired per-date
+       difference averages 0.05% per trade in size, its CI clears zero at 4 of 36 (2 each
+       way). S1b's readouts reproduce: model − market positive at 36 of 36 (CI clears zero at
+       16, S1b 17), Sharpe above random-k at 36 and above the market at 23 (S1b 21).
+     - **S2's picks are worse than S1r's.** Paired S2 − S1r is negative at 34 of 36 readouts
+       (median −0.21% per trade, down to −0.81% at H63 4/2 top-5); the CI is below zero at 8
+       (H21 2/2 top-5, 3/1.5, 4/1.5 and 4/2 top-20; H63 4/1 top-5, 4/1.5 both k, 4/2 top-5)
+       and never above. The picks overlap only 6–23%: a different ranking, not a nudge.
+     - **Model − market:** positive at 21 of 36 (S1r 36), CI clears zero at 1 (S1r 16), none
+       below. Mean per trade: H21 top-5 −0.01%, top-20 +0.03% (S1r +0.16%, +0.17%); H63
+       +0.03%, +0.05% (S1r +0.40%, +0.32%). **Model − B4:** positive at 26, clears at 2 (S1r
+       35, 13).
+     - **Portfolio, net 10 bps:** Sharpe 0.29–0.72, below S1r at 35 of 36 (by 0.17 on
+       average), below the random-k basket at 25, above the market at 3 (S1r 23). Drawdown
+       −10% to −30%, deeper than S1r at 31. Annual return 3.3–8.7% (S1r 4.1–10.2%).
+     - **Picks' ATR** 2.3–3.1% of price, above S1r's at 34 of 36 (S1r 2.3–2.65%, universe
+       2.4%): part of the volatility tilt S1b removed is back.
+     - **Era:** model − market averages −0.03% in 2014–17 and +0.06% in 2018–21 (S1r +0.24%,
+       +0.26%); at H21 2014–17 is lower at 16 of 18. **R/R** is set by the barriers as
+       before (0.99–2.65).
+     - **Against the result:** one seed, 36 uncorrected looks on overlapping cells, one bull
+       market. But the gap is about five times the refit noise (mean size 0.25% vs 0.05%),
+       has one sign at 34 of 36, and S1r and S2 share every input but the 14 columns, so
+       "noise" or "environment drift" doesn't explain it. What does is not tested. Two
+       candidates: the market-wide columns are the same for every name on a date, so they
+       rank nothing by themselves and act only through interactions, fitted on a few years
+       of regimes (2011–13 in the first fold), which is how a tree overfits time (and
+       2014–17 is the weak era); the volatility columns (`bb_width_pctile`,
+       `atr_ratio_5_63`, `rvol_21_pctile_252`) may pull the ranking back toward volatile
+       names, as the ATR shift suggests.
+     - **What it means:** as a block, the 14 columns make the picks worse; don't carry them
+       into step 2's set as they are. A diagnostic run of S2 without the market-wide group
+       would tell which part did it (about 5 h). S1r, reproducible here, replaces S1b as the
+       reference for later scorecard runs; why S1 doesn't reproduce stays open.
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
