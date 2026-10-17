@@ -34,7 +34,8 @@ A quarter-based value goes stale: NaN once its quarter ended more than
 last numbers forever. Out-of-order filings (an old quarter first reported
 late) never replace a newer quarter's value.
 
-Valuation (P/E, P/S) needs a point-in-time market cap and is left out here.
+Valuation divides these filings by a market cap, which needs the traded
+price and the splits: its own source, `valuation.py`.
 """
 
 from __future__ import annotations
@@ -168,12 +169,42 @@ def quarter_features(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
     keys = ["ticker", "period_end"]
     pick = lambda c: _in_order(inst.loc[inst["concept"] == c, [*keys, "value", "available_date"]]).set_index(keys)
     equity, debt, debt_nc = pick("equity"), pick("long_term_debt"), pick("long_term_debt_noncurrent")
-    debt = debt.combine_first(debt_nc)  # with current maturities when tagged, else the noncurrent part
+    # with current maturities when tagged, else the noncurrent part; a total first
+    # reported later (a comparative in next year's 10-K) doesn't replace a noncurrent
+    # value already known, or a filing after t would decide what counted on t
+    nc_at = debt_nc["available_date"].reindex(debt.index)
+    debt = debt[nc_at.isna() | (debt["available_date"] <= nc_at)].combine_first(debt_nc)
     bs = equity.join(debt, how="inner", lsuffix="_eq", rsuffix="_debt").reset_index()
     events["debt_to_equity"] = pd.DataFrame({
         "ticker": bs["ticker"], "period_end": bs["period_end"],
         "known_at": bs[["available_date_eq", "available_date_debt"]].max(axis=1),
         "value": (bs["value_debt"] / bs["value_eq"]).where(bs["value_eq"] > 0)})
+    return events
+
+
+def valuation_inputs(fundamentals: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """Events (as `quarter_features`) for what valuation divides by market
+    cap: trailing four quarters' net income and revenue (four consecutive
+    quarters of that concept), and equity at each balance-sheet date."""
+    fundamentals = _ns(fundamentals, ["period_end", "available_date"])
+    q = _quarters(fundamentals)
+    events = {}
+    for short, name in (("ni", "net_income_ttm"), ("rev", "revenue_ttm")):
+        part = q[q[f"{short}_at"].notna()]
+        if part.empty:
+            events[name] = pd.DataFrame({"ticker": pd.Series(dtype=fundamentals["ticker"].dtype),
+                                         "period_end": pd.Series(dtype="M8[ns]"),
+                                         "known_at": pd.Series(dtype="M8[ns]"), "value": pd.Series(dtype=float)})
+            continue
+        by = part["ticker"]
+        span = (part["period_end"] - part.groupby("ticker")["period_end"].shift(3)).dt.days
+        events[name] = pd.DataFrame({
+            "ticker": by, "period_end": part["period_end"],
+            "known_at": _rolling_max_dates(part[f"{short}_at"], by, 4),
+            "value": _rolling(part[short], by, 4, "sum", 4).where(span.between(*FOUR_QUARTERS_SPAN))})
+    inst = fundamentals[(fundamentals["period_type"] == "instant") & (fundamentals["concept"] == "equity")]
+    equity = _in_order(inst[["ticker", "period_end", "value", "available_date"]])
+    events["equity"] = equity.rename(columns={"available_date": "known_at"})
     return events
 
 

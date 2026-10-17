@@ -33,7 +33,7 @@ import pandas as pd
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import MODULES_WITH_FALLBACK
 from src.models import dataset
-from src.models.features import baseline, fundamentals, level_features, market, registry
+from src.models.features import baseline, fundamentals, level_features, market, registry, valuation
 
 # The longest registered warmup is 451 bars (~655 calendar days).
 WARMUP_DAYS = 750
@@ -136,12 +136,18 @@ def build_feature_cache(
     if panel_specs:
         # Membership from the index intervals, so the trailing breadth windows are warm on `start` too.
         panel_bars = bars[registry.SOURCES[panel_specs[0].source].basis]
-        filings = (fundamentals.load_tables(conn, names, end) if any(s.source == "fundamentals" for s in panel_specs)
-                   else (None, None))
+        uses = {s.source for s in panel_specs}
+        filings = fundamentals.load_tables(conn, names, end) if uses & {"fundamentals", "valuation"} else (None, None)
+        # valuation's market cap undoes splits: each name's splits from its traded bars' vendor
+        panel_splits, shares = {}, None
+        if "valuation" in uses:
+            traded = bars[registry.SOURCES["valuation"].basis]
+            panel_splits = dataset._read_splits_bulk(conn, traded.attrs["ticker_sources"])
+            shares = valuation.load_shares(conn, names, end, panel_splits)
         context = market.PanelContext(membership=market.members_from_intervals(intervals, panel_bars),
                                       sectors=sectors.set_index("ticker")["sector"],
-                                      fundamentals=filings[0], earnings=filings[1])
-        pvalues = registry.compute_registered(bars, {}, tuple(panel_specs), rank=False, context=context)
+                                      fundamentals=filings[0], earnings=filings[1], shares=shares)
+        pvalues = registry.compute_registered(bars, panel_splits, tuple(panel_specs), rank=False, context=context)
         values = pvalues if values is None else values.merge(pvalues, on=["ticker", "date"], how="left")
     out = rows.merge(values, on=["ticker", "date"], how="left")
     ranked = tuple(s.name for s in bar_specs if s.ranked)

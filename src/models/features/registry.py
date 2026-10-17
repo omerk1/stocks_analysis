@@ -23,7 +23,9 @@ market-wide and sector-relative columns. The leakage gate perturbs all of its
 inputs' bars the same way, so it is covered like any other source. The
 company-financials columns (`fundamentals.py`) are a panel source too, read
 from the context's filings tables; the gate's `future_filings` perturbation
-covers those.
+covers those. Valuation (`valuation.py`) divides filings by a market cap from
+the traded close and the context's share counts; panel sources get this
+call's splits in the context, so `future_split` reaches it.
 
 Not yet here (§7, for the ablation step): grouping beyond this file's
 `group`, and the ablation order.
@@ -33,7 +35,7 @@ from __future__ import annotations
 
 import functools
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable
 
@@ -41,9 +43,9 @@ import pandas as pd
 
 from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
-from src.foundation.market_common.price_basis import PriceBasis
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 from src.models import dataset
-from src.models.features import baseline, fundamentals, level_features, ma_family, market
+from src.models.features import baseline, fundamentals, level_features, ma_family, market, valuation
 from src.models.features import indicators as indicator_features
 from src.models.labels.barriers import ATR_PERIOD
 
@@ -147,6 +149,8 @@ SOURCES: dict[str, Source | PanelSource] = {
     "market": PanelSource(baseline.FEATURE_BASIS, market.panel_features),
     # bars only give the (ticker, date) rows; the values come from the context's filings tables
     "fundamentals": PanelSource(baseline.FEATURE_BASIS, fundamentals.panel_features),
+    # market cap = the traded close (unadjusted for splits after t) x the share count known on t
+    "valuation": PanelSource(MODULE_PRICE_BASIS["market_cap"], valuation.panel_features),
     "liquidity": Source(dataset.UNIVERSE_BASIS, _liquidity),
     "universe": Source(dataset.UNIVERSE_BASIS, _universe),
     "decision": Source(dataset.LABEL_BASIS, _decision),
@@ -224,6 +228,12 @@ REGISTRY: tuple[FeatureSpec, ...] = (
                 note="change in YoY growth vs the previous quarter; the seasonality-free stand-in for QoQ"),
     FeatureSpec("net_margin_ttm", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
     FeatureSpec("debt_to_equity", "fundamentals", MODEL, "event", "null", "fundamentals", 0),
+    FeatureSpec("earnings_yield", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True,
+                note="E/P, not P/E: continuous through zero earnings"),
+    FeatureSpec("sales_yield", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
+    FeatureSpec("book_to_market", "fundamentals", MODEL, "dense", "null", "valuation", 0, ranked=True),
+    FeatureSpec("share_change_yoy", "fundamentals", MODEL, "event", "null", "valuation", 0, ranked=True,
+                note="log share count vs a year earlier, split-adjusted: + dilution, - buybacks"),
     FeatureSpec("dollar_volume_20d", "universe", UNIVERSE, "dense", None, "universe", dataset.DOLLAR_VOLUME_WINDOW),
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
@@ -314,6 +324,8 @@ def compute_registered(
     `since`: per-ticker sources' rows before it are dropped (computed on the
     whole frame first, so a warmup is still warm)."""
     context = context if context is not None else market.PanelContext()
+    if context.splits is not None:
+        raise ValueError("PanelContext.splits is filled from compute_registered's `splits`; pass them there")
     specs = [s for s in registry if s.source is not None]
     by_source: dict[str, list[str]] = {}
     for s in specs:
@@ -322,7 +334,7 @@ def compute_registered(
     for name, cols in by_source.items():
         source = sources[name]
         if isinstance(source, PanelSource):
-            frame = source.compute(bars[source.basis], context)[["ticker", "date", *cols]]
+            frame = source.compute(bars[source.basis], replace(context, splits=splits))[["ticker", "date", *cols]]
             out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
             continue
         groups = [(ticker, g.drop(columns="ticker").set_index("date").sort_index())
