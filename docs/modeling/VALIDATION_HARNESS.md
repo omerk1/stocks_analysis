@@ -618,7 +618,9 @@ Build order, one PR each, each with its own tests:
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
-     done (Done #125: `build-levels`); the features and the scorecard run are next. **Step 3:**
+     done (Done #125: `build-levels`), and so are the 57 level features (Done #151, as built:
+     `LRP.md` "Addendum (2026-10-15)"). Next: the scorecard run as `S3` (S2's columns plus the
+     levels) against S2, after S2's run is merged. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
