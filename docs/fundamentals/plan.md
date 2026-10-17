@@ -334,7 +334,7 @@ post-earnings drift, one PR each.
 - **Combined model: inconclusive** (Done #153). Top-20 model minus the same model without
   the group, pooled over the 9 cells: H21 +0.03% per trade [−0.04%, +0.10%], H63 −0.06%
   [−0.21%, +0.08%], 99% CIs, band ±0.10%. The same without the six market-cap caveat
-  tickers. The group stays registered. It changes the picks (42–56% overlap) and cuts the
+  tickers. The group stays registered. It changes the picks (42–55% overlap) and cuts the
   share with an expected earnings date inside 21 days from 27% to 17%, but not their result.
 - **Earnings as risk:** next.
 - **Post-earnings drift:** after that.

@@ -299,7 +299,7 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
     if preregistered:
-        sc = trading.PREREGISTERED[preregistered]
+        sc = _preregistered_scorecard(preregistered)
         unknown = set(horizons) - set(sc.horizons)
         if unknown:
             raise SystemExit(f"{preregistered} has no horizon {sorted(unknown)}; registered: {sc.horizons}")
@@ -343,15 +343,28 @@ def _print_grid(results: list[dict], sc) -> None:
         print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
 
 
-def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, exclude_tickers: tuple[str, ...]) -> int:
+def _preregistered_scorecard(experiment_id: str):
+    """`trading.PREREGISTERED[experiment_id]`, or a usage error naming the
+    registered ones (validated here, not as argparse choices, so other
+    subcommands don't import `trading`)."""
+    from src.models import trading
+    if experiment_id not in trading.PREREGISTERED:
+        raise SystemExit(f"no pre-registered scorecard {experiment_id!r}; registered: {sorted(trading.PREREGISTERED)}")
+    return trading.PREREGISTERED[experiment_id]
+
+
+def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, exclude_tickers: tuple[str, ...],
+                    n_boot: int | None = None) -> int:
     from src.models import trading, trial_log
     from src.models.features import cache
     warnings.filterwarnings("ignore")
-    sc = trading.PREREGISTERED[experiment_id]
+    sc = _preregistered_scorecard(experiment_id)
     r = trading.close_scorecard(sc, trial_log.read_trials(), cache.read_feature_cache(features_dir), labels_dir,
-                                exclude_tickers)
+                                exclude_tickers, n_boot=n_boot)
+    check = "" if r["n_boot"] == r["registered_n_boot"] else \
+        f", {r['n_boot']} draws (a precision check; registered: {r['registered_n_boot']})"
     print(f"{experiment_id}: top-{r['k']} model - {sc.reference}, pooled over each horizon's cells, "
-          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade"
+          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade" + check
           + (f", without {', '.join(exclude_tickers)}" if exclude_tickers else ""))
     for h, x in r["horizons"].items():
         if "missing_cells" in x:
@@ -364,6 +377,10 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
         print("    by year: " + ", ".join(f"{y} {v:+.4%}" for y, v in x["by_year"].items()))
         print(f"    by cell ({x['cells_positive']}/{len(x['by_cell'])} positive): "
               + ", ".join(f"{c} {v:+.4%}" for c, v in x["by_cell"].items()))
+        d = x["diagnostics"]["mean_over_cells"]
+        print(f"    picks (descriptive, mean over cells): overlap {d['overlap']:.1%}; group columns all filled "
+              f"model {d['model.all_filled']:.1%} / reference {d['reference.all_filled']:.1%}; expected earnings "
+              f"inside H{h} model {d['model.earnings_inside']:.1%} / reference {d['reference.earnings_inside']:.1%}")
     rerun = " (on seeds " + ", ".join(map(str, r["seeds"])) + "; the pre-registered seed rerun decides entry)"
     print(f"  group: {r['group_verdict']}; entry rule met: {r['entry_rule_met']}" + (rerun if r["entry_rule_met"] else ""))
     return 0
@@ -382,7 +399,6 @@ def close_experiment(experiment_id: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from src.models.trading import PREREGISTERED as PREREGISTERED_SCORECARDS
     parser = argparse.ArgumentParser(prog="python -m src.models.cli")
     sub = parser.add_subparsers(dest="command", required=True)
     gates_cmd = sub.add_parser("run-gates", help="run the four harness gates")
@@ -430,10 +446,12 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     score.add_argument("--rank", choices=["ev", "ev_atr"], default=None, help="ev unless --preregistered")
-    score.add_argument("--preregistered", choices=sorted(PREREGISTERED_SCORECARDS), default=None,
-                       help="a pre-registered Track B scorecard (trading.PREREGISTERED), with its own rank")
+    score.add_argument("--preregistered", default=None,
+                       help="a pre-registered Track B scorecard (trading.PREREGISTERED, e.g. F2), with its own rank")
     closesc = sub.add_parser("close-scorecard", help="the verdict of a pre-registered scorecard. Read-only")
-    closesc.add_argument("experiment", choices=sorted(PREREGISTERED_SCORECARDS))
+    closesc.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. F2")
+    closesc.add_argument("--n-boot", type=int, default=None,
+                         help="bootstrap draws other than the registered ones: a precision check, not the verdict")
     closesc.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     closesc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     closesc.add_argument("--exclude-tickers", nargs="+", default=[],
@@ -454,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run-scorecard":
         return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.preregistered)
     if args.command == "close-scorecard":
-        return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers))
+        return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot)
     if args.command == "rescore-scorecard":
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":

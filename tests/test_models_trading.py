@@ -60,9 +60,11 @@ def test_picks_take_each_dates_highest_ev():
     preds["p_neither"] = 1 - preds["p_up"] - preds["p_down"]
     frame = preds[["ticker", "date"]].assign(hit=1.0, ret=np.arange(6) / 100, atr=1.0, close_t=50.0)
     got = trading.picks(preds, frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, k=1)
-    # A and C tie on the 2nd: the tie key decides, the same way every run
+    # A and C tie on the 2nd: the tie key decides, whatever order the rows come in
     assert got["ticker"].iloc[1] == "B" and got["ticker"].iloc[0] in ("A", "C")
-    assert got.equals(trading.picks(preds, frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, k=1))
+    for order in ([2, 1, 0, 5, 4, 3], [1, 2, 0, 3, 5, 4]):
+        shuffled = trading.picks(preds.iloc[order], frame, BarrierCell(21, 2.0, 1.0), {2020: 0.0}, k=1)
+        assert shuffled["ticker"].tolist() == got["ticker"].tolist()
 
 
 def test_tied_scores_are_not_broken_by_ticker_name():
@@ -186,6 +188,15 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     assert list(logged["experiment_id"]) == ["S1", "S1b", "S1b"]
     assert json.loads(logged.loc[2, "feature_groups"])["rescored_from"] == first["trial_id"]
     assert json.loads(logged.loc[2, "feature_groups"])["rank"] == "ev_atr"
+    assert json.loads(logged.loc[2, "feature_groups"])["source_tie_break"] == trading.TIE_BREAK
+    # a row from before the tie fix (no tie_break: name ties) is rescored, and says so
+    old = logged.iloc[:1].copy()
+    groups = json.loads(old.loc[0, "feature_groups"])
+    del groups["tie_break"]
+    old.loc[0, "feature_groups"] = json.dumps(groups)
+    [_] = trading.rescore(SMALL, old, features, tmp_path, trials_path=tmp_path / "T2.csv", artifacts_root=art)
+    assert json.loads(trial_log.read_trials(tmp_path / "T2.csv").loc[0, "feature_groups"])["source_tie_break"] \
+        == trading.NAME_TIES
     # the same predictions and ranking score the same
     assert again["by_k"][5]["model"]["costs"][10] == first["by_k"][5]["model"]["costs"][10]
     assert ev_atr["by_k"][5]["model"]["atr_pct"] <= first["by_k"][5]["model"]["atr_pct"]
@@ -251,6 +262,12 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     assert h["verdict"] == trading.POSITIVE and h["ci_low"] > 0 and h["holm_positive"]
     assert out["group_verdict"] == trading.POSITIVE and h["trial_ids"] == {"2/1.5": r["trial_id"]}
     assert set(h["by_era"]) == {"2019-2019", "2020-2021"} and h["dates_missing_a_cell"] == 0
+    d = h["diagnostics"]["mean_over_cells"]
+    assert 0 <= d["overlap"] <= 1 and np.isnan(d["model.earnings_inside"])  # no earnings column here
+    assert out["n_boot"] == out["registered_n_boot"] == sc.n_boot
+    more = trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False,
+                                   n_boot=400)
+    assert more["n_boot"] == 400 and more["horizons"][21]["point_estimate"] == h["point_estimate"]
     # the caveat sensitivity re-reads the same predictions with tickers unpickable
     some = tuple(sorted(features["ticker"].unique())[:10])
     without = trading.close_scorecard(sc, logged, features, tmp_path, exclude_tickers=some, artifacts_root=art,
@@ -262,6 +279,10 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     assert trading.registered_trial(sc, logged.assign(git_dirty="True"), cell, spec) is None
     assert trading.registered_trial(sc, logged, cell, spec, require_clean=False) == r["trial_id"]
     assert trading.registered_trial(replace(sc, rank="ev_atr"), logged, cell, spec, require_clean=False) is None
+    # picks made with name ties aren't the registered verdict's
+    name_ties = logged.assign(feature_groups=logged["feature_groups"].map(
+        lambda g: json.dumps({k: v for k, v in json.loads(g).items() if k != "tie_break"})))
+    assert trading.registered_trial(sc, name_ties, cell, spec, require_clean=False) is None
     # a cache rebuilt since the fit is refused, not scored silently
     rebuilt = labels.copy()
     rebuilt.attrs["manifest"] = {**labels.attrs["manifest"], "created": "later"}

@@ -78,6 +78,8 @@ TRADING_DAYS = 252
 COSTS_BPS = (0, 10, 25)   # round trip; 0 = gross
 HEADLINE_COST_BPS = 10
 STRATEGIES = ("model", "reference", "market")
+TIE_BREAK = "ticker_date_hash"  # `metrics.tie_key`
+NAME_TIES = "ticker_name"       # what rows logged without a tie_break (S1, S1b, S2) used
 FULL_COLUMNS = B4_COLUMNS + MA_SUPPORTED + MA_WEAK
 # Step 2b (2026-10-10): indicators, volume, volatility regime, market regime,
 # sector-relative (VALIDATION_HARNESS.md §7). Listed, not read off the registry,
@@ -307,8 +309,7 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     return {
         "feature_groups": {"track": sc.track, "model": list(sc.model_columns), "reference": sc.reference,
                            "reference_columns": list(sc.reference_columns), "rank": sc.rank,
-                           # S1/S1b/S2 rows predate the field: they broke ties by ticker name
-                           "tie_break": "ticker_date_hash",
+                           "tie_break": TIE_BREAK,
                            **({"band": sc.band, "verdict_k": sc.verdict_k, "ci": sc.ci} if sc.track != TRACK else {})},
         "cells": [{"horizon": cell.horizon, "upper": cell.upper, "lower": cell.lower,
                    "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr}],
@@ -362,11 +363,18 @@ def headline_k(sc: Scorecard) -> int:
 CACHE_FIELDS = ("features_built", "labels_built")
 
 
+def logged_tie_break(row: pd.Series) -> str:
+    """How the logged trial `row` broke top-k ties."""
+    return json.loads(row["feature_groups"]).get("tie_break", NAME_TIES)
+
+
 def design_mismatch(sc: Scorecard, row: pd.Series, spec: dict) -> tuple[str, str] | None:
     """Why the logged trial `row` isn't `sc`'s fit on the caches `spec`
     (`trial_spec` now) describes, as (field, message), or None: other model
-    or reference columns, seeds, hyperparameters, folds, or a feature/label
-    cache rebuilt since the fit (field in CACHE_FIELDS)."""
+    or reference columns, seeds, hyperparameters, folds, a feature/label
+    cache rebuilt since the fit (field in CACHE_FIELDS), or picks made with
+    another tie rule (field "tie_break": the predictions are the same, the
+    logged top-k numbers aren't)."""
     groups = json.loads(row["feature_groups"])
     if tuple(groups["model"]) != sc.model_columns or tuple(groups["reference_columns"]) != sc.reference_columns:
         return "columns", "fitted on other columns than this scorecard's"
@@ -380,6 +388,8 @@ def design_mismatch(sc: Scorecard, row: pd.Series, spec: dict) -> tuple[str, str
     for key in CACHE_FIELDS:
         if built.get(key) != spec["universe"][key]:
             return key, f"{key} {built.get(key)} != the cache's {spec['universe'][key]} (caches rebuilt since the fit)"
+    if logged_tie_break(row) != spec["feature_groups"]["tie_break"]:
+        return "tie_break", f"picked with {logged_tie_break(row)} ties, now {spec['feature_groups']['tie_break']}"
     return None
 
 
@@ -405,13 +415,15 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         labels = dataset.read_labels(labels_dir, cell.horizon, cell=(cell.upper, cell.lower))
         spec = trial_spec(sc, cell, features, labels)
         # The rescored row must describe the fit that made the predictions, and
-        # score them on the same labels and features.
+        # score them on the same labels and features. Only the tie rule may
+        # differ (it's scoring, not the fit): the row records the source's.
         mismatch = design_mismatch(sc, row, spec)
-        if mismatch:
+        if mismatch and mismatch[0] != "tie_break":
             raise ValueError(f"{row['trial_id']}: {mismatch[1]}")
         preds = pd.read_parquet(Path(artifacts_root) / row["trial_id"] / "predictions.parquet")
         frame = cell_frame(features, labels)
         spec["feature_groups"]["rescored_from"] = row["trial_id"]
+        spec["feature_groups"]["source_tie_break"] = logged_tie_break(row)
         with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
             model = preds[preds["model"] == "model"].drop(columns="model")
             ref = preds[preds["model"] == sc.reference].drop(columns="model")
@@ -513,12 +525,12 @@ def registered_trial(sc: Scorecard, trials: pd.DataFrame, cell: BarrierCell, spe
     return None
 
 
-def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
-                 keep=None) -> dict[str, pd.Series]:
-    """Per-date gross top-`k` basket return of the model and the reference
-    from a trial's archived predictions, no refit. `keep(rows) -> bool mask`
-    narrows what may be picked (e.g. leaves tickers out) before ranking, so
-    the next-best rows fill the basket."""
+def cell_picks(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
+               keep=None) -> dict[str, pd.DataFrame]:
+    """The model's and the reference's daily top-`k` (`picks`) from a trial's
+    archived predictions, no refit. `keep(rows) -> bool mask` narrows what
+    may be picked (e.g. leaves tickers out) before ranking, so the next-best
+    rows fill the basket."""
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     neither, neither_atr = neither_returns(frame, folds), neither_atr_returns(frame, folds)
     if not all(np.isfinite(v) for v in [*neither.values(), *neither_atr.values()]):
@@ -528,7 +540,33 @@ def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: p
         p = preds[preds["model"] == name].drop(columns="model")
         if keep is not None:
             p = p[keep(p)]
-        out[side] = basket(picks(p, frame, cell, neither, k, sc.rank, neither_atr))
+        out[side] = picks(p, frame, cell, neither, k, sc.rank, neither_atr)
+    return out
+
+
+def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
+                 keep=None) -> dict[str, pd.Series]:
+    """Per-date gross top-`k` basket return of each side's `cell_picks`."""
+    return {side: basket(p) for side, p in cell_picks(sc, cell, preds, frame, k, keep).items()}
+
+
+def pick_diagnostics(picked: dict[str, pd.DataFrame], features: pd.DataFrame, columns: list[str],
+                     horizon: int) -> dict:
+    """Descriptive, never a verdict: the model's and the reference's daily
+    top-k overlap (share of the reference's names the model also picks), and
+    per side the share of picks with every one of `columns` (the group the
+    model adds) filled, the mean share filled, and the share with an expected
+    earnings date inside the horizon (NaN without that column)."""
+    keys = ["ticker", "date"]
+    both = picked["reference"][keys].merge(picked["model"][keys].assign(_m=True), on=keys, how="left")
+    out = {"overlap": float(both["_m"].notna().groupby(both["date"]).mean().mean())}
+    earn = "days_to_earnings_expected"
+    look = list(dict.fromkeys([*columns, *([earn] if earn in features else [])]))
+    for side, p in picked.items():
+        f = p[keys].merge(features[[*keys, *look]], on=keys, how="left")
+        filled = f[columns].notna()
+        out[side] = {"all_filled": float(filled.all(axis=1).mean()), "mean_filled": float(filled.mean(axis=1).mean()),
+                     "earnings_inside": float((f[earn] <= horizon).mean()) if earn in f else np.nan}
     return out
 
 
@@ -554,7 +592,7 @@ def one_sided_p(result: BootstrapResult) -> float:
 
 def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_dir,
                     exclude_tickers: tuple[str, ...] = (), artifacts_root=trial_log.ARTIFACTS_ROOT,
-                    require_clean: bool = True) -> dict:
+                    require_clean: bool = True, n_boot: int | None = None) -> dict:
     """The pre-registered verdict of a Track B scorecard (e.g. F2): per
     horizon, D_H = model minus reference top-`verdict_k` basket, pooled over
     the cells (`pooled_difference`), its CI's three-way verdict against
@@ -563,11 +601,16 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
     band, positive in every era). The pre-registration's seed rerun is a
     separate step: `entry_rule_met` is never "enters". `exclude_tickers`
     re-reads the same predictions with those tickers unpickable (the caveat
-    sensitivity). A horizon missing a cell is inconclusive, p = 1."""
+    sensitivity). `n_boot` other than the registered `sc.n_boot` is a Monte
+    Carlo precision check of the interval's ends, not the registered verdict.
+    Per-cell means are over the dates D_H uses; `pick_diagnostics` are
+    descriptive. A horizon missing a cell is inconclusive, p = 1."""
     if sc.track == TRACK:
         raise ValueError(f"{sc.experiment_id} is Track A: no verdict")
     check_features(sc, features)
+    n_boot = sc.n_boot if n_boot is None else n_boot
     keep = (lambda p: ~p["ticker"].isin(exclude_tickers)) if exclude_tickers else None
+    group = [c for c in sc.model_columns if c not in sc.reference_columns]
     horizons = {}
     for h in sc.horizons:
         ids, frames = {}, {}
@@ -579,14 +622,20 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         if missing:
             horizons[h] = {"verdict": INCONCLUSIVE, "p": 1.0, "missing_cells": missing}
             continue
-        baskets = {}
+        baskets, diagnostics = {}, {}
         for c, t in ids.items():
             preds = pd.read_parquet(Path(artifacts_root) / t / "predictions.parquet")
-            baskets[(c.upper, c.lower)] = cell_baskets(sc, c, preds, frames[c], sc.verdict_k, keep)
-        result, diff, n_partial = pooled_difference(baskets, "model", "reference", h, sc.n_boot, sc.ci)
+            picked = cell_picks(sc, c, preds, frames[c], sc.verdict_k, keep)
+            baskets[(c.upper, c.lower)] = {side: basket(p) for side, p in picked.items()}
+            diagnostics[f"{c.upper:g}/{c.lower:g}"] = pick_diagnostics(picked, features, group, h)
+        result, diff, n_partial = pooled_difference(baskets, "model", "reference", h, n_boot, sc.ci)
         year = diff.index.year
-        per_cell = {f"{u:g}/{d:g}": float((s["model"] - s["reference"]).mean()) for (u, d), s in baskets.items()}
+        # the neighbours on D_H's own dates (every cell present)
+        per_cell = {f"{u:g}/{d:g}": float((s["model"] - s["reference"]).reindex(diff.index).mean())
+                    for (u, d), s in baskets.items()}
+        mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()
         horizons[h] = {
+            "diagnostics": {"mean_over_cells": mean_diag, "by_cell": diagnostics},
             "verdict": three_verdict(result.ci_low, result.ci_high, sc.band), "p": one_sided_p(result),
             **result.summary(), "dates_missing_a_cell": n_partial,
             "trial_ids": {f"{c.upper:g}/{c.lower:g}": t for c, t in ids.items()},
@@ -604,7 +653,8 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         r["holm_positive"] = bool(holm[h])
         r["entry_rule_met"] = bool(holm[h] and r["verdict"] == POSITIVE and r.get("point_estimate", 0) >= sc.band
                                    and all(v > 0 for v in r.get("by_era", {}).values()))
-    return {"experiment_id": sc.experiment_id, "k": sc.verdict_k, "band": sc.band, "ci": sc.ci, "seeds": list(sc.seeds),
+    return {"experiment_id": sc.experiment_id, "k": sc.verdict_k, "band": sc.band, "ci": sc.ci, "n_boot": n_boot,
+            "registered_n_boot": sc.n_boot, "seeds": list(sc.seeds),
             "excluded_tickers": list(exclude_tickers), "horizons": horizons,
             "group_verdict": group_verdict([r["verdict"] for r in horizons.values()]),
             "entry_rule_met": any(r["entry_rule_met"] for r in horizons.values())}

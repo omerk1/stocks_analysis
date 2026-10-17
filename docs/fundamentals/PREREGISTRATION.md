@@ -210,6 +210,11 @@ registered and isn't dropped. The entry rule isn't met, and no seed rerun is run
 
 - **H = 21 is close to dead:** the upper end passes the +10 bps band by 0.2 bps. It is
   still inconclusive by the rule, not "dead" and not "nearly an effect".
+- **Monte Carlo precision of the interval's ends:** at 1,000 draws a 99% end rests on
+  ~5 tail draws. Rerun at 10,000 draws (`close-scorecard F2 --n-boot 10000`, a check,
+  not the registered verdict): H21 [−0.047%, +0.101%], H63 [−0.214%, +0.097%]. Both
+  are still inconclusive, and H21 is still just past the band. Entries registered from
+  now on should state 10,000 draws for a 99% interval.
 - **Caveat sensitivity:** without EBAY, NI, YUM, HPE, MA and CMCSA the numbers barely
   move (H21 +0.029% [−0.043%, +0.104%]; H63 −0.059% [−0.208%, +0.088%]). The verdict
   doesn't hinge on the market-cap defects.
@@ -234,12 +239,14 @@ registered and isn't dropped. The entry rule isn't met, and no seed rerun is run
   uncorrected CI excludes zero, 1 look of 36). No sign holds across cells, k and
   horizons: no plateau.
 - **Diagnostics:**
-  - The two models' top-20 overlap on 42% of names a day at H21 and 56% at H63, so
+  These come from `close-scorecard`'s pick diagnostics (`trading.pick_diagnostics`),
+  as means over the 9 cells.
+  - The two models' top-20 overlap on 42% of names a day at H21 and 55% at H63, so
     the group really changes the picks.
-  - The model's picks have all 11 group columns filled 56% of the time (85% of the
-    columns on average), about the same as the reference's picks.
+  - The model's picks have all 11 group columns filled 56% of the time at H21 (55% at
+    H63), about the same as the reference's picks (56%, 55%).
   - The model avoids earnings: at H21, 17% of its picks have an expected earnings
-    date inside the horizon, against 27% of the reference's (H63: 83% vs 85%). The
+    date inside the horizon, against 27% of the reference's (H63: 84% vs 86%). The
     trades it swaps in do no better or worse on average. Whether earnings inside the
     horizon matter to the result is F3's question.
 
