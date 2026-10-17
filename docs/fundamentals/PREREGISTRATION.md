@@ -373,8 +373,9 @@ neither helps nor hurts by an amount this test can tell from zero or rule out.
   - ≤ 21: +0.026% [−0.039%, +0.109%], inconclusive;
   - ≤ 16: +0.032% [−0.015%, +0.098%], dead;
   - ≤ 26: +0.003% [−0.079%, +0.088%], dead.
-  The same at 10,000 draws. For the model that already uses the flag, a further
-  exclusion rule is ruled out at two of the three windows.
+  The same at 10,000 draws. The registered window is inconclusive. The neighbours
+  are only a fragility check, so their "dead" isn't a verdict; they just agree that
+  nothing big is there.
 
 **Readouts (descriptive, not verdicts):**
 

@@ -61,24 +61,26 @@ def flag(days_to: pd.Series, window: int) -> pd.Series:
                      index=days_to.index)
 
 
-def realized_inside(rows: pd.DataFrame, earnings: pd.DataFrame, calendar: pd.DatetimeIndex,
-                    window: int) -> pd.Series:
-    """Whether the realized next reaction date after t falls within sessions
-    t+1 .. t+`window` (the trade's holding window). Uses the realized date, so
-    it is future information on day t: a label diagnostic of the flag only."""
-    ns = lambda s: pd.to_datetime(s).astype("datetime64[ns]")
-    react = (earnings.dropna(subset=["reaction_date"])
-             .assign(reaction_date=lambda e: ns(e["reaction_date"]))[["ticker", "reaction_date"]]
-             .sort_values("reaction_date"))
-    left = rows[["ticker", "date"]].assign(date=lambda r: ns(r["date"])).reset_index(names="_row").sort_values("date")
+def reactions(earnings: pd.DataFrame) -> pd.DataFrame:
+    """(ticker, reaction_date) sorted for `realized_inside`, dates in ns."""
+    react = fundamentals._ns(earnings.dropna(subset=["reaction_date"]), ["reaction_date"])
+    return react[["ticker", "reaction_date"]].sort_values("reaction_date", ignore_index=True)
+
+
+def realized_inside(rows: pd.DataFrame, react: pd.DataFrame, window: int) -> pd.Series:
+    """Whether the realized next reaction date after t is 1 .. `window`
+    business days out, counted as the flag counts the expected one
+    (`np.busday_count`, so 1 = the entry session, as a flag of 1 is inside).
+    `react` from `reactions`. Uses the realized date, so it is future
+    information on day t: a label diagnostic of the flag only."""
+    left = fundamentals._ns(rows[["ticker", "date"]], ["date"]).reset_index(names="_row").sort_values("date")
     m = pd.merge_asof(left, react, left_on="date", right_on="reaction_date", by="ticker",
                       direction="forward", allow_exact_matches=False)
-    cal = calendar.astype("datetime64[ns]")
-    known = m["reaction_date"].notna()
+    known = m["reaction_date"].notna().to_numpy()
     gap = np.full(len(m), -1)
-    gap[known.to_numpy()] = (cal.searchsorted(m.loc[known, "reaction_date"].to_numpy())
-                             - cal.searchsorted(m.loc[known, "date"].to_numpy()))
-    inside = pd.Series(known.to_numpy() & (gap >= 1) & (gap <= window), index=m["_row"].to_numpy())
+    day = lambda s: s.to_numpy().astype("datetime64[D]")
+    gap[known] = np.busday_count(day(m.loc[known, "date"]), day(m.loc[known, "reaction_date"]))
+    inside = pd.Series(known & (gap >= 1) & (gap <= window), index=m["_row"].to_numpy())
     return inside.reindex(rows.index)
 
 
@@ -87,31 +89,24 @@ def exclusion_verdict(baskets: dict, sc) -> dict:
     its CI at the registered draws, its three-way verdict, per era / year /
     cell means (on D's dates), and the interval again at `PRECISION_N_BOOT`
     draws (a Monte Carlo precision check of the 99% ends, not the verdict)."""
-    result, diff, n_partial = trading.pooled_difference(baskets, "excluding", "unrestricted", VERDICT_HORIZON,
-                                                        sc.n_boot, sc.ci)
-    precise, _, _ = trading.pooled_difference(baskets, "excluding", "unrestricted", VERDICT_HORIZON,
-                                              PRECISION_N_BOOT, sc.ci)
-    year = diff.index.year
-    per_cell = {f"{u:g}/{d:g}": float((s["excluding"] - s["unrestricted"]).reindex(diff.index).mean())
-                for (u, d), s in baskets.items()}
-    return {**result.summary(), "verdict": trading.three_verdict(result.ci_low, result.ci_high, sc.band),
+    _, readout = trading.pooled_readout(baskets, "excluding", "unrestricted", VERDICT_HORIZON, sc, sc.n_boot)
+    precise, _ = trading.pooled_readout(baskets, "excluding", "unrestricted", VERDICT_HORIZON, sc, PRECISION_N_BOOT)
+    return {**readout,
             "precision_check": {"n_boot": PRECISION_N_BOOT, "ci_low": precise.ci_low, "ci_high": precise.ci_high,
-                                "verdict": trading.three_verdict(precise.ci_low, precise.ci_high, sc.band)},
-            "dates_missing_a_cell": n_partial,
-            "by_era": {f"{e[0]}-{e[-1]}": float(diff[year.isin(e)].mean()) for e in sc.eras},
-            "by_year": {int(y): float(v) for y, v in diff.groupby(year).mean().items()},
-            "by_cell": per_cell, "cells_positive": int(sum(v > 0 for v in per_cell.values()))}
+                                "verdict": trading.three_verdict(precise.ci_low, precise.ci_high, sc.band)}}
 
 
 def split_readout(picked: pd.DataFrame) -> dict:
-    """The unrestricted picks by flag: share, trade stats net of `COST_BPS`,
-    per-cell expectancy, and the flag's accuracy against the realized date."""
+    """The unrestricted picks by flag: share, trade stats net of `COST_BPS`
+    pooled over the cells and per cell, and the flag's accuracy against the
+    realized date. `trades_per_year` is per cell (one cell's daily top-k is
+    one strategy), so the pooled count is divided by the number of cells."""
     n_years = picked["date"].nunique() / trading.TRADING_DAYS
+    n_cells = picked["cell"].nunique()
     out = {"flag_share": {f: float((picked["flag"] == f).mean()) for f in FLAGS},
-           "by_flag": {f: trading.trade_stats(g, COST_BPS, n_years) for f, g in picked.groupby("flag")},
-           "by_cell_expectancy": {
-               c: {f: float(x["ret"].mean() - COST_BPS / 1e4) for f, x in g.groupby("flag")}
-               for c, g in picked.groupby("cell")}}
+           "by_flag": {f: trading.trade_stats(g, COST_BPS, n_years * n_cells) for f, g in picked.groupby("flag")},
+           "by_cell": {c: {f: trading.trade_stats(x, COST_BPS, n_years) for f, x in g.groupby("flag")}
+                       for c, g in picked.groupby("cell")}}
     inside, outside = picked["flag"] == "inside", picked["flag"] == "outside"
     out["flag_accuracy"] = {"inside_realized_inside": float(picked.loc[inside, "realized_inside"].mean()),
                             "outside_realized_outside": float(1 - picked.loc[outside, "realized_inside"].mean())}
@@ -125,7 +120,9 @@ def run(features: pd.DataFrame, earnings: pd.DataFrame, labels_dir, trials: pd.D
     predictions are in memory at a time."""
     sc = sc or trading.PREREGISTERED[EXPERIMENT]
     trading.check_features(sc, features)
-    calendar = pd.DatetimeIndex(sorted(features["date"].unique()))
+    if pd.Timestamp(features["date"].max()) > pd.Timestamp(END):  # the holdout stays locked
+        raise ValueError(f"the feature cache runs to {features['date'].max()}, past {END}")
+    react = reactions(earnings[pd.to_datetime(earnings["reaction_date"]) <= pd.Timestamp(END)])
     d2e = features.set_index(["ticker", "date"])["days_to_earnings_expected"]
     report = {}
     for horizon in sc.horizons:
@@ -151,7 +148,7 @@ def run(features: pd.DataFrame, earnings: pd.DataFrame, labels_dir, trials: pd.D
                 p = p.merge(preds.loc[preds["model"] == (sc.reference if side == "reference" else "model"),
                                       ["ticker", "date", "d2e"]], on=["ticker", "date"])
                 p["flag"] = flag(p["d2e"], horizon)
-                p["realized_inside"] = realized_inside(p, earnings, calendar, horizon)
+                p["realized_inside"] = realized_inside(p, react, horizon)
                 split[side].append(p.assign(cell=name))
             for w in windows:
                 excl = trading.cell_picks(sc, cell, preds, frame, K, keep=lambda p, w=w: ~(p["d2e"] <= w))
