@@ -71,3 +71,20 @@ def test_excluding_the_planted_winners_hurts(logged, tmp_path):
     assert set(out["model"]["by_cell"]) == {"2/1.5"}
     assert set(out["model"]["windows"]) == set(earnings_risk.WINDOWS)
     assert earnings_risk.report_lines({21: out}, sc.band)[0].startswith("F3:")
+
+
+def test_split_readout_counts_trades_per_strategy_not_per_cell():
+    days = pd.bdate_range("2020-01-01", periods=252)
+    one = pd.DataFrame({"date": np.repeat(days, 2), "ticker": np.tile(["A", "B"], len(days)), "hit": 1.0,
+                        "ret": 0.01, "flag": "outside", "realized_inside": False})
+    picked = pd.concat([one.assign(cell="2/1"), one.assign(cell="3/1")], ignore_index=True)
+    out = earnings_risk.split_readout(picked)
+    assert out["by_flag"]["outside"]["trades_per_year"] == pytest.approx(2 * 252)
+    assert out["by_cell"]["3/1"]["outside"]["trades_per_year"] == pytest.approx(2 * 252)
+
+
+def test_a_cache_past_the_holdout_boundary_is_refused(logged, tmp_path):
+    sc, features, labels, trials, art = logged
+    late = features.iloc[:1].assign(date=pd.Timestamp("2022-01-03"))
+    with pytest.raises(ValueError, match="past 2021-12-31"):
+        _run((sc, pd.concat([features, late], ignore_index=True), labels, trials, art), np.nan, tmp_path)
