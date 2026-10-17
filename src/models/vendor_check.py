@@ -51,7 +51,7 @@ from sklearn.model_selection import GroupKFold
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
-from src.models.features import baseline, market, registry
+from src.models.features import baseline, level_cache, market, registry
 
 FAR_DAYS = 730
 TIINGO_SOURCES = (db.TIINGO, db.TIINGO_SPLIT_ONLY)
@@ -66,6 +66,9 @@ SAME_TICKER_MAX_NAN_MISMATCH = 0.01
 # The level columns' sample (`same_ticker`): their detectors run fresh per vendor.
 LEVEL_TICKERS = 20
 LEVEL_WEEKS = 26
+# Snapshots before the compared weeks, so the weights' 252-day strength
+# percentile is as full as the cache's (26 weeks alone failed 13 weight columns).
+LEVEL_WARMUP_WEEKS = 52
 # Each vendor's bars on each basis, and the splits that go with them.
 VENDOR_SOURCES = {
     "yfinance": {PriceBasis.TOTAL_RETURN: db.YFINANCE, PriceBasis.TRADED: db.YFINANCE_SPLIT_ONLY},
@@ -217,16 +220,17 @@ def common_rows(conn, tickers: list[str], start, end) -> pd.DataFrame:
 
 
 def vendor_features(conn, tickers: list[str], vendor: str, start, end,
-                    membership: pd.DataFrame | None = None, specs=None, sources=None) -> pd.DataFrame:
+                    membership: pd.DataFrame | None = None, specs=None, sources=None,
+                    bars_start=None) -> pd.DataFrame:
     """Every registered column (or `specs`', computed by `sources`) for
     `tickers` in [start, end], from `vendor`'s bars and splits only (warm-up
-    read before `start`). The panel columns treat
+    read before `start`, or from `bars_start` if given). The panel columns treat
     `tickers` as the index -- `membership` rows of them if given (breadth and
     sector peers over them, each from this vendor) -- and read the benchmark as
     the dataset does, whatever the vendor."""
     specs = tuple(specs) if specs is not None else registry.REGISTRY
     sources = sources if sources is not None else registry.SOURCES
-    warm = _warm_start(start)
+    warm = pd.Timestamp(bars_start) if bars_start is not None else _warm_start(start)
     bars = {}
     for basis, source in VENDOR_SOURCES[vendor].items():
         bench = dataset.read_bars_bulk(conn, [market.BENCHMARK], basis, warm, end)
@@ -283,12 +287,12 @@ def gate_failures(gaps: pd.DataFrame, auc: float) -> list[str]:
     return out
 
 
-def _compare(conn, tickers, specs, start, end, seed, sources=None) -> dict:
+def _compare(conn, tickers, specs, start, end, seed, sources=None, bars_start=None) -> dict:
     """Gaps and the vendor AUC for `specs`' columns on `tickers` in [start, end]."""
     columns = [registry.model_input(s) for s in specs] + [s.name for s in specs if s.ranked]
     members = common_rows(conn, tickers, start, end)
-    yf = vendor_features(conn, tickers, "yfinance", start, end, members, specs, sources)
-    ti = vendor_features(conn, tickers, "tiingo", start, end, members, specs, sources)
+    yf = vendor_features(conn, tickers, "yfinance", start, end, members, specs, sources, bars_start)
+    ti = vendor_features(conn, tickers, "tiingo", start, end, members, specs, sources, bars_start)
     # Undefined on both vendors throughout (e.g. no benchmark or sectors stored):
     # nothing to compare -- reported, not failed.
     not_compared = [c for c in columns if yf[c].isna().all() and ti[c].isna().all()]
@@ -305,7 +309,7 @@ def _compare(conn, tickers, specs, start, end, seed, sources=None) -> dict:
 
 
 def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_tickers: int = LEVEL_TICKERS,
-                level_weeks: int = LEVEL_WEEKS) -> dict:
+                level_weeks: int = LEVEL_WEEKS, level_warmup_weeks: int = LEVEL_WARMUP_WEEKS) -> dict:
     """The same-ticker read-out for `tickers` (stored on both vendors) over
     [start, end]. Compares the numeric model inputs *and*, for ranked inputs,
     the raw values: each vendor is ranked only against its own copy of these
@@ -316,9 +320,12 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_ticke
 
     The level columns (a detector source, minutes per ticker and vendor) are
     compared on `level_tickers` of them, evenly spaced, over the last
-    `level_weeks` weeks to `end`, their detectors run fresh from that window's
-    start on each vendor's bars; their gaps join the others', and their own
-    classifier is `auc_levels` (same pass bar). 0: not compared."""
+    `level_weeks` weeks to `end`, their detectors run fresh on each vendor's
+    bars as the cache runs them: on the whole history (anchors such as
+    all-time highs need it), with snapshots from `level_warmup_weeks` before
+    the window so the strengths' trailing percentile has a full year behind
+    it; their gaps join the others', and their own classifier is `auc_levels`
+    (same pass bar). 0: not compared."""
     if not tickers:
         raise ValueError("no tickers stored on both vendors")
     specs = [s for s in registry.model_specs() if s.name != "sector"]
@@ -328,8 +335,9 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_ticke
     if detector and level_tickers > 0:
         sample = tickers[::max(1, -(-len(tickers) // level_tickers))]
         wstart = max(pd.Timestamp(start), pd.Timestamp(end) - pd.Timedelta(weeks=level_weeks))
-        sources = {**registry.SOURCES, "levels": registry.level_source(None, wstart)}
-        lr = _compare(conn, sample, detector, wstart, end, seed, sources)
+        snap_start = wstart - pd.Timedelta(weeks=level_warmup_weeks)
+        sources = {**registry.SOURCES, "levels": registry.level_source(None, snap_start)}
+        lr = _compare(conn, sample, detector, wstart, end, seed, sources, bars_start=level_cache.FIRST_BAR)
         gaps = pd.concat([gaps, lr["gaps"]], ignore_index=True)
         not_compared, auc_levels, n_level = not_compared + lr["not_compared"], lr["auc"], len(sample)
     failures = gate_failures(gaps, r["auc"])
