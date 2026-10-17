@@ -41,12 +41,22 @@ def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path)
     s2_cache = pd.DataFrame(columns=list(trading.COLUMN_SETS["S2"]))
     trading.check_run(s2, s2_cache, tmp_path / "TRIALS.csv")        # no log yet
     trials = tmp_path / "TRIALS.csv"
-    pd.DataFrame({"experiment_id": ["S2"], "feature_groups": [json.dumps({"model": list(s2.model_columns)})]}
+    trials.touch()
+    trading.check_run(s2, s2_cache, trials)                          # an empty log is a new log
+    s2_groups = {"model": list(s2.model_columns), "reference_columns": list(B4_COLUMNS), "rank": s2.rank}
+    pd.DataFrame({"experiment_id": ["S2", "S1b", "E1"],
+                  "feature_groups": [json.dumps(s2_groups),
+                                     json.dumps({**s2_groups, "model": list(trading.FULL_COLUMNS),
+                                                 "rescored_from": "x"}),
+                                     json.dumps({"step": "T1", "added": [], "reference": "B4"})]}
                  ).to_csv(trials, index=False)
-    trading.check_run(s2, s2_cache, trials)                          # same id, same columns
+    trading.check_run(s2, s2_cache, trials)                          # same id, same design
     trading.check_run(replace(s2, experiment_id="S1r", model_columns=trading.FULL_COLUMNS), s2_cache, trials)
-    with pytest.raises(ValueError, match="already logged"):
-        trading.check_run(replace(s2, model_columns=trading.FULL_COLUMNS), s2_cache, trials)
+    for clash in (replace(s2, model_columns=trading.FULL_COLUMNS), replace(s2, rank="ev_atr"),
+                  replace(s2, experiment_id="S1b", model_columns=trading.FULL_COLUMNS),
+                  replace(s2, experiment_id="E1")):
+        with pytest.raises(ValueError, match="already logged"):
+            trading.check_run(clash, s2_cache, trials)
 
 
 def test_run_scorecard_logs_the_column_set_under_its_id(monkeypatch):

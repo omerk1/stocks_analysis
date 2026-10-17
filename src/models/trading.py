@@ -313,17 +313,22 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
 def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH) -> None:
     """Refuses, before any trial is logged, a cache without the model's or the
     reference's columns (an S2 run on the S1 cache), and an experiment id
-    already logged with other model columns (an S1r refit under S2's id)."""
+    already logged as something else: other model or reference columns,
+    another rank, a rescore (S1b), or not a scorecard at all (an ablation's
+    E1). S1's rows predate the rank field and count as ranked by EV."""
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
-    trials = trial_log.read_trials(trials_path) if Path(trials_path).exists() else pd.DataFrame()
-    if trials.empty:
+    path = Path(trials_path)
+    if not path.exists() or path.stat().st_size == 0:     # a new log, as trial_log.append_row reads it
         return
-    logged = trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]
-    other = {tuple(json.loads(g)["model"]) for g in logged} - {tuple(sc.model_columns)}
-    if other:
-        raise ValueError(f"{sc.experiment_id} is already logged with other model columns; pick another experiment id")
+    trials = trial_log.read_trials(path)
+    ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
+    for g in trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]:
+        g = json.loads(g)
+        if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from")) != ours:
+            raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank, or as "
+                             "another kind of trial; pick another experiment id")
 
 
 def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir, n_boot: int | None = None,

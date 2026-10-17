@@ -41,6 +41,9 @@ def logged(trials: pd.DataFrame, experiment_id: str) -> dict[tuple, pd.Series]:
     rows = trials[(trials["experiment_id"] == experiment_id) & (trials["status"] == "ok")]
     if rows.empty:
         raise SystemExit(f"no ok rows for {experiment_id!r}")
+    rank = {json.loads(g).get("rank") for g in rows["feature_groups"]}
+    if rank != {RANK}:
+        raise SystemExit(f"{experiment_id!r} is ranked by {sorted(map(str, rank))}; this compares {RANK} runs only")
     out = {}
     for _, row in rows.iterrows():
         c = json.loads(row["cells"])[0]
@@ -55,9 +58,10 @@ def predictions(row: pd.Series, artifacts_root: Path) -> pd.DataFrame:
     return p[p["model"] == "model"].drop(columns="model")
 
 
-def readouts(metrics: dict, k: int, tag: str) -> dict:
+def readouts(metrics: dict, k: int, tag: str, eras: tuple[str, str]) -> dict:
     x = metrics["by_k"][str(k)]
     model, market = x["model"], x["market"]
+    early, late = eras
     return {
         f"{tag}_vs_mkt": x["vs_market"]["point_estimate"], f"{tag}_vs_mkt_lo": x["vs_market"]["ci_low"],
         f"{tag}_vs_mkt_hi": x["vs_market"]["ci_high"],
@@ -66,8 +70,8 @@ def readouts(metrics: dict, k: int, tag: str) -> dict:
         f"{tag}_sharpe": model["portfolio"]["sharpe"], f"{tag}_dd": model["portfolio"]["max_drawdown"],
         f"{tag}_ann": model["portfolio"]["annual_return"], f"{tag}_atr": model["atr_pct"],
         f"{tag}_b4_exp": x["reference"]["costs"]["0"]["expectancy"],
-        f"{tag}_era1": model["by_era"]["2014-2017"]["expectancy"] - market["by_era"]["2014-2017"]["expectancy"],
-        f"{tag}_era2": model["by_era"]["2018-2021"]["expectancy"] - market["by_era"]["2018-2021"]["expectancy"],
+        f"{tag}_era1": model["by_era"][early]["expectancy"] - market["by_era"][early]["expectancy"],
+        f"{tag}_era2": model["by_era"][late]["expectancy"] - market["by_era"][late]["expectancy"],
         f"{tag}_random_sharpe": x["random"]["portfolio"]["sharpe"],
         "mkt_sharpe": market["portfolio"]["sharpe"], "mkt_dd": market["portfolio"]["max_drawdown"],
     }
@@ -79,6 +83,7 @@ def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, arti
     features = cache.read_feature_cache(features_dir)
     sc = trading.Scorecard()
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
+    eras = tuple(f"{e[0]}-{e[-1]}" for e in sc.eras)     # trading.score_cell's by_era keys
     out = []
     for key in sorted(set(new) & set(old)):
         h, upper, lower = key
@@ -90,12 +95,15 @@ def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, arti
         for k in sc.ks:
             a = trading.picks(pn, frame, cell, neither, k, RANK, neither_atr)
             b = trading.picks(po, frame, cell, neither, k, RANK, neither_atr)
-            diff = per_date_diff(trading.basket(a), trading.basket(b), h, True, N_BOOT, CI, 0).summary()
+            ba, bb = trading.basket(a).dropna(), trading.basket(b).dropna()
+            dates = ba.index.intersection(bb.index)          # runs from different caches can differ on a few
+            diff = per_date_diff(ba[dates], bb[dates], h, True, N_BOOT, CI, 0).summary()
+            shared = len(a.merge(b, on=["date", "ticker"]))
             row = {"H": h, "cell": f"{upper:g}/{lower:g}", "k": k, "new_minus_old": diff["point_estimate"],
-                   "lo": diff["ci_low"], "hi": diff["ci_high"],
-                   "pick_overlap": len(a.merge(b, on=["date", "ticker"])) / len(a)}
-            row.update(readouts(mn, k, "new"))
-            row.update(readouts(mo, k, "old"))
+                   "lo": diff["ci_low"], "hi": diff["ci_high"], "dates_dropped": len(ba) + len(bb) - 2 * len(dates),
+                   "pick_overlap": shared / max(len(a), len(b), 1)}
+            row.update(readouts(mn, k, "new", eras))
+            row.update(readouts(mo, k, "old", eras))
             out.append(row)
             print(f"H{h} {upper:g}/{lower:g} top-{k}: {diff['point_estimate']:+.3%} "
                   f"[{diff['ci_low']:+.3%}, {diff['ci_high']:+.3%}], overlap {row['pick_overlap']:.2f}", flush=True)
