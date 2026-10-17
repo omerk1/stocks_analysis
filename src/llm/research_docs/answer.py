@@ -14,7 +14,12 @@ to answer from those sources alone.
   the docs answer from ones they don't (`docs/done.md` #139): retrieval always returns 5
   chunks, related or not. Reading the chunks is what can tell, so the reply is structured
   (`Answer`): `in_docs` is the model's verdict, `answer` the text. When the sources don't
-  answer, it says so and what they do cover, instead of stretching them.
+  answer, it says so and what they do cover, instead of stretching them. Silence isn't an
+  answer either: "it wasn't tested", concluded from sources that don't mention it, was
+  one of the baseline's misses (step 6c, `docs/done.md` #152).
+- **Keeping the verdict.** A number without the verdict that qualifies it (weak, not
+  robust, fails costs) reads as a finding. The baseline kept the numbers and dropped the
+  verdict twice, so the prompt says the verdict belongs next to the number.
 - **What's checked here, and what isn't.** `check` is mechanical: every [n] must name one
   of the sources shown, and in an answer that claims to be in the docs, every sentence must
   cite something. (A "not in the docs" reply may open with an uncited "the sources don't
@@ -54,9 +59,17 @@ Rules:
   it is true: a reader can't tell it apart from what the project actually decided.
 - End every sentence that states a fact with the source(s) it comes from: [2], or [1][4].
   Use only the numbers given.
+- Set in_docs to true only when a source, or several read together, answers the question
+  itself. A source on a neighbouring topic doesn't count, and neither does silence: that no
+  source mentions something doesn't mean the project didn't do it. If you can't cite a
+  source for the sentence that answers the question, the sources don't answer it.
 - If the sources answer the question, set in_docs to true and answer it directly and
   briefly: the answer first, then the reasons or numbers that support it. If they answer
   only part of it, answer that part and say which part they don't cover.
+- Keep a result's verdict with its number. When a source qualifies a result (weak, not
+  robust, inconclusive, exploratory, fails costs, misses the multiple-testing bar, a tier),
+  that is part of the answer: say it next to the number, and let it shape your first
+  sentence ("weakly, and it isn't confirmed" rather than a flat "yes").
 - If the sources don't answer the question, set in_docs to false. Say so in one sentence,
   then say in one more sentence what the sources do cover, with citations. Don't stretch
   a related source into an answer.

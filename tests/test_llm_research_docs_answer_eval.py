@@ -54,6 +54,49 @@ def test_run_records_each_answer_and_resumes_without_paying_again(tmp_path):
     assert client.calls == 3  # only the new question
 
 
+def test_the_prompt_id_names_the_clients_model(tmp_path):
+    import src.llm.research_docs.answer_eval as answer_eval
+    client = FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
+    client.model = "another-model"
+    [row] = run([Q], _find(GOLD), client, tmp_path / "run.json")
+    assert row["prompt"] == answer_eval.prompt_id("another-model") != answer_eval.prompt_id()
+
+
+def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path, capsys):
+    import src.llm.research_docs.answer_eval as answer_eval
+    out, client = tmp_path / "run.json", FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
+    [row] = run([Q], _find(GOLD), client, out)
+    assert row["prompt"] == answer_eval.prompt_id() and row["prompt"] == record(MULTI, _answered("x", GOLD))["prompt"]
+    assert score([row], {"support": {}, "answers": {}}).startswith(f"prompt: {row['prompt']}\n")
+    # only line breaks change: the model sees a different prompt, so the id changes
+    monkeypatch.setattr(answer_eval, "SYSTEM", answer_eval.SYSTEM.replace("\n", " "))
+    assert answer_eval.prompt_id() != row["prompt"]
+    with pytest.raises(ValueError, match="another prompt"):
+        run([Q, MULTI], _find(GOLD), client, out)
+    assert client.calls == 1
+    assert run([Q], _find(GOLD), client, out) == [row]  # nothing left to answer: no calls, so no refusal
+    assert client.calls == 1 and "nothing was re-run" in capsys.readouterr().err
+    empty = {"support": {}, "answers": {}}
+    assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], empty)
+    old = {k: v for k, v in row.items() if k != "prompt"}  # a row from before prompt ids
+    assert score([old], empty).startswith("prompt: unrecorded\n")
+
+
+def test_the_prompt_id_follows_what_the_model_sees_not_the_code(monkeypatch):
+    import src.llm.research_docs.answer_eval as answer_eval
+    before = answer_eval.prompt_id()
+    real = answer_eval.build_prompt
+
+    def same_message(question, sources):
+        """A reworded docstring the model never sees."""
+        return real(question, sources)
+
+    monkeypatch.setattr(answer_eval, "build_prompt", same_message)
+    assert answer_eval.prompt_id() == before
+    monkeypatch.setattr(answer_eval, "build_prompt", lambda q, s: real(q, s).replace("Sources:", "Excerpts:"))
+    assert answer_eval.prompt_id() != before
+
+
 def test_a_claim_key_follows_the_sentence_and_the_cited_text_not_the_source_number():
     a = record(Q, _answered("Too fragile [2]. Retired [1].", OTHER, GOLD))
     b = record(Q, _answered("Too fragile [1].", GOLD, OTHER))
