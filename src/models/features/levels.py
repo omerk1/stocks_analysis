@@ -8,9 +8,11 @@ date from one ticker's bars, never read from the DB:
 - **Gaps**: one detection over the whole frame, then each gap's exact state on
   every day (`gaps.relevance.gap_states`, tested equal to an `as_of` run).
 - **Daily roll-forward** (`daily_levels`): every day takes the latest snapshot
-  on or before it. AVWAP prices are recomputed daily from their anchors;
-  everything else in a snapshot is held until the next one (new levels are at
-  most 4 days late, never early). The sources that need no detector -- SMA
+  it can know of (`held_snapshot`: its own on a Friday, the one before
+  otherwise -- whether another day ends its week depends on later bars). AVWAP
+  prices are recomputed daily from their anchors; everything else in a
+  snapshot is held until the next one (new levels are at most 4 days late on a
+  normal week, never early). The sources that need no detector -- SMA
   20/50/200, the 52-week high/low and round numbers -- are computed daily.
 
 All prices are on the traded basis (split-adjusted, as the detectors use), so a
@@ -140,6 +142,22 @@ def bar_levels(bars: pd.DataFrame, splits: pd.DataFrame | None, days) -> pd.Data
     return out[DAILY_COLUMNS]
 
 
+def held_snapshot(taken: np.ndarray, days: np.ndarray) -> np.ndarray:
+    """Per day, the position in sorted `taken` of the snapshot it holds (-1:
+    none): its own on a Friday, else the latest taken before it. A Friday ends
+    its week whatever follows; any other day is its week's last bar only if
+    no bar follows that week (a ticker delisted on a Wednesday has a snapshot
+    there, the same bars running on to Friday don't, and a Thursday before a
+    Friday holiday is one only from the calendar), so its own snapshot would be
+    a peek at the future. New levels are at most 4 days late on a normal week,
+    a week after a short one, never early."""
+    days = np.asarray(days, dtype="datetime64[ns]")
+    pos = np.searchsorted(taken, days, side="right") - 1
+    own = (pos >= 0) & (taken[np.maximum(pos, 0)] == days)
+    friday = pd.DatetimeIndex(days).dayofweek == 4
+    return np.where(own & ~friday, pos - 1, pos)
+
+
 def daily_levels(
     bars: pd.DataFrame, splits: pd.DataFrame | None, snaps: pd.DataFrame, days, taken, configs: dict,
 ) -> pd.DataFrame:
@@ -147,14 +165,15 @@ def daily_levels(
     strength_raw, formed, touches, state). `bars` already `prepare`d; `snaps`
     is the snapshot sources' rows concatenated; `taken` every date a snapshot
     was taken on (the calendar, including weeks a source had nothing: a week
-    whose lines all broke must not fall back to the week before). A day before
-    the first snapshot gets no snapshot levels. Stale anchors are dropped (LRP
+    whose lines all broke must not fall back to the week before). A day holds
+    `held_snapshot`'s snapshot (its own only on a Friday); a day holding none
+    gets no snapshot levels. Stale anchors are dropped (LRP
     §1.1: "anchor inactive"). `configs`: `default_configs()`'s shape."""
     days = pd.DatetimeIndex(days)
     parts = []
     taken = np.sort(pd.DatetimeIndex(taken).to_numpy())
     if len(taken):
-        pos = np.searchsorted(taken, days.to_numpy(), side="right") - 1
+        pos = held_snapshot(taken, days.to_numpy())
         has = pos >= 0
         which = pd.DataFrame({"date": days[has], "snapshot": taken[pos[has]]})
         held = which.merge(snaps, on="snapshot", how="inner")

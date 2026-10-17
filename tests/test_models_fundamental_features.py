@@ -4,6 +4,7 @@ import pytest
 
 from src.foundation.data_processing import db
 from src.models.features import fundamentals as F
+from src.models.features import registry
 from src.models.features.market import PanelContext
 
 DAYS = pd.bdate_range("2019-01-01", "2021-06-30")
@@ -150,7 +151,8 @@ def test_the_gate_catches_a_value_used_from_its_quarter_end(monkeypatch):
     real = F.quarter_features
     monkeypatch.setattr(F, "quarter_features",
                         lambda fundamentals: {k: v.assign(known_at=v["period_end"]) for k, v in real(fundamentals).items()})
-    result = gates.leakage_gate(bars, splits, cut, context=context)
+    no_levels = tuple(s for s in registry.REGISTRY if not registry.is_detector(s))  # detectors: minutes, not needed
+    result = gates.leakage_gate(bars, splits, cut, registry=no_levels, context=context)
     assert result["leaks"]["future_filings"]
 
 

@@ -664,7 +664,16 @@ Build order, one PR each, each with its own tests:
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
-     done (Done #125: `build-levels`); the features and the scorecard run are next. **Step 3:**
+     done (Done #125: `build-levels`), and so are the 57 level features (Done #156, as built:
+     `LRP.md` "Addendum (2026-10-15)"; cache `data/models/features/sp500_levels`, every
+     `sp500_s2` column identical). Next: the scorecard run as `S3`, S1's columns plus the 57
+     levels against `S1r` (step 2b found S2's 14 columns make the picks worse, so they stay
+     out). The levels fail the same-ticker vendor rule on history depth, a known limit
+     (`LRP.md` addendum). Before reading S3 − S1r: S3's archived B4 predictions must equal
+     S1r's exactly, as S1r's did S2's (S3 reads `sp500_levels`, S1r was fitted on
+     `sp500_s2`; if they differ, refit S1 on `sp500_levels` first). Against a negative
+     result: 57 columns join S1's 16 and each split samples 80% of them, so the S1 columns
+     are candidates less often; dilution alone can cost picks. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
