@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     score.add_argument("--rank", choices=["ev", "ev_atr"], default="ev")
-    score.add_argument("--columns", choices=["S1", "S2"], default="S1",
+    score.add_argument("--columns", choices=["S1", "S2", "S3"], default="S1",
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")

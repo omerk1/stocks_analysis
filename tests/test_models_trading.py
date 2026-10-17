@@ -25,6 +25,9 @@ def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     assert set(trading.STEP_2B_COLUMNS) == {model_input(s) for s in step_2b}
     assert trading.COLUMN_SETS["S1"] == trading.FULL_COLUMNS
     assert trading.COLUMN_SETS["S2"] == trading.FULL_COLUMNS + trading.STEP_2B_COLUMNS
+    levels = [s for s in model_specs() if s.source == "levels"]
+    assert len(trading.LEVEL_COLUMNS) == 57 and set(trading.LEVEL_COLUMNS) == {model_input(s) for s in levels}
+    assert trading.COLUMN_SETS["S3"] == trading.FULL_COLUMNS + trading.LEVEL_COLUMNS   # S1 + levels, not S2
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]
