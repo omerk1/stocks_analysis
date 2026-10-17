@@ -11,9 +11,9 @@ import pandas as pd
 import pytest
 
 from src.models.features import indicators, market, registry
+from src.models.trading import STEP_2B_GROUPS
 
 DAYS = pd.bdate_range("2017-01-02", "2019-12-31")
-STEP_2B_GROUPS = ("volatility", "volume", "oscillator", "market", "relative")
 
 
 def _bars(seed: int, n: int = len(DAYS), drift: float = 0.0) -> pd.DataFrame:

@@ -16,13 +16,63 @@ FAST = BoostingConfig(max_iter=50, min_samples_leaf=50)
 
 def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     """FULL_COLUMNS stays S1's set (B4 + MA family) so S1/S1b reproduce; the
-    step-2b columns registered since join through their own column set."""
+    step-2b columns join through their own column set, S2, which stays fixed as
+    later groups (fundamentals) are registered."""
     from src.models.features.registry import model_input, model_specs
     s1 = [s for s in model_specs() if s.group in ("baseline", "ma")]
     assert set(trading.FULL_COLUMNS) == {model_input(s) for s in s1}
+    step_2b = [s for s in model_specs() if s.group in trading.STEP_2B_GROUPS]
+    assert set(trading.STEP_2B_COLUMNS) == {model_input(s) for s in step_2b}
+    assert trading.COLUMN_SETS["S1"] == trading.FULL_COLUMNS
+    assert trading.COLUMN_SETS["S2"] == trading.FULL_COLUMNS + trading.STEP_2B_COLUMNS
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]
+
+
+def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path):
+    """Both refusals come before any trial is logged: an S2 run on a cache
+    without the step-2b columns, and an id already logged with other model
+    columns (an S1 refit under S2's id)."""
+    s2 = trading.Scorecard(experiment_id="S2", model_columns=trading.COLUMN_SETS["S2"])
+    s1_cache = pd.DataFrame(columns=list(trading.FULL_COLUMNS))
+    with pytest.raises(ValueError, match="lacks"):
+        trading.check_run(s2, s1_cache, tmp_path / "TRIALS.csv")
+    s2_cache = pd.DataFrame(columns=list(trading.COLUMN_SETS["S2"]))
+    trading.check_run(s2, s2_cache, tmp_path / "TRIALS.csv")        # no log yet
+    trials = tmp_path / "TRIALS.csv"
+    trials.touch()
+    trading.check_run(s2, s2_cache, trials)                          # an empty log is a new log
+    s2_groups = {"model": list(s2.model_columns), "reference_columns": list(B4_COLUMNS), "rank": s2.rank}
+    pd.DataFrame({"experiment_id": ["S2", "S1b", "E1"],
+                  "feature_groups": [json.dumps(s2_groups),
+                                     json.dumps({**s2_groups, "model": list(trading.FULL_COLUMNS),
+                                                 "rescored_from": "x"}),
+                                     json.dumps({"step": "T1", "added": [], "reference": "B4"})]}
+                 ).to_csv(trials, index=False)
+    trading.check_run(s2, s2_cache, trials)                          # same id, same design
+    trading.check_run(replace(s2, experiment_id="S1r", model_columns=trading.FULL_COLUMNS), s2_cache, trials)
+    for clash in (replace(s2, model_columns=trading.FULL_COLUMNS), replace(s2, rank="ev_atr"),
+                  replace(s2, experiment_id="S1b", model_columns=trading.FULL_COLUMNS),
+                  replace(s2, experiment_id="E1")):
+        with pytest.raises(ValueError, match="already logged"):
+            trading.check_run(clash, s2_cache, trials)
+
+
+def test_run_scorecard_logs_the_column_set_under_its_id(monkeypatch):
+    """`--columns` picks the model columns, `--experiment-id` only renames the
+    log (S1r: S1's columns under another id)."""
+    from src.models import cli
+    from src.models.features import cache
+    seen = []
+    monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
+    monkeypatch.setattr(cache, "read_feature_cache", lambda path: pd.DataFrame())
+    monkeypatch.setattr(trading, "run_horizon", lambda sc, h, features, labels: seen.append(sc) or [])
+    monkeypatch.setattr(cli, "_print_grid", lambda results, sc: None)
+    cli.main(["run-scorecard", "--columns", "S2", "--horizons", "21"])
+    cli.main(["run-scorecard", "--columns", "S1", "--experiment-id", "S1r", "--horizons", "21"])
+    assert [(sc.experiment_id, sc.model_columns) for sc in seen] == [
+        ("S2", trading.COLUMN_SETS["S2"]), ("S1r", trading.FULL_COLUMNS)]
 
 
 def test_trade_stats_reads_wins_losses_and_costs():
