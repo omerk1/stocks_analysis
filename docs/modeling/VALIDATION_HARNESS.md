@@ -625,6 +625,8 @@ Build order, one PR each, each with its own tests:
        deterministic and gives S2's B4 exactly. Cause not found. `S1r` is the S1 column set
        refitted on the S2 cache (`--columns S1 --experiment-id S1r`, 18 rows, 2026-10-17);
        its B4 equals S2's, so S2 vs S1r differs only in the 14 columns.
+     - Paired comparisons below: `scripts/compare_scorecard_runs.py S2 S1r` (and `S1r S1b`),
+       which rebuilds both runs' picks from the archived predictions on one frame.
      - **Refit noise is small.** S1r vs S1b: picks overlap 55–74%, the paired per-date
        difference averages 0.05% per trade in size, its CI clears zero at 4 of 36 (2 each
        way). S1b's readouts reproduce: model − market positive at 36 of 36 (CI clears zero at

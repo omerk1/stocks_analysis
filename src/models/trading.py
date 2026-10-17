@@ -82,6 +82,7 @@ FULL_COLUMNS = B4_COLUMNS + MA_SUPPORTED + MA_WEAK
 # Step 2b (2026-10-10): indicators, volume, volatility regime, market regime,
 # sector-relative (VALIDATION_HARNESS.md §7). Listed, not read off the registry,
 # so a later registration doesn't change what S2 means.
+STEP_2B_GROUPS = ("volatility", "volume", "oscillator", "market", "relative")
 STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "rel_volume_20_rank",
                    "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
@@ -309,12 +310,29 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     }
 
 
+def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH) -> None:
+    """Refuses, before any trial is logged, a cache without the model's or the
+    reference's columns (an S2 run on the S1 cache), and an experiment id
+    already logged with other model columns (an S1r refit under S2's id)."""
+    missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
+    if missing:
+        raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
+    trials = trial_log.read_trials(trials_path) if Path(trials_path).exists() else pd.DataFrame()
+    if trials.empty:
+        return
+    logged = trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]
+    other = {tuple(json.loads(g)["model"]) for g in logged} - {tuple(sc.model_columns)}
+    if other:
+        raise ValueError(f"{sc.experiment_id} is already logged with other model columns; pick another experiment id")
+
+
 def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir, n_boot: int | None = None,
                 trials_path=trial_log.TRIALS_PATH, artifacts_root=trial_log.ARTIFACTS_ROOT) -> list[dict]:
     """Every cell of one horizon: both models fitted, scored, logged as one
     trial per cell, predictions and bootstrap draws archived."""
     n_boot = sc.n_boot if n_boot is None else n_boot
     check_features(sc, features)
+    check_run(sc, features, trials_path)
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     results = []
     for cell in sc.cells(horizon):
