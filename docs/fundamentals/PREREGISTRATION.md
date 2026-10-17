@@ -192,6 +192,70 @@ comparison is the same model without them, on the same dates.
 - **Negative effect:** left out, and the reason is looked for (overfitting through
   NaN routing is the first suspect).
 
+### Result (2026-10-17 addendum)
+
+Run as registered: 18 trials, seed 0, git ce579c1, `TRIALS.csv` experiment `F2`
+(`run-scorecard --preregistered F2`, then `close-scorecard F2`). 2,001 test dates
+(2014–2021), none left out for a missing cell. The coverage table this entry cites as
+"Done #152" is in Done #153 (#152 went to another PR first).
+
+**Verdict: inconclusive at both horizons, so the group is inconclusive.** It stays
+registered and isn't dropped. The entry rule isn't met, and no seed rerun is run
+(a rerun can't rescue an inconclusive result).
+
+| | D_H (model − reference, top-20) | 99% CI | one-sided p | verdict |
+|---|---|---|---|---|
+| H = 21 | +0.029% | [−0.041%, +0.102%] | 0.16 | inconclusive |
+| H = 63 | −0.060% | [−0.208%, +0.080%] | 0.83 | inconclusive |
+
+- **H = 21 is close to dead:** the upper end passes the +10 bps band by 0.2 bps. It is
+  still inconclusive by the rule, not "dead" and not "nearly an effect".
+- **Caveat sensitivity:** without EBAY, NI, YUM, HPE, MA and CMCSA the numbers barely
+  move (H21 +0.029% [−0.043%, +0.104%]; H63 −0.059% [−0.208%, +0.088%]). The verdict
+  doesn't hinge on the market-cap defects.
+- **Costs:** both sides trade 20 names a day, so D_H is the same gross or net. At
+  10 bps per trade, the model's top-20 nets +0.52% per trade at H21 (reference +0.49%,
+  market +0.47%) and +1.53% at H63 (reference +1.59%, market +1.58%). Means over the
+  9 cells; ~5,000 signal trades a year (20 × 252), i.e. ~5.0 percentage points of
+  turnover cost per year at 10 bps in the overlapping signal stream.
+
+**Readouts (descriptive, not verdicts):**
+
+- **Shape, top-20, net 10 bps, means over the 9 cells:**
+  - H21: win rate 44.9% vs 44.5%, avg win / avg loss 1.61 vs 1.61, skew 1.89 vs 2.25
+    (model vs reference);
+  - H63: win rate 46.5% vs 47.0%, avg win / avg loss 1.74 vs 1.73, skew 1.98 vs 1.67.
+  - The group changes which names win, not the shape of the trade.
+- **Per era:** H21 +0.053% (2014–17), +0.004% (2018–21); H63 −0.175%, +0.057%.
+- **Per year:** H21 positive 2014–2018, negative 2019–2021. H63's mean is carried by
+  2016–2017 (−0.32%, −0.42%) and 2020 (+0.24%).
+- **Neighbours:** H21, 6 of 9 cells positive (−0.07% to +0.09%); H63, 2 of 9.
+  Top-5 is negative at both horizons (H21 −0.04%, H63 −0.21%; one H63 cell's
+  uncorrected CI excludes zero, 1 look of 36). No sign holds across cells, k and
+  horizons: no plateau.
+- **Diagnostics:**
+  - The two models' top-20 overlap on 42% of names a day at H21 and 56% at H63, so
+    the group really changes the picks.
+  - The model's picks have all 11 group columns filled 56% of the time (85% of the
+    columns on average), about the same as the reference's picks.
+  - The model avoids earnings: at H21, 17% of its picks have an expected earnings
+    date inside the horizon, against 27% of the reference's (H63: 83% vs 85%). The
+    trades it swaps in do no better or worse on average. Whether earnings inside the
+    horizon matter to the result is F3's question.
+
+**Against this result:**
+
+- One seed: the seed variance isn't measured here, and D_H is only a few bps. A second
+  seed could move H21's upper end inside the band or further out. Neither would change
+  "no effect shown".
+- The group's columns are 67% (sales yield, 2014) to ~100% filled in the test years,
+  and only 56% of picks have all 11; the boosting learner routes
+  missing values. An effect concentrated in fully covered names would be diluted
+  here. That's a reason the test is underpowered, not evidence of an effect.
+- The test years were scored before (S1, S1b and S2) with the reference's columns;
+  the group's columns were not. Nothing here was tuned on them.
+- No framing rescues it: no cell, k, era or the caveat rerun gives a consistent sign.
+
 ---
 
 ## F3: does an expected earnings date inside the horizon change the picks' realized result? (registered 2026-10-16)
