@@ -351,6 +351,75 @@ the stop.
   The flag stays a feature (F2) and nothing more.
 - **Inconclusive:** logged as underpowered.
 
+### Result (2026-10-17 addendum)
+
+Run as registered: `python -m src.analysis.earnings_risk` at git 409f3ee. No refit: it
+uses F2's 18 archived trials (seed 0). 2,001 test dates (2014–2021), none missing a
+cell.
+
+**Verdict: inconclusive.** Excluding an expected earnings date inside the window
+neither helps nor hurts by an amount this test can tell from zero or rule out.
+
+| reference model's top-20, H21 | D (excluding − unrestricted) | 99% CI | verdict |
+|---|---|---|---|
+| window ≤ 21 (registered) | +0.032% | [−0.048%, +0.130%] | inconclusive |
+| window ≤ 16 (neighbour) | +0.035% | [−0.030%, +0.119%] | inconclusive |
+| window ≤ 26 (neighbour) | +0.020% | [−0.078%, +0.125%] | inconclusive |
+
+- **Precision check at 10,000 draws:** the registered window's interval is
+  [−0.051%, +0.131%], also inconclusive.
+- **Cost:** both baskets trade 20 names a day, so D is the same gross or net.
+- **Secondary, the F2 model** (which sees `days_to_earnings_expected`):
+  - ≤ 21: +0.026% [−0.039%, +0.109%], inconclusive;
+  - ≤ 16: +0.032% [−0.015%, +0.098%], dead;
+  - ≤ 26: +0.003% [−0.079%, +0.088%], dead.
+  The same at 10,000 draws. For the model that already uses the flag, a further
+  exclusion rule is ruled out at two of the three windows.
+
+**Readouts (descriptive, not verdicts):**
+
+- **The unrestricted reference picks, split by the flag** (net 10 bps, pooled over
+  the 9 cells):
+
+  | | share | net per trade | win | avg win / avg loss | skew | target / stop / timeout |
+  |---|---|---|---|---|---|---|
+  | inside | 26.5% | +0.51% | 43.5% | 1.63 | +2.23 | 31% / 53% / 16% |
+  | outside | 68.8% | +0.48% | 44.9% | 1.53 | +2.48 | 25% / 49% / 26% |
+  | unknown | 4.7% | +0.38% | 43.1% | 1.53 | +0.89 | 26% / 52% / 22% |
+
+  An earnings date inside the window changes the shape, not the mean. Both barriers
+  are hit more often (target +6 points, stop +4), timeouts fall by 10 points, and the
+  win rate is a little lower with larger wins. That is the "a gap jumps both barriers"
+  hypothesis, seen in the barrier rates. It doesn't move the expectancy.
+- **The model's picks:** inside +0.74% vs outside +0.49% per trade. The model picks
+  fewer of them (17% vs 27%), and better ones.
+- **The reference already leans away from earnings:** 26.5% of its picks are inside,
+  against 33.1% of all rows.
+- **The flag's accuracy, from the realized dates:**
+  - H21: 92% of "inside" rows really have the reaction inside the window, and 98% of
+    "outside" rows really don't.
+  - H63: 97% and 60%.
+  The expected date is a good stand-in at 21 days.
+- **Per era (registered window):** 2014–17 +0.042%, 2018–21 +0.022%. 7 of 9 cells are
+  positive.
+- **H63 (descriptive only):** 86% of the reference's picks are flagged inside.
+  Inside +1.64% vs outside +1.28% per trade, but the outside group (9%) is small and
+  its flag is 60% accurate.
+
+**Against this result:**
+
+- The positive sign at every window and in both eras isn't independent evidence. The
+  windows are nested and the baskets mostly overlap, so it's one noisy number seen
+  three times.
+- The test excludes about 5 of 20 names a day. A real effect confined to the earnings
+  names would be diluted by about 4× in D. The split above shows no such effect to
+  dilute. It even has the inside picks slightly ahead (+0.51% vs +0.48%, trade-weighted),
+  while D says excluding them helps slightly (date-weighted, with the next-best names
+  swapped in). Both differences are within noise.
+- Survivorship: delisted members missing from the data would mostly sit in the
+  "inside" tail (earnings collapses). That biases inside's mean upward, so the
+  missing names would push toward "excluding helps", not away from it.
+
 ---
 
 ## F1: post-earnings drift beyond momentum (registered 2026-10-16)
