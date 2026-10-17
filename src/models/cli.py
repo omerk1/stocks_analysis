@@ -21,7 +21,7 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell;
-                  `--columns` picks the model's column set (S1, S2);
+                  `--columns` picks the model's column set (S1, S2, S2_no_market);
                   `--experiment-id` logs it under another id.
   rescore-scorecard  Score run-scorecard's archived predictions again (e.g.
                   `--rank ev_atr`, plus the random-k baseline), no refit; one
@@ -391,7 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     score.add_argument("--rank", choices=["ev", "ev_atr"], default="ev")
-    score.add_argument("--columns", choices=["S1", "S2"], default="S1",
+    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market"], default="S1",
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")

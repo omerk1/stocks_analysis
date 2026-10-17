@@ -87,8 +87,17 @@ STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "r
                    "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
                    "sector_rank_mom_63")
-# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA.
-COLUMN_SETS = {"S1": FULL_COLUMNS, "S2": FULL_COLUMNS + STEP_2B_COLUMNS}
+# The market-wide step-2b columns (registry group "market"): one value per date,
+# the same for every name, so they rank only through interactions.
+MARKET_WIDE_COLUMNS = ("spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21", "breadth_above_sma50",
+                       "breadth_above_sma200", "adv_dec_10")
+# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA;
+# S2_no_market is S2 without the market-wide columns (the step-2b diagnostic).
+COLUMN_SETS = {
+    "S1": FULL_COLUMNS,
+    "S2": FULL_COLUMNS + STEP_2B_COLUMNS,
+    "S2_no_market": FULL_COLUMNS + tuple(c for c in STEP_2B_COLUMNS if c not in MARKET_WIDE_COLUMNS),
+}
 
 
 @dataclass(frozen=True)
