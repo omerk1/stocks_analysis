@@ -50,7 +50,8 @@ def test_the_level_columns_are_compared_on_a_sample(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close, volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=8, level_weeks=2)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=8, level_weeks=2,
+                       level_warmup_weeks=2)
 
     assert r["n_level_tickers"] == 8 and r["passed"]   # the AUC's folds need 5+ tickers
     assert {"density_up_2", "near_up_round"} <= set(r["gaps"]["column"])

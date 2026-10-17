@@ -51,7 +51,7 @@ from sklearn.model_selection import GroupKFold
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import PriceBasis
 from src.models import dataset
-from src.models.features import baseline, level_cache, market, registry
+from src.models.features import baseline, level_cache, level_features, market, registry
 
 FAR_DAYS = 730
 TIINGO_SOURCES = (db.TIINGO, db.TIINGO_SPLIT_ONLY)
@@ -69,8 +69,9 @@ LEVEL_WEEKS = 26
 # Snapshots before the compared weeks, so the weights' 252-day strength
 # percentile is as full as the cache's. Real data (2026-10-17) still fails 25
 # level columns at 5-12% of rows: the vendors' histories start years apart, so
-# the old anchors differ (LRP.md "Addendum (2026-10-15)", known limit).
-LEVEL_WARMUP_WEEKS = 52
+# the old anchors differ (LRP.md "Addendum (2026-10-15)", known limit). That run
+# used 52 weeks, a trading day or two short of the window; now derived from it.
+LEVEL_WARMUP_WEEKS = -(-level_features.STRENGTH_WINDOW // 5) + 2
 # Each vendor's bars on each basis, and the splits that go with them.
 VENDOR_SOURCES = {
     "yfinance": {PriceBasis.TOTAL_RETURN: db.YFINANCE, PriceBasis.TRADED: db.YFINANCE_SPLIT_ONLY},
@@ -348,5 +349,6 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_ticke
     return {
         "n_tickers": len(tickers), "n_rows": r["n_rows"], "gaps": gaps, "auc": r["auc"],
         "auc_levels": auc_levels, "n_level_tickers": n_level,
+        "level_weeks": level_weeks, "level_warmup_weeks": level_warmup_weeks,
         "failures": failures, "passed": not failures, "not_compared": not_compared,
     }
