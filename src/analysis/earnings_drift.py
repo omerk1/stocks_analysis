@@ -64,27 +64,49 @@ MATCH = {"primary": ("mom_12_1_rank", "mom_1_0_rank"),
          "size": ("mom_12_1_rank", "mom_1_0_rank", "log_dollar_volume_20d_rank"),
          "volatility": ("mom_12_1_rank", "mom_1_0_rank", "realized_vol_63_rank")}
 BINS = {"mom_12_1_rank": 5, "mom_1_0_rank": 3, "log_dollar_volume_20d_rank": 3, "realized_vol_63_rank": 3}
+KNOWN_AT_SLACK = 2       # business days from known_at to the event row (after-hours filings, holidays)
+DELISTED_GAP = 5         # bars ending more than this many business days before the data's end: delisted
 
 
 # ---------------------------------------------------------------- events
 
 def sue_events(features: pd.DataFrame, fund: pd.DataFrame) -> pd.DataFrame:
-    """(ticker, date, sue): the cache row on which each quarter's SUE first
-    counts. A row counts if its SUE differs from the ticker's previous cache
-    row and a quarter with that value became known after that previous row
-    (so a ticker becoming eligible mid-quarter isn't an event)."""
-    f = features[["ticker", "date", "sue_net_income"]].sort_values(["ticker", "date"])
-    prev = f.groupby("ticker")[["date", "sue_net_income"]].shift(1)
-    changed = f["sue_net_income"].notna() & ~np.isclose(f["sue_net_income"], prev["sue_net_income"], equal_nan=False)
-    cand = f[changed].assign(prev_date=prev.loc[changed, "date"])
+    """(ticker, date, sue): one event per quarter, on the first cache row at
+    most `KNOWN_AT_SLACK` business days after the quarter's `known_at` (the
+    session its SUE first counts), if that row carries the quarter's value.
+    A ticker that isn't an eligible row then (e.g. joins the index months
+    later) has no event for that quarter, and a quarter superseded before
+    its row (two filings days apart) leaves only the later one."""
+    rows = features[["ticker", "date", "sue_net_income"]].dropna(subset=["sue_net_income"])
+    rows = fundamentals._ns(rows, ["date"]).sort_values("date")
     known = fundamentals.quarter_features(fund)["sue_net_income"].dropna(subset=["known_at", "value"])
-    known = known.sort_values("known_at")[["ticker", "known_at", "value"]]
-    m = pd.merge_asof(cand.sort_values("date"), known, left_on="date", right_on="known_at", by="ticker",
-                      direction="backward")
-    fresh = m["known_at"].notna() & (m["prev_date"].isna() | (m["known_at"] > m["prev_date"]))
+    known = fundamentals._ns(known[["ticker", "known_at", "value"]], ["known_at"]).sort_values("known_at")
+    m = pd.merge_asof(known, rows, left_on="known_at", right_on="date", by="ticker", direction="forward")
+    m = m[m["date"].notna()]
+    day = lambda s: s.to_numpy().astype("datetime64[D]")
+    prompt = np.busday_count(day(m["known_at"]), day(m["date"])) <= KNOWN_AT_SLACK
     same = np.isclose(m["value"], m["sue_net_income"], rtol=1e-4)
-    out = m[fresh & same][["ticker", "date", "sue_net_income"]].rename(columns={"sue_net_income": "sue"})
+    out = m[prompt & same][["ticker", "date", "value"]].rename(columns={"value": "sue"})
+    out = out.drop_duplicates(["ticker", "date"], keep="last")
     return out[out["date"] >= FIRST_EVENT].sort_values(["date", "ticker"], ignore_index=True)
+
+
+def near_events(rows: pd.DataFrame, events: pd.DataFrame, sessions: int = EVENT_EXCLUSION_SESSIONS) -> pd.Series:
+    """Whether each row is within `sessions` business days of one of its
+    ticker's events (either side), aligned to `rows`: the controls'
+    exclusion, counted on the calendar, not on the rows that happen to be
+    eligible or event dates."""
+    left = fundamentals._ns(rows[["ticker", "date"]], ["date"]).reset_index(names="_row").sort_values("date")
+    ev = fundamentals._ns(events[["ticker", "date"]], ["date"]).rename(columns={"date": "ev"}).sort_values("ev")
+    day = lambda s: s.to_numpy().astype("datetime64[D]")
+    near = np.zeros(len(left), bool)
+    for direction in ("backward", "forward"):
+        m = pd.merge_asof(left, ev, left_on="date", right_on="ev", by="ticker", direction=direction)
+        has = m["ev"].notna().to_numpy()
+        gap = np.full(len(m), sessions + 1)
+        gap[has] = np.abs(np.busday_count(day(m.loc[has, "date"]), day(m.loc[has, "ev"])))
+        near |= gap <= sessions
+    return pd.Series(near, index=left["_row"].to_numpy()).reindex(rows.index)
 
 
 def trailing_cuts(events: pd.DataFrame, upper: float) -> pd.DataFrame:
@@ -109,14 +131,19 @@ def trailing_cuts(events: pd.DataFrame, upper: float) -> pd.DataFrame:
 
 def forward_returns(bars: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """(ticker, date, fwd): log(close at t+H / open at t+1) on each ticker's
-    own bars. A ticker whose bars end before the data's last date (delisted)
-    and whose window runs past its last bar gets its last close (terminal
-    return); any other window past the end is NaN."""
+    own bars. A ticker whose bars end more than DELISTED_GAP business days
+    before the data's last date (delisted) and whose window runs past its
+    last bar gets its last close (terminal return); any other window past
+    its bars is NaN (a series that merely misses the last few days isn't a
+    delisting)."""
     b = bars.sort_values(["ticker", "date"], ignore_index=True)
     g = b.groupby("ticker")
     entry = g["open"].shift(-1)
     exit_ = g["close"].shift(-horizon)
-    delisted = g["date"].transform("max") < b["date"].max()
+    day = lambda s: s.to_numpy().astype("datetime64[D]")
+    last = g["date"].transform("max")
+    delisted = pd.Series(np.busday_count(day(last), day(pd.Series(b["date"].max(), index=b.index)))
+                         > DELISTED_GAP, index=b.index)
     exit_ = exit_.where(exit_.notna(), g["close"].transform("last").where(delisted))
     return b[["ticker", "date"]].assign(fwd=np.log(exit_ / entry))
 
@@ -135,22 +162,16 @@ def _buckets(frame: pd.DataFrame, columns: tuple[str, ...]) -> pd.Series:
 
 def deltas(rows: pd.DataFrame, events: pd.DataFrame, cuts: pd.DataFrame, match: tuple[str, ...]) -> pd.DataFrame:
     """Large events with their matched delta. `rows`: every eligible cache row
-    with `fwd`, the match ranks and `sue`; `events`: (ticker, date, sue)."""
+    with `fwd`, the match ranks, `sue` and `near` (`near_events`: within the
+    exclusion window of an event); `events`: (ticker, date, sue)."""
     ev = events.merge(cuts, on="date")
     ev["side"] = np.where(ev["sue"] >= ev["hi"], 1, np.where(ev["sue"] <= ev["lo"], -1, 0))
     large = ev[(ev["side"] != 0) & ev["hi"].notna()]
-    # controls: not an event within +/- EVENT_EXCLUSION_SESSIONS of their own sessions, current SUE not large
+    # controls: not near an event of their own ticker, current SUE not large
     r = rows.merge(cuts[["date", "hi", "lo"]], on="date", how="inner")
-    pos = r.groupby("ticker").cumcount()
-    ev_pos = r[["ticker", "date"]].assign(pos=pos).merge(events[["ticker", "date"]], on=["ticker", "date"])
-    near = pd.Series(False, index=r.index)
-    for t, g in ev_pos.groupby("ticker"):
-        mine = (r["ticker"] == t).to_numpy()
-        p = pos[mine].to_numpy()
-        near.loc[r.index[mine]] = (np.abs(p[:, None] - g["pos"].to_numpy()[None, :]) <= EVENT_EXCLUSION_SESSIONS).any(1)
     sue_large = (r["sue"] >= r["hi"]) | (r["sue"] <= r["lo"])
     r["bucket"] = _buckets(r, match)
-    ctrl = r[~near & ~sue_large & r["fwd"].notna() & r["bucket"].notna()]
+    ctrl = r[~r["near"] & ~sue_large & r["fwd"].notna() & r["bucket"].notna()]
     stats = ctrl.groupby(["date", "bucket"])["fwd"].agg(["mean", "size"]).reset_index()
     out = large.merge(r[["ticker", "date", "fwd", "bucket"]], on=["ticker", "date"])
     out = out.merge(stats, on=["date", "bucket"], how="left")
@@ -162,9 +183,11 @@ def deltas(rows: pd.DataFrame, events: pd.DataFrame, cuts: pd.DataFrame, match: 
     return out
 
 
-def summarize(d: pd.DataFrame, value: str, horizon: int) -> dict:
+def summarize(d: pd.DataFrame, value: str, horizon: int, precision: bool = False) -> dict:
     """The date-weighted mean of `value` over event dates, its 99% interval
-    and verdict, plus the descriptive shape (never judged)."""
+    and verdict, plus the descriptive shape (never judged); with `precision`,
+    the interval again at PRECISION_N_BOOT draws. Its own bootstrap call,
+    not `trading.per_date_diff`: the eras here are the drift study's own."""
     if d.empty:
         return {"n_events": 0, "verdict": "inconclusive"}
     by_date = d.groupby("date")[value].mean()
@@ -172,7 +195,7 @@ def summarize(d: pd.DataFrame, value: str, horizon: int) -> dict:
         b = bootstrap_ratio(by_date, pd.Series(1.0, index=by_date.index), block_length(horizon), True,
                             n_rows=len(d), n_boot=N_BOOT, ci=CI)
         precise = bootstrap_ratio(by_date, pd.Series(1.0, index=by_date.index), block_length(horizon), True,
-                                  n_rows=len(d), n_boot=PRECISION_N_BOOT, ci=CI)
+                                  n_rows=len(d), n_boot=PRECISION_N_BOOT, ci=CI) if precision else None
     except InsufficientBlocksError:  # too few event dates for 3 blocks: no interval, no verdict
         return {"n_events": int(len(d)), "n_dates": int(len(by_date)), "point": float(by_date.mean()),
                 "verdict": "inconclusive", "too_few_dates": True}
@@ -183,8 +206,8 @@ def summarize(d: pd.DataFrame, value: str, horizon: int) -> dict:
     return {
         "point": b.point_estimate, "ci_low": b.ci_low, "ci_high": b.ci_high, "verdict":
             three_verdict(b.ci_low, b.ci_high, BAND), "n_events": int(len(d)), "n_dates": int(b.n_dates),
-        "precision_check": {"n_boot": PRECISION_N_BOOT, "ci_low": precise.ci_low, "ci_high": precise.ci_high,
-                            "verdict": three_verdict(precise.ci_low, precise.ci_high, BAND)},
+        **({"precision_check": {"n_boot": PRECISION_N_BOOT, "ci_low": precise.ci_low, "ci_high": precise.ci_high,
+                                "verdict": three_verdict(precise.ci_low, precise.ci_high, BAND)}} if precise else {}),
         "events_per_year": float(len(d) / years) if years > 0 else np.nan,
         "cost_per_year": float(len(d) / years * COST_BPS / 1e4) if years > 0 else np.nan,
         "hit_rate": float((x > 0).mean()),
@@ -199,20 +222,23 @@ def summarize(d: pd.DataFrame, value: str, horizon: int) -> dict:
 def run(features: pd.DataFrame, fund: pd.DataFrame, bars: pd.DataFrame, sources: dict[str, str]) -> dict:
     events = sue_events(features, fund)
     base = features[["ticker", "date", "sue_net_income", *BINS]].rename(columns={"sue_net_income": "sue"})
+    base = fundamentals._ns(base, ["date"])
+    base["near"] = near_events(base, events)
+    cuts = {name: trailing_cuts(events, upper) for name, upper in CUTS.items()}
     report = {"n_events_all": int(len(events)), "horizons": {}}
     for h in HORIZONS:
-        fwd = forward_returns(bars, h)
+        fwd = fundamentals._ns(forward_returns(bars, h), ["date"])
         kept, n_dropped = dataset.drop_disputed(fwd, sources, bars, h)
         rows = base.merge(kept, on=["ticker", "date"], how="left")
         per_h = {"n_disputed_dropped": int(n_dropped)}
-        for cut_name, upper in CUTS.items():
-            cuts = trailing_cuts(events, upper)
+        for cut_name in CUTS:
             for match_name, match in MATCH.items():
                 if cut_name != "primary" and match_name != "primary":
                     continue
-                d = deltas(rows, events, cuts, match)
+                d = deltas(rows, events, cuts[cut_name], match)
                 key = f"{cut_name}/{match_name}"
-                per_h[key] = {"signed": summarize(d, "signed", h),
+                # the precision check on the judged readout only
+                per_h[key] = {"signed": summarize(d, "signed", h, precision=True),
                               "positive": summarize(d[d["side"] == 1], "delta", h),
                               "negative": summarize(d[d["side"] == -1], "delta", h),
                               "raw_signed": summarize(d, "raw_signed", h)}
@@ -231,8 +257,9 @@ def _line(name: str, s: dict) -> str:
             f"{s['cost_per_year']:.1%}/yr at {COST_BPS} bps); hit {s['hit_rate']:.1%}, win/loss "
             f"{s['win_loss_ratio']:.2f}, skew {s['skew']:+.2f}; eras "
             + ", ".join(f"{e} {v:+.3%}" for e, v in s["by_era"].items())
-            + f"; at {s['precision_check']['n_boot']} draws [{s['precision_check']['ci_low']:+.3%}, "
-              f"{s['precision_check']['ci_high']:+.3%}] -> {s['precision_check']['verdict']}")
+            + (f"; at {s['precision_check']['n_boot']} draws [{s['precision_check']['ci_low']:+.3%}, "
+               f"{s['precision_check']['ci_high']:+.3%}] -> {s['precision_check']['verdict']}"
+               if "precision_check" in s else ""))
 
 
 def main(argv: list[str] | None = None) -> int:

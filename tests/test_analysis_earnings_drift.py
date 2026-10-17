@@ -19,13 +19,42 @@ def test_trailing_cuts_use_only_earlier_events():
 
 
 def test_forward_returns_keep_a_delisted_tickers_terminal_return():
-    days = pd.bdate_range("2020-01-01", periods=10)
-    live = pd.DataFrame({"ticker": "L", "date": days, "open": 100.0, "close": np.linspace(100, 109, 10)})
+    days = pd.bdate_range("2020-01-01", periods=20)
+    live = pd.DataFrame({"ticker": "L", "date": days, "open": 100.0, "close": np.linspace(100, 119, 20)})
     gone = pd.DataFrame({"ticker": "D", "date": days[:5], "open": 50.0, "close": [50, 50, 50, 50, 25.0]})
-    fwd = drift.forward_returns(pd.concat([live, gone]), 3).set_index(["ticker", "date"])["fwd"]
+    # bars that stop just short of the end (a vendor gap, not a delisting)
+    short = pd.DataFrame({"ticker": "S", "date": days[:17], "open": 10.0, "close": 10.0})
+    fwd = drift.forward_returns(pd.concat([live, gone, short]), 3).set_index(["ticker", "date"])["fwd"]
     assert fwd[("L", days[0])] == pytest.approx(np.log(103 / 100))
-    assert np.isnan(fwd[("L", days[8])])  # a live window past the data's end is dropped
+    assert np.isnan(fwd[("L", days[18])])  # a live window past the data's end is dropped
     assert fwd[("D", days[3])] == pytest.approx(np.log(25 / 50))  # terminal: last close
+    assert np.isnan(fwd[("S", days[15])])  # not truncated into a fake terminal return
+
+
+def test_an_event_is_the_quarters_own_session_not_a_late_first_row(monkeypatch):
+    days = pd.bdate_range("2015-01-01", periods=40)
+    known = pd.DataFrame({"ticker": ["A", "B", "C", "C"],
+                          "known_at": [days[5], days[2], days[10], days[10]], "value": [1.0, 2.0, 3.0, 4.0]})
+    monkeypatch.setattr(drift.fundamentals, "quarter_features", lambda fund: {"sue_net_income": known})
+    features = pd.concat([
+        pd.DataFrame({"ticker": "A", "date": days, "sue_net_income": np.where(days >= days[5], 1.0, np.nan)}),
+        # B joins the cache 20 sessions after its quarter became known: no event
+        pd.DataFrame({"ticker": "B", "date": days[20:], "sue_net_income": 2.0}),
+        # C: two quarters known the same day; the row carries the later one, one event
+        pd.DataFrame({"ticker": "C", "date": days, "sue_net_income": np.where(days >= days[10], 4.0, np.nan)}),
+    ])
+    got = drift.sue_events(features, None)
+    assert got[["ticker", "date", "sue"]].values.tolist() == [["A", days[5], 1.0], ["C", days[10], 4.0]]
+
+
+def test_controls_near_an_event_are_counted_in_business_days():
+    days = pd.bdate_range("2015-01-01", periods=30)
+    rows = pd.DataFrame({"ticker": ["A"] * 30 + ["B"] * 30, "date": list(days) * 2})
+    rows = rows[~((rows["ticker"] == "A") & rows["date"].isin(days[11:15]))]  # A ineligible for a while
+    near = drift.near_events(rows, pd.DataFrame({"ticker": ["A"], "date": [days[10]]}), sessions=5)
+    a = rows.assign(near=near)[lambda r: r["ticker"] == "A"].set_index("date")["near"]
+    assert a[days[5]] and a[days[15]] and not a[days[16]] and not a[days[4]]
+    assert not near[rows["ticker"] == "B"].any()
 
 
 def test_buckets_are_nan_when_a_rank_is():
@@ -52,6 +81,7 @@ def _panel(planted: float, seed: int = 0):
     rows.loc[is_event, "sue"] = rng.uniform(-1, 1, is_event.sum())
     events = rows.loc[is_event, ["ticker", "date", "sue"]].reset_index(drop=True)
     rows.loc[is_event, "fwd"] += planted * np.sign(rows.loc[is_event, "sue"])
+    rows["near"] = drift.near_events(rows, events)
     return rows, events
 
 
