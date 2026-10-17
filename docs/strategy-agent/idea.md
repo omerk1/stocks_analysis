@@ -18,7 +18,7 @@ make every one explicit and have the user confirm it.
 
 Two possible uses:
 
-- **Internal:** a faster, more disciplined Track A for this repo.
+- **Internal:** faster, more disciplined exploration of new ideas in this repo.
 - **External (possible later):** a platform where other people test their own ideas.
   The pitch is "test your trading idea honestly", not "turn your idea into a strategy".
   Tools that turn text into a strategy already exist; few of them report a matched
@@ -103,6 +103,52 @@ Two possible uses:
 	  showing data to other users. Check early: it can change the cost structure or kill
 	  the product.
 	- *Regulation.* Present it as a research and validation tool, not trade signals.
+
+## LLM guardrails
+
+Decided 2026-10-11, before the first LLM call (step 2).
+
+### Token budget
+
+The cost has to be visible and bounded before any call is made, not discovered afterwards.
+
+- **Cheap model by default.** A Flash-class model for extraction and elicitation; a Pro
+  model only when asked for explicitly.
+- **Count before calling.** Count the prompt's tokens first (that call is free) and refuse
+  a prompt over a per-call input cap.
+- **Cap the output.** Every call sets a maximum output length. The thinking budget is set
+  low as well: Gemini 2.5 models think by default, and thinking tokens are billed as
+  output.
+- **A local ledger.** Every call's reported usage (input, output, thinking tokens) is
+  appended to a local file under `data/llm/` (not committed). A daily cap is checked
+  against it before each call, and the agent stops with a clear message when it's
+  reached rather than carrying on.
+- **Tests never call the API.** They use a stub client. One opt-in smoke test hits the
+  real API.
+- On the free tier nothing is charged; calls are rate-limited instead. If billing is ever
+  enabled, Google Cloud budgets only send alerts, they don't stop spending, so the local
+  cap is the real limit.
+
+### Unsupported requests: say so, don't invent
+
+If a user asks for something the platform can't do yet, the agent must say so instead
+of mapping it to the nearest thing it can do. Examples: intraday bars, options flow,
+earnings surprises, news sentiment.
+
+- **A capability catalogue.** One list in code of what can be computed: timeframes,
+  price and volume fields, the indicators and detectors that exist. It goes into the
+  prompt, and the spec is checked against it.
+- **An explicit place for it.** The spec gets an `unsupported` list, where each entry is
+  the user's words plus the reason. The prompt tells the LLM to put anything outside the
+  catalogue there and to leave a field empty rather than guess. The gap check treats an
+  unsupported item as blocking, and the agent tells the user what isn't supported and
+  that it was logged.
+- **Back-reporting.** Every unsupported item is appended to a local log, and a small
+  command summarises the most-requested ones. That's the development backlog: what users
+  ask for that doesn't exist yet. Externally it's also a demand signal.
+- **Measured.** The answer key gets ideas that include unsupported requests. Extraction is
+  scored on whether it flags them, the same way the research-docs search is scored on
+  questions the docs can't answer.
 
 ## Out of scope
 

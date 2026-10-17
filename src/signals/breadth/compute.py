@@ -120,6 +120,59 @@ def _load_market_caps(conn: sqlite3.Connection, prices: pd.DataFrame, tickers: l
     return pd.concat(frames, ignore_index=True)
 
 
+def _mask_duplicate_share_classes(members: pd.DataFrame, secondary_to_primary: dict[str, str]) -> pd.Series:
+    """`members["market_cap"]` with each configured secondary share class's
+    cap set to NaN on every date its primary also has one -- i.e. the
+    secondary is excluded from that date's weighted aggregates exactly like
+    a member with no cap data (`_weighted_fraction`), because the primary
+    already carries the whole company's cap
+    (`BreadthConfig.share_class_secondaries`: the share-count source
+    reports company-total shares under both class tickers, so keeping both
+    double-counts the company). On a date where the primary has no cap --
+    not a member, no bar, no share count yet -- the secondary keeps its
+    own, so the company never silently drops out. Runs AFTER
+    `_drop_cap_outliers`, on the guarded caps: a primary whose cap that
+    date is a mis-scaled outlier has already been masked, so the sane
+    secondary stands in instead of being masked by a value the guard
+    rejected. The cost is that the guard's median sees the company twice --
+    a second copy of one genuine cap among hundreds of members, which
+    barely moves a median, vs. silently losing the company entirely.
+    """
+    tangled = set(secondary_to_primary) & set(secondary_to_primary.values())
+    if tangled:
+        raise ValueError(
+            f"share_class_secondaries lists {sorted(tangled)} as both secondary and primary -- "
+            "a reciprocal or chained mapping masks against already-masked caps and can drop "
+            "the company from cap-weighted breadth entirely; pick one primary per company"
+        )
+    # One representative class per company per date: the primary where it
+    # has a cap, else the first (sorted) secondary that does -- a three-
+    # class company with a cap-less primary must not have BOTH secondaries
+    # stand in, which would be the very double-count this fixes.
+    by_primary: dict[str, list[str]] = {}
+    for secondary, primary in sorted(secondary_to_primary.items()):
+        by_primary.setdefault(primary, []).append(secondary)
+    caps = members["market_cap"]
+    for primary, secondaries in by_primary.items():
+        covered = set(members.loc[(members["ticker"] == primary) & caps.notna(), "date"])
+        for secondary in secondaries:
+            has_cap = (members["ticker"] == secondary) & caps.notna()
+            duplicate = has_cap & members["date"].isin(covered)
+            if duplicate.any():
+                # warning, not info: the module CLIs configure no logging,
+                # and Python's last-resort handler only shows WARNING+ --
+                # same "logged, never silent" treatment as
+                # _drop_cap_outliers.
+                logger.warning(
+                    "cap-weighted breadth: excluded %d %s member-days whose market cap duplicates "
+                    "%s's or a sibling class's (one company, company-total share counts per class)",
+                    int(duplicate.sum()), secondary, primary,
+                )
+                caps = caps.mask(duplicate)
+            covered |= set(members.loc[has_cap & ~duplicate, "date"])
+    return caps
+
+
 def _drop_cap_outliers(members: pd.DataFrame, ratio: float | None, min_members: int) -> pd.Series:
     """`members["market_cap"]` with any cap above `ratio` x that date's
     median member cap set to NaN -- i.e. that member is excluded from that
@@ -271,9 +324,10 @@ def compute_breadth(
         if market_caps.empty:
             return pd.DataFrame()
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
-        members["weight"] = _drop_cap_outliers(
+        members["market_cap"] = _drop_cap_outliers(
             members, config.cap_outlier_ratio, config.cap_outlier_min_members
         )
+        members["weight"] = _mask_duplicate_share_classes(members, config.share_class_secondaries)
     else:
         members["weight"] = 1.0
 

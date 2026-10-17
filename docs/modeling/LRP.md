@@ -147,6 +147,18 @@ Kept separate from levels:
      context gate beats pooling. The registered mean-level test read out
      all-Inconclusive, so this is a feature-engineering prior, not a claimed
      effect.
+  4a. **Hidden-form depth scalar (added 2026-10-12):** for hidden events the
+     stored `interpeak_retrace_frac` is misfit (medians > 1 — p1 is often not an
+     impulse extreme; Done #119); the usable depth measure is the pivot-to-pivot
+     **hidden-fit retrace fraction**
+     (`src.analysis.divergence_hidden_prep.hidden_fit_retrace_frac`:
+     counter-move / trend-leg, bounded in (0,1), 100% defined on the recomputed
+     base). The registered mean-level test of it (DC-B3/B4) was drafted, sized,
+     and deliberately closed without running (PREREGISTRATION.md disposition
+     2026-10-12: Dead unreachable at available N) — the scalar enters F6 as a
+     continuous feature or form×depth interaction instead, judged on the trading
+     scorecard like every other feature, and no standalone effect claim exists
+     for it.
   4. **Survivorship gate:** the `divergences`/`divergence_control_pairs`
      tables were survivors-only (zero delisted tickers) until the 2026-10-10
      recompute (Done #112), which added every delisted ticker the vendor
@@ -193,6 +205,28 @@ Everything here has a null prior until the harness says otherwise.
   `prior_factor`, that's a finding to log. Only the next dated revision of this document
   may change the priors. They're never tuned against test folds.
 
+### Addendum (2026-10-11): judged on the trading scorecard
+
+Added after the modeling phase's direction changed (`VALIDATION_HARNESS.md` §9 step 6,
+2026-10-08). The text above stays as written. It describes the ablation plan from
+before that change.
+- **Where the level groups go:** §2.1–2.3 are registered as feature groups of the one
+  combined model. They are not a separate LRP model or a stand-alone test.
+- **What judges them:** the trading scorecard (`run-scorecard` / `rescore-scorecard`,
+  `rank="ev_atr"`). The model's top-20 picks are compared with B4's picks ranked the
+  same way, the market basket and the random-k basket, after costs. The step 2 run
+  compares the model with the level columns against the step 1b (`S1b`) numbers. It is
+  Track A: a `TRIALS.csv` row per cell, no verdict.
+- **Ablations are diagnostics:** the order and the Brier-improvement metric above still
+  describe what to look at, for example whether a group carries anything the model
+  uses. No group is dropped, and no LRP verdict is recorded, from a Brier ablation.
+- **The three-verdict rule stays** for any pre-registered test. That includes the
+  planned pre-registered trading test of the full feature set: its relevance band is set
+  in its `PREREGISTRATION.md` entry before it runs.
+- **Scope of step 2:** the level sources only. Patterns (§1.1) and all of §2.4 pressure
+  are step 3, under §2.4's constraints. The v1 source list and its cost come from §4's
+  timing (see the §4 addendum).
+
 ---
 
 ## 4. Point-in-time computation — the real cost
@@ -213,6 +247,75 @@ Plan:
   tickers, then extrapolate to the universe × 12 years × 52 snapshots. If it's too slow,
   drop to fewer sources for v1 (S/R lines, gaps, AVWAP, structure are the cheapest
   candidates) rather than cutting the point-in-time rule.
+
+
+### Addendum (2026-10-11): timing, and the v1 source list
+
+The first task above, run read-only (no DB writes) on 20 S&P 500 tickers (16 live, 4
+delisted and read from Tiingo; `cli._smoke_tickers`), every 13th Friday of 2010–2021
+(49 dates), one `as_of` call per detector, ticker and date: 7,680 calls, no errors.
+Extrapolated with a per-detector linear fit of seconds against date to the S&P 500
+member-weeks of 2010–2021 (~314k: ~502 members × 626 Fridays).
+
+| source | s / call, 2010 → 2021 | weekly `as_of`, 1 process | 4 cores |
+|---|---|---|---|
+| S/R lines | 0.19 → 0.21 (3-year window, flat) | 18 h | 4.4 h |
+| AVWAP | 0.12 → 0.16 | 12 h | 3.0 h |
+| market structure | 0.20 → 0.30 | 22 h | 5.5 h |
+| fibonacci | 0.35 → 0.52 | 38 h | 9.4 h |
+| volume profile | 0.10 → 0.13 | 10 h | 2.4 h |
+| gaps, weekly `as_of` | 0.37 → 0.58 | 41 h | 10 h |
+| **gaps, one run + `relevance.gap_states`** | 2.2 s per ticker, all days | **0.4 h** | ~0.1 h |
+| patterns (step 3) | 1.8 → 3.0 | 208 h | 52 h |
+| divergences (step 3) | 0.6 → 1.0 | 70 h | 17 h |
+
+Patterns and divergences ran alongside other checks; their uncontended pilot was about
+2× faster, so read those two rows as upper bounds.
+
+What the timing showed:
+- **Delisted tickers get no levels from today's detectors.** Only `divergences.detect`
+  takes `source=`; the level detectors read the primary vendor only, so a Tiingo-only
+  ticker loads no bars and is skipped without an error. The timing passed the resolved
+  vendor in through a shim, and every delisted call then returned levels. The builder
+  needs a `source=` parameter on each detector it uses, resolved by
+  `price_basis.resolve_sources`, as divergences already does.
+- **The cost is the detector, not the read:** loading bars is 2–22% of a call.
+  Per-call cost grows 1.1–1.6× from 2010 to 2021 (each call re-reads all history), which
+  is mild, so no lookback cap is needed.
+- **Gaps need no weekly runs.** `gap_states` (tested equal to `detect(as_of=...)`)
+  gives each gap's exact state on any date from one full-history detection. It is daily,
+  so gaps are never stale.
+- **The leakage gate** (`gates.py`) perturbs bars in memory, while the detectors read
+  the DB. Each detector used here gets an entry point that takes bars (gaps already has
+  `detect_on_bars`), and a registered level source calls that, so the gate perturbs the
+  real computation; the parquet cache is a speed copy of the same function. The gate
+  only needs snapshots near its cut: 20 tickers × ~8 Fridays × 5 runs, about 15 minutes.
+- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are
+  ~0.3–0.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed
+  when features are built, never stored. With the feature cache and one scorecard run,
+  step 2 adds ~1.5–2 GB.
+
+**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,
+AVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,
+52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market
+structure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the
+cheap set shows something on the scorecard; the cache is per source, so adding them
+redoes nothing. Two alternatives were rejected:
+- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent
+  before knowing whether levels help at all.
+- **A pilot on ~100 random tickers:** 5× less training data, top-5 instead of top-20
+  (CIs about 2× wider), and S1b would need its own rerun on the subset. It could only
+  show a large effect.
+
+Round numbers depend on the price level, so they are computed from the unadjusted
+close; on adjusted prices the future-split perturbation would fail them. Patterns and
+§2.4 stay in step 3. Divergences likely need no weekly runs either: stored events plus
+`pit_confluence()` are point-in-time (§2.4 constraint 1).
+
+**The comparison:** step 2's scorecard compares against a run with the same other
+columns, so the difference is the levels alone. Step 2b's indicator features (#208) were
+registered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,
+otherwise a rerun on the same columns.
 
 ---
 

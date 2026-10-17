@@ -176,6 +176,56 @@ def _apply(df, match, *, formation_end_bar_index, formation_bars, trigger, confi
     )
 
 
+def test_entry_price_is_next_bar_open_not_breakout_close():
+    # The one-bar-lag regression test: the breakout is only knowable on the
+    # close of the breakout bar, so the fill is the NEXT bar's open. Opens
+    # are deliberately offset from closes so the two candidate entries
+    # (breakout close 120.0, next open 124.0) are distinguishable -- the
+    # pre-fix code set entry_price to the breakout close and fails here.
+    config = _config()
+    closes = [100.0] * 5 + [120.0] + [125.0] * 5
+    df = _bars(closes)
+    df["open"] = [c - 1.0 for c in closes]
+    match = _match(Direction.BULLISH)
+    match.target_price = 300.0
+    _apply(df, match, formation_end_bar_index=4, formation_bars=4, trigger=110.0, config=config)
+    assert match.breakout_bar == 5
+    assert match.entry_price == pytest.approx(124.0)  # open of bar 6, not close of bar 5
+
+
+def test_breakout_on_last_visible_bar_has_no_entry():
+    # No next bar exists yet, so there is no executable fill -- the trade
+    # has no entry rather than a same-close one.
+    config = _config()
+    closes = [100.0] * 5 + [120.0]
+    df = _bars(closes)
+    match = _match(Direction.BULLISH)
+    match.target_price = 300.0
+    _apply(df, match, formation_end_bar_index=4, formation_bars=4, trigger=110.0, config=config)
+    assert match.status is PatternStatus.CONFIRMED
+    assert match.breakout_bar == 5
+    assert match.entry_price is None
+
+
+def test_bidirectional_entry_price_is_next_bar_open_too():
+    # Same lag rule through the bidirectional entry point (triangles/wedges),
+    # which shares _walk_post_breakout.
+    closes = [100.0] * 5 + [115.0] + [118.0] * 4
+    df = _bars(closes)
+    df["open"] = [c - 2.0 for c in closes]
+    match = _match()
+    apply_lifecycle_bidirectional(
+        df, match,
+        formation_end_bar_index=4, formation_bars=4,
+        upper_trigger_at=lambda i: 110.0, lower_trigger_at=lambda i: 90.0,
+        upper_target=130.0, lower_target=70.0, upper_stop=90.0, lower_stop=110.0,
+        pre_breakout_invalidated_at=lambda i: False,
+        volume=df["volume"], volume_sma_series=df["volume"], config=_config(),
+    )
+    assert match.breakout_bar == 5
+    assert match.entry_price == pytest.approx(116.0)  # open of bar 6 (118 - 2)
+
+
 def test_target_reached_after_the_resolution_horizon_is_not_a_hit():
     # The bug this fixes: the walk ran to the end of available history, so a
     # target reached ~2 years after breakout still scored HIT_TARGET, which

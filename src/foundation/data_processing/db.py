@@ -284,6 +284,70 @@ _TIINGO_LISTINGS_COLUMNS = ["ticker", "status", "ref_name", "tiingo_name", "tiin
                             "valid_from", "valid_to", "coverage", "n_bars", "detail"]
 
 
+# One row per company reporting period (`sec_earnings.py`): when its results
+# became public. `accession`/`accepted_at` are the item 2.02 8-K's, or the
+# 10-Q/10-K's own when no 8-K was filed in time (`source` says which).
+# `accepted_at` is UTC; `reaction_date` is the first session whose bar can
+# reflect it. `cik_source` says how the ticker was tied to the company's
+# current `cik`; `filer_cik` is the CIK that made the filing (a predecessor's
+# for history from before a reorganisation). Rows are per price ticker, so
+# share classes (GOOG, GOOGL) repeat a company's rows: count events by
+# (cik, period_end).
+_EARNINGS_ANNOUNCEMENTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS earnings_announcements (
+    ticker TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    cik INTEGER NOT NULL,
+    cik_source TEXT NOT NULL,
+    filer_cik INTEGER NOT NULL,
+    report_form TEXT NOT NULL,
+    report_filed TEXT NOT NULL,
+    accession TEXT NOT NULL,
+    source TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    timing TEXT NOT NULL,
+    reaction_date TEXT,
+    extra_filings INTEGER NOT NULL,
+    PRIMARY KEY (ticker, period_end)
+);
+"""
+_EARNINGS_ANNOUNCEMENTS_COLUMNS = ["ticker", "period_end", "cik", "cik_source", "filer_cik", "report_form",
+                                   "report_filed", "accession", "source", "accepted_at", "timing", "reaction_date",
+                                   "extra_filings"]
+
+# Reported financials, first-reported value per (concept, period), from
+# SEC's XBRL company facts (`sec_fundamentals`). `period_type` is quarter,
+# year or instant (balance-sheet date; no `period_start`). `accepted_at` (UTC)
+# is the filing's acceptance; `available_date` is the first session whose
+# close can use the value. `derived` = 1 for a quarter computed from two
+# cumulative values. Per price ticker like `earnings_announcements`, with the
+# same `cik`/`cik_source`/`filer_cik` meaning.
+_FUNDAMENTALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fundamentals (
+    ticker TEXT NOT NULL,
+    concept TEXT NOT NULL,
+    period_type TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    period_start TEXT,
+    value REAL NOT NULL,
+    tag TEXT NOT NULL,
+    derived INTEGER NOT NULL,
+    accession TEXT NOT NULL,
+    form TEXT NOT NULL,
+    filed TEXT NOT NULL,
+    accepted_at TEXT NOT NULL,
+    available_date TEXT,
+    cik INTEGER NOT NULL,
+    cik_source TEXT NOT NULL,
+    filer_cik INTEGER NOT NULL,
+    PRIMARY KEY (ticker, concept, period_type, period_end)
+);
+"""
+_FUNDAMENTALS_COLUMNS = ["ticker", "concept", "period_type", "period_end", "period_start", "value", "tag",
+                         "derived", "accession", "form", "filed", "accepted_at", "available_date", "cik",
+                         "cik_source", "filer_cik"]
+
+
 def create_tables(conn: sqlite3.Connection) -> None:
     for table in TABLES:
         conn.execute(_SCHEMA.format(table=table))
@@ -298,6 +362,8 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.execute(_TICKER_RENAMES_SCHEMA)
     conn.execute(_TIINGO_LISTINGS_SCHEMA)
     conn.execute(_SYMBOL_REUSE_SCHEMA)
+    conn.execute(_EARNINGS_ANNOUNCEMENTS_SCHEMA)
+    conn.execute(_FUNDAMENTALS_SCHEMA)
     if "source" not in {row[1] for row in conn.execute("PRAGMA table_info(ticker_sector)")}:
         conn.execute("ALTER TABLE ticker_sector ADD COLUMN source TEXT")
     existing = {row[1] for row in conn.execute("PRAGMA table_info(ticker_renames)")}
@@ -915,3 +981,59 @@ def upsert_symbol_reuse(conn: sqlite3.Connection, row: dict) -> None:
 
 def read_symbol_reuse(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query("SELECT * FROM symbol_reuse ORDER BY ticker", conn)
+
+
+def _replace_ticker_rows(conn: sqlite3.Connection, table: str, columns: list[str], ticker: str,
+                         rows: pd.DataFrame, dates: tuple[str, ...], ints: tuple[str, ...],
+                         floats: tuple[str, ...] = ()) -> None:
+    """Delete `ticker`'s rows of `table` and insert `rows` (`columns` minus
+    ticker) in one transaction. `dates` are stored as days, `accepted_at` as an
+    ISO timestamp, `ints` as integers, `floats` as floats."""
+    conn.execute(f"DELETE FROM {table} WHERE ticker = ?", (ticker,))
+    if not rows.empty:
+        out = rows.assign(ticker=ticker)[columns].copy()
+        for column in dates:
+            out[column] = [_serialize_date(v) for v in out[column]]
+        out["accepted_at"] = [pd.Timestamp(v).isoformat() for v in out["accepted_at"]]
+        for column in ints:
+            out[column] = out[column].astype(int)
+        for column in floats:
+            out[column] = out[column].astype(float)
+        conn.executemany(
+            f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' * len(columns))})",
+            out.astype(object).where(out.notna(), None).itertuples(index=False, name=None),
+        )
+    conn.commit()
+
+
+def replace_earnings_announcements(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
+    """Delete `ticker`'s `earnings_announcements` rows and insert `rows`
+    (columns as in the schema, minus ticker) in one transaction."""
+    _replace_ticker_rows(conn, "earnings_announcements", _EARNINGS_ANNOUNCEMENTS_COLUMNS, ticker, rows,
+                         dates=("period_end", "report_filed", "reaction_date"),
+                         ints=("cik", "filer_cik", "extra_filings"))
+
+
+def read_earnings_announcements(conn: sqlite3.Connection, ticker: str | None = None) -> pd.DataFrame:
+    query, params = "SELECT * FROM earnings_announcements", []
+    if ticker is not None:
+        query, params = query + " WHERE ticker = ?", [ticker]
+    return pd.read_sql_query(query + " ORDER BY ticker, period_end", conn, params=params)
+
+
+def replace_fundamentals(conn: sqlite3.Connection, ticker: str, rows: pd.DataFrame) -> None:
+    """Delete `ticker`'s `fundamentals` rows and insert `rows` (columns as in
+    the schema, minus ticker) in one transaction."""
+    _replace_ticker_rows(conn, "fundamentals", _FUNDAMENTALS_COLUMNS, ticker, rows,
+                         dates=("period_end", "period_start", "filed", "available_date"),
+                         ints=("derived", "cik", "filer_cik"), floats=("value",))
+
+
+def read_fundamentals(conn: sqlite3.Connection, ticker: str | None = None,
+                      concept: str | None = None) -> pd.DataFrame:
+    clauses = [(c, v) for c, v in (("ticker = ?", ticker), ("concept = ?", concept)) if v is not None]
+    query = "SELECT * FROM fundamentals"
+    if clauses:
+        query += " WHERE " + " AND ".join(c for c, _ in clauses)
+    return pd.read_sql_query(query + " ORDER BY ticker, concept, period_type, period_end", conn,
+                             params=[v for _, v in clauses])

@@ -20,8 +20,11 @@ the full answer and on the first part found: the gap is what they lose to partia
 Some questions are **unanswerable** (`"answerable": false`, `"gold": []`): the docs don't
 cover them. They have no rank and stay out of hit@k and MRR; they're there for step 6, where
 the LLM should say "not in the docs" instead of answering from the nearest chunk. The report
-shows every question's top similarity score and the range for each kind: if unanswerable
+shows every question's top score and the range for each kind: if unanswerable
 questions score as high as answerable ones, a score cutoff alone can't tell them apart.
+(The score is the method's own: cosine similarity for vector search, BM25 for keyword,
+a fused rank score for hybrid, the cross-encoder's for rerank, so ranges compare only
+within one method.)
 
 Metrics, over the answerable questions and per question type:
 
@@ -50,10 +53,18 @@ the top 5 of vector search or of BM25 keyword search was judged once, and 25 tha
 were added. Golds are only as complete as the pool, which favours those two searches: a
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
-unjudged chunks, on both splits, and add the ones that answer.
+unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
+12 added; the two re-rankers: 152 judged, 19 added; MMR: 16 judged, 1 added). Nothing records the chunks judged
+"no", and node ids change on every rebuild: a chunk counts as judged if it is a gold or in
+the vector, keyword, hybrid or rerank top 5 for that question, matched by its text. A
+rebuild changes those top 5s too, so before one, save every method's top 5 texts and
+count those as judged afterwards (the 2026-10-14 rebuild: 36 judged, 2 added; the saved
+texts and the rebuilt pool are in `judged/pooling/`).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr; default vector
+    python -m src.llm.research_docs.evaluate --method rerank --reranker BAAI/bge-reranker-base
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
 
@@ -63,11 +74,12 @@ import argparse
 import json
 import statistics
 import sys
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode, MetadataMode
+from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore
 
 from src.llm.research_docs.retrieve import cite, search
 
@@ -192,12 +204,15 @@ def unmatched_golds(questions: list[dict], indexed: list[BaseNode],
     return out
 
 
-def evaluate(index: VectorStoreIndex, questions: list[dict]) -> list[dict]:
+def evaluate(index: VectorStoreIndex, questions: list[dict],
+             find: Callable[[str, int], list[NodeWithScore]] | None = None) -> list[dict]:
     """Each question's rank in the top `max(KS)` (`part_ranks`: full answer, and first part
-    found), its top chunk and that chunk's similarity score."""
+    found), its top chunk and that chunk's score. `find(question, k)` is the search to
+    score; vector search by default."""
+    find = find or (lambda question, k: search(index, question, k))
     rows = []
     for q in questions:
-        hits = search(index, q["question"], max(KS))
+        hits = find(q["question"], max(KS))
         rank, rank_any = part_ranks([h.node for h in hits], q)
         rows.append({**q, "rank": rank, "rank_any": rank_any,
                      "top": cite(hits[0].node) if hits else "-",
@@ -231,13 +246,13 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     lines = [f"split: {split}", ""] if split else []
     if stale:
         lines += [f"STALE INDEX: {_stale_summary(stale)}; rebuild for current numbers", ""]
-    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>5}  top hit")
+    lines.append(f"{'question':<22} {'type':<8} {'style':<6} {'rank':>5} {'score':>9}  top hit")
     for r in rows:
         rank = "n/a" if not answerable(r) else _rank(r["rank"])
         if len(parts(r)) > 1:  # full/any part
             rank = f"{rank}/{_rank(r['rank_any'])}"
-        score = f"{r['score']:.2f}" if r["score"] is not None else "-"
-        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>5}  {r['top'][:70]}")
+        score = f"{r['score']:.4f}" if r["score"] is not None else "-"
+        lines.append(f"{r['id']:<22} {r['type']:<8} {r['style']:<6} {rank:>5} {score:>9}  {r['top'][:70]}")
     scored = [r for r in rows if answerable(r)]
     groups = {"all": scored}
     for key in ("type", "style"):
@@ -260,7 +275,7 @@ def report(rows: list[dict], stale: Sequence[str] = (), split: str | None = None
     for kind, keep in (("answerable", True), ("unanswerable", False)):
         top = [r["score"] for r in rows if answerable(r) == keep and r["score"] is not None]
         if top:
-            ranges.append(f"{kind} {min(top):.2f}-{max(top):.2f}")
+            ranges.append(f"{kind} {min(top):.4f}-{max(top):.4f}")
     if len(ranges) == 2:
         lines.append(f"top score range: {', '.join(ranges)}")
     return "\n".join(lines)
@@ -271,7 +286,13 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr"), default="vector",
+                    help="search to score (default vector; mmr: rerank, then diversify.mmr)")
+    ap.add_argument("--reranker", default=None,
+                    help="cross-encoder for --method rerank or mmr (default rerank.MODELS[0])")
     args = ap.parse_args()
+    if args.reranker and args.method not in ("rerank", "mmr"):
+        ap.error("--reranker needs --method rerank or mmr")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -295,7 +316,34 @@ def main() -> None:
         print(head, *unmatched, sep="\n  ", file=sys.stderr)
         raise SystemExit(1)
     chosen = [q for q in questions if question_split(q) == args.split]
-    print(report(evaluate(index, chosen), stale, f"{args.split} ({len(chosen)} of {len(questions)} questions)"))
+    find, method = None, args.method  # None: evaluate's default, vector search
+    if args.method != "vector":
+        from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
+        keywords = KeywordIndex(indexed)
+    if args.method == "keyword":
+        find = keywords.search
+    elif args.method == "hybrid":
+        find = lambda question, k: hybrid_search(index, keywords, question, k)  # noqa: E731
+    elif args.method in ("rerank", "mmr"):
+        from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
+        name = args.reranker or MODELS[0]
+        score = cross_encoder(name)
+        method = f"rerank (hybrid top {DEPTH}, {name})"
+        if args.method == "rerank":
+            find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
+        else:
+            from src.llm.research_docs.diversify import LAMBDA, mmr_search
+            from src.llm.research_docs.index import stored_vectors
+            vectors = {nid: v for nid, (_, v) in stored_vectors(index).items()}
+            find = lambda question, k: mmr_search(index, keywords, score, vectors, question, k)  # noqa: E731
+            method += f", then MMR (lambda {LAMBDA})"
+    head = f"{args.split} ({len(chosen)} of {len(questions)} questions), {method} search"
+    evaluate(index, chosen[:1], find)  # the first search pays one-off setup; keep it out of the timing
+    start = time.perf_counter()
+    rows = evaluate(index, chosen, find)
+    per_question = (time.perf_counter() - start) / len(chosen) if chosen else 0.0
+    print(report(rows, stale, head))
+    print(f"{per_question:.2f} s per question (models loaded and warmed up first)")
 
 
 if __name__ == "__main__":

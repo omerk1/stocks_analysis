@@ -77,6 +77,22 @@ def detect(
         return [], report, reason
 
     history_start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    return detect_on_bars(bars, ticker, timeframe, config, previous_anchor_types, history_start), report, None
+
+
+def detect_on_bars(
+    bars: pd.DataFrame,
+    ticker: str,
+    timeframe: Timeframe,
+    config: AvwapConfig,
+    previous_anchor_types: dict[str, frozenset[AnchorType]] | None = None,
+    history_start: pd.Timestamp | None = None,
+) -> list[AnchoredVwap]:
+    """`detect`'s work on an already loaded, validated, as_of-truncated frame
+    with at least `config.min_bars` bars -- for callers holding the bars
+    themselves (the modeling harness's point-in-time level snapshots,
+    `src/models/features/levels.py`), which pass `history_start` from their
+    own splits."""
     anchors = discover_anchor_dates(bars, ticker, timeframe, config, previous_anchor_types, history_start=history_start)
 
     # Same ATR series/period cycle-pivot detection above already uses
@@ -85,5 +101,4 @@ def detect(
     atr = indicators.atr(bars, config.cycle_atr_period)
     for anchor in anchors:
         apply_interaction_tracking(bars, atr, anchor, config)
-
-    return anchors, report, None
+    return anchors

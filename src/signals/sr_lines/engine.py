@@ -55,6 +55,23 @@ def detect(
             lines=[],
         )
 
+    lines = detect_lines(bars, config, strength_floor=strength_floor)
+
+    return DetectionResult(
+        ticker=ticker,
+        source=source_for(config.price_basis),
+        as_of=as_of_str,
+        config_snapshot=config.to_dict(),
+        data_quality=quality,
+        lines=lines,
+    )
+
+
+def detect_lines(bars: pd.DataFrame, config: SRConfig, strength_floor: float | None = None) -> list:
+    """`detect`'s work on an already loaded, validated, windowed frame -- for
+    callers that hold the bars themselves (the modeling harness's point-in-time
+    level snapshots, `src/models/features/levels.py`). The lines as of the
+    frame's last bar."""
     atr = pivots_mod.compute_atr(bars, config)
     pivot_list = pivots_mod.detect_pivots(bars, config, atr=atr)
 
@@ -84,12 +101,4 @@ def detect(
 
     lines = lifecycle.dedup_lines(lines, bars, atr, config)
     lines = lifecycle.select_lines(lines, config, strength_floor=strength_floor)
-
-    return DetectionResult(
-        ticker=ticker,
-        source=source_for(config.price_basis),
-        as_of=as_of_str,
-        config_snapshot=config.to_dict(),
-        data_quality=quality,
-        lines=lines,
-    )
+    return lines

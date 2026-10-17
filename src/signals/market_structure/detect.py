@@ -190,7 +190,8 @@ def detect(
         return [], report, reason
 
     atr = indicators.atr(bars, config.atr_period)
-    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr.iloc[i])
+    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
+    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr_values[i])
     events = track_market_structure(bars, pivots, config, ticker, timeframe)
 
     if as_of is not None:

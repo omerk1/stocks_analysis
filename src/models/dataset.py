@@ -123,15 +123,19 @@ def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
 def read_bars_bulk(
     conn: sqlite3.Connection, tickers: list[str], basis: PriceBasis | str,
     start: str | pd.Timestamp, end: str | pd.Timestamp, fallback: bool = False,
+    sources: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     """Daily bars for many tickers on one price basis, long format (ticker,
     date, open, high, low, close, volume), partial rows dropped. One query per
     batch of tickers instead of one per ticker. With `fallback`, a ticker
     with no yfinance bars is read from Tiingo (`resolve_sources`);
-    `attrs["price_sources"]` counts tickers per source."""
+    `attrs["price_sources"]` counts tickers per source. `sources`: an
+    already resolved ticker -> source map for these tickers (skips resolving
+    again)."""
     basis = PriceBasis(basis)
     columns = ["ticker", "date", "open", "high", "low", "close", "volume"]
-    sources = resolve_sources(conn, list(tickers), basis, fallback)
+    if sources is None:
+        sources = resolve_sources(conn, list(tickers), basis, fallback)
     frames = []
     for source, group in _source_groups(sources).items():
         for i in range(0, len(group), 500):  # SQLite's bound-parameter limit

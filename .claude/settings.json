@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/link_models.sh *)",
+      "Bash(python3 scripts/list_trial_ids.py *)",
+      "Bash(bash scripts/run_tests.sh *)",
+      "Bash(pytest *)",
+      "Bash(python3 -m pytest *)",
+      "Bash(python3 -m src.models.cli run-gates *)",
+      "Bash(python3 -m src.models.cli vendor-check *)",
+      "Bash(python3 -m src.models.cli close-experiment *)",
+      "Bash(python3 -m src.signals.moving_averages.cli validate-synth *)",
+      "Bash(black --check *)",
+      "Bash(bash scripts/cleanup_merged.sh)",
+      "Bash(bash scripts/cleanup_merged.sh *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push -u origin feat/*)",
+      "Bash(gh pr create *)"
+    ],
+    "deny": [
+      "Bash(git push -u origin feat/* *)",
+      "Bash(git push *:**)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push * refs/*)",
+      "Bash(git push --all*)",
+      "Bash(git push * --all*)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)"
+    ],
+    "ask": [
+      "Edit(**/scripts/cleanup_merged.sh)",
+      "Write(**/scripts/cleanup_merged.sh)"
+    ]
+  }
+}

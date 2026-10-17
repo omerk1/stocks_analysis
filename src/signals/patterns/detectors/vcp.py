@@ -95,8 +95,9 @@ class VCPDetector(PatternDetector):
         high_lookback = df["high"].rolling(config.vcp_52w_high_lookback_bars).max()
         vol_sma = volume_mod.volume_sma(df["volume"], config.volume_sma_period)
 
+        atr_main_values = atr_main.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
         fine_pivots = detect_pivots(
-            df["high"], df["low"], threshold_fn=lambda i: config.vcp_pivot_atr_mult * atr_main.iloc[i]
+            df["high"], df["low"], threshold_fn=lambda i: config.vcp_pivot_atr_mult * atr_main_values[i]
         )
 
         matches: list[PatternMatch] = []

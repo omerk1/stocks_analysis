@@ -55,10 +55,21 @@ class PanelContext:
         bar row except the benchmark's (synthetic data, a hand-picked ticker set).
     sectors: ticker -> sector; None or a missing ticker = unknown (its sector
         columns are NaN).
+    fundamentals, earnings: rows of the `fundamentals` and
+        `earnings_announcements` tables (`fundamentals.load_tables`) for the
+        company-financials columns; None = those columns are NaN.
+    shares: (ticker, date, shares_outstanding) share counts as filed
+        (`valuation.load_shares`), for the market cap; None = no valuation.
+    splits: ticker -> its splits. Not set by callers: `registry.compute_registered`
+        fills it from its own `splits`, so a split perturbation reaches it.
     """
     membership: pd.DataFrame | None = None
     sectors: pd.Series | None = None
     benchmark: str = BENCHMARK
+    fundamentals: pd.DataFrame | None = None
+    earnings: pd.DataFrame | None = None
+    shares: pd.DataFrame | None = None
+    splits: dict[str, pd.DataFrame] | None = None
 
 
 def members_from_intervals(intervals: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame:

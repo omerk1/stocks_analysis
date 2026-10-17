@@ -1,0 +1,290 @@
+[
+ {
+  "qid": "levels_on_traded",
+  "split": "test",
+  "method": "rerank",
+  "question": "Why are support and resistance levels kept on split-only prices rather than dividend-adjusted ones?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **A pilot on ~100 random tickers:** 5\u00d7 less training data, top-5 instead of top-20\n  (CIs about 2\u00d7 wider), and S1b would need its own rerun on the subset. It could only\n  show a large effect.\n\nRound numbers depend on the price level, so they are computed from the unadjusted\nclose; on adjusted prices the future-split perturbation would fail them. Patterns and\n\u00a72.4 stay in step 3. Divergences likely need no weekly runs either: stored events plus\n`pit_confluence()` are point-in-time (\u00a72.4 constraint 1).\n\n**The comparison:** step 2's scorecard compares against a run with the same other\ncolumns, so the difference is the levels alone. Step 2b's indicator features (#208) were\nregistered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,\notherwise a rerun on the same columns.\n\n---"
+ },
+ {
+  "qid": "slope_pctile_by_id",
+  "split": "dev",
+  "method": "rerank",
+  "question": "What came of slope_pctile_21_sma_50?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness \u2014 design > 7. Feature registry",
+  "text": "- **supported:** `slope_log_21_sma_50` (rank) and `ribbon_agreement_state`;\n- **weak:** `dist_z_sma_20`, `dist_from_52w_low`, `stack_fully_bearish`,\n  `log_dollar_volume_20d` (rank), `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`,\n  `slope_log_63_sma_50` and `adx_14`. The last three priors were assigned when E1 was\n  planned.\n\nChanges from \u00a72.2:\n- the absolute-slope column is dropped (it's for linear models; the learner is a tree);\n- MACD is its histogram over the close (price units fail the leakage gate);\n- dollar volume is a per-date rank, not a tercile;\n- ADX is the level, not the regime bucket.\n\n**Indicators and market regime (combined-model step 2b, 2026-10-10).** The lean list, one\ncolumn per idea (`IDEAS.md` \u00a72's near-copy rule), every prior null:\n- **volatility** (`features/indicators.py`): `bb_width_pctile` (Bollinger 20/2 width as a\n  trailing 252-day percentile), `atr_ratio_5_63`, `rvol_21_pctile_252`;\n- **volume:** `rel_volume_20` (rank), `updown_volume_20` (signed volume share, OBV's 20-day\n  change made scale-free);"
+ },
+ {
+  "qid": "low_52w",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Does how far a stock sits above its 52-week low predict longer-horizon returns?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M2 \u2014 Stack states and Minervini ablation (2026-09-12)",
+  "text": "SMA50 > SMA150 and SMA50 > SMA200\n5. Price > SMA50\n6. Price \u2265 30% above the 52-week low (the more common formulation \u2014 stated precisely\n   here so it isn't left ambiguous at analysis time)\n7. Price within 25% of the 52-week high\n8. RS rank \u2265 70\n\n**Method:**\n(a) **`stack_perm`** \u2014 a new categorical feature over the 4-way ordering of\n{SMA20, SMA50, SMA150, SMA200} vs. price, built from the existing lagged `above_sma_k`\nboolean columns already in the panel (reused inputs, new combination logic \u2014 this is\nnot `features/state.py`, which is run-length-only). C0/C1/C2 deltas on `fwd_ret_21` per\nnon-empty permutation category vs. baseline, same approach as M1.\n(b) **Full 2\u2078 = 256-subset ablation** of the 8 boolean criteria (each built lagged,\ninvariant #9-compliant) on `fwd_ret_21`, C1/C2 controls. Computationally cheap once the\n8 columns exist \u2014 vectorized boolean combination, no per-ticker loop, float32, per\nCLAUDE.md's style rules. Decomposed via a linear/Shapley-style attribution per\ncriterion, as DESIGN specifies, **not** read as 256 individual hypothesis tests.\n\n**Horizon:** 21 trading days only."
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "vector",
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are\n  ~0.3\u20130.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed\n  when features are built, never stored. With the feature cache and one scorecard run,\n  step 2 adds ~1.5\u20132 GB.\n\n**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,\nAVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,\n52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market\nstructure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the\ncheap set shows something on the scorecard; the cache is per source, so adding them\nredoes nothing. Two alternatives were rejected:\n- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent\n  before knowing whether levels help at all."
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "vector",
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **A pilot on ~100 random tickers:** 5\u00d7 less training data, top-5 instead of top-20\n  (CIs about 2\u00d7 wider), and S1b would need its own rerun on the subset. It could only\n  show a large effect.\n\nRound numbers depend on the price level, so they are computed from the unadjusted\nclose; on adjusted prices the future-split perturbation would fail them. Patterns and\n\u00a72.4 stay in step 3. Divergences likely need no weekly runs either: stored events plus\n`pit_confluence()` are point-in-time (\u00a72.4 constraint 1).\n\n**The comparison:** step 2's scorecard compares against a run with the same other\ncolumns, so the difference is the levels alone. Step 2b's indicator features (#208) were\nregistered after S1b, so the no-levels side is step 2b's `S2` run if it lands first,\notherwise a rerun on the same columns.\n\n---"
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "vector",
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **Delisted tickers get no levels from today's detectors.** Only `divergences.detect`\n  takes `source=`; the level detectors read the primary vendor only, so a Tiingo-only\n  ticker loads no bars and is skipped without an error. The timing passed the resolved\n  vendor in through a shim, and every delisted call then returned levels. The builder\n  needs a `source=` parameter on each detector it uses, resolved by\n  `price_basis.resolve_sources`, as divergences already does.\n- **The cost is the detector, not the read:** loading bars is 2\u201322% of a call.\n  Per-call cost grows 1.1\u20131.6\u00d7 from 2010 to 2021 (each call re-reads all history), which\n  is mild, so no lookback cap is needed.\n- **Gaps need no weekly runs.** `gap_states` (tested equal to `detect(as_of=...)`)\n  gives each gap's exact state on any date from one full-history detection. It is daily,\n  so gaps are never stale."
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "hybrid",
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost",
+  "text": "## 4. Point-in-time computation \u2014 the real cost\n\nThe stored signal tables are **current-state**: a later run overwrites what the detector\nbelieved earlier. For example, `pattern_matches` can't answer \"what did we believe on\nday D\". All eight detectors support `as_of`, so levels must be **regenerated as of each\ndate**, never read from the tables.\n\nPlan:\n- **Weekly snapshots:** each detector runs `as_of` every Friday for every ticker in the\n  universe. That gives the level set, with states as of that day.\n- **Daily roll-forward:** between snapshots, levels are fixed. Daily work is only price,\n  ATR, the time-varying level prices (AVWAP from its anchor, diagonal lines from\n  slope/intercept), and the state changes triggered by that day's bar (a close through a\n  level flips or kills it). Stale by at most 4 days for *new* levels, never leaky.\n- **First task before building:** time one detector's full `as_of` history on ~20\n  tickers, then extrapolate to the universe \u00d7 12 years \u00d7 52 snapshots. If it's too slow,\n  drop to fewer sources for v1 (S/R lines, gaps, AVWAP, structure are the cheapest\n  candidates) rather than cutting the point-in-time rule."
+ },
+ {
+  "qid": "divergence_registered",
+  "split": "dev",
+  "method": "hybrid",
+  "question": "What was the outcome of the divergence-context registered experiment?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study \u2014 Track B pre-registration > DC-B3 / DC-B4 \u2014 DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?",
+  "text": "**Module/track:** divergence-context, Track B. Second (and, per the disposition below,\nfinal) registered experiment of this study.\n**Promoted from:** EXPLORATION_LOG 2026-10-11 hidden-forms prep looks (Done #119) \u2014\nboth prep gates the \"Hidden forms\" section above required: (a) hidden is independent\ninformation, not the regular cells' complement (only 29\u201334% of hidden events carry a\nmirrored-direction regular counterpart inside their pivot interval; hidden-alone cells\n~1,490\u20131,530 PIT dev dates); (b) the pivot-to-pivot retrace fraction is a well-defined\nhidden-geometry scalar (100% defined, mechanically bounded in (0,1), smooth) where the\nv0 63-bar impulse was shown misfit (retrace_frac > 1 on 66%/76% of defined hidden rows).\n\n**Hypothesis.** Hidden divergence is a continuation claim. For hidden divergences,\nforward outcomes after a *shallow* counter-move (trend barely dented \u2014 the textbook\n\"strong trend\" continuation setup) differ from outcomes after a *deep* counter-move\n(trend nearly given back), beyond what the same hidden-geometry structures show\n*without* a divergence. DC-B3 = bearish (downtrend, lower-high pairs), DC-B4 = bullish\n(uptrend, higher-low pairs)."
+ },
+ {
+  "qid": "divergence_registered",
+  "split": "dev",
+  "method": "rerank",
+  "question": "What was the outcome of the divergence-context registered experiment?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study \u2014 Track B pre-registration > DC-B3 / DC-B4 \u2014 DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?",
+  "text": "## DC-B3 / DC-B4 \u2014 DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?\n\n> **STATUS: DRAFT, CLOSED WITHOUT RUN** (user decision 2026-10-12 \u2014 see the\n> disposition section at the end). Never frozen, never executed: no prerequisite was\n> built, no outcome was read; the only numbers ever computed were the blind sizing\n> counts. The section is kept whole as the record that the hypothesis was considered,\n> designed, and sized. Reviving it would be a new dated section referencing this one,\n> not a reopening. Nothing in this section alters any DC-B1/B2 text above.\n\n**Module/track:** divergence-context, Track B. Second (and, per the disposition below,\nfinal) registered experiment of this study."
+ },
+ {
+  "qid": "divergence_registered",
+  "split": "dev",
+  "method": "rerank",
+  "question": "What was the outcome of the divergence-context registered experiment?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study \u2014 Track B pre-registration > DC-B3 / DC-B4 \u2014 DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Pre-identified power risk and pre-committed disposition (the load-bearing part)",
+  "text": "- **Pre-committed disposition if no cell is Alive:** the hidden Track-B line closes \u2014\n  **no power addendum will be proposed** (the paragraph above is that analysis, done\n  at registration instead of after the readout), and the hidden-fit retrace fraction\n  routes to the combined-model feature track as a continuous feature (IDEAS F6 /\n  LRP \u00a72.4, whose constraint 2 already mandates hidden/regular form separation). The\n  experiment is decision-complete at registration: every outcome has a pre-named\n  next step."
+ },
+ {
+  "qid": "divergence_rr_sweep",
+  "split": "test",
+  "method": "vector",
+  "question": "Did trading divergences with stops and profit targets show an edge after costs?",
+  "cite": "docs/features/divergence-context/EXPLORATION_LOG.md > Divergence-context study \u2014 exploration log (Track A) > 2026-10-10 \u2014 R/R sweep rerun on the recomputed event base: pre-commit (written BEFORE the rerun was computed) > Result (rerun, same date, run after the pre-commit note above was committed)",
+  "text": "- Cost: 10 vs 20 bps moves no region's adjusted R by more than 0.002 R. Events and their\n  matched controls pay the same cost, so it nets out of the delta; net-of-cost levels\n  are in the report.\n- Argue-against:\n  - The bearish positives are still \"events lose less than controls\": shorting with a\n    stop above loses ~0.19\u20130.25 R net in this bull window.\n  - The bullish/pullback edge is concentrated in 2010\u201315.\n  - The 44 delisting-exit events average +0.29 R net. A delisting is often an\n    acquisition at a premium, not a failure, so the newly exercised path doesn't only\n    add distress.\n  - With ~324 cells, a sign-stable near-miss of this size is what winner's curse\n    produces."
+ },
+ {
+  "qid": "done_topic_tags",
+  "split": "test",
+  "method": "hybrid",
+  "question": "When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?",
+  "cite": "docs/done.md > #115",
+  "text": "- **#115** [llm] \u2014 **Research-docs RAG eval set v2: 59 questions, unanswerable and multi-part questions, golds completed by pooling, a held-out test split (`src/llm/research_docs/evaluate.py`, `eval_questions.json`).** Follow-up to #109, whose 22 questions were small, written by one author, and only as complete as that author's memory. Added: 20 questions covering experiment-table rows, exact ids, status, out-of-scope topics and 3 the docs don't answer; 10 by an agent shown only the doc file names; 7 by the user, written blind. Unanswerable questions (`\"answerable\": false`, no gold) show their top similarity score but stay out of hit@k; the report gives each kind's score range, and they overlap (answerable 0.63\u20130.83, unanswerable 0.70\u20130.76), so a score cutoff alone can't spot an off-topic question. Multi-part questions list `parts`, one gold list per piece of the answer, and rank where the last part is found; the report scores them on the full answer and on the first part found. Golds were completed by pooling: the top 5 of vector search and of a BM25 keyword search for every question, 481 chunks not already in a gold, each judged once (four agents, every yes re-checked by hand); 25 were added and 4 rejected."
+ },
+ {
+  "qid": "done_topic_tags",
+  "split": "test",
+  "method": "hybrid",
+  "question": "When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?",
+  "cite": "docs/done.md > #133",
+  "text": "Code review: a request group's details are `(field, details)` pairs read through `details_for(field)`, not a dict, so a group stays hashable; a log line is skipped with a warning if its `details` isn't `{field: [text, ...]}` with every key one of its fields or its wording, reason, a field or a detail is blank (a line without a `details` key still counts, since the summary doesn't use it; reasons and fields are checked for shape only, so old lines still count after the schema changes); the log's keys are written out by hand rather than taken from the class, so the file format doesn't change by accident; both lock names are pinned by tests, the level cache's by a spy checking the manifest merge runs while that lock is held (that the lock excludes other processes is `tests/test_file_lock.py`'s check). Not changed: the lock still has no timeout, so a holder that hangs blocks the others (as both old copies did). Tests: 4 new (the lock is held inside the block and released after, also when it raises; the LLM ledger's and the level cache's lock file names), 4 updated (the three log-line tests for the new `details` shape, and the damaged-line test with eleven more cases). Two level-cache tests in `tests/test_models_levels.py` already fail on main (an `anchor_date` dtype mismatch after the parquet round trip), unrelated and left as they are."
+ },
+ {
+  "qid": "done_topic_tags",
+  "split": "test",
+  "method": "rerank",
+  "question": "When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?",
+  "cite": "docs/done.md > #132",
+  "text": "That gives one gap per field (in field order, carrying only the details given for that field) and one log line per idea, so the summary counts ideas, not LLM repeats. The spec's own list keeps the LLM's output as written. The log is written under the same file lock as the Gemini ledger (the lock file name is unchanged, so code before and after this change takes the same lock); times are stored in UTC, a naive one is refused, \"last asked\" compares parsed times, not strings, and a line with no fields or non-text fields is skipped with a warning; `uses` ids are stripped like every other text field; the long-only drawdown metric says so, so a short idea's drawdown goes to `unsupported`; the no-heavy-imports check runs in a fresh interpreter instead of grepping the source. No Gemini calls (the extraction prompt is step 2c). Tests: 128 new (100 of them one per catalogue entry, checking its implementation imports)."
+ },
+ {
+  "qid": "done_topic_tags",
+  "split": "test",
+  "method": "rerank",
+  "question": "When did the done log start tagging entries by topic, and why wasn't it split into one file per topic?",
+  "cite": "docs/done.md > #133",
+  "text": "- **#133** [llm] \u2014 **Two follow-ups from #132's review: each detail in the unsupported-requests log stays with its field, and one shared file lock (`src/foundation/utils/file_lock.py`).** A log line now stores `\"details\": {\"trigger\": [\"intraday entry\"]}` instead of one flat list for every field the request was filed under, so a detail given for the entry rule isn't read as one about the timeframe; the log didn't exist yet, so no old lines needed converting. `group_unsupported` keeps details per field, which also shortens `find_gaps` (it no longer regroups per field). The `fcntl` lock code that `src/llm/paths.py` and `src/models/features/level_cache.py` each had is now one `file_lock(lock_path)` in `src/foundation/utils/` (so the model code doesn't import from `src/llm`); each caller keeps its own lock file name (`gemini_usage.lock`, `manifest.json.lock`), so code before and after this change takes the same lock."
+ },
+ {
+  "qid": "chunk_size",
+  "split": "dev",
+  "method": "vector",
+  "question": "Why are the research-doc chunks capped at 384 tokens?",
+  "cite": "docs/done.md > #115",
+  "text": "- **#115** [llm] \u2014 **Research-docs RAG eval set v2: 59 questions, unanswerable and multi-part questions, golds completed by pooling, a held-out test split (`src/llm/research_docs/evaluate.py`, `eval_questions.json`).** Follow-up to #109, whose 22 questions were small, written by one author, and only as complete as that author's memory. Added: 20 questions covering experiment-table rows, exact ids, status, out-of-scope topics and 3 the docs don't answer; 10 by an agent shown only the doc file names; 7 by the user, written blind. Unanswerable questions (`\"answerable\": false`, no gold) show their top similarity score but stay out of hit@k; the report gives each kind's score range, and they overlap (answerable 0.63\u20130.83, unanswerable 0.70\u20130.76), so a score cutoff alone can't spot an off-topic question. Multi-part questions list `parts`, one gold list per piece of the answer, and rank where the last part is found; the report scores them on the full answer and on the first part found. Golds were completed by pooling: the top 5 of vector search and of a BM25 keyword search for every question, 481 chunks not already in a gold, each judged once (four agents, every yes re-checked by hand); 25 were added and 4 rejected."
+ },
+ {
+  "qid": "chunk_size",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Why are the research-doc chunks capped at 384 tokens?",
+  "cite": "docs/done.md > #127",
+  "text": "- **#127** [llm] \u2014 **Research-docs RAG step 7b: a cross-encoder re-ranks hybrid search's top 30 (`src/llm/research_docs/rerank.py`, `evaluate.py --method rerank`).** The embedding model is a bi-encoder: question and chunk are embedded separately, so chunks are embedded once at build time and a search is one dot product per chunk, but each chunk's vector was made without seeing the question. A cross-encoder reads the question and one chunk together and outputs one relevance score, so every question word can be compared with every chunk word. That is more accurate but can't be precomputed: each pair is a full model run at question time. So it runs after retrieval: hybrid's top 30 (depth fixed before any run), re-scored, best k kept. Its ceiling is hybrid's hit@30, 0.90 on dev (4 questions never reach the top 30). Two local models under the Intel Mac's torch 2.2 cap, via sentence-transformers' `CrossEncoder`, scores taken as a tensor (the numpy path fails under numpy 2, as in the embedder): `cross-encoder/ms-marco-MiniLM-L-6-v2` (22M parameters, the default) and `BAAI/bge-reranker-base` (278M). Each chunk is scored as the embedder saw it, heading trail and row ids included."
+ },
+ {
+  "qid": "chunk_size",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Why are the research-doc chunks capped at 384 tokens?",
+  "cite": "docs/done.md > #124",
+  "text": "- **#124** [llm, infra] \u2014 **Gemini key set up; LLM guardrails decided before the first call (`docs/strategy-agent/idea.md` \"LLM guardrails\", `.env.example`).** `GOOGLE_API_KEY` (Google AI Studio) checked with a model listing, which costs no tokens: 45 models that can generate text, including the 2.5 Flash/Pro and 3.x previews. `.env.example` gets the key and is grouped by purpose (market data, macro, LLM). Two decisions for step 2 of the strategy agent, also binding on the research-docs search's answer step: (1) **token budget**: a Flash-class model by default, the prompt counted before each call against a per-call cap, capped output and thinking budget (2.5 models think by default and thinking is billed as output), every call's usage in a local ledger under `data/llm/` with a daily cap that stops the agent, tests on a stub client; (2) **unsupported requests**: a capability catalogue in code, an `unsupported` list on the spec (the user's words plus the reason) that the LLM must use instead of mapping a request to the nearest thing that exists, the user told plainly, every such request logged locally and summarised as a development backlog, and answer-key ideas with unsupported requests to score it. Nothing built yet; `google-genai` gets installed with step 2."
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/REPORT.md > Moving-averages study \u2014 final report > 1. Executive summary",
+  "text": "## 1. Executive summary\n- **One Tier-2 result, no Tier 1.** Stocks whose 50-day SMA slope is at a cross-sectional\n  extreme, rising or falling, outperform stocks with a flat slope. The effect is 0.25% per\n  21 days, with a 90% CI of [0.15%, 0.35%]. It holds in each tail separately, under a\n  reversal control, with large moves excluded, and across seeds. It clears cost at\n  20 bps. That is about 3% a year gross: a feature, not a strategy.\n- **An FDR survivor that fails its plateau (M22, 2026-10-01).** After a break above SMA50, a\n  held retest is followed by 63-day returns 2.08% below an ordinary SMA50 bounce, and the cell\n  survives FDR at q=0.05. The pre-registered neighbour check cut it to Tier 3: SMA47 spans zero,\n  SMA53 is about half the size, and a coarser match spans zero. The sign is consistent; the\n  size is not."
+ },
+ {
+  "qid": "order_blocks",
+  "split": "dev",
+  "method": "hybrid",
+  "question": "Should order blocks be added as their own support/resistance source?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 4. Point-in-time computation \u2014 the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are\n  ~0.3\u20130.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed\n  when features are built, never stored. With the feature cache and one scorecard run,\n  step 2 adds ~1.5\u20132 GB.\n\n**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,\nAVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,\n52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market\nstructure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the\ncheap set shows something on the scorecard; the cache is per source, so adding them\nredoes nothing. Two alternatives were rejected:\n- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent\n  before knowing whether levels help at all."
+ },
+ {
+  "qid": "alert_kinds",
+  "split": "test",
+  "method": "hybrid",
+  "question": "What kinds of alerts should the notification service send?",
+  "cite": "docs/backlog.md > Backlog > LLM",
+  "text": "## LLM\n- **LLM ideation, ideas 2\u20134 \u2014 open (`docs/ideation/llm_agentic_workflows.md`, Done #98).** Idea 1 (research-docs RAG) is built and evaluated (Done #99, #102, #104, #106, #109, #115). Still open, in the agreed order: (2) a read-only tool-calling agent over the DB with the holdout lock inside the tools (LangGraph or plain tool use), the next one; (3) plain-language reasons on model alerts, built on idea 2's tools, waits for a fitted model that produces alerts; (4) search over SEC filing text for live alert context only, later (the filing text still has to be fetched from EDGAR). LLM output stays out of anything backtested."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "vector",
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/done.md > #126",
+  "text": "Time for those runs, old to new: S/R 7.1 to 5.6 s, AVWAP 5.4 to 4.0, volume profile 4.8 to 3.0, market structure 20.7 to 9.2, fibonacci 20.3 to 13.4, divergences 36.2 to 20.2, patterns 62.2 to 53.7 (a lightly loaded machine, one run each). For the level-snapshot build (#125) this means about 1.3\u20131.6x on its three sources. Also found while timing: the snapshot path is no slower per call than the detector itself (AVWAP 0.25 s vs 0.32 s on CSX); the smoke build's 5x overrun was CPU sharing (2 physical cores, 4 workers, another run going), so the full build goes on an otherwise idle machine. No DB writes. Tests: the detector and market_common suites pass (656; the one failure, `test_sr_lines_plotting` cutoff marker, fails on main too)."
+ },
+ {
+  "qid": "lag_where",
+  "split": "dev",
+  "method": "rerank",
+  "question": "how is the one-bar lag applied and where in the code does it happen?",
+  "cite": "docs/backlog.md > Backlog > Patterns",
+  "text": "- **Pattern backtest enters on the breakout bar's own close (found 2026-10-11, strategy agent step 1, Done #118).** `src/signals/patterns/lifecycle.py` sets `entry_price` to the close that confirms the breakout and `src/signals/patterns/backtest/evaluator.py` measures forward returns from it: same-bar execution, against the repo's one-bar lag. It also reports bare outcome rates with no matched control. Its returns include the move from the breakout close to the next open, which a trader acting on that close can't capture; fix (enter at the next open, add a control) before reading pattern outcomes as evidence."
+ },
+ {
+  "qid": "cost_assumption",
+  "split": "dev",
+  "method": "hybrid",
+  "question": "what cost assumption do we use when judging whether a signal is tradeable?",
+  "cite": "docs/strategy-agent/idea.md > Natural-language \u2192 testable strategy agent \u2014 idea > Out of scope",
+  "text": "## Out of scope\n\n- Judging whether an idea is good: the tests do that.\n- Tuning parameters to fit the examples.\n- Live trading or alerts."
+ },
+ {
+  "qid": "divergence_trend_filter",
+  "split": "dev",
+  "method": "hybrid",
+  "question": "did we ever try RSI divergence combined with a trend filter, and what happened?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study \u2014 Track B pre-registration > DC-B3 / DC-B4 \u2014 DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Event set",
+  "text": "- **Context scalar: the hidden-fit retrace fraction** \u2014 counter-move / trend-leg,\n  derived at analysis time from the stored scalars:\n  `leg2_gain_pct \u00d7 (1 + interpeak_retrace_pct) / interpeak_retrace_pct` for LOW pairs\n  (bullish), the `(1 \u2212 interpeak_retrace_pct)` variant for HIGH pairs (bearish); NaN\n  wherever an input is NaN or the trend leg is \u2264 1e-6 of p1's close (invariant #9) \u2014\n  the formula and NaN/eps discipline of\n  `src.analysis.divergence_hidden_prep.hidden_fit_retrace_frac`, with that function's\n  hidden-form domain mask replaced, for control pairs (which carry no `form`), by the\n  strict pair-geometry filter in the Controls section. Undefined rows are excluded\n  and counted. Measured definedness on this base, blind: events 100.0% (the Done #119\n  prep), control pairs 100.0% (`src/analysis/divergence_dcb3b4_sizing.py`, committed\n  with this draft)."
+ },
+ {
+  "qid": "lrp_tested",
+  "split": "dev",
+  "method": "vector",
+  "question": "what's the least resistance path idea and has it been tested?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 3. How it gets tested",
+  "text": "- **Source weights:** if the model's own use of \u00a72.1 disagrees with \u00a71.2's equal\n  `prior_factor`, that's a finding to log. Only the next dated revision of this document\n  may change the priors. They're never tuned against test folds."
+ },
+ {
+  "qid": "lrp_tested",
+  "split": "dev",
+  "method": "rerank",
+  "question": "what's the least resistance path idea and has it been tested?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) \u2014 formulation > 3. How it gets tested > Addendum (2026-10-11): judged on the trading scorecard",
+  "text": "- **The three-verdict rule stays** for any pre-registered test. That includes the\n  planned pre-registered trading test of the full feature set: its relevance band is set\n  in its `PREREGISTRATION.md` entry before it runs.\n- **Scope of step 2:** the level sources only. Patterns (\u00a71.1) and all of \u00a72.4 pressure\n  are step 3, under \u00a72.4's constraints. The v1 source list and its cost come from \u00a74's\n  timing (see the \u00a74 addendum).\n\n---"
+ },
+ {
+  "qid": "harness_folds",
+  "split": "dev",
+  "method": "rerank",
+  "question": "how does the validation harness split train/test for the combined model?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness \u2014 design > 7. Feature registry",
+  "text": "The gate caught one tie: two windows of cent prices can hold the same values, so their widths\nor vols tie exactly. Pandas' running-sum rolling std breaks the tie in float after a later\nsplit or dividend, and a trailing percentile rank would then depend on it. Values are rounded\nto 9 decimals before ranking; the same goes for the cross-sectionally ranked\n`rel_volume_20` and the sector returns, where two names can tie exactly. The cache's panel\nsource reads every name that was a member of the universe's indices in the window (recorded\nas `panel_membership_indices`); the per-ticker sources are still computed on the eligible names only.\n\n**Ties.** Comparisons between price moves or levels use a tie tolerance (1e-9 \u00d7 close):\nADX's \"which move is larger\", the ribbon's \"slope > 0\" and the stack's ordering. Quoted\n(cent-rounded) prices tie exactly, and a later split or dividend breaks such ties in\nfloating point. A strict comparison would then make the value at *t* depend on corporate\nactions after *t*. The real-bar smoke run caught it on ADX (Tiingo's cent prices; up to 3.9\nADX points). The gate's synthetic bars are now cent-rounded, so the synthetic gate catches\nthis class too.\n\n`features/cache.py` builds one cache of every registered model column for a universe's\neligible rows, ranked per date over those rows (`python -m src.models.cli build-features`)."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "vector",
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > #127",
+  "text": "Each chunk is scored as the embedder saw it, heading trail and row ids included. Pooling rule (#115): both models' top 5 on both splits, minus golds and chunks already judged (no record of the \"no\" verdicts survives and node ids change on a rebuild, so judged means: in the current vector, keyword or hybrid top 5 for that question, matched by chunk text): 152 chunks, judged by fresh agents shown only the question and the chunk; 30 yes, each checked by hand, 19 added as golds with a verbatim phrase (11 rejected: design motivation rather than the result, a different bug from the one asked about, another cell's row, a passing mention, a note made stale by a later doc, a mechanism named without saying where it lives). The new golds move vector's hit@10 0.76 \u2192 0.80 (MRR 0.53 \u2192 0.54) and leave hybrid's numbers unchanged. Dev (41 answerable), hit@1 / @3 / @5 / @10 / MRR: vector 0.44 / 0.56 / 0.63 / 0.80 / 0.54; hybrid 0.44 / 0.68 / 0.76 / 0.80 / 0.58; MiniLM re-rank 0.61 / 0.78 / 0.85 / 0.85 / 0.70; bge re-rank 0.56 / 0.78 / 0.80 / 0.88 / 0.67."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "vector",
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > Why",
+  "text": "## Why\n\n- **Earnings dates are the largest known gap for the model.** An earnings gap jumps\n  straight through both barriers of a triple-barrier label, and today nothing can flag\n  \"earnings inside the horizon\" (`docs/modeling/IDEAS.md`, \"Earnings dates\" in \u00a73 and \u00a77).\n- **The model only sees prices.** Growth, surprise and valuation are an independent\n  source of information: the classic academic effects (post-earnings drift, value,\n  quality) come from here, not from charts.\n- **The raw data is already on disk and nearly unused.** `data/raw/sec/submissions.zip`\n  (~1.6 GB, every filer's filing index) and `data/raw/sec/companyfacts.zip` (~1.4 GB,\n  every XBRL fact). Today only share counts are read from them (Done #60)."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "vector",
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > Data sources",
+  "text": "## Data sources\n\n| What | Source | Point-in-time | Notes |\n|---|---|---|---|\n| Earnings dates | `submissions.zip`: 8-K filings with item 2.02 (results of operations) | yes, acceptance time | local, free; covers delisted filers |\n| Reported financials | `companyfacts.zip`: XBRL facts (revenue, EPS, margins, cash, debt, ...) | yes, `filed` date per fact | ~2009\u20132011 onward (XBRL mandatory for all filers by 2011) |\n| Guidance | 8-K item 2.02 exhibit 99.1 (the press release), item 7.01 updates | yes, acceptance time | free text, must be fetched from EDGAR and extracted (step 5) |\n| Analyst consensus | none free | \u2014 | so \"surprise\" is measured against the company's own history |"
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "vector",
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > One-liner",
+  "text": "## One-liner\n\nBring company financials into the database: when each company reported results,\nwhat it reported, and what it said about the future. All of it point-in-time, so the\nmodel and the research can use it without look-ahead."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "vector",
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > Steps > 5. Guidance (later, after a feasibility probe)",
+  "text": "- **Paid alternatives, not checked yet:** structured guidance datasets exist (LSEG I/B/E/S,\n  FactSet, S&P Capital IQ at institutional prices; Benzinga at retail prices, possibly via\n  Polygon as an add-on). Pricing, history depth and point-in-time quality unverified."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > Steps > 2. Fundamentals table",
+  "text": "### 2. Fundamentals table\n\n- Quarterly and annual facts from `companyfacts.zip`: revenue, EPS (basic and diluted),\n  gross and operating income, net income, operating cash flow, cash, total debt,\n  equity.\n- Stored as-of the filed date, first-reported value kept.\n- **Most of the work is tag normalization:** the same concept appears under several XBRL\n  tags (e.g. several revenue tags) that vary across companies and years. Keep an explicit\n  mapping table with its own coverage report.\n- Derive quarterly values where only year-to-date or annual figures are filed\n  (Q4 = annual \u2212 9-month YTD).\n- Checks: coverage per member per quarter, hand-check a handful of companies against\n  their filings."
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "rerank",
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance \u2014 plan > Ground rules",
+  "text": "## Ground rules\n\n- **Point-in-time by filing time.** Every value is available only from its EDGAR\n  acceptance timestamp onward. A filing accepted after the close is usable at the\n  next day's open, never the same bar.\n- **First-reported values, not restated ones.** Companies revise past numbers in later\n  filings; using the revised value is look-ahead. Keep each value as it was first filed,\n  and keep later revisions as separate rows if needed.\n- **Delisted companies stay in.** EDGAR covers them; drop none.\n- **Holdout and trial rules from the modeling thread apply** to anything that reaches a\n  model or a test (`docs/modeling/VALIDATION_HARNESS.md`)."
+ },
+ {
+  "qid": "model_running",
+  "split": "dev",
+  "method": "vector",
+  "question": "Do we have any model running yet?",
+  "cite": "docs/done.md > #117",
+  "text": "**Decided: v1 is the cheap set on the full universe** (S/R, AVWAP, VP, gaps + MA, 52-week high/low, round numbers; ~10 h, ~1.5\u20132 GB), market structure and fibonacci added only if it shows something; a 100-ticker pilot was rejected (5\u00d7 less training data, 2\u00d7 wider CIs, S1b rerun needed). \u00a73 addendum: level groups go into the combined model and are judged on the trading scorecard; ablations are diagnostics; the three-verdict rule stays for any pre-registered test. Docs only; the snapshot builder and features are the next PRs."
+ }
+]

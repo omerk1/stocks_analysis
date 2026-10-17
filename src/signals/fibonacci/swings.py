@@ -97,8 +97,9 @@ def detect_swings(close: pd.Series, atr: pd.Series, config: FibConfig) -> list[F
     the scale-fan-out + swing-building + filter + dedup mechanics.
     """
     all_swings: list[FibSwing] = []
+    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
     for scale in config.scales:
-        pivots = detect_pivots(close, threshold_fn=lambda i, s=scale: s * atr.iloc[i])
+        pivots = detect_pivots(close, threshold_fn=lambda i, s=scale: s * atr_values[i])
         scale_swings = _swings_from_pivots(pivots, scale, atr)
         all_swings.extend(s for s in scale_swings if s.magnitude_atr >= config.min_swing_atr)
 

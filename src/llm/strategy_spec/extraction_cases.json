@@ -1,0 +1,171 @@
+[
+  {
+    "id": "ma_touch_bounce",
+    "golden": "ma_touch_bounce",
+    "fields": {
+      "direction": {"value": "both"},
+      "timeframe": "either",
+      "duration": "blank",
+      "size": "described",
+      "trigger": "described",
+      "horizons_bars": "blank",
+      "invalidation": "described",
+      "supporting_signals": "blank",
+      "secondary_metrics": "either",
+      "control": "blank"
+    },
+    "unsupported": [],
+    "notes": "'The 200-day' arguably names daily bars, so timeframe is either. 'Bounce rather than slice through' doubles as invalidation and as an outcome of interest, so secondary metrics are either."
+  },
+  {
+    "id": "vcp_breakout",
+    "golden": "vcp_breakout",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": "blank",
+      "duration": "either",
+      "size": "described",
+      "trigger": "described",
+      "horizons_bars": "blank",
+      "invalidation": "blank",
+      "supporting_signals": "described",
+      "secondary_metrics": "blank",
+      "control": "blank"
+    },
+    "unsupported": [],
+    "notes": "'Builds a base' describes a formation without bar counts; recording that in words and leaving duration empty are both fine."
+  },
+  {
+    "id": "bullish_rsi_divergence_context",
+    "golden": "bullish_rsi_divergence_context",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": "blank",
+      "duration": "blank",
+      "size": "described",
+      "trigger": "described",
+      "horizons_bars": "blank",
+      "invalidation": "blank",
+      "supporting_signals": "blank",
+      "secondary_metrics": "blank",
+      "control": "blank"
+    },
+    "unsupported": [],
+    "notes": "'The next few months' is words, not a bar count: turning it into 63 is inventing, so horizons stay blank."
+  },
+  {
+    "id": "earnings_gap_pullback",
+    "idea": "After a company beats earnings and the stock gaps up big, I like buying the first pullback. On the daily chart: the stock gaps up at least 3% on earnings day, then within 5 days pulls back to fill at least half the gap without closing below its pre-earnings high. Buy at the next open after that pullback close, but only when the reported earnings beat estimates by at least 5%. Look at returns 5 and 20 days out.",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": {"value": "daily"},
+      "duration": "blank",
+      "size": {"values": {"normalisation": "pct", "min": 3.0}},
+      "trigger": {"values": {"execution": "next_open"}},
+      "horizons_bars": {"values": [5, 20]},
+      "invalidation": "either",
+      "supporting_signals": "blank",
+      "secondary_metrics": "blank",
+      "control": "blank"
+    },
+    "unsupported": [
+      {"has": "earnings", "reason": "unsupported_data"},
+      {"has": "estimates", "reason": "unsupported_data", "optional": true}
+    ],
+    "notes": "The gap itself is testable; tying it to earnings day and the 5% beat is not. 'Without closing below the pre-earnings high' can be read as part of the trigger or as a before-entry kill. Flagging the estimates as their own entry is the same ask split in two, fine but not required."
+  },
+  {
+    "id": "opening_range_breakout",
+    "idea": "Classic opening range breakout: on the 15-minute chart, mark the high and low of the first hour of trading. If price breaks above that high before 1pm, go long right at the break, with a stop at the range low, and sell everything at the market close the same day.",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": "blank",
+      "duration": "blank",
+      "size": "blank",
+      "trigger": "either",
+      "horizons_bars": "blank",
+      "invalidation": "either",
+      "supporting_signals": "blank",
+      "secondary_metrics": "blank",
+      "control": "blank"
+    },
+    "unsupported": [{"has": "15-minute", "reason": "unsupported_timeframe"}],
+    "extra_flags_ok": true,
+    "notes": "Nothing here is testable on daily bars. The one required flag is the 15-minute timeframe; since every part of the idea is genuinely unsupported, any further flag is acceptable whatever its wording or reason label."
+  },
+  {
+    "id": "options_sweep_volume",
+    "idea": "Buy stocks on the daily chart when call option volume comes in at least three times its 20-day average and the prints look like sweeps. Hold for 5 trading days.",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": {"value": "daily"},
+      "duration": "blank",
+      "size": "blank",
+      "trigger": "blank",
+      "horizons_bars": {"values": [5]},
+      "invalidation": "blank",
+      "supporting_signals": "blank",
+      "secondary_metrics": "blank",
+      "control": "blank"
+    },
+    "unsupported": [
+      {"has": "option", "reason": "unsupported_data"},
+      {"has": "sweep", "reason": "unsupported_data", "optional": true}
+    ],
+    "notes": "The trigger is entirely options flow, which isn't loaded: the field stays empty and the request is flagged, not approximated with share volume. Flagging the sweeps separately is fine too."
+  },
+  {
+    "id": "news_sentiment_short",
+    "idea": "Short setup: on daily bars, a stock trading below its 200-day moving average while news sentiment over the past week has turned clearly negative. Enter short at the next open, cover after 10 trading days. Compare against stocks below their 200-day average with neutral news.",
+    "fields": {
+      "direction": {"value": "short"},
+      "timeframe": {"value": "daily"},
+      "duration": "blank",
+      "size": "blank",
+      "trigger": "either",
+      "horizons_bars": {"values": [10]},
+      "invalidation": "blank",
+      "supporting_signals": "either",
+      "secondary_metrics": "blank",
+      "control": "either"
+    },
+    "unsupported": [{"has": "news", "reason": "unsupported_data"}],
+    "notes": "Half supported: the 200-day condition exists, the sentiment doesn't. Where the supported half lands (trigger vs supporting signal) and whether the control is worth recording in words are judgment calls."
+  },
+  {
+    "id": "stochastic_oversold_cross",
+    "idea": "On daily bars, buy when the stochastic oscillator crosses back up from oversold, below 20, while the stock is above its 200-day moving average. Enter at the next day's open. Look at 10 and 20 day returns, compared with all the other days the stock spent above its 200-day average.",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": {"value": "daily"},
+      "duration": "blank",
+      "size": "blank",
+      "trigger": "either",
+      "horizons_bars": {"values": [10, 20]},
+      "invalidation": "blank",
+      "supporting_signals": "described",
+      "secondary_metrics": "blank",
+      "control": "described"
+    },
+    "unsupported": [{"has": "stochastic", "reason": "unknown_indicator"}],
+    "notes": "The indicator doesn't exist here, so the trigger can't be expressed; the 200-day filter and the control are fully supported and should be filled."
+  },
+  {
+    "id": "atr_gap_up",
+    "idea": "On daily bars: the stock gaps up at least 1.5 ATR at the open, on volume at least twice its 20-day average. Buy at the next day's open. If the gap fully fills within 3 days, the setup failed. Look at returns 5 and 20 days out, against other days from the same stocks with no gap, matched on volatility.",
+    "fields": {
+      "direction": {"value": "long"},
+      "timeframe": {"value": "daily"},
+      "duration": "blank",
+      "size": {"values": {"normalisation": "atr", "min": 1.5}},
+      "trigger": {"values": {"execution": "next_open"}},
+      "horizons_bars": {"values": [5, 20]},
+      "invalidation": "described",
+      "supporting_signals": "described",
+      "secondary_metrics": "blank",
+      "control": "described"
+    },
+    "unsupported": [],
+    "notes": "Fully supported on purpose: any flag here is a false alarm."
+  }
+]
