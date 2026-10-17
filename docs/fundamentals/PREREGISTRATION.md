@@ -579,7 +579,7 @@ beyond momentum is +0.13% per event [−0.41%, +0.67%], 99% interval, band ±0.1
 
 - **One neighbour at the secondary horizon reads an effect:** H21 at the 95/5 cut,
   +0.47% [+0.04%, +0.95%] (837 dates; [+0.01%, +0.99%] at 10,000 draws). Neither side
-  alone excludes zero: positive surprises +0.47%, negative −0.61% [−1.29%, +0.02%].
+  alone excludes zero: positive surprises +0.47% [−0.33%, +1.26%], negative −0.61% [−1.29%, +0.02%].
   - That's 1 of the 8 signed neighbour and robustness readouts, at the secondary
     horizon. The primary cut at H21 (+0.27%) and the 80/20 cut (+0.14%) don't show
     it, and neither does H63's 95/5.
