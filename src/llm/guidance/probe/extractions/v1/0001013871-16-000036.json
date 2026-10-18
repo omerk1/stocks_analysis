@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "a4ba4f6722d65647e6f8f2e24095a05e5c829cfca4656f500bb9f3d3bde50df3",
+ "text_sha256": "e5ae2959f7b6098891ffb206bf920fffc41f65120db3f0eacb0e2e6ef8faf93d",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,7 +22,20 @@
    },
    {
     "metric": "other",
-    "metric_text": "FCF before growth investments",
+    "metric_text": "Cash From Operations",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 1975.0,
+    "high": 2075.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Free Cash Flow - before Growth Investments",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -30,7 +43,7 @@
     "high": 1200.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
    },
    {
@@ -48,32 +61,6 @@
    },
    {
     "metric": "other",
-    "metric_text": "Free Cash Flow before Growth (FCFbG)",
-    "period": "year",
-    "period_text": "2017",
-    "shape": "range",
-    "low": 800.0,
-    "high": 1000.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "\u2022 | Increasing and narrowing 2016 Adjusted EBITDA guidance, and initiating 2017 Adjusted EBITDA and Free Cash Flow before Growth (FCFbG) guidance"
-   },
-   {
-    "metric": "other",
-    "metric_text": "Cash From Operations",
-    "period": "year",
-    "period_text": "2016",
-    "shape": "range",
-    "low": 1975.0,
-    "high": 2075.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Table 4: 2016 and 2017 Adjusted EBITDA and FCF before Growth Investments Guidance"
-   },
-   {
-    "metric": "other",
     "metric_text": "Cash From Operations",
     "period": "year",
     "period_text": "2017",
@@ -83,15 +70,28 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "initiated",
-    "evidence": "Table 4: 2016 and 2017 Adjusted EBITDA and FCF before Growth Investments Guidance"
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Free Cash Flow - before Growth Investments",
+    "period": "year",
+    "period_text": "2017",
+    "shape": "range",
+    "low": 800.0,
+    "high": 1000.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 21029,
-  "output_tokens": 934,
+  "prompt_tokens": 20977,
+  "output_tokens": 982,
   "thinking_tokens": 0,
-  "total_tokens": 21963
+  "total_tokens": 21959
  }
 }

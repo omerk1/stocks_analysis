@@ -3,16 +3,16 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "62ecd5a704834a24cff9954a10d4f92736fe18473faa0da70c461d851c971e7c",
+ "text_sha256": "05513db0240650548cc6518b7498c34d917478b7dbc9c349642266f8d35488e9",
  "label": {
   "guidance_present": false,
   "items": [],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 19762,
+  "prompt_tokens": 19738,
   "output_tokens": 25,
   "thinking_tokens": 0,
-  "total_tokens": 19787
+  "total_tokens": 19763
  }
 }

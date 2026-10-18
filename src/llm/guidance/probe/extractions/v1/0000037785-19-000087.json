@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "e491995cabe3001905dcef042e7837f67c80d6c8b4cca2e853231655ca412432",
+ "text_sha256": "2b582868b044df9107487624737cc3f31691fd4016692c3d1fcc1ca4aa07aa3d",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "revenue",
-    "metric_text": "full-year revenue outlook",
+    "metric_text": "full-year revenue",
     "period": "year",
     "period_text": "full-year",
     "shape": "range",
@@ -22,7 +22,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "full-year adjusted EBITDA outlook",
+    "metric_text": "full-year adjusted EBITDA",
     "period": "year",
     "period_text": "full-year",
     "shape": "range",
@@ -35,7 +35,7 @@
    },
    {
     "metric": "eps",
-    "metric_text": "full-year adjusted earnings guidance",
+    "metric_text": "full-year adjusted earnings",
     "period": "year",
     "period_text": "full-year",
     "shape": "range",
@@ -48,7 +48,7 @@
    },
    {
     "metric": "revenue",
-    "metric_text": "guidance for full-year 2019 revenue",
+    "metric_text": "full-year 2019 revenue",
     "period": "year",
     "period_text": "full-year 2019",
     "shape": "range",
@@ -214,27 +214,14 @@
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "FMC expects adjusted earnings per diluted share to be in the range of $1.55 to $1.65 in the fourth quarter, which represents growth of 10 percent at the midpoint versus recast Q4 2018 and assumes WADSO of approximately 130.5 million."
-   },
-   {
-    "metric": "other",
-    "metric_text": "total expected share repurchases",
-    "period": "year",
-    "period_text": "2019",
-    "shape": "floor",
-    "low": 400.0,
-    "high": null,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "raised",
-    "evidence": "We have raised our full-year earnings guidance to reflect our total expected share repurchases of at least $400 million in 2019,\u201d said Brondeau."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 10011,
-  "output_tokens": 2825,
+  "prompt_tokens": 9959,
+  "output_tokens": 2672,
   "thinking_tokens": 0,
-  "total_tokens": 12836
+  "total_tokens": 12631
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "517f2d493880fc0bf4eb00e4580d60b659d8db02096e88de067b7297ecc5c5f0",
+ "text_sha256": "0fcca1182f1dad383863cc173f965b1c2cace9b621fe97a4897fd6de81d16e95",
  "label": {
   "guidance_present": true,
   "items": [
@@ -82,7 +82,7 @@
     "high": 24.0,
     "unit": "percent",
     "basis": "adjusted",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "Effective Tax Rate on Adjusted Income(2) | Approximately 24.0%"
    },
    {
@@ -102,9 +102,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 48782,
-  "output_tokens": 1024,
+  "prompt_tokens": 48730,
+  "output_tokens": 1040,
   "thinking_tokens": 0,
-  "total_tokens": 49806
+  "total_tokens": 49770
  }
 }

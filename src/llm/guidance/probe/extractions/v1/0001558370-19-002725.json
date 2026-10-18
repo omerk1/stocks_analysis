@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "db1ef8dc65768e32f8124d1cb04bb08d70d6c80296d53cf9f88c66e71efae814",
+ "text_sha256": "b7d3dd9d8eb0a80b65bfa03eed50d76087ac92637313adf1df8e29c27c4a5fa0",
  "label": {
   "guidance_present": true,
   "items": [
@@ -37,13 +37,13 @@
     "metric": "other",
     "metric_text": "Interest expense",
     "period": "year",
-    "period_text": "fiscal year 2019",
+    "period_text": "FY 2019",
     "shape": "point",
     "low": 110.0,
     "high": 110.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "Total interest expense to be approximately $110 million."
    },
    {
@@ -63,20 +63,20 @@
     "metric": "other",
     "metric_text": "Cash used for capital expenditures",
     "period": "year",
-    "period_text": "fiscal year 2019",
+    "period_text": "FY 2019",
     "shape": "point",
     "low": 350.0,
     "high": 350.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "Cash used for capital expenditures of approximately $350 million."
    },
    {
     "metric": "other",
     "metric_text": "Total depreciation and amortization expense",
     "period": "year",
-    "period_text": "fiscal year 2019",
+    "period_text": "FY 2019",
     "shape": "point",
     "low": 150.0,
     "high": 150.0,
@@ -89,9 +89,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 12908,
-  "output_tokens": 846,
+  "prompt_tokens": 12871,
+  "output_tokens": 847,
   "thinking_tokens": 0,
-  "total_tokens": 13754
+  "total_tokens": 13718
  }
 }

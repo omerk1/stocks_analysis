@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "9a7c2610a069d4af2a1639a3cf17f700cdec946c0f58495434e8fcc7fa53a32f",
+ "text_sha256": "b54ad7ce532a39357de9031edb10a325ba5a44f2e2fde06eb395936ba8bdb6fe",
  "label": {
   "guidance_present": true,
   "items": [
@@ -100,7 +100,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "AOI",
+    "metric_text": "ticketing AOI",
     "period": "year",
     "period_text": "this year",
     "shape": "qualitative",
@@ -119,7 +119,7 @@
     "shape": "qualitative",
     "low": null,
     "high": null,
-    "unit": "other",
+    "unit": "USD",
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
@@ -132,7 +132,7 @@
     "shape": "qualitative",
     "low": null,
     "high": null,
-    "unit": "other",
+    "unit": "USD",
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
@@ -145,7 +145,7 @@
     "shape": "qualitative",
     "low": null,
     "high": null,
-    "unit": "other",
+    "unit": "USD",
     "basis": "adjusted",
     "revision": "not_stated",
     "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
@@ -180,9 +180,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11716,
-  "output_tokens": 1783,
+  "prompt_tokens": 11664,
+  "output_tokens": 1785,
   "thinking_tokens": 0,
-  "total_tokens": 13499
+  "total_tokens": 13449
  }
 }

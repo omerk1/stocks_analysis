@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "d34aaebd3bb1bc68fd9f0ac6bdb0f98ac7d41789af7f9a40c269adb4ba6c8d00",
+ "text_sha256": "f0d03fd78e0568cbae91916b2ff3e150cf9a7b108da6b5dc1e879075c451fdf5",
  "label": {
   "guidance_present": true,
   "items": [
@@ -122,7 +122,7 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "lowered",
-    "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million;"
+    "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million; and"
    },
    {
     "metric": "other",
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8134,
-  "output_tokens": 1550,
+  "prompt_tokens": 8082,
+  "output_tokens": 1552,
   "thinking_tokens": 0,
-  "total_tokens": 9684
+  "total_tokens": 9634
  }
 }

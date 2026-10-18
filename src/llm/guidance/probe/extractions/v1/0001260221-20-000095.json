@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "ebdd824e7b57592f3ddcc282cdac5335cebc1d3939a77de88b1e85a4bc5f6aaf",
+ "text_sha256": "2ccde8789e41641346d351777e05d65a8a64896af2fee7f12de07088f1e54a4b",
  "label": {
   "guidance_present": true,
   "items": [
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8264,
+  "prompt_tokens": 8214,
   "output_tokens": 304,
   "thinking_tokens": 0,
-  "total_tokens": 8568
+  "total_tokens": 8518
  }
 }

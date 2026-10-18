@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "dbdaf2fd3b77778154ae9c2a40cb5af4f6aef6c055c4bd798610961657b7646e",
+ "text_sha256": "1d2d04e4fd15ec93e6e17db55eb20b4159b13625041e39aa6d83957748f03128",
  "label": {
   "guidance_present": true,
   "items": [
@@ -21,8 +21,8 @@
     "evidence": "Alliant Energy consolidated EPS guidance for 2019 remains unchanged. 2019 EPS guidance for the reporting companies is as follows: Alliant Energy Consolidated | $2.17 - $2.31"
    },
    {
-    "metric": "other",
-    "metric_text": "EPS guidance for Utilities and Corporate Services",
+    "metric": "eps",
+    "metric_text": "EPS guidance",
     "period": "year",
     "period_text": "2019",
     "shape": "range",
@@ -34,8 +34,8 @@
     "evidence": "Alliant Energy consolidated EPS guidance for 2019 remains unchanged. 2019 EPS guidance for the reporting companies is as follows: Utilities and Corporate Services | $2.14 - $2.24"
    },
    {
-    "metric": "other",
-    "metric_text": "EPS guidance for ATC Holdings",
+    "metric": "eps",
+    "metric_text": "EPS guidance",
     "period": "year",
     "period_text": "2019",
     "shape": "range",
@@ -47,8 +47,8 @@
     "evidence": "Alliant Energy consolidated EPS guidance for 2019 remains unchanged. 2019 EPS guidance for the reporting companies is as follows: ATC Holdings | 0.11 - 0.13"
    },
    {
-    "metric": "other",
-    "metric_text": "EPS guidance for Non-utility and Parent",
+    "metric": "eps",
+    "metric_text": "EPS guidance",
     "period": "year",
     "period_text": "2019",
     "shape": "range",
@@ -73,7 +73,7 @@
     "evidence": "Assumptions for Alliant Energy\u2019s 2019 earnings guidance include, but are not limited to: Consolidated effective tax rate of 11%"
    },
    {
-    "metric": "eps",
+    "metric": "other",
     "metric_text": "earnings per share growth",
     "period": "other",
     "period_text": "long-term",
@@ -89,9 +89,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11779,
-  "output_tokens": 951,
+  "prompt_tokens": 11727,
+  "output_tokens": 937,
   "thinking_tokens": 0,
-  "total_tokens": 12730
+  "total_tokens": 12664
  }
 }

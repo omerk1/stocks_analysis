@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "1cc60f217fb22f130bf433072fb83c1726c3db6b78bc2c5ebc6e26a7a31ff990",
+ "text_sha256": "75c5e602997675621972c73cc3f39762e2b57a14bfbc2185d537fd6441c94b94",
  "label": {
   "guidance_present": true,
   "items": [
@@ -26,9 +26,9 @@
     "period": "year",
     "period_text": "for the full year of 2020",
     "shape": "range",
-    "low": 1650.0,
-    "high": 1665.0,
-    "unit": "USD millions",
+    "low": 1.65,
+    "high": 1.665,
+    "unit": "USD billions",
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The Company expects revenue in the range of $1.650 billion to $1.665 billion for the full year of 2020, representing growth of 18% to 19% for the year."
@@ -45,6 +45,19 @@
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The Company expects revenue in the range of $1.650 billion to $1.665 billion for the full year of 2020, representing growth of 18% to 19% for the year."
+   },
+   {
+    "metric": "other",
+    "metric_text": "estimated full year 2020 revenue contribution from STR",
+    "period": "year",
+    "period_text": "full year 2020",
+    "shape": "range",
+    "low": 61.0,
+    "high": 63.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "This guidance includes an estimated full year 2020 revenue contribution from STR of $61 to $63 million."
    },
    {
     "metric": "revenue",
@@ -154,9 +167,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11308,
-  "output_tokens": 1718,
+  "prompt_tokens": 11256,
+  "output_tokens": 1862,
   "thinking_tokens": 0,
-  "total_tokens": 13026
+  "total_tokens": 13118
  }
 }

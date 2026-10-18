@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "89a700cfabbdf59c0b1265a579965437136de8be4cfc3d309659f9ec486b0d9e",
+ "text_sha256": "c862116fe186506b43a66eb9d9dd0b36c8603aed7de4de733d9aecda43fa7b64",
  "label": {
   "guidance_present": true,
   "items": [
@@ -30,91 +30,13 @@
     "high": null,
     "unit": "unstated",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "maintained",
     "evidence": "We expect those costs to be confined to the first quarter and to recover approximately one-third of this amount over the balance of the year."
-   },
-   {
-    "metric": "other",
-    "metric_text": "costs",
-    "period": "year",
-    "period_text": "balance of the year",
-    "shape": "point",
-    "low": 8.0,
-    "high": 8.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "We expect those costs to be confined to the first quarter and to recover approximately one-third of this amount over the balance of the year."
-   },
-   {
-    "metric": "other",
-    "metric_text": "International items",
-    "period": "quarter",
-    "period_text": "second quarter",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Our second quarter will again reflect the aforementioned International items and will also be subject to the customary seasonal loss in Canada."
-   },
-   {
-    "metric": "other",
-    "metric_text": "seasonal loss",
-    "period": "quarter",
-    "period_text": "second quarter",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Our second quarter will again reflect the aforementioned International items and will also be subject to the customary seasonal loss in Canada."
-   },
-   {
-    "metric": "other",
-    "metric_text": "results",
-    "period": "other",
-    "period_text": "second half",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Nonetheless, all indications point to a second half characterized by significantly improving results across all of our units other than US Offshore and Alaska, and improving visibility indicates a resumption of growth in these two units longer-term."
-   },
-   {
-    "metric": "other",
-    "metric_text": "growth",
-    "period": "other",
-    "period_text": "longer-term",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Nonetheless, all indications point to a second half characterized by significantly improving results across all of our units other than US Offshore and Alaska, and improving visibility indicates a resumption of growth in these two units longer-term."
-   },
-   {
-    "metric": "other",
-    "metric_text": "seasonal loss",
-    "period": "quarter",
-    "period_text": "second quarter",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "While we will likely see a seasonal loss in the second quarter, the balance of the year appears to be quite strong with 45 rigs already committed to work following the spring thaw."
    },
    {
     "metric": "other",
     "metric_text": "rig count",
-    "period": "year",
+    "period": "other",
     "period_text": "balance of the year",
     "shape": "qualitative",
     "low": null,
@@ -127,7 +49,7 @@
    {
     "metric": "margin",
     "metric_text": "average margins",
-    "period": "year",
+    "period": "other",
     "period_text": "balance of the year",
     "shape": "qualitative",
     "low": null,
@@ -152,7 +74,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "income",
+    "metric_text": "International income",
     "period": "quarter",
     "period_text": "fourth quarter",
     "shape": "point",
@@ -191,20 +113,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "price increases and surcharges",
-    "period": "other",
-    "period_text": "going forward",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "We are implementing price increases and surcharges that should cover most of these increases going forward."
-   },
-   {
-    "metric": "other",
-    "metric_text": "equipment deployment",
+    "metric_text": "Pressure Pumping operations",
     "period": "year",
     "period_text": "end of this year",
     "shape": "qualitative",
@@ -217,8 +126,8 @@
    },
    {
     "metric": "other",
-    "metric_text": "improvement",
-    "period": "year",
+    "metric_text": "US Well-servicing unit",
+    "period": "other",
     "period_text": "balance of the year",
     "shape": "qualitative",
     "low": null,
@@ -230,7 +139,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "activity",
+    "metric_text": "US Offshore business activity",
     "period": "other",
     "period_text": "second half",
     "shape": "qualitative",
@@ -243,9 +152,9 @@
    },
    {
     "metric": "other",
-    "metric_text": "visibility",
-    "period": "year",
-    "period_text": "end of this year",
+    "metric_text": "US Offshore outlook",
+    "period": "other",
+    "period_text": "intermediate term",
     "shape": "qualitative",
     "low": null,
     "high": null,
@@ -256,7 +165,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "contribution",
+    "metric_text": "contribution from new deepwater platform rigs",
     "period": "year",
     "period_text": "2011",
     "shape": "qualitative",
@@ -265,11 +174,11 @@
     "unit": "unstated",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
+    "evidence": "One of these will be sold to the customer and will be operated by Nabors under a long-term management contract. It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
    },
    {
     "metric": "other",
-    "metric_text": "contribution",
+    "metric_text": "contribution from new deepwater platform rigs",
     "period": "year",
     "period_text": "2012",
     "shape": "qualitative",
@@ -278,11 +187,11 @@
     "unit": "unstated",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
+    "evidence": "One of these will be sold to the customer and will be operated by Nabors under a long-term management contract. It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
    },
    {
     "metric": "other",
-    "metric_text": "impact on our results",
+    "metric_text": "impact on results from new deepwater platform rigs",
     "period": "year",
     "period_text": "2013",
     "shape": "qualitative",
@@ -291,24 +200,11 @@
     "unit": "unstated",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
+    "evidence": "One of these will be sold to the customer and will be operated by Nabors under a long-term management contract. It will contribute slightly in 2011 and 2012, but the largest impact on our results will be in 2013 when both rigs should be operating for the full year."
    },
    {
     "metric": "other",
-    "metric_text": "outlook",
-    "period": "other",
-    "period_text": "this business",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "The outlook for this business remains challenging, but the prospects for a significantly improving market in 2012 and 2013 are becoming more tangible."
-   },
-   {
-    "metric": "other",
-    "metric_text": "market",
+    "metric_text": "Alaska market",
     "period": "year",
     "period_text": "2012",
     "shape": "qualitative",
@@ -321,7 +217,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "market",
+    "metric_text": "Alaska market",
     "period": "year",
     "period_text": "2013",
     "shape": "qualitative",
@@ -334,8 +230,8 @@
    },
    {
     "metric": "other",
-    "metric_text": "shipments",
-    "period": "other",
+    "metric_text": "Canrig shipments",
+    "period": "quarter",
     "period_text": "next two quarters",
     "shape": "qualitative",
     "low": null,
@@ -347,24 +243,24 @@
    },
    {
     "metric": "other",
-    "metric_text": "proceeds",
-    "period": "other",
-    "period_text": "before the end of the second quarter",
+    "metric_text": "proceeds from sale of Colombia holdings",
+    "period": "quarter",
+    "period_text": "end of the second quarter",
     "shape": "floor",
     "low": 250.0,
     "high": null,
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "The combined proceeds to Nabors are expected to exceed $250 million."
+    "evidence": "All of these transactions either have closed or are expected to do so before the end of the second quarter. The combined proceeds to Nabors are expected to exceed $250 million."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 9341,
-  "output_tokens": 3633,
+  "prompt_tokens": 9209,
+  "output_tokens": 2697,
   "thinking_tokens": 0,
-  "total_tokens": 12974
+  "total_tokens": 11906
  }
 }

@@ -3,10 +3,49 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "9407ba8ae9d1349a16be52bb8bb09715944ad267bdc81227f659d539532e6732",
+ "text_sha256": "9d819a60786d117ebc69cb32b8848ef06c28ffca1f72e1f7417093a04610f780",
  "label": {
   "guidance_present": true,
   "items": [
+   {
+    "metric": "other",
+    "metric_text": "capital expenditures",
+    "period": "year",
+    "period_text": "For 2018",
+    "shape": "range",
+    "low": 475.0,
+    "high": 550.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "For 2018, the Company expects capital expenditures of $475 million to $550 million, closer to its historical average spend."
+   },
+   {
+    "metric": "other",
+    "metric_text": "ROI capital expenditures",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 185.0,
+    "high": 220.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
+   },
+   {
+    "metric": "other",
+    "metric_text": "renewal and replacement projects",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 290.0,
+    "high": 330.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
+   },
    {
     "metric": "other",
     "metric_text": "Total comparable hotel RevPAR - Constant US$",
@@ -18,7 +57,7 @@
     "unit": "percent",
     "basis": "unstated",
     "revision": "initiated",
-    "evidence": "The Company anticipates that its 2018 operating results as compared to the prior year will change in the following range: Full Year 2018 Guidance Total comparable hotel RevPAR - Constant US$ | 0.5% to 2.5%"
+    "evidence": "Total comparable hotel RevPAR - Constant US$ | 0.5% to 2.5%"
    },
    {
     "metric": "revenue",
@@ -70,7 +109,7 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "initiated",
-    "evidence": "Based upon the above parameters, the Company estimates its 2018 guidance as follows: Full Year 2018 Guidance Net income (in millions) | $547 to $616"
+    "evidence": "Net income (in millions) | $547 to $616"
    },
    {
     "metric": "other",
@@ -123,53 +162,14 @@
     "basis": "adjusted",
     "revision": "initiated",
     "evidence": "Adjusted FFO per diluted share | $1.60 to $1.70"
-   },
-   {
-    "metric": "other",
-    "metric_text": "capital expenditures",
-    "period": "year",
-    "period_text": "2018",
-    "shape": "range",
-    "low": 475.0,
-    "high": 550.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "For 2018, the Company expects capital expenditures of $475 million to $550 million, closer to its historical average spend."
-   },
-   {
-    "metric": "other",
-    "metric_text": "ROI capital expenditures",
-    "period": "year",
-    "period_text": "2018",
-    "shape": "range",
-    "low": 185.0,
-    "high": 220.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
-   },
-   {
-    "metric": "other",
-    "metric_text": "renewal and replacement projects",
-    "period": "year",
-    "period_text": "2018",
-    "shape": "range",
-    "low": 290.0,
-    "high": 330.0,
-    "unit": "USD millions",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 23746,
-  "output_tokens": 1713,
+  "prompt_tokens": 23697,
+  "output_tokens": 1655,
   "thinking_tokens": 0,
-  "total_tokens": 25459
+  "total_tokens": 25352
  }
 }

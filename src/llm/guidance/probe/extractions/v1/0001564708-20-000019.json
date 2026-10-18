@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "acb1aecc12964c2101d0cad61342d84dfd96ea8db0e7843ad78ef5af78671f30",
+ "text_sha256": "d39a9ad34ac730a3a4c73eea75a4af83da0c5ffca60fd98f1fe10de3adbccf70",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,9 +22,9 @@
    },
    {
     "metric": "other",
-    "metric_text": "residential revenue growth at REA Group",
+    "metric_text": "residential revenue growth",
     "period": "other",
-    "period_text": "expected to be offset",
+    "period_text": "future",
     "shape": "qualitative",
     "low": null,
     "high": null,
@@ -35,7 +35,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "additional sports rights costs",
+    "metric_text": "sports rights costs",
     "period": "year",
     "period_text": "fiscal 2021",
     "shape": "point",
@@ -48,7 +48,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "overall costs for fiscal 2021, net of the increase in sports rights costs",
+    "metric_text": "overall costs",
     "period": "year",
     "period_text": "fiscal 2021",
     "shape": "ceiling",
@@ -61,22 +61,9 @@
    },
    {
     "metric": "other",
-    "metric_text": "Broadcast churn",
+    "metric_text": "advertising and single-copy sales revenues",
     "period": "other",
-    "period_text": "July",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "percent",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Broadcast churn was modestly higher in July compared to the prior year and the fourth quarter."
-   },
-   {
-    "metric": "other",
-    "metric_text": "adverse effects on advertising and single-copy sales revenues",
-    "period": "other",
-    "period_text": "continue to see",
+    "period_text": "future",
     "shape": "qualitative",
     "low": null,
     "high": null,
@@ -88,8 +75,8 @@
    {
     "metric": "other",
     "metric_text": "annualized cost savings",
-    "period": "year",
-    "period_text": "fiscal 2022",
+    "period": "other",
+    "period_text": "beginning in fiscal 2022",
     "shape": "floor",
     "low": 100.0,
     "high": null,
@@ -102,9 +89,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 18676,
-  "output_tokens": 1081,
+  "prompt_tokens": 18626,
+  "output_tokens": 937,
   "thinking_tokens": 0,
-  "total_tokens": 19757
+  "total_tokens": 19563
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "a07b6a542111741828df0a07c4d3fdf0bbd01188670999d19b3973f78998b1a6",
+ "text_sha256": "da66bd3c5040f3cfeb84ce6e582a120ea21c2bf7ef3ad890fc053f82f97666f6",
  "label": {
   "guidance_present": true,
   "items": [
@@ -51,9 +51,9 @@
     "metric_text": "sales",
     "period": "year",
     "period_text": "full year of 2015",
-    "shape": "point",
-    "low": -4.0,
-    "high": -4.0,
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
     "unit": "percent",
     "basis": "unstated",
     "revision": "not_stated",
@@ -76,9 +76,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8835,
-  "output_tokens": 824,
+  "prompt_tokens": 8783,
+  "output_tokens": 819,
   "thinking_tokens": 0,
-  "total_tokens": 9659
+  "total_tokens": 9602
  }
 }

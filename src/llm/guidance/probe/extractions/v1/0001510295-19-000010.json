@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "e7fecad3f3c0feb91ebc0aa67ad5ede83d4138a44049ae43edc4e99bc685ee19",
+ "text_sha256": "6082f92138ad6faef7dd0d8704b9feb24ea608e1fe6a35aea4a795bf83849955",
  "label": {
   "guidance_present": true,
   "items": [
@@ -32,27 +32,14 @@
     "basis": "unstated",
     "revision": "maintained",
     "evidence": "By executing the strategy outlined during our recent Investor Day, we have realized $160 million of synergies in just three months and continue to expect total annual gross run-rate synergies of up to $600 million at year-end 2019 and $1.4 billion by the end of 2021."
-   },
-   {
-    "metric": "other",
-    "metric_text": "discretionary free cash flow",
-    "period": "other",
-    "period_text": "long term",
-    "shape": "floor",
-    "low": 50.0,
-    "high": null,
-    "unit": "percent",
-    "basis": "unstated",
-    "revision": "maintained",
-    "evidence": "The company remains committed to returning at least 50 percent of discretionary free cash flow* to shareholders over the long term through a combination of dividends and share repurchases while maintaining its investment grade credit profile."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11876,
-  "output_tokens": 540,
+  "prompt_tokens": 11824,
+  "output_tokens": 395,
   "thinking_tokens": 0,
-  "total_tokens": 12416
+  "total_tokens": 12219
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "1d1f704db6ac487312d88fe61e6e95cd5256b5355a7a4ab1be754cfe0bc3b772",
+ "text_sha256": "92359f065ad574afa2c826e4d535dc505c1d51cdbe21fbdca050b7108110fbd0",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,7 +22,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "cost reductions",
+    "metric_text": "costs",
     "period": "year",
     "period_text": "2011",
     "shape": "point",
@@ -71,53 +71,14 @@
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The company has announced a preliminary capital spending estimate of $2.6 billion for 2011, which includes a decline in regulatory spending and an increase in spending for economic growth projects."
-   },
-   {
-    "metric": "other",
-    "metric_text": "closing on that sale",
-    "period": "quarter",
-    "period_text": "fourth quarter",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "We have an agreement to sell the Paulsboro refinery, and we anticipate closing on that sale in the fourth quarter."
-   },
-   {
-    "metric": "other",
-    "metric_text": "sale of our investment in the Cameron Highway Oil Pipeline System",
-    "period": "quarter",
-    "period_text": "fourth quarter",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "We also expect to close on the sale of our investment in the Cameron Highway Oil Pipeline System in the fourth quarter."
-   },
-   {
-    "metric": "other",
-    "metric_text": "Aruba refinery restart",
-    "period": "other",
-    "period_text": "mid-December",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "unstated",
-    "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "In addition, we are continuing maintenance at our Aruba refinery, which should be ready to restart in mid-December."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8243,
-  "output_tokens": 1116,
+  "prompt_tokens": 8091,
+  "output_tokens": 728,
   "thinking_tokens": 0,
-  "total_tokens": 9359
+  "total_tokens": 8819
  }
 }

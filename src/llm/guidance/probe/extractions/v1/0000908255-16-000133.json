@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "91f65af531f10cf064ecbddae63d52ffea721dd6565115f422dad3cd047c0ce6",
+ "text_sha256": "17ca3bfda8b5493c15e729c61a95f35f5a7fc3769a2bb93e9af215ffcd9f1b14",
  "label": {
   "guidance_present": true,
   "items": [
@@ -37,7 +37,7 @@
     "metric": "eps",
     "metric_text": "Net earnings",
     "period": "year",
-    "period_text": "2016 full year",
+    "period_text": "full year 2016",
     "shape": "range",
     "low": 3.24,
     "high": 3.28,
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 6640,
-  "output_tokens": 1519,
+  "prompt_tokens": 6588,
+  "output_tokens": 1520,
   "thinking_tokens": 0,
-  "total_tokens": 8159
+  "total_tokens": 8108
  }
 }

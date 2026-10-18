@@ -38,7 +38,7 @@ def test_release_text_keeps_table_rows_on_one_line():
 
 
 def test_release_text_keeps_inline_tags_in_their_sentence():
-    html = b"""<html><body><p>expects EPS of <b>$2.10</b> to <font size=2>$2.20</font>
+    html = b"""<!DOCTYPE html><html><body><!-- XBRL junk --><p>expects EPS of <b>$2.10</b> to <font size=2>$2.20</font>
     for 2015,<br>up from <span>$2.00</span>.</p><div>Next</div>
     <table><tr><td>$<b>1.2</b> billion</td></tr></table><pre>keep
   this</pre></body></html>"""

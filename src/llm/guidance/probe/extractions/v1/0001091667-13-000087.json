@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "b10bd1aaf80ee243af37c8e567aad9ab61cec91c98f517eb82abe7d1b5bd103b",
+ "text_sha256": "5a320b0c822962c9c675ed88deeee90f151e98cc4a225afaeeb2c06e1ecf4306",
  "label": {
   "guidance_present": true,
   "items": [
@@ -17,16 +17,16 @@
     "high": 1.7,
     "unit": "USD billions",
     "basis": "unstated",
-    "revision": "initiated",
+    "revision": "not_stated",
     "evidence": "In 2013, capital expenditures are expected to be approximately $1.7 billion, excluding the impact of acquisitions."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11189,
-  "output_tokens": 160,
+  "prompt_tokens": 11125,
+  "output_tokens": 162,
   "thinking_tokens": 0,
-  "total_tokens": 11349
+  "total_tokens": 11287
  }
 }

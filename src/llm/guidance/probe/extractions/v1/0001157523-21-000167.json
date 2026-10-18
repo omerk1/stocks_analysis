@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "6a87d22fc2f2634b9c13e9ef87102ba0867207e45092c7ffc4987426c60a6083",
+ "text_sha256": "47d93fb15c78a75d44d3d8aeff2f3aaf91849c8bc3c3bb08f84c2811357b45e8",
  "label": {
   "guidance_present": true,
   "items": [
    {
-    "metric": "eps",
-    "metric_text": "Net Income available to common shareholders (per diluted share)",
+    "metric": "other",
+    "metric_text": "Net Income available to common shareholders",
     "period": "year",
     "period_text": "Full Year 2021",
     "shape": "range",
@@ -22,7 +22,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "NAREIT FFO (per diluted share)",
+    "metric_text": "NAREIT FFO",
     "period": "year",
     "period_text": "Full Year 2021",
     "shape": "range",
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8536,
-  "output_tokens": 315,
+  "prompt_tokens": 8498,
+  "output_tokens": 307,
   "thinking_tokens": 0,
-  "total_tokens": 8851
+  "total_tokens": 8805
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "a5421a701a93af7d6dfb8a9773a2355000e0e2bab4b88f45a42f65fd69ecab4b",
+ "text_sha256": "63ea825933b4ceb36249d475b369c317763eb7d1f7bb3a8f7da201081a9b869b",
  "label": {
   "guidance_present": true,
   "items": [
@@ -24,7 +24,7 @@
     "metric": "other",
     "metric_text": "capital expenditures for the capacity expansion projects",
     "period": "year",
-    "period_text": "For 2014",
+    "period_text": "2014",
     "shape": "point",
     "low": 1.7,
     "high": 1.7,
@@ -37,7 +37,7 @@
     "metric": "other",
     "metric_text": "sustaining and other capital expenditures",
     "period": "year",
-    "period_text": "For 2014",
+    "period_text": "2014",
     "shape": "point",
     "low": 0.5,
     "high": 0.5,
@@ -50,9 +50,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 14167,
-  "output_tokens": 441,
+  "prompt_tokens": 12836,
+  "output_tokens": 437,
   "thinking_tokens": 0,
-  "total_tokens": 14608
+  "total_tokens": 13273
  }
 }

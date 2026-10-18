@@ -27,6 +27,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from bs4.element import PreformattedString
 
 from src.foundation.utils.config_loader import load_config
 from src.llm.guidance.sample import SAMPLE_PATH
@@ -138,6 +139,8 @@ def release_text(raw: bytes) -> str:
         soup = BeautifulSoup(text, "html.parser")
         for tag in soup(["script", "style"]):
             tag.decompose()
+        for node in soup.find_all(string=lambda s: isinstance(s, PreformattedString)):
+            node.extract()  # comments, doctype, CDATA: not text of the release
         for s in soup.find_all(string=True):  # source line wraps are not line breaks (except in <pre>)
             if s.find_parent("pre") is None:
                 s.replace_with(re.sub(r"\s+", " ", s))

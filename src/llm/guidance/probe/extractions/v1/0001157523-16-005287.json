@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "aa304ac8f5d5f2b3ab8b361c00afa5db89535fdbcfbc4d398ac143f7ad3c1383",
+ "text_sha256": "68355b7fc051e7d79be0c70131d60d98787a9596a978cfe97901ff2c3775fc46",
  "label": {
   "guidance_present": true,
   "items": [
@@ -30,7 +30,7 @@
     "high": 10750.0,
     "unit": "MBBls",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "raised",
     "evidence": "The Company increased its 2016 guidance for production sales volume to 710 \u2013 730 Bcfe, including liquids volume of 10,250 \u2013 10,750 MBBls."
    },
    {
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 12469,
-  "output_tokens": 1697,
+  "prompt_tokens": 12445,
+  "output_tokens": 1695,
   "thinking_tokens": 0,
-  "total_tokens": 14166
+  "total_tokens": 14140
  }
 }

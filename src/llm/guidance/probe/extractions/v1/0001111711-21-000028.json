@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "739a74525bc83f92f208048e6dfe9b53a023bbd88aaa24591fff5e091caf5986",
+ "text_sha256": "b25ec3eb7ec2b91d885d8c793c98b776e10affe540d896f95e8c1fc95db405c3",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "eps",
-    "metric_text": "non-GAAP diluted net operating earnings",
+    "metric_text": "diluted net operating earnings per share",
     "period": "year",
     "period_text": "2021",
     "shape": "range",
@@ -74,7 +74,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "annual investments for growth, safety and modernization",
+    "metric_text": "annual investments",
     "period": "other",
     "period_text": "through 2024",
     "shape": "range",
@@ -121,7 +121,7 @@
     "high": 90.0,
     "unit": "percent reduction",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "maintained",
     "evidence": "We expect to reduce greenhouse gas emissions 90% by 2030, from 2005 levels, including a 50% reduction in methane emissions from gas mains and services by 2025."
    },
    {
@@ -134,16 +134,16 @@
     "high": 50.0,
     "unit": "percent reduction",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "maintained",
     "evidence": "We expect to reduce greenhouse gas emissions 90% by 2030, from 2005 levels, including a 50% reduction in methane emissions from gas mains and services by 2025."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 5808,
-  "output_tokens": 1625,
+  "prompt_tokens": 5758,
+  "output_tokens": 1615,
   "thinking_tokens": 0,
-  "total_tokens": 7433
+  "total_tokens": 7373
  }
 }
