@@ -36,6 +36,8 @@ RETRIES = 4
 TIMEOUT = 30
 EXHIBIT = re.compile(r"^EX-99(\.\d+)?$", re.IGNORECASE)
 PRIMARY = re.compile(r"^EX-99\.0*1$", re.IGNORECASE)
+BLOCK_TAGS = ["p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "table", "tr", "center",
+              "blockquote", "pre", "hr", "title"]
 
 
 def cache_root() -> Path:
@@ -60,9 +62,13 @@ class Edgar:
                 if wait > 0:
                     self._sleep(wait)
             self._last = self._clock()
-            r = self.session.get(url, timeout=TIMEOUT)
-            if r.status_code == 429 or r.status_code >= 500:
-                self._sleep(2.0 * 2 ** attempt)
+            try:
+                r = self.session.get(url, timeout=TIMEOUT)
+            except (requests.ConnectionError, requests.Timeout):
+                r = None
+            if r is None or r.status_code == 429 or r.status_code >= 500:
+                if attempt < RETRIES - 1:
+                    self._sleep(2.0 * 2 ** attempt)
                 continue
             r.raise_for_status()
             return r.content
@@ -120,16 +126,30 @@ def fetch_one(edgar: Edgar, accession: str, index_url: str, root: Path) -> dict:
 
 def release_text(raw: bytes) -> str:
     """Plain text of a release (HTML or plain-text exhibit). Table rows become one line
-    each, cells joined by ' | ', so a guidance table stays readable."""
-    text = raw.decode("utf-8", errors="replace")
+    each, cells joined by ' | ', so a guidance table stays readable. Only block-level
+    tags break a line: inline ones (<b>, <font>, <span>) wrapping a figure stay inside
+    their sentence. The encoding is checked (older exhibits are often windows-1252,
+    whose en dash marks a range): UTF-8 if it decodes, else windows-1252."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1252", errors="replace")
     if re.search(r"<(html|body|p|div|table)\b", text, re.IGNORECASE):
         soup = BeautifulSoup(text, "html.parser")
         for tag in soup(["script", "style"]):
             tag.decompose()
+        for s in soup.find_all(string=True):  # source line wraps are not line breaks (except in <pre>)
+            if s.find_parent("pre") is None:
+                s.replace_with(re.sub(r"\s+", " ", s))
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+        for tag in soup.find_all(BLOCK_TAGS):
+            tag.insert_before("\n")
+            tag.insert_after("\n")
         for tr in soup.find_all("tr"):
-            cells = [c.get_text(" ", strip=True) for c in tr.find_all(["td", "th"])]
+            cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")
-        text = soup.get_text("\n")
+        text = soup.get_text("")
     lines = (re.sub(r"[ \t ​]+", " ", line).strip() for line in text.splitlines())
     out, blank = [], False
     for line in lines:

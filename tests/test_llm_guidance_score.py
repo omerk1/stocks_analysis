@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from src.llm.gemini import ReplyError
+from src.llm.gemini import ReplyError, Usage
 from src.llm.guidance import extract, prompt, score
 from src.llm.guidance.schema import GuidanceItem, ReleaseLabel
 
@@ -17,6 +17,36 @@ def item(**kw) -> GuidanceItem:
 
 def label(*items) -> ReleaseLabel:
     return ReleaseLabel(guidance_present=bool(items), items=list(items))
+
+
+def test_match_never_pairs_different_years():
+    gold = [item(period_text="fiscal 2015"), item(period_text="fiscal 2016", low=2.5, high=2.6)]
+    pred = [item(period_text="FY 2016")]  # gold 2015's values, but for 2016
+    assert score.match_items(gold, pred) == [(1, 0)]
+    assert score.match_items([item(period_text="full year")], [item(period_text="2015")]) == [(0, 0)]
+
+
+def test_load_extractions_refuses_a_stale_fingerprint(tmp_path):
+    (tmp_path / "a.json").write_text(json.dumps({"accession": "a", "fingerprint": "old", "error": "x"}))
+    with pytest.raises(ValueError):
+        extract.load_extractions(tmp_path)
+
+
+def test_run_one_records_a_refused_call(tmp_path):
+    from src.llm.gemini import BudgetExceeded
+
+    class Refusing(StubGemini):
+        def generate(self, text, **kw):
+            raise BudgetExceeded("prompt is 70000 tokens")
+
+    row = extract.run_one(Refusing(), "big", "text", tmp_path)
+    assert row["error"].startswith("BudgetExceeded") and extract.load_extractions(tmp_path)["big"] is None
+
+
+def test_review_numbers_are_exact():
+    from src.llm.guidance import review
+
+    assert review._num(12345678.0) == "12,345,678" and review._num(2.1) == "2.1" and review._num(0.0) == "0"
 
 
 def test_match_needs_same_metric_and_period_and_prefers_agreement():
@@ -78,7 +108,8 @@ class StubGemini:
         if self.fail:
             raise ReplyError("reply cut off")
         lab = label(item())
-        return SimpleNamespace(parsed=lab, usage=SimpleNamespace(total_tokens=10))
+        return SimpleNamespace(parsed=lab, usage=Usage(prompt_tokens=8, output_tokens=2, thinking_tokens=0,
+                                                       total_tokens=10))
 
 
 def test_run_one_caches_by_fingerprint_and_text(tmp_path):

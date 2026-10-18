@@ -16,11 +16,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pandas as pd
 
-from src.llm.gemini import ReplyError
+from src.llm.gemini import BudgetExceeded, ReplyError
 from src.llm.guidance import fetch, prompt
 from src.llm.guidance.sample import PROBE_DIR, SAMPLE_PATH
 from src.llm.guidance.schema import ReleaseLabel
@@ -50,19 +51,22 @@ def run_one(gemini, accession: str, text: str, out_dir: Path = EXTRACTIONS_DIR) 
            "model": prompt.MODEL, "text_sha256": digest}
     try:
         reply = prompt.extract(gemini, text)
-        row |= {"label": reply.parsed.model_dump(), "usage": reply.usage.__dict__}
-    except ReplyError as e:
-        row["error"] = str(e)
+        row |= {"label": reply.parsed.model_dump(), "usage": asdict(reply.usage)}
+    except (ReplyError, BudgetExceeded) as e:  # BudgetExceeded: e.g. a release over the input cap
+        row["error"] = f"{type(e).__name__}: {e}"
     out_dir.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(row, indent=1) + "\n")
     return row
 
 
 def load_extractions(out_dir: Path = EXTRACTIONS_DIR) -> dict[str, ReleaseLabel | None]:
-    """accession -> the parsed reply, or None for a cached error."""
+    """accession -> the parsed reply, or None for a cached error. Refuses a reply made
+    under another fingerprint: scoring it as this version would be scoring a stale run."""
     out = {}
     for path in sorted(out_dir.glob("*.json")):
         row = json.loads(path.read_text())
+        if row.get("fingerprint") != prompt.fingerprint():
+            raise ValueError(f"{path.name} was made under another prompt fingerprint; rerun the extraction")
         out[row["accession"]] = ReleaseLabel.model_validate(row["label"]) if "label" in row else None
     return out
 

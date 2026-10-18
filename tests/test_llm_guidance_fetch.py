@@ -37,6 +37,23 @@ def test_release_text_keeps_table_rows_on_one_line():
     assert fetch.release_text(b"Plain   text\n\n\n\nexhibit") == "Plain text\n\nexhibit"
 
 
+def test_release_text_keeps_inline_tags_in_their_sentence():
+    html = b"""<html><body><p>expects EPS of <b>$2.10</b> to <font size=2>$2.20</font>
+    for 2015,<br>up from <span>$2.00</span>.</p><div>Next</div>
+    <table><tr><td>$<b>1.2</b> billion</td></tr></table><pre>keep
+  this</pre></body></html>"""
+    assert fetch.release_text(html).splitlines() == [
+        "expects EPS of $2.10 to $2.20 for 2015,", "up from $2.00.", "", "Next", "", "$1.2 billion", "",
+        "keep", "this"]
+
+
+def test_release_text_detects_windows_1252():
+    html = "<html><body><p>EPS of $2.10–$2.20, Company X</p></body></html>".encode("cp1252")
+    assert fetch.release_text(html) == "EPS of $2.10–$2.20, Company X"
+    plain = "Range $2.10–$2.20".encode("cp1252")
+    assert fetch.release_text(plain) == "Range $2.10–$2.20"
+
+
 class FakeResponse:
     def __init__(self, status, content=b"ok"):
         self.status_code, self.content = status, content

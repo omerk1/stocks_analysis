@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -57,13 +58,24 @@ def field_agreement(g: GuidanceItem, p: GuidanceItem) -> dict[str, bool]:
             "revision": g.revision == p.revision}
 
 
+def years(period_text: str) -> set[str]:
+    return set(re.findall(r"\b(?:19|20)\d\d\b", period_text))
+
+
+def same_period(g: GuidanceItem, p: GuidanceItem) -> bool:
+    """Same period kind, and the same years where both name them ('fiscal 2015' can't
+    pair with '2016'; 'full year' with 'fiscal 2015' can)."""
+    gy, py = years(g.period_text), years(p.period_text)
+    return g.period == p.period and (not gy or not py or gy == py)
+
+
 def match_items(gold: list[GuidanceItem], pred: list[GuidanceItem]) -> list[tuple[int, int]]:
     """One-to-one (gold index, predicted index) pairs on the same metric and period,
     greedily by the number of agreeing fields, ties to the earlier items."""
     candidates = sorted(
         ((-sum(field_agreement(g, p).values()), i, j)
          for i, g in enumerate(gold) for j, p in enumerate(pred)
-         if (g.metric, g.period) == (p.metric, p.period)))
+         if g.metric == p.metric and same_period(g, p)))
     used_g, used_p, pairs = set(), set(), []
     for _, i, j in candidates:
         if i not in used_g and j not in used_p:
@@ -135,9 +147,10 @@ def revision_by_release(gold: dict[str, ReleaseLabel]) -> pd.Series:
 
 
 def coverage(gold: dict[str, ReleaseLabel], sample: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """How often releases carry guidance, by year, sector and size, with N."""
-    s = sample.assign(present=sample["accession"].map(lambda a: gold[a].guidance_present),
-                      items=sample["accession"].map(lambda a: len(gold[a].items)))
+    """How often releases carry guidance, by year, sector and size, with N. Over the
+    labeled releases only (a sample release without a press release has no label)."""
+    s = sample[sample["accession"].isin(gold)]
+    s = s.assign(present=s["accession"].map(lambda a: gold[a].guidance_present))
     out = {}
     for by in ("year", "sector", "size"):
         t = s.groupby(by).agg(releases=("present", "size"), with_guidance=("present", "sum"))

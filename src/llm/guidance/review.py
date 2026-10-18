@@ -22,7 +22,9 @@ SHEET_PATH = PROBE_DIR / "review_sheet.md"
 
 
 def _num(x: float) -> str:
-    return f"{x:g}"
+    """Full precision, thousands separated, no scientific notation: the reviewer
+    compares it with the release digit by digit."""
+    return f"{x:,.6f}".rstrip("0").rstrip(".")
 
 
 def item_line(i: GuidanceItem) -> str:
@@ -43,7 +45,11 @@ def sheet(drafts: dict[str, dict], sample: pd.DataFrame, links: dict[str, str]) 
              "metric (as named), period \"as named\", basis: value; revision.", "",
              "| slot | ticker | year | present | revenue / eps / margin / other | r/m/l | flagged |",
              "|---|---|---|---|---|---|---|"]
-    for r in sample.sort_values("slot").itertuples():
+    rows = sample.sort_values("slot")
+    for r in rows.itertuples():
+        if r.accession not in drafts:  # no press release, so nothing to label
+            lines.append(f"| {r.slot:02d} | {r.ticker} | {r.year} | no press release |  |  |  |")
+            continue
         d = drafts[r.accession]
         items = ReleaseLabel.model_validate(d["label"]).items
         counts = " / ".join(str(sum(i.metric == m for i in items)) for m in ("revenue", "eps", "margin", "other"))
@@ -51,7 +57,7 @@ def sheet(drafts: dict[str, dict], sample: pd.DataFrame, links: dict[str, str]) 
         lines.append(f"| {r.slot:02d} | {r.ticker} | {r.year} | {'yes' if items else '**no**'} | "
                      f"{counts if items else ''} | {rml if items else ''} | {'yes' if d.get('uncertain') else ''} |")
     lines.append("")
-    for r in sample.sort_values("slot").itertuples():
+    for r in rows[rows["accession"].isin(drafts)].itertuples():
         d = drafts[r.accession]
         lab = ReleaseLabel.model_validate(d["label"])
         head = f"**{r.slot:02d} {r.ticker}** ({r.year}, {r.sector}, {r.size}) — [release]({links.get(r.accession, r.index_url)})"
