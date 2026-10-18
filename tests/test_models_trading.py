@@ -28,6 +28,9 @@ def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     market_wide = {model_input(s) for s in model_specs() if s.group == "market"}
     assert set(trading.MARKET_WIDE_COLUMNS) == market_wide
     assert set(trading.COLUMN_SETS["S2_no_market"]) == set(trading.COLUMN_SETS["S2"]) - market_wide
+    levels = [s for s in model_specs() if s.source == "levels"]
+    assert len(trading.LEVEL_COLUMNS) == 57 and set(trading.LEVEL_COLUMNS) == {model_input(s) for s in levels}
+    assert trading.COLUMN_SETS["S3"] == trading.FULL_COLUMNS + trading.LEVEL_COLUMNS   # S1 + levels, not S2
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]

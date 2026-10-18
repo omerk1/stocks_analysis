@@ -21,7 +21,7 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell;
-                  `--columns` picks the model's column set (S1, S2, S2_no_market);
+                  `--columns` picks the model's column set (S1, S2, S2_no_market, S3);
                   `--experiment-id` logs it under another id.
   rescore-scorecard  Score run-scorecard's archived predictions again (e.g.
                   `--rank ev_atr`, plus the random-k baseline), no refit; one
@@ -170,13 +170,14 @@ def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
     return 1 if run["failed"] else 0
 
 
-def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...]) -> int:
+def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
+                   levels: Path, workers: int) -> int:
     from src.models import dataset
     from src.models.features import cache
     conn = _read_only(db_path)
     try:
         universe = dataset.universe_mask(conn, start, end, indices=indices)
-        path = cache.build_feature_cache(conn, universe, out)
+        path = cache.build_feature_cache(conn, universe, out, levels_root=levels, workers=workers)
     finally:
         conn.close()
     features = cache.read_feature_cache(out)
@@ -240,6 +241,10 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  [pass: AUC <= {vc.SAME_TICKER_MAX_AUC}; "
           f"per column median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD, <= {vc.SAME_TICKER_MAX_SHARE_OFF:.0%} of rows "
           f"off by > 0.1 SD, <= {vc.SAME_TICKER_MAX_NAN_MISMATCH:.0%} one-vendor NaN]")
+    if s["auc_levels"] is not None:
+        w = s["level_window"]
+        print(f"  level columns: {s['n_level_tickers']} tickers, {w['start'].date()}..{w['end'].date()} (detectors on the "
+              f"whole history, snapshots from {w['snapshot_start'].date()}), vendor AUC {s['auc_levels']:.3f}")
     spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
     if spread:
         print(f"  no spread in the window (gap = share of rows that differ): {spread}")
@@ -357,6 +362,9 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
+    feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
+                      help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
+    feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
     lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
     lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
@@ -391,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     score.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     score.add_argument("--rank", choices=["ev", "ev_atr"], default="ev")
-    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market"], default="S1",
+    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market", "S3"], default="S1",
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")
@@ -421,7 +429,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
                             args.tickers, args.smoke)
     if args.command == "build-features":
-        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
+        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices), args.levels,
+                              args.workers)
     if args.command == "vendor-check":
         return vendor_check(args.db, args.features, args.start, args.end)
     return 2

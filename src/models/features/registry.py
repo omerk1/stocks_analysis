@@ -12,6 +12,11 @@ each row's date -- including corporate actions: a split or dividend after t
 rescales every earlier adjusted price, so a column at t may depend on price
 *ratios* within the past, never on adjusted price *levels*.
 
+A `detector` source (the LRP levels) is a per-ticker source that also takes
+the ticker (the snapshot cache is per ticker) and runs pattern detectors over
+the ticker's whole history; the leakage gate runs it fresh, from a few weeks
+before its cut.
+
 A `PanelSource` instead computes from every ticker's bars at once, plus a
 `market.PanelContext` (point-in-time membership, sectors, the benchmark): the
 market-wide and sector-relative columns. The leakage gate perturbs all of its
@@ -28,7 +33,10 @@ Not yet here (§7, for the ablation step): grouping beyond this file's
 
 from __future__ import annotations
 
+import functools
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
@@ -37,7 +45,7 @@ from src.foundation.market_common import indicators
 from src.foundation.market_common.history_breaks import HistoryBreakConfig, training_eligibility
 from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, PriceBasis
 from src.models import dataset
-from src.models.features import baseline, fundamentals, ma_family, market, valuation
+from src.models.features import baseline, fundamentals, level_features, ma_family, market, valuation
 from src.models.features import indicators as indicator_features
 from src.models.labels.barriers import ATR_PERIOD
 
@@ -54,7 +62,15 @@ DECISION = "decision"    # used to rank by EV (metrics.expected_value)
 @dataclass(frozen=True)
 class Source:
     basis: PriceBasis
-    compute: Callable[[pd.DataFrame, pd.DataFrame | None], pd.DataFrame]  # (bars by date, splits) -> columns by date
+    compute: Callable[..., pd.DataFrame]  # (bars by date, splits[, ticker]) -> columns by date
+    # Detector runs over the ticker's whole history (the LRP levels): called
+    # with the ticker too, fed bars from the first one (`features/cache.py`),
+    # and minutes per ticker when not cached, so the vendor check runs it on a
+    # sample (`vendor_check.same_ticker`).
+    detector: bool = False
+
+    def __call__(self, bars: pd.DataFrame, splits: pd.DataFrame | None, ticker: str) -> pd.DataFrame:
+        return self.compute(bars, splits, ticker) if self.detector else self.compute(bars, splits)
 
 
 @dataclass(frozen=True)
@@ -115,6 +131,17 @@ def _indicators(bars: pd.DataFrame, splits: pd.DataFrame | None) -> pd.DataFrame
     return indicator_features.ticker_features(bars)
 
 
+def level_source(root: Path | None = level_features.DEFAULT_ROOT,
+                 snapshot_start: pd.Timestamp = level_features.SNAPSHOT_START) -> Source:
+    """The LRP levels' source, reading the snapshot cache under `root` (None:
+    always compute). `snapshot_start`: the first snapshot week -- the leakage
+    gate and the vendor check start near their window to keep detector runs
+    few; the registered source starts where the cache does."""
+    return Source(dataset.UNIVERSE_BASIS,
+                  functools.partial(level_features.ticker_features, root=root, snapshot_start=snapshot_start),
+                  detector=True)
+
+
 SOURCES: dict[str, Source | PanelSource] = {
     "baseline": Source(baseline.FEATURE_BASIS, _baseline),
     "ma_family": Source(baseline.FEATURE_BASIS, _ma_family),
@@ -127,7 +154,17 @@ SOURCES: dict[str, Source | PanelSource] = {
     "liquidity": Source(dataset.UNIVERSE_BASIS, _liquidity),
     "universe": Source(dataset.UNIVERSE_BASIS, _universe),
     "decision": Source(dataset.LABEL_BASIS, _decision),
+    "levels": level_source(),
 }
+
+# The LRP level features (combined-model step 2, 2026-10-15; LRP.md §2.1-2.3,
+# definitions in level_features.py): every prior null (LRP §1.1, §3). Warmup 0:
+# a level column is defined from the ticker's first snapshot week onward
+# (ATR(14) permitting), not after a fixed bar count.
+_LEVEL_GROUPS = (("levels_nearest", level_features.NEAREST), ("levels_aggregate", level_features.AGGREGATE),
+                 ("levels_barrier", level_features.BARRIER))
+LEVEL_SPECS = tuple(FeatureSpec(name, group, MODEL, "level_set", "null", "levels", 0)
+                    for group, names in _LEVEL_GROUPS for name in names)
 
 REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("mom_12_1", "baseline", MODEL, "dense", None, "baseline", 253, ranked=True),
@@ -201,6 +238,7 @@ REGISTRY: tuple[FeatureSpec, ...] = (
     FeatureSpec("unadjusted_close", "universe", UNIVERSE, "dense", None, "universe", 1),
     FeatureSpec("history_eligible", "universe", UNIVERSE, "dense", None, "universe", 0),
     FeatureSpec("atr_pct", "decision", DECISION, "dense", None, "decision", 15),
+    *LEVEL_SPECS,
 )
 
 BY_NAME = {spec.name: spec for spec in REGISTRY}
@@ -253,6 +291,19 @@ def check_columns(columns: list[str], registry: tuple[FeatureSpec, ...] = REGIST
         raise ValueError(f"unregistered model columns: {unknown}; register them in features/registry.py")
 
 
+def is_detector(spec: FeatureSpec, sources: dict[str, Source | PanelSource] = SOURCES) -> bool:
+    """Whether `spec` comes from a detector source (`Source.detector`)."""
+    return spec.source is not None and getattr(sources[spec.source], "detector", False)
+
+
+def _ticker_columns(source: Source, bars: pd.DataFrame, splits: pd.DataFrame | None, ticker: str,
+                    cols: list[str], since: pd.Timestamp | None = None) -> pd.DataFrame:
+    values = source(bars, splits, ticker)[cols]
+    if since is not None:
+        values = values[values.index >= since]
+    return values.assign(ticker=ticker).reset_index()
+
+
 def compute_registered(
     bars: dict[PriceBasis, pd.DataFrame],
     splits: dict[str, pd.DataFrame],
@@ -260,13 +311,18 @@ def compute_registered(
     sources: dict[str, Source | PanelSource] = SOURCES,
     rank: bool = True,
     context: market.PanelContext | None = None,
+    workers: int = 1,
+    since: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Every bar-derived registered column for every (ticker, date), plus the
     per-date ranks of ranked ones (over all tickers passed; `rank=False` to
     rank later over another row set, e.g. the eligible universe). `bars` holds
     one long frame (ticker, date, OHLCV) per basis; `splits` is per ticker;
     `context` is what panel sources read besides bars (default: every ticker
-    passed is a member, no sectors)."""
+    passed is a member, no sectors). `workers` > 1: per-ticker sources in
+    that many processes (the same function per ticker, so the same values).
+    `since`: per-ticker sources' rows before it are dropped (computed on the
+    whole frame first, so a warmup is still warm)."""
     context = context if context is not None else market.PanelContext()
     if context.splits is not None:
         raise ValueError("PanelContext.splits is filled from compute_registered's `splits`; pass them there")
@@ -281,10 +337,14 @@ def compute_registered(
             frame = source.compute(bars[source.basis], replace(context, splits=splits))[["ticker", "date", *cols]]
             out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
             continue
-        parts = []
-        for ticker, g in bars[source.basis].groupby("ticker", sort=False):
-            values = source.compute(g.drop(columns="ticker").set_index("date").sort_index(), splits.get(ticker))
-            parts.append(values[cols].assign(ticker=ticker).reset_index())
+        groups = [(ticker, g.drop(columns="ticker").set_index("date").sort_index())
+                  for ticker, g in bars[source.basis].groupby("ticker", sort=False)]
+        args = [(source, g, splits.get(ticker), ticker, cols, since) for ticker, g in groups]
+        if workers > 1 and len(args) > 1:
+            with ProcessPoolExecutor(max_workers=workers) as pool:
+                parts = list(pool.map(_ticker_columns, *zip(*args), chunksize=1))
+        else:
+            parts = [_ticker_columns(*a) for a in args]
         frame = pd.concat(parts, ignore_index=True)
         out = frame if out is None else out.merge(frame, on=["ticker", "date"], how="outer")
     ranked = tuple(s.name for s in specs if s.ranked)
