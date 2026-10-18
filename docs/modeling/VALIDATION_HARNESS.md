@@ -676,9 +676,9 @@ Build order, one PR each, each with its own tests:
        seeing S2, so it's a second look at the same data. Refit noise put 4 of 36 CIs past
        zero, 2 each way; this puts 9, all one way, but they're 9 neighbouring H63 cells, not
        9 independent ones. The per-name columns could be standing in for a single
-       volatility tilt (the picks' ATR fell): not tested. **Read:** the market-wide group,
-       not the 14 as a block, made S2 worse; the 8 per-name columns are a candidate to add
-       back, after S3, not a finding.
+       volatility tilt (the picks' ATR fell): not tested. **Read:** the market-wide group
+       looks like what hurt S2, not the 14 as a block; the 8 per-name columns are a
+       candidate to add back after S3. Exploration, not a finding.
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are

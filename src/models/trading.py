@@ -89,7 +89,9 @@ STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "r
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
                    "sector_rank_mom_63")
 # The market-wide step-2b columns (registry group "market"): one value per date,
-# the same for every name, so they rank only through interactions.
+# the same for every name, so they rank only through interactions. Kept by hand,
+# like STEP_2B_COLUMNS, so S2_no_market stays fixed if more market columns are
+# registered (a test pins it to the group as registered today).
 MARKET_WIDE_COLUMNS = ("spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21", "breadth_above_sma50",
                        "breadth_above_sma200", "adv_dec_10")
 # Step 2 (2026-10-17): the 57 LRP level columns, as `level_features.py` defines

@@ -17,7 +17,8 @@ FAST = BoostingConfig(max_iter=50, min_samples_leaf=50)
 def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     """FULL_COLUMNS stays S1's set (B4 + MA family) so S1/S1b reproduce; the
     step-2b columns join through their own column set, S2, which stays fixed as
-    later groups (fundamentals) are registered."""
+    later groups (fundamentals) are registered; S2_no_market is S2 less registry
+    group "market", and S3 is S1 plus the levels. Exact order, so logged trials refit."""
     from src.models.features.registry import model_input, model_specs
     s1 = [s for s in model_specs() if s.group in ("baseline", "ma")]
     assert set(trading.FULL_COLUMNS) == {model_input(s) for s in s1}
@@ -27,7 +28,8 @@ def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     assert trading.COLUMN_SETS["S2"] == trading.FULL_COLUMNS + trading.STEP_2B_COLUMNS
     market_wide = {model_input(s) for s in model_specs() if s.group == "market"}
     assert set(trading.MARKET_WIDE_COLUMNS) == market_wide
-    assert set(trading.COLUMN_SETS["S2_no_market"]) == set(trading.COLUMN_SETS["S2"]) - market_wide
+    assert trading.COLUMN_SETS["S2_no_market"] == trading.FULL_COLUMNS + tuple(
+        c for c in trading.STEP_2B_COLUMNS if c not in market_wide)
     levels = [s for s in model_specs() if s.source == "levels"]
     assert len(trading.LEVEL_COLUMNS) == 57 and set(trading.LEVEL_COLUMNS) == {model_input(s) for s in levels}
     assert trading.COLUMN_SETS["S3"] == trading.FULL_COLUMNS + trading.LEVEL_COLUMNS   # S1 + levels, not S2
