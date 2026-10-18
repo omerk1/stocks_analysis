@@ -327,6 +327,18 @@ pre-registered before running:
 - **Earnings as risk:** does excluding or flagging setups with earnings inside the horizon
   change realized R/R?
 
+**Status (2026-10-17).** All three are pre-registered in
+`docs/fundamentals/PREREGISTRATION.md`, run in the order combined model, earnings as risk,
+post-earnings drift, one PR each.
+
+- **Combined model: inconclusive** (Done #153). Top-20 model minus the same model without
+  the group, pooled over the 9 cells: H21 +0.03% per trade [−0.04%, +0.10%], H63 −0.06%
+  [−0.21%, +0.08%], 99% CIs, band ±0.10%. The same without the six market-cap caveat
+  tickers. The group stays registered. It changes the picks (42–55% overlap) and cuts the
+  share with an expected earnings date inside 21 days from 28% to 18%, but not their result.
+- **Earnings as risk:** next.
+- **Post-earnings drift:** after that.
+
 ### 5. Guidance (later, after a feasibility probe)
 
 Guidance is not in XBRL; it lives in the earnings press release (exhibit 99.1 of the

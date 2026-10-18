@@ -67,7 +67,7 @@ from src.models.features import level_features
 from src.models.inference import N_BOOT, BootstrapResult, archive_draws, per_date_diff
 from src.models.labels.barriers import REFERENCE_HORIZON, BarrierCell, v1_grid
 from src.models.learners import BoostingConfig
-from src.models.metrics import TOP_K, expected_value
+from src.models.metrics import TOP_K, expected_value, top_k
 from src.models.splits import EXPANDING, V1_FIRST_TRAIN_START, V1_TEST_YEARS, fold_masks, walk_forward_folds
 
 EXPERIMENT_ID = "S1"
@@ -79,21 +79,28 @@ TRADING_DAYS = 252
 COSTS_BPS = (0, 10, 25)   # round trip; 0 = gross
 HEADLINE_COST_BPS = 10
 STRATEGIES = ("model", "reference", "market")
+TIE_BREAK = "ticker_date_hash"  # `metrics.tie_key`
+NAME_TIES = "ticker_name"       # what rows logged without a tie_break (S1, S1b, S2) used
 FULL_COLUMNS = B4_COLUMNS + MA_SUPPORTED + MA_WEAK
 # Step 2b (2026-10-10): indicators, volume, volatility regime, market regime,
 # sector-relative (VALIDATION_HARNESS.md §7). Listed, not read off the registry,
-# so a later registration doesn't change what S2 means.
+# so a later registration doesn't change what a run means.
 STEP_2B_GROUPS = ("volatility", "volume", "oscillator", "market", "relative")
 STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "rel_volume_20_rank",
                    "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
                    "sector_rank_mom_63")
+# Company financials (docs/fundamentals/plan.md step 3, registry group `fundamentals`).
+FUNDAMENTALS_COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income_rank",
+                        "rev_growth_yoy_rank", "rev_growth_accel", "net_margin_ttm", "debt_to_equity",
+                        "earnings_yield_rank", "sales_yield_rank", "book_to_market_rank", "share_change_yoy_rank")
 # Step 2 (2026-10-17): the 57 LRP level columns, as `level_features.py` defines
 # them (a test pins all 57), joined to S1, not S2: step 2b found S2's 14 columns
 # make the picks worse (VALIDATION_HARNESS.md §9 step 2b). Compared against S1r.
 LEVEL_COLUMNS = level_features.COLUMNS
 # Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA.
 COLUMN_SETS = {"S1": FULL_COLUMNS, "S2": FULL_COLUMNS + STEP_2B_COLUMNS, "S3": FULL_COLUMNS + LEVEL_COLUMNS}
+S2_COLUMNS = COLUMN_SETS["S2"]
 
 
 @dataclass(frozen=True)
@@ -115,6 +122,13 @@ class Scorecard:
     config: BoostingConfig = BoostingConfig()
     grid: tuple[tuple[float, float], ...] = ()   # (U, D) cells; empty = every v1 cell
     rank: str = "ev"                             # RANKS
+    track: str = TRACK                           # "B": pre-registered, judged by `close_scorecard`
+    band: float = 0.0                            # relevance band, per trade (Track B)
+    verdict_k: int = 20                          # the k `close_scorecard` judges
+
+    def __post_init__(self):
+        if self.track != TRACK and self.verdict_k not in self.ks:
+            raise ValueError(f"verdict_k {self.verdict_k} isn't scored: ks {self.ks}")
 
     def cells(self, horizon: int) -> list[BarrierCell]:
         return [c for c in v1_grid() if c.horizon == horizon and (not self.grid or (c.upper, c.lower) in self.grid)]
@@ -136,8 +150,9 @@ def neither_atr_returns(frame: pd.DataFrame, folds) -> dict[int, float]:
 def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: dict[int, float],
           k: int, rank: str = "ev", neither_atr: dict[int, float] | None = None) -> pd.DataFrame:
     """Each test date's `k` rows with the highest score (ties broken by
-    ticker), with their realised `hit` and `ret`. `preds` is one row per
-    (ticker, date) with `fold` and the probabilities. The score is EV (with
+    `metrics.tie_key`, not by ticker name), with their realised `hit` and
+    `ret`. `preds` is one row per (ticker, date) with `fold` and the
+    probabilities. The score is EV (with
     the fold's training-window `neither` return), or for `rank="ev_atr"` EV
     in ATR units (with `neither_atr`, `neither_atr_returns`) -- both from
     decision-time quantities."""
@@ -153,7 +168,7 @@ def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: 
                      ).dropna(subset=["ev", "ret"])
         g["score"] = g["ev"] if rank == "ev" else (g["p_up"] * cell.upper_atr - g["p_down"] * cell.lower_atr
                                                    + g["p_neither"] * neither_atr[year])
-        parts.append(g.sort_values(["date", "score", "ticker"], ascending=[True, False, True]).groupby("date").head(k))
+        parts.append(top_k(g, "score", k))
     return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev", "atr_pct"]]
 
 
@@ -255,7 +270,8 @@ def score_cell(model: pd.DataFrame, ref: pd.DataFrame, frame: pd.DataFrame, cell
     neither_atr = neither_atr_returns(frame, folds)
     if not all(np.isfinite(v) for v in neither_atr.values()):
         raise ValueError(f"a fold's 'neither' return in ATRs isn't finite (zero ATR?): {neither_atr}")
-    metrics = {"neither_ret": neither, "neither_atr": neither_atr, "n_years": n_years, "rank": sc.rank, "by_k": {}}
+    metrics = {"neither_ret": neither, "neither_atr": neither_atr, "n_years": n_years, "rank": sc.rank,
+               "track": sc.track, "by_k": {}}
     boots = {}
     for k in sc.ks:
         trades = {"model": picks(model, frame, cell, neither, k, sc.rank, neither_atr),
@@ -288,7 +304,9 @@ def outcome(metrics: dict, cell: BarrierCell, k: int = TOP_K[0]) -> str:
     e = {s: m[s]["costs"][HEADLINE_COST_BPS]["expectancy"] for s in STRATEGIES}
     pay = m["model"]["costs"][HEADLINE_COST_BPS]["payoff_ratio"]
     d = m["vs_reference"]
-    return (f"Track A, no verdict, rank {metrics.get('rank', 'ev')}. H{cell.horizon} {cell.upper:g}/{cell.lower:g}, top-{k} net "
+    verdict = "no verdict" if metrics.get("track", TRACK) == TRACK else "verdict at close-scorecard"
+    return (f"Track {metrics.get('track', TRACK)}, {verdict}, rank {metrics.get('rank', 'ev')}. "
+            f"H{cell.horizon} {cell.upper:g}/{cell.lower:g}, top-{k} net "
             f"{HEADLINE_COST_BPS} bps per trade: model {e['model']:+.2%} (R/R {pay:.2f}), reference "
             f"{e['reference']:+.2%}, market {e['market']:+.2%}; model - reference {d['point_estimate']:+.2%} "
             f"[{d['ci_low']:+.2%}, {d['ci_high']:+.2%}].")
@@ -297,8 +315,10 @@ def outcome(metrics: dict, cell: BarrierCell, k: int = TOP_K[0]) -> str:
 def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels: pd.DataFrame) -> dict:
     fm, lm = features.attrs.get("manifest", {}), labels.attrs.get("manifest", {})
     return {
-        "feature_groups": {"track": TRACK, "model": list(sc.model_columns), "reference": sc.reference,
-                           "reference_columns": list(sc.reference_columns), "rank": sc.rank},
+        "feature_groups": {"track": sc.track, "model": list(sc.model_columns), "reference": sc.reference,
+                           "reference_columns": list(sc.reference_columns), "rank": sc.rank,
+                           "tie_break": TIE_BREAK,
+                           **({"band": sc.band, "verdict_k": sc.verdict_k, "ci": sc.ci} if sc.track != TRACK else {})},
         "cells": [{"horizon": cell.horizon, "upper": cell.upper, "lower": cell.lower,
                    "upper_atr": cell.upper_atr, "lower_atr": cell.lower_atr}],
         "fold_scheme": {"scheme": EXPANDING, "test_years": list(sc.test_years),
@@ -359,10 +379,48 @@ def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir,
                 archive_draws(b, t.dir, name)
             pd.concat([model.assign(model="model"), ref.assign(model=sc.reference)]
                       ).to_parquet(t.dir / "predictions.parquet", index=False)
-            t.record(metrics, n_dates=metrics["by_k"][sc.ks[0]]["vs_reference"]["n_dates"],
-                     outcome=outcome(metrics, cell, sc.ks[0]))
+            k = headline_k(sc)
+            t.record(metrics, n_dates=metrics["by_k"][k]["vs_reference"]["n_dates"], outcome=outcome(metrics, cell, k))
         results.append({"trial_id": t.trial_id, "cell": cell, **metrics})
     return results
+
+
+def headline_k(sc: Scorecard) -> int:
+    """The k a trial's logged outcome line reads: the verdict's for Track B."""
+    return sc.ks[0] if sc.track == TRACK else sc.verdict_k
+
+
+CACHE_FIELDS = ("features_built", "labels_built")
+
+
+def logged_tie_break(row: pd.Series) -> str:
+    """How the logged trial `row` broke top-k ties."""
+    return json.loads(row["feature_groups"]).get("tie_break", NAME_TIES)
+
+
+def design_mismatch(sc: Scorecard, row: pd.Series, spec: dict) -> tuple[str, str] | None:
+    """Why the logged trial `row` isn't `sc`'s fit on the caches `spec`
+    (`trial_spec` now) describes, as (field, message), or None: other model
+    or reference columns, seeds, hyperparameters, folds, a feature/label
+    cache rebuilt since the fit (field in CACHE_FIELDS), or picks made with
+    another tie rule (field "tie_break": the predictions are the same, the
+    logged top-k numbers aren't)."""
+    groups = json.loads(row["feature_groups"])
+    if tuple(groups["model"]) != sc.model_columns or tuple(groups["reference_columns"]) != sc.reference_columns:
+        return "columns", "fitted on other columns than this scorecard's"
+    for field in ("seeds", "hyperparameters"):
+        if json.loads(row[field]) != json.loads(json.dumps(spec[field])):
+            return field, f"{field} differ from this scorecard's"
+    logged, now = json.loads(row["fold_scheme"]), spec["fold_scheme"]
+    if (logged["test_years"], logged["first_train_start"]) != (now["test_years"], now["first_train_start"]):
+        return "folds", "folds differ from this scorecard's"
+    built = json.loads(row["universe"])
+    for key in CACHE_FIELDS:
+        if built.get(key) != spec["universe"][key]:
+            return key, f"{key} {built.get(key)} != the cache's {spec['universe'][key]} (caches rebuilt since the fit)"
+    if logged_tie_break(row) != spec["feature_groups"]["tie_break"]:
+        return "tie_break", f"picked with {logged_tie_break(row)} ties, now {spec['feature_groups']['tie_break']}"
+    return None
 
 
 def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_dir, source: str = EXPERIMENT_ID,
@@ -384,27 +442,18 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         if (cell.horizon, cell.upper, cell.lower) in seen or cell.horizon not in sc.horizons:
             continue
         seen.add((cell.horizon, cell.upper, cell.lower))
-        groups = json.loads(row["feature_groups"])
-        if tuple(groups["model"]) != sc.model_columns or tuple(groups["reference_columns"]) != sc.reference_columns:
-            raise ValueError(f"{row['trial_id']} was fitted on other columns than this scorecard's")
         labels = dataset.read_labels(labels_dir, cell.horizon, cell=(cell.upper, cell.lower))
         spec = trial_spec(sc, cell, features, labels)
         # The rescored row must describe the fit that made the predictions, and
-        # score them on the same labels and features.
-        for field in ("seeds", "hyperparameters"):
-            if json.loads(row[field]) != json.loads(json.dumps(spec[field])):
-                raise ValueError(f"{row['trial_id']}: {field} differ from this scorecard's")
-        logged, now = json.loads(row["fold_scheme"]), spec["fold_scheme"]
-        if (logged["test_years"], logged["first_train_start"]) != (now["test_years"], now["first_train_start"]):
-            raise ValueError(f"{row['trial_id']}: folds differ from this scorecard's")
-        built = json.loads(row["universe"])
-        for key in ("features_built", "labels_built"):
-            if built.get(key) != spec["universe"][key]:
-                raise ValueError(f"{row['trial_id']}: {key} {built.get(key)} != the cache's {spec['universe'][key]} "
-                                 "(caches rebuilt since the fit)")
+        # score them on the same labels and features. Only the tie rule may
+        # differ (it's scoring, not the fit): the row records the source's.
+        mismatch = design_mismatch(sc, row, spec)
+        if mismatch and mismatch[0] != "tie_break":
+            raise ValueError(f"{row['trial_id']}: {mismatch[1]}")
         preds = pd.read_parquet(Path(artifacts_root) / row["trial_id"] / "predictions.parquet")
         frame = cell_frame(features, labels)
         spec["feature_groups"]["rescored_from"] = row["trial_id"]
+        spec["feature_groups"]["source_tie_break"] = logged_tie_break(row)
         with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
             model = preds[preds["model"] == "model"].drop(columns="model")
             ref = preds[preds["model"] == sc.reference].drop(columns="model")
@@ -445,3 +494,203 @@ def grid_table(results: list[dict], k: int, cost_bps: int = HEADLINE_COST_BPS) -
                 d["point_estimate"], d["ci_low"], d["ci_high"])
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------- pre-registered (Track B)
+
+DEAD, INCONCLUSIVE, POSITIVE, NEGATIVE, MIXED = (
+    "dead", "inconclusive", "positive effect", "negative effect", "mixed effects")
+# docs/fundamentals/PREREGISTRATION.md F2 (2026-10-16): the company-financials
+# group added to the combined model as it is on main without it (S2's columns).
+# The bootstrap's 99% interval is the verdict CI: at ~18 date blocks the
+# nominal 95% one left out zero on 11.5% of noise readouts, the 99% one on 2.1%.
+PREREGISTERED = {
+    "F2": Scorecard(experiment_id="F2", model_columns=S2_COLUMNS + FUNDAMENTALS_COLUMNS, reference="S2",
+                    reference_columns=S2_COLUMNS, horizons=(21, 63), rank="ev_atr", ci=0.99, track="B",
+                    band=0.001, verdict_k=20),
+}
+
+
+def three_verdict(ci_low: float, ci_high: float, band: float) -> str:
+    """`LRP.md` §3's rule: dead if the CI sits inside ±band, an effect if it
+    excludes zero (its sign named), inconclusive otherwise (spans zero, reaches
+    past the band)."""
+    if -band <= ci_low and ci_high <= band:
+        return DEAD
+    return POSITIVE if ci_low > 0 else NEGATIVE if ci_high < 0 else INCONCLUSIVE
+
+
+def group_verdict(verdicts: list[str]) -> str:
+    """Dead if every horizon is; an effect if any horizon shows one (mixed if
+    they disagree in sign); inconclusive otherwise."""
+    if verdicts and all(v == DEAD for v in verdicts):
+        return DEAD
+    effects = {v for v in verdicts if v in (POSITIVE, NEGATIVE)}
+    return MIXED if len(effects) == 2 else effects.pop() if effects else INCONCLUSIVE
+
+
+def registered_trial(sc: Scorecard, trials: pd.DataFrame, cell: BarrierCell, spec: dict,
+                     require_clean: bool = True) -> str | None:
+    """The trial id of `cell`'s first `ok` row of `sc.experiment_id` with
+    `sc`'s design (`design_mismatch`, plus rank, the verdict's k and the
+    registered bootstrap size), or None. A first row from a dirty checkout
+    voids the cell (None); a later clean row never replaces it. Raises if the
+    design matches but a cache was rebuilt since the fit: scoring its
+    predictions on other rows would change the verdict silently."""
+    mine = trials[(trials["experiment_id"] == sc.experiment_id) & (trials["status"] == trial_log.OK)]
+    for _, t in mine.sort_values("date").iterrows():
+        c = json.loads(t["cells"])[0]
+        if (c["horizon"], c["upper"], c["lower"]) != (cell.horizon, cell.upper, cell.lower):
+            continue
+        by_k = json.loads(t["metrics"]).get("by_k", {})
+        if (json.loads(t["feature_groups"]).get("rank") != sc.rank or str(sc.verdict_k) not in by_k
+                or by_k[str(sc.verdict_k)]["vs_reference"]["n_boot"] != sc.n_boot):
+            continue
+        mismatch = design_mismatch(sc, t, spec)
+        if mismatch and mismatch[0] in CACHE_FIELDS:
+            raise ValueError(f"{t['trial_id']}: {mismatch[1]}; close on the caches the trial was fitted on")
+        if mismatch:
+            continue
+        return None if require_clean and str(t.get("git_dirty")) != "False" else t["trial_id"]
+    return None
+
+
+def cell_picks(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
+               keep=None) -> dict[str, pd.DataFrame]:
+    """The model's and the reference's daily top-`k` (`picks`) from a trial's
+    archived predictions, no refit. `keep(rows) -> bool mask` narrows what
+    may be picked (e.g. leaves tickers out) before ranking, so the next-best
+    rows fill the basket."""
+    folds = walk_forward_folds(sc.test_years, sc.first_train_start)
+    neither, neither_atr = neither_returns(frame, folds), neither_atr_returns(frame, folds)
+    if not all(np.isfinite(v) for v in [*neither.values(), *neither_atr.values()]):
+        raise ValueError(f"a fold's 'neither' return isn't finite: {neither}, in ATRs {neither_atr}")
+    out = {}
+    for side, name in (("model", "model"), ("reference", sc.reference)):
+        p = preds[preds["model"] == name].drop(columns="model")
+        if keep is not None:
+            p = p[keep(p)]
+        out[side] = picks(p, frame, cell, neither, k, sc.rank, neither_atr)
+    return out
+
+
+def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
+                 keep=None) -> dict[str, pd.Series]:
+    """Per-date gross top-`k` basket return of each side's `cell_picks`."""
+    return {side: basket(p) for side, p in cell_picks(sc, cell, preds, frame, k, keep).items()}
+
+
+def pick_diagnostics(picked: dict[str, pd.DataFrame], features: pd.DataFrame, columns: list[str],
+                     horizon: int) -> dict:
+    """Descriptive, never a verdict: the model's and the reference's daily
+    top-k overlap (share of the reference's names the model also picks), and
+    per side the share of picks with every one of `columns` (the group the
+    model adds) filled, the mean share filled, the share of picks with an
+    expected earnings date that have it inside the horizon, and the share
+    with none (NaN without that column)."""
+    keys = ["ticker", "date"]
+    both = picked["reference"][keys].merge(picked["model"][keys].assign(_m=True), on=keys, how="left")
+    out = {"overlap": float(both["_m"].notna().groupby(both["date"]).mean().mean())}
+    earn = "days_to_earnings_expected"
+    look = list(dict.fromkeys([*columns, *([earn] if earn in features else [])]))
+    for side, p in picked.items():
+        f = p[keys].merge(features[[*keys, *look]], on=keys, how="left")
+        filled = f[columns].notna()
+        known = f[earn].dropna() if earn in f else pd.Series(dtype=float)
+        out[side] = {"all_filled": float(filled.all(axis=1).mean()), "mean_filled": float(filled.mean(axis=1).mean()),
+                     # among picks with an expected date; the rest are unknown, not "outside"
+                     "earnings_inside": float((known <= horizon).mean()) if len(known) else np.nan,
+                     "earnings_unknown": float(f[earn].isna().mean()) if earn in f else np.nan}
+    return out
+
+
+def pooled_difference(baskets: dict[tuple[float, float], dict[str, pd.Series]], a: str, b: str, horizon: int,
+                      n_boot: int, ci: float, seed: int = 0) -> tuple[BootstrapResult, pd.Series, int]:
+    """`a` minus `b`, averaged over the cells on each date, then date-weighted
+    over dates: one statistic for the horizon, its CI from one date-block
+    bootstrap, so the cells share their blocks and count as one look. A date
+    counts only if every cell has it, so each date's mean is over the same
+    cells. Returns the bootstrap, the per-date pooled difference and the
+    number of dates left out for a missing cell."""
+    by_cell = pd.concat({cell: s[a] - s[b] for cell, s in baskets.items()}, axis=1)
+    complete = by_cell.notna().all(axis=1)
+    diff = by_cell[complete].mean(axis=1)
+    result = per_date_diff(diff, pd.Series(0.0, index=diff.index), horizon, True, n_boot, ci, seed)
+    return result, diff, int((~complete).sum())
+
+
+def one_sided_p(result: BootstrapResult) -> float:
+    """Bootstrap p for "positive": the share of draws <= 0, add-one smoothed."""
+    return float((np.sum(result.draws <= 0) + 1) / (len(result.draws) + 1))
+
+
+def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_dir,
+                    exclude_tickers: tuple[str, ...] = (), artifacts_root=trial_log.ARTIFACTS_ROOT,
+                    require_clean: bool = True, n_boot: int | None = None) -> dict:
+    """The pre-registered verdict of a Track B scorecard (e.g. F2): per
+    horizon, D_H = model minus reference top-`verdict_k` basket, pooled over
+    the cells (`pooled_difference`), its CI's three-way verdict against
+    `sc.band`, and whether a positive effect meets the entry rule on this run
+    (Holm over the horizons at the CI's one-sided level, point estimate >=
+    band, positive in every era). The pre-registration's seed rerun is a
+    separate step: `entry_rule_met` is never "enters". `exclude_tickers`
+    re-reads the same predictions with those tickers unpickable (the caveat
+    sensitivity). `n_boot` other than the registered `sc.n_boot` is a Monte
+    Carlo precision check of the interval's ends, not the registered verdict.
+    Per-cell means are over the dates D_H uses; `pick_diagnostics` are
+    descriptive. A horizon missing a cell is inconclusive, p = 1."""
+    if sc.track == TRACK:
+        raise ValueError(f"{sc.experiment_id} is Track A: no verdict")
+    check_features(sc, features)
+    n_boot = sc.n_boot if n_boot is None else n_boot
+    if n_boot < sc.n_boot:
+        raise ValueError(f"n_boot {n_boot} is below the registered {sc.n_boot}: a precision check takes more draws")
+    keep = (lambda p: ~p["ticker"].isin(exclude_tickers)) if exclude_tickers else None
+    group = [c for c in sc.model_columns if c not in sc.reference_columns]
+    horizons = {}
+    for h in sc.horizons:
+        ids, frames = {}, {}
+        for c in sc.cells(h):
+            labels = dataset.read_labels(labels_dir, h, cell=(c.upper, c.lower))
+            ids[c] = registered_trial(sc, trials, c, trial_spec(sc, c, features, labels), require_clean)
+            frames[c] = cell_frame(features, labels)
+        missing = [(c.upper, c.lower) for c, t in ids.items() if t is None]
+        if missing:
+            horizons[h] = {"verdict": INCONCLUSIVE, "p": 1.0, "missing_cells": missing}
+            continue
+        baskets, diagnostics = {}, {}
+        for c, t in ids.items():
+            preds = pd.read_parquet(Path(artifacts_root) / t / "predictions.parquet")
+            picked = cell_picks(sc, c, preds, frames[c], sc.verdict_k, keep)
+            baskets[(c.upper, c.lower)] = {side: basket(p) for side, p in picked.items()}
+            diagnostics[f"{c.upper:g}/{c.lower:g}"] = pick_diagnostics(picked, features, group, h)
+        result, diff, n_partial = pooled_difference(baskets, "model", "reference", h, n_boot, sc.ci)
+        year = diff.index.year
+        # the neighbours on D_H's own dates (every cell present)
+        per_cell = {f"{u:g}/{d:g}": float((s["model"] - s["reference"]).reindex(diff.index).mean())
+                    for (u, d), s in baskets.items()}
+        mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()
+        horizons[h] = {
+            "diagnostics": {"mean_over_cells": mean_diag, "by_cell": diagnostics},
+            "verdict": three_verdict(result.ci_low, result.ci_high, sc.band), "p": one_sided_p(result),
+            **result.summary(), "dates_missing_a_cell": n_partial,
+            "trial_ids": {f"{c.upper:g}/{c.lower:g}": t for c, t in ids.items()},
+            "by_era": {f"{e[0]}-{e[-1]}": float(diff[year.isin(e)].mean()) for e in sc.eras},
+            "by_year": {int(y): float(v) for y, v in diff.groupby(year).mean().items()},
+            "by_cell": per_cell, "cells_positive": int(sum(v > 0 for v in per_cell.values())),
+        }
+    # Holm over the horizons, at the CI's one-sided level
+    alpha = (1 - sc.ci) / 2
+    order = sorted(horizons, key=lambda h: horizons[h]["p"])
+    holm = {}
+    for i, h in enumerate(order):
+        holm[h] = horizons[h]["p"] <= alpha / (len(order) - i) and (i == 0 or holm[order[i - 1]])
+    for h, r in horizons.items():
+        r["holm_positive"] = bool(holm[h])
+        r["entry_rule_met"] = bool(holm[h] and r["verdict"] == POSITIVE and r.get("point_estimate", 0) >= sc.band
+                                   and all(v > 0 for v in r.get("by_era", {}).values()))
+    return {"experiment_id": sc.experiment_id, "k": sc.verdict_k, "band": sc.band, "ci": sc.ci, "n_boot": n_boot,
+            "registered_n_boot": sc.n_boot, "seeds": list(sc.seeds),
+            "excluded_tickers": list(exclude_tickers), "horizons": horizons,
+            "group_verdict": group_verdict([r["verdict"] for r in horizons.values()]),
+            "entry_rule_met": any(r["entry_rule_met"] for r in horizons.values())}
