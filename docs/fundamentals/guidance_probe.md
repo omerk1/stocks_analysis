@@ -13,7 +13,8 @@ decision it feeds is go / no-go on the full fetch.
 - **Frame:** every item 2.02 8-K announcement in `earnings_announcements` (Done #137,
   `source` = '8-K'; the 10-Q/10-K fallback rows are out) accepted in 2010–2021, New York
   time, one row per release (share classes such as NWS/NWSA file one release under two
-  tickers). 23,054 releases from 619 companies (CIKs) after two filters: a sector in
+  tickers; the class with the largest cap stands for it). 23,089 releases from 619
+  companies (CIKs) after two filters: a sector in
   `ticker_sector` (today's, not point-in-time) and a market cap of at least $2B at the
   last close on or before the period end, from a close at most 7 days and a share count
   at most 400 days old (large ≥ $10B, mid $2–10B). Nothing accepted after 2021-12-31.

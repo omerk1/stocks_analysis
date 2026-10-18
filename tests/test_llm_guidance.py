@@ -18,8 +18,8 @@ def frame(per_cell: int = 3, drop=lambda year, sector, size: False) -> pd.DataFr
         if drop(year, sector, size):
             continue
         for _ in range(per_cell):
-            rows.append({"ticker": f"T{n}", "cik": n, "year": year, "sector": sector, "size": size,
-                         "market_cap": 5e9})
+            rows.append({"ticker": f"T{n}", "cik": n, "accession": f"A{n:06d}", "year": year,
+                         "sector": sector, "size": size, "market_cap": 5e9})
             n += 1
     return pd.DataFrame(rows)
 
@@ -63,6 +63,23 @@ def test_draw_is_balanced_distinct_and_repeatable():
     pd.testing.assert_frame_equal(s, again)
     other, _ = sample.draw(frame(), seed=sample.SEED + 1)
     assert set(other["ticker"]) != set(s["ticker"])
+    shuffled, _ = sample.draw(frame().sample(frac=1, random_state=3))
+    pd.testing.assert_frame_equal(s, shuffled)  # row order in doesn't matter
+
+
+def test_one_row_per_release_keeps_the_largest_share_class():
+    ann = pd.DataFrame({
+        "ticker": ["GOOGL", "GOOG", "XYZ", "XYZ", "SMALL", "NOCAP"],
+        "accession": ["a1", "a1", "a2", "a3", "a4", "a5"],
+        "period_end": ["2015-03-31", "2015-03-31", "2015-03-31", "2015-06-30", "2015-03-31", "2015-03-31"],
+        "market_cap": [180e9, 190e9, 5e9, 12e9, 1e9, np.nan],
+    })
+    out = sample.one_row_per_release(ann.sample(frac=1, random_state=1))
+    assert list(out["accession"]) == ["a1", "a2", "a3"]
+    assert list(out["ticker"]) == ["GOOG", "XYZ", "XYZ"]
+    assert list(out["size"]) == ["large", "mid", "large"]
+    tie = sample.one_row_per_release(ann.assign(market_cap=[190e9, 190e9, 5e9, 12e9, 1e9, np.nan]))
+    assert tie.loc[tie["accession"] == "a1", "ticker"].item() == "GOOG"  # tie: first ticker
 
 
 def test_draw_never_repeats_a_company_across_cells():
@@ -126,4 +143,31 @@ def test_presence_matches_items():
 def test_prompt_v1_is_frozen():
     # v1 is never edited; a changed prompt is a new version (prompt.py docstring).
     assert prompt.PROMPT_VERSION == "v1"
-    assert prompt.fingerprint() == "731b0d85cce55504f181de62ca370a9d2de7966744834270d4faee1eb6042a8b"
+    assert prompt.fingerprint() == "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5"
+
+
+class StubGemini:
+    def __init__(self, model=prompt.MODEL, max_output_tokens=prompt.MAX_OUTPUT_TOKENS):
+        self.model = model
+        self.budget = type("B", (), {"max_output_tokens": max_output_tokens,
+                                     "thinking_budget": prompt.THINKING_BUDGET})()
+        self.calls = []
+
+    def generate(self, text, **kw):
+        self.calls.append((text, kw))
+        return "reply"
+
+
+def test_extract_uses_the_frozen_settings():
+    g = StubGemini()
+    assert prompt.extract(g, "Outlook: EPS $2") == "reply"
+    text, kw = g.calls[0]
+    assert "Outlook: EPS $2" in text
+    assert kw == {"purpose": prompt.PURPOSE, "system": prompt.SYSTEM_V1, "response_schema": ReleaseLabel,
+                  "temperature": prompt.TEMPERATURE}
+    for bad in (StubGemini(model="gemini-2.5-pro"), StubGemini(max_output_tokens=4000)):
+        with pytest.raises(ValueError):
+            prompt.extract(bad, "text")
+    c = prompt.client(client=object())
+    assert (c.model, c.budget.max_output_tokens, c.budget.thinking_budget) == (
+        prompt.MODEL, prompt.MAX_OUTPUT_TOKENS, prompt.THINKING_BUDGET)

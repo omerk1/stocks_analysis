@@ -12,17 +12,24 @@ No worked examples: the only labeled releases are the gold set itself.
 from __future__ import annotations
 
 import hashlib
-import json
+import inspect
 
+from src.llm.gemini import Budget, GeminiClient, Reply
+from src.llm.guidance import schema
 from src.llm.guidance.schema import ReleaseLabel
 
 PROMPT_VERSION = "v1"
+PURPOSE = "guidance.extract_v1"
 # Spelled out rather than taken from `gemini.DEFAULT_MODEL`: it is part of the frozen
-# fingerprint, so a change of the shared default must not silently change v1. The call
-# passes it explicitly (`GeminiClient(model=MODEL)`).
+# fingerprint, so a change of the shared default must not silently change v1.
 MODEL = "gemini-2.5-flash"
 TEMPERATURE = 0.0
 THINKING_BUDGET = 0
+MAX_OUTPUT_TOKENS = 8_000  # a release with many outlook lines must not be cut off
+# Not part of the reply's shape, so not in the fingerprint: a release with its financial
+# tables can run past the shared default of 8k input tokens; 50 calls stay under the cap.
+MAX_INPUT_TOKENS = 60_000
+DAILY_TOKEN_CAP = 2_000_000
 
 SYSTEM_V1 = """\
 You read one US company's earnings press release and extract the company's guidance: \
@@ -98,11 +105,29 @@ def render(text: str) -> str:
     return USER_TEMPLATE_V1.format(text=text)
 
 
+def client(daily_token_cap: int = DAILY_TOKEN_CAP, **kw) -> GeminiClient:
+    """A Gemini client set up exactly as the fingerprint says."""
+    budget = Budget(max_input_tokens=MAX_INPUT_TOKENS, max_output_tokens=MAX_OUTPUT_TOKENS,
+                    thinking_budget=THINKING_BUDGET, daily_token_cap=daily_token_cap)
+    return GeminiClient(budget=budget, model=MODEL, **kw)
+
+
+def extract(gemini: GeminiClient, text: str) -> Reply:
+    """One v1 extraction. Refuses a client not set up by `client()`, so a reply can't
+    carry the fingerprint of settings it wasn't made with."""
+    b = gemini.budget
+    if (gemini.model, b.max_output_tokens, b.thinking_budget) != (MODEL, MAX_OUTPUT_TOKENS, THINKING_BUDGET):
+        raise ValueError("use prompt.client(): the model and output settings are part of v1")
+    return gemini.generate(render(text), purpose=PURPOSE, system=SYSTEM_V1, response_schema=ReleaseLabel,
+                           temperature=TEMPERATURE)
+
+
 def fingerprint() -> str:
-    """sha256 of everything that shapes a reply: the system prompt, the user template,
-    the model, the call settings and the reply schema (`ReleaseLabel`, which the gold
-    labels share). A cached reply carries it, tying it to the exact call that made it."""
-    schema = json.dumps(ReleaseLabel.model_json_schema(), sort_keys=True)
+    """sha256 of everything that shapes or accepts a reply: the system prompt, the user
+    template, the model, the call settings, and the source of `schema.py` (the reply
+    schema the gold labels share, its validators included). A cached reply carries it,
+    tying it to the exact call that made it."""
     parts = (SYSTEM_V1, USER_TEMPLATE_V1, MODEL, f"temperature={TEMPERATURE}",
-             f"thinking_budget={THINKING_BUDGET}", schema)
+             f"thinking_budget={THINKING_BUDGET}", f"max_output_tokens={MAX_OUTPUT_TOKENS}",
+             inspect.getsource(schema))
     return hashlib.sha256("\x00".join(parts).encode()).hexdigest()

@@ -56,24 +56,30 @@ def size_bucket(cap: float) -> str | None:
 
 def load_frame(conn) -> pd.DataFrame:
     """Every item 2.02 8-K announcement of 2010-2021 with its sector and size."""
-    # Ordered, so the seeded draw (which picks by position) gets the same rows every run.
     ann = pd.read_sql_query(
         "SELECT ticker, cik, filer_cik, period_end, report_form, accession, accepted_at "
-        "FROM earnings_announcements WHERE source = '8-K' ORDER BY ticker, period_end", conn)
+        "FROM earnings_announcements WHERE source = '8-K'", conn)
     accepted = pd.to_datetime(ann["accepted_at"], utc=True).dt.tz_convert(MARKET_TZ)
     ann["year"] = accepted.dt.year
     ann = ann[ann["year"].between(FIRST_YEAR, LAST_YEAR)].copy()
     ann["filer_cik"] = ann["filer_cik"].fillna(ann["cik"]).astype(int)
-    # Share classes (GOOG/GOOGL, NWS/NWSA, BF.A/BF.B) carry the same release under two
-    # tickers: one row per release, the first ticker alphabetically. `cik` (today's
-    # company, predecessors folded in) is the company identity for the one-per-company rule.
-    ann = ann.drop_duplicates("accession")
     sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
     sectors = sectors[sectors["sector"].fillna("").str.strip() != ""]
     ann = ann.merge(sectors, on="ticker", how="inner")
-    ann["market_cap"] = period_end_caps(conn, ann)
-    ann["size"] = ann["market_cap"].map(size_bucket)
-    return ann.dropna(subset=["size"]).reset_index(drop=True)
+    ann["market_cap"] = period_end_caps(conn, ann.reset_index(drop=True)).to_numpy()
+    return one_row_per_release(ann)
+
+
+def one_row_per_release(ann: pd.DataFrame) -> pd.DataFrame:
+    """Rows with a size bucket, one per release, in a fixed order. Share classes (GOOG/
+    GOOGL, NWS/NWSA, BF.A/BF.B) carry the same release under two tickers; the class with
+    the largest cap stands for it (a class's share count may cover only that class, so
+    the largest is the closest to the company's), ties to the first ticker. `cik`
+    (today's company, predecessors folded in) is the identity for one-per-company."""
+    ann = ann.assign(size=ann["market_cap"].map(size_bucket)).dropna(subset=["size"])
+    ann = ann.sort_values(["accession", "market_cap", "ticker"], ascending=[True, False, True], kind="stable")
+    ann = ann.drop_duplicates("accession")
+    return ann.sort_values(["ticker", "period_end", "accession"], kind="stable").reset_index(drop=True)
 
 
 def period_end_caps(conn, ann: pd.DataFrame) -> pd.Series:
@@ -97,8 +103,10 @@ def period_end_caps(conn, ann: pd.DataFrame) -> pd.Series:
         if ticker not in bars_by or ticker not in shares_by:
             continue
         prices = bars_by[ticker].set_index("timestamp")["close"]
-        s = shares_by[ticker].set_index("date")["shares_outstanding"]
+        s = shares_by[ticker].set_index("date")["shares_outstanding"].dropna()
         cap = market_cap.reconcile_market_cap(prices, s, splits_by.get(ticker))["market_cap"]
+        # Freshness is judged on the filings as loaded; one the reconciliation drops as
+        # mis-scaled still counts as fresh here. Good enough to spread a sample by size.
         caps.loc[rows.index] = cap_at(cap, s.index, pd.DatetimeIndex(pd.to_datetime(rows["period_end"])))
     return caps
 
@@ -121,7 +129,10 @@ def cap_at(cap: pd.Series, share_dates: pd.DatetimeIndex, ends: pd.DatetimeIndex
 
 def draw(frame: pd.DataFrame, n: int = N_RELEASES, seed: int = SEED) -> tuple[pd.DataFrame, list[str]]:
     """The stratified draw (module docstring). Returns the sample and a note per
-    slot that took the other size or was skipped."""
+    slot that took the other size or was skipped. The draw picks rows by position, so
+    the frame is put in a fixed order first: the same seed gives the same sample
+    whatever order the rows came in."""
+    frame = frame.sort_values(["ticker", "year", "accession"], kind="stable").reset_index(drop=True)
     rng = np.random.default_rng(seed)
     years = rng.permutation(np.arange(FIRST_YEAR, LAST_YEAR + 1))
     sectors = rng.permutation(np.array(sorted(frame["sector"].unique())))
