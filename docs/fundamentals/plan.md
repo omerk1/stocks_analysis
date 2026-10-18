@@ -342,7 +342,15 @@ post-earnings drift, one PR each.
   The flag changes the trade's shape, not its mean: more target and stop hits, fewer
   timeouts. For the model that already sees the flag (secondary), also inconclusive at
   the registered window.
-- **Post-earnings drift:** after that.
+- **Post-earnings drift: inconclusive** (Done #157). After a large own-history surprise
+  (trailing 90/10 cut), the signed 63-day return beyond momentum-matched controls is
+  +0.13% per event [−0.41%, +0.67%], 3,480 events on 1,167 dates. H21 is inconclusive
+  too. The neighbours agree except one lone pixel (H21 at the 95/5 cut) that isn't
+  promoted. The interval is five times the band wide: the test can't decide at this
+  noise level.
+
+Step 4 is done. All three questions are inconclusive and none is dead: the company-financials
+group stays a registered input, and no earnings rule or drift signal is added.
 
 ### 5. Guidance (later, after a feasibility probe)
 

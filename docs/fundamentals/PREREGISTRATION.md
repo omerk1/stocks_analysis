@@ -531,3 +531,76 @@ large negative ones trail theirs.
   finding explains (or not) what F2 found.
 - **Dead or inconclusive:** logged as such. Not reframed (another threshold, another
   horizon, an EPS surprise) without a new dated entry.
+
+### Result (2026-10-17 addendum)
+
+Run as registered: `python -m src.analysis.earnings_drift` at git 5900d44. That's
+after the code review fixed four implementation bugs:
+- an event could fall on a ticker's first cache row long after the filing;
+- the control exclusion counted event dates instead of sessions;
+- a series ending a few days early was treated as a delisting;
+- a quarter superseded within days could hide the real one.
+
+The first run, at 559ea5d, gave the same verdicts (H63 +0.19% [−0.38%, +0.72%]).
+18,275 SUE events from 2011-01-01; 6,645 H63 rows (3,999 at H21) dropped for disputed
+price days.
+
+**Verdict: inconclusive.** At H = 63 a large own-history surprise's signed return
+beyond momentum is +0.13% per event [−0.41%, +0.67%], 99% interval, band ±0.10%:
+3,480 events on 1,167 dates.
+
+| signed delta per event (90/10 cut, momentum match) | point | 99% interval | verdict |
+|---|---|---|---|
+| H63 (primary) | +0.127% | [−0.413%, +0.670%] | inconclusive |
+| H63 positive surprises | +0.180% | [−0.706%, +0.987%] | inconclusive |
+| H63 negative surprises (− = drift down) | +0.058% | [−0.705%, +0.767%] | inconclusive |
+| H21 (secondary) | +0.269% | [−0.143%, +0.742%] | inconclusive |
+
+- **Precision check at 10,000 draws** (signed readouts): every verdict is unchanged.
+  H63 is [−0.43%, +0.69%].
+- **Raw, unmatched:** H63 +0.20% [−0.68%, +1.00%]. The momentum match moves the point
+  by −0.08%.
+- **Costs:** 337 events a year × 10 bps = 33.7% a year for a book that trades one unit
+  per event, next to +0.13% gross per event. Per event, the drift clears the 0.10% cost
+  only at the point estimate.
+- **Shape (descriptive):** H63 hit rate 49.4%, win/loss 1.04, skew +0.19. Half the
+  events drift the surprise's way, and the wins are barely larger than the losses.
+- **Per era:** H63 2011–16 −0.17%, 2017–21 +0.47%. Per year it alternates in sign
+  2011–2016 (+1.0, −1.3, +0.5, −0.1, +0.3, −0.8%) and is positive 2017–2021.
+
+**Neighbours:**
+
+| H63 signed | point | 99% interval | verdict |
+|---|---|---|---|
+| 80/20 cut | +0.130% | [−0.538%, +0.775%] | inconclusive |
+| 95/5 cut | +0.165% | [−0.501%, +0.834%] | inconclusive |
+| × size tercile (robustness) | +0.174% | [−0.478%, +0.770%] | inconclusive |
+| × volatility tercile (robustness) | +0.407% | [−0.417%, +1.131%] | inconclusive |
+
+- **One neighbour at the secondary horizon reads an effect:** H21 at the 95/5 cut,
+  +0.47% [+0.04%, +0.95%] (837 dates; [+0.01%, +0.99%] at 10,000 draws). Neither side
+  alone excludes zero: positive surprises +0.47% [−0.33%, +1.26%], negative −0.61% [−1.29%, +0.02%].
+  - That's 1 of the 8 signed neighbour and robustness readouts, at the secondary
+    horizon. The primary cut at H21 (+0.27%) and the 80/20 cut (+0.14%) don't show
+    it, and neither does H63's 95/5.
+  - By the plateau rule it's a lone pixel, not a finding. It isn't promoted. A
+    narrower-cut, short-horizon drift would need its own dated entry, tested on data
+    this one didn't look at.
+
+**Against this result:**
+
+- **Underpowered by design:** a 63-day single-stock return is noisy. The interval's
+  half-width (~0.54%) is five times the band, so this test could rule out neither a
+  drift worth trading nor no drift at all. The 80/20 cut, with nearly twice the
+  events, is no narrower: the dates, not the events, carry the uncertainty.
+- **Measured from the 10-Q, not the announcement** (median 6 days later): a drift
+  concentrated in the first week is missed. That's by construction (the entry says
+  so), and it's what this data can trade.
+- **Survivorship:** the missing delisted members would mostly be negative surprises
+  that kept falling. That biases the negative side toward zero, which is where it
+  sits (+0.06%).
+- **The era split** (negative 2011–16, positive 2017–21) is what an unstable or
+  absent effect looks like. Picking the later era would be the rescue the rules
+  forbid.
+- **Nothing for the combined model:** `sue_net_income_rank` is already one of its
+  inputs (F2), and F2 found no gain from the group either.
