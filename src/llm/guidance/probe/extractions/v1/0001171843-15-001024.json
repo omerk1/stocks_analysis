@@ -1,0 +1,32 @@
+{
+ "accession": "0001171843-15-001024",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "58803fc0cfbcfdc900f8903422d60c2ca3c414b21f6bad328494a2a38f89c3dd",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "company will be in great shape",
+    "period": "other",
+    "period_text": "many years to come",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "qualitative",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We trust that if we execute on these fronts, our company will be in great shape for many years to come."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 11298,
+  "output_tokens": 158,
+  "thinking_tokens": 0,
+  "total_tokens": 11456
+ }
+}

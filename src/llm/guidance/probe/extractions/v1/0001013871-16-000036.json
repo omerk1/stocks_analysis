@@ -1,0 +1,97 @@
+{
+ "accession": "0001013871-16-000036",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "853823eceec549d242cde92cef209650f99ac6a16547130fe54505281462da5d",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "Adjusted EBITDA",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 3250.0,
+    "high": 3350.0,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "raised",
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Free Cash Flow - before Growth Investments",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 1100.0,
+    "high": 1200.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Adjusted EBITDA",
+    "period": "year",
+    "period_text": "fiscal year 2017",
+    "shape": "range",
+    "low": 2700.0,
+    "high": 2900.0,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "NRG has increased and narrowed the range of its Adjusted EBITDA and narrowed FCF before growth investments guidance for 2016 and is also initiating guidance for fiscal year 2017 as set forth below."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Free Cash Flow before Growth (FCFbG)",
+    "period": "year",
+    "period_text": "2017",
+    "shape": "range",
+    "low": 800.0,
+    "high": 1000.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "\u2022 | Increasing and narrowing 2016 Adjusted EBITDA guidance, and initiating 2017 Adjusted EBITDA and Free Cash Flow before Growth (FCFbG) guidance"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Cash From Operations",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 1975.0,
+    "high": 2075.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Table 4: 2016 and 2017 Adjusted EBITDA and FCF before Growth Investments Guidance"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Cash From Operations",
+    "period": "year",
+    "period_text": "2017",
+    "shape": "range",
+    "low": 1355.0,
+    "high": 1555.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Table 4: 2016 and 2017 Adjusted EBITDA and FCF before Growth Investments Guidance"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 21079,
+  "output_tokens": 936,
+  "thinking_tokens": 0,
+  "total_tokens": 22015
+ }
+}

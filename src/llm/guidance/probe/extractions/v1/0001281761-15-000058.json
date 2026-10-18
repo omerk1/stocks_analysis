@@ -1,0 +1,32 @@
+{
+ "accession": "0001281761-15-000058",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "50bb3761f8714b12b22a070a528ef44a098157bf76d052cd9ff8ab4bf70b32ee",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "estimate of reasonably possible contingent losses",
+    "period": "other",
+    "period_text": "going forward",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Consequently, based on current information, the company expects the estimate of reasonably possible contingent losses going forward to decrease by a significant amount."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 9637,
+  "output_tokens": 158,
+  "thinking_tokens": 0,
+  "total_tokens": 9795
+ }
+}

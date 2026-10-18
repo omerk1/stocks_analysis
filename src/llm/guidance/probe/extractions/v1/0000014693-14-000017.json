@@ -1,0 +1,84 @@
+{
+ "accession": "0000014693-14-000017",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "9f167af780c7c1bf8ec0407d8ecc4b919169883df36a4911cec40ac01e7520fd",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "underlying operating income growth",
+    "period": "year",
+    "period_text": "fiscal 2015",
+    "shape": "range",
+    "low": 9.0,
+    "high": 11.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "We reaffirm our full-year guidance and our expectations of 9-11% underlying operating income growth in fiscal 2015."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "reported and underlying net sales",
+    "period": "year",
+    "period_text": "fiscal 2015",
+    "shape": "range",
+    "low": 6.0,
+    "high": 8.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+   },
+   {
+    "metric": "other",
+    "metric_text": "reported and underlying operating income",
+    "period": "year",
+    "period_text": "fiscal 2015",
+    "shape": "range",
+    "low": 9.0,
+    "high": 11.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "diluted earnings per share",
+    "period": "year",
+    "period_text": "fiscal Year 2015",
+    "shape": "range",
+    "low": 3.25,
+    "high": 3.45,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company also expects diluted earnings per share of $3.25 to $3.45, which now incorporates an anticipated negative impact from foreign exchange of $0.06 per share, partially offset by a lower expected tax rate of 29.5%."
+   },
+   {
+    "metric": "other",
+    "metric_text": "tax rate",
+    "period": "year",
+    "period_text": "fiscal Year 2015",
+    "shape": "point",
+    "low": 29.5,
+    "high": 29.5,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company also expects diluted earnings per share of $3.25 to $3.45, which now incorporates an anticipated negative impact from foreign exchange of $0.06 per share, partially offset by a lower expected tax rate of 29.5%."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 7272,
+  "output_tokens": 824,
+  "thinking_tokens": 0,
+  "total_tokens": 8096
+ }
+}

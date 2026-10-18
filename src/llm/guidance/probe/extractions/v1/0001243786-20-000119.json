@@ -1,0 +1,110 @@
+{
+ "accession": "0001243786-20-000119",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "5c6de86e680f28930799be1545fe8f3e4bd412d73d5a48ee47956ee73f720cad",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "Depreciation, Depletion and Amortization",
+    "period": "year",
+    "period_text": "Full Year 2020",
+    "shape": "range",
+    "low": 860.0,
+    "high": 900.0,
+    "unit": "million",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The Company provided the following modeling assumptions for the full year 2020:Estimated reconciling items EBITDA (1) to EPS | Full Year 2020Depreciation, Depletion and Amortization | $860 - $900 million*"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net Interest Expense",
+    "period": "year",
+    "period_text": "Full Year 2020",
+    "shape": "range",
+    "low": 180.0,
+    "high": 190.0,
+    "unit": "million",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "The Company provided the following modeling assumptions for the full year 2020:Estimated reconciling items EBITDA (1) to EPS | Full Year 2020Depreciation, Depletion and Amortization | $860 - $900 million*Net Interest Expense | $180 - $190 million"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Non-notable adjustments",
+    "period": "year",
+    "period_text": "Full Year 2020",
+    "shape": "range",
+    "low": 80.0,
+    "high": 90.0,
+    "unit": "million",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "The Company provided the following modeling assumptions for the full year 2020:Estimated reconciling items EBITDA (1) to EPS | Full Year 2020Depreciation, Depletion and Amortization | $860 - $900 million*Net Interest Expense | $180 - $190 millionNon-notable adjustments | $80 - $90 million"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Effective tax rate",
+    "period": "year",
+    "period_text": "full year 2020",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "While cash taxes are expected to be approximately zero in 2020, the effective rate for full year 2020 is expected to be in the mid-to-high 50 percent range due to the mix of earnings by jurisdiction."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Capital expenditures",
+    "period": "year",
+    "period_text": "Full Year 2020",
+    "shape": "point",
+    "low": 1.2,
+    "high": 1.2,
+    "unit": "billion",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "The Company provided the following modeling assumptions for the full year 2020:Estimated reconciling items EBITDA (1) to EPS | Full Year 2020Depreciation, Depletion and Amortization | $860 - $900 million*Net Interest Expense | $180 - $190 millionNon-notable adjustments | $80 - $90 millionEffective tax rate | Mid to High 50\u2019s %*Capital expenditures | ~ $1.2 billion"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Equity Earnings (Losses) ex. dividends",
+    "period": "year",
+    "period_text": "Full Year 2020",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Equity Earnings (Losses) ex. dividends** | No guidance"
+   },
+   {
+    "metric": "other",
+    "metric_text": "effective tax rate",
+    "period": "year",
+    "period_text": "full year 2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The full year effective tax rate for 2021 is expected to be in the mid-30 percent range under current tax regulations."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 10388,
+  "output_tokens": 1219,
+  "thinking_tokens": 0,
+  "total_tokens": 11607
+ }
+}

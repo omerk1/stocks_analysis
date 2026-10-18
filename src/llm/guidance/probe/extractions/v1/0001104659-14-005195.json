@@ -1,0 +1,32 @@
+{
+ "accession": "0001104659-14-005195",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "729044fd282ffca303e4f8aee3d54b12c28fe6e3c35e7668ed0dbc73e76e47ea",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "guidance for 2014",
+    "period": "year",
+    "period_text": "2014",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "not_applicable",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Due to the extensive presentation made by the Company\u2019s executive management team at its annual investor conference held on December 9, 2013, which addressed both past performance as well as guidance for 2014, the conference call will be limited to a question and answer session only."
+   }
+  ],
+  "notes": "The guidance for 2014 was referenced as having been given at an earlier investor conference, but the details are not provided in this press release."
+ },
+ "usage": {
+  "prompt_tokens": 13250,
+  "output_tokens": 230,
+  "thinking_tokens": 0,
+  "total_tokens": 13480
+ }
+}

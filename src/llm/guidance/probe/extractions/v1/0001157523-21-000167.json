@@ -1,0 +1,45 @@
+{
+ "accession": "0001157523-21-000167",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "edd6c1f164b8cdc27420054b841b0dc010910f4187eddf9098be520f1835fd28",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "Net Income available to common shareholders (per diluted share)",
+    "period": "year",
+    "period_text": "Full Year 2021",
+    "shape": "range",
+    "low": 0.46,
+    "high": 0.52,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "2021 Full Year Outlook Net Income available to common shareholders (per diluted share): | $0.46 to $0.52"
+   },
+   {
+    "metric": "eps",
+    "metric_text": "NAREIT FFO (per diluted share)",
+    "period": "year",
+    "period_text": "Full Year 2021",
+    "shape": "range",
+    "low": 1.18,
+    "high": 1.24,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "NAREIT FFO (per diluted share)*: | $1.18 to $1.24"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 8539,
+  "output_tokens": 321,
+  "thinking_tokens": 0,
+  "total_tokens": 8860
+ }
+}

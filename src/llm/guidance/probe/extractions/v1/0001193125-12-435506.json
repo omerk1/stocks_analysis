@@ -1,0 +1,45 @@
+{
+ "accession": "0001193125-12-435506",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "05d27226a620ebc1e265536cad6b705f0e645038839ea164a8d2f6fe72a815f1",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "revenue",
+    "period": "quarter",
+    "period_text": "first fiscal quarter of 2013",
+    "shape": "point",
+    "low": 52000000000.0,
+    "high": 52000000000.0,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Looking ahead to the first fiscal quarter of 2013, we expect revenue of about $52 billion and diluted earnings per share of about $11.75."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "diluted earnings per share",
+    "period": "quarter",
+    "period_text": "first fiscal quarter of 2013",
+    "shape": "point",
+    "low": 11.75,
+    "high": 11.75,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Looking ahead to the first fiscal quarter of 2013, we expect revenue of about $52 billion and diluted earnings per share of about $11.75."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 4650,
+  "output_tokens": 351,
+  "thinking_tokens": 0,
+  "total_tokens": 5001
+ }
+}

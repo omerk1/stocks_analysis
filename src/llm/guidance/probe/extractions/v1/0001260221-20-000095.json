@@ -1,0 +1,32 @@
+{
+ "accession": "0001260221-20-000095",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "f792e9fb62a37e9bdc4c88f6c9d00906ec6e09708a8e5bd38ca3cf85186370f2",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "financial guidance",
+    "period": "year",
+    "period_text": "Fiscal 2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "withdrawn",
+    "evidence": "Fiscal 2021 financial guidance will not be issued at this time."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 8229,
+  "output_tokens": 148,
+  "thinking_tokens": 0,
+  "total_tokens": 8377
+ }
+}

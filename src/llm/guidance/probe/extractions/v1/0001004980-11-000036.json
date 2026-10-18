@@ -1,0 +1,71 @@
+{
+ "accession": "0001004980-11-000036",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "d098bc53ae925cc4eb3cdec252776bee5ac8bfdf3d92e1e743c19d610c44b1b3",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "earnings per share from operations",
+    "period": "year",
+    "period_text": "full-year 2011",
+    "shape": "range",
+    "low": 3.45,
+    "high": 3.6,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "lowered",
+    "evidence": "PG&E Corporation is reducing previously issued guidance for 2011 earnings from operations (non-GAAP) by approximately 5 percent, to $3.45 to $3.60 per share."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "earnings per share on a GAAP basis",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 2.37,
+    "high": 3.08,
+    "unit": "USD per share",
+    "basis": "gaap",
+    "revision": "not_stated",
+    "evidence": "PG&E Corporation\u2019s projected 2011 earnings per share on a GAAP basis, which includes the costs incurred in connection with gas pipeline safety-related work and third-party liabilities related to the San Bruno accident, has been updated to $2.37 to $3.08 per share."
+   },
+   {
+    "metric": "other",
+    "metric_text": "utility\u2019s costs associated with gas pipeline safety-related work",
+    "period": "year",
+    "period_text": "for the year",
+    "shape": "range",
+    "low": 350.0,
+    "high": 550.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "It is now estimated that the utility\u2019s costs associated with gas pipeline safety-related work could total between $350 million and $550 million for the year, compared with the prior estimated range of $200 million to $300 million."
+   },
+   {
+    "metric": "other",
+    "metric_text": "third-party liability",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 0.0,
+    "high": 180.0,
+    "unit": "USD millions pre-tax",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The estimated range for third-party liability remains unchanged at $0 to $180 million pre-tax."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 6249,
+  "output_tokens": 677,
+  "thinking_tokens": 0,
+  "total_tokens": 6926
+ }
+}

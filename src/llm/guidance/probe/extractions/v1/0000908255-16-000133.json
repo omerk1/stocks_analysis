@@ -1,0 +1,149 @@
+{
+ "accession": "0000908255-16-000133",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "88c0e22fc5c6248a3794dabe498d89cb7d9dd9b596ca460f550d80e4c0cb3bb5",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "Net sales growth",
+    "period": "year",
+    "period_text": "2016 full year",
+    "shape": "range",
+    "low": 15.2,
+    "high": 16.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "The company has narrowed its 2016 full year net sales and net earnings guidance range. Net sales growth is expected to be within a range of 15.2% to 16.0% compared with 2015."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "net sales growth",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 4.3,
+    "high": 4.8,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "lowered",
+    "evidence": "Excluding the impact of foreign currencies and the Remy acquisition, net sales growth is expected to be within a range of 4.3% to 4.8%."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Net earnings",
+    "period": "year",
+    "period_text": "full year 2016",
+    "shape": "range",
+    "low": 3.24,
+    "high": 3.28,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "Net earnings are expected to be within a range of $3.24 to $3.28 per diluted share, of which approximately $0.12 per diluted share are expected to be contributed by the Remy acquisition."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "operating income, as a percentage of net sales",
+    "period": "year",
+    "period_text": "full year 2016",
+    "shape": "floor",
+    "low": 12.0,
+    "high": null,
+    "unit": "percent",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Excluding the impact of non-comparable items, operating income, as a percentage of net sales, is expected to be above 12%."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "operating income, as a percentage of net sales",
+    "period": "year",
+    "period_text": "full year 2016",
+    "shape": "floor",
+    "low": 13.0,
+    "high": null,
+    "unit": "percent",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Excluding the impact of non-comparable items and the Remy acquisition, operating income, as a percentage of net sales, is expected to be above 13%."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "net sales growth",
+    "period": "quarter",
+    "period_text": "Fourth quarter 2016",
+    "shape": "range",
+    "low": 14.3,
+    "high": 17.8,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Fourth quarter 2016 net sales growth is expected to be within a range of 14.3% to 17.8% compared with fourth quarter 2015."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "net sales growth",
+    "period": "quarter",
+    "period_text": "Fourth quarter 2016",
+    "shape": "range",
+    "low": 3.0,
+    "high": 5.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Excluding the impact of foreign currencies and the Remy acquisition, net sales growth is expected to be within a range of 3.0% to 5.0%."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Net earnings",
+    "period": "quarter",
+    "period_text": "Fourth quarter 2016",
+    "shape": "range",
+    "low": 0.82,
+    "high": 0.86,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Net earnings are expected to be within a range of $0.82 to $0.86 per diluted share, of which approximately $0.02 per diluted share are expected to be contributed by the Remy acquisition."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "operating income, as a percentage of net sales",
+    "period": "quarter",
+    "period_text": "Fourth Quarter 2016",
+    "shape": "floor",
+    "low": 12.0,
+    "high": null,
+    "unit": "percent",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Excluding the impact of non-comparable items, operating income, as a percentage of net sales, is expected to be above 12%."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "operating income, as a percentage of net sales",
+    "period": "quarter",
+    "period_text": "Fourth Quarter 2016",
+    "shape": "floor",
+    "low": 13.0,
+    "high": null,
+    "unit": "percent",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Excluding the impact of non-comparable items and the Remy acquisition, operating income, as a percentage of net sales, is expected to be above 13%."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 6653,
+  "output_tokens": 1528,
+  "thinking_tokens": 0,
+  "total_tokens": 8181
+ }
+}

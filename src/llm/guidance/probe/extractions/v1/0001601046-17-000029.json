@@ -1,0 +1,97 @@
+{
+ "accession": "0001601046-17-000029",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "4c5e9f116f99cf2a05186523718256e40bda17d1fd8bbc9b9af4f5278d1ce18e",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "GAAP revenue",
+    "period": "other",
+    "period_text": "first half of fiscal year 2018",
+    "shape": "point",
+    "low": 1748.0,
+    "high": 1748.0,
+    "unit": "USD millions",
+    "basis": "gaap",
+    "revision": "initiated",
+    "evidence": "Keysight\u2019s first half of 2018 GAAP revenue is expected to be approximately $1,748 million and non-GAAP revenue for the first half of 2018 is expected to be approximately $1,775 million."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "non-GAAP revenue",
+    "period": "other",
+    "period_text": "first half of 2018",
+    "shape": "point",
+    "low": 1775.0,
+    "high": 1775.0,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Keysight\u2019s first half of 2018 GAAP revenue is expected to be approximately $1,748 million and non-GAAP revenue for the first half of 2018 is expected to be approximately $1,775 million."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "GAAP revenue",
+    "period": "quarter",
+    "period_text": "first quarter 2018",
+    "shape": "range",
+    "low": 762.0,
+    "high": 802.0,
+    "unit": "USD millions",
+    "basis": "gaap",
+    "revision": "initiated",
+    "evidence": "Keysight\u2019s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million, reflecting unusual seasonality due to the impact to operations from the northern California wildfires."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "non-GAAP revenue",
+    "period": "quarter",
+    "period_text": "first quarter 2018",
+    "shape": "range",
+    "low": 780.0,
+    "high": 820.0,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Keysight\u2019s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million, reflecting unusual seasonality due to the impact to operations from the northern California wildfires."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Non-GAAP earnings per share",
+    "period": "other",
+    "period_text": "first half of 2018",
+    "shape": "point",
+    "low": 1.29,
+    "high": 1.29,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Non-GAAP earnings per share for the first half of 2018 are expected to be approximately $1.29 and first quarter 2018 non-GAAP earnings per share are expected to be in the range of $0.29 to $0.43."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "non-GAAP earnings per share",
+    "period": "quarter",
+    "period_text": "first quarter 2018",
+    "shape": "range",
+    "low": 0.29,
+    "high": 0.43,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Non-GAAP earnings per share for the first half of 2018 are expected to be approximately $1.29 and first quarter 2018 non-GAAP earnings per share are expected to be in the range of $0.29 to $0.43."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 10140,
+  "output_tokens": 1093,
+  "thinking_tokens": 0,
+  "total_tokens": 11233
+ }
+}

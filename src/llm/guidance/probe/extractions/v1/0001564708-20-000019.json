@@ -1,0 +1,71 @@
+{
+ "accession": "0001564708-20-000019",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "07bfa6292ed4cd0edf5ea6c0ff11a65c06b6d02e809fa955404bf4341f91534c",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "capital expenditures",
+    "period": "year",
+    "period_text": "fiscal 2021",
+    "shape": "point",
+    "low": 400.0,
+    "high": 400.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The Company\u2019s capital expenditures for fiscal 2021 are expected to be approximately $400 million, subject to foreign currency fluctuations."
+   },
+   {
+    "metric": "other",
+    "metric_text": "additional sports rights costs",
+    "period": "year",
+    "period_text": "fiscal 2021",
+    "shape": "point",
+    "low": 55.0,
+    "high": 55.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Assuming no further disruption to live sporting events, Foxtel will recognize approximately $55 million (A$78 million) of additional sports rights costs in fiscal 2021, which were deferred from fiscal 2020 due to the suspension of live sports in the fourth quarter."
+   },
+   {
+    "metric": "other",
+    "metric_text": "overall costs",
+    "period": "year",
+    "period_text": "fiscal 2021",
+    "shape": "ceiling",
+    "low": null,
+    "high": 100.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "However, Foxtel expects overall costs for fiscal 2021, net of the increase in sports rights costs, to be lower than the prior year by at least $100 million (A$160 million), benefiting from various cost saving initiatives."
+   },
+   {
+    "metric": "other",
+    "metric_text": "annualized cost savings",
+    "period": "other",
+    "period_text": "beginning in fiscal 2022",
+    "shape": "floor",
+    "low": 100.0,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "While it is still evaluating the cost savings opportunity from this program, the Company expects to recognize annualized cost savings of at least $100 million beginning in fiscal 2022."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 18714,
+  "output_tokens": 654,
+  "thinking_tokens": 0,
+  "total_tokens": 19368
+ }
+}

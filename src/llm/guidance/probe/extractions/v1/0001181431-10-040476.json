@@ -1,0 +1,32 @@
+{
+ "accession": "0001181431-10-040476",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "22ff6ac1402a14854fb4e0955321bb7f8b57d0930ec14ddfdbac2a3dd2847a75",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "diluted earnings per share",
+    "period": "quarter",
+    "period_text": "second quarter of fiscal year 2010",
+    "shape": "range",
+    "low": 0.34,
+    "high": 0.35,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "The company expects diluted earnings per share for the second quarter of fiscal year 2010 to be $0.34 to $0.35, up from $0.33 for the second quarter last year."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 2255,
+  "output_tokens": 195,
+  "thinking_tokens": 0,
+  "total_tokens": 2450
+ }
+}

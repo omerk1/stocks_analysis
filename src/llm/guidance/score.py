@@ -36,6 +36,7 @@ from src.llm.guidance.schema import READABLE_REVISIONS, GuidanceItem, ReleaseLab
 
 GOLD_PATH = PROBE_DIR / "gold.json"
 FIELDS = ("shape", "values", "unit", "basis", "revision")
+HEADLINE = ("revenue", "eps", "margin")
 
 
 def load_gold(path: Path = GOLD_PATH) -> dict[str, ReleaseLabel]:
@@ -70,6 +71,19 @@ def match_items(gold: list[GuidanceItem], pred: list[GuidanceItem]) -> list[tupl
             used_p.add(j)
             pairs.append((i, j))
     return sorted(pairs)
+
+
+def headline_only(labels: dict[str, ReleaseLabel | None]) -> dict[str, ReleaseLabel | None]:
+    """The same labels kept to revenue, EPS and margin items: the outlook a reader of
+    "guidance" usually means, without capex, tax rates, production and the like."""
+    out = {}
+    for acc, lab in labels.items():
+        if lab is None:
+            out[acc] = None
+            continue
+        items = [i for i in lab.items if i.metric in HEADLINE]
+        out[acc] = ReleaseLabel(guidance_present=bool(items), items=items, notes=lab.notes)
+    return out
 
 
 def score(gold: dict[str, ReleaseLabel], pred: dict[str, ReleaseLabel | None]) -> dict:
@@ -136,20 +150,24 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.llm.guidance.score")
     parser.add_argument("--gold", type=Path, default=GOLD_PATH)
     parser.add_argument("--extractions", type=Path, default=EXTRACTIONS_DIR)
+    parser.add_argument("--out", type=Path, default=PROBE_DIR / f"score_{prompt.PROMPT_VERSION}.json")
     args = parser.parse_args(argv)
     gold = load_gold(args.gold)
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
-    result = score(gold, load_extractions(args.extractions))
-    rev = revision_by_release(gold)
-    result["revision"]["releases_with_guidance"] = len(rev)
-    result["revision"]["releases_with_a_readable_revision"] = int(rev.sum())
-    cov = coverage(gold, sample)
-    result["coverage"] = {k: v.reset_index().to_dict("records") for k, v in cov.items()}
-    out = PROBE_DIR / f"score_{prompt.PROMPT_VERSION}.json"
-    out.write_text(json.dumps(result, indent=1, default=int) + "\n")
-    print(json.dumps({k: v for k, v in result.items() if k != "coverage"}, indent=1))
-    for k, v in cov.items():
-        print(f"\nby {k}:\n{v.to_string()}")
+    pred = load_extractions(args.extractions)
+    result = {}
+    for view, g, p in (("all", gold, pred), ("headline", headline_only(gold), headline_only(pred))):
+        r = score(g, p)
+        rev = revision_by_release(g)
+        r["revision"] |= {"releases_with_guidance": len(rev), "releases_with_a_readable_revision": int(rev.sum())}
+        cov = coverage(g, sample)
+        r["coverage"] = {k: v.reset_index().to_dict("records") for k, v in cov.items()}
+        result[view] = r
+        print(f"\n=== {view} items ===")
+        print(json.dumps({k: v for k, v in r.items() if k != "coverage"}, indent=1))
+        for k, v in cov.items():
+            print(f"\nby {k}:\n{v.to_string()}")
+    args.out.write_text(json.dumps(result, indent=1, default=int) + "\n")
 
 
 if __name__ == "__main__":

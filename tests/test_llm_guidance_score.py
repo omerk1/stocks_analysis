@@ -49,6 +49,13 @@ def test_score_counts_presence_items_fields_and_revisions():
         score.score(gold, {"a": None})
 
 
+def test_headline_only_drops_other_metrics():
+    labels = {"a": label(item(), item(metric="other")), "b": label(item(metric="other")), "c": None}
+    h = score.headline_only(labels)
+    assert [i.metric for i in h["a"].items] == ["eps"]
+    assert not h["b"].guidance_present and h["c"] is None
+
+
 def test_coverage_and_revision_by_release():
     gold = {"a": label(item()), "b": label(), "c": label(item(revision="initiated"))}
     sample = pd.DataFrame({"accession": ["a", "b", "c"], "year": [2010, 2010, 2011],

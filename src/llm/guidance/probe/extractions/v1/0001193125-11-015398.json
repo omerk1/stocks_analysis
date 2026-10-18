@@ -1,0 +1,110 @@
+{
+ "accession": "0001193125-11-015398",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "40848f272c6b90be77a26a0aee1c1b9f28b4a44c3441d91be1af247e8c02041e",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "Normalized EPS Growth",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 10.0,
+    "high": 12.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "Provides 2011 Guidance for 10% to 12% Normalized EPS Growth"
+   },
+   {
+    "metric": "other",
+    "metric_text": "core sales",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 4.0,
+    "high": 5.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "Gross margin",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 50.0,
+    "high": 75.0,
+    "unit": "basis points",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Gross margin is expected to improve 50 to 75 basis points with the combination of productivity, mix and pricing more than offsetting input cost inflation."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "normalized earnings per diluted share",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 1.67,
+    "high": 1.7,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "\"Normalized\" EPS: $ 1.67 to $1.70"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Operating cash flow",
+    "period": "year",
+    "period_text": "full year",
+    "shape": "floor",
+    "low": 550.0,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Operating cash flow is expected to exceed $550 million for the full year, including approximately $90 to $100 million in restructuring and restructuring related cash payments."
+   },
+   {
+    "metric": "other",
+    "metric_text": "capital expenditures",
+    "period": "year",
+    "period_text": "year",
+    "shape": "range",
+    "low": 180.0,
+    "high": 200.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The company plans to fund capital expenditures of approximately $180 to $200 million during the year."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Diluted earnings per share",
+    "period": "year",
+    "period_text": "FY 2011",
+    "shape": "range",
+    "low": 1.43,
+    "high": 1.46,
+    "unit": "USD per share",
+    "basis": "gaap",
+    "revision": "initiated",
+    "evidence": "Diluted earnings per share: $ 1.43 to $1.46"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 20080,
+  "output_tokens": 944,
+  "thinking_tokens": 0,
+  "total_tokens": 21024
+ }
+}

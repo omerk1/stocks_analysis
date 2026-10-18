@@ -1,0 +1,45 @@
+{
+ "accession": "0001193125-21-234972",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "54fa211638b6216d24b765fd795720cf95234850d3974e7e2ffb2de4a056a79d",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "capital budget",
+    "period": "year",
+    "period_text": "2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+   },
+   {
+    "metric": "other",
+    "metric_text": "oil production outlook",
+    "period": "year",
+    "period_text": "2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+   }
+  ],
+  "notes": "The press release states that 'Supplemental financial tables and forward-looking guidance are available on the company\u2019s website at www.devonenergy.com' and 'Additional details of Devon\u2019s forward-looking guidance for the third-quarter and full-year 2021 are available on the company\u2019s website at www.devonenergy.com'. Only the maintenance of the capital budget and oil production outlook for 2021 are explicitly stated in the provided text."
+ },
+ "usage": {
+  "prompt_tokens": 4193,
+  "output_tokens": 390,
+  "thinking_tokens": 0,
+  "total_tokens": 4583
+ }
+}

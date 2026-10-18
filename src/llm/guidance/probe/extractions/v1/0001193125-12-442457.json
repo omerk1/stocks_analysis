@@ -1,0 +1,45 @@
+{
+ "accession": "0001193125-12-442457",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "c0ccb04df9a071389cdecc0989da41311c54cb1a280e972ef8a19b47cac47f7f",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "constant currency revenue growth",
+    "period": "year",
+    "period_text": "full year 2012",
+    "shape": "range",
+    "low": 6.0,
+    "high": 7.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "We now expect to generate constant currency revenue growth of between 6% and 7%, and adjusted earnings per share of between $4.35 and $4.40."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "adjusted diluted earnings per share",
+    "period": "year",
+    "period_text": "2012",
+    "shape": "range",
+    "low": 4.35,
+    "high": 4.4,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Adjusted diluted earnings per share in the range of $4.35 to $4.40. This compares to the Company\u2019s prior expectation of adjusted diluted earnings per share in the range of $4.25 to $4.45."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 10609,
+  "output_tokens": 335,
+  "thinking_tokens": 0,
+  "total_tokens": 10944
+ }
+}

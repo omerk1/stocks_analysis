@@ -1,0 +1,18 @@
+{
+ "accession": "0001157523-13-005156",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "67d0ddbc0c228f02babc9515718d7be508e4f077728f7ca839e188f515fc0bb3",
+ "label": {
+  "guidance_present": false,
+  "items": [],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 20231,
+  "output_tokens": 19,
+  "thinking_tokens": 0,
+  "total_tokens": 20250
+ }
+}
