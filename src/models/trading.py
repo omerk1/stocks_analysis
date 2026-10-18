@@ -619,6 +619,23 @@ def pooled_difference(baskets: dict[tuple[float, float], dict[str, pd.Series]], 
     return result, diff, int((~complete).sum())
 
 
+def pooled_readout(baskets: dict[tuple[float, float], dict[str, pd.Series]], a: str, b: str, horizon: int,
+                   sc: Scorecard, n_boot: int) -> tuple[BootstrapResult, dict]:
+    """`pooled_difference` of `a` minus `b` with its three-way verdict against
+    `sc.band`, per era / year, and per cell on the pooled statistic's own
+    dates (the neighbours). Returns the bootstrap and the readout."""
+    result, diff, n_partial = pooled_difference(baskets, a, b, horizon, n_boot, sc.ci)
+    year = diff.index.year
+    per_cell = {f"{u:g}/{d:g}": float((s[a] - s[b]).reindex(diff.index).mean()) for (u, d), s in baskets.items()}
+    return result, {
+        "verdict": three_verdict(result.ci_low, result.ci_high, sc.band), **result.summary(),
+        "dates_missing_a_cell": n_partial,
+        "by_era": {f"{e[0]}-{e[-1]}": float(diff[year.isin(e)].mean()) for e in sc.eras},
+        "by_year": {int(y): float(v) for y, v in diff.groupby(year).mean().items()},
+        "by_cell": per_cell, "cells_positive": int(sum(v > 0 for v in per_cell.values())),
+    }
+
+
 def one_sided_p(result: BootstrapResult) -> float:
     """Bootstrap p for "positive": the share of draws <= 0, add-one smoothed."""
     return float((np.sum(result.draws <= 0) + 1) / (len(result.draws) + 1))
@@ -664,20 +681,12 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
             picked = cell_picks(sc, c, preds, frames[c], sc.verdict_k, keep)
             baskets[(c.upper, c.lower)] = {side: basket(p) for side, p in picked.items()}
             diagnostics[f"{c.upper:g}/{c.lower:g}"] = pick_diagnostics(picked, features, group, h)
-        result, diff, n_partial = pooled_difference(baskets, "model", "reference", h, n_boot, sc.ci)
-        year = diff.index.year
-        # the neighbours on D_H's own dates (every cell present)
-        per_cell = {f"{u:g}/{d:g}": float((s["model"] - s["reference"]).reindex(diff.index).mean())
-                    for (u, d), s in baskets.items()}
+        result, readout = pooled_readout(baskets, "model", "reference", h, sc, n_boot)
         mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()
         horizons[h] = {
+            **readout, "p": one_sided_p(result),
             "diagnostics": {"mean_over_cells": mean_diag, "by_cell": diagnostics},
-            "verdict": three_verdict(result.ci_low, result.ci_high, sc.band), "p": one_sided_p(result),
-            **result.summary(), "dates_missing_a_cell": n_partial,
             "trial_ids": {f"{c.upper:g}/{c.lower:g}": t for c, t in ids.items()},
-            "by_era": {f"{e[0]}-{e[-1]}": float(diff[year.isin(e)].mean()) for e in sc.eras},
-            "by_year": {int(y): float(v) for y, v in diff.groupby(year).mean().items()},
-            "by_cell": per_cell, "cells_positive": int(sum(v > 0 for v in per_cell.values())),
         }
     # Holm over the horizons, at the CI's one-sided level
     alpha = (1 - sc.ci) / 2
