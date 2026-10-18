@@ -361,6 +361,10 @@ EDGAR).
 - **Feasibility probe first:** fetch ~50 press releases, hand-label the guidance in them
   (present or not, metric, period, range), and see how often it's there and how well an
   extraction prompt recovers it.
+  **In progress (2026-10-18), `docs/fundamentals/guidance_probe.md`:** the sample (50
+  releases, 50 companies, 2010–2021, stratified by year, sector and size), the label
+  schema and the frozen extraction prompt v1 are committed (Done #159), all before any
+  release was read. Next: fetch, label, score.
 - **If it holds up:** fetch the press releases for the universe (~25–30k for
   S&P 500 + Nasdaq-100 since 2010; EDGAR allows ~10 requests/s, so hours, not days)
   and extract guidance into a table.

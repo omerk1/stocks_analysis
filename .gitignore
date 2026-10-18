@@ -15,6 +15,8 @@ data/llm/*
 !docs/features/divergence-context/EXPERIMENTS.csv
 !docs/modeling/TRIALS.csv
 !src/foundation/market_common/price_disputes.csv
+# the guidance probe's fixed sample and its review sheet: committed before use
+!src/llm/guidance/probe/*.csv
 
 # sr_lines CLI review charts (generated output, not source)
 review_*.html
