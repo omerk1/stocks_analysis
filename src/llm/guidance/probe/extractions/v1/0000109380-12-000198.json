@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "ef63a065525a0a03247164fbadf64c9a193b96b02d9c064280494d3f49866d83",
+ "text_sha256": "78fcf110c75ff82473a1839d4df2b0fc1f03cc30b0c1fdc38d02396b14b2c8b5",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,7 +22,7 @@
    },
    {
     "metric": "eps",
-    "metric_text": "net earnings applicable to common shareholders",
+    "metric_text": "benefit future net earnings applicable to common shareholders by approximately $0.19 per share",
     "period": "other",
     "period_text": "annualized basis",
     "shape": "point",
@@ -35,7 +35,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "interest expense",
+    "metric_text": "increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax",
     "period": "quarter",
     "period_text": "second quarter of 2012",
     "shape": "point",
@@ -45,14 +45,27 @@
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "This anticipated conversion is expected to increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax ($13.2 million after-tax)."
+   },
+   {
+    "metric": "other",
+    "metric_text": "increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax ($13.2 million after-tax)",
+    "period": "quarter",
+    "period_text": "second quarter of 2012",
+    "shape": "point",
+    "low": 13.2,
+    "high": 13.2,
+    "unit": "USD millions after-tax",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "This anticipated conversion is expected to increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax ($13.2 million after-tax)."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 19281,
-  "output_tokens": 535,
+  "prompt_tokens": 19316,
+  "output_tokens": 798,
   "thinking_tokens": 0,
-  "total_tokens": 19816
+  "total_tokens": 20114
  }
 }

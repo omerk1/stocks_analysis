@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "40848f272c6b90be77a26a0aee1c1b9f28b4a44c3441d91be1af247e8c02041e",
+ "text_sha256": "7b95ff2ad16143ffcedfdc3ffff6be74f69f2bfebfb47a04f77fca410dad35ef",
  "label": {
   "guidance_present": true,
   "items": [
@@ -21,7 +21,7 @@
     "evidence": "Provides 2011 Guidance for 10% to 12% Normalized EPS Growth"
    },
    {
-    "metric": "other",
+    "metric": "revenue",
     "metric_text": "core sales",
     "period": "year",
     "period_text": "2011",
@@ -29,6 +29,19 @@
     "low": 4.0,
     "high": 5.0,
     "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
+   },
+   {
+    "metric": "other",
+    "metric_text": "foreign currency",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent",
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
@@ -57,7 +70,46 @@
     "unit": "USD per share",
     "basis": "adjusted",
     "revision": "initiated",
-    "evidence": "\"Normalized\" EPS: $ 1.67 to $1.70"
+    "evidence": "The company expects normalized earnings per diluted share to increase 10 to 12 percent in 2011."
+   },
+   {
+    "metric": "other",
+    "metric_text": "restructuring and other Plan-related costs",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "range",
+    "low": 80.0,
+    "high": 85.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The company\u2019s 2011 normalized EPS expectation excludes between $80 and $85 million of restructuring and other Plan-related costs associated with the company\u2019s European Transformation Plan."
+   },
+   {
+    "metric": "other",
+    "metric_text": "annualized net income improvement",
+    "period": "other",
+    "period_text": "upon completion of the European Transformation Plan",
+    "shape": "range",
+    "low": 55.0,
+    "high": 65.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The company expects to realize annualized net income improvement of $55 to $65 million, upon completion of the European Transformation Plan, and estimates the initiative will result in aggregate restructuring and other Plan-related costs of $110 to $115 million."
+   },
+   {
+    "metric": "other",
+    "metric_text": "aggregate restructuring and other Plan-related costs",
+    "period": "other",
+    "period_text": "upon completion of the European Transformation Plan",
+    "shape": "range",
+    "low": 110.0,
+    "high": 115.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The company expects to realize annualized net income improvement of $55 to $65 million, upon completion of the European Transformation Plan, and estimates the initiative will result in aggregate restructuring and other Plan-related costs of $110 to $115 million."
    },
    {
     "metric": "other",
@@ -74,9 +126,22 @@
    },
    {
     "metric": "other",
+    "metric_text": "restructuring and restructuring related cash payments",
+    "period": "year",
+    "period_text": "during the year",
+    "shape": "range",
+    "low": 90.0,
+    "high": 100.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Operating cash flow is expected to exceed $550 million for the full year, including approximately $90 to $100 million in restructuring and restructuring related cash payments."
+   },
+   {
+    "metric": "other",
     "metric_text": "capital expenditures",
     "period": "year",
-    "period_text": "year",
+    "period_text": "during the year",
     "shape": "range",
     "low": 180.0,
     "high": 200.0,
@@ -96,15 +161,15 @@
     "unit": "USD per share",
     "basis": "gaap",
     "revision": "initiated",
-    "evidence": "Diluted earnings per share: $ 1.43 to $1.46"
+    "evidence": "Diluted earnings per share: $1.43 to $1.46"
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 20080,
-  "output_tokens": 944,
+  "prompt_tokens": 19924,
+  "output_tokens": 1711,
   "thinking_tokens": 0,
-  "total_tokens": 21024
+  "total_tokens": 21635
  }
 }

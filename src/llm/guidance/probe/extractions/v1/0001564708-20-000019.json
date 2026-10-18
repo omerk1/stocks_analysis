@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "07bfa6292ed4cd0edf5ea6c0ff11a65c06b6d02e809fa955404bf4341f91534c",
+ "text_sha256": "acb1aecc12964c2101d0cad61342d84dfd96ea8db0e7843ad78ef5af78671f30",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,6 +22,19 @@
    },
    {
     "metric": "other",
+    "metric_text": "residential revenue growth at REA Group",
+    "period": "other",
+    "period_text": "expected to be offset",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "While Australian national residential listings in July increased 16% from the prior year, residential revenue growth at REA Group is expected to be offset by the reduction in development projects, listing declines in the commercial and Asia businesses and the recent government restrictions in Victoria."
+   },
+   {
+    "metric": "other",
     "metric_text": "additional sports rights costs",
     "period": "year",
     "period_text": "fiscal 2021",
@@ -30,12 +43,12 @@
     "high": 55.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "initiated",
+    "revision": "not_stated",
     "evidence": "Assuming no further disruption to live sporting events, Foxtel will recognize approximately $55 million (A$78 million) of additional sports rights costs in fiscal 2021, which were deferred from fiscal 2020 due to the suspension of live sports in the fourth quarter."
    },
    {
     "metric": "other",
-    "metric_text": "overall costs",
+    "metric_text": "overall costs for fiscal 2021, net of the increase in sports rights costs",
     "period": "year",
     "period_text": "fiscal 2021",
     "shape": "ceiling",
@@ -43,14 +56,40 @@
     "high": 100.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "initiated",
+    "revision": "not_stated",
     "evidence": "However, Foxtel expects overall costs for fiscal 2021, net of the increase in sports rights costs, to be lower than the prior year by at least $100 million (A$160 million), benefiting from various cost saving initiatives."
    },
    {
     "metric": "other",
-    "metric_text": "annualized cost savings",
+    "metric_text": "Broadcast churn",
     "period": "other",
-    "period_text": "beginning in fiscal 2022",
+    "period_text": "July",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Broadcast churn was modestly higher in July compared to the prior year and the fourth quarter."
+   },
+   {
+    "metric": "other",
+    "metric_text": "adverse effects on advertising and single-copy sales revenues",
+    "period": "other",
+    "period_text": "continue to see",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We have seen, and expect to continue to see, adverse effects on advertising and single-copy sales revenues."
+   },
+   {
+    "metric": "other",
+    "metric_text": "annualized cost savings",
+    "period": "year",
+    "period_text": "fiscal 2022",
     "shape": "floor",
     "low": 100.0,
     "high": null,
@@ -63,9 +102,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 18714,
-  "output_tokens": 654,
+  "prompt_tokens": 18676,
+  "output_tokens": 1081,
   "thinking_tokens": 0,
-  "total_tokens": 19368
+  "total_tokens": 19757
  }
 }

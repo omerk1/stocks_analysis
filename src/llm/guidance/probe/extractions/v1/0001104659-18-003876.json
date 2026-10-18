@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "3298a510b0a0b935a6130defe61186889e63978d2368a911add5976494ba5265",
+ "text_sha256": "34bb53b61ff4596a34e42fbeb2e8e417e7d4e1b5ca8aded733144a1cee93cd37",
  "label": {
   "guidance_present": true,
   "items": [
@@ -21,6 +21,19 @@
     "evidence": "Raised 2018 full-year earnings outlook: GAAP EPS of $10.20 to $10.70 versus $9.60 to $10.00 previously"
    },
    {
+    "metric": "eps",
+    "metric_text": "earnings",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 10.2,
+    "high": 10.7,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The company now expects 2018 earnings to be in the range of $10.20 to $10.70 per share versus the prior expectation of $9.60 to $10.00."
+   },
+   {
     "metric": "other",
     "metric_text": "full-year tax rate",
     "period": "year",
@@ -30,14 +43,14 @@
     "high": 22.0,
     "unit": "percent",
     "basis": "unstated",
-    "revision": "lowered",
-    "evidence": "The company also anticipates its full-year tax rate will be 20.0 to 22.0 percent, versus a prior range of 26.0 to 27.0 percent"
+    "revision": "raised",
+    "evidence": "The company also anticipates its full-year tax rate will be 20.0 to 22.0 percent, versus a prior range of 26.0 to 27.0 percent."
    },
    {
     "metric": "revenue",
     "metric_text": "organic local-currency sales growth",
     "period": "year",
-    "period_text": "2018",
+    "period_text": "full-year",
     "shape": "range",
     "low": 3.0,
     "high": 5.0,
@@ -63,9 +76,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11199,
-  "output_tokens": 640,
+  "prompt_tokens": 12371,
+  "output_tokens": 795,
   "thinking_tokens": 0,
-  "total_tokens": 11839
+  "total_tokens": 13166
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "f792e9fb62a37e9bdc4c88f6c9d00906ec6e09708a8e5bd38ca3cf85186370f2",
+ "text_sha256": "ebdd824e7b57592f3ddcc282cdac5335cebc1d3939a77de88b1e85a4bc5f6aaf",
  "label": {
   "guidance_present": true,
   "items": [
@@ -19,14 +19,27 @@
     "basis": "unstated",
     "revision": "withdrawn",
     "evidence": "Fiscal 2021 financial guidance will not be issued at this time."
+   },
+   {
+    "metric": "other",
+    "metric_text": "fiscal year 2021 guidance",
+    "period": "year",
+    "period_text": "fiscal year 2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "withdrawn",
+    "evidence": "Given the considerable uncertainty around the extent and duration of business disruptions related to the COVID-19 pandemic, and how that will impact operations, the Company will not provide fiscal year 2021 guidance at this time."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8229,
-  "output_tokens": 148,
+  "prompt_tokens": 8264,
+  "output_tokens": 304,
   "thinking_tokens": 0,
-  "total_tokens": 8377
+  "total_tokens": 8568
  }
 }

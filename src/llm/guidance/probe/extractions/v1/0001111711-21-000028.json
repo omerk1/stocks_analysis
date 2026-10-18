@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "958817319ee0d3e551bf0eda0e8c75ec53405d1a0af1c62b5bdcc2440dd057d2",
+ "text_sha256": "739a74525bc83f92f208048e6dfe9b53a023bbd88aaa24591fff5e091caf5986",
  "label": {
   "guidance_present": true,
   "items": [
@@ -48,7 +48,7 @@
    },
    {
     "metric": "eps",
-    "metric_text": "non-GAAP diluted net operating earnings per share",
+    "metric_text": "annual growth of non-GAAP diluted net operating earnings per share",
     "period": "other",
     "period_text": "through 2023",
     "shape": "range",
@@ -74,7 +74,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "annual investments",
+    "metric_text": "annual investments for growth, safety and modernization",
     "period": "other",
     "period_text": "through 2024",
     "shape": "range",
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 5806,
-  "output_tokens": 1644,
+  "prompt_tokens": 5808,
+  "output_tokens": 1625,
   "thinking_tokens": 0,
-  "total_tokens": 7450
+  "total_tokens": 7433
  }
 }

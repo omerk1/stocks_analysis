@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "2020c8372818110cc4ee52f5403eea78890ffd2c1663eaf4635c70158cde6d57",
+ "text_sha256": "dbdaf2fd3b77778154ae9c2a40cb5af4f6aef6c055c4bd798610961657b7646e",
  "label": {
   "guidance_present": true,
   "items": [
@@ -70,7 +70,7 @@
     "unit": "percent",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "Assumptions for Alliant Energy\u2019s 2019 earnings guidance include, but are not limited to: \u2022 | Consolidated effective tax rate of 11%"
+    "evidence": "Assumptions for Alliant Energy\u2019s 2019 earnings guidance include, but are not limited to: Consolidated effective tax rate of 11%"
    },
    {
     "metric": "eps",
@@ -83,15 +83,15 @@
     "unit": "percent annually",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "Our 2019 earnings guidance of $2.17 to $2.31 per share is consistent with our long-term growth objective of 5 to 7 percent annually,\u201d said Kampling."
+    "evidence": "Our 2019 earnings guidance of $2.17 to $2.31 per share is consistent with our long-term growth objective of 5 to 7 percent annually"
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11797,
-  "output_tokens": 957,
+  "prompt_tokens": 11779,
+  "output_tokens": 951,
   "thinking_tokens": 0,
-  "total_tokens": 12754
+  "total_tokens": 12730
  }
 }

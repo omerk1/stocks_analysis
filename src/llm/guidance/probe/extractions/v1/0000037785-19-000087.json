@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "7c387207adc7f0e16795a3aa25ab386fa0119430a36f1f3d8bf9adaec6dc0638",
+ "text_sha256": "e491995cabe3001905dcef042e7837f67c80d6c8b4cca2e853231655ca412432",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "revenue",
-    "metric_text": "full-year revenue",
+    "metric_text": "full-year revenue outlook",
     "period": "year",
     "period_text": "full-year",
     "shape": "range",
@@ -22,7 +22,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "full-year adjusted EBITDA",
+    "metric_text": "full-year adjusted EBITDA outlook",
     "period": "year",
     "period_text": "full-year",
     "shape": "range",
@@ -48,7 +48,7 @@
    },
    {
     "metric": "revenue",
-    "metric_text": "full-year 2019 revenue",
+    "metric_text": "guidance for full-year 2019 revenue",
     "period": "year",
     "period_text": "full-year 2019",
     "shape": "range",
@@ -232,9 +232,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 10006,
-  "output_tokens": 2820,
+  "prompt_tokens": 10011,
+  "output_tokens": 2825,
   "thinking_tokens": 0,
-  "total_tokens": 12826
+  "total_tokens": 12836
  }
 }

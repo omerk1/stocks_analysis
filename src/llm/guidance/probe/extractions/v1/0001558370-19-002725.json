@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "21466aeed75a8ca0d175ceb2bd2b3fc2c0488e72021d62de01eabd22168f0a77",
+ "text_sha256": "db1ef8dc65768e32f8124d1cb04bb08d70d6c80296d53cf9f88c66e71efae814",
  "label": {
   "guidance_present": true,
   "items": [
@@ -31,7 +31,7 @@
     "unit": "USD millions",
     "basis": "adjusted",
     "revision": "raised",
-    "evidence": "Adjusted EBITDA including unconsolidated joint ventures ( 1) expected to be $895 million-$905 million, up from a previous estimate of $870 million-$880 million"
+    "evidence": "Adjusted EBITDA including unconsolidated joint ventures(1) expected to be $895 million-$905 million, up from a previous estimate of $870 million-$880 million"
    },
    {
     "metric": "other",
@@ -43,21 +43,21 @@
     "high": 110.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "maintained",
     "evidence": "Total interest expense to be approximately $110 million."
    },
    {
     "metric": "other",
-    "metric_text": "effective tax rate",
+    "metric_text": "Effective tax rate excluding comparability items",
     "period": "year",
-    "period_text": "fiscal year 2019",
+    "period_text": "FY 2019",
     "shape": "range",
     "low": 22.0,
     "high": 23.0,
     "unit": "percent",
     "basis": "adjusted",
     "revision": "lowered",
-    "evidence": "An effective tax rate ( 2) of 22 percent to 23 percent, down from the Company\u2019s previous estimate of approximately 23 percent."
+    "evidence": "An effective tax rate(2) of 22 percent to 23 percent, down from the Company\u2019s previous estimate of approximately 23 percent."
    },
    {
     "metric": "other",
@@ -69,7 +69,7 @@
     "high": 350.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "maintained",
     "evidence": "Cash used for capital expenditures of approximately $350 million."
    },
    {
@@ -89,9 +89,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 12919,
-  "output_tokens": 850,
+  "prompt_tokens": 12908,
+  "output_tokens": 846,
   "thinking_tokens": 0,
-  "total_tokens": 13769
+  "total_tokens": 13754
  }
 }

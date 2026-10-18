@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "853823eceec549d242cde92cef209650f99ac6a16547130fe54505281462da5d",
+ "text_sha256": "a4ba4f6722d65647e6f8f2e24095a05e5c829cfca4656f500bb9f3d3bde50df3",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,7 +22,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "Free Cash Flow - before Growth Investments",
+    "metric_text": "FCF before growth investments",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -89,9 +89,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 21079,
-  "output_tokens": 936,
+  "prompt_tokens": 21029,
+  "output_tokens": 934,
   "thinking_tokens": 0,
-  "total_tokens": 22015
+  "total_tokens": 21963
  }
 }

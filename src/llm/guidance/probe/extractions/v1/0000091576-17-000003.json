@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "8f3f8df07bbeaa4743e7b41be2f23d37f91e2645ae96ece852c4073941e54f80",
+ "text_sha256": "6c1d6c9c2b907eba615edf54471be52629cbefae8b909bf5ae0b3d7feba9bb6c",
  "label": {
   "guidance_present": true,
   "items": [
@@ -11,7 +11,7 @@
     "metric": "other",
     "metric_text": "financial targets",
     "period": "other",
-    "period_text": "As we continue to realize cost savings and begin to see traction on revenue opportunities, we remain confident in reaching our financial targets.",
+    "period_text": "As we continue to realize cost savings and begin to see traction on revenue opportunities",
     "shape": "qualitative",
     "low": null,
     "high": null,
@@ -24,9 +24,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 35882,
-  "output_tokens": 174,
+  "prompt_tokens": 35663,
+  "output_tokens": 165,
   "thinking_tokens": 0,
-  "total_tokens": 36056
+  "total_tokens": 35828
  }
 }

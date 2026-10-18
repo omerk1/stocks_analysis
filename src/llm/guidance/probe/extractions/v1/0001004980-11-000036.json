@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "d098bc53ae925cc4eb3cdec252776bee5ac8bfdf3d92e1e743c19d610c44b1b3",
+ "text_sha256": "528f301a877ceabd7436664b8c078b700b170db01d0ade8fcfcabd4f878a30dd",
  "label": {
   "guidance_present": true,
   "items": [
@@ -54,7 +54,7 @@
     "shape": "range",
     "low": 0.0,
     "high": 180.0,
-    "unit": "USD millions pre-tax",
+    "unit": "USD millions",
     "basis": "unstated",
     "revision": "maintained",
     "evidence": "The estimated range for third-party liability remains unchanged at $0 to $180 million pre-tax."
@@ -63,9 +63,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 6249,
-  "output_tokens": 677,
+  "prompt_tokens": 6279,
+  "output_tokens": 674,
   "thinking_tokens": 0,
-  "total_tokens": 6926
+  "total_tokens": 6953
  }
 }

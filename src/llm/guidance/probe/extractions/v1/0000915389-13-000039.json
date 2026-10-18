@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "8c128875a3eec3db4433edb88af8cacacea0c7140210f53fb7d7bf3b3c1be58f",
+ "text_sha256": "961f21152c1f0025af74436fd29d37391385f349eb6c61766ae25dbb608d0a5e",
  "label": {
   "guidance_present": true,
   "items": [
@@ -43,16 +43,16 @@
     "high": null,
     "unit": "unstated",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "initiated",
     "evidence": "We expect earnings in the second half of the year will be slightly lower than first half due to normal seasonality of sales volume."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11839,
-  "output_tokens": 440,
+  "prompt_tokens": 11882,
+  "output_tokens": 438,
   "thinking_tokens": 0,
-  "total_tokens": 12279
+  "total_tokens": 12320
  }
 }

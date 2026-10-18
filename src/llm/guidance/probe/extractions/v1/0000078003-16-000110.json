@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "3bc8da72478445a892b31cce90aff2f3b1d59f6165f712fbff59ac9c3dbab41c",
+ "text_sha256": "517f2d493880fc0bf4eb00e4580d60b659d8db02096e88de067b7297ecc5c5f0",
  "label": {
   "guidance_present": true,
   "items": [
@@ -21,8 +21,8 @@
     "evidence": "Revenues | $52.0 to $53.0 billion (previously $51.0 to $53.0 billion)"
    },
    {
-    "metric": "margin",
-    "metric_text": "Adjusted Cost of Sales (2) as a Percentage of Revenues",
+    "metric": "other",
+    "metric_text": "Adjusted Cost of Sales as a Percentage of Revenues",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -31,11 +31,11 @@
     "unit": "percent",
     "basis": "adjusted",
     "revision": "raised",
-    "evidence": "Adjusted Cost of Sales (2) as a Percentage of Revenues | 21.5% to 22.0% (previously 21.0% to 22.0%)"
+    "evidence": "Adjusted Cost of Sales(2) as a Percentage of Revenues | 21.5% to 22.0% (previously 21.0% to 22.0%)"
    },
    {
     "metric": "other",
-    "metric_text": "Adjusted SI&A Expenses (2)",
+    "metric_text": "Adjusted SI&A Expenses",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -44,11 +44,11 @@
     "unit": "USD billions",
     "basis": "adjusted",
     "revision": "raised",
-    "evidence": "Adjusted SI&A Expenses (2) | $14.2 to $14.7 billion (previously $13.7 to $14.7 billion)"
+    "evidence": "Adjusted SI&A Expenses(2) | $14.2 to $14.7 billion (previously $13.7 to $14.7 billion)"
    },
    {
     "metric": "other",
-    "metric_text": "Adjusted R&D Expenses (2)",
+    "metric_text": "Adjusted R&D Expenses",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -57,11 +57,11 @@
     "unit": "USD billions",
     "basis": "adjusted",
     "revision": "raised",
-    "evidence": "Adjusted R&D Expenses (2) | $7.8 to $8.1 billion (previously $7.4 to $7.8 billion)"
+    "evidence": "Adjusted R&D Expenses(2) | $7.8 to $8.1 billion (previously $7.4 to $7.8 billion)"
    },
    {
     "metric": "other",
-    "metric_text": "Adjusted Other (Income)/Deductions (2)",
+    "metric_text": "Adjusted Other (Income)/Deductions",
     "period": "year",
     "period_text": "2016",
     "shape": "point",
@@ -70,11 +70,11 @@
     "unit": "USD millions",
     "basis": "adjusted",
     "revision": "lowered",
-    "evidence": "Adjusted Other (Income)/Deductions (2) | Approximately ($600 million) of income (previously approx. ($500 million) of income)"
+    "evidence": "Adjusted Other (Income)/Deductions(2) | Approximately ($600 million) of income (previously approx. ($500 million) of income)"
    },
    {
     "metric": "other",
-    "metric_text": "Effective Tax Rate on Adjusted Income (2)",
+    "metric_text": "Effective Tax Rate on Adjusted Income",
     "period": "year",
     "period_text": "2016",
     "shape": "point",
@@ -83,11 +83,11 @@
     "unit": "percent",
     "basis": "adjusted",
     "revision": "maintained",
-    "evidence": "Effective Tax Rate on Adjusted Income (2) | Approximately 24.0%"
+    "evidence": "Effective Tax Rate on Adjusted Income(2) | Approximately 24.0%"
    },
    {
     "metric": "eps",
-    "metric_text": "Adjusted Diluted EPS (2)",
+    "metric_text": "Adjusted Diluted EPS",
     "period": "year",
     "period_text": "2016",
     "shape": "range",
@@ -96,15 +96,15 @@
     "unit": "USD per share",
     "basis": "adjusted",
     "revision": "lowered",
-    "evidence": "Adjusted Diluted EPS (2) | $2.38 to $2.43 (previously $2.38 to $2.48)"
+    "evidence": "Adjusted Diluted EPS(2) | $2.38 to $2.43 (previously $2.38 to $2.48)"
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 49042,
-  "output_tokens": 1051,
+  "prompt_tokens": 48782,
+  "output_tokens": 1024,
   "thinking_tokens": 0,
-  "total_tokens": 50093
+  "total_tokens": 49806
  }
 }

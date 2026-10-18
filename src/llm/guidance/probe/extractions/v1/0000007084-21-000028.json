@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "e5ea2a637b22993409f6fc01d1678b8f7568cd6ee234f02a1ff243b74d7f25ee",
+ "text_sha256": "28a12fe3c51652475ed4fb6b18266e11073b99422911ab05d0e148751a3152b2",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "other",
-    "metric_text": "profit growth for Nutrition",
+    "metric_text": "full-year profit growth for Nutrition",
     "period": "year",
     "period_text": "full-year",
     "shape": "point",
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 9408,
-  "output_tokens": 304,
+  "prompt_tokens": 9416,
+  "output_tokens": 307,
   "thinking_tokens": 0,
-  "total_tokens": 9712
+  "total_tokens": 9723
  }
 }

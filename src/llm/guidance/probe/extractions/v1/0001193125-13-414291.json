@@ -3,13 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "7c66378b4d31fd537c9d824b246c1ca7f620db67377421068ff53db5f317b752",
+ "text_sha256": "b0af2830c8626d4ca0d34b84c839b32d80107dda6d2783a769f2f1db4132deab",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "eps",
-    "metric_text": "income from continuing operations ... per diluted share",
+    "metric_text": "income from continuing operations in a range of $4.65 to $4.85 per diluted share",
     "period": "year",
     "period_text": "fiscal 2014",
     "shape": "range",
@@ -22,7 +22,7 @@
    },
    {
     "metric": "revenue",
-    "metric_text": "revenue",
+    "metric_text": "revenue declining 1 to 3 percent",
     "period": "year",
     "period_text": "fiscal 2014",
     "shape": "range",
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 5948,
-  "output_tokens": 346,
+  "prompt_tokens": 5868,
+  "output_tokens": 367,
   "thinking_tokens": 0,
-  "total_tokens": 6294
+  "total_tokens": 6235
  }
 }

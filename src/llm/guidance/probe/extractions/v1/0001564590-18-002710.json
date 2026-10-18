@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "d0835c56104796ef2e645ff2ff56bdd295e85b5f8d2ab27befa44f91374c09ac",
+ "text_sha256": "9407ba8ae9d1349a16be52bb8bb09715944ad267bdc81227f659d539532e6732",
  "label": {
   "guidance_present": true,
   "items": [
@@ -18,7 +18,7 @@
     "unit": "percent",
     "basis": "unstated",
     "revision": "initiated",
-    "evidence": "Total comparable hotel RevPAR - Constant US$ | 0.5% to 2.5%"
+    "evidence": "The Company anticipates that its 2018 operating results as compared to the prior year will change in the following range: Full Year 2018 Guidance Total comparable hotel RevPAR - Constant US$ | 0.5% to 2.5%"
    },
    {
     "metric": "revenue",
@@ -70,11 +70,11 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "initiated",
-    "evidence": "Net income (in millions) | $547 to $616"
+    "evidence": "Based upon the above parameters, the Company estimates its 2018 guidance as follows: Full Year 2018 Guidance Net income (in millions) | $547 to $616"
    },
    {
     "metric": "other",
-    "metric_text": "Adjusted EBITDA re",
+    "metric_text": "Adjusted EBITDAre",
     "period": "year",
     "period_text": "Full Year 2018",
     "shape": "range",
@@ -83,7 +83,7 @@
     "unit": "USD millions",
     "basis": "adjusted",
     "revision": "initiated",
-    "evidence": "Adjusted EBITDA re (in millions) | $1,465 to $1,535"
+    "evidence": "Adjusted EBITDAre (in millions) | $1,465 to $1,535"
    },
    {
     "metric": "eps",
@@ -167,9 +167,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 23836,
-  "output_tokens": 1653,
+  "prompt_tokens": 23746,
+  "output_tokens": 1713,
   "thinking_tokens": 0,
-  "total_tokens": 25489
+  "total_tokens": 25459
  }
 }

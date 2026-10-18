@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "05d27226a620ebc1e265536cad6b705f0e645038839ea164a8d2f6fe72a815f1",
+ "text_sha256": "1cb033009a9a2489c62c1e4870ba2ba0e0317a47019c410e5754128fae03b886",
  "label": {
   "guidance_present": true,
   "items": [
@@ -11,7 +11,7 @@
     "metric": "revenue",
     "metric_text": "revenue",
     "period": "quarter",
-    "period_text": "first fiscal quarter of 2013",
+    "period_text": "the first fiscal quarter of 2013",
     "shape": "point",
     "low": 52000000000.0,
     "high": 52000000000.0,
@@ -24,7 +24,7 @@
     "metric": "eps",
     "metric_text": "diluted earnings per share",
     "period": "quarter",
-    "period_text": "first fiscal quarter of 2013",
+    "period_text": "the first fiscal quarter of 2013",
     "shape": "point",
     "low": 11.75,
     "high": 11.75,
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 4650,
-  "output_tokens": 351,
+  "prompt_tokens": 4612,
+  "output_tokens": 353,
   "thinking_tokens": 0,
-  "total_tokens": 5001
+  "total_tokens": 4965
  }
 }

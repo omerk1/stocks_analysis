@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "9f167af780c7c1bf8ec0407d8ecc4b919169883df36a4911cec40ac01e7520fd",
+ "text_sha256": "dd342670d4760b82f2240b09cc3f28c1c13efaa0c3f2e983625f0a4a854cbc64",
  "label": {
   "guidance_present": true,
   "items": [
@@ -50,7 +50,7 @@
     "metric": "eps",
     "metric_text": "diluted earnings per share",
     "period": "year",
-    "period_text": "fiscal Year 2015",
+    "period_text": "fiscal 2015",
     "shape": "range",
     "low": 3.25,
     "high": 3.45,
@@ -63,7 +63,7 @@
     "metric": "other",
     "metric_text": "tax rate",
     "period": "year",
-    "period_text": "fiscal Year 2015",
+    "period_text": "fiscal 2015",
     "shape": "point",
     "low": 29.5,
     "high": 29.5,
@@ -76,9 +76,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 7272,
-  "output_tokens": 824,
+  "prompt_tokens": 7292,
+  "output_tokens": 822,
   "thinking_tokens": 0,
-  "total_tokens": 8096
+  "total_tokens": 8114
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "88c0e22fc5c6248a3794dabe498d89cb7d9dd9b596ca460f550d80e4c0cb3bb5",
+ "text_sha256": "91f65af531f10cf064ecbddae63d52ffea721dd6565115f422dad3cd047c0ce6",
  "label": {
   "guidance_present": true,
   "items": [
@@ -24,7 +24,7 @@
     "metric": "revenue",
     "metric_text": "net sales growth",
     "period": "year",
-    "period_text": "2016",
+    "period_text": "2016 full year",
     "shape": "range",
     "low": 4.3,
     "high": 4.8,
@@ -37,7 +37,7 @@
     "metric": "eps",
     "metric_text": "Net earnings",
     "period": "year",
-    "period_text": "full year 2016",
+    "period_text": "2016 full year",
     "shape": "range",
     "low": 3.24,
     "high": 3.28,
@@ -56,7 +56,7 @@
     "high": null,
     "unit": "percent",
     "basis": "adjusted",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "Excluding the impact of non-comparable items, operating income, as a percentage of net sales, is expected to be above 12%."
    },
    {
@@ -69,7 +69,7 @@
     "high": null,
     "unit": "percent",
     "basis": "adjusted",
-    "revision": "maintained",
+    "revision": "not_stated",
     "evidence": "Excluding the impact of non-comparable items and the Remy acquisition, operating income, as a percentage of net sales, is expected to be above 13%."
    },
    {
@@ -115,7 +115,7 @@
     "metric": "margin",
     "metric_text": "operating income, as a percentage of net sales",
     "period": "quarter",
-    "period_text": "Fourth Quarter 2016",
+    "period_text": "Fourth quarter 2016",
     "shape": "floor",
     "low": 12.0,
     "high": null,
@@ -128,7 +128,7 @@
     "metric": "margin",
     "metric_text": "operating income, as a percentage of net sales",
     "period": "quarter",
-    "period_text": "Fourth Quarter 2016",
+    "period_text": "Fourth quarter 2016",
     "shape": "floor",
     "low": 13.0,
     "high": null,
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 6653,
-  "output_tokens": 1528,
+  "prompt_tokens": 6640,
+  "output_tokens": 1519,
   "thinking_tokens": 0,
-  "total_tokens": 8181
+  "total_tokens": 8159
  }
 }

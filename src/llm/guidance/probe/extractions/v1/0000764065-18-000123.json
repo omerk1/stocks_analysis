@@ -3,26 +3,13 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "bf27ef2331399a8efcdc7638e9dbd65e0266a335c1640c3b47d4c8f879cfc7cf",
+ "text_sha256": "d34aaebd3bb1bc68fd9f0ac6bdb0f98ac7d41789af7f9a40c269adb4ba6c8d00",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "other",
-    "metric_text": "U.S. Iron Ore revenue rates",
-    "period": "year",
-    "period_text": "for the remainder of 2018",
-    "shape": "range",
-    "low": 105.0,
-    "high": 110.0,
-    "unit": "USD per long ton",
-    "basis": "unstated",
-    "revision": "raised",
-    "evidence": "Based on the assumption that iron ore prices, steel prices, and pellet premiums will average for the remainder of 2018 their respective year-to-date averages, Cliffs would realize USIO revenue rates in the range of $105 to $110 per long ton. This represents an increase from the prior calculation based on the increase in hot-rolled coil steel prices, partially offset by lower iron ore prices."
-   },
-   {
-    "metric": "other",
-    "metric_text": "sales volume",
+    "metric_text": "U.S. Iron Ore pellet sales volume",
     "period": "year",
     "period_text": "full-year",
     "shape": "point",
@@ -45,6 +32,19 @@
     "basis": "unstated",
     "revision": "maintained",
     "evidence": "Its production volume expectation of 20 million long tons is being maintained."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "USIO revenue rates",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 105.0,
+    "high": 110.0,
+    "unit": "USD per long ton",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "Based on the assumption that iron ore prices, steel prices, and pellet premiums will average for the remainder of 2018 their respective year-to-date averages, Cliffs would realize USIO revenue rates in the range of $105 to $110 per long ton. This represents an increase from the prior calculation based on the increase in hot-rolled coil steel prices, partially offset by lower iron ore prices."
    },
    {
     "metric": "other",
@@ -76,7 +76,7 @@
     "metric": "other",
     "metric_text": "net interest expense",
     "period": "year",
-    "period_text": "Full-year 2018",
+    "period_text": "full-year 2018",
     "shape": "point",
     "low": 120.0,
     "high": 120.0,
@@ -109,7 +109,7 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "lowered",
-    "evidence": "the Toledo HBI Project spend expectation was reduced by $25 million to $200 million due to further development and refined timing of the project spending plan"
+    "evidence": "the Toledo HBI Project spend expectation was reduced by $25 million to $200 million due to further development and refined timing of the project spending plan;"
    },
    {
     "metric": "other",
@@ -122,7 +122,7 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "lowered",
-    "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million"
+    "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million;"
    },
    {
     "metric": "other",
@@ -141,9 +141,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 8168,
-  "output_tokens": 1512,
+  "prompt_tokens": 8134,
+  "output_tokens": 1550,
   "thinking_tokens": 0,
-  "total_tokens": 9680
+  "total_tokens": 9684
  }
 }

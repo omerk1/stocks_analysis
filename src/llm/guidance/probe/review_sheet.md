@@ -87,10 +87,10 @@ Start with the table: one row per release (guidance present, items by metric, ho
 - other (non-GAAP tax rate), year "2020", adjusted: 25 percent; not_stated
 - eps (net income per share - diluted), year "twelve months ended December 31, 2020", gaap: 7.23–7.53 USD per share; not_stated
 - eps (net income per share - diluted), quarter "three months ended March 31, 2020", gaap: 1.47–1.63 USD per share; not_stated
-- other (net income), year "twelve months ended December 31, 2020", gaap: 266000–277000 USD thousands; not_stated
-- other (net income), quarter "three months ended March 31, 2020", gaap: 54000–60000 USD thousands; not_stated
-- other (non-GAAP net income), year "twelve months ended December 31, 2020", adjusted: 375500–382700 USD thousands; not_stated
-- other (non-GAAP net income), quarter "three months ended March 31, 2020", adjusted: 82500–86200 USD thousands; not_stated
+- other (net income), year "twelve months ended December 31, 2020", gaap: 266,000–277,000 USD thousands; not_stated
+- other (net income), quarter "three months ended March 31, 2020", gaap: 54,000–60,000 USD thousands; not_stated
+- other (non-GAAP net income), year "twelve months ended December 31, 2020", adjusted: 375,500–382,700 USD thousands; not_stated
+- other (non-GAAP net income), quarter "three months ended March 31, 2020", adjusted: 82,500–86,200 USD thousands; not_stated
 - _note: 2020 Outlook section plus the 'Reconciliation of Forward-Looking Guidance' tables (GAAP net income, GAAP diluted EPS, non-GAAP net income for Q1 2020 and FY2020). Revenue growth % (18-19%, 19% at midpoint) is the same guidance restated, not separate items. Guidance excludes the proposed RentPath acquisition. No prior-outlook comparison stated._
 - _note: Included GAAP net income/EPS and non-GAAP net income only from the reconciliation tables (reconciling line items like tax expense, D&A, SBC not itemized); STR contribution counted as a separate 'other' item though it is a component of total revenue; share-count assumptions (36.8M/36.7M) not itemized; first 2020 outlook but release doesn't say 'initial', so not_stated._
 
@@ -290,14 +290,14 @@ Start with the table: one row per release (guidance present, items by metric, ho
 - margin (Operating profit margin under GAAP (change)), year "Full Year 2018", gaap: -50–50 basis points change; not_stated
 - margin (Comparable hotel EBITDA margins (change)), year "Full Year 2018", adjusted: -60–20 basis points change; not_stated
 - other (Net income), year "Full Year 2018", gaap: 547–616 USD millions; not_stated
-- other (Adjusted EBITDAre), year "Full Year 2018", adjusted: 1465–1535 USD millions; not_stated
+- other (Adjusted EBITDAre), year "Full Year 2018", adjusted: 1,465–1,535 USD millions; not_stated
 - eps (Earnings per diluted share), year "Full Year 2018", gaap: 0.73–0.82 USD per share; not_stated
 - other (NAREIT FFO per diluted share), year "Full Year 2018", adjusted: 1.6–1.7 USD per share; not_stated
 - other (Adjusted FFO per diluted share), year "Full Year 2018", adjusted: 1.6–1.7 USD per share; not_stated
 - other (capital expenditures), year "2018", unstated: 475–550 USD millions; not_stated
 - other (ROI capital expenditures), year "2018", unstated: 185–220 USD millions; not_stated
 - other (renewal and replacement capital expenditures), year "2018", unstated: 290–330 USD millions; not_stated
-- other (Comparable hotel EBITDA), year "Full Year 2018", adjusted: 1307–1370 USD millions; not_stated
+- other (Comparable hotel EBITDA), year "Full Year 2018", adjusted: 1,307–1,370 USD millions; not_stated
 - other (Interest expense), year "Full Year 2018", gaap: 192 USD millions; not_stated
 - other (Depreciation and amortization), year "Full Year 2018", gaap: 735 USD millions; not_stated
 - other (Income taxes), year "Full Year 2018", gaap: 43–44 USD millions; not_stated
@@ -346,9 +346,9 @@ Start with the table: one row per release (guidance present, items by metric, ho
 
 **33 EQT** (2016, Energy, large) — [release](https://www.sec.gov/Archives/edgar/data/33213/000115752316005287/a51329951-ex991.htm) — guidance: 10 items
 - other (production sales volume), year "2016", unstated: 710–730 Bcfe; raised
-- other (liquids volume), year "2016", unstated: 10250–10750 MBbls; not_stated
+- other (liquids volume), year "2016", unstated: 10,250–10,750 MBbls; not_stated
 - other (production sales volume), quarter "second quarter of 2016", unstated: 175–180 Bcfe; not_stated
-- other (liquids volume), quarter "second quarter of 2016", unstated: 2700–2750 MBbls; not_stated
+- other (liquids volume), quarter "second quarter of 2016", unstated: 2,700–2,750 MBbls; not_stated
 - other (average differential to the NYMEX price), year "2016", unstated: -0.7–-0.6 USD per Mcf; not_stated
 - other (average differential to the NYMEX price), quarter "second quarter of 2016", unstated: -0.75–-0.7 USD per Mcf; not_stated
 - other (net marketing services), year "2016", unstated: -5–5 USD millions; not_stated
@@ -373,8 +373,8 @@ Start with the table: one row per release (guidance present, items by metric, ho
 - _note: Qualitative 'very strong full-year earnings' item may be too vague to count; metric could be eps rather than other._
 
 **36 IRM** (2019, Real Estate, mid) — [release](https://www.sec.gov/Archives/edgar/data/1020569/000102056919000194/q22019earningsreleasefinal.htm) — guidance: 4 items
-- revenue (Revenue), year "2019 full-year", unstated: 4250–4325 USD millions; lowered
-- other (Adjusted EBITDA), year "2019 full-year", adjusted: 1440–1480 USD millions; lowered
+- revenue (Revenue), year "2019 full-year", unstated: 4,250–4,325 USD millions; lowered
+- other (Adjusted EBITDA), year "2019 full-year", adjusted: 1,440–1,480 USD millions; lowered
 - eps (Adjusted EPS), year "2019 full-year", adjusted: 1–1.1 USD per share; lowered
 - other (AFFO), year "2019 full-year", adjusted: 870–900 USD millions; lowered
 - _note: Guidance table gives New and Previous ranges ('updated its 2019 full-year guidance ranges'); revision by midpoint comparison. Further guidance details in the supplemental (not in exhibit 99.1)._
@@ -417,8 +417,8 @@ Start with the table: one row per release (guidance present, items by metric, ho
 - _note: Q3 2013 results only; no company outlook for any metric in the release (ASR completion timing and Governance strategic review are not metric guidance)._
 
 **41 KEYS** (2017, Technology, mid) — [release](https://www.sec.gov/Archives/edgar/data/1601046/000160104617000029/exhibit991-q417pressrelease.htm) — guidance: 6 items
-- revenue (GAAP revenue), other "first half of 2018", gaap: 1748 USD millions; not_stated
-- revenue (non-GAAP revenue), other "first half of 2018", adjusted: 1775 USD millions; not_stated
+- revenue (GAAP revenue), other "first half of 2018", gaap: 1,748 USD millions; not_stated
+- revenue (non-GAAP revenue), other "first half of 2018", adjusted: 1,775 USD millions; not_stated
 - revenue (GAAP revenue), quarter "first quarter 2018", gaap: 762–802 USD millions; not_stated
 - revenue (non-GAAP revenue), quarter "first quarter 2018", adjusted: 780–820 USD millions; not_stated
 - eps (non-GAAP earnings per share), other "first half of 2018", adjusted: 1.29 USD per share; not_stated
@@ -445,12 +445,12 @@ Start with the table: one row per release (guidance present, items by metric, ho
 - _note: 2011 capex says 'has announced a preliminary' estimate (possibly previously announced) but gives no comparison, so not_stated. Cost-savings items are borderline guidance (operating targets); included as 'other'._
 
 **45 NRG** (2016, Utilities, mid) — [release](https://www.sec.gov/Archives/edgar/data/1013871/000101387116000036/ex991.htm) — guidance: 6 items
-- other (Adjusted EBITDA), year "2016", adjusted: 3250–3350 USD millions; raised
-- other (Cash From Operations), year "2016", gaap: 1975–2075 USD millions; lowered
-- other (Free Cash Flow - before Growth Investments), year "2016", adjusted: 1100–1200 USD millions; raised
-- other (Adjusted EBITDA), year "fiscal year 2017", adjusted: 2700–2900 USD millions; initiated
-- other (Cash From Operations), year "fiscal year 2017", gaap: 1355–1555 USD millions; initiated
-- other (Free Cash Flow - before Growth Investments), year "fiscal year 2017", adjusted: 800–1000 USD millions; initiated
+- other (Adjusted EBITDA), year "2016", adjusted: 3,250–3,350 USD millions; raised
+- other (Cash From Operations), year "2016", gaap: 1,975–2,075 USD millions; lowered
+- other (Free Cash Flow - before Growth Investments), year "2016", adjusted: 1,100–1,200 USD millions; raised
+- other (Adjusted EBITDA), year "fiscal year 2017", adjusted: 2,700–2,900 USD millions; initiated
+- other (Cash From Operations), year "fiscal year 2017", gaap: 1,355–1,555 USD millions; initiated
+- other (Free Cash Flow - before Growth Investments), year "fiscal year 2017", adjusted: 800–1,000 USD millions; initiated
 - _note: Table 4: 2016 prior vs narrowed guidance and 2017 guidance; release says it 'increased and narrowed' 2016 Adjusted EBITDA, 'narrowed' FCFbG, and is 'initiating guidance for fiscal year 2017'. Revisions for 2016 set by midpoint (EBITDA 3300 vs 3100 raised; CFO 2025 vs 2155 lowered; FCFbG 1150 vs 1100 raised). Reconciliation-table components (GAAP net income, interest, maintenance/environmental capex, distributions etc.) not labeled as separate items; release says it is unable to provide Net Income guidance._
 - _note: 2016 CFO 'lowered' comes from the midpoint rule; the release text itself doesn't mention CFO revision. Appendix A-11 shows GAAP net income ranges (2016 235-335, 2017 60-260) and A-12 shows capex ranges; excluded as reconciliation inputs (footnote says no Net Income guidance) - reviewer may want them._
 

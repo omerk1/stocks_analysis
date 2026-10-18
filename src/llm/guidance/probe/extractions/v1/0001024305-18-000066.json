@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "162f448904fe2a003b1710ff4477f9e8dc68725471e155cc42f4b85f34233ac3",
+ "text_sha256": "26e8ff60b0a353d1e7d29ee7bb722f5b39ba0dc1e0cacff02aa06ad44f8a2bf3",
  "label": {
   "guidance_present": true,
   "items": [
@@ -87,7 +87,7 @@
    },
    {
     "metric": "margin",
-    "metric_text": "operating profit margin",
+    "metric_text": "margin growth",
     "period": "year",
     "period_text": "FY19",
     "shape": "qualitative",
@@ -123,14 +123,27 @@
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+   },
+   {
+    "metric": "other",
+    "metric_text": "free cash flow",
+    "period": "other",
+    "period_text": "remaining quarters",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 16830,
-  "output_tokens": 1296,
+  "prompt_tokens": 16740,
+  "output_tokens": 1446,
   "thinking_tokens": 0,
-  "total_tokens": 18126
+  "total_tokens": 18186
  }
 }

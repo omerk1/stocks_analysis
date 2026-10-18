@@ -3,15 +3,15 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "1ae2df0566249561d36e846b1a51b07d5e8964321d6e3667e97620c1c5140392",
+ "text_sha256": "1cc60f217fb22f130bf433072fb83c1726c3db6b78bc2c5ebc6e26a7a31ff990",
  "label": {
   "guidance_present": true,
   "items": [
    {
     "metric": "other",
-    "metric_text": "revenue contribution from STR",
+    "metric_text": "STR to contribute revenue",
     "period": "year",
-    "period_text": "2020",
+    "period_text": "in 2020",
     "shape": "range",
     "low": 61.0,
     "high": 63.0,
@@ -24,11 +24,11 @@
     "metric": "revenue",
     "metric_text": "revenue",
     "period": "year",
-    "period_text": "full year of 2020",
+    "period_text": "for the full year of 2020",
     "shape": "range",
-    "low": 1.65,
-    "high": 1.665,
-    "unit": "USD billions",
+    "low": 1650.0,
+    "high": 1665.0,
+    "unit": "USD millions",
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The Company expects revenue in the range of $1.650 billion to $1.665 billion for the full year of 2020, representing growth of 18% to 19% for the year."
@@ -50,7 +50,7 @@
     "metric": "revenue",
     "metric_text": "revenue",
     "period": "quarter",
-    "period_text": "first quarter of 2020",
+    "period_text": "for the first quarter of 2020",
     "shape": "range",
     "low": 387.0,
     "high": 392.0,
@@ -60,10 +60,23 @@
     "evidence": "We expect revenue for the first quarter of 2020 in the range of $387 million to $392 million, representing revenue growth of 19% at the midpoint of the range."
    },
    {
+    "metric": "revenue",
+    "metric_text": "revenue growth",
+    "period": "quarter",
+    "period_text": "for the first quarter of 2020",
+    "shape": "point",
+    "low": 19.0,
+    "high": 19.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "We expect revenue for the first quarter of 2020 in the range of $387 million to $392 million, representing revenue growth of 19% at the midpoint of the range."
+   },
+   {
     "metric": "other",
     "metric_text": "adjusted EBITDA",
     "period": "year",
-    "period_text": "full year of 2020",
+    "period_text": "for the full year of 2020",
     "shape": "range",
     "low": 520.0,
     "high": 530.0,
@@ -75,8 +88,21 @@
    {
     "metric": "other",
     "metric_text": "adjusted EBITDA",
+    "period": "year",
+    "period_text": "for the full year of 2020",
+    "shape": "point",
+    "low": 4.0,
+    "high": 4.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "The Company expects adjusted EBITDA in a range of $520 million to $530 million for the full year of 2020, an increase of 4% at the midpoint of the range."
+   },
+   {
+    "metric": "other",
+    "metric_text": "adjusted EBITDA",
     "period": "quarter",
-    "period_text": "first quarter of 2020",
+    "period_text": "For the first quarter of 2020",
     "shape": "range",
     "low": 115.0,
     "high": 120.0,
@@ -102,7 +128,7 @@
     "metric": "eps",
     "metric_text": "non-GAAP net income per diluted share",
     "period": "quarter",
-    "period_text": "first quarter of 2020",
+    "period_text": "For the first quarter of 2020",
     "shape": "range",
     "low": 2.25,
     "high": 2.35,
@@ -128,9 +154,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11269,
-  "output_tokens": 1390,
+  "prompt_tokens": 11308,
+  "output_tokens": 1718,
   "thinking_tokens": 0,
-  "total_tokens": 12659
+  "total_tokens": 13026
  }
 }

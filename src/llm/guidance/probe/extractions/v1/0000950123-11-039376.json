@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "c30a92736ae2f12b688ef14337547f160c87f31bc623678f2bd2e88f42d20019",
+ "text_sha256": "89a700cfabbdf59c0b1265a579965437136de8be4cfc3d309659f9ec486b0d9e",
  "label": {
   "guidance_present": true,
   "items": [
@@ -11,14 +11,14 @@
     "metric": "other",
     "metric_text": "International income",
     "period": "other",
-    "period_text": "second half of the year",
+    "period_text": "first half",
     "shape": "qualitative",
     "low": null,
     "high": null,
-    "unit": "unstated",
+    "unit": "USD millions",
     "basis": "unstated",
-    "revision": "not_stated",
-    "evidence": "Our first quarter operating results obscure the fact that virtually all of our businesses are experiencing significantly improving outlooks that will be more fully reflected in our results during the second half of the year."
+    "revision": "maintained",
+    "evidence": "The first half will be negatively affected by the previously disclosed $90 million decrease in International income from the repricing of three jackups and scheduled downtime for multiple rigs."
    },
    {
     "metric": "other",
@@ -204,7 +204,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "equipment",
+    "metric_text": "equipment deployment",
     "period": "year",
     "period_text": "end of this year",
     "shape": "qualitative",
@@ -243,7 +243,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "visibility regarding the intermediate term outlook",
+    "metric_text": "visibility",
     "period": "year",
     "period_text": "end of this year",
     "shape": "qualitative",
@@ -347,7 +347,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "proceeds to Nabors",
+    "metric_text": "proceeds",
     "period": "other",
     "period_text": "before the end of the second quarter",
     "shape": "floor",
@@ -356,15 +356,15 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "All of these transactions either have closed or are expected to do so before the end of the second quarter. The combined proceeds to Nabors are expected to exceed $250 million."
+    "evidence": "The combined proceeds to Nabors are expected to exceed $250 million."
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 9459,
-  "output_tokens": 3669,
+  "prompt_tokens": 9341,
+  "output_tokens": 3633,
   "thinking_tokens": 0,
-  "total_tokens": 13128
+  "total_tokens": 12974
  }
 }

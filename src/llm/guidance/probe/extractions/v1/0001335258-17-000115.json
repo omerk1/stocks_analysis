@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "3f3fc0c6b8b54bf2544f98fb047c8d266d323f2b8918908ff7159c464c359570",
+ "text_sha256": "9a7c2610a069d4af2a1639a3cf17f700cdec946c0f58495434e8fcc7fa53a32f",
  "label": {
   "guidance_present": true,
   "items": [
@@ -26,9 +26,9 @@
     "period": "year",
     "period_text": "this year",
     "shape": "point",
-    "low": 80.0,
-    "high": 80.0,
-    "unit": "millions",
+    "low": 80000000.0,
+    "high": 80000000.0,
+    "unit": "fans",
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "Given the strong performance of our shows to date and the pipeline of shows for the rest of the year, I expect us to grow our fan base to 80 million this year."
@@ -100,7 +100,7 @@
    },
    {
     "metric": "other",
-    "metric_text": "ticketing ... AOI",
+    "metric_text": "AOI",
     "period": "year",
     "period_text": "this year",
     "shape": "qualitative",
@@ -122,7 +122,7 @@
     "unit": "other",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "Our key indicators for our businesses \u2014 concert tickets sold for shows this year, contracted sponsorship, and fee-bearing ticketing GTV \u2014 are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
    },
    {
     "metric": "other",
@@ -135,7 +135,7 @@
     "unit": "other",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "Our key indicators for our businesses \u2014 concert tickets sold for shows this year, contracted sponsorship, and fee-bearing ticketing GTV \u2014 are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
    },
    {
     "metric": "other",
@@ -148,7 +148,7 @@
     "unit": "other",
     "basis": "adjusted",
     "revision": "not_stated",
-    "evidence": "Our key indicators for our businesses \u2014 concert tickets sold for shows this year, contracted sponsorship, and fee-bearing ticketing GTV \u2014 are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    "evidence": "and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
    },
    {
     "metric": "other",
@@ -161,7 +161,7 @@
     "unit": "USD millions",
     "basis": "unstated",
     "revision": "not_stated",
-    "evidence": "We currently expect capital expenditures for the full year to be approximately $220 million , with approximately 50% to be revenue generating capital expenditures."
+    "evidence": "We currently expect capital expenditures for the full year to be approximately $220 million, with approximately 50% to be revenue generating capital expenditures."
    },
    {
     "metric": "other",
@@ -171,7 +171,7 @@
     "shape": "qualitative",
     "low": null,
     "high": null,
-    "unit": "other",
+    "unit": "USD",
     "basis": "unstated",
     "revision": "not_stated",
     "evidence": "We currently expect the amortization of nonrecoupable ticketing contract advances for the full year 2017 to be approximately in line with the total amount in 2016."
@@ -180,9 +180,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11689,
-  "output_tokens": 1892,
+  "prompt_tokens": 11716,
+  "output_tokens": 1783,
   "thinking_tokens": 0,
-  "total_tokens": 13581
+  "total_tokens": 13499
  }
 }

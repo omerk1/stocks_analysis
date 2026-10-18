@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "4a08ffd730ee4a564fe5f480a04c777035d839ac26022b9891eb6454e007693d",
+ "text_sha256": "ad52d6a76af72c2ba51fa32ab20f61c325c159bc5672b2bbfa0247615cac15bb",
  "label": {
   "guidance_present": true,
   "items": [
@@ -61,26 +61,13 @@
    },
    {
     "metric": "revenue",
-    "metric_text": "Recurring fee revenue growth",
-    "period": "year",
-    "period_text": "FY16",
-    "shape": "range",
-    "low": 10.0,
-    "high": 12.0,
-    "unit": "percent",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "Recurring fee revenue growth in the range of 10% to 12% and total revenue growth in the range of 8% to 10%"
-   },
-   {
-    "metric": "revenue",
     "metric_text": "total revenue growth",
     "period": "year",
-    "period_text": "FY16",
+    "period_text": "Fiscal Year 2016",
     "shape": "range",
     "low": 8.0,
     "high": 10.0,
-    "unit": "percent",
+    "unit": "percent growth",
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "Recurring fee revenue growth in the range of 10% to 12% and total revenue growth in the range of 8% to 10%"
@@ -102,7 +89,7 @@
     "metric": "other",
     "metric_text": "Effective tax rate",
     "period": "year",
-    "period_text": "FY16",
+    "period_text": "Fiscal Year 2016",
     "shape": "point",
     "low": 34.8,
     "high": 34.8,
@@ -112,23 +99,10 @@
     "evidence": "Effective tax rate of ~34.8%"
    },
    {
-    "metric": "eps",
-    "metric_text": "Adjusted Diluted earnings per share growth",
-    "period": "year",
-    "period_text": "FY16",
-    "shape": "range",
-    "low": 8.0,
-    "high": 12.0,
-    "unit": "percent growth",
-    "basis": "adjusted",
-    "revision": "initiated",
-    "evidence": "Adjusted Diluted earnings per share growth in the range of 8% to 12%"
-   },
-   {
     "metric": "other",
     "metric_text": "Free cash flows",
     "period": "year",
-    "period_text": "FY16",
+    "period_text": "Fiscal Year 2016",
     "shape": "range",
     "low": 350.0,
     "high": 400.0,
@@ -141,7 +115,7 @@
     "metric": "other",
     "metric_text": "Recurring revenue closed sales",
     "period": "year",
-    "period_text": "FY16",
+    "period_text": "Fiscal Year 2016",
     "shape": "range",
     "low": 120.0,
     "high": 160.0,
@@ -161,7 +135,7 @@
     "unit": "percent growth",
     "basis": "gaap",
     "revision": "initiated",
-    "evidence": "Diluted earnings per share (GAAP) 7% - 12% growth"
+    "evidence": "Diluted earnings per share (GAAP) | 7% - 12% growth"
    },
    {
     "metric": "margin",
@@ -174,15 +148,15 @@
     "unit": "percent",
     "basis": "gaap",
     "revision": "initiated",
-    "evidence": "Operating income margin % (GAAP) ~17.3%"
+    "evidence": "Operating income margin % (GAAP) | ~17.3%"
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 7944,
-  "output_tokens": 1843,
+  "prompt_tokens": 7771,
+  "output_tokens": 1598,
   "thinking_tokens": 0,
-  "total_tokens": 9787
+  "total_tokens": 9369
  }
 }

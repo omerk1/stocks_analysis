@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "c0ccb04df9a071389cdecc0989da41311c54cb1a280e972ef8a19b47cac47f7f",
+ "text_sha256": "f6b8b900b6d9817d9f0374fc2dcf80b17b6291247f1e2e1302bbbb360eb6b8d4",
  "label": {
   "guidance_present": true,
   "items": [
@@ -22,7 +22,7 @@
    },
    {
     "metric": "eps",
-    "metric_text": "adjusted diluted earnings per share",
+    "metric_text": "Adjusted diluted earnings per share",
     "period": "year",
     "period_text": "2012",
     "shape": "range",
@@ -37,9 +37,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 10609,
-  "output_tokens": 335,
+  "prompt_tokens": 10526,
+  "output_tokens": 336,
   "thinking_tokens": 0,
-  "total_tokens": 10944
+  "total_tokens": 10862
  }
 }

@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "5194abe2741ed9fbd226aaa7e4217c646fd28dcdb9b2cb6d79e610558f23addd",
+ "text_sha256": "e7fecad3f3c0feb91ebc0aa67ad5ede83d4138a44049ae43edc4e99bc685ee19",
  "label": {
   "guidance_present": true,
   "items": [
@@ -23,12 +23,12 @@
    {
     "metric": "other",
     "metric_text": "total annual gross run-rate synergies",
-    "period": "other",
-    "period_text": "by the end of 2021",
+    "period": "year",
+    "period_text": "the end of 2021",
     "shape": "point",
-    "low": 1.4,
-    "high": 1.4,
-    "unit": "USD billions",
+    "low": 1400.0,
+    "high": 1400.0,
+    "unit": "USD millions",
     "basis": "unstated",
     "revision": "maintained",
     "evidence": "By executing the strategy outlined during our recent Investor Day, we have realized $160 million of synergies in just three months and continue to expect total annual gross run-rate synergies of up to $600 million at year-end 2019 and $1.4 billion by the end of 2021."
@@ -37,7 +37,7 @@
     "metric": "other",
     "metric_text": "discretionary free cash flow",
     "period": "other",
-    "period_text": "over the long term",
+    "period_text": "long term",
     "shape": "floor",
     "low": 50.0,
     "high": null,
@@ -50,9 +50,9 @@
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 11913,
-  "output_tokens": 541,
+  "prompt_tokens": 11876,
+  "output_tokens": 540,
   "thinking_tokens": 0,
-  "total_tokens": 12454
+  "total_tokens": 12416
  }
 }
