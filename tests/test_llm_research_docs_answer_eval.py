@@ -71,7 +71,7 @@ def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path,
     # only line breaks change: the model sees a different prompt, so the id changes
     monkeypatch.setattr(answer_eval, "SYSTEM", answer_eval.SYSTEM.replace("\n", " "))
     assert answer_eval.prompt_id() != row["prompt"]
-    with pytest.raises(ValueError, match="another prompt"):
+    with pytest.raises(ValueError, match="another setup \\(prompt "):
         run([Q, MULTI], _find(GOLD), client, out)
     assert client.calls == 1
     assert run([Q], _find(GOLD), client, out) == [row]  # nothing left to answer: no calls, so no refusal
@@ -80,6 +80,17 @@ def test_a_record_names_the_prompt_and_a_run_wont_mix_two(monkeypatch, tmp_path,
     assert "MIXED" in score([row, record(MULTI, _answered("x", GOLD))], empty)
     old = {k: v for k, v in row.items() if k != "prompt"}  # a row from before prompt ids
     assert score([old], empty).startswith("prompt: unrecorded\n")
+
+
+def test_a_run_gives_k_sources_and_wont_mix_two_source_counts(tmp_path):
+    out, client = tmp_path / "run.json", FakeClient(Answer(in_docs=True, answer="Too fragile [2]."))
+    [row] = run([Q], _find(OTHER, GOLD, OTHER), client, out, k=2)
+    assert [s["n"] for s in row["sources"]] == [1, 2] and row["retrieval"] == "full"
+    with pytest.raises(ValueError, match=r"another setup \(k=2\)"):
+        run([Q, MULTI], _find(OTHER, GOLD, OTHER), client, out, k=3)
+    assert client.calls == 1
+    assert run([Q, MULTI], _find(OTHER, GOLD, OTHER), client, out, k=2)[1]["id"] == "both"  # same k resumes
+    assert "sources per answer: 2\n" in score([row], {"support": {}, "answers": {}})
 
 
 def test_the_prompt_id_follows_what_the_model_sees_not_the_code(monkeypatch):

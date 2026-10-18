@@ -2,7 +2,7 @@ import pytest
 from llama_index.core.schema import NodeWithScore, TextNode
 
 from src.llm.gemini import Reply, Usage
-from src.llm.research_docs.answer import (PURPOSE, SYSTEM, Answer, answer, build_prompt, check, cited,
+from src.llm.research_docs.answer import (MAX_K, PURPOSE, SYSTEM, Answer, answer, build_prompt, check, cited,
                                           format_answered, sentences)
 
 
@@ -42,6 +42,7 @@ def test_the_prompt_keeps_an_experiment_rows_ids_that_live_in_metadata():
     ("Both [2][1], again [1].", [2, 1]),
     ("Listed [1, 3].", [1, 3]),
     ("A range [1-3], another [4\u20135].", [1, 2, 3, 4, 5]),
+    ("All ten sources [1-10], a year span [2010-2021].", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 2010, 2021]),
     ("Reversed [3-2], a span [2010-2021], huge [1-10000000].", [2, 3, 2010, 2021, 1, 10000000]),
     ("No citation, and a year [2021 is not one] nor is [a].", []),
 ])
@@ -95,3 +96,11 @@ def test_a_not_in_the_docs_reply_is_shown_as_such_and_no_sources_is_an_error():
     assert format_answered(out).startswith("(not in the docs)\nNot covered.")
     with pytest.raises(ValueError):
         answer("q", lambda q, k: [], FakeClient(Answer(in_docs=False, answer="x")))
+
+
+@pytest.mark.parametrize("k", [0, MAX_K + 1])
+def test_answer_refuses_a_source_count_outside_1_to_max_k(k):
+    client = FakeClient(Answer(in_docs=False, answer="x"))
+    with pytest.raises(ValueError, match="k must be"):
+        answer("q", lambda q, k: SOURCES, client, k=k)
+    assert client.calls == []  # refused before paying for a call

@@ -49,6 +49,7 @@ from src.llm.research_docs.retrieve import TOP_K, cite
 
 PURPOSE = "research_docs.answer"
 BUDGET = Budget(max_input_tokens=8_000, max_output_tokens=2_000)
+MAX_K = 10  # the most sources one answer is given: 10 chunks still fit under BUDGET's input cap
 
 SYSTEM = """\
 You answer questions about one trading-research project, using only the numbered sources
@@ -116,7 +117,7 @@ def cited(text: str) -> list[int]:
             lo, _, hi = re.sub(r"\s", "", part).replace("\u2013", "-").partition("-")
             lo, hi = sorted((int(lo), int(hi or lo)))
             # a short span is a citation range; a long one ([2010-2021]) keeps just its ends
-            for n in range(lo, hi + 1) if hi - lo <= TOP_K else (lo, hi):
+            for n in range(lo, hi + 1) if hi - lo < MAX_K else (lo, hi):
                 if n not in out:
                     out.append(n)
     return out
@@ -156,7 +157,9 @@ def check(answer: Answer, n_sources: int) -> list[str]:
 
 def answer(question: str, find: Callable[[str, int], list[NodeWithScore]],
            client: GeminiClient, k: int = TOP_K) -> Answered:
-    """Retrieve with `find` (the re-ranker in practice), then ask the model."""
+    """Retrieve `k` sources with `find` (the re-ranker in practice), then ask the model."""
+    if not 1 <= k <= MAX_K:
+        raise ValueError(f"k must be 1-{MAX_K}, got {k}")
     sources = find(question, k)
     if not sources:
         raise ValueError("retrieval returned no chunks")
@@ -180,7 +183,10 @@ def format_answered(a: Answered) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m src.llm.research_docs.answer")
     ap.add_argument("question")
+    ap.add_argument("-k", type=int, default=TOP_K, help=f"sources given to the model (default {TOP_K}, at most {MAX_K})")
     args = ap.parse_args()
+    if not 1 <= args.k <= MAX_K:
+        ap.error(f"-k must be 1-{MAX_K}")
     from src.llm.research_docs.index import embed_model, load_index
     from src.llm.research_docs.keyword import KeywordIndex
     from src.llm.research_docs.rerank import cross_encoder, rerank_search
@@ -188,7 +194,7 @@ def main() -> None:
     keywords = KeywordIndex(list(index.docstore.docs.values()))
     score = cross_encoder()
     find = lambda q, k: rerank_search(index, keywords, score, q, k)  # noqa: E731
-    print(format_answered(answer(args.question, find, GeminiClient(budget=BUDGET))))
+    print(format_answered(answer(args.question, find, GeminiClient(budget=BUDGET), args.k)))
 
 
 if __name__ == "__main__":

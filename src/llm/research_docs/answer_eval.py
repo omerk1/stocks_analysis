@@ -16,8 +16,9 @@ changes, only what changed needs judging again.
   docs" without stretching a source. Keyed by question id and answer text.
 
 A wrong answer is then split mechanically by whether retrieval put the answer in front of
-the model (`evaluate.part_ranks` on the 5 sources shown): a **retrieval miss** when a gold
-(for a multi-part question, every part's) isn't in the top 5, a **generation miss** when it
+the model (`evaluate.part_ranks` on the sources shown, 5 unless the run says `-k`): a
+**retrieval miss** when a gold (for a multi-part question, every part's) isn't among them,
+a **generation miss** when it
 is and the answer is still wrong, or when the question is unanswerable and the model
 answered anyway. A "not in the docs" reply to an answerable question whose gold wasn't
 retrieved counts as a retrieval miss: the model did what it was told. The hand-check can
@@ -53,11 +54,11 @@ from llama_index.core.schema import BaseNode, NodeWithScore, TextNode
 
 from src.llm.gemini import DEFAULT_MODEL, GeminiClient
 from src.llm.paths import llm_data_dir
-from src.llm.research_docs.answer import (BUDGET, SYSTEM, Answer, answer, build_prompt, cited, sentences,
+from src.llm.research_docs.answer import (BUDGET, MAX_K, SYSTEM, Answer, answer, build_prompt, cited, sentences,
                                           source_text)
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
-from src.llm.research_docs.retrieve import cite
+from src.llm.research_docs.retrieve import TOP_K, cite
 
 LEDGER = Path(__file__).with_name("judged") / "answers.json"
 SUPPORT = ("supported", "partial", "unsupported")
@@ -95,13 +96,14 @@ def retrieval(q: dict, nodes: list[BaseNode]) -> str:
     return "full" if full else "partial" if first else "none"
 
 
-def record(q: dict, a, prompt: str | None = None) -> dict:
+def record(q: dict, a, prompt: str | None = None, k: int = TOP_K) -> dict:
     """One answered question as stored in a run file. `a` is an `answer.Answered`;
-    `prompt` is `prompt_id` for the run's model (the default model's when not given)."""
+    `prompt` is `prompt_id` for the run's model (the default model's when not given), `k`
+    the sources asked for (retrieval may return fewer)."""
     nodes = [h.node for h in a.sources]
     return {
         "id": q["id"], "type": q["type"], "question": q["question"], "answerable": answerable(q),
-        "prompt": prompt or prompt_id(),
+        "prompt": prompt or prompt_id(), "k": k,
         "n_parts": len(parts(q)), "retrieval": retrieval(q, nodes),
         "in_docs": a.answer.in_docs, "answer": a.answer.answer, "problems": a.problems,
         "tokens": a.usage.total_tokens,
@@ -111,24 +113,33 @@ def record(q: dict, a, prompt: str | None = None) -> dict:
     }
 
 
+def run_k(r: dict) -> int:
+    """The sources a run row asked for. Rows written before `k` was recorded all had 5,
+    every one of them shown."""
+    return r.get("k", len(r["sources"]))
+
+
 def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], client: GeminiClient,
-        out: Path) -> list[dict]:
-    """Answer each question, writing `out` after every one. Questions already in `out` are
-    skipped, so an interrupted run resumes instead of paying again; a file written by
-    different instructions is refused, so one run can't mix two prompts (and a finished
-    one is returned with a warning, since nothing was re-run)."""
+        out: Path, k: int = TOP_K) -> list[dict]:
+    """Answer each question from `k` sources, writing `out` after every one. Questions
+    already in `out` are skipped, so an interrupted run resumes instead of paying again; a
+    file written by different instructions or with a different `k` is refused, so one run
+    can't mix two prompts or two source counts (and a finished one is returned with a
+    warning, since nothing was re-run)."""
     done = json.loads(out.read_text()) if out.exists() else []
     have = {r["id"] for r in done}
     pid = prompt_id(getattr(client, "model", DEFAULT_MODEL))
-    if other := sorted({r.get("prompt") or "unrecorded" for r in done} - {pid}):
-        msg = f"{out} holds answers from another prompt ({', '.join(other)})"
+    other = [f"prompt {p}" for p in sorted({r.get("prompt") or "unrecorded" for r in done} - {pid})]
+    other += [f"k={n}" for n in sorted({run_k(r) for r in done} - {k})]
+    if other:
+        msg = f"{out} holds answers from another setup ({', '.join(other)})"
         if any(q["id"] not in have for q in questions):
             raise ValueError(msg + "; use a new --out")
         print(f"warning: {msg}; nothing left to answer, so nothing was re-run", file=sys.stderr)
     for q in questions:
         if q["id"] in have:
             continue
-        done.append(record(q, answer(q["question"], find, client), pid))
+        done.append(record(q, answer(q["question"], find, client, k), pid, k))
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
@@ -233,7 +244,9 @@ def score(rows: list[dict], ledger: dict) -> str:
     """The per-question table and the totals. Questions or sentences without a verdict
     are counted as unjudged, never as passes."""
     prompts = sorted({r.get("prompt") or "unrecorded" for r in rows})
+    ks = sorted({run_k(r) for r in rows})
     lines = [f"prompt: {', '.join(prompts)}" + (" (MIXED: rows from different prompts)" if len(prompts) > 1 else ""),
+             f"sources per answer: {', '.join(map(str, ks))}" + (" (MIXED)" if len(ks) > 1 else ""),
              f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
     verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0
     for r in rows:
@@ -283,9 +296,12 @@ def main() -> None:
     run_cmd.add_argument("--out", type=Path, default=None,
                          help="run file (default data/llm/answer_runs/dev_<UTC time>.json)")
     run_cmd.add_argument("--allow-stale", action="store_true", help="run even if some golds aren't in the index")
+    run_cmd.add_argument("-k", type=int, default=TOP_K, help=f"sources per answer (default {TOP_K}, at most {MAX_K})")
     for name in ("packets", "score"):
         sub.add_parser(name).add_argument("run_file", type=Path)
     args = ap.parse_args()
+    if args.command == "run" and not 1 <= args.k <= MAX_K:
+        ap.error(f"-k must be 1-{MAX_K}")
     questions = [q for q in load_questions() if question_split(q) == "dev"]  # the test split is spent
     if args.command == "score":
         print(score(json.loads(args.run_file.read_text()), load_ledger()))
@@ -313,7 +329,8 @@ def main() -> None:
     out = args.out or llm_data_dir() / "answer_runs" / f"dev_{datetime.now(timezone.utc):%Y-%m-%dT%H%M}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     print(f"run file: {out}")
-    run(questions, lambda q, k: rerank_search(index, keywords, scorer, q, k), GeminiClient(budget=BUDGET), out)
+    run(questions, lambda q, k: rerank_search(index, keywords, scorer, q, k), GeminiClient(budget=BUDGET), out,
+        args.k)
 
 
 if __name__ == "__main__":
