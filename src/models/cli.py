@@ -21,6 +21,8 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell;
+                  `--columns` picks the model's column set (S1, S2);
+                  `--experiment-id` logs it under another id.
                   `--preregistered F2` runs a Track B one (`trading.PREREGISTERED`).
   close-scorecard  The three-way verdict of a pre-registered scorecard from
                   its logged trials' archived predictions. Read-only.
@@ -171,13 +173,14 @@ def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
     return 1 if run["failed"] else 0
 
 
-def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...]) -> int:
+def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
+                   levels: Path, workers: int) -> int:
     from src.models import dataset
     from src.models.features import cache
     conn = _read_only(db_path)
     try:
         universe = dataset.universe_mask(conn, start, end, indices=indices)
-        path = cache.build_feature_cache(conn, universe, out)
+        path = cache.build_feature_cache(conn, universe, out, levels_root=levels, workers=workers)
     finally:
         conn.close()
     features = cache.read_feature_cache(out)
@@ -241,6 +244,10 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     print(f"  vendor AUC (within date, ticker-grouped): {s['auc']:.3f}  [pass: AUC <= {vc.SAME_TICKER_MAX_AUC}; "
           f"per column median gap < {vc.SAME_TICKER_MAX_GAP_SD} SD, <= {vc.SAME_TICKER_MAX_SHARE_OFF:.0%} of rows "
           f"off by > 0.1 SD, <= {vc.SAME_TICKER_MAX_NAN_MISMATCH:.0%} one-vendor NaN]")
+    if s["auc_levels"] is not None:
+        w = s["level_window"]
+        print(f"  level columns: {s['n_level_tickers']} tickers, {w['start'].date()}..{w['end'].date()} (detectors on the "
+              f"whole history, snapshots from {w['snapshot_start'].date()}), vendor AUC {s['auc_levels']:.3f}")
     spread = s["gaps"].loc[s["gaps"]["no_spread"], "column"].tolist()
     if spread:
         print(f"  no spread in the window (gap = share of rows that differ): {spread}")
@@ -290,7 +297,7 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
 
 
 def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str | None = None,
-                  preregistered: str | None = None) -> int:
+                  columns: str = "S1", experiment_id: str | None = None, preregistered: str | None = None) -> int:
     from dataclasses import replace
 
     from src.models import trading, trial_log
@@ -299,6 +306,8 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
     if preregistered:
+        if columns != "S1" or experiment_id is not None:
+            raise SystemExit(f"{preregistered} has its own columns and id; leave --columns and --experiment-id out")
         sc = _preregistered_scorecard(preregistered)
         unknown = set(horizons) - set(sc.horizons)
         if unknown:
@@ -307,7 +316,8 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
             raise SystemExit(f"{preregistered} is registered with rank {sc.rank!r}; leave --rank out")
         sc = replace(sc, horizons=horizons)
     else:
-        sc = trading.Scorecard(horizons=horizons, rank=rank or "ev")
+        sc = trading.Scorecard(experiment_id=experiment_id or columns, model_columns=trading.COLUMN_SETS[columns],
+                               horizons=horizons, rank=rank or "ev")
     features = cache.read_feature_cache(features_dir)
     results = []
     for h in horizons:
@@ -417,6 +427,9 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
+    feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
+                      help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
+    feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
     lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
     lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
@@ -453,6 +466,10 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--rank", choices=["ev", "ev_atr"], default=None, help="ev unless --preregistered")
     score.add_argument("--preregistered", default=None,
                        help="a pre-registered Track B scorecard (trading.PREREGISTERED, e.g. F2), with its own rank")
+    score.add_argument("--columns", choices=["S1", "S2", "S3"], default="S1",
+                       help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
+    score.add_argument("--experiment-id", default=None,
+                       help="log under another id than --columns (e.g. a same-environment refit of S1)")
     closesc = sub.add_parser("close-scorecard", help="the verdict of a pre-registered scorecard. Read-only")
     closesc.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. F2")
     closesc.add_argument("--n-boot", type=int, default=None,
@@ -475,7 +492,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_experiment(args.experiment, args.features, args.labels,
                               tuple(args.horizons) if args.horizons else None)
     if args.command == "run-scorecard":
-        return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.preregistered)
+        return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.columns,
+                             args.experiment_id, args.preregistered)
     if args.command == "close-scorecard":
         return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot)
     if args.command == "rescore-scorecard":
@@ -488,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
         return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
                             args.tickers, args.smoke)
     if args.command == "build-features":
-        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices))
+        return build_features(args.db, args.out, args.start, args.end, tuple(args.indices), args.levels,
+                              args.workers)
     if args.command == "vendor-check":
         return vendor_check(args.db, args.features, args.start, args.end)
     return 2

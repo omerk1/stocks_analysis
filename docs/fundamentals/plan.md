@@ -342,7 +342,7 @@ post-earnings drift, one PR each.
   The flag changes the trade's shape, not its mean: more target and stop hits, fewer
   timeouts. For the model that already sees the flag (secondary), also inconclusive at
   the registered window.
-- **Post-earnings drift: inconclusive** (Done #155). After a large own-history surprise
+- **Post-earnings drift: inconclusive** (Done #157). After a large own-history surprise
   (trailing 90/10 cut), the signed 63-day return beyond momentum-matched controls is
   +0.13% per event [−0.41%, +0.67%], 3,480 events on 1,167 dates. H21 is inconclusive
   too. The neighbours agree except one lone pixel (H21 at the 95/5 cut) that isn't
