@@ -52,7 +52,7 @@ from pathlib import Path
 
 from llama_index.core.schema import BaseNode, NodeWithScore, TextNode
 
-from src.llm.gemini import DEFAULT_MODEL, GeminiClient
+from src.llm.gemini import DEFAULT_MODEL, GeminiClient, ReplyError
 from src.llm.paths import llm_data_dir
 from src.llm.research_docs.answer import (BUDGET, MAX_K, SYSTEM, Answer, answer, build_prompt, cited, sentences,
                                           source_text)
@@ -100,13 +100,26 @@ def record(q: dict, a, prompt: str | None = None, k: int = TOP_K) -> dict:
     """One answered question as stored in a run file. `a` is an `answer.Answered`;
     `prompt` is `prompt_id` for the run's model (the default model's when not given), `k`
     the sources asked for (retrieval may return fewer)."""
-    nodes = [h.node for h in a.sources]
+    return _row(q, a.sources, prompt, k, in_docs=a.answer.in_docs, answer=a.answer.answer, problems=a.problems,
+                tokens=a.usage.total_tokens)
+
+
+def failed(q: dict, sources: list[NodeWithScore], error: str, prompt: str | None = None, k: int = TOP_K) -> dict:
+    """A question the model gave no usable reply to (`gemini.ReplyError`: say, plain text
+    where the JSON object was asked for). Stored like an answer, with the error and no
+    text: a user asking it would get the error, so `score` counts it as wrong, not as
+    unjudged. Its tokens are in the usage ledger, not here."""
+    return _row(q, sources, prompt, k, in_docs=None, answer="", problems=[f"no usable reply: {error}"],
+                tokens=None, error=error)
+
+
+def _row(q: dict, sources: list[NodeWithScore], prompt: str | None, k: int, **reply) -> dict:
+    nodes = [h.node for h in sources]
     return {
         "id": q["id"], "type": q["type"], "question": q["question"], "answerable": answerable(q),
         "prompt": prompt or prompt_id(), "k": k,
         "n_parts": len(parts(q)), "retrieval": retrieval(q, nodes),
-        "in_docs": a.answer.in_docs, "answer": a.answer.answer, "problems": a.problems,
-        "tokens": a.usage.total_tokens,
+        **reply,
         "sources": [{"n": n, "cite": cite(node), "text": source_text(node),
                      "gold_parts": [i for i, p in enumerate(parts(q), 1) if any(matches(node, g) for g in p)]}
                     for n, node in enumerate(nodes, 1)],
@@ -139,7 +152,13 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
     for q in questions:
         if q["id"] in have:
             continue
-        done.append(record(q, answer(q["question"], find, client, k), pid, k))
+        try:
+            done.append(record(q, answer(q["question"], find, client, k), pid, k))
+        except ReplyError as e:  # paid for and unusable; a rerun at temperature 0 likely repeats it
+            # `answer` doesn't hand back what it retrieved when the reply fails; retrieval
+            # is deterministic, so search again for the sources the model was shown
+            done.append(failed(q, find(q["question"], k), str(e), pid, k))
+            print(f"warning: {q['id']}: no usable reply ({str(e).splitlines()[0]})", file=sys.stderr)
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
@@ -209,7 +228,7 @@ def packets(rows: list[dict], ledger: dict, questions: dict[str, dict], nodes: l
     if unknown := [r["id"] for r in rows if r["id"] not in questions]:
         raise ValueError(f"run rows for questions not in the dev split (renamed or moved?): {', '.join(unknown)}")
     support, correctness = [], []
-    for r in rows:
+    for r in (r for r in rows if "error" not in r):  # no reply, nothing to judge
         todo = [c for c in claims(r) if c["key"] not in ledger["support"]]
         if todo:
             support.append({"id": r["id"], "question": r["question"], "answer": r["answer"],
@@ -250,7 +269,9 @@ def score(rows: list[dict], ledger: dict) -> str:
              f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
     verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0
     for r in rows:
-        entry = ledger["answers"].get(answer_key(r), {})
+        # no usable reply: wrong, and the model's fault whatever was retrieved
+        entry = ({"verdict": "wrong", "miss": "generation", "miss_sources": sources_key(r)} if "error" in r
+                 else ledger["answers"].get(answer_key(r), {}))
         v = entry.get("verdict")
         if v is None:
             unjudged.append(r["id"])
@@ -283,7 +304,10 @@ def score(rows: list[dict], ledger: dict) -> str:
                  + (f", {len(sup_all) - len(known)} unjudged" if len(known) < len(sup_all) else ""))
     lines.append(f"answers with every cited sentence supported: {clean} of {citing} that cite a source "
                  "(and have every citation judged)")
-    lines.append(f"mechanical citation problems (check): {sum(bool(r['problems']) for r in rows)} answers")
+    lines.append("mechanical citation problems (check): "
+                 f"{sum(bool(r['problems']) for r in rows if 'error' not in r)} answers")
+    if no_reply := [r["id"] for r in rows if "error" in r]:
+        lines.append(f"NO USABLE REPLY (counted wrong, generation): {', '.join(no_reply)}")
     if unjudged:
         lines.append(f"UNJUDGED answers: {', '.join(unjudged)}")
     return "\n".join(lines)

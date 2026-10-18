@@ -93,6 +93,29 @@ def test_a_run_gives_k_sources_and_wont_mix_two_source_counts(tmp_path):
     assert "sources per answer: 2\n" in score([row], {"support": {}, "answers": {}})
 
 
+def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path):
+    from src.llm.gemini import ReplyError
+
+    class Flaky(FakeClient):
+        def generate(self, prompt, **kwargs):
+            if "Why was B5 dropped?" in prompt:
+                self.calls += 1
+                raise ReplyError("reply doesn't match Answer: plain text")
+            return super().generate(prompt, **kwargs)
+
+    out, client = tmp_path / "run.json", Flaky(Answer(in_docs=True, answer="Too fragile [1]."))
+    bad, good = run([Q, MULTI], _find(GOLD, OTHER), client, out)
+    assert client.calls == 2 and bad["error"].startswith("reply doesn't match") and bad["answer"] == ""
+    assert bad["retrieval"] == "full" and [s["n"] for s in bad["sources"]] == [1, 2]  # what it was shown
+    assert run([Q, MULTI], _find(GOLD, OTHER), client, out) == [bad, good] and client.calls == 2  # not retried
+    empty = {"support": {}, "answers": {}}
+    assert packets([bad], empty, {"b5": Q}, [GOLD]) == {"support": [], "correctness": []}
+    table = score([bad, good], empty)
+    assert "b5" in table.splitlines()[3] and " wrong " in table.splitlines()[3] and "generation" in table.splitlines()[3]
+    assert "NO USABLE REPLY (counted wrong, generation): b5" in table and "UNJUDGED answers: both" in table
+    assert "mechanical citation problems (check): 0 answers" in table
+
+
 def test_the_prompt_id_follows_what_the_model_sees_not_the_code(monkeypatch):
     import src.llm.research_docs.answer_eval as answer_eval
     before = answer_eval.prompt_id()
