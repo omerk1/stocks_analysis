@@ -50,6 +50,8 @@ class GuidanceItem(BaseModel):
                 "ceiling": (False, True), "qualitative": (False, False)}[self.shape]
         if (self.low is not None, self.high is not None) != need:
             raise ValueError(f"shape {self.shape!r} needs low/high present = {need}")
+        if self.revision == "withdrawn" and self.shape != "qualitative":
+            raise ValueError("a withdrawn outlook is one 'qualitative' item")
         if self.shape == "point" and self.low != self.high:
             raise ValueError("a point has low == high")
         if self.shape == "range" and self.low > self.high:

@@ -12,9 +12,17 @@ No worked examples: the only labeled releases are the gold set itself.
 from __future__ import annotations
 
 import hashlib
+import json
+
+from src.llm.guidance.schema import ReleaseLabel
 
 PROMPT_VERSION = "v1"
+# Spelled out rather than taken from `gemini.DEFAULT_MODEL`: it is part of the frozen
+# fingerprint, so a change of the shared default must not silently change v1. The call
+# passes it explicitly (`GeminiClient(model=MODEL)`).
 MODEL = "gemini-2.5-flash"
+TEMPERATURE = 0.0
+THINKING_BUDGET = 0
 
 SYSTEM_V1 = """\
 You read one US company's earnings press release and extract the company's guidance: \
@@ -91,6 +99,10 @@ def render(text: str) -> str:
 
 
 def fingerprint() -> str:
-    """sha256 of the system prompt, the user template and the model, so a cached
-    reply can be tied to the exact prompt that produced it."""
-    return hashlib.sha256("\x00".join((SYSTEM_V1, USER_TEMPLATE_V1, MODEL)).encode()).hexdigest()
+    """sha256 of everything that shapes a reply: the system prompt, the user template,
+    the model, the call settings and the reply schema (`ReleaseLabel`, which the gold
+    labels share). A cached reply carries it, tying it to the exact call that made it."""
+    schema = json.dumps(ReleaseLabel.model_json_schema(), sort_keys=True)
+    parts = (SYSTEM_V1, USER_TEMPLATE_V1, MODEL, f"temperature={TEMPERATURE}",
+             f"thinking_budget={THINKING_BUDGET}", schema)
+    return hashlib.sha256("\x00".join(parts).encode()).hexdigest()

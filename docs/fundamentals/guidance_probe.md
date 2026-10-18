@@ -12,10 +12,12 @@ decision it feeds is go / no-go on the full fetch.
 
 - **Frame:** every item 2.02 8-K announcement in `earnings_announcements` (Done #137,
   `source` = '8-K'; the 10-Q/10-K fallback rows are out) accepted in 2010–2021, New York
-  time. 23,800 releases from 625 companies after two filters: a sector in
+  time, one row per release (share classes such as NWS/NWSA file one release under two
+  tickers). 23,054 releases from 619 companies (CIKs) after two filters: a sector in
   `ticker_sector` (today's, not point-in-time) and a market cap of at least $2B at the
-  period end (large ≥ $10B, mid $2–10B). Nothing accepted after 2021-12-31.
-- **Draw:** 50 releases, 50 companies, one per (year, sector, size) cell: 4–5 per year
+  last close on or before the period end, from a close at most 7 days and a share count
+  at most 400 days old (large ≥ $10B, mid $2–10B). Nothing accepted after 2021-12-31.
+- **Draw:** 50 releases, 50 companies (distinct CIKs), one per (year, sector, size) cell: 4–5 per year
   (2018 and 2019 get 5), 4–5 per sector across all 11, 26 large and 24 mid. No cell
   needed the size fallback.
 - **Not represented:** foreign filers (no item 2.02 8-K), companies under $2B, filers

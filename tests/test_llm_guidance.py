@@ -18,7 +18,8 @@ def frame(per_cell: int = 3, drop=lambda year, sector, size: False) -> pd.DataFr
         if drop(year, sector, size):
             continue
         for _ in range(per_cell):
-            rows.append({"ticker": f"T{n}", "year": year, "sector": sector, "size": size, "market_cap": 5e9})
+            rows.append({"ticker": f"T{n}", "cik": n, "year": year, "sector": sector, "size": size,
+                         "market_cap": 5e9})
             n += 1
     return pd.DataFrame(rows)
 
@@ -29,6 +30,24 @@ def test_size_buckets():
     assert sample.size_bucket(3e9) == "mid"
     assert sample.size_bucket(1.9e9) is None
     assert sample.size_bucket(np.nan) is None
+
+
+def test_cap_is_the_last_close_and_unknown_when_stale():
+    days = pd.bdate_range("2015-01-01", "2015-12-31")
+    cap = pd.Series(np.arange(len(days), dtype=float), index=days)
+    cap = cap[cap.index <= "2015-06-30"]  # prices stop mid-year
+    shares = pd.DatetimeIndex(["2014-12-31"])
+    ends = pd.DatetimeIndex(["2014-12-31", "2015-03-31", "2015-03-29", "2015-07-03", "2015-09-30"])
+    got = sample.cap_at(cap, shares, ends)
+    assert np.isnan(got[0])  # before the first close
+    assert got[1] == cap["2015-03-31"]
+    assert got[2] == cap["2015-03-27"]  # a Sunday end takes Friday's close
+    assert got[3] == cap["2015-06-30"]  # 3 days stale: fine
+    assert np.isnan(got[4])  # 3 months stale: unknown
+    old_shares = pd.DatetimeIndex(["2013-06-30"])
+    assert np.isnan(sample.cap_at(cap, old_shares, pd.DatetimeIndex(["2015-03-31"]))[0])
+    late_shares = pd.DatetimeIndex(["2015-05-01"])
+    assert np.isnan(sample.cap_at(cap, late_shares, pd.DatetimeIndex(["2015-03-31"]))[0])
 
 
 def test_draw_is_balanced_distinct_and_repeatable():
@@ -48,9 +67,9 @@ def test_draw_is_balanced_distinct_and_repeatable():
 
 def test_draw_never_repeats_a_company_across_cells():
     f = frame()
-    f["ticker"] = "SAME" + (f.index % 7).astype(str)  # only 7 companies in all
+    f["cik"] = f.index % 7  # only 7 companies in all, each under many tickers (share classes)
     s, notes = sample.draw(f)
-    assert s["ticker"].is_unique and len(s) == 7
+    assert s["cik"].is_unique and len(s) == 7
     assert sum("skipped" in n for n in notes) == sample.N_RELEASES - 7
 
 
@@ -80,6 +99,7 @@ def item(**kw) -> dict:
     dict(shape="qualitative", low=2.1, high=None),
     dict(revision="up"),
     dict(confidence=0.9),
+    dict(revision="withdrawn"),  # withdrawn is always one qualitative item
 ])
 def test_item_rejects_inconsistent_fields(kw):
     with pytest.raises(ValidationError):
@@ -106,4 +126,4 @@ def test_presence_matches_items():
 def test_prompt_v1_is_frozen():
     # v1 is never edited; a changed prompt is a new version (prompt.py docstring).
     assert prompt.PROMPT_VERSION == "v1"
-    assert prompt.fingerprint() == "f33ba93b80d8afa4d2c05a3a5179ae4c1a9781d1f8cb15ef7030c226e851cd5c"
+    assert prompt.fingerprint() == "731b0d85cce55504f181de62ca370a9d2de7966744834270d4faee1eb6042a8b"

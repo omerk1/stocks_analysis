@@ -42,6 +42,8 @@ MARKET_TZ = "America/New_York"
 LARGE_CAP, MID_CAP = 10e9, 2e9
 SIZES = ("large", "mid")
 PRICE_SOURCE = db.YFINANCE_SPLIT_ONLY
+MAX_PRICE_AGE = pd.Timedelta(days=7)  # a period end can fall on a weekend or holiday
+MAX_SHARES_AGE = pd.Timedelta(days=400)  # about a year of 10-Q/10-K filings, plus slack
 PROBE_DIR = Path(__file__).resolve().parent / "probe"
 SAMPLE_PATH = PROBE_DIR / "sample.csv"
 
@@ -54,13 +56,18 @@ def size_bucket(cap: float) -> str | None:
 
 def load_frame(conn) -> pd.DataFrame:
     """Every item 2.02 8-K announcement of 2010-2021 with its sector and size."""
+    # Ordered, so the seeded draw (which picks by position) gets the same rows every run.
     ann = pd.read_sql_query(
         "SELECT ticker, cik, filer_cik, period_end, report_form, accession, accepted_at "
-        "FROM earnings_announcements WHERE source = '8-K'", conn)
+        "FROM earnings_announcements WHERE source = '8-K' ORDER BY ticker, period_end", conn)
     accepted = pd.to_datetime(ann["accepted_at"], utc=True).dt.tz_convert(MARKET_TZ)
     ann["year"] = accepted.dt.year
     ann = ann[ann["year"].between(FIRST_YEAR, LAST_YEAR)].copy()
     ann["filer_cik"] = ann["filer_cik"].fillna(ann["cik"]).astype(int)
+    # Share classes (GOOG/GOOGL, NWS/NWSA, BF.A/BF.B) carry the same release under two
+    # tickers: one row per release, the first ticker alphabetically. `cik` (today's
+    # company, predecessors folded in) is the company identity for the one-per-company rule.
+    ann = ann.drop_duplicates("accession")
     sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
     sectors = sectors[sectors["sector"].fillna("").str.strip() != ""]
     ann = ann.merge(sectors, on="ticker", how="inner")
@@ -70,7 +77,9 @@ def load_frame(conn) -> pd.DataFrame:
 
 
 def period_end_caps(conn, ann: pd.DataFrame) -> pd.Series:
-    """Market cap at the last close on or before each row's period end."""
+    """Market cap at the last close on or before each row's period end. Unknown (NaN)
+    when that close is more than `MAX_PRICE_AGE` old or the share count in use was
+    filed more than `MAX_SHARES_AGE` before it."""
     tickers = sorted(ann["ticker"].unique())
     placeholders = ",".join("?" for _ in tickers)
     bars = pd.read_sql_query(
@@ -81,19 +90,33 @@ def period_end_caps(conn, ann: pd.DataFrame) -> pd.Series:
     shares = market_cap.load_shares_outstanding(conn, tickers)
     shares = shares[shares["date"] <= LAST_DAY]
     splits = market_cap.load_splits(conn, tickers)
+    bars_by, shares_by = dict(tuple(bars.groupby("ticker"))), dict(tuple(shares.groupby("ticker")))
+    splits_by = dict(tuple(splits.groupby("ticker")))
     caps = pd.Series(np.nan, index=ann.index)
     for ticker, rows in ann.groupby("ticker"):
-        prices = bars.loc[bars["ticker"] == ticker].set_index("timestamp")["close"]
-        s = shares.loc[shares["ticker"] == ticker].set_index("date")["shares_outstanding"]
-        if prices.empty or s.empty:
+        if ticker not in bars_by or ticker not in shares_by:
             continue
-        cap = market_cap.reconcile_market_cap(prices, s, splits[splits["ticker"] == ticker])["market_cap"]
-        cap = cap.dropna()
-        if cap.empty:
-            continue
-        ends = pd.to_datetime(rows["period_end"])
-        caps.loc[rows.index] = cap.reindex(cap.index.union(ends)).ffill().reindex(ends).to_numpy()
+        prices = bars_by[ticker].set_index("timestamp")["close"]
+        s = shares_by[ticker].set_index("date")["shares_outstanding"]
+        cap = market_cap.reconcile_market_cap(prices, s, splits_by.get(ticker))["market_cap"]
+        caps.loc[rows.index] = cap_at(cap, s.index, pd.DatetimeIndex(pd.to_datetime(rows["period_end"])))
     return caps
+
+
+def cap_at(cap: pd.Series, share_dates: pd.DatetimeIndex, ends: pd.DatetimeIndex) -> np.ndarray:
+    """`cap` (daily, by close date) at the last close on or before each of `ends`; NaN
+    if there is none, if it is older than `MAX_PRICE_AGE`, or if the latest share count
+    filed by then is older than `MAX_SHARES_AGE`."""
+    cap = cap.dropna().sort_index()
+    if cap.empty:
+        return np.full(len(ends), np.nan)
+    at = cap.index.searchsorted(ends, side="right") - 1
+    dates = cap.index[np.clip(at, 0, None)]
+    filed = share_dates.sort_values()
+    last = filed.searchsorted(dates, side="right") - 1
+    filing = filed[np.clip(last, 0, None)]
+    ok = (at >= 0) & (last >= 0) & (ends - dates <= MAX_PRICE_AGE) & (dates - filing <= MAX_SHARES_AGE)
+    return np.where(ok, cap.to_numpy()[np.clip(at, 0, None)], np.nan)
 
 
 def draw(frame: pd.DataFrame, n: int = N_RELEASES, seed: int = SEED) -> tuple[pd.DataFrame, list[str]]:
@@ -105,7 +128,7 @@ def draw(frame: pd.DataFrame, n: int = N_RELEASES, seed: int = SEED) -> tuple[pd
     chosen, used, notes = [], set(), []
     for i in range(n):
         year, sector, size = years[i % len(years)], sectors[i % len(sectors)], SIZES[(i // len(years)) % 2]
-        cell = frame[(frame["year"] == year) & (frame["sector"] == sector) & ~frame["ticker"].isin(used)]
+        cell = frame[(frame["year"] == year) & (frame["sector"] == sector) & ~frame["cik"].isin(used)]
         pick = cell[cell["size"] == size]
         if pick.empty:
             pick = cell
@@ -114,7 +137,7 @@ def draw(frame: pd.DataFrame, n: int = N_RELEASES, seed: int = SEED) -> tuple[pd
         if pick.empty:
             continue
         row = pick.iloc[rng.integers(len(pick))]
-        used.add(row["ticker"])
+        used.add(row["cik"])
         chosen.append({"slot": i, "target_size": size, **row.to_dict()})
     sample = pd.DataFrame(chosen)
     sample["market_cap_bn"] = (sample.pop("market_cap") / 1e9).round(1)
@@ -134,13 +157,13 @@ def main(argv: list[str] | None = None) -> None:
     frame = load_frame(conn)
     sample, notes = draw(frame)
     sample["index_url"] = [index_url(c, a) for c, a in zip(sample["filer_cik"], sample["accession"])]
-    cols = ["slot", "ticker", "filer_cik", "accession", "accepted_at", "period_end", "report_form",
+    cols = ["slot", "ticker", "cik", "filer_cik", "accession", "accepted_at", "period_end", "report_form",
             "year", "sector", "size", "target_size", "market_cap_bn", "index_url"]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     sample[cols].to_csv(args.out, index=False)
-    print(f"frame: {len(frame)} releases, {frame['ticker'].nunique()} companies")
+    print(f"frame: {len(frame)} releases, {frame['cik'].nunique()} companies")
     print(frame.groupby(["year", "size"]).size().unstack().to_string())
-    print(f"sample: {len(sample)} releases, {sample['ticker'].nunique()} companies -> {args.out}")
+    print(f"sample: {len(sample)} releases, {sample['cik'].nunique()} companies -> {args.out}")
     for note in notes:
         print(note)
 
