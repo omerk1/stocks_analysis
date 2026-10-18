@@ -659,7 +659,7 @@ Build order, one PR each, each with its own tests:
        names, as the ATR shift suggests.
      - **What it means:** as a block, the 14 columns make the picks worse; don't carry them
        into step 2's set as they are. A diagnostic run of S2 without the market-wide group
-       would tell which part did it (about 5 h). S1r, reproducible here, replaces S1b as the
+       would tell which part did it (run below: the market-wide group, most likely). S1r, reproducible here, replaces S1b as the
        reference for later scorecard runs; why S1 doesn't reproduce stays open.
      - **Diagnostic: S2 without the market-wide group (`S2_no_market`, 18 rows, 2026-10-17).**
        S1 + the 8 per-name step-2b columns (volatility, volume, RSI, sector-relative; the 6
@@ -686,7 +686,8 @@ Build order, one PR each, each with its own tests:
      `LRP.md` "Addendum (2026-10-15)"; cache `data/models/features/sp500_levels`, every
      `sp500_s2` column identical). Next: the scorecard run as `S3`, S1's columns plus the 57
      levels against `S1r` (step 2b found S2's 14 columns make the picks worse, so they stay
-     out). The levels fail the same-ticker vendor rule on history depth, a known limit
+     out; its diagnostic points at the market-wide 6, so the 8 per-name ones can be tried
+     after S3). The levels fail the same-ticker vendor rule on history depth, a known limit
      (`LRP.md` addendum). Before reading S3 − S1r: S3's archived B4 predictions must equal
      S1r's exactly, as S1r's did S2's (S3 reads `sp500_levels`, S1r was fitted on
      `sp500_s2`; if they differ, refit S1 on `sp500_levels` first). Against a negative
