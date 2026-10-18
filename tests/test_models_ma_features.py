@@ -111,7 +111,11 @@ def conn():
 
 def test_cache_holds_eligible_rows_ranked_among_themselves(conn, tmp_path):
     universe = dataset.universe_mask(conn, "2020-01-01", "2021-12-31")
-    cache.build_feature_cache(conn, universe, tmp_path)
+    # The level columns need a snapshot cache (tests/test_models_level_features.py); without one it refuses.
+    with pytest.raises(ValueError, match="snapshot cache"):
+        cache.build_feature_cache(conn, universe, tmp_path, levels_root=tmp_path / "no_levels")
+    no_levels = [s for s in registry.model_specs() if not registry.is_detector(s)]
+    cache.build_feature_cache(conn, universe, tmp_path, specs=no_levels)
     f = cache.read_feature_cache(tmp_path)
     eligible = universe[universe["eligible"]]
     assert len(f) == len(eligible) and "DDD" not in set(f["ticker"])
