@@ -661,6 +661,24 @@ Build order, one PR each, each with its own tests:
        into step 2's set as they are. A diagnostic run of S2 without the market-wide group
        would tell which part did it (about 5 h). S1r, reproducible here, replaces S1b as the
        reference for later scorecard runs; why S1 doesn't reproduce stays open.
+     - **Diagnostic: S2 without the market-wide group (`S2_no_market`, 18 rows, 2026-10-17).**
+       S1 + the 8 per-name step-2b columns (volatility, volume, RSI, sector-relative; the 6
+       `market` columns out), same cache, flags and seed; its B4 equals S1r's. Paired
+       `S2_no_market` − S1r: negative at 8 of 36, CI above zero at 9 (H21 2/2 top-20; H63
+       2/1, 3/1, 3/1.5, 3/2, each at both k) and never below; median +0.04% per trade, mean
+       size 0.13%; picks overlap 24–50%. Against S2: positive at 35, CI above zero at 18.
+       Model − market positive at 36 (CI clears zero at 25, S1r 16); model − B4 at 35
+       (clears at 21, S1r 13). Sharpe 0.48–0.99, above random-k at 36 and the market at 30
+       (S1r 23); drawdown shallower than S1r at 33. Picks' ATR 2.24–2.53% (S1r 2.33–2.65%).
+       Era: +0.32% / +0.38% (S1r +0.24% / +0.26%). The gain sits at H63 (median +0.10% to
+       +0.19% per trade); H21 is a wash.
+     - **Against it:** one seed, 36 uncorrected looks, and this diagnostic was chosen after
+       seeing S2, so it's a second look at the same data. Refit noise put 4 of 36 CIs past
+       zero, 2 each way; this puts 9, all one way, but they're 9 neighbouring H63 cells, not
+       9 independent ones. The per-name columns could be standing in for a single
+       volatility tilt (the picks' ATR fell): not tested. **Read:** the market-wide group,
+       not the 14 as a block, made S2 worse; the 8 per-name columns are a candidate to add
+       back, after S3, not a finding.
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
