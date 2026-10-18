@@ -4,6 +4,8 @@ import pytest
 
 from src.foundation.data_processing import db
 from src.models import vendor_check as vc
+from src.models.features import level_features as lf
+from src.models.features import levels
 
 DAYS = pd.bdate_range("2017-01-02", "2021-12-31")
 TICKERS = [f"T{i}" for i in range(8)]
@@ -38,11 +40,40 @@ def test_identical_vendors_pass(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close, volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert r["passed"]
     assert r["gaps"]["median_gap_sd"].max() == pytest.approx(0.0, abs=1e-9)
     assert r["auc"] == pytest.approx(0.5, abs=0.05)
+
+
+def test_the_level_columns_are_compared_on_a_sample(conn, paths):
+    for t, (close, volume) in paths.items():
+        _store(conn, t, "yfinance", close, volume)
+        _store(conn, t, "tiingo", close, volume)
+
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=8, level_weeks=2,
+                       level_warmup_weeks=2)
+
+    assert r["n_level_tickers"] == 8 and r["passed"]   # the AUC's folds need 5+ tickers
+    assert {"density_up_2", "near_up_round"} <= set(r["gaps"]["column"])
+    assert r["auc_levels"] == pytest.approx(0.5, abs=0.05)
+    w = r["level_window"]
+    assert w["snapshot_start"] == w["start"] - pd.Timedelta(weeks=2)
+
+
+def test_the_level_warmup_holds_a_full_strength_window_whatever_the_weekday():
+    days = pd.bdate_range("2019-01-01", "2021-12-31")
+    days = days[~days.isin(pd.to_datetime(["2019-01-01", "2019-12-25", "2020-01-01", "2020-12-25", "2021-01-01",
+                                            "2019-07-04", "2020-07-03", "2021-07-05", "2019-11-28", "2020-11-26",
+                                            "2021-11-25", "2019-05-27", "2020-05-25", "2021-05-31", "2019-09-02",
+                                            "2020-09-07", "2021-09-06", "2019-04-19", "2020-04-10", "2021-04-02",
+                                            "2019-02-18", "2020-02-17", "2021-02-15", "2019-01-21", "2020-01-20",
+                                            "2021-01-18"]))]
+    for wstart in days[days >= "2021-01-01"]:   # every weekday of a year: each alignment and holiday spacing
+        snap_start = wstart - pd.Timedelta(weeks=vc.LEVEL_WARMUP_WEEKS)
+        first_held = levels.snapshot_dates(days, snap_start)[0]   # daily rows begin at the first held snapshot
+        assert ((days >= first_held) & (days < wstart)).sum() >= lf.STRENGTH_WINDOW
 
 
 def test_a_vendor_wide_volume_scale_fails_though_ranks_agree(conn, paths):
@@ -52,7 +83,7 @@ def test_a_vendor_wide_volume_scale_fails_though_ranks_agree(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close, volume * 0.5)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     gaps = r["gaps"].set_index("column")
     assert gaps.loc["log_dollar_volume_20d_rank", "median_gap_sd"] == pytest.approx(0.0, abs=1e-9)
@@ -66,7 +97,7 @@ def test_a_tell_on_a_minority_of_tickers_fails_on_the_share_rule(conn, paths):
         noisy = close * (1 + rng.normal(0, 0.01, len(close))) if i < 2 else close
         _store(conn, t, "tiingo", noisy, volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert not r["passed"]
     assert any("of rows off by" in f for f in r["failures"])
@@ -87,7 +118,7 @@ def test_vendor_noise_in_closes_fails(conn, paths):
         _store(conn, t, "yfinance", close, volume)
         _store(conn, t, "tiingo", close * (1 + rng.normal(0, 0.01, len(close))), volume)
 
-    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW)
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, level_tickers=0)
 
     assert not r["passed"]
     assert r["gaps"]["median_gap_sd"].max() >= vc.SAME_TICKER_MAX_GAP_SD

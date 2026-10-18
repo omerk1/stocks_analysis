@@ -63,6 +63,7 @@ import pandas as pd
 from src.models import dataset, trial_log
 from src.models.ablation import (B4_COLUMNS, MA_SUPPORTED, MA_WEAK, P_COLS, cell_frame, check_features, check_labels,
                                  neither_returns, oos_predictions, seed_mean)
+from src.models.features import level_features
 from src.models.inference import N_BOOT, BootstrapResult, archive_draws, per_date_diff
 from src.models.labels.barriers import REFERENCE_HORIZON, BarrierCell, v1_grid
 from src.models.learners import BoostingConfig
@@ -84,6 +85,7 @@ FULL_COLUMNS = B4_COLUMNS + MA_SUPPORTED + MA_WEAK
 # Step 2b (2026-10-10): indicators, volume, volatility regime, market regime,
 # sector-relative (VALIDATION_HARNESS.md §7). Listed, not read off the registry,
 # so a later registration doesn't change what a run means.
+STEP_2B_GROUPS = ("volatility", "volume", "oscillator", "market", "relative")
 STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "rel_volume_20_rank",
                    "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
@@ -92,7 +94,13 @@ STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "r
 FUNDAMENTALS_COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income_rank",
                         "rev_growth_yoy_rank", "rev_growth_accel", "net_margin_ttm", "debt_to_equity",
                         "earnings_yield_rank", "sales_yield_rank", "book_to_market_rank", "share_change_yoy_rank")
-S2_COLUMNS = FULL_COLUMNS + STEP_2B_COLUMNS
+# Step 2 (2026-10-17): the 57 LRP level columns, as `level_features.py` defines
+# them (a test pins all 57), joined to S1, not S2: step 2b found S2's 14 columns
+# make the picks worse (VALIDATION_HARNESS.md §9 step 2b). Compared against S1r.
+LEVEL_COLUMNS = level_features.COLUMNS
+# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA.
+COLUMN_SETS = {"S1": FULL_COLUMNS, "S2": FULL_COLUMNS + STEP_2B_COLUMNS, "S3": FULL_COLUMNS + LEVEL_COLUMNS}
+S2_COLUMNS = COLUMN_SETS["S2"]
 
 
 @dataclass(frozen=True)
@@ -327,12 +335,34 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     }
 
 
+def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH) -> None:
+    """Refuses, before any trial is logged, a cache without the model's or the
+    reference's columns (an S2 run on the S1 cache), and an experiment id
+    already logged as something else: other model or reference columns,
+    another rank, a rescore (S1b), or not a scorecard at all (an ablation's
+    E1). S1's rows predate the rank field and count as ranked by EV."""
+    missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
+    if missing:
+        raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
+    path = Path(trials_path)
+    if not path.exists() or path.stat().st_size == 0:     # a new log, as trial_log.append_row reads it
+        return
+    trials = trial_log.read_trials(path)
+    ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
+    for g in trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]:
+        g = json.loads(g)
+        if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from")) != ours:
+            raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank, or as "
+                             "another kind of trial; pick another experiment id")
+
+
 def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir, n_boot: int | None = None,
                 trials_path=trial_log.TRIALS_PATH, artifacts_root=trial_log.ARTIFACTS_ROOT) -> list[dict]:
     """Every cell of one horizon: both models fitted, scored, logged as one
     trial per cell, predictions and bootstrap draws archived."""
     n_boot = sc.n_boot if n_boot is None else n_boot
     check_features(sc, features)
+    check_run(sc, features, trials_path)
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     results = []
     for cell in sc.cells(horizon):
