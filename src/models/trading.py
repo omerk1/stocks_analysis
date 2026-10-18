@@ -90,16 +90,30 @@ STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "r
                    "updown_volume_20", "rsi_14", "spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21",
                    "breadth_above_sma50", "breadth_above_sma200", "adv_dec_10", "sector_rel_mom_63",
                    "sector_rank_mom_63")
+# The market-wide step-2b columns (registry group "market"): one value per date,
+# the same for every name, so they rank only through interactions. Like
+# STEP_2B_COLUMNS, a test ties it to the registry, so registering another market
+# column fails on purpose: give it a new column set, don't widen these (S2 and
+# S2_no_market are logged).
+MARKET_WIDE_COLUMNS = ("spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21", "breadth_above_sma50",
+                       "breadth_above_sma200", "adv_dec_10")
 # Company financials (docs/fundamentals/plan.md step 3, registry group `fundamentals`).
 FUNDAMENTALS_COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income_rank",
                         "rev_growth_yoy_rank", "rev_growth_accel", "net_margin_ttm", "debt_to_equity",
                         "earnings_yield_rank", "sales_yield_rank", "book_to_market_rank", "share_change_yoy_rank")
 # Step 2 (2026-10-17): the 57 LRP level columns, as `level_features.py` defines
 # them (a test pins all 57), joined to S1, not S2: step 2b found S2's 14 columns
-# make the picks worse (VALIDATION_HARNESS.md §9 step 2b). Compared against S1r.
+# make the picks worse, the market-wide 6 most likely (VALIDATION_HARNESS.md §9
+# step 2b). Compared against S1r.
 LEVEL_COLUMNS = level_features.COLUMNS
-# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA.
-COLUMN_SETS = {"S1": FULL_COLUMNS, "S2": FULL_COLUMNS + STEP_2B_COLUMNS, "S3": FULL_COLUMNS + LEVEL_COLUMNS}
+# Model column set per scorecard experiment: S1 (and its S1b rescore) is B4 + MA;
+# S2_no_market is S2 without the market-wide columns (the step-2b diagnostic).
+COLUMN_SETS = {
+    "S1": FULL_COLUMNS,
+    "S2": FULL_COLUMNS + STEP_2B_COLUMNS,
+    "S2_no_market": FULL_COLUMNS + tuple(c for c in STEP_2B_COLUMNS if c not in MARKET_WIDE_COLUMNS),
+    "S3": FULL_COLUMNS + LEVEL_COLUMNS,
+}
 S2_COLUMNS = COLUMN_SETS["S2"]
 
 

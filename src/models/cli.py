@@ -21,7 +21,7 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell;
-                  `--columns` picks the model's column set (S1, S2);
+                  `--columns` picks the model's column set (S1, S2, S2_no_market, S3);
                   `--experiment-id` logs it under another id.
                   `--preregistered F2` runs a Track B one (`trading.PREREGISTERED`).
   close-scorecard  The three-way verdict of a pre-registered scorecard from
@@ -466,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--rank", choices=["ev", "ev_atr"], default=None, help="ev unless --preregistered")
     score.add_argument("--preregistered", default=None,
                        help="a pre-registered Track B scorecard (trading.PREREGISTERED, e.g. F2), with its own rank")
-    score.add_argument("--columns", choices=["S1", "S2", "S3"], default="S1",
+    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market", "S3"], default="S1",
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")
