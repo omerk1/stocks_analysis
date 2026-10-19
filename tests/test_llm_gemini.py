@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import (
-    Budget, BudgetExceeded, GeminiClient, ReplyError, read_ledger, summarise, used_on)
+    Budget, BudgetExceeded, GeminiClient, ReplyError, ShapeError, read_ledger, summarise, used_on)
 
 NOW = datetime(2026, 10, 13, 9, 30, tzinfo=timezone.utc)
 
@@ -108,7 +108,7 @@ def test_structured_reply_is_validated(tmp_path):
 
 def test_unusable_replies_raise_but_are_still_charged(tmp_path):
     client, _ = _client(tmp_path, text='{"wrong": 1}')
-    with pytest.raises(ReplyError, match="doesn't match Answer"):
+    with pytest.raises(ShapeError, match="doesn't match Answer"):
         client.generate("hi", purpose="test", response_schema=Answer)
     client, _ = _client(tmp_path, finish="MAX_TOKENS")
     with pytest.raises(ReplyError, match="cut off"):
