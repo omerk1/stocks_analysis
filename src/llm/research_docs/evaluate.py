@@ -58,8 +58,9 @@ unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93
 "no", and node ids change on every rebuild: a chunk counts as judged if it is a gold or in
 the vector, keyword, hybrid or rerank top 5 for that question, matched by its text. A
 rebuild changes those top 5s too, so before one, save every method's top 5 texts and
-count those as judged afterwards (the 2026-10-14 rebuild: 36 judged, 2 added; the saved
-texts and the rebuilt pool are in `judged/pooling/`).
+count those as judged afterwards (the 2026-10-14 rebuild: 36 judged, 2 added; the
+2026-10-17 rebuild, the dev re-rank top 10: 116 judged, 10 added; the saved texts and the
+rebuilt pools are in `judged/pooling/`).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once

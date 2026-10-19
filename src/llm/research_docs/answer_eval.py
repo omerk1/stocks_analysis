@@ -36,7 +36,13 @@ correct from a source that isn't a gold is reported, as a candidate gold.
 
 The baseline (2026-10-16, the step-6 prompt; ~95k tokens for 43 questions) is
 `judged/runs/dev_2026-10-16.json`; a prompt change is scored against it. The step-6c
-prompt's run, on the same index, is `judged/runs/dev_2026-10-16_prompt.json`.
+prompt's run, on the same index, is `judged/runs/dev_2026-10-16_prompt.json`. After the
+index rebuild (step 7d), the same prompt with 5 sources is `dev_2026-10-18_rebuilt_top5.json`
+and with 10 (`run -k 10`, ~185k tokens) `dev_2026-10-19_rebuilt_top10.json`.
+
+A reply that isn't the requested JSON (`ReplyError`) is stored as a row with `error` and
+no answer, counted wrong (generation), and left out of the judge packets: a user asking
+that question would get no answer either.
 """
 
 from __future__ import annotations

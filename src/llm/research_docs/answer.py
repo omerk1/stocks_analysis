@@ -2,9 +2,9 @@
 an LLM writes the answer, from the retrieved chunks only, citing them.
 
 Steps 1-5 and 7 are the "R" of RAG, retrieval-augmented generation: they find the chunks.
-This is the "G": the question and the re-ranker's top 5 (`rerank.rerank_search`) go to
-Gemini (`src/llm/gemini.py`, with its token budget), numbered [1]-[5], and the model is told
-to answer from those sources alone.
+This is the "G": the question and the re-ranker's top 5 (`rerank.rerank_search`; `-k` for
+up to `MAX_K`) go to Gemini (`src/llm/gemini.py`, with its token budget), numbered [1]-[5],
+and the model is told to answer from those sources alone.
 
 - **Grounding.** The model knows a lot about trading in general, and that's the danger: a
   fluent answer from general knowledge looks the same as one from this project's docs. So
@@ -28,8 +28,9 @@ to answer from those sources alone.
   right, takes a judge reading both: that's the evaluation step, not this one.
 
 Temperature 0 (more repeatable, not deterministic) and thinking off, as in the strategy
-agent. A call is about 3,000 tokens in (5 chunks of at most 384 tokens plus their
-headings and the instructions) and a few hundred out.
+agent. A call is about 2,400 tokens in all with 5 sources (chunks of at most 384 tokens
+plus their headings and the instructions, and a few hundred out), about 4,300 with 10:
+the dev-split means of the 2026-10-18 and 2026-10-19 runs (`judged/runs/`).
 
     python -m src.llm.research_docs.answer "Why were baselines B1 and B5 dropped?"
 """
