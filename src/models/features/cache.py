@@ -11,7 +11,10 @@ before `start` included), then restricted to eligible rows and ranked: a rank
 is "where this row sits among the names a model could trade that day". Panel
 sources (`market.py`) read every member's bars, eligible or not, plus the
 benchmark's: breadth and sector peers are the whole point-in-time index of the
-universe's indices (recorded as `panel_membership_indices`). The
+universe's indices (recorded as `panel_membership_indices`). The level
+columns (a detector source) are computed from every bar the ticker has, as the
+snapshot cache (`level_cache.py`, `build-levels`) was built, so they read it
+instead of rerunning the detectors; a ticker it doesn't cover is an error. The
 manifest records each column's registry entry (prior, source, warmup), the
 universe spec, price sources and the git SHA.
 
@@ -30,7 +33,7 @@ import pandas as pd
 from src.foundation.data_processing import db
 from src.foundation.market_common.price_basis import MODULES_WITH_FALLBACK
 from src.models import dataset
-from src.models.features import baseline, fundamentals, market, registry, valuation
+from src.models.features import baseline, fundamentals, level_features, market, registry, valuation
 
 # The longest registered warmup is 451 bars (~655 calendar days).
 WARMUP_DAYS = 750
@@ -42,12 +45,35 @@ def _fallback(basis) -> bool:
     return module in MODULES_WITH_FALLBACK
 
 
+def _level_misses(bars: pd.DataFrame, splits: dict, root: Path) -> list[str]:
+    """Tickers whose snapshot files under `root` don't match these bars (any
+    source): each would be recomputed, minutes per ticker."""
+    from src.models.features import level_cache, levels
+    configs = levels.default_configs()
+    misses = []
+    for ticker, g in bars.groupby("ticker", sort=False):
+        clean = levels.prepare(g.drop(columns="ticker").set_index("date").sort_index())
+        taken = levels.snapshot_dates(clean.index)
+        digest = level_cache.inputs_digest(ticker, clean, splits.get(ticker), taken)
+        if any(level_cache.cached_rows(root, s, ticker, level_cache.fingerprint(
+                s, ticker, clean, splits.get(ticker), taken, configs[s], digest)) is None
+               for s in levels.SNAPSHOT_SOURCES):
+            misses.append(ticker)
+    return misses
+
+
 def build_feature_cache(
     conn: sqlite3.Connection, universe: pd.DataFrame, out_dir: Path,
     specs: list[registry.FeatureSpec] | None = None, open_holdout: bool = False,
+    levels_root: Path = level_features.DEFAULT_ROOT, workers: int = 1, allow_level_misses: bool = False,
 ) -> Path:
     """`universe`: `dataset.universe_mask` output (its `attrs["spec"]` is
-    recorded). Writes `<out_dir>/model_features.parquet` + `.json`."""
+    recorded). Writes `<out_dir>/model_features.parquet` + `.json`. The level
+    columns read the snapshot cache under `levels_root` (`build-levels`, same
+    universe and end), from each ticker's whole history; a ticker it doesn't
+    cover raises unless `allow_level_misses` (each miss is minutes of detector
+    runs). `workers`: processes for the level columns (the cheap per-ticker
+    sources run in-process: a pool costs them more than it saves)."""
     specs = specs if specs is not None else registry.model_specs()
     spec = universe.attrs.get("spec", {})
     start, end = universe["date"].min(), universe["date"].max()
@@ -57,7 +83,8 @@ def build_feature_cache(
 
     bar_specs = [s for s in specs if s.source is not None]
     panel_specs = [s for s in bar_specs if isinstance(registry.SOURCES[s.source], registry.PanelSource)]
-    ticker_specs = [s for s in bar_specs if s not in panel_specs]
+    detector_specs = [s for s in bar_specs if registry.is_detector(s)]
+    ticker_specs = [s for s in bar_specs if s not in panel_specs and s not in detector_specs]
     first = start - pd.Timedelta(days=WARMUP_DAYS)
     sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
     sectors["sector"] = sectors["sector"].replace("", pd.NA)
@@ -85,6 +112,27 @@ def build_feature_cache(
     if ticker_specs:
         eligible_bars = {b: f[f["ticker"].isin(tickers)] for b, f in bars.items()}
         values = registry.compute_registered(eligible_bars, splits, tuple(ticker_specs), rank=False)
+    level_misses = []
+    if detector_specs:
+        # The snapshot cache's own read (`level_cache.build_level_cache`): every
+        # bar from the first, so the fingerprints match and the cache is read.
+        from src.models.features import level_cache
+        sources_by_name = {**registry.SOURCES, "levels": registry.level_source(levels_root)}
+        dbasis = {sources_by_name[s.source].basis for s in detector_specs}
+        # The splits' own vendors (as the snapshot build pairs them), not resolved again.
+        dbars = {b: dataset.read_bars_bulk(conn, tickers, b, level_cache.FIRST_BAR, end,
+                                           sources=split_sources if b == dataset.UNIVERSE_BASIS else None,
+                                           fallback=_fallback(b))
+                 for b in dbasis}
+        for b in dbasis:
+            sources[f"{b.value}_full_history"] = dbars[b].attrs["price_sources"]
+        level_misses = _level_misses(dbars[sources_by_name["levels"].basis], splits, levels_root)
+        if level_misses and not allow_level_misses:
+            raise ValueError(f"the snapshot cache under {levels_root} doesn't cover {len(level_misses)} tickers "
+                             f"(e.g. {level_misses[:5]}): run build-levels for this universe and end first")
+        dvalues = registry.compute_registered(dbars, splits, tuple(detector_specs), sources_by_name, rank=False,
+                                              workers=workers, since=start)
+        values = dvalues if values is None else values.merge(dvalues, on=["ticker", "date"], how="outer")
     if panel_specs:
         # Membership from the index intervals, so the trailing breadth windows are warm on `start` too.
         panel_bars = bars[registry.SOURCES[panel_specs[0].source].basis]
@@ -118,6 +166,7 @@ def build_feature_cache(
         "universe": spec, "start": str(start.date()), "end": str(end.date()), "open_holdout": bool(open_holdout),
         "n_rows": len(out), "n_tickers": int(out["ticker"].nunique()), "price_sources": sources,
         "panel_membership_indices": panel_indices if panel_specs else None,
+        "levels_root": str(levels_root) if detector_specs else None, "level_cache_misses": level_misses,
         "columns": {s.name: {k: v for k, v in asdict(s).items() if k != "name"} for s in specs},
         "missing_share": {c: float(out[c].isna().mean()) for c in out.columns if c not in ("ticker", "date")},
         # Whole-history disputes take tickers out of the universe (`dataset.resolve_sources`).

@@ -327,6 +327,31 @@ pre-registered before running:
 - **Earnings as risk:** does excluding or flagging setups with earnings inside the horizon
   change realized R/R?
 
+**Status (2026-10-17).** All three are pre-registered in
+`docs/fundamentals/PREREGISTRATION.md`, run in the order combined model, earnings as risk,
+post-earnings drift, one PR each.
+
+- **Combined model: inconclusive** (Done #153). Top-20 model minus the same model without
+  the group, pooled over the 9 cells: H21 +0.03% per trade [−0.04%, +0.10%], H63 −0.06%
+  [−0.21%, +0.08%], 99% CIs, band ±0.10%. The same without the six market-cap caveat
+  tickers. The group stays registered. It changes the picks (42–55% overlap) and cuts the
+  share with an expected earnings date inside 21 days from 28% to 18%, but not their result.
+- **Earnings as risk: inconclusive** (Done #154). Dropping the reference model's top-20
+  picks that have an expected earnings date inside 21 days, with the next-best names
+  swapped in: +0.03% per trade [−0.05%, +0.13%]. The 16- and 26-day windows agree.
+  The flag changes the trade's shape, not its mean: more target and stop hits, fewer
+  timeouts. For the model that already sees the flag (secondary), also inconclusive at
+  the registered window.
+- **Post-earnings drift: inconclusive** (Done #157). After a large own-history surprise
+  (trailing 90/10 cut), the signed 63-day return beyond momentum-matched controls is
+  +0.13% per event [−0.41%, +0.67%], 3,480 events on 1,167 dates. H21 is inconclusive
+  too. The neighbours agree except one lone pixel (H21 at the 95/5 cut) that isn't
+  promoted. The interval is five times the band wide: the test can't decide at this
+  noise level.
+
+Step 4 is done. All three questions are inconclusive and none is dead: the company-financials
+group stays a registered input, and no earnings rule or drift signal is added.
+
 ### 5. Guidance (later, after a feasibility probe)
 
 Guidance is not in XBRL; it lives in the earnings press release (exhibit 99.1 of the

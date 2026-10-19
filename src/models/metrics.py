@@ -130,17 +130,36 @@ def expected_value(frame: pd.DataFrame, cell: BarrierCell, neither_ret: float) -
     return ev.rename("ev")
 
 
+def tie_key(frame: pd.DataFrame) -> np.ndarray:
+    """A sort key per (ticker, date) row that breaks score ties pseudo-randomly
+    but reproducibly: a hash, unrelated to the ticker's name. Isotonic
+    calibration maps many rows to the same probabilities (~120 distinct
+    triples among ~470 rows a day), so the top-k cut often falls inside a tie;
+    breaking it by ticker name picked the alphabetically first names every
+    such day, a fixed basket instead of a neutral one. The date is hashed as
+    its day number: the hash of a datetime depends on its storage unit (ns vs us)."""
+    days = pd.to_datetime(frame["date"]).dt.normalize().astype("datetime64[ns]").astype("int64") // 86_400_000_000_000
+    keys = pd.DataFrame({"ticker": frame["ticker"].astype(str), "day": days})
+    return pd.util.hash_pandas_object(keys, index=False).to_numpy()
+
+
+def top_k(frame: pd.DataFrame, score: str, k: int) -> pd.DataFrame:
+    """Each date's `k` rows with the highest `score`, ties broken by `tie_key`
+    (a date with fewer rows keeps them all)."""
+    ranked = frame.assign(_tie=tie_key(frame)).sort_values(["date", score, "_tie"], ascending=[True, False, True])
+    return ranked.groupby("date", sort=True).head(k).drop(columns="_tie")
+
+
 def top_k_daily(frame: pd.DataFrame, cell: BarrierCell, neither_ret: float, k: int,
                 costs_bps: tuple[int, ...] = COSTS_BPS) -> pd.DataFrame:
-    """Each day, the `k` rows with the highest EV (ties broken by ticker; a day
-    with fewer rows takes them all). Per date: n_picked, hit_rate (share hitting
+    """Each day, the `k` rows with the highest EV (`top_k`; a day with fewer
+    rows takes them all). Per date: n_picked, hit_rate (share hitting
     +1), ret (mean realised return, gross), ret_net_<c>bps per cost level, and
     excess: ret minus that day's mean return over every row scored -- the
     within-day skill, with the market's own move on the day removed."""
     day_mean = frame.groupby("date")["ret"].mean()
     picks = frame.assign(ev=expected_value(frame, cell, neither_ret)).dropna(subset=["ev"])
-    picks = picks.sort_values(["date", "ev", "ticker"], ascending=[True, False, True])
-    picks = picks.groupby("date", sort=True).head(k)
+    picks = top_k(picks, "ev", k)
     g = picks.groupby("date")
     out = pd.DataFrame({
         "n_picked": g.size(),
