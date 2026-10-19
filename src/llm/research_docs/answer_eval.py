@@ -40,9 +40,10 @@ prompt's run, on the same index, is `judged/runs/dev_2026-10-16_prompt.json`. Af
 index rebuild (step 7d), the same prompt with 5 sources is `dev_2026-10-18_rebuilt_top5.json`
 and with 10 (`run -k 10`, ~185k tokens) `dev_2026-10-19_rebuilt_top10.json`.
 
-A reply that isn't the requested JSON (`ReplyError`) is stored as a row with `error` and
-no answer, counted wrong (generation), and left out of the judge packets: a user asking
-that question would get no answer either.
+A complete reply that isn't the requested JSON (`gemini.ShapeError`) is stored as a row
+with `error` and no answer, counted wrong (generation), and left out of the judge packets:
+a user asking that question would get no answer either. A blocked, cut-off or empty reply
+stops the run instead, so resuming retries it.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ from pathlib import Path
 
 from llama_index.core.schema import BaseNode, NodeWithScore, TextNode
 
-from src.llm.gemini import DEFAULT_MODEL, GeminiClient, ReplyError
+from src.llm.gemini import DEFAULT_MODEL, GeminiClient, ShapeError
 from src.llm.paths import llm_data_dir
 from src.llm.research_docs.answer import (BUDGET, MAX_K, SYSTEM, Answer, answer, build_prompt, cited, sentences,
                                           source_text)
@@ -111,7 +112,7 @@ def record(q: dict, a, prompt: str | None = None, k: int = TOP_K) -> dict:
 
 
 def failed(q: dict, sources: list[NodeWithScore], error: str, prompt: str | None = None, k: int = TOP_K) -> dict:
-    """A question the model gave no usable reply to (`gemini.ReplyError`: say, plain text
+    """A question the model gave no usable reply to (`gemini.ShapeError`: say, plain text
     where the JSON object was asked for). Stored like an answer, with the error and no
     text: a user asking it would get the error, so `score` counts it as wrong, not as
     unjudged. Its tokens are in the usage ledger, not here."""
@@ -133,9 +134,9 @@ def _row(q: dict, sources: list[NodeWithScore], prompt: str | None, k: int, **re
 
 
 def run_k(r: dict) -> int:
-    """The sources a run row asked for. Rows written before `k` was recorded all had 5,
-    every one of them shown."""
-    return r.get("k", len(r["sources"]))
+    """The sources a run row asked for. Rows written before `k` was recorded all asked
+    for 5 (retrieval may have returned fewer)."""
+    return r.get("k", TOP_K)
 
 
 def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], client: GeminiClient,
@@ -158,17 +159,23 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
     for q in questions:
         if q["id"] in have:
             continue
+        shown: list[NodeWithScore] = []  # what `answer` retrieved, kept for a failed reply
+
+        def find_kept(question: str, n: int) -> list[NodeWithScore]:
+            shown[:] = find(question, n)
+            return shown
+
         try:
-            done.append(record(q, answer(q["question"], find, client, k), pid, k))
-        except ReplyError as e:  # paid for and unusable; a rerun at temperature 0 likely repeats it
-            # `answer` doesn't hand back what it retrieved when the reply fails; retrieval
-            # is deterministic, so search again for the sources the model was shown
-            done.append(failed(q, find(q["question"], k), str(e), pid, k))
+            done.append(record(q, answer(q["question"], find_kept, client, k), pid, k))
+        except ShapeError as e:  # paid for and unusable; a rerun at temperature 0 likely repeats it
+            # other ReplyErrors (blocked, cut off, empty) stop the run, so a resume retries them
+            done.append(failed(q, shown, str(e), pid, k))
             print(f"warning: {q['id']}: no usable reply ({str(e).splitlines()[0]})", file=sys.stderr)
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
-        print(f"{len(done):>3}/{len(questions)} {q['id']} ({done[-1]['tokens']} tokens)", flush=True)
+        spent = "no usable reply" if "error" in done[-1] else f"{done[-1]['tokens']} tokens"
+        print(f"{len(done):>3}/{len(questions)} {q['id']} ({spent})", flush=True)
     return done
 
 

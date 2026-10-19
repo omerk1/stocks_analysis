@@ -43,6 +43,7 @@ def test_the_prompt_keeps_an_experiment_rows_ids_that_live_in_metadata():
     ("Listed [1, 3].", [1, 3]),
     ("A range [1-3], another [4\u20135].", [1, 2, 3, 4, 5]),
     ("All ten sources [1-10], a year span [2010-2021].", [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 2010, 2021]),
+    ("Short year spans [2013-2021], [2010-2015] keep their ends.", [2013, 2021, 2010, 2015]),
     ("Reversed [3-2], a span [2010-2021], huge [1-10000000].", [2, 3, 2010, 2021, 1, 10000000]),
     ("No citation, and a year [2021 is not one] nor is [a].", []),
 ])

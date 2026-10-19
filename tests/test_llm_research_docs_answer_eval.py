@@ -94,17 +94,24 @@ def test_a_run_gives_k_sources_and_wont_mix_two_source_counts(tmp_path):
 
 
 def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path):
-    from src.llm.gemini import ReplyError
+    from src.llm.gemini import ShapeError
 
     class Flaky(FakeClient):
         def generate(self, prompt, **kwargs):
             if "Why was B5 dropped?" in prompt:
                 self.calls += 1
-                raise ReplyError("reply doesn't match Answer: plain text")
+                raise ShapeError("reply doesn't match Answer: plain text")
             return super().generate(prompt, **kwargs)
 
+    searches = []
+
+    def find(question, k):
+        searches.append(question)
+        return _find(GOLD, OTHER)(question, k)
+
     out, client = tmp_path / "run.json", Flaky(Answer(in_docs=True, answer="Too fragile [1]."))
-    bad, good = run([Q, MULTI], _find(GOLD, OTHER), client, out)
+    bad, good = run([Q, MULTI], find, client, out)
+    assert len(searches) == 2  # the failed reply's sources are the ones retrieved, not a second search
     assert client.calls == 2 and bad["error"].startswith("reply doesn't match") and bad["answer"] == ""
     assert bad["retrieval"] == "full" and [s["n"] for s in bad["sources"]] == [1, 2]  # what it was shown
     assert run([Q, MULTI], _find(GOLD, OTHER), client, out) == [bad, good] and client.calls == 2  # not retried
@@ -114,6 +121,24 @@ def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path)
     assert "b5" in table.splitlines()[3] and " wrong " in table.splitlines()[3] and "generation" in table.splitlines()[3]
     assert "NO USABLE REPLY (counted wrong, generation): b5" in table and "UNJUDGED answers: both" in table
     assert "mechanical citation problems (check): 0 answers" in table
+
+
+def test_a_cut_off_reply_stops_the_run_so_a_resume_retries_it(tmp_path):
+    from src.llm.gemini import ReplyError
+
+    class CutOff(FakeClient):
+        def generate(self, prompt, **kwargs):
+            if "Why was B5 dropped?" in prompt and not self.calls:
+                self.calls += 1
+                raise ReplyError("reply cut off at max_output_tokens=2000")
+            return super().generate(prompt, **kwargs)
+
+    out, client = tmp_path / "run.json", CutOff(Answer(in_docs=True, answer="Too fragile [1]."))
+    with pytest.raises(ReplyError, match="cut off"):
+        run([Q, MULTI], _find(GOLD, OTHER), client, out)
+    assert not out.exists()  # nothing stored for it
+    rows = run([Q, MULTI], _find(GOLD, OTHER), client, out)
+    assert [r["id"] for r in rows] == ["b5", "both"] and not any("error" in r for r in rows)
 
 
 def test_the_prompt_id_follows_what_the_model_sees_not_the_code(monkeypatch):

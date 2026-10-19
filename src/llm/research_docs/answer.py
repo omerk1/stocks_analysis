@@ -3,8 +3,8 @@ an LLM writes the answer, from the retrieved chunks only, citing them.
 
 Steps 1-5 and 7 are the "R" of RAG, retrieval-augmented generation: they find the chunks.
 This is the "G": the question and the re-ranker's top 5 (`rerank.rerank_search`; `-k` for
-up to `MAX_K`) go to Gemini (`src/llm/gemini.py`, with its token budget), numbered [1]-[5],
-and the model is told to answer from those sources alone.
+up to `MAX_K`) go to Gemini (`src/llm/gemini.py`, with its token budget), numbered from
+[1], and the model is told to answer from those sources alone.
 
 - **Grounding.** The model knows a lot about trading in general, and that's the danger: a
   fluent answer from general knowledge looks the same as one from this project's docs. So
@@ -117,8 +117,9 @@ def cited(text: str) -> list[int]:
         for part in group.split(","):
             lo, _, hi = re.sub(r"\s", "", part).replace("\u2013", "-").partition("-")
             lo, hi = sorted((int(lo), int(hi or lo)))
-            # a short span is a citation range; a long one ([2010-2021]) keeps just its ends
-            for n in range(lo, hi + 1) if hi - lo < MAX_K else (lo, hi):
+            # a span within the source numbers is a citation range; one past them
+            # ([2010-2021]) keeps just its ends
+            for n in range(lo, hi + 1) if hi <= MAX_K else (lo, hi):
                 if n not in out:
                     out.append(n)
     return out
