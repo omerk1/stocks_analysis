@@ -91,6 +91,8 @@ def test_a_run_gives_k_sources_and_wont_mix_two_source_counts(tmp_path):
     assert client.calls == 1
     assert run([Q, MULTI], _find(OTHER, GOLD, OTHER), client, out, k=2)[1]["id"] == "both"  # same k resumes
     assert "sources per answer: 2\n" in score([row], {"support": {}, "answers": {}})
+    old = {k: v for k, v in row.items() if k != "k"}  # a row from before `k` was recorded
+    assert "sources per answer: 5\n" in score([old], {"support": {}, "answers": {}})  # asked for 5, got 2
 
 
 def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path):
