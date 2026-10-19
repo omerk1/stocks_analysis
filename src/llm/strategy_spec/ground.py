@@ -276,8 +276,13 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
                       for ticker, frame in display.groupby("ticker", sort=False)}
     for n, candidate in enumerate(shown_candidates, start=1):
         bars = bars_by_ticker[candidate.ticker]
+        span = candidate.overlay_span
+        window = charts.chart_window(bars, candidate.date,
+                                     chart_from=span[0] if span is not None else None)
+        if span is not None:
+            window = charts.candidate_overlay(window, span, "overlay_display")
         figure = charts.instance_chart(
-            charts.chart_window(bars, candidate.date), "overlay_display", result.overlay_name,
+            window, "overlay_display", result.overlay_name,
             candidate.date, f"{candidate.ticker} — {candidate.date.date()}")
         name = f"{n:02d}_{candidate.ticker}_{candidate.date.date()}.html"
         charts.write_chart(figure, out_dir / name)

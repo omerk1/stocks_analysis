@@ -88,11 +88,20 @@ class RubricLine:
 @dataclass(frozen=True)
 class Candidate:
     """One instance: the bar the signal fired on. `fails` is None for a match, else the
-    single spec constraint this near-miss fails, in words the trader can act on."""
+    single spec constraint this near-miss fails, in words the trader can act on.
+
+    `overlay_span` is this instance's own chart geometry: (first bar, last bar, value) —
+    a constant line the chart draws across exactly that span, widening the chart window
+    to show all of it. A shared overlay column can't carry it when episodes on one
+    ticker overlap (later paints overwrite earlier ones, so a chart could show another
+    episode's level — including one only knowable after the trigger bar). None (the MA
+    finder, whose overlay is a property of the ticker, not the instance) keeps the
+    shared panel-column overlay and the default window."""
 
     ticker: str
     date: pd.Timestamp
     fails: str | None = None
+    overlay_span: tuple[pd.Timestamp, pd.Timestamp, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -329,10 +338,11 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
 
     Unlike the MA finder, detection runs on the panel's **unlagged** OHLC columns, so no
     unlag shift is needed: an instance's date is the retest (signal) bar itself. The
-    chart overlay (the breakout level, drawn across each presented episode) is computed
-    here, not a cached feature — the finder **adds it to `panel` in place** as
-    `base_breakout_level`, one-bar-lagged like every panel feature, because the session
-    runner reads the overlay from the same frame it passed to dispatch.
+    chart overlay (the breakout level) travels on each candidate as its `overlay_span`
+    — episodes on one ticker can overlap, so a shared column can't be trusted per chart.
+    The finder still **adds the column to `panel` in place** as `base_breakout_level`
+    (one-bar-lagged like every panel feature) to satisfy the FinderResult contract the
+    session runner reads, but the presented charts draw each candidate's own span.
 
     `near_misses=False` skips the five relaxed ring passes; matches, rubric and
     refusals are identical either way.
@@ -458,12 +468,21 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
                 for ticker, eps in episodes.items()}
         return {ticker: by_position for ticker, by_position in kept.items() if by_position}
 
-    def dated(by_ticker: dict[str, dict[int, base_breakout.Episode]]) -> list[tuple[str, pd.Timestamp]]:
-        return sorted((ticker, pd.Timestamp(frames[ticker]["date"].iloc[position]))
-                      for ticker, positions in by_ticker.items() for position in positions)
+    def dated(by_ticker: dict[str, dict[int, base_breakout.Episode]]
+              ) -> list[tuple[str, pd.Timestamp, base_breakout.Episode]]:
+        return sorted(((ticker, pd.Timestamp(frames[ticker]["date"].iloc[position]), episode)
+                       for ticker, by_position in by_ticker.items()
+                       for position, episode in by_position.items()),
+                      key=lambda item: item[:2])
+
+    def span(ticker: str, episode: base_breakout.Episode) -> tuple[pd.Timestamp, pd.Timestamp, float]:
+        dates = frames[ticker]["date"]
+        return (pd.Timestamp(dates.iloc[episode.base_start]),
+                pd.Timestamp(dates.iloc[episode.end]), episode.level)
 
     strict = held(episodes_for(config))
-    matches = tuple(Candidate(ticker, date) for ticker, date in dated(strict))
+    matches = tuple(Candidate(ticker, date, overlay_span=span(ticker, episode))
+                    for ticker, date, episode in dated(strict))
     shown_episodes: list[tuple[str, base_breakout.Episode]] = []  # painted last wins overlaps
 
     def minus_strict(ring: dict[str, dict[int, base_breakout.Episode]]):
@@ -507,13 +526,14 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
             (tol_ring, f"retest tolerance: the low comes within {relaxed_tol:g} ATR of the "
              f"level, not within {tol:g}"),
         ]
-        seen: dict[tuple[str, pd.Timestamp], str] = {}
+        seen: dict[tuple[str, pd.Timestamp], tuple[str, base_breakout.Episode]] = {}
         for ring, fails in rings:
-            for ticker, date in dated(ring):
-                seen.setdefault((ticker, date), fails)
+            for ticker, date, episode in dated(ring):
+                seen.setdefault((ticker, date), (fails, episode))
             shown_episodes.extend((ticker, e) for ticker, by_position in ring.items()
                                   for e in by_position.values())
-        near = tuple(Candidate(ticker, date, fails) for (ticker, date), fails in seen.items())
+        near = tuple(Candidate(ticker, date, fails, overlay_span=span(ticker, episode))
+                     for (ticker, date), (fails, episode) in seen.items())
 
     # The overlay: each presented episode's level across its span, strict episodes
     # painted last so they win any overlap with a ring variant of the same base.

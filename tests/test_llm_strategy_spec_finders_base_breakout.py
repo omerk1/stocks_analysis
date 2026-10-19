@@ -68,6 +68,9 @@ def test_finds_the_match_on_the_retest_bar_and_paints_the_overlay():
     result = find_base_breakout_retest(spec(), frame)
     assert [(c.ticker, c.date) for c in result.matches] == [("AAA", signal_date(MATCH, 37))]
     assert result.matches[0].fails is None and result.near_misses == ()
+    # The candidate carries its own chart geometry: the level across its episode
+    # (base start through the retest bar), so the chart never shows another episode's.
+    assert result.matches[0].overlay_span == (signal_date(MATCH, 0), signal_date(MATCH, 37), LEVEL)
     assert (result.overlay_column, result.overlay_name) == (BASE_BREAKOUT_OVERLAY, "breakout level")
     # The overlay was added to the caller's panel in place, one-bar-lagged: the level
     # spans the episode (base start through the retest, positions 0-37), shifted one
@@ -89,6 +92,10 @@ def test_each_ring_yields_its_near_miss_and_no_match():
     assert by_ticker["WIN"].date == signal_date(WINDOW_RING, 35 + 45)
     assert by_ticker["TOL"].fails.startswith("retest tolerance") and "0.75" in by_ticker["TOL"].fails
     assert len(result.near_misses) == len({(c.ticker, c.date) for c in result.near_misses})
+    # Every near-miss carries its own ring episode's geometry, ending on its signal bar.
+    for c in result.near_misses:
+        assert c.overlay_span[2] == LEVEL and c.overlay_span[1] == c.date
+    assert by_ticker["LEN"].overlay_span[0] == signal_date(LENGTH_RING, 0)
 
 
 def test_a_loose_early_retest_of_a_strictly_firing_episode_is_suppressed():

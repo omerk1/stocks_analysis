@@ -26,20 +26,40 @@ import plotly.graph_objects as go
 
 LOOKBACK_BARS = 90  # context before the trigger: the away run and some history
 FORWARD_BARS = 0    # the chart ends ON the trigger bar: its close is the signal, and any later bar leaks outcome
+CHART_FROM_MARGIN_BARS = 10  # context drawn before a candidate-declared window start
 
 # Same convention as patterns/gaps plotting: no weekend voids in the x axis.
 _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
 
 
 def chart_window(bars: pd.DataFrame, trigger_date: pd.Timestamp,
-                 lookback: int = LOOKBACK_BARS, forward: int = FORWARD_BARS) -> pd.DataFrame:
+                 lookback: int = LOOKBACK_BARS, forward: int = FORWARD_BARS,
+                 chart_from: pd.Timestamp | None = None) -> pd.DataFrame:
     """The rows of one ticker's date-sorted `bars` from `lookback` bars before the
-    trigger to `forward` bars after it — the only bars a grounding chart may show."""
+    trigger to `forward` bars after it — the only bars a grounding chart may show.
+    `chart_from` (a candidate's own geometry start, e.g. the first bar of a breakout's
+    base) opens the window early enough to include it plus `CHART_FROM_MARGIN_BARS` of
+    context; it can only widen the window, never shrink it below `lookback`."""
     positions = np.flatnonzero((bars["date"] == trigger_date).to_numpy())
     if len(positions) != 1:
         raise ValueError(f"trigger date {trigger_date.date()} appears {len(positions)} times in the window's bars")
     position = int(positions[0])
-    return bars.iloc[max(0, position - lookback): position + forward + 1]
+    start = position - lookback
+    if chart_from is not None:
+        first = int(np.searchsorted(bars["date"].to_numpy(), np.datetime64(chart_from, "ns")))
+        start = min(start, first - CHART_FROM_MARGIN_BARS)
+    return bars.iloc[max(0, start): position + forward + 1]
+
+
+def candidate_overlay(window: pd.DataFrame, overlay_span: tuple[pd.Timestamp, pd.Timestamp, float],
+                      overlay_col: str) -> pd.DataFrame:
+    """A copy of `window` whose `overlay_col` is this candidate's own line: the span's
+    constant value across [first bar, last bar], NaN elsewhere — never another
+    episode's overlay, whatever a shared panel column holds on these rows."""
+    window = window.copy()
+    start, end, value = overlay_span
+    window[overlay_col] = np.where(window["date"].between(start, end), value, np.nan)
+    return window
 
 
 def instance_chart(window: pd.DataFrame, overlay_col: str, overlay_name: str,
