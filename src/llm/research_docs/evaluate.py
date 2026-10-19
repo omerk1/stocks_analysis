@@ -64,7 +64,7 @@ rebuilt pools are in `judged/pooling/`).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
-    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr; default vector
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr, split; default vector
     python -m src.llm.research_docs.evaluate --method rerank --reranker BAAI/bge-reranker-base
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
@@ -287,13 +287,18 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
-    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr"), default="vector",
-                    help="search to score (default vector; mmr: rerank, then diversify.mmr)")
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr", "split"), default="vector",
+                    help="search to score (default vector; mmr: rerank, then diversify.mmr; "
+                         "split: rerank once per sub-question, split.py, Gemini for questions not in --splits)")
     ap.add_argument("--reranker", default=None,
-                    help="cross-encoder for --method rerank or mmr (default rerank.MODELS[0])")
+                    help="cross-encoder for --method rerank, mmr or split (default rerank.MODELS[0])")
+    ap.add_argument("--splits", type=Path, default=None,
+                    help="split cache for --method split (default split.SPLITS)")
     args = ap.parse_args()
-    if args.reranker and args.method not in ("rerank", "mmr"):
-        ap.error("--reranker needs --method rerank or mmr")
+    if args.reranker and args.method not in ("rerank", "mmr", "split"):
+        ap.error("--reranker needs --method rerank, mmr or split")
+    if args.splits and args.method != "split":
+        ap.error("--splits needs --method split")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -325,14 +330,20 @@ def main() -> None:
         find = keywords.search
     elif args.method == "hybrid":
         find = lambda question, k: hybrid_search(index, keywords, question, k)  # noqa: E731
-    elif args.method in ("rerank", "mmr"):
+    elif args.method in ("rerank", "mmr", "split"):
         from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
         name = args.reranker or MODELS[0]
         score = cross_encoder(name)
         method = f"rerank (hybrid top {DEPTH}, {name})"
-        if args.method == "rerank":
+        if args.method in ("rerank", "split"):
             find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
-        else:
+        if args.method == "split":
+            from src.llm.gemini import GeminiClient
+            from src.llm.research_docs.split import BUDGET, SPLITS, Splitter, split_search
+            splitter, rerank_one = Splitter(GeminiClient(budget=BUDGET), args.splits or SPLITS), find
+            find = lambda question, k: split_search(rerank_one, splitter, question, k)  # noqa: E731
+            method += ", once per sub-question (split.py), merged round-robin"
+        elif args.method == "mmr":
             from src.llm.research_docs.diversify import LAMBDA, mmr_search
             from src.llm.research_docs.index import stored_vectors
             vectors = {nid: v for nid, (_, v) in stored_vectors(index).items()}

@@ -1,0 +1,152 @@
+{
+ "Does weekly and monthly resampling know about market holidays?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Does weekly resampling know about market holidays?",
+   "Does monthly resampling know about market holidays?"
+  ]
+ },
+ "Is the end date in a yfinance download included, like it is with Polygon?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Is the end date in a yfinance download included?",
+   "Is the end date in a Polygon download included?"
+  ]
+ },
+ "Is the 200-day average special compared with nearby lookbacks like 193 or 207 days?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Is the 200-day average special compared with nearby lookbacks like 193 or 207 days?"
+  ]
+ },
+ "What is the difference between a dead result and an inconclusive one?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "What is the difference between a dead result and an inconclusive one?"
+  ]
+ },
+ "S/R zones looked like they started later than the peak that created them. What caused it?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "S/R zones looked like they started later than the peak that created them. What caused it?"
+  ]
+ },
+ "Why was the double top detector built before head and shoulders?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Why was the double top detector built before head and shoulders?"
+  ]
+ },
+ "In the least resistance path design, what information does each price level carry?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "In the least resistance path design, what information does each price level carry?"
+  ]
+ },
+ "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?"
+  ]
+ },
+ "Did the moving-average study look at crypto or futures?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Did the moving-average study look at crypto?",
+   "Did the moving-average study look at futures?"
+  ]
+ },
+ "Are stochastic or CCI divergences part of the divergence study?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Are stochastic divergences part of the divergence study?",
+   "Are CCI divergences part of the divergence study?"
+  ]
+ },
+ "Should order blocks be added as their own support/resistance source?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Should order blocks be added as their own support/resistance source?"
+  ]
+ },
+ "What did a break-and-retest cell have to pass to count as confirmed?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "What did a break-and-retest cell have to pass to count as confirmed?"
+  ]
+ },
+ "how is the one-bar lag applied and where in the code does it happen?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "how is the one-bar lag applied and where in the code does it happen?"
+  ]
+ },
+ "did we ever try RSI divergence combined with a trend filter, and what happened?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "did we ever try RSI divergence combined with a trend filter, and what happened?"
+  ]
+ },
+ "which price basis did we pick (adjusted vs raw) and why?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "which price basis did we pick (adjusted vs raw) and why?"
+  ]
+ },
+ "is the order blocks feature done or still in the backlog?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "is the order blocks feature done?",
+   "is the order blocks feature still in the backlog?"
+  ]
+ },
+ "what's the least resistance path idea and has it been tested?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "what's the least resistance path idea?",
+   "has the least resistance path idea been tested?"
+  ]
+ },
+ "how does the validation harness split train/test for the combined model?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "how does the validation harness split train/test for the combined model?"
+  ]
+ },
+ "what are the known data limitations, like delisted tickers or vendor gaps?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "what are the known data limitations, like delisted tickers?",
+   "what are the known data limitations, like vendor gaps?"
+  ]
+ },
+ "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Did we try analyzing retesting interesting areas (gap fills, fibs, etc)?",
+   "Did we try analyzing continuation in the original direction?"
+  ]
+ },
+ "Do we consider Sharpe value in our model and/or analysis?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Do we consider Sharpe value in our model?",
+   "Do we consider Sharpe value in our analysis?"
+  ]
+ },
+ "Do we restrict R/S lines to horizon, their own angles or their width?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "Do we restrict R/S lines to horizon?",
+   "Do we restrict R/S lines to their own angles?",
+   "Do we restrict R/S lines to their width?"
+  ]
+ },
+ "What are the history windows and horizons lengths we check in our analysis and modeling?": {
+  "prompt": "802f5825ee1bbafd",
+  "sub_questions": [
+   "What are the history windows we check in our analysis and modeling?",
+   "What are the horizons lengths we check in our analysis and modeling?"
+  ]
+ }
+}
