@@ -17,13 +17,17 @@ from src.llm.strategy_spec.finders import (
 from src.llm.strategy_spec.schema import Duration, Rule, Size, StrategySpec, Trigger
 
 LEVEL = 100.0
+TOUCH = (99.6, 95.0, 96.0)  # high back within 0.5 ATR of the level without exceeding it
 
 
-def base(bars: int = 35, floor: float = 88.0) -> list[tuple[float, float, float]]:
-    return [(LEVEL, 95.0, 95.0), (95.0, floor, 92.0)] + [(95.0, 92.0, 93.0)] * (bars - 2)
+def base(bars: int = 35, floor: float = 88.0, touches: int = 2) -> list[tuple[float, float, float]]:
+    return ([(LEVEL, 95.0, 95.0), (95.0, floor, 92.0)] + [TOUCH] * touches
+            + [(95.0, 92.0, 93.0)] * (bars - 2 - touches))
 
 
-BREAKOUT = (102.0, 100.6, 101.0)
+BREAKOUT = (102.0, 100.6, 101.0)      # decisive close; the high also arms the 1-ATR rally
+WEAK_BREAKOUT = (100.9, 100.3, 100.8)  # decisive close, but never 1 ATR above the level
+MARGINAL_BREAKOUT = (100.6, 100.0, 100.2)  # clears the level by 0.2 ATR: inside the 0.25 margin
 RALLY = (103.0, 101.0, 102.0)
 RETEST_HOLD = (101.5, 100.3, 100.6)   # low within 0.5 ATR of the level, close holds
 RETEST_LOOSE = (101.5, 100.6, 101.0)  # low within 0.75 ATR only — the tolerance ring
@@ -33,6 +37,9 @@ LENGTH_RING = base(25) + [BREAKOUT, RALLY, RETEST_HOLD]          # base 25: >= 2
 FLOOR_RING = base(35, floor=92.0) + [BREAKOUT, RALLY, RETEST_HOLD]  # depth 8%: >= 6.67, < 10
 CAP_RING = base(35, floor=50.0) + [BREAKOUT, RALLY, RETEST_HOLD]    # depth 50%: <= 60, > 40
 WINDOW_RING = base(35) + [BREAKOUT] + [RALLY] * 44 + [RETEST_HOLD]  # retest on bar 45 after the breakout
+TOUCHES_RING = base(35, touches=1) + [BREAKOUT, RALLY, RETEST_HOLD]  # 1 touch: >= 1, < 2
+MARGIN_RING = base(35) + [MARGINAL_BREAKOUT, RALLY, RETEST_HOLD]  # breaks out only past 0.167 ATR
+RALLY_RING = base(35) + [WEAK_BREAKOUT, RETEST_HOLD] + [RALLY] * 45  # armed only at 0.667 ATR
 TOL_RING = base(35) + [BREAKOUT, RALLY, RETEST_LOOSE] + [RALLY] * 45  # never retests strictly
 
 
@@ -81,15 +88,20 @@ def test_finds_the_match_on_the_retest_bar_and_paints_the_overlay():
 
 def test_each_ring_yields_its_near_miss_and_no_match():
     result = find_base_breakout_retest(spec(), panel(
-        {"LEN": LENGTH_RING, "FLR": FLOOR_RING, "CAP": CAP_RING, "WIN": WINDOW_RING, "TOL": TOL_RING}))
+        {"LEN": LENGTH_RING, "FLR": FLOOR_RING, "CAP": CAP_RING, "WIN": WINDOW_RING,
+         "TCH": TOUCHES_RING, "MGN": MARGIN_RING, "RLY": RALLY_RING, "TOL": TOL_RING}))
     assert result.matches == ()
     by_ticker = {c.ticker: c for c in result.near_misses}
-    assert set(by_ticker) == {"LEN", "FLR", "CAP", "WIN", "TOL"}
+    assert set(by_ticker) == {"LEN", "FLR", "CAP", "WIN", "TCH", "MGN", "RLY", "TOL"}
     assert by_ticker["LEN"].fails.startswith("base length") and ">= 20" in by_ticker["LEN"].fails
     assert by_ticker["FLR"].fails.startswith("base depth floor")
     assert by_ticker["CAP"].fails.startswith("base depth cap") and "60" in by_ticker["CAP"].fails
     assert by_ticker["WIN"].fails.startswith("retest window") and "41-60" in by_ticker["WIN"].fails
     assert by_ticker["WIN"].date == signal_date(WINDOW_RING, 35 + 45)
+    assert by_ticker["TCH"].fails.startswith("level touches") and ">= 1" in by_ticker["TCH"].fails
+    assert by_ticker["MGN"].fails.startswith("breakout decisiveness") and "0.167" in by_ticker["MGN"].fails
+    assert by_ticker["RLY"].fails.startswith("minimum rally") and "0.667" in by_ticker["RLY"].fails
+    assert by_ticker["RLY"].date == signal_date(RALLY_RING, 36)
     assert by_ticker["TOL"].fails.startswith("retest tolerance") and "0.75" in by_ticker["TOL"].fails
     assert len(result.near_misses) == len({(c.ticker, c.date) for c in result.near_misses})
     # Every near-miss carries its own ring episode's geometry, ending on its signal bar.
@@ -124,9 +136,11 @@ def test_rubric_discloses_every_default_and_the_invalidation_convention():
     for parameter in ("timeframe", "price basis", "direction", "base length floor",
                       "base depth floor", "base depth cap"):
         assert by_parameter[parameter].source == "spec"
-    for parameter in ("trigger", "retest tolerance", "retest window",
+    for parameter in ("trigger", "retest tolerance", "retest window", "level touches",
+                      "breakout decisiveness",
                       'failed-retest kill ("decisively below")', "minimum rally", "base length cap"):
         assert by_parameter[parameter].source == "default"
+    assert "grounding round" in by_parameter["minimum rally"].detail
     before = by_parameter["invalidation (before entry): retest closes decisively back below"]
     assert before.value == "NOT READ"
     assert not any("after_entry" in r.parameter or "within 3 bars" in r.parameter for r in result.rubric)

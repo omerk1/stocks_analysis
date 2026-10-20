@@ -11,16 +11,26 @@ Point-in-time by construction, bar by bar on plain OHLC:
 - **Base / level.** At a candidate breakout bar t, the level is the maximum high over
   the trailing `base_lookback_bars` bars before t, and the base starts at the *last*
   bar that set that high. The base must be at least `base_min_bars` long (time since
-  the level was last touched — a high set three bars ago has no base under it), and its
+  the level was last touched — a high set three bars ago has no base under it), its
   depth — (level − lowest low of the base) / level — must sit inside
-  [`depth_min_pct`, `depth_max_pct`]. Too shallow is drift under a spike, not a base;
-  too deep is a collapsed stock, not a consolidation.
-- **Breakout.** The first close above the level. Closes above a still-rising running
-  max during the subsequent rally don't start overlapping episodes: one episode per
-  ticker at a time.
-- **Retest.** Within `retest_window_bars` after the breakout, the first bar whose low
-  comes back within `retest_tol_atr` ATRs of the level *and* whose close holds at or
-  above it. That bar is the signal (`Episode.retest`).
+  [`depth_min_pct`, `depth_max_pct`], and the level must be a *tested* ceiling: at
+  least `min_extra_touches` later base bars must carry a high back within
+  `retest_tol_atr` ATRs of it. A single spike high with nothing near it again is not a
+  base ceiling. Too shallow is drift under a spike, not a base; too deep is a collapsed
+  stock, not a consolidation.
+- **Breakout.** The first close clearing the level by more than `breakout_min_atr`
+  ATRs. A poke above that closes less decisively is not a breakout — its high raises
+  the running max, so the base restarts under the new, higher ceiling (the same thing
+  any pre-breakout high above the level always did). Closes above a still-rising
+  running max during the subsequent rally don't start overlapping episodes: one episode
+  per ticker at a time.
+- **Retest.** Only after price has rallied away — some bar strictly before the retest
+  bar (the breakout bar itself counts) must carry a high at least `min_rally_atr` ATRs
+  above the level. Then, within `retest_window_bars` after the breakout, the first bar
+  whose low comes back within `retest_tol_atr` ATRs of the level *and* whose close
+  holds at or above it. That bar is the signal (`Episode.retest`). A touch before the
+  rally requirement is met neither triggers nor kills (a decisive close below still
+  kills at any time).
 - **Kill.** A close more than `kill_tol_atr` ATRs *below* the level before a holding
   retest ends the episode: the retest failed rather than held (the idea's before-entry
   invalidation). The hold/fail call is made on the retest bar's own close, so unlike a
@@ -51,6 +61,9 @@ class BreakoutRetestConfig:
     depth_min_pct: float = 10.0      # base depth below the level, in percent of the level
     depth_max_pct: float = 40.0
     base_lookback_bars: int = 504    # how far back the level search reaches (caps base length)
+    min_extra_touches: int = 2       # base bars after the level-setting bar whose high comes back within retest_tol_atr of it
+    breakout_min_atr: float = 0.25   # the breakout close must clear the level by this many ATRs
+    min_rally_atr: float = 1.0       # a bar before the retest must reach this many ATRs above the level
     retest_window_bars: int = 40     # bars after the breakout a retest may arrive in
     retest_tol_atr: float = 0.5      # the retest low must come within this many ATRs of the level
     kill_tol_atr: float = 0.25       # a close this many ATRs below the level kills the episode
@@ -68,6 +81,8 @@ class BreakoutRetestConfig:
                 f"({self.base_lookback_bars}); raise base_lookback_bars")
         if self.retest_window_bars < 1 or self.retest_tol_atr < 0 or self.kill_tol_atr < 0:
             raise ValueError("retest window must be >= 1 bar and tolerances non-negative")
+        if self.min_extra_touches < 0 or self.breakout_min_atr < 0 or self.min_rally_atr < 0:
+            raise ValueError("touch count, breakout margin and rally requirement must be non-negative")
 
 
 @dataclass(frozen=True)
@@ -103,8 +118,12 @@ def detect(bars: pd.DataFrame, atr: pd.Series, config: BreakoutRetestConfig) -> 
     # nothing from t itself or later, so detection at t uses only history.
     prior_max = (pd.Series(high).rolling(config.base_lookback_bars, min_periods=1)
                  .max().shift(1).to_numpy())
-    with np.errstate(invalid="ignore"):  # NaN close or prior_max simply never fires
-        candidates = np.flatnonzero(close > prior_max)
+    # NaN close, prior_max or ATR simply never fires — an undecidable bar can't be a
+    # breakout (stricter, never silently positive). A close above the level but inside
+    # the margin isn't a candidate either; its high raises the running max, so the base
+    # restarts under the new ceiling.
+    with np.errstate(invalid="ignore"):
+        candidates = np.flatnonzero(close > prior_max + config.breakout_min_atr * atr_values)
 
     episodes: list[Episode] = []
     busy_until = -1  # one episode at a time: rally closes above a rising max don't re-trigger
@@ -130,10 +149,23 @@ def detect(bars: pd.DataFrame, atr: pd.Series, config: BreakoutRetestConfig) -> 
         depth_pct = (level - float(base_lows.min())) / level * 100.0
         if not config.depth_min_pct <= depth_pct <= config.depth_max_pct:
             continue
+        # A tested ceiling, not a single spike: later base bars whose high comes back
+        # within the retest tolerance of the level. NaN ATR bars never count (stricter).
+        touch_highs = high[base_start + 1:t]
+        touch_atr = atr_values[base_start + 1:t]
+        with np.errstate(invalid="ignore"):
+            touches = int(np.sum(touch_highs >= level - config.retest_tol_atr * touch_atr))
+        if touches < config.min_extra_touches:
+            continue
 
         retest: int | None = None
         outcome = EXPIRED
         end = min(t + config.retest_window_bars, n - 1)
+        # The retest only counts after price rallied away: some strictly earlier bar
+        # (the breakout bar included) reached min_rally_atr ATRs above the level. The
+        # arming check runs after the retest check so one bar can't do both — intrabar
+        # path order (rallied first, then pulled back?) is unknowable from OHLC.
+        armed = high[t] >= level + config.min_rally_atr * atr_values[t]
         for u in range(t + 1, t + config.retest_window_bars + 1):
             if u >= n:
                 end = n - 1
@@ -144,9 +176,11 @@ def detect(bars: pd.DataFrame, atr: pd.Series, config: BreakoutRetestConfig) -> 
             if close[u] < level - config.kill_tol_atr * atr_values[u]:
                 outcome, end = KILLED, u
                 break
-            if low[u] <= level + config.retest_tol_atr * atr_values[u] and close[u] >= level:
+            if armed and low[u] <= level + config.retest_tol_atr * atr_values[u] and close[u] >= level:
                 retest, outcome, end = u, RETEST_HELD, u
                 break
+            if high[u] >= level + config.min_rally_atr * atr_values[u]:
+                armed = True
         episodes.append(Episode(base_start=base_start, breakout=t, retest=retest, end=end,
                                 level=level, base_bars=base_bars, depth_pct=depth_pct,
                                 outcome=outcome))

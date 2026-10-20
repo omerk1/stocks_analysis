@@ -333,8 +333,10 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     Structured-field mapping: `duration.min_bars`/`max_bars` bound the base length and
     `size.min`/`max` under pct normalisation bound the base depth below its high (that's
     what this spec quantifies); the retest tolerance, retest window, the kill threshold
-    behind "decisively below" and the level-search lookback have no structured slot and
-    fall back to defaults, each disclosed in the rubric.
+    behind "decisively below", the level-search lookback, and the three constraints the
+    2026-10-19 grounding round added (level touch count, breakout decisiveness margin,
+    minimum rally before the retest) have no structured slot and fall back to defaults,
+    each disclosed in the rubric.
 
     Unlike the MA finder, detection runs on the panel's **unlagged** OHLC columns, so no
     unlag shift is needed: an instance's date is the retest (signal) bar itself. The
@@ -344,8 +346,8 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     (one-bar-lagged like every panel feature) to satisfy the FinderResult contract the
     session runner reads, but the presented charts draw each candidate's own span.
 
-    `near_misses=False` skips the five relaxed ring passes; matches, rubric and
-    refusals are identical either way.
+    `near_misses=False` skips the eight relaxed ring passes (most of the detection
+    cost); matches, rubric and refusals are identical either way.
     """
     for needed in ("ticker", "date", "high", "low", "close", "atr_14"):
         if needed not in panel.columns:
@@ -426,6 +428,14 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     except ValueError as e:
         raise GroundingError(f"the spec's numbers don't make a detectable definition: {e}")
     tol, window, kill = config.retest_tol_atr, config.retest_window_bars, config.kill_tol_atr
+    touches, margin, rally = config.min_extra_touches, config.breakout_min_atr, config.min_rally_atr
+    rubric.append(RubricLine("level touches", f">= {touches} later base bars re-touch the level "
+                             f"(high within {tol:g} ATR(14) of it)", "default",
+                             "added from the 2026-10-19 grounding round: a single spike high "
+                             "isn't a tested ceiling"))
+    rubric.append(RubricLine("breakout decisiveness", f"the breakout close clears the level by "
+                             f"more than {margin:g} ATR(14)", "default",
+                             "added from the 2026-10-19 grounding round"))
     rubric.append(RubricLine("trigger", "the first bar whose low comes within the retest "
                              "tolerance of the level and whose close holds at or above it",
                              "default", 'your trigger says "the retest holds" — this is the applied reading'))
@@ -437,8 +447,10 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     rubric.append(RubricLine('failed-retest kill ("decisively below")',
                              f"a close more than {kill:g} ATR(14) below the level ends the episode",
                              "default", 'your rule says "decisively" without a number'))
-    rubric.append(RubricLine("minimum rally", "none — a next-bar return to the level already "
-                             "counts as the retest", "default"))
+    rubric.append(RubricLine("minimum rally", f"a bar before the retest (the breakout bar counts) "
+                             f"must reach {rally:g} ATR(14) above the level", "default",
+                             "added from the 2026-10-19 grounding round: a next-bar graze "
+                             "isn't a round-trip"))
 
     for signal in spec.supporting_signals:
         if signal.role == "filter":
@@ -498,21 +510,37 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
         relaxed_window = math.ceil(window * RELAX_FACTOR)
         relaxed_tol = tol * RELAX_FACTOR
 
+        relaxed_touches = max(0, math.floor(touches / RELAX_FACTOR))
+        relaxed_margin = margin / RELAX_FACTOR
+        relaxed_rally = rally / RELAX_FACTOR
+
         length_ring = minus_strict(held(episodes_for(replace(config, base_min_bars=relaxed_min_bars))))
         floor_ring = minus_strict(held(episodes_for(replace(config, depth_min_pct=relaxed_depth_min))))
         # Relaxing the cap past 100% would admit non-positive prices, not deeper bases.
         cap_ring = (minus_strict(held(episodes_for(replace(config, depth_max_pct=relaxed_depth_max))))
                     if relaxed_depth_max < 100 else {})
         window_ring = minus_strict(held(episodes_for(replace(config, retest_window_bars=relaxed_window))))
-        # A looser tolerance can pull the retest onto an earlier bar of an episode that
-        # also fires strictly a few bars later — that bar says nothing about where the
-        # tolerance sits, so episodes whose breakout also fired strictly are dropped.
+        touches_ring = (minus_strict(held(episodes_for(replace(config, min_extra_touches=relaxed_touches))))
+                        if relaxed_touches < touches else {})
+        margin_ring = (minus_strict(held(episodes_for(replace(config, breakout_min_atr=relaxed_margin))))
+                       if margin > 0 else {})
+        # A looser tolerance (or an earlier-armed rally) can pull the retest onto an
+        # earlier bar of an episode that also fires strictly a few bars later — that bar
+        # says nothing about where the constraint sits, so episodes whose breakout also
+        # fired strictly are dropped from those rings.
         strict_breakouts = {ticker: {e.breakout for e in by_position.values()}
                             for ticker, by_position in strict.items()}
-        tol_ring = minus_strict(held(episodes_for(replace(config, retest_tol_atr=relaxed_tol))))
-        tol_ring = {ticker: kept for ticker, by_position in tol_ring.items()
+
+        def drop_strictly_firing(ring: dict[str, dict[int, base_breakout.Episode]]):
+            return {ticker: kept for ticker, by_position in ring.items()
                     if (kept := {p: e for p, e in by_position.items()
                                  if e.breakout not in strict_breakouts.get(ticker, set())})}
+
+        tol_ring = drop_strictly_firing(
+            minus_strict(held(episodes_for(replace(config, retest_tol_atr=relaxed_tol)))))
+        rally_ring = (drop_strictly_firing(
+            minus_strict(held(episodes_for(replace(config, min_rally_atr=relaxed_rally)))))
+            if rally > 0 else {})
 
         rings = [
             (length_ring, f"base length: fires only when the {base_min}-bar floor is relaxed "
@@ -523,6 +551,12 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
              f"to <= {relaxed_depth_max:g}%"),
             (window_ring, f"retest window: the retest arrives {window + 1}-{relaxed_window} "
              f"bars after the breakout, not within {window}"),
+            (touches_ring, f"level touches: fires only when the {touches}-touch requirement "
+             f"is relaxed to >= {relaxed_touches}"),
+            (margin_ring, f"breakout decisiveness: fires only when the {margin:g}-ATR margin "
+             f"is relaxed to {relaxed_margin:.3g}"),
+            (rally_ring, f"minimum rally: fires only when the {rally:g}-ATR rally requirement "
+             f"is relaxed to {relaxed_rally:.3g}"),
             (tol_ring, f"retest tolerance: the low comes within {relaxed_tol:g} ATR of the "
              f"level, not within {tol:g}"),
         ]
