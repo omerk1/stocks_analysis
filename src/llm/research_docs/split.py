@@ -111,7 +111,8 @@ class Splitter:
     """`splitter(question)` -> the questions to search: `[question]` itself, or 2 to
     `MAX_PARTS` sub-questions. `cache` (a JSON file) keeps every split made, so the same
     question always gets the same split; it's written after each new one. The cap is in
-    the prompt, so changing `MAX_PARTS` changes `prompt_id` and every split is made again;
+    the prompt, so editing `MAX_PARTS` in the source changes `prompt_id` and every split is
+    made again;
     a change to `clean` needs a new cache. `client` makes the `GeminiClient` for `model`
     (the cache's key), called on the first question not in the cache, so a fully cached
     run needs no API key."""
@@ -125,8 +126,8 @@ class Splitter:
         if not may_have_parts(question):
             return [question]
         hit = self.known.get(question)
-        if hit and hit["prompt"] == self.pid:
-            return hit["sub_questions"]
+        if hit and hit["prompt"] == self.pid:  # cleaned as a fresh reply is, in case the file was edited
+            return clean(question, hit["sub_questions"])
         if self.client is None:
             client = self.make_client()
             if getattr(client, "model", self.model) != self.model:  # its splits would be cached under `model`

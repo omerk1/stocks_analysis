@@ -69,6 +69,17 @@ def test_a_split_is_cached_so_the_same_question_gets_the_same_split_without_a_ca
     assert Splitter(lambda: again, cache)(q) == ["something else", "entirely"]
 
 
+def test_a_cached_split_is_cleaned_like_a_fresh_reply(tmp_path):
+    import src.llm.research_docs.split as split
+    cache = tmp_path / "splits.json"
+    cache.write_text(json.dumps({q: {"prompt": split.prompt_id(), "sub_questions": subs} for q, subs in
+                                 (("A and B?", []), ("C or D?", ["C or D, reworded?"]), ("E, F?", [" E? ", "F?"]))}))
+    splitter = Splitter(lambda: None, cache)
+    assert [splitter(q) for q in ("A and B?", "C or D?", "E, F?")] == [["A and B?"], ["C or D?"], ["E?", "F?"]]
+    splitter("E, F?").append("G?")  # a copy: the cache keeps what was stored
+    assert splitter("E, F?") == ["E?", "F?"]
+
+
 def test_the_cap_the_model_is_told_is_the_one_clean_keeps():
     # so changing MAX_PARTS changes the prompt, hence `prompt_id`, and the cache is made again
     assert f"At most {MAX_PARTS} questions." in SYSTEM
