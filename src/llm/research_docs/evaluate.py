@@ -299,6 +299,8 @@ def main() -> None:
         ap.error("--reranker needs --method rerank, mmr or split")
     if args.splits and args.method != "split":
         ap.error("--splits needs --method split")
+    if args.method == "split" and args.split == "test":  # its cache is the dev splits, and the test split is spent
+        ap.error("--method split scores the dev split only")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -340,7 +342,8 @@ def main() -> None:
         if args.method == "split":
             from src.llm.gemini import GeminiClient
             from src.llm.research_docs.split import BUDGET, SPLITS, Splitter, split_search
-            splitter, rerank_one = Splitter(GeminiClient(budget=BUDGET), args.splits or SPLITS), find
+            splitter = Splitter(lambda: GeminiClient(budget=BUDGET), args.splits or SPLITS)
+            rerank_one = find
             find = lambda question, k: split_search(rerank_one, splitter, question, k)  # noqa: E731
             method += ", once per sub-question (split.py), merged round-robin"
         elif args.method == "mmr":

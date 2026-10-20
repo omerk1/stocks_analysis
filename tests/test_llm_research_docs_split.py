@@ -37,15 +37,16 @@ def test_only_a_question_with_a_joining_word_may_have_parts(question, want):
 
 
 def test_a_question_with_nothing_to_split_is_searched_as_it_is_with_no_call():
-    client = FakeClient("unused", "unused too")
-    assert Splitter(client)("Why does the holdout start in 2022?") == ["Why does the holdout start in 2022?"]
-    assert client.calls == []
+    def no_client():
+        raise AssertionError("no client is needed")
+
+    assert Splitter(no_client)("Why does the holdout start in 2022?") == ["Why does the holdout start in 2022?"]
 
 
 def test_a_question_judged_single_is_searched_in_its_own_words_not_the_models():
     client = FakeClient("What did we pick, adjusted or raw prices, and why?")
     q = "which price basis did we pick (adjusted vs raw) and why?"
-    assert Splitter(client)(q) == [q]
+    assert Splitter(lambda: client)(q) == [q]
     [(prompt, kwargs)] = client.calls
     assert prompt == q
     assert kwargs == {"purpose": PURPOSE, "system": SYSTEM, "response_schema": Split, "temperature": 0.0}
@@ -54,21 +55,34 @@ def test_a_question_judged_single_is_searched_in_its_own_words_not_the_models():
 def test_a_split_is_cached_so_the_same_question_gets_the_same_split_without_a_call(tmp_path):
     cache = tmp_path / "splits.json"
     q = "Do we use stops and sizing?"
-    assert Splitter(FakeClient("Do we use stops?", "Do we use sizing?"), cache)(q) == ["Do we use stops?",
-                                                                                     "Do we use sizing?"]
-    again = FakeClient("something else", "entirely")
-    assert Splitter(again, cache)(q) == ["Do we use stops?", "Do we use sizing?"]
-    assert again.calls == []
+    first = FakeClient("Do we use stops?", "Do we use sizing?")
+    assert Splitter(lambda: first, cache)(q) == ["Do we use stops?", "Do we use sizing?"]
+
+    def no_client():  # all cached: no client made, so no API key needed
+        raise AssertionError("no client is needed")
+
+    assert Splitter(no_client, cache)(q) == ["Do we use stops?", "Do we use sizing?"]
     stored = json.loads(cache.read_text())[q]
     stored["prompt"] = "an older prompt"  # a split made by other instructions is made again
     cache.write_text(json.dumps({q: stored}))
-    assert Splitter(again, cache)(q) == ["something else", "entirely"]
+    again = FakeClient("something else", "entirely")
+    assert Splitter(lambda: again, cache)(q) == ["something else", "entirely"]
 
 
-def test_clean_drops_blanks_and_repeats_and_keeps_at_most_max_parts():
+def test_a_cached_split_is_cleaned_again_so_a_lower_cap_applies(monkeypatch, tmp_path):
+    import src.llm.research_docs.split as split
+    cache, q = tmp_path / "splits.json", "A, B and C?"
+    cache.write_text(json.dumps({q: {"prompt": split.prompt_id(), "sub_questions": ["A?", "B?", "C?"]}}))
+    monkeypatch.setattr(split, "MAX_PARTS", 2)
+    assert Splitter(lambda: None, cache)(q) == ["A?", "B?"]
+
+
+def test_clean_drops_blanks_and_repeats_and_keeps_at_most_max_parts(capsys):
     assert clean("q?", ["  A? ", "", "a?", "B?"]) == ["A?", "B?"]
     assert clean("q?", ["A?", " a? "]) == ["q?"]  # one left: the original
+    assert capsys.readouterr().err == ""
     assert clean("q?", [f"{n}?" for n in range(MAX_PARTS + 2)]) == [f"{n}?" for n in range(MAX_PARTS)]
+    assert f"searching the first {MAX_PARTS}" in capsys.readouterr().err  # what was cut is said
 
 
 def test_merge_takes_each_lists_best_in_turn_skipping_chunks_already_taken():

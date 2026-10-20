@@ -36,6 +36,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -94,22 +95,29 @@ def prompt_id(model: str = DEFAULT_MODEL) -> str:
 
 def clean(question: str, subs: Sequence[str]) -> list[str]:
     """The model's sub-questions, stripped, without blanks or repeats, at most
-    `MAX_PARTS`; the original question when fewer than two are left."""
+    `MAX_PARTS` (a warning says what was cut); the original question when fewer than two
+    are left."""
     out: list[str] = []
     for s in (" ".join(s.split()) for s in subs):
         if s and s.lower() not in (o.lower() for o in out):
             out.append(s)
+    if len(out) > MAX_PARTS:
+        print(f"warning: split into {len(out)}, searching the first {MAX_PARTS}: {question!r}", file=sys.stderr)
     return out[:MAX_PARTS] if len(out) > 1 else [question]
 
 
 class Splitter:
     """`splitter(question)` -> the questions to search: `[question]` itself, or 2 to
     `MAX_PARTS` sub-questions. `cache` (a JSON file) keeps every split made, so the same
-    question always gets the same split; it's written after each new one."""
+    question always gets the same split; it's written after each new one. A cached split
+    is passed through `clean` again, so a lower `MAX_PARTS` or a stricter `clean` applies to
+    it; a change that would give *more* sub-questions needs a new cache. `client` makes the
+    `GeminiClient`, called on the first question not in the cache, so a fully cached run
+    needs no API key."""
 
-    def __init__(self, client: GeminiClient, cache: Path | None = None):
-        self.client, self.cache = client, cache
-        self.pid = prompt_id(getattr(client, "model", DEFAULT_MODEL))
+    def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
+        self.make_client, self.client, self.cache = client, None, cache
+        self.pid = prompt_id(model)
         self.known: dict[str, dict] = json.loads(cache.read_text()) if cache and cache.exists() else {}
 
     def __call__(self, question: str) -> list[str]:
@@ -117,7 +125,8 @@ class Splitter:
             return [question]
         hit = self.known.get(question)
         if hit and hit["prompt"] == self.pid:
-            return hit["sub_questions"]
+            return clean(question, hit["sub_questions"])
+        self.client = self.client or self.make_client()
         reply = self.client.generate(question, purpose=PURPOSE, system=SYSTEM, response_schema=Split,
                                      temperature=0.0)
         subs = clean(question, reply.parsed.sub_questions)
@@ -157,7 +166,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m src.llm.research_docs.split")
     ap.add_argument("question")
     args = ap.parse_args()
-    subs = Splitter(GeminiClient(budget=BUDGET))(args.question)
+    subs = Splitter(lambda: GeminiClient(budget=BUDGET))(args.question)
     print("\n".join(subs) if len(subs) > 1 else f"(one question, searched as it is)\n{subs[0]}")
 
 
