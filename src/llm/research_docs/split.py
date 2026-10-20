@@ -52,7 +52,7 @@ MAX_PARTS = 4
 SPLITS = Path(__file__).with_name("judged") / "splits.json"  # the eval's split cache, committed
 JOINER = re.compile(r"\b(?:and|or|vs|versus)\b|[,/;]", re.IGNORECASE)
 
-SYSTEM = """\
+SYSTEM = f"""\
 You prepare questions for a search over one trading-research project's docs. Each search
 finds the passages about one thing, so a question that asks for several things, answered
 in different places, needs one search per thing.
@@ -71,7 +71,7 @@ Return the question as a list of standalone questions:
   names for it.
 - Each question must stand on its own: repeat the subject, keep the asker's words, names
   and ids exactly, and add nothing the question doesn't say.
-- At most 4 questions. If the question asks for one thing, return it unchanged as the
+- At most {MAX_PARTS} questions. If the question asks for one thing, return it unchanged as the
   only item.
 """
 
@@ -88,20 +88,21 @@ def may_have_parts(question: str) -> bool:
 
 
 def prompt_id(model: str = DEFAULT_MODEL) -> str:
-    """Which instructions made a split: the system prompt, the reply schema and the model."""
+    """Which instructions made a split: the system prompt (with the `MAX_PARTS` cap in
+    it), the reply schema and the model."""
     parts = (SYSTEM, json.dumps(Split.model_json_schema(), sort_keys=True), model)
     return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
 
 
-def clean(question: str, subs: Sequence[str], warn: bool = True) -> list[str]:
+def clean(question: str, subs: Sequence[str]) -> list[str]:
     """The model's sub-questions, stripped, without blanks or repeats, at most
-    `MAX_PARTS` (with `warn`, a warning says what was cut); the original question when
-    fewer than two are left."""
+    `MAX_PARTS` (a warning says what was cut); the original question when fewer than two
+    are left."""
     out: list[str] = []
     for s in (" ".join(s.split()) for s in subs):
         if s and s.lower() not in (o.lower() for o in out):
             out.append(s)
-    if warn and len(out) > MAX_PARTS:
+    if len(out) > MAX_PARTS:
         print(f"warning: split into {len(out)}, searching the first {MAX_PARTS}: {question!r}", file=sys.stderr)
     return out[:MAX_PARTS] if len(out) > 1 else [question]
 
@@ -109,13 +110,11 @@ def clean(question: str, subs: Sequence[str], warn: bool = True) -> list[str]:
 class Splitter:
     """`splitter(question)` -> the questions to search: `[question]` itself, or 2 to
     `MAX_PARTS` sub-questions. `cache` (a JSON file) keeps every split made, so the same
-    question always gets the same split; it's written after each new one. A cached split
-    is passed through `clean` again, so a lower `MAX_PARTS` or a stricter `clean` applies
-    to it, and one that reached the cap it was made under (`max_parts`, 4 for entries
-    without it) is split again once the cap is raised, since it may have been cut. Any
-    other change that would give *more* sub-questions needs a new cache. `client` makes
-    the `GeminiClient` for `model` (the cache's key), called on the first question not in
-    the cache, so a fully cached run needs no API key."""
+    question always gets the same split; it's written after each new one. The cap is in
+    the prompt, so changing `MAX_PARTS` changes `prompt_id` and every split is made again;
+    a change to `clean` needs a new cache. `client` makes the `GeminiClient` for `model`
+    (the cache's key), called on the first question not in the cache, so a fully cached
+    run needs no API key."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
         self.make_client, self.client, self.cache, self.model = client, None, cache, model
@@ -127,17 +126,16 @@ class Splitter:
             return [question]
         hit = self.known.get(question)
         if hit and hit["prompt"] == self.pid:
-            cap = hit.get("max_parts", 4)
-            if len(hit["sub_questions"]) < cap or cap >= MAX_PARTS:
-                return clean(question, hit["sub_questions"], warn=False)
+            return hit["sub_questions"]
         if self.client is None:
-            self.client = self.make_client()
-            if getattr(self.client, "model", self.model) != self.model:  # its splits would be cached under `model`
-                raise ValueError(f"the client runs {self.client.model}, the cache is keyed by {self.model}")
+            client = self.make_client()
+            if getattr(client, "model", self.model) != self.model:  # its splits would be cached under `model`
+                raise ValueError(f"the client runs {client.model}, the cache is keyed by {self.model}")
+            self.client = client
         reply = self.client.generate(question, purpose=PURPOSE, system=SYSTEM, response_schema=Split,
                                      temperature=0.0)
         subs = clean(question, reply.parsed.sub_questions)
-        self.known[question] = {"prompt": self.pid, "max_parts": MAX_PARTS, "sub_questions": subs}
+        self.known[question] = {"prompt": self.pid, "sub_questions": subs}
         if self.cache:
             tmp = self.cache.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.known, indent=1, ensure_ascii=False))

@@ -69,31 +69,19 @@ def test_a_split_is_cached_so_the_same_question_gets_the_same_split_without_a_ca
     assert Splitter(lambda: again, cache)(q) == ["something else", "entirely"]
 
 
-def test_a_cached_split_is_cleaned_again_so_a_lower_cap_applies(monkeypatch, tmp_path):
-    import src.llm.research_docs.split as split
-    cache, q = tmp_path / "splits.json", "A, B and C?"
-    cache.write_text(json.dumps({q: {"prompt": split.prompt_id(), "sub_questions": ["A?", "B?", "C?"]}}))
-    monkeypatch.setattr(split, "MAX_PARTS", 2)
-    assert Splitter(lambda: None, cache)(q) == ["A?", "B?"]
-
-
-def test_a_split_at_its_old_cap_is_made_again_once_the_cap_is_raised(monkeypatch, tmp_path):
-    import src.llm.research_docs.split as split
-    cache, q = tmp_path / "splits.json", "A, B, C and D?"
-    cache.write_text(json.dumps({q: {"prompt": split.prompt_id(), "max_parts": 2, "sub_questions": ["A?", "B?"]},
-                                 "E or F?": {"prompt": split.prompt_id(), "sub_questions": ["E?", "F?"]}}))
-    monkeypatch.setattr(split, "MAX_PARTS", 6)
-    client = FakeClient("A?", "B?", "C?", "D?")
-    splitter = Splitter(lambda: client, cache)
-    assert splitter("E or F?") == ["E?", "F?"] and client.calls == []  # under its cap: it wasn't cut
-    assert splitter(q) == ["A?", "B?", "C?", "D?"] and len(client.calls) == 1
+def test_the_cap_the_model_is_told_is_the_one_clean_keeps():
+    # so changing MAX_PARTS changes the prompt, hence `prompt_id`, and the cache is made again
+    assert f"At most {MAX_PARTS} questions." in SYSTEM
 
 
 def test_the_client_must_run_the_model_the_cache_is_keyed_by():
     client = FakeClient("A?", "B?")
     client.model = "another-model"
-    with pytest.raises(ValueError, match="another-model"):
-        Splitter(lambda: client)("A and B?")
+    splitter = Splitter(lambda: client)
+    for _ in range(2):  # and still on the next question: a caught error doesn't let it through
+        with pytest.raises(ValueError, match="another-model"):
+            splitter("A and B?")
+    assert client.calls == []
 
 
 def test_clean_drops_blanks_and_repeats_and_keeps_at_most_max_parts(capsys):
