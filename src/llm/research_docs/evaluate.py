@@ -299,8 +299,8 @@ def main() -> None:
         ap.error("--reranker needs --method rerank, mmr or split")
     if args.splits and args.method != "split":
         ap.error("--splits needs --method split")
-    if args.method == "split" and args.split == "test":  # its cache is the dev splits, and the test split is spent
-        ap.error("--method split scores the dev split only")
+    if args.method == "split" and args.split == "test":  # came after step 7's one test run; keeps it out of the cache
+        ap.error("--method split scores the dev split only: the test split is spent")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents

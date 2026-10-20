@@ -77,6 +77,25 @@ def test_a_cached_split_is_cleaned_again_so_a_lower_cap_applies(monkeypatch, tmp
     assert Splitter(lambda: None, cache)(q) == ["A?", "B?"]
 
 
+def test_a_split_at_its_old_cap_is_made_again_once_the_cap_is_raised(monkeypatch, tmp_path):
+    import src.llm.research_docs.split as split
+    cache, q = tmp_path / "splits.json", "A, B, C and D?"
+    cache.write_text(json.dumps({q: {"prompt": split.prompt_id(), "max_parts": 2, "sub_questions": ["A?", "B?"]},
+                                 "E or F?": {"prompt": split.prompt_id(), "sub_questions": ["E?", "F?"]}}))
+    monkeypatch.setattr(split, "MAX_PARTS", 6)
+    client = FakeClient("A?", "B?", "C?", "D?")
+    splitter = Splitter(lambda: client, cache)
+    assert splitter("E or F?") == ["E?", "F?"] and client.calls == []  # under its cap: it wasn't cut
+    assert splitter(q) == ["A?", "B?", "C?", "D?"] and len(client.calls) == 1
+
+
+def test_the_client_must_run_the_model_the_cache_is_keyed_by():
+    client = FakeClient("A?", "B?")
+    client.model = "another-model"
+    with pytest.raises(ValueError, match="another-model"):
+        Splitter(lambda: client)("A and B?")
+
+
 def test_clean_drops_blanks_and_repeats_and_keeps_at_most_max_parts(capsys):
     assert clean("q?", ["  A? ", "", "a?", "B?"]) == ["A?", "B?"]
     assert clean("q?", ["A?", " a? "]) == ["q?"]  # one left: the original

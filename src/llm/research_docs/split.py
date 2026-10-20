@@ -93,15 +93,15 @@ def prompt_id(model: str = DEFAULT_MODEL) -> str:
     return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
 
 
-def clean(question: str, subs: Sequence[str]) -> list[str]:
+def clean(question: str, subs: Sequence[str], warn: bool = True) -> list[str]:
     """The model's sub-questions, stripped, without blanks or repeats, at most
-    `MAX_PARTS` (a warning says what was cut); the original question when fewer than two
-    are left."""
+    `MAX_PARTS` (with `warn`, a warning says what was cut); the original question when
+    fewer than two are left."""
     out: list[str] = []
     for s in (" ".join(s.split()) for s in subs):
         if s and s.lower() not in (o.lower() for o in out):
             out.append(s)
-    if len(out) > MAX_PARTS:
+    if warn and len(out) > MAX_PARTS:
         print(f"warning: split into {len(out)}, searching the first {MAX_PARTS}: {question!r}", file=sys.stderr)
     return out[:MAX_PARTS] if len(out) > 1 else [question]
 
@@ -110,13 +110,15 @@ class Splitter:
     """`splitter(question)` -> the questions to search: `[question]` itself, or 2 to
     `MAX_PARTS` sub-questions. `cache` (a JSON file) keeps every split made, so the same
     question always gets the same split; it's written after each new one. A cached split
-    is passed through `clean` again, so a lower `MAX_PARTS` or a stricter `clean` applies to
-    it; a change that would give *more* sub-questions needs a new cache. `client` makes the
-    `GeminiClient`, called on the first question not in the cache, so a fully cached run
-    needs no API key."""
+    is passed through `clean` again, so a lower `MAX_PARTS` or a stricter `clean` applies
+    to it, and one that reached the cap it was made under (`max_parts`, 4 for entries
+    without it) is split again once the cap is raised, since it may have been cut. Any
+    other change that would give *more* sub-questions needs a new cache. `client` makes
+    the `GeminiClient` for `model` (the cache's key), called on the first question not in
+    the cache, so a fully cached run needs no API key."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
-        self.make_client, self.client, self.cache = client, None, cache
+        self.make_client, self.client, self.cache, self.model = client, None, cache, model
         self.pid = prompt_id(model)
         self.known: dict[str, dict] = json.loads(cache.read_text()) if cache and cache.exists() else {}
 
@@ -125,12 +127,17 @@ class Splitter:
             return [question]
         hit = self.known.get(question)
         if hit and hit["prompt"] == self.pid:
-            return clean(question, hit["sub_questions"])
-        self.client = self.client or self.make_client()
+            cap = hit.get("max_parts", 4)
+            if len(hit["sub_questions"]) < cap or cap >= MAX_PARTS:
+                return clean(question, hit["sub_questions"], warn=False)
+        if self.client is None:
+            self.client = self.make_client()
+            if getattr(self.client, "model", self.model) != self.model:  # its splits would be cached under `model`
+                raise ValueError(f"the client runs {self.client.model}, the cache is keyed by {self.model}")
         reply = self.client.generate(question, purpose=PURPOSE, system=SYSTEM, response_schema=Split,
                                      temperature=0.0)
         subs = clean(question, reply.parsed.sub_questions)
-        self.known[question] = {"prompt": self.pid, "sub_questions": subs}
+        self.known[question] = {"prompt": self.pid, "max_parts": MAX_PARTS, "sub_questions": subs}
         if self.cache:
             tmp = self.cache.with_suffix(".tmp")
             tmp.write_text(json.dumps(self.known, indent=1, ensure_ascii=False))

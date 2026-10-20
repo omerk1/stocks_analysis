@@ -69,7 +69,7 @@ from src.llm.research_docs.answer import (BUDGET, MAX_K, SYSTEM, Answer, answer,
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
 from src.llm.research_docs.retrieve import TOP_K, cite
-from src.llm.research_docs.split import split_search
+from src.llm.research_docs.split import merge
 
 LEDGER = Path(__file__).with_name("judged") / "answers.json"
 SUPPORT = ("supported", "partial", "unsupported")
@@ -157,7 +157,7 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
     refused, so one run can't mix two prompts, two source counts or split and unsplit
     retrieval (and a finished one is returned with a warning, since nothing was re-run).
     With `splitter`, each question is split first and `find` (the plain search) runs once
-    per sub-question (`split.split_search`); the row records `search: split` and the
+    per sub-question, merged as in `split.split_search`; the row records `search: split` and the
     questions searched. A split that fails stops the run, as a blocked reply does: it is
     the splitter's call that failed, not the answer's, so nothing is stored for it."""
     done = json.loads(out.read_text()) if out.exists() else []
@@ -176,10 +176,10 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
         if q["id"] in have:
             continue
         shown: list[NodeWithScore] = []  # what `answer` retrieved, kept for a failed reply
-        subs = splitter(q["question"]) if splitter else None  # outside the try: see the docstring
+        subs = splitter(q["question"]) if splitter else []  # outside the try: see the docstring
 
-        def find_kept(question: str, n: int) -> list[NodeWithScore]:
-            shown[:] = split_search(find, lambda _: subs, question, n) if subs else find(question, n)
+        def find_kept(question: str, n: int) -> list[NodeWithScore]:  # `answer` searches q's own text
+            shown[:] = merge([find(s, n) for s in subs], n) if len(subs) > 1 else find(question, n)
             return shown
 
         try:
@@ -188,8 +188,8 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
             # other ReplyErrors (blocked, cut off, empty) stop the run, so a resume retries them
             done.append(failed(q, shown, str(e), pid, k))
             print(f"warning: {q['id']}: no usable reply ({str(e).splitlines()[0]})", file=sys.stderr)
-        if subs:
-            done[-1].update(search=search, sub_questions=subs)
+        if splitter:
+            done[-1].update(search=search, sub_questions=subs if len(subs) > 1 else [q["question"]])
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
