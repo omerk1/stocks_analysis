@@ -353,6 +353,8 @@ def main() -> None:
     run_cmd.add_argument("-k", type=int, default=TOP_K, help=f"sources per answer (default {TOP_K}, at most {MAX_K})")
     run_cmd.add_argument("--split-questions", action="store_true",
                          help="search each sub-question (split.py, cached in split.SPLITS) and merge")
+    run_cmd.add_argument("--ids", nargs="+", default=None,
+                         help="answer only these dev questions (say, the ones whose sources changed)")
     for name in ("packets", "score"):
         sub.add_parser(name).add_argument("run_file", type=Path)
     args = ap.parse_args()
@@ -370,6 +372,10 @@ def main() -> None:
         print(json.dumps(packets(rows, load_ledger(), {q["id"]: q for q in questions}, current),
                          indent=1, ensure_ascii=False))
         return
+    if args.ids:
+        if unknown := sorted(set(args.ids) - {q["id"] for q in questions}):
+            ap.error(f"not dev question ids: {', '.join(unknown)}")
+        questions = [q for q in questions if q["id"] in args.ids]
     from src.llm.research_docs.index import embed_model, load_index
     index = load_index(embed_model())
     nodes = list(index.docstore.docs.values())
