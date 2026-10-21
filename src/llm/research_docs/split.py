@@ -34,7 +34,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
 from collections.abc import Callable, Sequence
@@ -44,6 +43,7 @@ from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
+from src.llm.research_docs.cached import ReplyCache
 from src.llm.research_docs.retrieve import TOP_K
 
 PURPOSE = "research_docs.split"
@@ -118,29 +118,16 @@ class Splitter:
     run needs no API key."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
-        self.make_client, self.client, self.cache, self.model = client, None, cache, model
-        self.pid = prompt_id(model)
-        self.known: dict[str, dict] = json.loads(cache.read_text()) if cache and cache.exists() else {}
+        self.replies = ReplyCache(client, cache, prompt_id(model), model)
 
     def __call__(self, question: str) -> list[str]:
         if not may_have_parts(question):
             return [question]
-        hit = self.known.get(question)
-        if hit and hit["prompt"] == self.pid:  # cleaned as a fresh reply is, in case the file was edited
+        if hit := self.replies.get(question):  # cleaned as a fresh reply is, in case the file was edited
             return clean(question, hit["sub_questions"])
-        if self.client is None:
-            client = self.make_client()
-            if getattr(client, "model", self.model) != self.model:  # its splits would be cached under `model`
-                raise ValueError(f"the client runs {client.model}, the cache is keyed by {self.model}")
-            self.client = client
-        reply = self.client.generate(question, purpose=PURPOSE, system=SYSTEM, response_schema=Split,
-                                     temperature=0.0)
-        subs = clean(question, reply.parsed.sub_questions)
-        self.known[question] = {"prompt": self.pid, "sub_questions": subs}
-        if self.cache:
-            tmp = self.cache.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.known, indent=1, ensure_ascii=False))
-            os.replace(tmp, self.cache)
+        reply = self.replies.ask(question, purpose=PURPOSE, system=SYSTEM, schema=Split)
+        subs = clean(question, reply.sub_questions)
+        self.replies.put(question, sub_questions=subs)
         return subs
 
 

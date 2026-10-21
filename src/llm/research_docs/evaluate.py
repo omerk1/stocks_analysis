@@ -64,7 +64,7 @@ rebuilt pools are in `judged/pooling/`).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
-    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr, split; default vector
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr, split, rewrite; default vector
     python -m src.llm.research_docs.evaluate --method rerank --reranker BAAI/bge-reranker-base
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
@@ -287,20 +287,23 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
-    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr", "split"), default="vector",
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr", "split", "rewrite"),
+                    default="vector",
                     help="search to score (default vector; mmr: rerank, then diversify.mmr; "
-                         "split: rerank once per sub-question, split.py, Gemini for questions not in --splits)")
+                         "split: rerank once per sub-question, split.py, Gemini for questions not in --splits; "
+                         "rewrite: rerank the pool of the question and its rewordings, rewrite.py, Gemini for "
+                         "questions not in rewrite.REWRITES)")
     ap.add_argument("--reranker", default=None,
-                    help="cross-encoder for --method rerank, mmr or split (default rerank.MODELS[0])")
+                    help="cross-encoder for --method rerank, mmr, split or rewrite (default rerank.MODELS[0])")
     ap.add_argument("--splits", type=Path, default=None,
                     help="split cache for --method split (default split.SPLITS)")
     args = ap.parse_args()
-    if args.reranker and args.method not in ("rerank", "mmr", "split"):
-        ap.error("--reranker needs --method rerank, mmr or split")
+    if args.reranker and args.method not in ("rerank", "mmr", "split", "rewrite"):
+        ap.error("--reranker needs --method rerank, mmr, split or rewrite")
     if args.splits and args.method != "split":
         ap.error("--splits needs --method split")
-    if args.method == "split" and args.split == "test":  # came after step 7's one test run; keeps it out of the cache
-        ap.error("--method split scores the dev split only: the test split is spent")
+    if args.method in ("split", "rewrite") and args.split == "test":  # both came after step 7's one test run
+        ap.error(f"--method {args.method} scores the dev split only: the test split is spent")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -332,7 +335,7 @@ def main() -> None:
         find = keywords.search
     elif args.method == "hybrid":
         find = lambda question, k: hybrid_search(index, keywords, question, k)  # noqa: E731
-    elif args.method in ("rerank", "mmr", "split"):
+    elif args.method in ("rerank", "mmr", "split", "rewrite"):
         from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
         name = args.reranker or MODELS[0]
         score = cross_encoder(name)
@@ -346,6 +349,12 @@ def main() -> None:
             rerank_one = find
             find = lambda question, k: split_search(rerank_one, splitter, question, k)  # noqa: E731
             method += ", once per sub-question (split.py), merged round-robin"
+        elif args.method == "rewrite":
+            from src.llm.gemini import GeminiClient
+            from src.llm.research_docs import rewrite
+            rewriter = rewrite.Rewriter(lambda: GeminiClient(budget=rewrite.BUDGET), rewrite.REWRITES)
+            find = lambda question, k: rewrite.pooled_search(index, keywords, score, rewriter, question, k)  # noqa: E731
+            method += f" of the pool of the question and {rewrite.N_REWRITES} rewordings (rewrite.py)"
         elif args.method == "mmr":
             from src.llm.research_docs.diversify import LAMBDA, mmr_search
             from src.llm.research_docs.index import stored_vectors
