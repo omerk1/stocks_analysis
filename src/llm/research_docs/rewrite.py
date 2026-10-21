@@ -38,7 +38,6 @@ from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
 from src.llm.research_docs import cached
-from src.llm.research_docs.cached import ReplyCache
 from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
 from src.llm.research_docs.rerank import DEPTH, Scorer, rerank
 from src.llm.research_docs.retrieve import TOP_K
@@ -81,14 +80,10 @@ def prompt_id(model: str = DEFAULT_MODEL) -> str:
 
 def clean(question: str, rewrites: Sequence[str]) -> list[str]:
     """The model's rewordings, stripped, without blanks, repeats or the question itself
-    (compared with whitespace collapsed and case and a trailing "?" ignored), at most
-    `N_REWRITES`."""
-    def key(text: str) -> str:
-        return " ".join(text.split()).lower().rstrip("?").rstrip()
-
+    (compared by `cached.same_text`), at most `N_REWRITES`."""
     out: list[str] = []
     for r in (" ".join(r.split()) for r in rewrites):
-        if r and key(r) not in {key(question), *map(key, out)}:
+        if r and cached.same_text(r) not in {cached.same_text(question), *map(cached.same_text, out)}:
             out.append(r)
     return out[:N_REWRITES]
 
@@ -98,7 +93,7 @@ class Rewriter:
     question and kept in `cache` (`cached.ReplyCache`, which has the details)."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
-        self.replies = ReplyCache(client, cache, prompt_id(model), model)
+        self.replies = cached.ReplyCache(client, cache, prompt_id(model), model)
 
     def __call__(self, question: str) -> list[str]:
         return self.replies.fetch(question, "rewrites", clean, purpose=PURPOSE, system=SYSTEM, schema=Rewrites)

@@ -42,7 +42,6 @@ from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
 from src.llm.research_docs import cached
-from src.llm.research_docs.cached import ReplyCache
 from src.llm.research_docs.retrieve import TOP_K
 
 PURPOSE = "research_docs.split"
@@ -93,12 +92,12 @@ def prompt_id(model: str = DEFAULT_MODEL) -> str:
 
 
 def clean(question: str, subs: Sequence[str]) -> list[str]:
-    """The model's sub-questions, stripped, without blanks or repeats, at most
-    `MAX_PARTS` (a warning says what was cut); the original question when fewer than two
-    are left."""
+    """The model's sub-questions, stripped, without blanks or repeats (compared by
+    `cached.same_text`), at most `MAX_PARTS` (a warning says what was cut); the original
+    question when fewer than two are left."""
     out: list[str] = []
     for s in (" ".join(s.split()) for s in subs):
-        if s and s.lower() not in (o.lower() for o in out):
+        if s and cached.same_text(s) not in map(cached.same_text, out):
             out.append(s)
     if len(out) > MAX_PARTS:
         print(f"warning: split into {len(out)}, searching the first {MAX_PARTS}: {question!r}", file=sys.stderr)
@@ -116,7 +115,7 @@ class Splitter:
     run needs no API key."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
-        self.replies = ReplyCache(client, cache, prompt_id(model), model)
+        self.replies = cached.ReplyCache(client, cache, prompt_id(model), model)
 
     def __call__(self, question: str) -> list[str]:
         if not may_have_parts(question):

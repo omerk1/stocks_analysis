@@ -6,7 +6,8 @@ rewriting (`rewrite.py`).
 Each entry is keyed by the question and holds the prompt id it was made with
 (the caller's `prompt_id`), so a reply from other instructions or another model is made
 again. The `GeminiClient` is made on the first question not in the file, so a fully
-cached run needs no API key.
+cached run needs no API key. The id doesn't cover the caller's clean-up of a reply, so a
+change to that needs a new cache file.
 """
 
 from __future__ import annotations
@@ -20,6 +21,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from src.llm.gemini import GeminiClient
+
+
+def same_text(text: str) -> str:
+    """What two questions are compared by: case, spacing and trailing punctuation ignored."""
+    return " ".join(text.split()).lower().rstrip("?.!").rstrip()
 
 
 def prompt_id(system: str, schema: type[BaseModel], model: str) -> str:
@@ -44,7 +50,7 @@ class ReplyCache:
         """The list `field` for the question: the stored one, or one asked for and stored,
         either way passed through `clean(question, items)` (a stored one too, in case the
         file was edited)."""
-        if hit := self.get(question):
+        if (hit := self.get(question)) and field in hit:
             return clean(question, hit[field])
         items = clean(question, getattr(self.ask(question, purpose=purpose, system=system, schema=schema), field))
         self.put(question, **{field: items})

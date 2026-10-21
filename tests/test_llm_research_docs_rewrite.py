@@ -25,7 +25,14 @@ def _hits(*ids: str) -> list[NodeWithScore]:
 
 def test_clean_drops_blanks_repeats_and_the_question_itself_and_keeps_at_most_n():
     assert clean("Q?", ["  a b ", "", "A B", "q?", "c"]) == ["a b", "c"]
-    assert clean("Why was  B5\ndropped?", ["why was B5 dropped", "Why was B5 retired?"]) == ["Why was B5 retired?"]
+    assert clean("Why was  B5\ndropped?", ["why was B5 dropped.", "Why was B5 retired?"]) == ["Why was B5 retired?"]
+
+
+def test_an_edited_cache_entry_missing_its_field_is_asked_again(tmp_path):
+    cache, q = tmp_path / "rewrites.json", "Why was B5 dropped?"
+    cache.write_text(json.dumps({q: {"prompt": rewrite.prompt_id(), "rewordings": ["typo'd field"]}}))
+    client = FakeClient("B5 removal reason")
+    assert Rewriter(lambda: client, cache)(q) == ["B5 removal reason"] and len(client.calls) == 1
     assert len(clean("Q?", [f"r{n}" for n in range(N_REWRITES + 2)])) == N_REWRITES
     assert f"Write {N_REWRITES} other wordings" in SYSTEM  # the count the model is told is the one kept
 
