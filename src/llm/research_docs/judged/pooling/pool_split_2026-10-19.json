@@ -1,0 +1,317 @@
+[
+ {
+  "qid": "holiday_calendar",
+  "split": "dev",
+  "method": "split",
+  "rank": 7,
+  "question": "Does weekly and monthly resampling know about market holidays?",
+  "cite": "docs/limitations.md > Known limitations > `is_partial` is a same-day heuristic, not a market-clock check",
+  "text": "## `is_partial` is a same-day heuristic, not a market-clock check\n\n`src/data_processing/fetch_data.py` (`mark_partial`) flags a daily bar as\npartial if its date is `>= as_of`'s date. It doesn't know the actual market\nclose time.\n\n- Practical effect: a bar fetched right after today's close is still marked\n  partial until the *next* run, when its date is finally `< as_of`. It just\n  self-corrects on the next fetch, not immediately."
+ },
+ {
+  "qid": "holiday_calendar",
+  "split": "dev",
+  "method": "split",
+  "rank": 9,
+  "question": "Does weekly and monthly resampling know about market holidays?",
+  "cite": "docs/backlog.md > Backlog > Data (sources, coverage, vendors, price bases)",
+  "text": "**Still open:** (a) the comparison covered 355 of 665 members — Tiingo's free tier allows 500 distinct symbols a month and the month's quota is used up; rerun the remaining ~310 after the month turns over (`spin_cache`-style fetch, then the same detection); (b) 62 of the 99 disputed days (77 tickers) are unverified (the two vendors disagree, or a reused symbol couldn't be confirmed, and which is wrong isn't known; 99 after Done #92's reused-symbol entries) — a third vendor (EODHD, below) would settle them and give the dropped labels back; (c) features (`features/baseline.py`), relative strength and breadth still read the disputed days as-is — a fake one-day move enters a 252-day momentum window for a year; (d) `--store-preferred` bars stop at the fetch date, rerun it with every bar refresh.\n  - **EODHD — the remaining gap, now sized."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 3,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/limitations.md > Known limitations > Index membership uses free community datasets, not Polygon, despite the \"one source of truth\" preference",
+  "text": "- **Two unrelated sources, not one.** S&P 500 comes from `fja05680/sp500`\n  (`sp500_ticker_start_end.csv`, already shaped as ticker/start_date/end_date\n  intervals). Nasdaq-100 comes from `nasdaq-100-ticker-history`\n  (`jmccarrell/n100tickers`), a git-only package (not on PyPI, pinned to a\n  commit SHA in `requirements.txt` for reproducibility) exposing a\n  `tickers_as_of(year, month, day)` function plus a `changes` submodule.\n  There's no single upstream authority for \"which composites a ticker\n  belongs to\" the way Polygon is for price/reference data -- adding \"other\n  major composites\" later means finding and vetting a *third* source, not\n  extending an existing one.\n- **Nasdaq-100 coverage starts 2015-01-01.** Before that, `tickers_as_of`\n  raises `NotImplementedError` -- there's no data, not an empty result."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 4,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/done.md > #60",
+  "text": "- **#60** [data] — **Shares outstanding from SEC EDGAR (`source='sec_edgar'`), back to ~2009-2011.** yfinance's share-count history starts in 2015 for almost every ticker (only 82 of 5,323 active tickers had anything earlier). New `sec_companyfacts.py` + `bulk_sec_shares_ingest.py` read SEC's bulk XBRL `companyfacts.zip` and `company_tickers.json` (downloaded by hand in a browser into `data/raw/sec/` -- no API calls, so no contact email is sent anywhere). One count per filing, from the cover page (`dei:EntityCommonStockSharesOutstanding`, same point-in-time meaning as yfinance) or else that filing's own balance-sheet period (`us-gaap:CommonStockSharesOutstanding`), stored under the **filing** date so it's never visible before it was public; restated old periods (>200 days before filing) dropped; isolated one-filing spikes (>=10x off both neighbours that agree) dropped. **Validated per company against yfinance:** where the two overlap (>=3 points within 10 days), a company is kept only if the median SEC/yfinance ratio is within 0.8-1.25 -- this rejects both XBRL scale errors (values tagged in thousands/millions, e.g."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 6,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/limitations.md > Known limitations > yfinance intraday history is short and silently truncated",
+  "text": "## yfinance intraday history is short and silently truncated\n\n`YFinanceClient.get_hourly_bars` requests are capped by Yahoo to roughly the\ntrailing 730 days of 1h history. Asking for more doesn't raise an error — it\njust returns a truncated range starting later than requested."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 7,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 7. Data gaps found (checked 2026-09-24)",
+  "text": "- **Alternative sources, probed 2026-09-25:**\n  - **Polygon ticker details with a `date` parameter:** works for a delisted ticker\n    (HNZ 2012: 320M shares, CIK returned). But AAPL 2012 came back with *split-adjusted*\n    weighted shares (16.4B) and a nonsense market cap. A renamed ticker (DISCA) returned\n    NOT_FOUND. Also slow: 5 requests/min.\n  - **SEC XBRL (`dei:EntityCommonStockSharesOutstanding`), best candidate:** free,\n    ~10 requests/s, bulk `companyfacts.zip` also available. HNZ returned 19 quarterly\n    points from 2009 **with the `filed` date**, which makes it genuinely point-in-time\n    (the as-of date is the filing date, the same logic as `macro.as_of_join`). Covers\n    delisted companies. XBRL became mandatory for all filers by 2011, so it covers the\n    development window.\n    Needs: a ticker→CIK map for delisted tickers (Polygon's reference tickers endpoint\n    returns CIK in bulk pages); handling multi-class share structures (e.g. GOOG/GOOGL);\n    split reconciliation (`market_cap.py`'s job already). SEC requires a contact in the\n    User-Agent."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 8,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/done.md > #59",
+  "text": "- **#59** [data] — **yfinance share-class symbols everywhere.** `bulk_yfinance_ingest`'s private `.` -> `-` translation (Yahoo spells `BRK.B` as `BRK-B`) moved to `yfinance_client.to_yfinance_symbol` and is now applied to every `YFinanceClient` call -- daily/hourly bars, shares outstanding, splits, sector -- not just the batch bar download. Without it, dotted tickers were stored as empty successes (shares 2026-09-25, sector 2026-09-17: BRK.B, BF.B, COC.B, RDS.A with a null sector) or failed (`AGM.A`). Results stay keyed by the original ticker. Live-checked: BRK.B / BF.B / MOG.A / AGM.A now return 1,473-1,571 share-count points each, their splits (BRK.B's 2010 50-for-1) and sectors."
+ },
+ {
+  "qid": "yfinance_end",
+  "split": "dev",
+  "method": "split",
+  "rank": 10,
+  "question": "Is the end date in a yfinance download included, like it is with Polygon?",
+  "cite": "docs/done.md > #87",
+  "text": "`features/cache.py` caches every registered model column for a universe's eligible rows, ranked per date among them: S&P 500 2010–2021 is 1,371,246 rows, 642 tickers (112 via Tiingo), no column more than 1.0% missing (parquet under `data/models/`, no DB writes). **Vendor check** (the backlog item that gated E1): Tiingo's bars show no data artefact (zero-volume, flat-bar and missing-session shares at or below yfinance's). Rows ≥ 2 years before delisting differ mainly in size (dollar-volume rank −0.42 SD) and volatility (+0.30 SD). A ticker-grouped classifier, scored within date (so it can't win on \"which year\"), gives vendor AUC 0.67 (0.62 without sector), read as real economics known at *t*, not a leak. \"Far\" is measured to Tiingo's listing end (metadata), not the window's last bar. Still open: a same-ticker volume-definition comparison."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "split",
+  "rank": 3,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/REPORT.md > Moving-averages study — final report",
+  "text": "# Moving-averages study — final report\n\n**Scope:** does moving-average state (level, distance, slope, stack, crossovers, touches)\npredict forward equity returns once momentum, volatility and sector are controlled for?\nTwenty-four modules were run on 405 S&P 500 stocks over 2010–2021; the 2022+ holdout was\nnever opened. Per-cell numbers: `EXPERIMENTS.csv`. Scoreboard: `STATUS.md`. Tier 1–3\nwrite-ups: `FINDINGS.md`.\n\n---"
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "split",
+  "rank": 4,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 10. Implementation plan > 10.1 Repo layout",
+  "text": "### 10.1 Repo layout\n\n**Implementation note:** this study lives inside the existing `stocks_analysis` repo,\nnot a standalone project, and follows that repo's own per-module convention\n(`src/signals/<name>/`, `tests/test_<name>_*.py` — see `src/signals/gaps/`,\n`src/signals/relative_strength/`) rather than the tree below literally. The tree\nstill stands as the logical map of pipeline stages (data → features → events →\nlabels → stats → modules); **see `CLAUDE.md`'s Layout section for the real paths**\n(`src/signals/moving_averages/...`, with `DESIGN.md`/`PREREGISTRATION.md`/\n`EXPLORATION_LOG.md`/`EXPERIMENTS.csv`/`STATUS.md` all under\n`docs/features/moving-averages/`).\nExisting infrastructure is reused rather than rebuilt where it already covers a\nstage below — notably `market_common.data` (bar loading/validation),\n`market_common.indicators` (ATR/RSI/MACD/OBV), `src/signals/relative_strength/`\n(the `rs_rank` momentum control from §7.1), and `db.read_index_membership`\n(point-in-time universe, §3.1)."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "split",
+  "rank": 6,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M0 — Exploration track",
+  "text": "It's the single most efficient exploratory frame available here, because it's automatically orthogonal to the dominant confound.\n\n**M0.3 — Behavioural clustering.** Do stocks differ systematically in how they organise around their MAs? Build a per-ticker \"MA affinity\" signature (touch frequency, time-above fraction, bounce rate, typical extension, distance-distribution kurtosis) and cluster. Then the two questions that matter: **does cluster membership persist** across non-overlapping periods, and **does it predict anything?** If some stocks genuinely \"respect\" their 21-EMA more than others in a persistent way, that's a real and marketable finding. If affinity is pure noise year to year, that kills a widespread piece of folklore. Either outcome is worth having.\n\n**M0.4 — Interaction mining.** FDR-controlled search over pairwise interactions of the §4.3 feature set. Explicitly a fishing expedition — that's fine, it's Track A. Anything surfacing here needs a mechanism story before it gets near the gate; an unexplained interaction that survives correction is usually a data artefact.\n\n**M0.5 — Anomaly forensics.** Pick the 30 largest winners and 30 largest losers per year. What did their MA state look like beforehand? Not a test — a source of hypotheses about what extreme outcomes have in common. Deeply biased by construction; useful anyway.\n\n**M0.6 — Failure archaeology."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "split",
+  "rank": 10,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 12. Open questions to settle before P0",
+  "text": "## 12. Open questions to settle before P0\n\n1. **Data vendor.** Does your current source have delisted securities and point-in-time index membership? If not, that's the first purchase, and it's not optional. (Norgate, CRSP, and Sharadar are the usual answers at different price points.)\n2. **Earnings dates.** Do you have point-in-time earnings calendars? Without them, §7.4 is unaddressable.\n3. **Existing indicator reuse.** Which of ATR, ADX, RS-rank already exist in your codebase and are trustworthy? Reuse beats reimplementation, but only after the golden-fixture tests pass.\n4. **Scope of v1.** Fifteen modules is a lot. If effort is constrained, my recommended minimal core is **M1, M2, M4, M5, M6.2, M11** plus the §7.5 placebo — that set answers the most questions per unit of work and produces at least one publishable-quality negative result.\n5. **Holdout discipline.** Are you willing to genuinely not look at the holdout period until the end? If not, shrink the development window and carve a different holdout — a holdout you peek at is just a slower training set."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "split",
+  "rank": 4,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Pre-identified power risk and pre-committed disposition (the load-bearing part)",
+  "text": "### Pre-identified power risk and pre-committed disposition (the load-bearing part)\n\nSized blind on the recomputed base — counts and covariate definedness only, no\noutcome read — by `src/analysis/divergence_dcb3b4_sizing.py` (committed with this\ndraft, output reproducible): RSI hidden events, PIT, dev window: **DC-B3 3,758 rows /\n1,334 distinct p2 dates; DC-B4 6,780 / 1,451**; control pools after the strict\ngeometry and both divergence exclusions: **10,247 / 12,706 rows (2,011 / 2,067\ndates)** — 1.9–2.7× the event sets in aggregate, with per-pole coverage deferred to\nthe blind balance report. The ±5-calendar-day sizing approximation of the ±3-bar\nexclusion errs in both directions (it over-covers mid-week spans, excluding some\n4–5-bar neighbours, and under-covers holiday weeks, missing some 3-bar ones), so\nthese pool counts are sizing-grade: the build's exact-rule pool is printed in the\nblind balance report and supersedes them."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "split",
+  "rank": 7,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Event set",
+  "text": "### Event set\n- **Hidden form, RSI only** for the primary test (largest single-indicator hidden set;\n  no duplicate-swing pooling across indicators). **MACD-hist repeats as a pre-named\n  same-sign robustness pass**, not a new hypothesis — same speed-oscillator reasoning\n  as DC-B1/B2. **OBV excluded by mechanism**, as there: its hidden divergence (volume\n  flow breaking while price holds its trend) is a participation claim, not a momentum\n  one; any OBV cell is a separate, later registration.\n- Window: p2 dates 2010-01-01..2021-12-31. Universe: PIT S&P 500 + Nasdaq-100\n  membership at p2 (rename-aware), delisted members included, delisting-terminal\n  returns realized. **Runs on the recomputed event base (Done #112)** — the first\n  registration of this study drafted after the survivorship recompute, so DC-B1/B2's\n  2026-10-09 addendum-note-2 caveat does not apply."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "split",
+  "rank": 8,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B1 / DC-B2 — does structural context change regular-divergence outcomes? > Controls (the load-bearing part)",
+  "text": "- **Sanctioned exception to the rolling-statistics invariant (#3), stated\n  explicitly:** the quantile edges are a dev-window (full-sample) statistic.\n  Matching is ex-post control construction at analysis time, not a tradable\n  feature — nothing downstream treats a bin as a point-in-time quantity.\n- **interpeak_retrace_frac is the third matching covariate** (amended 2026-10-07):\n  matched on impulse+vol alone it retained SMD −0.37/−0.50 within the pullback\n  class — events sit shallower in the class than their controls, a within-class\n  confound. It is a covariate, not the treatment: treatment is divergence presence.\n- Control timing: a control pair's \"event time\" is its p2 pivot's own price-only\n  `confirmed_at`. Divergence events confirm at max(price, indicator) confirmation, so\n  events enter on average slightly later than controls — a level difference the\n  difference-in-differences absorbs; noted, not \"fixed.\""
+ },
+ {
+  "qid": "order_blocks_status",
+  "split": "dev",
+  "method": "split",
+  "rank": 6,
+  "question": "is the order blocks feature done or still in the backlog?",
+  "cite": "docs/features/order_blocks_design.md > Order Blocks — Design Doc > 2. Is it just S/R with a different name?",
+  "text": "## 2. Is it just S/R with a different name?\n\nMostly yes, but the difference is real and specific: it's a different **evidence standard** for calling a zone valid, not a different kind of zone.\n\n- `src/signals/sr_lines/` (this repo's existing S/R engine) requires a level to be **tested multiple times** before it's scored as meaningful — `min_touches_per_line`, duration/density scoring, resilience to failed breaks. A zone earns credibility from repeated respect over time.\n- An order block claims a zone is valid **on its first retest, before it's ever been touched** — its evidence is \"this candle preceded an impulsive move,\" not touch count. That's a weaker, more speculative signal, evaluated once rather than accumulated.\n\nSo: same output shape (a horizontal price zone with support/resistance semantics), different, unvalidated input signal for *which* zones deserve attention."
+ },
+ {
+  "qid": "order_blocks_status",
+  "split": "dev",
+  "method": "split",
+  "rank": 10,
+  "question": "is the order blocks feature done or still in the backlog?",
+  "cite": "docs/features/order_blocks_design.md > Order Blocks — Design Doc > 4. Proposed implementation shape (if it clears the prototype check)",
+  "text": "- **What defines \"impulsive\"?** Not yet specified — candidate knobs: a bar (or short run of bars) whose range/gap exceeds some ATR multiple, mirroring how `patterns/config.py` already gates \"prior trend\" moves elsewhere in this codebase. Needs real-data calibration, same discipline `patterns/config.py`'s many hand-tuned, measured-against-real-data thresholds already follow (see that file's comments for the pattern to follow, e.g. `cup_rim_divergence_max_pct`'s calibration history)."
+ },
+ {
+  "qid": "lrp_tested",
+  "split": "dev",
+  "method": "split",
+  "rank": 1,
+  "question": "what's the least resistance path idea and has it been tested?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 2. Per-date features > 2.3 Barrier-conditional features (the bridge to the target)",
+  "text": "Low means thin volume, which is easy to travel. Needs `volume_profile` rows; open follow-up (d) adds low/high-volume node detection. |\n\nThese go into the model with the cell's `(H, U, D)` as inputs, once per cell for a\nstacked-rows model (`IDEAS.md` §1 option a). For the path-distribution model (option\nb), they go in on a fixed grid instead."
+ },
+ {
+  "qid": "lrp_tested",
+  "split": "dev",
+  "method": "split",
+  "rank": 8,
+  "question": "what's the least resistance path idea and has it been tested?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 2. Per-date features > 2.1 Per-source nearest distances (the learnable layer)",
+  "text": "### 2.1 Per-source nearest distances (the learnable layer)\n\nFor each source *s*: `near_up_s` = smallest `d > 0`, `near_dn_s` = smallest `|d|` for\n`d < 0`, plus that level's `w`. Capped at 10 ATR, with a missing flag when there's no\nlevel.\n\nThese let the model learn its own source weights instead of trusting §1.2's. There are\nabout 20 columns (10 sources × 2 sides) plus their weights."
+ },
+ {
+  "qid": "lrp_tested",
+  "split": "dev",
+  "method": "split",
+  "rank": 10,
+  "question": "what's the least resistance path idea and has it been tested?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 2. Per-date features > 2.4 Directional pressure (non-level)",
+  "text": "- **Market structure:** direction of the last BOS/CHoCH and bars since it.\n- **Patterns:** direction of an as-of-safe active pattern, and its `confidence`.\n\n---"
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "split",
+  "rank": 1,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > #101",
+  "text": "Found and backlogged along the way: the divergence event base and control pairs are **survivors-only** (zero delisted tickers — detection ran over yfinance-bars tickers; delisted members' bars are Tiingo-only), so #97's \"delisted members included\" held for the forward-return code but vacuously for the event base; any DC-B5 gates on that backfill. `src/analysis/divergence_rr_sweep.py` (loaders reuse study_universe/classify_context; new per-event barrier walker mirroring barriers.py semantics — gap fills, tie→stop, censoring vs delisting-terminal), per-trade parquet under gitignored `data/derived/divergence_rr_sweep/`, nothing written to the shared sqlite. Code review before merge: 8 findings fixed — the price-dispute exclusion window widened to cover the ATR(14) tail, the same-bar tie rule documented as barriers.py's full rule (dated clarification in the log entry), NA-preserving bins (invariant #9), uncounted exclusions now counted; verdict unchanged after the rerun (superseded figures kept in the log). Tests: 23 new."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "split",
+  "rank": 2,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M20 — Confirmed bounce as an entry signal (added 2026-09-30, post-termination)",
+  "text": "### M20 — Confirmed bounce as an entry signal (added 2026-09-30, post-termination)\n\n**Not part of the original M1–M17 list.** Added under §1.5's porous-scope rule, immediately\nafter M19, to answer the question M19 turned out not to ask. M5 used the bounce as an\n*outcome*; M19 used the confirmed bounce as a *past feature* of the next touch. Nobody\nmeasured the forward return from the day the bounce confirms: price touches the MA from\nabove on day d, is back ≥1 ATR above it within 5 days without closing through — is that, on\nthe day it becomes knowable, a signal for the next X days?\n\n**Hypothesis:** the confirmed bounce (M19's `features/respect.py::confirmation_positions`,\nK=5, R=1.0 ATR) predicts continuation over the next 5/10/21/63 trading days — positive after a\nsupport bounce, negative after a resistance rejection — beyond what date + C2 + `rev_tercile`\nmatching explains, **and beyond a same-size move that did not involve the MA.**\n\n**The control that matters:** \"up ≥1 ATR in ≤5 days\" is a short-term move whether or not an\nMA was touched."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "split",
+  "rank": 4,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M21 — Confirmed break through the MA as an entry signal (added 2026-09-30, post-termination)",
+  "text": "### M21 — Confirmed break through the MA as an entry signal (added 2026-09-30, post-termination)\n\n**Not part of the original M1–M17 list.** The mirror of M20, added the same day because M20's\nscope was the bounce only. Price approaches the MA from below, touches it, and instead of\nbeing rejected closes through and is ≥1 ATR *above* within 5 days without closing back below\n(and the mirror: a breakdown from above). M5 counted this as the `slice_through` outcome; M12\nused the related \"reclaim\" (first day back above the MA) but only compared high-volume against\nlow-volume reclaims; M3 tested MA-versus-MA crosses. No cell in the ledger measures the forward\nreturn from the day a price-through-MA break confirms, against a matched control.\n\n**Hypothesis:** the confirmed break predicts continuation over the next 5/10/21/63 days —\npositive after a break above, negative after a break below — beyond date + C2 + `rev_tercile`\nmatching and beyond a same-size move that did not involve the MA (M20's generic-move arm,\nreused unchanged: for a break above, an up-move now above the MA with no recent touch)."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "split",
+  "rank": 8,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > Done",
+  "text": "Tags: `infra`\n(project setup, storage, locking), `data` (ingestion, coverage, price bases, renames,\nvendors), `macro` (FRED), `signals` (the TA modules besides sr_lines: gaps, divergences,\nfibonacci, avwap, volume profile, market structure, shared `market_common` code),\n`sr_lines`, `patterns`, `breadth`, `rs` (relative strength), `analysis` (standalone\nresearch scripts), `ma_study`, `divergence_context` (the two research studies),\n`modeling`, `llm`. Use one or two; add a new tag here before using it. `docs/backlog.md`\ngroups open items by the same areas."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "split",
+  "rank": 9,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?",
+  "text": "**Module/track:** divergence-context, Track B. Second (and, per the disposition below,\nfinal) registered experiment of this study.\n**Promoted from:** EXPLORATION_LOG 2026-10-11 hidden-forms prep looks (Done #119) —\nboth prep gates the \"Hidden forms\" section above required: (a) hidden is independent\ninformation, not the regular cells' complement (only 29–34% of hidden events carry a\nmirrored-direction regular counterpart inside their pivot interval; hidden-alone cells\n~1,490–1,530 PIT dev dates); (b) the pivot-to-pivot retrace fraction is a well-defined\nhidden-geometry scalar (100% defined, mechanically bounded in (0,1), smooth) where the\nv0 63-bar impulse was shown misfit (retrace_frac > 1 on 66%/76% of defined hidden rows).\n\n**Hypothesis.** Hidden divergence is a continuation claim. For hidden divergences,\nforward outcomes after a *shallow* counter-move (trend barely dented — the textbook\n\"strong trend\" continuation setup) differ from outcomes after a *deep* counter-move\n(trend nearly given back), beyond what the same hidden-geometry structures show\n*without* a divergence. DC-B3 = bearish (downtrend, lower-high pairs), DC-B4 = bullish\n(uptrend, higher-low pairs)."
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "split",
+  "rank": 1,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 9. Code layout and build order",
+  "text": "The CIs are about ±1% per trade wide at H = 63, so an edge large enough to trade\n       isn't ruled out there: inconclusive, not \"no edge\". Top-20 never clears.\n     - **Per unit of risk, the picks are worse than the market basket.** Non-overlapping\n       portfolio, net 10 bps: model 2–10% a year, Sharpe 0.18–0.58, max drawdown −17% to\n       −48%; market basket 3–8%, Sharpe 0.49–0.79, drawdown −7% to −13%. Two causes,\n       checked on three cells (H21 3/2, H63 2/2, H63 3/1.5) after the run:\n       concentration (k random names a day: drawdown −15% to −19% at k = 5, −10% to\n       −14% at k = 20, Sharpe 0.52–0.69) and a volatility tilt (the picks' mean ATR is\n       3.4–4.7% of price vs 2.4% for the universe and for random picks; drawdown −30% to\n       −48% at k = 5). B4's picks have the same tilt. EV in return units scales with\n       ATR, so ranking on it favours volatile names.\n     - **The realised R/R is set by the barriers, not the picks."
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "split",
+  "rank": 9,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 9. Code layout and build order",
+  "text": "Against B4 ranked the same way: positive at 36, clearing zero at\n       15, none below.\n     - **No era flip.** Model minus market is positive in 2014–17 at 35 of 36 readouts\n       and in 2018–21 at 34; neither era dominates (2014–17 lower at 17 of 36). S1 was\n       lower in 2014–17 at 34 of 36, E1 in every trial.\n     - **Portfolio, net 10 bps:** Sharpe 0.45–0.92 (EV-ranked: 0.18–0.58; higher at all\n       36), above the random-k basket at all 36, above the market basket at 21 (all 18\n       top-20 readouts, 3 of 18 top-5). Annual return 3.8–10.4% vs the market's\n       2.9–8.1%. Drawdown −7% to −20%, about the random-k basket's (−9% to −19%), so\n       what's left of the drawdown gap to the market (−7% to −13%) is concentration.\n     - **R/R is still set by the barriers:** average win over average loss 1.0–2.85,\n       as before."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "split",
+  "rank": 1,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M6.6 — Slope agreement across the ribbon (2026-09-23)",
+  "text": "- **`extreme_state_test`** (the decisive, CI-backed test): C2 block-bootstrap delta\n  (`stats/inference.py::block_bootstrap_delta`, block length 42, 500 draws, 90% CI,\n  seed 0) between the two ordinal extremes — state 5 (all five lookbacks rising) vs.\n  state 0 (all five falling) — restricted to only those two states' rows first, same\n  restrict-then-delta pattern M6.2/M6.3 established. Run twice: once on `fwd_ret_21`\n  (DESIGN's \"forward returns\"), once on a new label, `fwd_mdd_21` (DESIGN's \"forward\n  drawdown\").\n\n**New label — `labels/path_metrics.py::forward_max_drawdown`:** the maximum adverse\nexcursion over the forward 21-day window — the worst `low[t+k]/close[t] − 1` for k in\n1..21, using the path's own daily lows, not just the horizon's closing return\n(`forward_return`'s outcome). Minimal, purpose-built for this module's own \"forward\ndrawdown\" need — not DESIGN's full M6.4 path-metrics/MFE scope (Kaplan-Meier survival,\nbarrier hits), which stays unbuilt. A forward-looking label, not a lagged feature\n(CLAUDE.md invariant #2 constrains features, not labels — same status as\n`forward_return`/`forward_realized_vol`)."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "split",
+  "rank": 4,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/features/sr_lines_design_notes.md > sr_lines design notes > Resolved: a real short/tight trendline was silently discarded before scoring ever saw it",
+  "text": "This reframed the user's \"run multiple horizons\" question: the real\nmechanism isn't an absence of short-horizon detection, it's a single-run\ncap silently starving short/low-touch candidates by processing order,\nregardless of their actual quality.\n\nFixed: dedup now always runs to completion over every candidate (no early\nbreak), and the cap is applied only *after*, truncating by\n`fit_rms_atr_pct` ascending (tightest fit first) instead of by pivot count\n-- a short, cleanly-fit line now competes with long ones on fit quality,\nnot raw touch count. Measured cost: full uncapped dedup over GEVO's ~2,227\nraw candidates completes in 0.64s (804 genuinely distinct survivors before\nthe cap) -- not a meaningful regression against the existing ~7-10s\nlong_term detection runtime.\n\nVerified on real GEVO data: the target trendline now survives as its own\nline (`d111`, strength 0.041, 9 touches found once genuinely classified\nagainst real bars, not just its 3 defining pivots). It doesn't crack the\nactual top-15 -- a 3-touch, 7-month line legitimately scores lower than\nmulti-year lines with dozens of touches on `touch_quality`/\n`duration_density`, which is correct scoring behavior, not something this\nfix was meant to change. What the fix guarantees is that it's no longer\ndiscarded before scoring gets a chance to judge it on its own merits."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "split",
+  "rank": 7,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/features/sr_lines_design_notes.md > sr_lines design notes > Resolved: event markers stayed fully bold/full-size regardless of how faded their own line's box was",
+  "text": "Fixed: new `plotting._marker_style_for_strength(strength) ->\n(opacity, size_scale)`, mirroring `_strength_colors`'s own fade curve --\nopacity 0.35-1.0, size 0.6x-1.0x, applied to every event marker via the\nexisting per-line `marker=dict(...)` call. Floored well above zero\n(unlike the box's own fill, which can fade to 15%) -- a marker needs to\nstay perceptible and hoverable even for the single weakest line in the\ntop-N, where the box fading toward invisible is exactly its intended job\nat that strength. Verified on real AAPL data: a strength-0.154 line's\ntouch markers render at opacity 0.45/size ~6.0 vs. a strength-0.055\nline's at opacity 0.39/size ~5.6 -- modest in absolute terms (real top-15\nstrengths rarely exceed ~0.3-0.5, same range the box's own fade already\nworks within), but real and in the right direction, and no longer a fixed\nfull-bold marker regardless of the line underneath it. 172 tests passing."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "split",
+  "rank": 9,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/features/sr_lines_design_notes.md > sr_lines design notes",
+  "text": "# sr_lines design notes\n\nRunning log of design decisions, findings, and open questions from building\nthe horizontal S/R engine (milestone 4 + review-round fixes). Written so\nnone of this has to be re-derived when milestone 5 (diagonals) starts --\nnearly everything here applies in log-price/slope space too, not just flat\nhorizontal zones. Append to this rather than rewriting it."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "split",
+  "rank": 10,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M6.2 — Slope as conditioner (2026-09-17)",
+  "text": "- Sub-question 3 reuses `features/touch.py::touch_events` (M5's own event extraction)\n  directly on the **main cached panel's** `dist_atr_sma_{50,200}` columns (not the\n  placebo panel — no synthetic-neighbor comparison needed here, since this question is\n  about the real MA's own slope, not real-vs-synthetic), joins `slope_sign` at the\n  touch day, and runs `block_bootstrap_delta` with `group_col=slope_sign`,\n  `value_col=hold_flag` — the same reuse pattern M5 itself used for `is_focal`.\n\n**Method, per sub-question:**\n1. **State × slope** (4 cells: lookback ∈ {50, 200} × state ∈ {above, below}): restrict\n   panel to `above_sma_k == state`, then C1/C2 delta of `fwd_ret_21` between\n   `slope_sign_sma_k` = rising vs. falling within that restricted population.\n2. **Extension × slope** (4 cells: lookback ∈ {50, 200} × extension ∈ {top decile,\n   bottom decile} of `dist_atr_sma_k`): restrict panel to that decile, then C1/C2 delta\n   of `fwd_ret_21` between rising vs. falling within it.\n3."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "split",
+  "rank": 1,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 5. Validation-harness lessons → concrete requirements",
+  "text": "Until pre-2024 delisted history exists, tag every bearish/weak-state feature as capped, and report the fraction of a fold's events that fall in those buckets. |\n| The window is one macro regime | 2010–2021: near-zero policy rate throughout; the 2022+ holdout starts with a hiking cycle (IDEAS F10) | Report metrics per calendar year and per 2010–2015 / 2016–2021 (the study's own promotion-gate split, `high_low_52w_gate_check.py`); a feature whose sign flips between halves does not ship. Expect the holdout to differ for reasons unrelated to the model. |\n| Non-PIT sector in every C2 match | `panel.py` docstring | Either accept and document the leak, or build a PIT sector table before using sector in a baseline. |\n| Cost convention | 10 bps round trip, linear ×(252/H) annualisation (`costs.py`), turnover measured off the panel | EV after cost uses per-feature turnover measured on the training folds, at ≥2 cost levels (10 and 25 bps), and reports the near CI edge, not the point. |\n| Look-ahead test | `synthetic.py`: planted +3% recovered; null reports nothing; a one-day extra shift degrades recovery to <70% | Port the three-check gate: plant an effect in a synthetic panel, confirm recovery, confirm null silence, confirm degradation under an extra one-bar shift."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "split",
+  "rank": 7,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 7. Reusable infrastructure",
+  "text": "|\n| `labels/forward_returns.py`, `labels/path_metrics.py` | yes | add MFE, first-touch ordering, hit time, and a triple-barrier label alongside `forward_max_drawdown`, keeping its `skipna=False` convention | Only `forward_return`, `forward_realized_vol`, `forward_max_drawdown` exist. |\n| `synthetic.py` (`build_synthetic_panels`, `run_validation`, `gate_verdict`) | port the pattern | plant a barrier-hit effect rather than a +3% mean shift | The gate tests a 5-day SMA state and `c1_delta`; the model harness needs its own planted target. |\n| `features/state.py` (`state_run_id`, `days_in_run`) | yes | age of any state | Rejects internal NaN gaps by design. |\n| `features/touch.py`, `features/crossover.py`, `features/placebo_ma.py` | available | only if an event-population model is built on touches/crosses (both are study nulls) | Close-only touches; first-pass thresholds. |\n| `modules/pattern_context.py` (`load_qualifying_patterns`, `attach_breakout_dates`, `add_pattern_context_flag`) | only if pattern features are tried | use the as-of-safe flag (window after the verified breakout date, no status filter) | `pattern_matches` is current-state-only; a strict point-in-time history needs the scanner re-run as of each date."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "split",
+  "rank": 9,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 7. Reusable infrastructure",
+  "text": "|\n| `stats/inference.py` (`block_bootstrap_delta`, `_spread`, `_group_diff`, `_series`) | yes | add a variant that returns the draws; raise `n_boot` for any p-value use | `MIN_BLOCKS=3` gate; `seed=0` default. |\n| `stats/costs.py` (`signals_per_year`, `cost_hurdle`, `annualize`, `ci_clears_cost`) | yes | generalise `signals_per_year` from a boolean state column to a position series (the model's chosen top-k per day) | Linear annualisation; entry+exit convention; per-ticker loop inside `signals_per_year`. |\n| `stats/shape.py` (`hit_rate_deltas`, `distribution_shape`) | yes | compute per fold and per barrier cell | Descriptive only by charter (invariant #10). |\n| `stats/multiple_testing.py` (`benjamini_hochberg`, `white_reality_check`) | yes | Reality Check is the right tool for \"best of K models\" claims (M8 used it for 7 kernels); BH for per-experiment trial grids | `p_value_from_ci` is a Wald approximation; do not feed it into BH when draws are available. |\n| `stats/survival.py` (`kaplan_meier`, `gbm_null_survival`) | yes | always pass `direction=` to match the empirical side | A pooled-direction null reads positive drift as persistence (the M6.4 error)."
+ }
+]

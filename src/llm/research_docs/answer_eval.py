@@ -38,7 +38,10 @@ The baseline (2026-10-16, the step-6 prompt; ~95k tokens for 43 questions) is
 `judged/runs/dev_2026-10-16.json`; a prompt change is scored against it. The step-6c
 prompt's run, on the same index, is `judged/runs/dev_2026-10-16_prompt.json`. After the
 index rebuild (step 7d), the same prompt with 5 sources is `dev_2026-10-18_rebuilt_top5.json`
-and with 10 (`run -k 10`, ~185k tokens) `dev_2026-10-19_rebuilt_top10.json`.
+and with 10 (`run -k 10`, ~185k tokens) `dev_2026-10-19_rebuilt_top10.json`. With each
+question split into one search per part first (`run --split-questions`, `split.py`; rows
+record `search` and `sub_questions`), the same prompt with 5 sources is judged against the
+rebuilt top-5 run.
 
 A complete reply that isn't the requested JSON (`gemini.ShapeError`) is stored as a row
 with `error` and no answer, counted wrong (generation), and left out of the judge packets:
@@ -66,6 +69,7 @@ from src.llm.research_docs.answer import (BUDGET, MAX_K, SYSTEM, Answer, answer,
 from src.llm.research_docs.evaluate import (answerable, load_questions, matches, part_ranks, parts, question_split,
                                             unmatched_golds)
 from src.llm.research_docs.retrieve import TOP_K, cite
+from src.llm.research_docs.split import split_search
 
 LEDGER = Path(__file__).with_name("judged") / "answers.json"
 SUPPORT = ("supported", "partial", "unsupported")
@@ -139,18 +143,30 @@ def run_k(r: dict) -> int:
     return r.get("k", TOP_K)
 
 
+def run_search(r: dict) -> str:
+    """How a run row's sources were found: `rerank`, or `split` (`split.split_search`).
+    Rows written before splitting existed were all `rerank`."""
+    return r.get("search", "rerank")
+
+
 def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], client: GeminiClient,
-        out: Path, k: int = TOP_K) -> list[dict]:
+        out: Path, k: int = TOP_K, splitter: Callable[[str], list[str]] | None = None) -> list[dict]:
     """Answer each question from `k` sources, writing `out` after every one. Questions
     already in `out` are skipped, so an interrupted run resumes instead of paying again; a
-    file written by different instructions or with a different `k` is refused, so one run
-    can't mix two prompts or two source counts (and a finished one is returned with a
-    warning, since nothing was re-run)."""
+    file written by different instructions, with a different `k` or a different search is
+    refused, so one run can't mix two prompts, two source counts or split and unsplit
+    retrieval (and a finished one is returned with a warning, since nothing was re-run).
+    With `splitter`, each question is split first and `find` (the plain search) runs once
+    per sub-question (`split.split_search`); the row records `search: split` and the
+    questions searched. A split that fails stops the run, as a blocked reply does: it is
+    the splitter's call that failed, not the answer's, so nothing is stored for it."""
     done = json.loads(out.read_text()) if out.exists() else []
     have = {r["id"] for r in done}
     pid = prompt_id(getattr(client, "model", DEFAULT_MODEL))
+    search = "split" if splitter else "rerank"
     other = [f"prompt {p}" for p in sorted({r.get("prompt") or "unrecorded" for r in done} - {pid})]
     other += [f"k={n}" for n in sorted({run_k(r) for r in done} - {k})]
+    other += [f"search {s}" for s in sorted({run_search(r) for r in done} - {search})]
     if other:
         msg = f"{out} holds answers from another setup ({', '.join(other)})"
         if any(q["id"] not in have for q in questions):
@@ -160,9 +176,12 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
         if q["id"] in have:
             continue
         shown: list[NodeWithScore] = []  # what `answer` retrieved, kept for a failed reply
+        subs = splitter(q["question"]) if splitter else None  # outside the try: see the docstring
 
         def find_kept(question: str, n: int) -> list[NodeWithScore]:
-            shown[:] = find(question, n)
+            # the split made above is for q's own text; any other text is searched as it is
+            shown[:] = (split_search(find, lambda s: subs if s == q["question"] else [s], question, n) if subs
+                        else find(question, n))
             return shown
 
         try:
@@ -171,6 +190,8 @@ def run(questions: list[dict], find: Callable[[str, int], list[NodeWithScore]], 
             # other ReplyErrors (blocked, cut off, empty) stop the run, so a resume retries them
             done.append(failed(q, shown, str(e), pid, k))
             print(f"warning: {q['id']}: no usable reply ({str(e).splitlines()[0]})", file=sys.stderr)
+        if splitter:
+            done[-1].update(search=search, sub_questions=subs)
         tmp = out.with_suffix(".tmp")  # a crash mid-write must not lose the answers paid for
         tmp.write_text(json.dumps(done, indent=1, ensure_ascii=False))
         os.replace(tmp, out)
@@ -277,8 +298,10 @@ def score(rows: list[dict], ledger: dict) -> str:
     are counted as unjudged, never as passes."""
     prompts = sorted({r.get("prompt") or "unrecorded" for r in rows})
     ks = sorted({run_k(r) for r in rows})
+    searches = sorted({run_search(r) for r in rows})
     lines = [f"prompt: {', '.join(prompts)}" + (" (MIXED: rows from different prompts)" if len(prompts) > 1 else ""),
              f"sources per answer: {', '.join(map(str, ks))}" + (" (MIXED)" if len(ks) > 1 else ""),
+             f"search: {', '.join(searches)}" + (" (MIXED)" if len(searches) > 1 else ""),
              f"{'question':<24} {'type':<8} {'retr':<7} {'docs':<5} {'verdict':<8} {'support':<9} miss"]
     verdicts, misses, sup_all, unjudged, clean, citing = {}, {}, [], [], 0, 0
     for r in rows:
@@ -334,6 +357,10 @@ def main() -> None:
                          help="run file (default data/llm/answer_runs/dev_<UTC time>.json)")
     run_cmd.add_argument("--allow-stale", action="store_true", help="run even if some golds aren't in the index")
     run_cmd.add_argument("-k", type=int, default=TOP_K, help=f"sources per answer (default {TOP_K}, at most {MAX_K})")
+    run_cmd.add_argument("--split-questions", action="store_true",
+                         help="search each sub-question (split.py, cached in split.SPLITS) and merge")
+    run_cmd.add_argument("--ids", nargs="+", default=None,
+                         help="answer only these dev questions (say, the ones whose sources changed)")
     for name in ("packets", "score"):
         sub.add_parser(name).add_argument("run_file", type=Path)
     args = ap.parse_args()
@@ -351,6 +378,10 @@ def main() -> None:
         print(json.dumps(packets(rows, load_ledger(), {q["id"]: q for q in questions}, current),
                          indent=1, ensure_ascii=False))
         return
+    if args.ids:
+        if unknown := sorted(set(args.ids) - {q["id"] for q in questions}):
+            ap.error(f"not dev question ids: {', '.join(unknown)}")
+        questions = [q for q in questions if q["id"] in args.ids]
     from src.llm.research_docs.index import embed_model, load_index
     index = load_index(embed_model())
     nodes = list(index.docstore.docs.values())
@@ -366,8 +397,12 @@ def main() -> None:
     out = args.out or llm_data_dir() / "answer_runs" / f"dev_{datetime.now(timezone.utc):%Y-%m-%dT%H%M}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     print(f"run file: {out}")
-    run(questions, lambda q, k: rerank_search(index, keywords, scorer, q, k), GeminiClient(budget=BUDGET), out,
-        args.k)
+    find = lambda q, k: rerank_search(index, keywords, scorer, q, k)  # noqa: E731
+    splitter = None
+    if args.split_questions:
+        from src.llm.research_docs import split
+        splitter = split.Splitter(lambda: GeminiClient(budget=split.BUDGET), split.SPLITS)
+    run(questions, find, GeminiClient(budget=BUDGET), out, args.k, splitter)
 
 
 if __name__ == "__main__":

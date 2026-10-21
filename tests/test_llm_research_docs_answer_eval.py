@@ -3,7 +3,7 @@ import json
 import pytest
 from llama_index.core.schema import NodeWithScore, TextNode
 
-from src.llm.gemini import Reply, Usage
+from src.llm.gemini import Reply, ShapeError, Usage
 from src.llm.research_docs.answer import Answer
 from src.llm.research_docs.answer_eval import (answer_key, claims, load_ledger, miss, packets, record, retrieval,
                                                run, score)
@@ -95,6 +95,37 @@ def test_a_run_gives_k_sources_and_wont_mix_two_source_counts(tmp_path):
     assert "sources per answer: 5\n" in score([old], {"support": {}, "answers": {}})  # asked for 5, got 2
 
 
+def test_a_split_run_records_what_it_searched_and_wont_mix_with_an_unsplit_one(tmp_path):
+    out, client = tmp_path / "run.json", FakeClient(Answer(in_docs=True, answer="Too fragile [1]."))
+    searched, splits = [], []
+
+    def find(question, k):
+        searched.append(question)
+        return [NodeWithScore(node=GOLD if question == "B5?" else OTHER, score=1.0)]
+
+    def splitter(q):
+        splits.append(q)
+        return ["B1?", "B5?"]
+
+    [row] = run([MULTI], find, client, out, splitter=splitter)
+    assert row["search"] == "split" and row["sub_questions"] == ["B1?", "B5?"] == searched  # what was searched
+    assert splits == [MULTI["question"]]  # split once, not again to record it
+    assert [s["cite"] for s in row["sources"]] == ["docs/x.md > #79", "docs/x.md > Baselines"]
+    assert row["retrieval"] == "full"
+
+    def failing(q):
+        raise ShapeError("reply doesn't match Split: plain text")
+
+    with pytest.raises(ShapeError):  # the split's failure, not the answer's: stops the run, nothing stored
+        run([Q], find, client, tmp_path / "failed.json", splitter=failing)
+    assert not (tmp_path / "failed.json").exists() and client.calls == 1
+    with pytest.raises(ValueError, match=r"another setup \(search split\)"):
+        run([MULTI, Q], _find(GOLD), client, out)
+    assert "search: split\n" in score([row], {"support": {}, "answers": {}})
+    [plain] = run([Q], _find(GOLD), client, tmp_path / "plain.json")
+    assert "search" not in plain and "search: rerank\n" in score([plain], {"support": {}, "answers": {}})
+
+
 def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path):
     from src.llm.gemini import ShapeError
 
@@ -120,7 +151,7 @@ def test_an_unusable_reply_is_stored_counted_wrong_and_the_run_goes_on(tmp_path)
     empty = {"support": {}, "answers": {}}
     assert packets([bad], empty, {"b5": Q}, [GOLD]) == {"support": [], "correctness": []}
     table = score([bad, good], empty)
-    assert "b5" in table.splitlines()[3] and " wrong " in table.splitlines()[3] and "generation" in table.splitlines()[3]
+    assert "b5" in table.splitlines()[4] and " wrong " in table.splitlines()[4] and "generation" in table.splitlines()[4]
     assert "NO USABLE REPLY (counted wrong, generation): b5" in table and "UNJUDGED answers: both" in table
     assert "mechanical citation problems (check): 0 answers" in table
 
