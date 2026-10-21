@@ -24,13 +24,15 @@ would be retrieved too.
   `search` and `sub_questions`. Compare it with those 11 rows of the rebuilt top-5 run.
 - `splits.json`: every dev question's split as made by `split.py` (keyed by question,
   with the split prompt's id), so the retrieval eval and the answer run search the same
-  sub-questions and a rerun makes no Gemini calls.
+  sub-questions and a rerun makes no Gemini calls. `rewrites.json` is the same for the
+  rewordings `rewrite.py` searches beside each dev question.
 - `pooling/`: the retrieval pooling record (`evaluate.py`), moved from the git-ignored
   `data/llm/`. `judged_top5_pre_rebuild_2026-10-14.json` holds every method's top 5 texts
   per question saved before the 2026-10-14 index rebuild (these count as judged afterwards);
   `pool_rebuilt_2026-10-14.json` the unjudged chunks the rebuilt index surfaced, which
   were then judged. The `_2026-10-17` pair is the same for the next rebuild, on the dev
   split only and the re-ranker's top 10. `pool_split_2026-10-19.json` holds the chunks
-  question splitting put in the dev top 10 that weren't judged yet. Only the "yes" verdicts were
+  question splitting put in the dev top 10 that weren't judged yet, `pool_rewrite_2026-10-21.json`
+  the same for query rewording. Only the "yes" verdicts were
   kept, as golds in `eval_questions.json`; a chunk in these files that isn't a gold was
   judged "no".
