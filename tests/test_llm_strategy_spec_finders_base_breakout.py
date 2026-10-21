@@ -29,18 +29,31 @@ BREAKOUT = (102.0, 100.6, 101.0)      # decisive close; the high also arms the 1
 WEAK_BREAKOUT = (100.9, 100.3, 100.8)  # decisive close, but never 1 ATR above the level
 MARGINAL_BREAKOUT = (100.6, 100.0, 100.2)  # clears the level by 0.2 ATR: inside the 0.25 margin
 RALLY = (103.0, 101.0, 102.0)
+DRIFT = (100.8, 100.6, 100.7)         # above the level but arms nothing and retests nothing
 RETEST_HOLD = (101.5, 100.3, 100.6)   # low within 0.5 ATR of the level, close holds
 RETEST_LOOSE = (101.5, 100.6, 101.0)  # low within 0.75 ATR only — the tolerance ring
+AWAY = [RALLY] * 4                    # fills the 5-bar retest gap after the breakout
 
-MATCH = base(35) + [BREAKOUT, RALLY, RETEST_HOLD]
-LENGTH_RING = base(25) + [BREAKOUT, RALLY, RETEST_HOLD]          # base 25: >= 20, < 30
-FLOOR_RING = base(35, floor=92.0) + [BREAKOUT, RALLY, RETEST_HOLD]  # depth 8%: >= 6.67, < 10
-CAP_RING = base(35, floor=50.0) + [BREAKOUT, RALLY, RETEST_HOLD]    # depth 50%: <= 60, > 40
+
+def ramp_touch_base() -> list[tuple[float, float, float]]:
+    """Touches only 4 and 5 bars before the breakout — ramp bars the strict exclusion
+    (last 5) ignores and the relaxed exclusion (last 3) counts."""
+    rows = base(35, touches=0)
+    rows[30], rows[31] = TOUCH, TOUCH
+    return rows
+
+
+MATCH = base(35) + [BREAKOUT] + AWAY + [RETEST_HOLD]
+LENGTH_RING = base(25) + [BREAKOUT] + AWAY + [RETEST_HOLD]          # base 25: >= 20, < 30
+FLOOR_RING = base(35, floor=92.0) + [BREAKOUT] + AWAY + [RETEST_HOLD]  # depth 8%: >= 6.67, < 10
+CAP_RING = base(35, floor=50.0) + [BREAKOUT] + AWAY + [RETEST_HOLD]    # depth 50%: <= 60, > 40
 WINDOW_RING = base(35) + [BREAKOUT] + [RALLY] * 44 + [RETEST_HOLD]  # retest on bar 45 after the breakout
-TOUCHES_RING = base(35, touches=1) + [BREAKOUT, RALLY, RETEST_HOLD]  # 1 touch: >= 1, < 2
-MARGIN_RING = base(35) + [MARGINAL_BREAKOUT, RALLY, RETEST_HOLD]  # breaks out only past 0.167 ATR
-RALLY_RING = base(35) + [WEAK_BREAKOUT, RETEST_HOLD] + [RALLY] * 45  # armed only at 0.667 ATR
-TOL_RING = base(35) + [BREAKOUT, RALLY, RETEST_LOOSE] + [RALLY] * 45  # never retests strictly
+TOUCHES_RING = base(35, touches=1) + [BREAKOUT] + AWAY + [RETEST_HOLD]  # 1 touch: >= 1, < 2
+EXCLUDE_RING = ramp_touch_base() + [BREAKOUT] + AWAY + [RETEST_HOLD]
+MARGIN_RING = base(35) + [MARGINAL_BREAKOUT] + AWAY + [RETEST_HOLD]  # breaks out only past 0.167 ATR
+RALLY_RING = base(35) + [WEAK_BREAKOUT] + [DRIFT] * 4 + [RETEST_HOLD] + [RALLY] * 45  # armed only at 0.667 ATR
+GAP_RING = base(35) + [BREAKOUT, RALLY, RALLY, RETEST_HOLD] + [RALLY] * 45  # retest 3 bars after the breakout
+TOL_RING = base(35) + [BREAKOUT] + AWAY + [RETEST_LOOSE] + [RALLY] * 45  # never retests strictly
 
 
 def panel(ticker_rows: dict[str, list[tuple[float, float, float]]],
@@ -73,35 +86,39 @@ def signal_date(rows: list, position: int, start: str = "2015-01-02") -> pd.Time
 def test_finds_the_match_on_the_retest_bar_and_paints_the_overlay():
     frame = panel({"AAA": MATCH})
     result = find_base_breakout_retest(spec(), frame)
-    assert [(c.ticker, c.date) for c in result.matches] == [("AAA", signal_date(MATCH, 37))]
+    assert [(c.ticker, c.date) for c in result.matches] == [("AAA", signal_date(MATCH, 40))]
     assert result.matches[0].fails is None and result.near_misses == ()
     # The candidate carries its own chart geometry: the level across its episode
     # (base start through the retest bar), so the chart never shows another episode's.
-    assert result.matches[0].overlay_span == (signal_date(MATCH, 0), signal_date(MATCH, 37), LEVEL)
+    assert result.matches[0].overlay_span == (signal_date(MATCH, 0), signal_date(MATCH, 40), LEVEL)
     assert (result.overlay_column, result.overlay_name) == (BASE_BREAKOUT_OVERLAY, "breakout level")
     # The overlay was added to the caller's panel in place, one-bar-lagged: the level
-    # spans the episode (base start through the retest, positions 0-37), shifted one
-    # row forward — the retest bar's own value lands past the 38-row frame's end.
+    # spans the episode (base start through the retest, positions 0-40), shifted one
+    # row forward — the retest bar's own value lands past the 41-row frame's end.
     overlay = frame[BASE_BREAKOUT_OVERLAY]
-    assert overlay.iloc[1:38].eq(LEVEL).all() and np.isnan(overlay.iloc[0])
+    assert overlay.iloc[1:41].eq(LEVEL).all() and np.isnan(overlay.iloc[0])
 
 
 def test_each_ring_yields_its_near_miss_and_no_match():
     result = find_base_breakout_retest(spec(), panel(
         {"LEN": LENGTH_RING, "FLR": FLOOR_RING, "CAP": CAP_RING, "WIN": WINDOW_RING,
-         "TCH": TOUCHES_RING, "MGN": MARGIN_RING, "RLY": RALLY_RING, "TOL": TOL_RING}))
+         "TCH": TOUCHES_RING, "EXC": EXCLUDE_RING, "MGN": MARGIN_RING,
+         "RLY": RALLY_RING, "GAP": GAP_RING, "TOL": TOL_RING}))
     assert result.matches == ()
     by_ticker = {c.ticker: c for c in result.near_misses}
-    assert set(by_ticker) == {"LEN", "FLR", "CAP", "WIN", "TCH", "MGN", "RLY", "TOL"}
+    assert set(by_ticker) == {"LEN", "FLR", "CAP", "WIN", "TCH", "EXC", "MGN", "RLY", "GAP", "TOL"}
     assert by_ticker["LEN"].fails.startswith("base length") and ">= 20" in by_ticker["LEN"].fails
     assert by_ticker["FLR"].fails.startswith("base depth floor")
     assert by_ticker["CAP"].fails.startswith("base depth cap") and "60" in by_ticker["CAP"].fails
     assert by_ticker["WIN"].fails.startswith("retest window") and "41-60" in by_ticker["WIN"].fails
     assert by_ticker["WIN"].date == signal_date(WINDOW_RING, 35 + 45)
     assert by_ticker["TCH"].fails.startswith("level touches") and ">= 1" in by_ticker["TCH"].fails
+    assert by_ticker["EXC"].fails.startswith("level touch timing") and "relaxed to 3" in by_ticker["EXC"].fails
     assert by_ticker["MGN"].fails.startswith("breakout decisiveness") and "0.167" in by_ticker["MGN"].fails
     assert by_ticker["RLY"].fails.startswith("minimum rally") and "0.667" in by_ticker["RLY"].fails
-    assert by_ticker["RLY"].date == signal_date(RALLY_RING, 36)
+    assert by_ticker["RLY"].date == signal_date(RALLY_RING, 40)
+    assert by_ticker["GAP"].fails.startswith("retest gap") and "3-4 bars" in by_ticker["GAP"].fails
+    assert by_ticker["GAP"].date == signal_date(GAP_RING, 38)
     assert by_ticker["TOL"].fails.startswith("retest tolerance") and "0.75" in by_ticker["TOL"].fails
     assert len(result.near_misses) == len({(c.ticker, c.date) for c in result.near_misses})
     # Every near-miss carries its own ring episode's geometry, ending on its signal bar.
@@ -113,9 +130,9 @@ def test_each_ring_yields_its_near_miss_and_no_match():
 def test_a_loose_early_retest_of_a_strictly_firing_episode_is_suppressed():
     # The relaxed tolerance pulls the retest one bar earlier, but the same episode still
     # fires strictly a bar later — the early bar says nothing about the tolerance.
-    rows = base(35) + [BREAKOUT, RETEST_LOOSE, RETEST_HOLD]
+    rows = base(35) + [BREAKOUT] + AWAY + [RETEST_LOOSE, RETEST_HOLD]
     result = find_base_breakout_retest(spec(), panel({"AAA": rows}))
-    assert [c.date for c in result.matches] == [signal_date(rows, 37)]
+    assert [c.date for c in result.matches] == [signal_date(rows, 41)]
     assert result.near_misses == ()
 
 
@@ -137,10 +154,11 @@ def test_rubric_discloses_every_default_and_the_invalidation_convention():
                       "base depth floor", "base depth cap"):
         assert by_parameter[parameter].source == "spec"
     for parameter in ("trigger", "retest tolerance", "retest window", "level touches",
-                      "breakout decisiveness",
+                      "breakout decisiveness", "retest gap",
                       'failed-retest kill ("decisively below")', "minimum rally", "base length cap"):
         assert by_parameter[parameter].source == "default"
     assert "grounding round" in by_parameter["minimum rally"].detail
+    assert "ramp exclusion" in by_parameter["level touches"].detail
     before = by_parameter["invalidation (before entry): retest closes decisively back below"]
     assert before.value == "NOT READ"
     assert not any("after_entry" in r.parameter or "within 3 bars" in r.parameter for r in result.rubric)
@@ -160,9 +178,9 @@ def test_near_misses_false_keeps_matches_rubric_and_overlay_identical():
     assert lean.matches == full.matches and lean.rubric == full.rubric
     assert lean.near_misses == () and full.near_misses != ()
     # The strict episode's overlay is painted either way (ring overlays only with rings):
-    # 38 episode rows, one-bar-lagged, the last falling off the 38-row frame leaves 37.
+    # 41 episode rows, one-bar-lagged, the last falling off the 41-row frame leaves 40.
     aaa = frame_lean["ticker"] == "AAA"
-    assert frame_lean.loc[aaa, BASE_BREAKOUT_OVERLAY].eq(LEVEL).sum() == 37
+    assert frame_lean.loc[aaa, BASE_BREAKOUT_OVERLAY].eq(LEVEL).sum() == 40
 
 
 def test_dispatch_finds_the_finder_from_the_spec_uses():

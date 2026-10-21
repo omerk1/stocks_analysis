@@ -42,6 +42,7 @@ BREAKOUT = (102.0, 100.6, 101.0)   # close clears the level by > 0.25; high reac
 RALLY = (103.0, 101.0, 102.0)      # neither a retest (low > 100.5) nor a kill
 RETEST_HOLD = (101.5, 100.3, 100.6)  # low within 0.5 of the level, close holds above it
 KILL = (100.5, 98.0, 98.7)         # close more than 0.25 below the level
+AWAY = [RALLY] * 4                 # fills the 5-bar retest gap after the breakout
 
 
 def run(rows, **config_overrides) -> list[Episode]:
@@ -50,10 +51,10 @@ def run(rows, **config_overrides) -> list[Episode]:
 
 
 def test_clean_episode_base_breakout_then_holding_retest():
-    episodes = run(base(35) + [BREAKOUT, RALLY, RETEST_HOLD])
+    episodes = run(base(35) + [BREAKOUT] + AWAY + [RETEST_HOLD])
     assert len(episodes) == 1
     e = episodes[0]
-    assert (e.base_start, e.breakout, e.retest, e.end) == (0, 35, 37, 37)
+    assert (e.base_start, e.breakout, e.retest, e.end) == (0, 35, 40, 40)
     assert e.outcome == RETEST_HELD
     assert e.level == LEVEL and e.base_bars == 35
     assert e.depth_pct == pytest.approx(12.0)
@@ -61,8 +62,17 @@ def test_clean_episode_base_breakout_then_holding_retest():
 
 def test_close_exactly_at_the_level_holds():
     at_level = (101.0, 100.2, 100.0)
-    episodes = run(base(35) + [BREAKOUT, at_level])
-    assert episodes[0].outcome == RETEST_HELD and episodes[0].retest == 36
+    episodes = run(base(35) + [BREAKOUT] + AWAY + [at_level])
+    assert episodes[0].outcome == RETEST_HELD and episodes[0].retest == 40
+
+
+def test_a_retest_inside_the_gap_is_ignored():
+    # The pullback at bar 4 after the breakout is level chop; the one at bar 5 counts.
+    episodes = run(base(35) + [BREAKOUT] + [RALLY] * 3 + [RETEST_HOLD, RETEST_HOLD])
+    assert episodes[0].outcome == RETEST_HELD and episodes[0].retest == 40
+    episodes = run(base(35) + [BREAKOUT] + [RALLY] * 3 + [RETEST_HOLD, RETEST_HOLD],
+                   min_retest_gap_bars=1)
+    assert episodes[0].retest == 39
 
 
 def test_decisive_close_below_kills_before_any_retest():
@@ -97,6 +107,16 @@ def test_a_touch_must_come_within_the_retest_tolerance():
     assert run(rows) == []
 
 
+def test_touches_on_the_ramp_before_the_breakout_do_not_count():
+    # Touches 4 and 5 bars before the breakout are the ramp into it, not evidence of a
+    # tested ceiling — only turning the exclusion off makes them count.
+    rows = base(35, touches=0)
+    rows[30], rows[31] = TOUCH, TOUCH
+    rows += [BREAKOUT] + AWAY + [RETEST_HOLD]
+    assert run(rows) == []
+    assert len(run(rows, touch_exclude_bars=0)) == 1
+
+
 def test_a_marginal_close_above_is_not_a_breakout_and_restarts_the_base():
     # Close above the level but inside the 0.25-ATR margin: no episode starts, and the
     # bar's high becomes the new ceiling — the decisive close two bars later has a
@@ -113,15 +133,16 @@ AT_LEVEL = (100.6, 100.3, 100.4)       # would be a holding retest, if the rally
 
 
 def test_a_touch_before_the_rally_is_not_a_retest():
-    episodes = run(base(35) + [WEAK_BREAKOUT, AT_LEVEL, RALLY, RETEST_HOLD])
+    episodes = run(base(35) + [WEAK_BREAKOUT, AT_LEVEL, RALLY, RALLY, RALLY, RETEST_HOLD])
     e, = episodes
-    assert e.outcome == RETEST_HELD and e.retest == 38  # not the bar-36 touch
+    assert e.outcome == RETEST_HELD and e.retest == 40  # not the bar-36 touch
 
 
 def test_the_bar_that_arms_the_rally_cannot_be_the_retest():
     # RETEST_HOLD's own high reaches 1 ATR above the level — it arms, but intrabar
-    # order is unknowable, so the retest needs a strictly later bar.
-    episodes = run(base(35) + [WEAK_BREAKOUT, RETEST_HOLD, RETEST_HOLD])
+    # order is unknowable, so the retest needs a strictly later bar. (Gap switched off
+    # to isolate the arming rule.)
+    episodes = run(base(35) + [WEAK_BREAKOUT, RETEST_HOLD, RETEST_HOLD], min_retest_gap_bars=1)
     e, = episodes
     assert e.outcome == RETEST_HELD and e.retest == 37
 
@@ -157,9 +178,9 @@ def test_rally_closes_above_a_rising_max_do_not_start_overlapping_episodes():
 
 
 def test_detection_is_point_in_time():
-    rows = base(35) + [BREAKOUT, RALLY, RETEST_HOLD, RALLY, KILL]
+    rows = base(35) + [BREAKOUT] + AWAY + [RETEST_HOLD, RALLY, KILL]
     full = run(rows)
-    truncated = run(rows[:38])  # cut right at the retest bar
+    truncated = run(rows[:41])  # cut right at the retest bar
     assert full[0] == truncated[0]
 
 
@@ -172,10 +193,10 @@ def test_nan_atr_ends_the_episode_instead_of_reading_as_nothing_happened():
 
 
 def test_level_overlay_spans_each_episode_and_is_nan_elsewhere():
-    episodes = run(base(35) + [BREAKOUT, RALLY, RETEST_HOLD, RALLY])
-    overlay = level_overlay(39, episodes)
-    assert np.allclose(overlay[0:38], LEVEL)
-    assert np.isnan(overlay[38])
+    episodes = run(base(35) + [BREAKOUT] + AWAY + [RETEST_HOLD, RALLY])
+    overlay = level_overlay(42, episodes)
+    assert np.allclose(overlay[0:41], LEVEL)
+    assert np.isnan(overlay[41])
 
 
 def test_config_validation_refuses_degenerate_bounds():
@@ -187,3 +208,5 @@ def test_config_validation_refuses_degenerate_bounds():
         BreakoutRetestConfig(base_min_bars=1).validate()
     with pytest.raises(ValueError, match="non-negative"):
         BreakoutRetestConfig(min_extra_touches=-1).validate()
+    with pytest.raises(ValueError, match="retest gap"):
+        BreakoutRetestConfig(min_retest_gap_bars=0).validate()

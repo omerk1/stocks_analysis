@@ -15,9 +15,10 @@ Point-in-time by construction, bar by bar on plain OHLC:
   depth — (level − lowest low of the base) / level — must sit inside
   [`depth_min_pct`, `depth_max_pct`], and the level must be a *tested* ceiling: at
   least `min_extra_touches` later base bars must carry a high back within
-  `retest_tol_atr` ATRs of it. A single spike high with nothing near it again is not a
-  base ceiling. Too shallow is drift under a spike, not a base; too deep is a collapsed
-  stock, not a consolidation.
+  `retest_tol_atr` ATRs of it, not counting the last `touch_exclude_bars` bars before
+  the breakout — those are the ramp into the breakout, not evidence the ceiling held.
+  A single spike high with nothing near it again is not a base ceiling. Too shallow is
+  drift under a spike, not a base; too deep is a collapsed stock, not a consolidation.
 - **Breakout.** The first close clearing the level by more than `breakout_min_atr`
   ATRs. A poke above that closes less decisively is not a breakout — its high raises
   the running max, so the base restarts under the new, higher ceiling (the same thing
@@ -26,10 +27,12 @@ Point-in-time by construction, bar by bar on plain OHLC:
   per ticker at a time.
 - **Retest.** Only after price has rallied away — some bar strictly before the retest
   bar (the breakout bar itself counts) must carry a high at least `min_rally_atr` ATRs
-  above the level. Then, within `retest_window_bars` after the breakout, the first bar
-  whose low comes back within `retest_tol_atr` ATRs of the level *and* whose close
-  holds at or above it. That bar is the signal (`Episode.retest`). A touch before the
-  rally requirement is met neither triggers nor kills (a decisive close below still
+  above the level — and no sooner than `min_retest_gap_bars` bars after the breakout:
+  a dip-and-return within a couple of bars is chop at the level, not a round trip.
+  Then, within `retest_window_bars` after the breakout, the first bar whose low comes
+  back within `retest_tol_atr` ATRs of the level *and* whose close holds at or above
+  it. That bar is the signal (`Episode.retest`). A touch before the rally requirement
+  is met or inside the gap neither triggers nor kills (a decisive close below still
   kills at any time).
 - **Kill.** A close more than `kill_tol_atr` ATRs *below* the level before a holding
   retest ends the episode: the retest failed rather than held (the idea's before-entry
@@ -62,8 +65,10 @@ class BreakoutRetestConfig:
     depth_max_pct: float = 40.0
     base_lookback_bars: int = 504    # how far back the level search reaches (caps base length)
     min_extra_touches: int = 2       # base bars after the level-setting bar whose high comes back within retest_tol_atr of it
+    touch_exclude_bars: int = 5      # the last bars before the breakout whose touches don't count (the ramp)
     breakout_min_atr: float = 0.25   # the breakout close must clear the level by this many ATRs
     min_rally_atr: float = 1.0       # a bar before the retest must reach this many ATRs above the level
+    min_retest_gap_bars: int = 5     # the retest can't arrive sooner than this many bars after the breakout
     retest_window_bars: int = 40     # bars after the breakout a retest may arrive in
     retest_tol_atr: float = 0.5      # the retest low must come within this many ATRs of the level
     kill_tol_atr: float = 0.25       # a close this many ATRs below the level kills the episode
@@ -83,6 +88,8 @@ class BreakoutRetestConfig:
             raise ValueError("retest window must be >= 1 bar and tolerances non-negative")
         if self.min_extra_touches < 0 or self.breakout_min_atr < 0 or self.min_rally_atr < 0:
             raise ValueError("touch count, breakout margin and rally requirement must be non-negative")
+        if self.min_retest_gap_bars < 1 or self.touch_exclude_bars < 0:
+            raise ValueError("retest gap must be >= 1 bar and the ramp exclusion non-negative")
 
 
 @dataclass(frozen=True)
@@ -150,9 +157,11 @@ def detect(bars: pd.DataFrame, atr: pd.Series, config: BreakoutRetestConfig) -> 
         if not config.depth_min_pct <= depth_pct <= config.depth_max_pct:
             continue
         # A tested ceiling, not a single spike: later base bars whose high comes back
-        # within the retest tolerance of the level. NaN ATR bars never count (stricter).
-        touch_highs = high[base_start + 1:t]
-        touch_atr = atr_values[base_start + 1:t]
+        # within the retest tolerance of the level — the ramp bars right before the
+        # breakout excluded. NaN ATR bars never count (stricter).
+        touch_end = max(base_start + 1, t - config.touch_exclude_bars)
+        touch_highs = high[base_start + 1:touch_end]
+        touch_atr = atr_values[base_start + 1:touch_end]
         with np.errstate(invalid="ignore"):
             touches = int(np.sum(touch_highs >= level - config.retest_tol_atr * touch_atr))
         if touches < config.min_extra_touches:
@@ -176,7 +185,8 @@ def detect(bars: pd.DataFrame, atr: pd.Series, config: BreakoutRetestConfig) -> 
             if close[u] < level - config.kill_tol_atr * atr_values[u]:
                 outcome, end = KILLED, u
                 break
-            if armed and low[u] <= level + config.retest_tol_atr * atr_values[u] and close[u] >= level:
+            if (armed and u - t >= config.min_retest_gap_bars
+                    and low[u] <= level + config.retest_tol_atr * atr_values[u] and close[u] >= level):
                 retest, outcome, end = u, RETEST_HELD, u
                 break
             if high[u] >= level + config.min_rally_atr * atr_values[u]:
