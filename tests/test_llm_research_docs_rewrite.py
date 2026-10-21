@@ -25,6 +25,7 @@ def _hits(*ids: str) -> list[NodeWithScore]:
 
 def test_clean_drops_blanks_repeats_and_the_question_itself_and_keeps_at_most_n():
     assert clean("Q?", ["  a b ", "", "A B", "q?", "c"]) == ["a b", "c"]
+    assert clean("Why was  B5\ndropped?", ["why was B5 dropped", "Why was B5 retired?"]) == ["Why was B5 retired?"]
     assert len(clean("Q?", [f"r{n}" for n in range(N_REWRITES + 2)])) == N_REWRITES
     assert f"Write {N_REWRITES} other wordings" in SYSTEM  # the count the model is told is the one kept
 

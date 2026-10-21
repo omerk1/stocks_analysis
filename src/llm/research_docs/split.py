@@ -32,8 +32,6 @@ repeatable, and the retrieval eval and the answer run must search the same sub-q
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 import re
 import sys
 from collections.abc import Callable, Sequence
@@ -43,6 +41,7 @@ from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
+from src.llm.research_docs import cached
 from src.llm.research_docs.cached import ReplyCache
 from src.llm.research_docs.retrieve import TOP_K
 
@@ -90,8 +89,7 @@ def may_have_parts(question: str) -> bool:
 def prompt_id(model: str = DEFAULT_MODEL) -> str:
     """Which instructions made a split: the system prompt (with the `MAX_PARTS` cap in
     it), the reply schema and the model."""
-    parts = (SYSTEM, json.dumps(Split.model_json_schema(), sort_keys=True), model)
-    return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
+    return cached.prompt_id(SYSTEM, Split, model)
 
 
 def clean(question: str, subs: Sequence[str]) -> list[str]:
@@ -123,12 +121,7 @@ class Splitter:
     def __call__(self, question: str) -> list[str]:
         if not may_have_parts(question):
             return [question]
-        if hit := self.replies.get(question):  # cleaned as a fresh reply is, in case the file was edited
-            return clean(question, hit["sub_questions"])
-        reply = self.replies.ask(question, purpose=PURPOSE, system=SYSTEM, schema=Split)
-        subs = clean(question, reply.sub_questions)
-        self.replies.put(question, sub_questions=subs)
-        return subs
+        return self.replies.fetch(question, "sub_questions", clean, purpose=PURPOSE, system=SYSTEM, schema=Split)
 
 
 def merge(results: Sequence[Sequence[NodeWithScore]], k: int) -> list[NodeWithScore]:

@@ -11,6 +11,7 @@ cached run needs no API key.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Callable
@@ -21,6 +22,13 @@ from pydantic import BaseModel
 from src.llm.gemini import GeminiClient
 
 
+def prompt_id(system: str, schema: type[BaseModel], model: str) -> str:
+    """Which instructions made a reply: the system prompt, the reply schema and the model,
+    hashed exactly."""
+    parts = (system, json.dumps(schema.model_json_schema(), sort_keys=True), model)
+    return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
+
+
 class ReplyCache:
     def __init__(self, client: Callable[[], GeminiClient], path: Path | None, pid: str, model: str):
         self.make_client, self.client, self.path, self.pid, self.model = client, None, path, pid, model
@@ -29,7 +37,18 @@ class ReplyCache:
     def get(self, question: str) -> dict | None:
         """The stored entry, if it was made with this prompt id."""
         hit = self.known.get(question)
-        return hit if hit and hit["prompt"] == self.pid else None
+        return hit if hit and hit.get("prompt") == self.pid else None
+
+    def fetch(self, question: str, field: str, clean: Callable[[str, list[str]], list[str]], *, purpose: str,
+              system: str, schema: type[BaseModel]) -> list[str]:
+        """The list `field` for the question: the stored one, or one asked for and stored,
+        either way passed through `clean(question, items)` (a stored one too, in case the
+        file was edited)."""
+        if hit := self.get(question):
+            return clean(question, hit[field])
+        items = clean(question, getattr(self.ask(question, purpose=purpose, system=system, schema=schema), field))
+        self.put(question, **{field: items})
+        return items
 
     def ask(self, question: str, *, purpose: str, system: str, schema: type[BaseModel]) -> BaseModel:
         """One structured, temperature-0 call with the question as the prompt."""

@@ -7,7 +7,7 @@ asker says one word and the doc another, the answering chunk can miss hybrid sea
 `rerank.DEPTH`, and the re-ranker can only reorder what it is given (`docs/done.md` #161:
 three multi-part misses that splitting couldn't fix were of this kind).
 
-1. **Rewordings.** One Gemini call (`SYSTEM`, about 400-500 tokens) writes `N_REWRITES`
+1. **Rewordings.** One Gemini call (`SYSTEM`, about 290 tokens on the dev questions) writes `N_REWRITES`
    other wordings of the question, using other terms for its key words and keeping every
    name, id and number. Every question gets the call: no rule on the text alone can tell
    which questions are worded unlike their answer.
@@ -29,8 +29,6 @@ question costs up to four times the re-ranking time. Rewordings are cached like 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -39,6 +37,7 @@ from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
+from src.llm.research_docs import cached
 from src.llm.research_docs.cached import ReplyCache
 from src.llm.research_docs.keyword import KeywordIndex, hybrid_search
 from src.llm.research_docs.rerank import DEPTH, Scorer, rerank
@@ -77,16 +76,19 @@ class Rewrites(BaseModel):
 def prompt_id(model: str = DEFAULT_MODEL) -> str:
     """Which instructions made the rewordings: the system prompt (with `N_REWRITES` in
     it), the reply schema and the model."""
-    parts = (SYSTEM, json.dumps(Rewrites.model_json_schema(), sort_keys=True), model)
-    return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
+    return cached.prompt_id(SYSTEM, Rewrites, model)
 
 
 def clean(question: str, rewrites: Sequence[str]) -> list[str]:
-    """The model's rewordings, stripped, without blanks, repeats or the question itself,
-    at most `N_REWRITES`."""
+    """The model's rewordings, stripped, without blanks, repeats or the question itself
+    (compared with whitespace collapsed and case and a trailing "?" ignored), at most
+    `N_REWRITES`."""
+    def key(text: str) -> str:
+        return " ".join(text.split()).lower().rstrip("?").rstrip()
+
     out: list[str] = []
     for r in (" ".join(r.split()) for r in rewrites):
-        if r and r.lower() not in {question.lower(), *(o.lower() for o in out)}:
+        if r and key(r) not in {key(question), *map(key, out)}:
             out.append(r)
     return out[:N_REWRITES]
 
@@ -99,12 +101,7 @@ class Rewriter:
         self.replies = ReplyCache(client, cache, prompt_id(model), model)
 
     def __call__(self, question: str) -> list[str]:
-        if hit := self.replies.get(question):
-            return clean(question, hit["rewrites"])
-        rewrites = clean(question, self.replies.ask(question, purpose=PURPOSE, system=SYSTEM,
-                                                    schema=Rewrites).rewrites)
-        self.replies.put(question, rewrites=rewrites)
-        return rewrites
+        return self.replies.fetch(question, "rewrites", clean, purpose=PURPOSE, system=SYSTEM, schema=Rewrites)
 
 
 def pool(index: VectorStoreIndex, keywords: KeywordIndex, queries: Sequence[str],
