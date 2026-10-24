@@ -80,9 +80,9 @@ class BreakoutRetestConfig:
                 f"[{self.depth_min_pct:g}, {self.depth_max_pct:g}]")
         if self.base_min_bars < 2:
             raise ValueError(f"base_min_bars must be at least 2, got {self.base_min_bars}")
-        if self.base_min_bars >= self.base_lookback_bars:
+        if self.base_min_bars > self.base_lookback_bars:
             raise ValueError(
-                f"base_min_bars ({self.base_min_bars}) must be below the level search lookback "
+                f"base_min_bars ({self.base_min_bars}) exceeds the level search lookback "
                 f"({self.base_lookback_bars}) — no base that long can be found")
         if self.base_max_bars is not None and self.base_max_bars < self.base_min_bars:
             raise ValueError(

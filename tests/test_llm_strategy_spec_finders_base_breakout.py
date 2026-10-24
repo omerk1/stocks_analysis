@@ -2,7 +2,8 @@
 the ten near-miss rings, the rubric's source labels, the in-place overlay column, and
 the refusals.
 
-The panel is built from explicit (high, low, close) rows with ATR pinned at 1 — the base
+The panel is built from explicit (high, low, close) rows with ATR pinned at 1 (the
+finder's `same_bar_atr` is swapped for the fixture's `true_atr` column) — the base
 high (the level) is 100, so the retest tolerance 0.5 reads as "low <= 100.5" and the kill
 tolerance 0.25 as "close < 99.75". Detection runs on unlagged OHLC, so unlike the MA
 finder's tests nothing here is shifted: the match date IS the engineered retest bar.
@@ -12,9 +13,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.foundation.market_common import indicators
+from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
 from src.llm.strategy_spec.schema import Duration, Rule, Size, StrategySpec, Trigger
+
+
+@pytest.fixture(autouse=True)
+def pinned_atr(monkeypatch):
+    monkeypatch.setattr(finders, "same_bar_atr", lambda frame: frame["true_atr"])
 
 LEVEL = 100.0
 TOUCH = (99.6, 95.0, 96.0)  # high back within 0.5 ATR of the level without exceeding it
@@ -56,23 +64,15 @@ GAP_RING = base(35) + [BREAKOUT, RALLY, RALLY, RETEST_HOLD] + [RALLY] * 45  # re
 TOL_RING = base(35) + [BREAKOUT] + AWAY + [RETEST_LOOSE] + [RALLY] * 45  # never retests strictly
 
 
-PAD = (95.0, 92.0, 93.0)  # one quiet bar after each sequence: the stored-lagged ATR of
-                          # a ticker's last bar isn't in the panel, so the bar being
-                          # judged must not be the last one
-
-
 def panel(ticker_rows: dict[str, list[tuple[float, float, float]]],
-          start: str = "2015-01-02", true_atr: dict[str, list[float]] | None = None) -> pd.DataFrame:
-    """Engineered rows plus PAD; `atr_14` is stored one-bar-lagged like the real panel's
-    (`features/panel.py::apply_lag`) — the true ATR is 1 unless `true_atr` gives one."""
+          start: str = "2015-01-02") -> pd.DataFrame:
     frames = []
     for ticker, rows in ticker_rows.items():
-        frame = pd.DataFrame(rows + [PAD], columns=["high", "low", "close"])
+        frame = pd.DataFrame(rows, columns=["high", "low", "close"])
         frame.insert(0, "ticker", ticker)
         frame.insert(1, "date", pd.bdate_range(start, periods=len(frame)))
         frame["open"] = frame["close"]
-        atr = pd.Series((true_atr or {}).get(ticker, [1.0] * len(rows)) + [1.0])
-        frame["atr_14"] = atr.shift(1).to_numpy()
+        frame["true_atr"] = 1.0
         frames.append(frame)
     return (pd.concat(frames, ignore_index=True)
             .sort_values(["ticker", "date"]).reset_index(drop=True))
@@ -102,9 +102,10 @@ def test_finds_the_match_on_the_retest_bar_and_paints_the_overlay():
     assert (result.overlay_column, result.overlay_name) == (BASE_BREAKOUT_OVERLAY, "breakout level")
     # The overlay was added to the caller's panel in place, one-bar-lagged: the level
     # spans the episode (base start through the retest, positions 0-40), shifted one
-    # row forward onto rows 1-41 (41 is the padding bar).
+    # row forward — the retest bar's own value lands past the 41-row frame's end. The
+    # match itself sits on the ticker's LAST bar: a final-bar signal still fires.
     overlay = frame[BASE_BREAKOUT_OVERLAY]
-    assert overlay.iloc[1:42].eq(LEVEL).all() and np.isnan(overlay.iloc[0])
+    assert overlay.iloc[1:41].eq(LEVEL).all() and np.isnan(overlay.iloc[0])
 
 
 def test_each_ring_yields_its_near_miss_and_no_match():
@@ -186,19 +187,25 @@ def test_near_misses_false_keeps_matches_rubric_and_overlay_identical():
     assert lean.matches == full.matches and lean.rubric == full.rubric
     assert lean.near_misses == () and full.near_misses != ()
     # The strict episode's overlay is painted either way (ring overlays only with rings):
-    # 41 episode rows, one-bar-lagged into the 42-row (padded) frame.
+    # 41 episode rows, one-bar-lagged, the last falling off the 41-row frame leaves 40.
     aaa = frame_lean["ticker"] == "AAA"
-    assert frame_lean.loc[aaa, BASE_BREAKOUT_OVERLAY].eq(LEVEL).sum() == 41
+    assert frame_lean.loc[aaa, BASE_BREAKOUT_OVERLAY].eq(LEVEL).sum() == 40
 
 
-def test_atr_thresholds_use_each_bars_own_atr_not_the_lagged_column():
-    # The retest bar's true ATR is 1 (tolerance: low <= 100.5, and 100.3 qualifies); the
-    # bar before it has ATR 0.2. Read straight from the stored-lagged column, the retest
-    # bar would see 0.2 (tolerance 100.1) and never fire.
-    atr = [1.0] * len(MATCH)
-    atr[39] = 0.2
-    result = find_base_breakout_retest(spec(), panel({"AAA": MATCH}, true_atr={"AAA": atr}))
-    assert [c.date for c in result.matches] == [signal_date(MATCH, 40)]
+def test_same_bar_atr_is_point_in_time_and_aligned_to_its_own_bar(monkeypatch):
+    monkeypatch.undo()  # the real ATR, not the pinned one
+    rng = np.random.default_rng(3)
+    close = 100 + np.cumsum(rng.normal(0, 1, 80))
+    frame = pd.DataFrame({"high": close + rng.uniform(0.1, 2, 80),
+                          "low": close - rng.uniform(0.1, 2, 80), "close": close},
+                         index=range(500, 580))  # a non-zero-based slice, like a panel's
+    atr = finders.same_bar_atr(frame)
+    assert atr.index.equals(frame.index) and atr.iloc[-1] == atr.iloc[-1]  # last bar defined
+    # Bar t's value uses bars up to t only, and is bar t's own (not t-1's): truncating
+    # the history right after t leaves it unchanged.
+    for t in (30, 55, 79):
+        truncated = indicators.atr(frame.iloc[:t + 1].reset_index(drop=True), 14)
+        assert atr.iloc[t] == pytest.approx(float(np.asarray(truncated)[-1]))
 
 
 def test_an_unstated_default_never_contradicts_a_stated_bound():
@@ -233,6 +240,8 @@ def test_dispatch_finds_the_finder_from_the_spec_uses():
     (dict(size=Size(normalisation="pct", min=40.0, max=10.0)), "detectable definition"),
     (dict(duration=Duration(min_bars=40, max_bars=30)), "bounds are empty"),
     (dict(duration=Duration(min_bars=600)), "level search lookback"),
+    (dict(duration=Duration(max_bars=1)), "at least 2 bars"),
+    (dict(size=Size(normalisation="pct", min=99.5)), "no room"),
 ])
 def test_refusals_name_the_problem(bad_spec, message):
     with pytest.raises(GroundingError, match=message):
@@ -241,8 +250,8 @@ def test_refusals_name_the_problem(bad_spec, message):
 
 def test_missing_panel_column_and_unsorted_panel_are_refused():
     frame = panel({"AAA": MATCH})
-    with pytest.raises(GroundingError, match="atr_14"):
-        find_base_breakout_retest(spec(), frame.drop(columns=["atr_14"]))
+    with pytest.raises(GroundingError, match="'low'"):
+        find_base_breakout_retest(spec(), frame.drop(columns=["low"]))
     shuffled = frame.sample(frac=1.0, random_state=7).reset_index(drop=True)
     with pytest.raises(GroundingError, match="date-sorted"):
         find_base_breakout_retest(spec(), shuffled)
