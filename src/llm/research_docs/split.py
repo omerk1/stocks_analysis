@@ -32,9 +32,6 @@ repeatable, and the retrieval eval and the answer run must search the same sub-q
 from __future__ import annotations
 
 import argparse
-import hashlib
-import json
-import os
 import re
 import sys
 from collections.abc import Callable, Sequence
@@ -44,6 +41,7 @@ from llama_index.core.schema import NodeWithScore
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import DEFAULT_MODEL, Budget, GeminiClient
+from src.llm.research_docs import cached
 from src.llm.research_docs.retrieve import TOP_K
 
 PURPOSE = "research_docs.split"
@@ -90,17 +88,16 @@ def may_have_parts(question: str) -> bool:
 def prompt_id(model: str = DEFAULT_MODEL) -> str:
     """Which instructions made a split: the system prompt (with the `MAX_PARTS` cap in
     it), the reply schema and the model."""
-    parts = (SYSTEM, json.dumps(Split.model_json_schema(), sort_keys=True), model)
-    return hashlib.sha256("\n\x00\n".join(parts).encode()).hexdigest()[:16]
+    return cached.prompt_id(SYSTEM, Split, model)
 
 
 def clean(question: str, subs: Sequence[str]) -> list[str]:
-    """The model's sub-questions, stripped, without blanks or repeats, at most
-    `MAX_PARTS` (a warning says what was cut); the original question when fewer than two
-    are left."""
+    """The model's sub-questions, stripped, without blanks or repeats (compared by
+    `cached.same_text`), at most `MAX_PARTS` (a warning says what was cut); the original
+    question when fewer than two are left."""
     out: list[str] = []
     for s in (" ".join(s.split()) for s in subs):
-        if s and s.lower() not in (o.lower() for o in out):
+        if s and cached.same_text(s) not in map(cached.same_text, out):
             out.append(s)
     if len(out) > MAX_PARTS:
         print(f"warning: split into {len(out)}, searching the first {MAX_PARTS}: {question!r}", file=sys.stderr)
@@ -118,30 +115,12 @@ class Splitter:
     run needs no API key."""
 
     def __init__(self, client: Callable[[], GeminiClient], cache: Path | None = None, model: str = DEFAULT_MODEL):
-        self.make_client, self.client, self.cache, self.model = client, None, cache, model
-        self.pid = prompt_id(model)
-        self.known: dict[str, dict] = json.loads(cache.read_text()) if cache and cache.exists() else {}
+        self.replies = cached.ReplyCache(client, cache, prompt_id(model), model)
 
     def __call__(self, question: str) -> list[str]:
         if not may_have_parts(question):
             return [question]
-        hit = self.known.get(question)
-        if hit and hit["prompt"] == self.pid:  # cleaned as a fresh reply is, in case the file was edited
-            return clean(question, hit["sub_questions"])
-        if self.client is None:
-            client = self.make_client()
-            if getattr(client, "model", self.model) != self.model:  # its splits would be cached under `model`
-                raise ValueError(f"the client runs {client.model}, the cache is keyed by {self.model}")
-            self.client = client
-        reply = self.client.generate(question, purpose=PURPOSE, system=SYSTEM, response_schema=Split,
-                                     temperature=0.0)
-        subs = clean(question, reply.parsed.sub_questions)
-        self.known[question] = {"prompt": self.pid, "sub_questions": subs}
-        if self.cache:
-            tmp = self.cache.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.known, indent=1, ensure_ascii=False))
-            os.replace(tmp, self.cache)
-        return subs
+        return self.replies.fetch(question, "sub_questions", clean, purpose=PURPOSE, system=SYSTEM, schema=Split)
 
 
 def merge(results: Sequence[Sequence[NodeWithScore]], k: int) -> list[NodeWithScore]:
