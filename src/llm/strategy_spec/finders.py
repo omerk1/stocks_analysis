@@ -338,8 +338,10 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     minimum rally before the retest) have no structured slot and fall back to defaults,
     each disclosed in the rubric.
 
-    Unlike the MA finder, detection runs on the panel's **unlagged** OHLC columns, so no
-    unlag shift is needed: an instance's date is the retest (signal) bar itself. The
+    Detection runs on the panel's **unlagged** OHLC columns, so an instance's date is the
+    retest (signal) bar itself. `atr_14`, like every panel feature, is stored
+    one-bar-lagged — it is shifted back onto its own bar (`shift_to_signal_bar`) so every
+    ATR threshold on bar u uses bar u's ATR, matching the prices it's compared with. The
     chart overlay (the breakout level) travels on each candidate as its `overlay_span`
     — episodes on one ticker can overlap, so a shared column can't be trusted per chart.
     The finder still **adds the column to `panel` in place** as `base_breakout_level`
@@ -394,8 +396,14 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
                                  "high was set", "spec"))
     else:
         base_min = base_breakout.BreakoutRetestConfig.base_min_bars
+        detail = "your spec didn't state this as a number"
+        stated_max = duration.max_bars if stated_duration else None
+        if stated_max is not None and base_min > stated_max:
+            # An unstated floor must not contradict the stated cap ("a base of at most 20 bars").
+            base_min = max(2, stated_max // 2)
+            detail += f" — halved from the usual default to sit under your {stated_max}-bar cap"
         rubric.append(RubricLine("base length floor", f">= {base_min} bars since the base "
-                                 "high was set", "default", "your spec didn't state this as a number"))
+                                 "high was set", "default", detail))
     lookback = base_breakout.BreakoutRetestConfig.base_lookback_bars
     if stated_duration and duration.max_bars is not None:
         base_max = duration.max_bars
@@ -410,15 +418,26 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
         rubric.append(RubricLine("base depth floor", f">= {depth_min:g}% below the base high", "spec"))
     else:
         depth_min = base_breakout.BreakoutRetestConfig.depth_min_pct
+        stated_max = size.max if size is not None else None
+        detail = "your spec didn't state this as a number"
+        if stated_max is not None and depth_min >= stated_max:
+            # An unstated floor must not contradict the stated cap ("no more than 8% deep").
+            depth_min = stated_max / 2
+            detail += f" — halved from the usual default to sit under your {stated_max:g}% cap"
         rubric.append(RubricLine("base depth floor", f">= {depth_min:g}% below the base high",
-                                 "default", "your spec didn't state this as a number"))
+                                 "default", detail))
     if size is not None and size.max is not None:
         depth_max = size.max
         rubric.append(RubricLine("base depth cap", f"<= {depth_max:g}% below the base high", "spec"))
     else:
         depth_max = base_breakout.BreakoutRetestConfig.depth_max_pct
+        detail = "your spec didn't state this as a number"
+        if depth_min >= depth_max:
+            # An unstated cap must not contradict the stated floor ("at least 50% deep").
+            depth_max = min(99.0, depth_min * 1.5)
+            detail += f" — raised from the usual default to sit above your {depth_min:g}% floor"
         rubric.append(RubricLine("base depth cap", f"<= {depth_max:g}% below the base high",
-                                 "default", "your spec didn't state this as a number"))
+                                 "default", detail))
 
     config = base_breakout.BreakoutRetestConfig(
         base_min_bars=base_min, base_max_bars=base_max,
@@ -470,15 +489,18 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
                                      "rule text isn't read — if it restates a parameter above "
                                      "it is already applied; anything else is ignored"))
 
+    same_bar_atr = shift_to_signal_bar(panel, "atr_14")
     frames: dict[str, pd.DataFrame] = {}
+    atrs: dict[str, pd.Series] = {}
     for ticker, frame in panel.groupby("ticker", sort=False):
         if not frame["date"].is_monotonic_increasing:
             raise GroundingError(f"panel rows for {ticker!r} aren't date-sorted — "
                                  "pass a (ticker, date)-sorted feature panel")
         frames[ticker] = frame
+        atrs[ticker] = same_bar_atr.loc[frame.index]
 
     def episodes_for(run_config) -> dict[str, list[base_breakout.Episode]]:
-        return {ticker: base_breakout.detect(frame, frame["atr_14"], run_config)
+        return {ticker: base_breakout.detect(frame, atrs[ticker], run_config)
                 for ticker, frame in frames.items()}
 
     def held(episodes: dict[str, list[base_breakout.Episode]]) -> dict[str, dict[int, base_breakout.Episode]]:
@@ -592,10 +614,12 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     shown_episodes.extend((ticker, e) for ticker, by_position in strict.items()
                           for e in by_position.values())
     overlay = pd.Series(np.nan, index=panel.index, dtype="float64")
+    by_ticker: dict[str, list[base_breakout.Episode]] = {}
     for ticker, episode in shown_episodes:
-        frame = frames[ticker]
-        span = frame.index[episode.base_start:episode.end + 1]
-        overlay.loc[span] = episode.level
+        by_ticker.setdefault(ticker, []).append(episode)
+    for ticker, episodes in by_ticker.items():
+        rows = frames[ticker].index
+        overlay.loc[rows] = base_breakout.level_overlay(len(rows), episodes)
     # Stored one-bar-lagged like every panel feature; the session runner shifts it back.
     panel[BASE_BREAKOUT_OVERLAY] = overlay.groupby(panel["ticker"]).shift(1)
 
