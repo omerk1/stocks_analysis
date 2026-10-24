@@ -75,17 +75,28 @@ def test_ev_uses_decision_time_prices_not_the_entry():
 
 def test_top_k_picks_costs_and_ties():
     f = _frame(n_dates=2, names=4)
-    f["p_up"] = [0.6, 0.6, 0.2, 0.1] * 2   # T000/T001 tie on EV; ticker breaks it
+    f["p_up"] = [0.6, 0.6, 0.2, 0.1] * 2   # T000/T001 tie on EV; the tie key breaks it
     f["p_down"] = 0.2
     f["p_neither"] = 1 - f["p_up"] - f["p_down"]
-    f["hit"] = [1.0, -1.0, 1.0, 0.0] * 2
-    f["ret"] = [0.05, -0.02, 0.04, 0.0] * 2
+    # the tied pair share an outcome, so the pick's result doesn't depend on which one wins
+    f["hit"] = [1.0, 1.0, -1.0, 0.0] * 2
+    f["ret"] = [0.05, 0.05, -0.02, 0.0] * 2
     daily = metrics.top_k_daily(f, CELL, neither_ret=0.0, k=1)
     assert (daily["hit_rate"] == 1.0).all() and np.allclose(daily["ret"], 0.05)
     np.testing.assert_allclose(daily["ret_net_10bps"], 0.049)
     np.testing.assert_allclose(daily["ret_net_25bps"], 0.0475)
     big = metrics.top_k_daily(f, CELL, neither_ret=0.0, k=20)
     assert (big["n_picked"] == 4).all()
+
+
+def test_top_k_breaks_ties_by_the_key_not_the_name():
+    days = pd.bdate_range("2020-01-01", periods=100)
+    f = pd.DataFrame({"date": np.repeat(days, 30), "ticker": np.tile([f"T{i:02d}" for i in range(30)], 100),
+                      "score": 1.0})
+    got = metrics.top_k(f, "score", 3)
+    assert got.equals(metrics.top_k(f.sample(frac=1, random_state=0), "score", 3).loc[got.index])
+    # 300 picks over 30 names, ~10 each; by name, T00-T02 would take all 300
+    assert got["ticker"].isin(["T00", "T01", "T02"]).sum() < 60
 
 
 def test_cell_metrics_not_computable_below_the_block_minimum():

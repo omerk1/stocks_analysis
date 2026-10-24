@@ -89,6 +89,12 @@ class ReplyError(RuntimeError):
     shape). The tokens were spent and are in the ledger."""
 
 
+class ShapeError(ReplyError):
+    """A complete reply that isn't the requested shape (say, plain text where a JSON
+    object was asked for). At temperature 0 a retry tends to repeat it, unlike a blocked
+    or cut-off reply."""
+
+
 @dataclass(frozen=True)
 class Usage:
     prompt_tokens: int
@@ -259,7 +265,7 @@ class GeminiClient:
             try:
                 parsed = response_schema.model_validate_json(text)
             except ValidationError as e:
-                raise ReplyError(f"reply doesn't match {response_schema.__name__}: {e}") from e
+                raise ShapeError(f"reply doesn't match {response_schema.__name__}: {e}") from e
         return Reply(text=text, parsed=parsed, usage=usage, finish_reason=finish_reason)
 
     def _record(self, purpose: str, usage: Usage, estimated: bool = False) -> None:
