@@ -52,10 +52,10 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from src.foundation.market_common import indicators
 from src.llm.strategy_spec.schema import StrategySpec
 from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
+from src.signals.moving_averages.features import panel as panel_features
 from src.signals.moving_averages.features import touch
 
 RELAX_FACTOR = 1.5
@@ -323,13 +323,25 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
 
 
 BASE_BREAKOUT_OVERLAY = "base_breakout_level"
-BASE_BREAKOUT_ATR_PERIOD = 14
 
 
 def same_bar_atr(frame: pd.DataFrame) -> pd.Series:
-    """ATR(14) of one ticker's date-sorted bars, aligned to those bars: bar t's value uses
-    bars up to and including t — the same bar the detector compares prices on."""
-    return pd.Series(indicators.atr(frame, BASE_BREAKOUT_ATR_PERIOD), index=frame.index)
+    """Bar t's own ATR(14) for one ticker's date-sorted panel rows, from the panel's
+    one-bar-lagged `atr_14` (row t holds ATR(t-1), built on the full loaded history) and
+    bar t's true range, by Wilder's one-step update: ATR(t) = ((n-1)·ATR(t-1) + TR(t)) / n.
+    Every row gets its value — the last included — with no warmup restarting where the
+    panel was cut. Matches the panel's next-row value to float32 precision. A ticker's
+    first panel row has no previous close for the true range, so it takes the next row's
+    stored value instead (that is ATR(t) itself)."""
+    n = panel_features.ATR_PERIOD
+    stored = frame["atr_14"].astype("float64")
+    previous_close = frame["close"].shift(1)
+    true_range = pd.concat([frame["high"] - frame["low"],
+                            (frame["high"] - previous_close).abs(),
+                            (frame["low"] - previous_close).abs()], axis=1).max(axis=1, skipna=False)
+    rolled = (stored * (n - 1) + true_range) / n
+    rolled.iloc[:1] = stored.shift(-1).iloc[:1]
+    return rolled
 
 
 def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
@@ -347,10 +359,11 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     each disclosed in the rubric.
 
     Detection runs on the panel's **unlagged** OHLC columns, so an instance's date is the
-    retest (signal) bar itself. The ATR behind every threshold is computed here from
-    those same bars (`same_bar_atr`), not read from the panel's `atr_14`: that column is
-    stored one-bar-lagged, and undoing the lag loses each ticker's last bar (a delisted
-    ticker's final retest could never fire). The
+    retest (signal) bar itself. Every ATR threshold on bar u uses bar u's own ATR
+    (`same_bar_atr`): the panel's `atr_14` is stored one-bar-lagged, so it's rolled one
+    Wilder step forward with bar u's true range rather than shifted back (which would
+    leave each ticker's last bar without an ATR) or recomputed from the panel slice
+    (whose warmup would restart wherever the panel was cut). The
     chart overlay (the breakout level) travels on each candidate as its `overlay_span`
     — episodes on one ticker can overlap, so a shared column can't be trusted per chart.
     The finder still **adds the column to `panel` in place** as `base_breakout_level`
@@ -360,7 +373,7 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
     `near_misses=False` skips the ten relaxed ring passes (most of the detection
     cost); matches, rubric and refusals are identical either way.
     """
-    for needed in ("ticker", "date", "high", "low", "close"):
+    for needed in ("ticker", "date", "high", "low", "close", "atr_14"):
         if needed not in panel.columns:
             raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
     if spec.timeframe is None:
@@ -399,6 +412,9 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
 
     duration = spec.duration
     stated_duration = duration is not None and not duration.not_applicable
+    if stated_duration and duration.max_bars is not None and duration.max_bars < 2:
+        raise GroundingError(f"the spec caps the base at {duration.max_bars} bar(s) — a base "
+                             "needs at least 2 bars; restate the duration")
     if stated_duration and duration.min_bars is not None:
         base_min = duration.min_bars
         rubric.append(RubricLine("base length floor", f">= {base_min} bars since the base "
@@ -409,9 +425,6 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
         stated_max = duration.max_bars if stated_duration else None
         if stated_max is not None and base_min > stated_max:
             # An unstated floor must not contradict the stated cap ("a base of at most 20 bars").
-            if stated_max < 2:
-                raise GroundingError(f"the spec caps the base at {stated_max} bar(s) — a base "
-                                     "needs at least 2 bars; restate the duration")
             base_min = max(2, stated_max // 2)
             detail += f" — lowered from the usual default to sit under your {stated_max}-bar cap"
         rubric.append(RubricLine("base length floor", f">= {base_min} bars since the base "

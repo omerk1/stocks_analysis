@@ -73,6 +73,7 @@ def panel(ticker_rows: dict[str, list[tuple[float, float, float]]],
         frame.insert(1, "date", pd.bdate_range(start, periods=len(frame)))
         frame["open"] = frame["close"]
         frame["true_atr"] = 1.0
+        frame["atr_14"] = 1.0  # required column; detection reads ATR via same_bar_atr
         frames.append(frame)
     return (pd.concat(frames, ignore_index=True)
             .sort_values(["ticker", "date"]).reset_index(drop=True))
@@ -192,20 +193,31 @@ def test_near_misses_false_keeps_matches_rubric_and_overlay_identical():
     assert frame_lean.loc[aaa, BASE_BREAKOUT_OVERLAY].eq(LEVEL).sum() == 40
 
 
-def test_same_bar_atr_is_point_in_time_and_aligned_to_its_own_bar(monkeypatch):
-    monkeypatch.undo()  # the real ATR, not the pinned one
+def test_same_bar_atr_rolls_the_lagged_column_onto_its_own_bar(monkeypatch):
+    monkeypatch.undo()  # the real helper, not the pinned one
     rng = np.random.default_rng(3)
-    close = 100 + np.cumsum(rng.normal(0, 1, 80))
-    frame = pd.DataFrame({"high": close + rng.uniform(0.1, 2, 80),
-                          "low": close - rng.uniform(0.1, 2, 80), "close": close},
-                         index=range(500, 580))  # a non-zero-based slice, like a panel's
-    atr = finders.same_bar_atr(frame)
-    assert atr.index.equals(frame.index) and atr.iloc[-1] == atr.iloc[-1]  # last bar defined
-    # Bar t's value uses bars up to t only, and is bar t's own (not t-1's): truncating
-    # the history right after t leaves it unchanged.
-    for t in (30, 55, 79):
-        truncated = indicators.atr(frame.iloc[:t + 1].reset_index(drop=True), 14)
-        assert atr.iloc[t] == pytest.approx(float(np.asarray(truncated)[-1]))
+    close = 100 + np.cumsum(rng.normal(0, 1, 120))
+    bars = pd.DataFrame({"high": close + rng.uniform(0.1, 2, 120),
+                         "low": close - rng.uniform(0.1, 2, 120), "close": close})
+    truth = pd.Series(np.asarray(indicators.atr(bars, 14), dtype="float64"))  # ATR(t) on bar t
+    stored = bars.assign(atr_14=truth.shift(1))  # the panel's convention: row t holds ATR(t-1)
+    # A panel cut mid-history (rows 60+, non-zero-based index): every row — the last
+    # included — still gets bar t's own full-history ATR, no warmup restart.
+    cut = stored.iloc[60:]
+    assert np.allclose(finders.same_bar_atr(cut), truth.iloc[60:].to_numpy(), rtol=1e-9)
+
+
+def test_the_finder_reads_each_bars_own_atr(monkeypatch):
+    # Bar 40 is the retest (low 100.3, tolerance 0.5 x ATR). A dip in ATR on bar 39 must
+    # not matter; the same dip on bar 40 itself shrinks the tolerance to 0.1 and kills
+    # the match — so any one-bar misalignment of ATR to prices fails one of the two.
+    for dip_bar, fires in ((39, True), (40, False)):
+        atr = pd.Series(1.0, index=range(len(MATCH)))
+        atr.iloc[dip_bar] = 0.2
+        monkeypatch.setattr(finders, "same_bar_atr",
+                            lambda frame, atr=atr: pd.Series(atr.to_numpy(), index=frame.index))
+        result = find_base_breakout_retest(spec(), panel({"AAA": MATCH}))
+        assert bool(result.matches) is fires, dip_bar
 
 
 def test_an_unstated_default_never_contradicts_a_stated_bound():
@@ -241,6 +253,7 @@ def test_dispatch_finds_the_finder_from_the_spec_uses():
     (dict(duration=Duration(min_bars=40, max_bars=30)), "bounds are empty"),
     (dict(duration=Duration(min_bars=600)), "level search lookback"),
     (dict(duration=Duration(max_bars=1)), "at least 2 bars"),
+    (dict(duration=Duration(min_bars=1, max_bars=1)), "at least 2 bars"),
     (dict(size=Size(normalisation="pct", min=99.5)), "no room"),
 ])
 def test_refusals_name_the_problem(bad_spec, message):
