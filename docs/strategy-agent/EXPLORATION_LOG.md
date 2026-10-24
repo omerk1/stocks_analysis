@@ -30,3 +30,7 @@ clustered events no longer attenuate each other); supersedes the lines above.
 - 2026-10-16 [look] First touch of a moving average after being away (long): h5 ΔC2 -0.02% [-0.10%,+0.05%] effN 2080d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z
 - 2026-10-16 [look] First touch of a moving average after being away (short): h5 ΔC2 +0.00% [-0.07%,+0.09%] effN 2056d — looks dead vs ±0.10%/event; session data/llm/look_sessions/20261016T115622_327030Z
 - 2026-10-16 [look] First touch (both sides), 2019–2020 sub-window only — a CLI plumbing check, not a fresh question: long h5 ΔC2 +0.02% [-0.15%,+0.19%] effN 369d, short +0.14% [-0.05%,+0.36%] effN 392d, both inconclusive (expected at a sixth of the data); session data/llm/look_sessions/20261016T122350_937461Z
+
+## 2026-10-24
+
+- 2026-10-24 [look] Breakout of a long multi-touch base, then a holding retest (long; first live idea, detector `base_breakout.retest`; grounding plateaued, last round 2 of 6 matches accepted, so this tests an approximation of the idea): h10 ΔC2 -0.38% [-0.71%,-0.06%] effN 332d — inconclusive; h21 ΔC2 -0.55% [-0.89%,-0.21%] effN 329d — looks inverted vs ±0.10%/event; h63 ΔC2 -0.14% (no CI: 321 dates < 3 blocks of 126) — inconclusive; session data/llm/look_sessions/20261024T170926_697437Z
