@@ -205,6 +205,20 @@ def test_same_bar_atr_rolls_the_lagged_column_onto_its_own_bar(monkeypatch):
     # included — still gets bar t's own full-history ATR, no warmup restart.
     cut = stored.iloc[60:]
     assert np.allclose(finders.same_bar_atr(cut), truth.iloc[60:].to_numpy(), rtol=1e-9)
+    # A NaN on the last bar's inputs stays NaN (undecidable), never a silent value.
+    broken = cut.copy()
+    broken.iloc[-1, broken.columns.get_loc("high")] = np.nan
+    assert np.isnan(finders.same_bar_atr(broken).iloc[-1])
+
+
+def test_the_finder_runs_end_to_end_on_the_stored_lagged_column(monkeypatch):
+    # The real same_bar_atr on a panel-convention atr_14 (every stored value 1): rows
+    # take the next row's 1.0, and the last row — the retest bar itself — rolls one
+    # Wilder step with its true range 1.7 (high 101.5 vs the previous close 102): ATR
+    # 1.05, tolerance 0.525, low 100.3 qualifies. The signal on the final bar fires.
+    monkeypatch.undo()
+    result = find_base_breakout_retest(spec(), panel({"AAA": MATCH}))
+    assert [c.date for c in result.matches] == [signal_date(MATCH, 40)]
 
 
 def test_the_finder_reads_each_bars_own_atr(monkeypatch):

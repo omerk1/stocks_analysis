@@ -326,22 +326,21 @@ BASE_BREAKOUT_OVERLAY = "base_breakout_level"
 
 
 def same_bar_atr(frame: pd.DataFrame) -> pd.Series:
-    """Bar t's own ATR(14) for one ticker's date-sorted panel rows, from the panel's
-    one-bar-lagged `atr_14` (row t holds ATR(t-1), built on the full loaded history) and
-    bar t's true range, by Wilder's one-step update: ATR(t) = ((n-1)·ATR(t-1) + TR(t)) / n.
-    Every row gets its value — the last included — with no warmup restarting where the
-    panel was cut. Matches the panel's next-row value to float32 precision. A ticker's
-    first panel row has no previous close for the true range, so it takes the next row's
-    stored value instead (that is ATR(t) itself)."""
+    """Bar t's own ATR(14) for one ticker's date-sorted panel rows. The panel's `atr_14`
+    is stored one-bar-lagged (row t holds ATR(t-1), built on the full loaded history), so
+    bar t's value is simply the next row's — exact, whatever the panel's start. Only the
+    last row has no next row; it takes Wilder's one-step update from its own stored value
+    and true range, ATR(t) = ((n-1)·ATR(t-1) + TR(t)) / n, the recursion the stored
+    column was built with (checked against it to float32 precision on real tickers)."""
     n = panel_features.ATR_PERIOD
     stored = frame["atr_14"].astype("float64")
-    previous_close = frame["close"].shift(1)
-    true_range = pd.concat([frame["high"] - frame["low"],
-                            (frame["high"] - previous_close).abs(),
-                            (frame["low"] - previous_close).abs()], axis=1).max(axis=1, skipna=False)
-    rolled = (stored * (n - 1) + true_range) / n
-    rolled.iloc[:1] = stored.shift(-1).iloc[:1]
-    return rolled
+    same_bar = stored.shift(-1)
+    if len(frame) >= 2:
+        high, low, previous_close = frame["high"].iloc[-1], frame["low"].iloc[-1], frame["close"].iloc[-2]
+        # np.max propagates a NaN input (undecidable bar stays NaN); builtin max wouldn't.
+        true_range = np.max([high - low, abs(high - previous_close), abs(low - previous_close)])
+        same_bar.iloc[-1] = (stored.iloc[-1] * (n - 1) + true_range) / n
+    return same_bar
 
 
 def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
