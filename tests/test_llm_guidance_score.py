@@ -79,6 +79,28 @@ def test_score_counts_presence_items_fields_and_revisions():
         score.score(gold, {"a": None})
 
 
+def test_values_compare_across_unit_scale_and_initiated_is_not_a_revision():
+    bn, mn = item(metric="revenue", unit="USD billions", low=1.2, high=1.3), item(metric="revenue", unit="USD millions",
+                                                                                 low=1200, high=1300)
+    assert score.same_values(bn, mn) and not score.same_values(bn, item(metric="revenue", unit="USD", low=1.2, high=1.3))
+    assert score.field_agreement(item(revision="initiated"), item(revision="not_stated"))["revision"]
+    assert not score.field_agreement(item(revision="raised"), item(revision="not_stated"))["revision"]
+
+
+def test_scope_keeps_numbers_for_a_quarter_or_the_next_year():
+    assert score.in_scope(item(period_text="fiscal 2016"), 2015)
+    assert not score.in_scope(item(period_text="2017"), 2015)  # a multi-year target
+    assert not score.in_scope(item(period="other", period_text="long term"), 2015)
+    assert not score.in_scope(item(shape="qualitative", low=None, high=None), 2015)
+    labels = score.scoped({"a": label(item(), item(period_text="2020")), "b": None}, {"a": 2015, "b": 2015})
+    assert len(labels["a"].items) == 1 and labels["b"] is None
+
+
+def test_presence_counts():
+    p = score.presence({"a": True, "b": False, "c": True}, {"a": True, "b": True, "c": False})
+    assert p == {"tp": 1, "fp": 1, "fn": 1, "tn": 0, "precision": 0.5, "recall": 0.5}
+
+
 def test_headline_only_drops_other_metrics():
     labels = {"a": label(item(), item(metric="other")), "b": label(item(metric="other")), "c": None}
     h = score.headline_only(labels)
@@ -90,7 +112,7 @@ def test_coverage_and_revision_by_release():
     gold = {"a": label(item()), "b": label(), "c": label(item(revision="initiated"))}
     sample = pd.DataFrame({"accession": ["a", "b", "c"], "year": [2010, 2010, 2011],
                            "sector": ["X", "Y", "X"], "size": ["large", "mid", "mid"]})
-    cov = score.coverage(gold, sample)
+    cov = score.coverage({a: g.guidance_present for a, g in gold.items()}, sample)
     assert cov["year"].loc[2010].to_dict() == {"releases": 2, "with_guidance": 1, "share": 0.5}
     assert cov["sector"].loc["X", "with_guidance"] == 2
     assert score.revision_by_release(gold).to_dict() == {"a": True, "c": False}
