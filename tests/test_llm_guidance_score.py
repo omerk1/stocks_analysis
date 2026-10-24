@@ -136,7 +136,7 @@ def test_review_sheet_lists_items_and_notes():
     drafts = {"a": {"label": label(item(shape="floor", high=None)).model_dump(), "uncertain": "check unit"},
               "b": {"label": ReleaseLabel(guidance_present=False, items=[], notes="call only").model_dump()}}
     text = review.sheet(drafts, sample, {"a": "ua"})
-    assert "| 00 | A | 2010 | yes | 0 / 1 / 0 / 0 | 1 | yes |" in text
+    assert "| 00 | A | 2010 | yes | 0 / 1 / 0 / 0 | 1 raised | yes |" in text
     assert "| 01 | B | 2011 | **no** |  |  |  |" in text
     a, b = text.index("**00 A**"), text.index("**01 B**")
     assert a < b and "[release](ua)" in text and "[release](ib)" in text

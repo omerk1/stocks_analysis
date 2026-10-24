@@ -1,59 +1,59 @@
 # Guidance probe: draft labels to review
 
-Start with the table: one row per release (guidance present, items by metric, how many carry a raised/maintained/lowered revision, whether the drafter flagged a doubt). The blocks below give every item; correct inline or as a note per slot. Item format: metric (as named), period "as named", basis: value; revision.
+Start with the table: one row per release (guidance present, items by metric, the revisions the release states, raised/maintained/lowered, with how many items each; whether the drafter flagged a doubt). The blocks below give every item; correct inline or as a note per slot. Item format: metric (as named), period "as named", basis: value; revision.
 
-| slot | ticker | year | present | revenue / eps / margin / other | r/m/l | flagged |
+| slot | ticker | year | present | revenue / eps / margin / other | revision stated | flagged |
 |---|---|---|---|---|---|---|
-| 00 | MPC | 2019 | yes | 0 / 0 / 0 / 2 | 2 | yes |
-| 01 | CMS | 2018 | yes | 0 / 1 / 0 / 0 | 1 | yes |
-| 02 | BF.B | 2014 | yes | 2 / 1 / 0 / 3 | 5 | yes |
-| 03 | CSGP | 2020 | yes | 2 / 4 / 0 / 8 | 0 | yes |
-| 04 | EMN | 2013 | yes | 0 / 3 / 0 / 0 | 2 | yes |
+| 00 | MPC | 2019 | yes | 0 / 0 / 0 / 2 | 2 maintained | yes |
+| 01 | CMS | 2018 | yes | 0 / 1 / 0 / 0 | 1 maintained | yes |
+| 02 | BF.B | 2014 | yes | 2 / 1 / 0 / 3 | 4 maintained, 1 lowered | yes |
+| 03 | CSGP | 2020 | yes | 2 / 4 / 0 / 8 | none | yes |
+| 04 | EMN | 2013 | yes | 0 / 3 / 0 / 0 | 1 raised, 1 maintained | yes |
 | 05 | CHRW | 2017 | **no** |  |  |  |
 | 06 | OMC | 2012 | **no** |  |  |  |
 | 07 | RF | 2015 | **no** |  |  | yes |
-| 08 | MSFT | 2010 | yes | 0 / 0 / 0 / 1 | 0 |  |
-| 09 | PFE | 2016 | yes | 1 / 1 / 0 / 6 | 7 | yes |
-| 10 | MCD | 2011 | yes | 0 / 0 / 0 / 1 | 0 | yes |
-| 11 | DVN | 2021 | yes | 0 / 0 / 0 / 7 | 2 | yes |
-| 12 | LNT | 2019 | yes | 0 / 2 / 0 / 4 | 1 | yes |
-| 13 | COTY | 2018 | yes | 1 / 0 / 1 / 8 | 5 | yes |
+| 08 | MSFT | 2010 | yes | 0 / 0 / 0 / 1 | none |  |
+| 09 | PFE | 2016 | yes | 1 / 1 / 0 / 6 | 5 raised, 1 maintained, 1 lowered | yes |
+| 10 | MCD | 2011 | yes | 0 / 0 / 0 / 1 | none | yes |
+| 11 | DVN | 2021 | yes | 0 / 0 / 0 / 7 | 2 maintained | yes |
+| 12 | LNT | 2019 | yes | 0 / 2 / 0 / 4 | 1 maintained | yes |
+| 13 | COTY | 2018 | yes | 1 / 0 / 1 / 8 | 5 maintained | yes |
 | 14 | SLG | 2014 | **no** |  |  |  |
-| 15 | MOS | 2020 | yes | 0 / 0 / 0 / 10 | 1 | yes |
-| 16 | LHX | 2013 | yes | 1 / 1 / 0 / 0 | 2 | yes |
-| 17 | LYV | 2017 | yes | 1 / 0 / 0 / 12 | 1 | yes |
-| 18 | ZION | 2012 | yes | 0 / 0 / 0 / 2 | 0 | yes |
-| 19 | BR | 2015 | yes | 1 / 2 / 2 / 6 | 2 | yes |
+| 15 | MOS | 2020 | yes | 0 / 0 / 0 / 10 | 1 maintained | yes |
+| 16 | LHX | 2013 | yes | 1 / 1 / 0 / 0 | 2 maintained | yes |
+| 17 | LYV | 2017 | yes | 1 / 0 / 0 / 12 | 1 maintained | yes |
+| 18 | ZION | 2012 | yes | 0 / 0 / 0 / 2 | none | yes |
+| 19 | BR | 2015 | yes | 1 / 2 / 2 / 6 | 2 maintained | yes |
 | 20 | ILMN | 2010 | **no** |  |  |  |
-| 21 | BWA | 2016 | yes | 4 / 2 / 2 / 4 | 0 | yes |
-| 22 | NBR | 2011 | yes | 0 / 0 / 0 / 5 | 0 | yes |
-| 23 | NI | 2021 | yes | 0 / 3 / 0 / 7 | 5 | yes |
-| 24 | LW | 2019 | yes | 1 / 0 / 0 / 9 | 3 | yes |
-| 25 | HST | 2018 | yes | 1 / 1 / 2 / 12 | 0 | yes |
-| 26 | CF | 2014 | yes | 0 / 0 / 0 / 4 | 1 | yes |
+| 21 | BWA | 2016 | yes | 4 / 2 / 2 / 4 | none | yes |
+| 22 | NBR | 2011 | yes | 0 / 0 / 0 / 5 | none | yes |
+| 23 | NI | 2021 | yes | 0 / 3 / 0 / 7 | 5 maintained | yes |
+| 24 | LW | 2019 | yes | 1 / 0 / 0 / 9 | 2 raised, 1 lowered | yes |
+| 25 | HST | 2018 | yes | 1 / 1 / 2 / 12 | none | yes |
+| 26 | CF | 2014 | yes | 0 / 0 / 0 / 4 | 1 lowered | yes |
 | 27 | TDG | 2020 | **no** |  |  | yes |
-| 28 | CHTR | 2013 | yes | 0 / 0 / 0 / 1 | 0 | yes |
+| 28 | CHTR | 2013 | yes | 0 / 0 / 0 / 1 | none | yes |
 | 29 | KEY | 2017 | **no** |  |  | yes |
-| 30 | AAPL | 2012 | yes | 1 / 1 / 0 / 0 | 0 |  |
-| 31 | SYK | 2015 | yes | 1 / 1 / 0 / 3 | 0 | yes |
-| 32 | GAP | 2010 | yes | 0 / 1 / 0 / 0 | 0 | yes |
-| 33 | EQT | 2016 | yes | 0 / 0 / 0 / 10 | 1 | yes |
-| 34 | PCG | 2011 | yes | 0 / 2 / 0 / 2 | 3 | yes |
-| 35 | ADM | 2021 | yes | 0 / 0 / 0 / 2 | 1 | yes |
-| 36 | IRM | 2019 | yes | 1 / 1 / 0 / 2 | 4 | yes |
-| 37 | CLF | 2018 | yes | 0 / 0 / 0 / 14 | 9 | yes |
-| 38 | CTAS | 2014 | yes | 1 / 2 / 0 / 0 | 0 | yes |
-| 39 | NWS | 2020 | yes | 0 / 0 / 0 / 4 | 0 | yes |
+| 30 | AAPL | 2012 | yes | 1 / 1 / 0 / 0 | none |  |
+| 31 | SYK | 2015 | yes | 1 / 1 / 0 / 3 | none | yes |
+| 32 | GAP | 2010 | yes | 0 / 1 / 0 / 0 | none | yes |
+| 33 | EQT | 2016 | yes | 0 / 0 / 0 / 10 | 1 raised | yes |
+| 34 | PCG | 2011 | yes | 0 / 2 / 0 / 2 | 1 raised, 1 maintained, 1 lowered | yes |
+| 35 | ADM | 2021 | yes | 0 / 0 / 0 / 2 | 1 raised | yes |
+| 36 | IRM | 2019 | yes | 1 / 1 / 0 / 2 | 4 lowered | yes |
+| 37 | CLF | 2018 | yes | 0 / 0 / 0 / 14 | 2 raised, 4 maintained, 3 lowered | yes |
+| 38 | CTAS | 2014 | yes | 1 / 2 / 0 / 0 | none | yes |
+| 39 | NWS | 2020 | yes | 0 / 0 / 0 / 4 | none | yes |
 | 40 | MSCI | 2013 | **no** |  |  |  |
-| 41 | KEYS | 2017 | yes | 4 / 2 / 0 / 0 | 0 |  |
-| 42 | TFX | 2012 | yes | 1 / 2 / 0 / 0 | 2 | yes |
+| 41 | KEYS | 2017 | yes | 4 / 2 / 0 / 0 | none |  |
+| 42 | TFX | 2012 | yes | 1 / 2 / 0 / 0 | 2 raised | yes |
 | 43 | MELI | 2015 | **no** |  |  |  |
-| 44 | VLO | 2010 | yes | 0 / 0 / 0 / 5 | 0 | yes |
-| 45 | NRG | 2016 | yes | 0 / 0 / 0 / 6 | 3 | yes |
-| 46 | NWL | 2011 | yes | 1 / 3 / 1 / 8 | 2 | yes |
-| 47 | KIM | 2021 | yes | 0 / 2 / 0 / 0 | 0 | yes |
-| 48 | FMC | 2019 | yes | 3 / 3 / 0 / 7 | 3 | yes |
-| 49 | MMM | 2018 | yes | 1 / 1 / 0 / 6 | 4 | yes |
+| 44 | VLO | 2010 | yes | 0 / 0 / 0 / 5 | none | yes |
+| 45 | NRG | 2016 | yes | 0 / 0 / 0 / 6 | 2 raised, 1 lowered | yes |
+| 46 | NWL | 2011 | yes | 1 / 3 / 1 / 8 | 2 raised | yes |
+| 47 | KIM | 2021 | yes | 0 / 2 / 0 / 0 | none | yes |
+| 48 | FMC | 2019 | yes | 3 / 3 / 0 / 7 | 1 raised, 2 maintained | yes |
+| 49 | MMM | 2018 | yes | 1 / 1 / 0 / 6 | 1 raised, 2 maintained, 1 lowered | yes |
 
 **00 MPC** (2019, Energy, large) — [release](https://www.sec.gov/Archives/edgar/data/1510295/000151029519000010/mpcq42018earningsrelease.htm) — guidance: 2 items
 - other (total annual gross run-rate synergies), year "year-end 2019", unstated: <= 600 USD millions; maintained

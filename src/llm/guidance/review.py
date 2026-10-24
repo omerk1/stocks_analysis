@@ -39,11 +39,12 @@ def item_line(i: GuidanceItem) -> str:
 
 def sheet(drafts: dict[str, dict], sample: pd.DataFrame, links: dict[str, str]) -> str:
     lines = ["# Guidance probe: draft labels to review", "",
-             "Start with the table: one row per release (guidance present, items by metric, how many "
-             "carry a raised/maintained/lowered revision, whether the drafter flagged a doubt). The "
+             "Start with the table: one row per release (guidance present, items by metric, the "
+             "revisions the release states, raised/maintained/lowered, with how many items each; "
+             "whether the drafter flagged a doubt). The "
              "blocks below give every item; correct inline or as a note per slot. Item format: "
              "metric (as named), period \"as named\", basis: value; revision.", "",
-             "| slot | ticker | year | present | revenue / eps / margin / other | r/m/l | flagged |",
+             "| slot | ticker | year | present | revenue / eps / margin / other | revision stated | flagged |",
              "|---|---|---|---|---|---|---|"]
     rows = sample.sort_values("slot")
     for r in rows.itertuples():
@@ -53,9 +54,10 @@ def sheet(drafts: dict[str, dict], sample: pd.DataFrame, links: dict[str, str]) 
         d = drafts[r.accession]
         items = ReleaseLabel.model_validate(d["label"]).items
         counts = " / ".join(str(sum(i.metric == m for i in items)) for m in ("revenue", "eps", "margin", "other"))
-        rml = sum(i.revision in READABLE_REVISIONS for i in items)
+        stated = ", ".join(f"{n} {rev}" for rev in READABLE_REVISIONS
+                           if (n := sum(i.revision == rev for i in items))) or "none"
         lines.append(f"| {r.slot:02d} | {r.ticker} | {r.year} | {'yes' if items else '**no**'} | "
-                     f"{counts if items else ''} | {rml if items else ''} | {'yes' if d.get('uncertain') else ''} |")
+                     f"{counts if items else ''} | {stated if items else ''} | {'yes' if d.get('uncertain') else ''} |")
     lines.append("")
     for r in rows[rows["accession"].isin(drafts)].itertuples():
         d = drafts[r.accession]
