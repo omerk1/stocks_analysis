@@ -2,6 +2,10 @@
 
 Start with the table: one row per release (guidance present, items by metric, the revisions the release states, raised/maintained/lowered, with how many items each; whether the drafter flagged a doubt). The blocks below give every item; correct inline or as a note per slot. Item format: metric (as named), period "as named", basis: value; revision.
 
+What counts as guidance: a number (range, point, floor or ceiling) for the company's own results, for the next quarter or the current or next fiscal year, that forecasts an outcome. Revenue, EPS and margins; EBITDA, operating income, free cash flow, capex, tax rate and production volumes as "other". Not guidance: synergy targets, multi-year targets ("6–8% annual EPS growth", a 2025 margin goal), buybacks, dividends and other capital-return commitments, non-financial goals.
+
+Marks: `OK` at the end of a release's header line when it's all right; under an item, `FIX: ...` or `DROP`; `ADD: ...` for a missed item.
+
 | slot | ticker | year | present | revenue / eps / margin / other | revision stated | flagged |
 |---|---|---|---|---|---|---|
 | 00 | MPC | 2019 | yes | 0 / 0 / 0 / 2 | 2 maintained | yes |
