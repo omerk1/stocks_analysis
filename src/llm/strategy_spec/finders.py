@@ -46,13 +46,16 @@ from __future__ import annotations
 
 import inspect
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Literal
 
+import numpy as np
 import pandas as pd
 
 from src.llm.strategy_spec.schema import StrategySpec
+from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
+from src.signals.moving_averages.features import panel as panel_features
 from src.signals.moving_averages.features import touch
 
 RELAX_FACTOR = 1.5
@@ -86,11 +89,20 @@ class RubricLine:
 @dataclass(frozen=True)
 class Candidate:
     """One instance: the bar the signal fired on. `fails` is None for a match, else the
-    single spec constraint this near-miss fails, in words the trader can act on."""
+    single spec constraint this near-miss fails, in words the trader can act on.
+
+    `overlay_span` is this instance's own chart geometry: (first bar, last bar, value) —
+    a constant line the chart draws across exactly that span, widening the chart window
+    to show all of it. A shared overlay column can't carry it when episodes on one
+    ticker overlap (later paints overwrite earlier ones, so a chart could show another
+    episode's level — including one only knowable after the trigger bar). None (the MA
+    finder, whose overlay is a property of the ticker, not the instance) keeps the
+    shared panel-column overlay and the default window."""
 
     ticker: str
     date: pd.Timestamp
     fails: str | None = None
+    overlay_span: tuple[pd.Timestamp, pd.Timestamp, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -310,10 +322,342 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
                         overlay_column=ma, overlay_name=f"{family.upper()} {lookback}")
 
 
+BASE_BREAKOUT_OVERLAY = "base_breakout_level"
+
+
+def same_bar_atr(frame: pd.DataFrame) -> pd.Series:
+    """Bar t's own ATR(14) for one ticker's date-sorted panel rows. The panel's `atr_14`
+    is stored one-bar-lagged (row t holds ATR(t-1), built on the full loaded history), so
+    bar t's value is simply the next row's — exact, whatever the panel's start. Only the
+    last row has no next row; it takes Wilder's one-step update from its own stored value
+    and true range, ATR(t) = ((n-1)·ATR(t-1) + TR(t)) / n, the recursion the stored
+    column was built with (checked against it to float32 precision on real tickers)."""
+    n = panel_features.ATR_PERIOD
+    stored = frame["atr_14"].astype("float64")
+    same_bar = stored.shift(-1)
+    if len(frame) >= 2:
+        high, low, previous_close = frame["high"].iloc[-1], frame["low"].iloc[-1], frame["close"].iloc[-2]
+        # np.max propagates a NaN input (undecidable bar stays NaN); builtin max wouldn't.
+        true_range = np.max([high - low, abs(high - previous_close), abs(low - previous_close)])
+        same_bar.iloc[-1] = (stored.iloc[-1] * (n - 1) + true_range) / n
+    return same_bar
+
+
+def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
+                              near_misses: bool = True) -> FinderResult:
+    """Instances of "breakout above the high of a long flat base, then a holding retest
+    of that level" in `panel` (a `features/panel.py` panel, sorted by ticker and date).
+    Long side only — a breakdown-and-retest mirror isn't built.
+
+    Structured-field mapping: `duration.min_bars`/`max_bars` bound the base length and
+    `size.min`/`max` under pct normalisation bound the base depth below its high (that's
+    what this spec quantifies); the retest tolerance, retest window, the kill threshold
+    behind "decisively below", the level-search lookback, and the three constraints the
+    2026-10-19 grounding round added (level touch count, breakout decisiveness margin,
+    minimum rally before the retest) have no structured slot and fall back to defaults,
+    each disclosed in the rubric.
+
+    Detection runs on the panel's **unlagged** OHLC columns, so an instance's date is the
+    retest (signal) bar itself. Every ATR threshold on bar u uses bar u's own ATR
+    (`same_bar_atr`): the panel's `atr_14` is stored one-bar-lagged, so it's rolled one
+    Wilder step forward with bar u's true range rather than shifted back (which would
+    leave each ticker's last bar without an ATR) or recomputed from the panel slice
+    (whose warmup would restart wherever the panel was cut). The
+    chart overlay (the breakout level) travels on each candidate as its `overlay_span`
+    — episodes on one ticker can overlap, so a shared column can't be trusted per chart.
+    The finder still **adds the column to `panel` in place** as `base_breakout_level`
+    (one-bar-lagged like every panel feature) to satisfy the FinderResult contract the
+    session runner reads, but the presented charts draw each candidate's own span.
+
+    `near_misses=False` skips the ten relaxed ring passes (most of the detection
+    cost); matches, rubric and refusals are identical either way.
+    """
+    for needed in ("ticker", "date", "high", "low", "close", "atr_14"):
+        if needed not in panel.columns:
+            raise GroundingError(f"panel has no {needed!r} column — not a feature panel?")
+    if spec.timeframe is None:
+        raise GroundingError("the spec doesn't state a timeframe — finish elicitation before "
+                             "grounding (the panel here is daily; a weekly idea must not be "
+                             "silently grounded as a daily one)")
+    if spec.timeframe == "weekly":
+        raise GroundingError("the feature panel is daily; grounding a weekly idea isn't built yet")
+    if spec.direction in ("short", "both"):
+        raise GroundingError("the base-breakout detector covers the long side only — a "
+                             "breakdown-and-retest mirror isn't built yet")
+    size = spec.size
+    if size is not None and size.normalisation not in (None, "pct"):
+        raise GroundingError(
+            f"this finder measures base depth in percent of the base high; the spec's size "
+            f"is in {size.normalisation!r} — restate the size in percent or ground by hand")
+    if size is not None and size.normalisation is None and (size.min is not None or size.max is not None):
+        raise GroundingError(
+            "the spec's size has numbers but no units (normalisation is unset) — "
+            "finish elicitation before grounding")
+    if spec.trigger is not None and spec.trigger.price_basis == "intraday":
+        raise GroundingError("the feature panel is close-based; an intraday trigger can't be grounded here")
+
+    rubric: list[RubricLine] = []
+    rubric.append(RubricLine("timeframe", "daily bars", "spec"))
+    if spec.trigger is not None and spec.trigger.price_basis == "close":
+        rubric.append(RubricLine("price basis", "close", "spec"))
+    else:
+        rubric.append(RubricLine("price basis", "close", "default",
+                                 "your spec didn't state one — detection and charts use closes"))
+    if spec.direction == "long":
+        rubric.append(RubricLine("direction", "long (breakout up, retest from above)", "spec"))
+    else:  # None (short/both were refused above): grounding long is itself an applied choice
+        rubric.append(RubricLine("direction", "long (breakout up, retest from above)", "default",
+                                 "your spec didn't state a direction — only the long side is built"))
+
+    duration = spec.duration
+    stated_duration = duration is not None and not duration.not_applicable
+    if stated_duration and duration.max_bars is not None and duration.max_bars < 2:
+        raise GroundingError(f"the spec caps the base at {duration.max_bars} bar(s) — a base "
+                             "needs at least 2 bars; restate the duration")
+    if stated_duration and duration.min_bars is not None:
+        base_min = duration.min_bars
+        rubric.append(RubricLine("base length floor", f">= {base_min} bars since the base "
+                                 "high was set", "spec"))
+    else:
+        base_min = base_breakout.BreakoutRetestConfig.base_min_bars
+        detail = "your spec didn't state this as a number"
+        stated_max = duration.max_bars if stated_duration else None
+        if stated_max is not None and base_min > stated_max:
+            # An unstated floor must not contradict the stated cap ("a base of at most 20 bars").
+            base_min = max(2, stated_max // 2)
+            detail += f" — lowered from the usual default to sit under your {stated_max}-bar cap"
+        rubric.append(RubricLine("base length floor", f">= {base_min} bars since the base "
+                                 "high was set", "default", detail))
+    lookback = base_breakout.BreakoutRetestConfig.base_lookback_bars
+    if stated_duration and duration.max_bars is not None:
+        base_max = duration.max_bars
+        rubric.append(RubricLine("base length cap", f"<= {base_max} bars", "spec"))
+    else:
+        base_max = None
+        rubric.append(RubricLine("base length cap", f"none stated — the level search reaches "
+                                 f"back {lookback} bars, so longer bases aren't found", "default"))
+
+    if size is not None and size.min is not None:
+        depth_min = size.min
+        rubric.append(RubricLine("base depth floor", f">= {depth_min:g}% below the base high", "spec"))
+    else:
+        depth_min = base_breakout.BreakoutRetestConfig.depth_min_pct
+        stated_max = size.max if size is not None else None
+        detail = "your spec didn't state this as a number"
+        if stated_max is not None and depth_min >= stated_max:
+            # An unstated floor must not contradict the stated cap ("no more than 8% deep").
+            depth_min = stated_max / 2
+            detail += f" — halved from the usual default to sit under your {stated_max:g}% cap"
+        rubric.append(RubricLine("base depth floor", f">= {depth_min:g}% below the base high",
+                                 "default", detail))
+    if size is not None and size.max is not None:
+        depth_max = size.max
+        rubric.append(RubricLine("base depth cap", f"<= {depth_max:g}% below the base high", "spec"))
+    else:
+        depth_max = base_breakout.BreakoutRetestConfig.depth_max_pct
+        detail = "your spec didn't state this as a number"
+        if depth_min >= depth_max:
+            # An unstated cap must not contradict the stated floor ("at least 50% deep").
+            if depth_min >= 99.0:
+                raise GroundingError(f"the spec's depth floor ({depth_min:g}%) leaves no room "
+                                     "under 100% for a cap; restate the size")
+            depth_max = min(99.0, depth_min * 1.5)
+            detail += f" — raised from the usual default to sit above your {depth_min:g}% floor"
+        rubric.append(RubricLine("base depth cap", f"<= {depth_max:g}% below the base high",
+                                 "default", detail))
+
+    config = base_breakout.BreakoutRetestConfig(
+        base_min_bars=base_min, base_max_bars=base_max,
+        depth_min_pct=depth_min, depth_max_pct=depth_max)
+    try:
+        config.validate()
+    except ValueError as e:
+        raise GroundingError(f"the spec's numbers don't make a detectable definition: {e}")
+    tol, window, kill = config.retest_tol_atr, config.retest_window_bars, config.kill_tol_atr
+    touches, margin, rally = config.min_extra_touches, config.breakout_min_atr, config.min_rally_atr
+    exclude, gap = config.touch_exclude_bars, config.min_retest_gap_bars
+    rubric.append(RubricLine("level touches", f">= {touches} later base bars re-touch the level "
+                             f"(high within {tol:g} ATR(14) of it), not counting the last "
+                             f"{exclude} bars before the breakout", "default",
+                             "added from the 2026-10-19 grounding round: a single spike high "
+                             "isn't a tested ceiling; the ramp exclusion from the 2026-10-20 "
+                             "round: the run-up into the breakout isn't a touch"))
+    rubric.append(RubricLine("breakout decisiveness", f"the breakout close clears the level by "
+                             f"more than {margin:g} ATR(14)", "default",
+                             "added from the 2026-10-19 grounding round"))
+    rubric.append(RubricLine("trigger", "the first bar whose low comes within the retest "
+                             "tolerance of the level and whose close holds at or above it",
+                             "default", 'your trigger says "the retest holds" — this is the applied reading'))
+    rubric.append(RubricLine("retest tolerance", f"low within {tol:g} ATR(14) of the level",
+                             "default", "no structured slot yet — if your idea states one, "
+                             "check the charts against it"))
+    rubric.append(RubricLine("retest window", f"within {window} bars of the breakout", "default",
+                             "no structured slot yet"))
+    rubric.append(RubricLine('failed-retest kill ("decisively below")',
+                             f"a close more than {kill:g} ATR(14) below the level ends the episode",
+                             "default", 'your rule says "decisively" without a number'))
+    rubric.append(RubricLine("minimum rally", f"a bar before the retest (the breakout bar counts) "
+                             f"must reach {rally:g} ATR(14) above the level", "default",
+                             "added from the 2026-10-19 grounding round: a next-bar graze "
+                             "isn't a round-trip"))
+    rubric.append(RubricLine("retest gap", f"the retest can't arrive sooner than {gap} bars "
+                             f"after the breakout", "default",
+                             "added from the 2026-10-20 grounding round: a 3-bar wobble at "
+                             "the level isn't a round trip"))
+
+    for signal in spec.supporting_signals:
+        if signal.role == "filter":
+            rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
+                                     "no structured mapping yet — instances ignore this filter"))
+    for rule in spec.invalidation:
+        if rule.phase == "before_entry":
+            rubric.append(RubricLine(f"invalidation (before entry): {rule.description}",
+                                     "NOT READ", "default",
+                                     "rule text isn't read — if it restates a parameter above "
+                                     "it is already applied; anything else is ignored"))
+
+    frames: dict[str, pd.DataFrame] = {}
+    atrs: dict[str, pd.Series] = {}
+    for ticker, frame in panel.groupby("ticker", sort=False):
+        if not frame["date"].is_monotonic_increasing:
+            raise GroundingError(f"panel rows for {ticker!r} aren't date-sorted — "
+                                 "pass a (ticker, date)-sorted feature panel")
+        frames[ticker] = frame
+        atrs[ticker] = same_bar_atr(frame)
+
+    def episodes_for(run_config) -> dict[str, list[base_breakout.Episode]]:
+        return {ticker: base_breakout.detect(frame, atrs[ticker], run_config)
+                for ticker, frame in frames.items()}
+
+    def held(episodes: dict[str, list[base_breakout.Episode]]) -> dict[str, dict[int, base_breakout.Episode]]:
+        """Holding-retest episodes per ticker, keyed by the retest (signal) position."""
+        kept = {ticker: {e.retest: e for e in eps if e.outcome == base_breakout.RETEST_HELD}
+                for ticker, eps in episodes.items()}
+        return {ticker: by_position for ticker, by_position in kept.items() if by_position}
+
+    def dated(by_ticker: dict[str, dict[int, base_breakout.Episode]]
+              ) -> list[tuple[str, pd.Timestamp, base_breakout.Episode]]:
+        return sorted(((ticker, pd.Timestamp(frames[ticker]["date"].iloc[position]), episode)
+                       for ticker, by_position in by_ticker.items()
+                       for position, episode in by_position.items()),
+                      key=lambda item: item[:2])
+
+    def span(ticker: str, episode: base_breakout.Episode) -> tuple[pd.Timestamp, pd.Timestamp, float]:
+        dates = frames[ticker]["date"]
+        return (pd.Timestamp(dates.iloc[episode.base_start]),
+                pd.Timestamp(dates.iloc[episode.end]), episode.level)
+
+    strict = held(episodes_for(config))
+    matches = tuple(Candidate(ticker, date, overlay_span=span(ticker, episode))
+                    for ticker, date, episode in dated(strict))
+    shown_episodes: list[tuple[str, base_breakout.Episode]] = []  # painted last wins overlaps
+
+    def minus_strict(ring: dict[str, dict[int, base_breakout.Episode]]):
+        return {ticker: kept for ticker, by_position in ring.items()
+                if (kept := {p: e for p, e in by_position.items()
+                             if p not in strict.get(ticker, {})})}
+
+    near: tuple[Candidate, ...] = ()
+    if near_misses:
+        relaxed_min_bars = max(2, math.floor(base_min / RELAX_FACTOR))
+        relaxed_depth_min = depth_min / RELAX_FACTOR
+        relaxed_depth_max = depth_max * RELAX_FACTOR
+        relaxed_window = math.ceil(window * RELAX_FACTOR)
+        relaxed_tol = tol * RELAX_FACTOR
+
+        relaxed_touches = max(0, math.floor(touches / RELAX_FACTOR))
+        relaxed_margin = margin / RELAX_FACTOR
+        relaxed_rally = rally / RELAX_FACTOR
+        relaxed_exclude = math.floor(exclude / RELAX_FACTOR)
+        relaxed_gap = max(1, math.floor(gap / RELAX_FACTOR))
+
+        length_ring = minus_strict(held(episodes_for(replace(config, base_min_bars=relaxed_min_bars))))
+        floor_ring = minus_strict(held(episodes_for(replace(config, depth_min_pct=relaxed_depth_min))))
+        # Relaxing the cap past 100% would admit non-positive prices, not deeper bases.
+        cap_ring = (minus_strict(held(episodes_for(replace(config, depth_max_pct=relaxed_depth_max))))
+                    if relaxed_depth_max < 100 else {})
+        window_ring = minus_strict(held(episodes_for(replace(config, retest_window_bars=relaxed_window))))
+        touches_ring = (minus_strict(held(episodes_for(replace(config, min_extra_touches=relaxed_touches))))
+                        if relaxed_touches < touches else {})
+        exclude_ring = (minus_strict(held(episodes_for(replace(config, touch_exclude_bars=relaxed_exclude))))
+                        if relaxed_exclude < exclude else {})
+        margin_ring = (minus_strict(held(episodes_for(replace(config, breakout_min_atr=relaxed_margin))))
+                       if margin > 0 else {})
+        # A looser tolerance (or an earlier-armed rally) can pull the retest onto an
+        # earlier bar of an episode that also fires strictly a few bars later — that bar
+        # says nothing about where the constraint sits, so episodes whose breakout also
+        # fired strictly are dropped from those rings.
+        strict_breakouts = {ticker: {e.breakout for e in by_position.values()}
+                            for ticker, by_position in strict.items()}
+
+        def drop_strictly_firing(ring: dict[str, dict[int, base_breakout.Episode]]):
+            return {ticker: kept for ticker, by_position in ring.items()
+                    if (kept := {p: e for p, e in by_position.items()
+                                 if e.breakout not in strict_breakouts.get(ticker, set())})}
+
+        tol_ring = drop_strictly_firing(
+            minus_strict(held(episodes_for(replace(config, retest_tol_atr=relaxed_tol)))))
+        rally_ring = (drop_strictly_firing(
+            minus_strict(held(episodes_for(replace(config, min_rally_atr=relaxed_rally)))))
+            if rally > 0 else {})
+        gap_ring = (drop_strictly_firing(
+            minus_strict(held(episodes_for(replace(config, min_retest_gap_bars=relaxed_gap)))))
+            if relaxed_gap < gap else {})
+
+        rings = [
+            (length_ring, f"base length: fires only when the {base_min}-bar floor is relaxed "
+             f"to >= {relaxed_min_bars} bars"),
+            (floor_ring, f"base depth floor: fires only when the {depth_min:g}% floor is "
+             f"relaxed to >= {relaxed_depth_min:g}%"),
+            (cap_ring, f"base depth cap: fires only when the {depth_max:g}% cap is relaxed "
+             f"to <= {relaxed_depth_max:g}%"),
+            (window_ring, f"retest window: the retest arrives {window + 1}-{relaxed_window} "
+             f"bars after the breakout, not within {window}"),
+            (touches_ring, f"level touches: fires only when the {touches}-touch requirement "
+             f"is relaxed to >= {relaxed_touches}"),
+            (exclude_ring, f"level touch timing: fires only when the {exclude}-bar ramp "
+             f"exclusion before the breakout is relaxed to {relaxed_exclude}"),
+            (margin_ring, f"breakout decisiveness: fires only when the {margin:g}-ATR margin "
+             f"is relaxed to {relaxed_margin:.3g}"),
+            (rally_ring, f"minimum rally: fires only when the {rally:g}-ATR rally requirement "
+             f"is relaxed to {relaxed_rally:.3g}"),
+            (gap_ring, f"retest gap: the retest arrives {relaxed_gap}-{gap - 1} bars after "
+             f"the breakout, not >= {gap}"),
+            (tol_ring, f"retest tolerance: the low comes within {relaxed_tol:g} ATR of the "
+             f"level, not within {tol:g}"),
+        ]
+        seen: dict[tuple[str, pd.Timestamp], tuple[str, base_breakout.Episode]] = {}
+        for ring, fails in rings:
+            for ticker, date, episode in dated(ring):
+                seen.setdefault((ticker, date), (fails, episode))
+            shown_episodes.extend((ticker, e) for ticker, by_position in ring.items()
+                                  for e in by_position.values())
+        near = tuple(Candidate(ticker, date, fails, overlay_span=span(ticker, episode))
+                     for (ticker, date), (fails, episode) in seen.items())
+
+    # The overlay: each presented episode's level across its span, strict episodes
+    # painted last so they win any overlap with a ring variant of the same base.
+    shown_episodes.extend((ticker, e) for ticker, by_position in strict.items()
+                          for e in by_position.values())
+    overlay = pd.Series(np.nan, index=panel.index, dtype="float64")
+    by_ticker: dict[str, list[base_breakout.Episode]] = {}
+    for ticker, episode in shown_episodes:
+        by_ticker.setdefault(ticker, []).append(episode)
+    for ticker, episodes in by_ticker.items():
+        rows = frames[ticker].index
+        overlay.loc[rows] = base_breakout.level_overlay(len(rows), episodes)
+    # Stored one-bar-lagged like every panel feature; the session runner shifts it back.
+    panel[BASE_BREAKOUT_OVERLAY] = overlay.groupby(panel["ticker"]).shift(1)
+
+    return FinderResult(matches, near, tuple(rubric),
+                        overlay_column=BASE_BREAKOUT_OVERLAY, overlay_name="breakout level")
+
+
 # Catalogue detector id -> finder. Grounding dispatches on the spec's `uses`; a spec
 # whose detector isn't here yet gets a clear refusal, not an approximation.
 FINDERS: dict[str, Callable[..., FinderResult]] = {
     "detector:ma.first_touch": find_first_touch,
+    "detector:base_breakout.retest": find_base_breakout_retest,
 }
 
 

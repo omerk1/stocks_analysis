@@ -122,6 +122,9 @@ DETECTORS = [
                "from the same anchors as anchored VWAP", "src.signals.volume_profile.detect:detect"),
     Capability("detector:ma.first_touch", "detector", "first touch of a moving average after price has been away "
                "from it (SMA or EMA, 20/50/150/200)", "src.signals.moving_averages.features.touch:touch_events"),
+    Capability("detector:base_breakout.retest", "detector", "decisive breakout above the multiply-touched "
+               "ceiling of a long flat base (length and depth bounded), a rally away, then a retest of the "
+               "breakout level from above that holds (long side only)", "src.signals.base_breakout.detect:detect"),
     Capability("detector:ma.crossover", "detector", "a fast moving average crossing a slow one (golden or death cross)",
                "src.signals.moving_averages.features.crossover:crossover_events"),
 ]

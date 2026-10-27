@@ -247,6 +247,55 @@ def test_chart_window_truncates_right_after_the_trigger():
         charts.chart_window(bars, pd.Timestamp("1999-01-04"))
 
 
+def test_chart_window_widens_to_a_candidate_declared_start():
+    dates = pd.bdate_range("2015-01-02", periods=300)
+    bars = pd.DataFrame({"date": dates})
+    trigger = dates[250]
+    default = charts.chart_window(bars, trigger)
+    assert len(default) == charts.LOOKBACK_BARS + 1
+    widened = charts.chart_window(bars, trigger, chart_from=dates[40])
+    assert widened["date"].iloc[0] == dates[40 - charts.CHART_FROM_MARGIN_BARS]
+    assert widened["date"].iloc[-1] == trigger
+    # A start already inside the default window never shrinks it below the lookback;
+    # a start before the data begins clamps to the first bar.
+    assert len(charts.chart_window(bars, trigger, chart_from=dates[240])) == len(default)
+    assert charts.chart_window(bars, trigger, chart_from=dates[0])["date"].iloc[0] == dates[0]
+
+
+def test_candidate_overlay_draws_only_this_episodes_line():
+    dates = pd.bdate_range("2015-01-02", periods=20)
+    window = pd.DataFrame({"date": dates, "overlay_display": 55.0})  # a foreign episode's paint
+    out = charts.candidate_overlay(window, (dates[5], dates[12], 123.25), "overlay_display")
+    assert out["overlay_display"].iloc[5:13].eq(123.25).all()
+    assert out["overlay_display"].iloc[:5].isna().all()
+    assert out["overlay_display"].iloc[13:].isna().all()
+    assert window["overlay_display"].eq(55.0).all()  # the caller's window is untouched
+
+
+def test_a_candidate_overlay_span_drives_its_own_chart(tmp_path, monkeypatch):
+    test_spec, frame = session_inputs()
+    trigger = signal_date(MATCH, 0.1)
+    start = frame.loc[frame["ticker"] == "MAA", "date"].iloc[2]
+    candidate = Candidate("MAA", trigger, overlay_span=(start, trigger, 123.25))
+
+    def span_finder(spec, panel):
+        return FinderResult((candidate,), (), (), overlay_column="sma_200", overlay_name="level")
+
+    monkeypatch.setitem(FINDERS, "detector:fake", span_finder)
+    windows = []
+    real_instance_chart = charts.instance_chart
+    monkeypatch.setattr(charts, "instance_chart", lambda window, *args: (
+        windows.append(window), real_instance_chart(window, *args))[1])
+    ground(test_spec, frame, ask=lambda text: "y", say=lambda line: None, out_dir=tmp_path,
+           detector="detector:fake", matches_shown=1, near_misses_shown=1)
+    window, = windows
+    drawn = window.set_index("date")["overlay_display"]
+    # The candidate's own level is drawn across its span — not the sma_200 column
+    # (flat at 100) the shared-overlay path would have shown.
+    assert drawn.loc[start:trigger].eq(123.25).all()
+    assert drawn.loc[:start].drop(start).isna().all()
+
+
 def test_instance_chart_draws_candles_overlay_and_trigger():
     bars = panel({"AAA": MATCH}).assign(ma_display=100.0)
     trigger = signal_date(MATCH, 0.1)
