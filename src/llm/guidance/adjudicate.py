@@ -38,12 +38,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.llm.guidance import review, score
+from src.llm.guidance import fetch, score
 from src.llm.guidance.extract import EXTRACTIONS_DIR, load_extractions
-from src.llm.guidance.review import DRAFTS_PATH
 from src.llm.guidance.sample import PROBE_DIR, SAMPLE_PATH
 from src.llm.guidance.schema import GuidanceItem, ReleaseLabel
 
+DRAFTS_PATH = PROBE_DIR / "drafts.json"
 SEED = 20261024
 N_CHECK = 8
 COMPARED = ("shape", "values", "basis", "revision")  # unit is compared through the values' scale
@@ -119,8 +119,27 @@ def questions(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], sample: pd.Da
     return out
 
 
+def _num(x: float) -> str:
+    """Full precision, thousands separated, no scientific notation: the reader
+    compares it with the release digit by digit."""
+    return f"{x:,.6f}".rstrip("0").rstrip(".")
+
+
+def release_links(sample: pd.DataFrame, root: Path | None = None) -> dict[str, str]:
+    """accession -> the press release's EDGAR URL, from the fetch manifests."""
+    root = root or fetch.cache_root()
+    out = {}
+    for acc in sample["accession"]:
+        m = root / acc / "manifest.json"
+        if m.exists():
+            release = json.loads(m.read_text()).get("release")
+            if release:
+                out[acc] = release["url"]
+    return out
+
+
 def forecast(i: dict) -> str:
-    v, u = review._num, i["unit"]
+    v, u = _num, i["unit"]
     return {"range": lambda: f"{v(i['low'])} to {v(i['high'])} {u}", "point": lambda: f"{v(i['low'])} {u}",
             "floor": lambda: f"at least {v(i['low'])} {u}", "ceiling": lambda: f"up to {v(i['high'])} {u}",
             "qualitative": lambda: "in words only"}[i["shape"]]()
@@ -346,7 +365,7 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(f"{QUESTIONS_MD} already has answers; not overwriting it")
         qs = questions(pairs, sample)
         QUESTIONS_JSON.write_text(json.dumps(qs, indent=1) + "\n")
-        QUESTIONS_MD.write_text(render(qs, review.release_links(sample)) + "\n")
+        QUESTIONS_MD.write_text(render(qs, release_links(sample)) + "\n")
         kinds = pd.Series([q["kind"] for q in qs]).value_counts().to_dict()
         print(f"wrote {len(qs)} questions ({kinds}) over {len({q['accession'] for q in qs})} releases")
         return

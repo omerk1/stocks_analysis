@@ -81,6 +81,10 @@ def test_a_letter_per_row():
     assert (mixed["low"], mixed["basis"], mixed["revision"]) == (2.0, "gaap", "maintained")
 
 
+def test_numbers_are_exact():
+    assert adjudicate._num(12345678.0) == "12,345,678" and adjudicate._num(2.1) == "2.1" and adjudicate._num(0.0) == "0"
+
+
 def test_parse_answers():
     md = "intro\n### Q01 · x\ntext\n**Answer:** A\n\n### Q02 · y\n**Answer:**\nthe range is\n2.0 to 2.1\n"
     assert adjudicate.parse_answers(md) == {"Q01": "A", "Q02": "the range is 2.0 to 2.1"}

@@ -43,12 +43,6 @@ def test_run_one_records_a_refused_call(tmp_path):
     assert row["error"].startswith("BudgetExceeded") and extract.load_extractions(tmp_path)["big"] is None
 
 
-def test_review_numbers_are_exact():
-    from src.llm.guidance import review
-
-    assert review._num(12345678.0) == "12,345,678" and review._num(2.1) == "2.1" and review._num(0.0) == "0"
-
-
 def test_match_needs_same_metric_and_period_and_prefers_agreement():
     gold = [item(), item(basis="gaap", low=2.0, high=2.1)]
     pred = [item(basis="gaap", low=2.0, high=2.1), item(period="quarter"), item()]
@@ -148,19 +142,3 @@ def test_run_one_caches_by_fingerprint_and_text(tmp_path):
     loaded = extract.load_extractions(tmp_path)
     assert loaded["acc2"] is None and loaded["acc"].items[0].metric == "eps"
     assert json.loads((tmp_path / "acc.json").read_text())["text_sha256"] == extract.text_hash("other text")
-
-
-def test_review_sheet_lists_items_and_notes():
-    from src.llm.guidance import review
-
-    sample = pd.DataFrame({"slot": [1, 0], "ticker": ["B", "A"], "accession": ["b", "a"], "year": [2011, 2010],
-                           "sector": ["X", "Y"], "size": ["mid", "large"], "index_url": ["ib", "ia"]})
-    drafts = {"a": {"label": label(item(shape="floor", high=None)).model_dump(), "uncertain": "check unit"},
-              "b": {"label": ReleaseLabel(guidance_present=False, items=[], notes="call only").model_dump()}}
-    text = review.sheet(drafts, sample, {"a": "ua"})
-    assert "| 00 | A | 2010 | yes | 0 / 1 / 0 / 0 | 1 raised | yes |" in text
-    assert "| 01 | B | 2011 | **no** |  |  |  |" in text
-    a, b = text.index("**00 A**"), text.index("**01 B**")
-    assert a < b and "[release](ua)" in text and "[release](ib)" in text
-    assert 'eps (EPS), year "2015", adjusted: >= 2.1 USD per share; raised' in text
-    assert "_note: check unit_" in text and "**no guidance**" in text and "_note: call only_" in text
