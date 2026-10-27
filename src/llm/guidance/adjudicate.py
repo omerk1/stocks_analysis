@@ -20,7 +20,9 @@ In a `fields` question the two readings are A and B in a seeded random order, so
 answer can't lean to one source. Every question quotes the release.
 
 Answers go on the `**Answer:**` line of `probe/questions.md`: A or B (or a letter per
-row, `A B`), yes or no (or, for a check, ok / none found). Anything else is a correction in words, which
+row, `A B`), yes or no (or, for a check, ok / none found), or `?` for can't tell,
+which leaves that release out of the gold set (listed as unresolved) rather than
+guessing it. Anything else is a correction in words, which
 `probe/answer_overrides.json` turns into labels (qid -> {"items": [...]} or
 {"present": bool}); `gold` refuses to build until every question has a usable answer.
 
@@ -44,6 +46,7 @@ from src.llm.guidance.sample import PROBE_DIR, SAMPLE_PATH
 from src.llm.guidance.schema import GuidanceItem, ReleaseLabel
 
 DRAFTS_PATH = PROBE_DIR / "drafts.json"
+UNSURE = "?"
 SEED = 20261024
 N_CHECK = 8
 COMPARED = ("shape", "values", "basis", "revision")  # unit is compared through the values' scale
@@ -206,6 +209,8 @@ the link only when the quote isn't enough.
   they differ on two rows and each is right on one, a letter per row, e.g. `A B`;
 - **yes or no**: whether the item is guidance under the rules and right as written;
 - **ok**, or **none found**, on a spot check that is right;
+- **?** when you can't tell: that release is left out of the scoring and listed as
+  unresolved, never guessed;
 - anything else: say what's right in your own words, and I'll turn it into labels.
 
 **Guidance, under the agreed rules:** a number (range, point, at least, up to) for the
@@ -294,6 +299,8 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
             continue
         if not a:
             problems.append(f"{q['id']}: no answer")
+        elif a == UNSURE:
+            continue
         elif (picks(q, a) is None) if q["kind"] == "fields" else (a not in ACCEPT[q["kind"]]):
             problems.append(f"{q['id']}: needs an override, answer was {answers[q['id']]!r}")
     if problems:
@@ -305,10 +312,14 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
     gold, presence = {}, {}
     wins = {"draft": 0, "model": 0, "split": 0, "neither": 0}
     check = {"asked": 0, "right": 0}
+    unresolved = []
     for acc, (draft, model) in pairs.items():
         d = [i for i in draft.items if i.metric in score.HEADLINE]
         m = [i for i in model.items if i.metric in score.HEADLINE]
         asked = by_acc.get(acc, [])
+        if any(q["id"] not in overrides and normal(answers.get(q["id"], "")) == UNSURE for q in asked):
+            unresolved.append(acc)  # the person couldn't tell: the release is left out, not guessed
+            continue
         items = [d[i] for i, j in score.match_items(d, m)
                  if not differing(d[i], m[j])]  # agreed pairs: the drafts' wording
         other = None
@@ -345,7 +356,8 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
         gold[acc] = ReleaseLabel(guidance_present=bool(items), items=items)
         presence[acc] = bool(items) or bool(other)
     meta = {"questions": len(qs), "by_kind": pd.Series([q["kind"] for q in qs]).value_counts().to_dict(),
-            "disagreements_won": wins, "spot_check": check, "overrides": sorted(overrides)}
+            "disagreements_won": wins, "spot_check": check, "overrides": sorted(overrides),
+            "unresolved_releases": unresolved}
     return gold, presence, meta
 
 

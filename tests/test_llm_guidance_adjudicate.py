@@ -72,6 +72,13 @@ def test_gold_refuses_missing_or_free_text_answers_until_overridden():
     assert meta["spot_check"] == {"asked": 2, "right": 1}
 
 
+def test_unsure_leaves_the_release_out():
+    qs = adjudicate.questions(PAIRS, SAMPLE, n_check=2)
+    ans = answers_for(qs, a_fields="A", b_only="?", b_other="yes", c_check="ok", d_check="none found")
+    gold, presence, meta = adjudicate.build_gold(PAIRS, qs, ans, {})
+    assert "b" not in gold and "b" not in presence and meta["unresolved_releases"] == ["b"]
+
+
 def test_a_letter_per_row():
     q = {"a": item(basis="gaap").model_dump(), "b": item(revision="maintained", low=2.0).model_dump(),
          "diff": ["values", "basis", "revision"]}

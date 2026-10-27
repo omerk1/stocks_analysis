@@ -11,6 +11,8 @@ the link only when the quote isn't enough.
   they differ on two rows and each is right on one, a letter per row, e.g. `A B`;
 - **yes or no**: whether the item is guidance under the rules and right as written;
 - **ok**, or **none found**, on a spot check that is right;
+- **?** when you can't tell: that release is left out of the scoring and listed as
+  unresolved, never guessed;
 - anything else: say what's right in your own words, and I'll turn it into labels.
 
 **Guidance, under the agreed rules:** a number (range, point, at least, up to) for the
