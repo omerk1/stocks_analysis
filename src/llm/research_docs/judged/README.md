@@ -33,6 +33,7 @@ would be retrieved too.
   were then judged. The `_2026-10-17` pair is the same for the next rebuild, on the dev
   split only and the re-ranker's top 10. `pool_split_2026-10-19.json` holds the chunks
   question splitting put in the dev top 10 that weren't judged yet, `pool_rewrite_2026-10-21.json`
-  the same for query rewording. Only the "yes" verdicts were
+  the same for query rewording, and `pool_reranker_2026-10-24.json` for the two re-ranker
+  options tried after it (`docs/done.md` #164; neither kept as code). Only the "yes" verdicts were
   kept, as golds in `eval_questions.json`; a chunk in these files that isn't a gold was
   judged "no".

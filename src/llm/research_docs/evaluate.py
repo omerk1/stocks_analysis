@@ -54,7 +54,7 @@ were added. Golds are only as complete as the pool, which favours those two sear
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
 unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
-12 added; the two re-rankers: 152 judged, 19 added; MMR: 16 judged, 1 added; question splitting, its dev top 10: 35 judged, 3 added; query rewording, its dev top 10: 81 judged, 10 added). Nothing records the chunks judged
+12 added; the two re-rankers: 152 judged, 19 added; MMR: 16 judged, 1 added; question splitting, its dev top 10: 35 judged, 3 added; query rewording, its dev top 10: 81 judged, 10 added; a stronger re-ranker and max-score over the rewordings, their dev top 10: 104 judged, 4 added). Nothing records the chunks judged
 "no", and node ids change on every rebuild: a chunk counts as judged if it is a gold or in
 the vector, keyword, hybrid or rerank top 5 for that question, matched by its text. A
 rebuild changes those top 5s too, so before one, save every method's top 5 texts and
