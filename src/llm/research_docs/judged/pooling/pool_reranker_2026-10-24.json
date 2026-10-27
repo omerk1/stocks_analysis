@@ -1,0 +1,938 @@
+[
+ {
+  "qid": "holdout_window",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 6,
+  "question": "Why does the locked holdout start in 2022 instead of 2017?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 8. Proposed first modeling experiments (pre-registration drafts)",
+  "text": "## 8. Proposed first modeling experiments (pre-registration drafts)\n\nEach is written so it can be copied into a modeling pre-registration file with a\ndate. Both sit inside the 2010–2021 window; the holdout stays locked."
+ },
+ {
+  "qid": "holiday_calendar",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "Does weekly and monthly resampling know about market holidays?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M10 — Timeframe and sampling (2026-09-24) > Result (2026-09-24)",
+  "text": "** Any apparent weekly-vs-daily gap\nin the naive comparison below must come from the lookback/bar-aggregation choice, not\nsampling frequency.\n\n**Bar-aggregation gap ((b) − (c), matched calendar-equivalent pairs):** +0.090pp\n(50↔10), +0.026pp (150↔30), +0.082pp (200↔40) — small, all three the *same sign*\n(weekly-native consistently slightly less negative than daily-Friday-sampled, a\ndirectionally-consistent pattern, not a lone bright pixel), but every pair's CIs\noverlap heavily (e.g. 50↔10: (c) `[−0.361%,−0.031%]` vs (b) `[−0.260%,+0.029%]`) —\nnot distinguishable from noise by this module's own descriptive-overlap standard\neither. **Naive (a)-vs-(b) gap** (the confounded, practitioner's comparison): +0.067pp,\n+0.050pp, +0.049pp — small and positive at all three pairs, consistent with (but not\nindependently confirming) \"weekly is a hair less bad than daily,\" entirely attributable\nto the (already-undetectable) bar-aggregation term per the decomposition above, not to\nsampling frequency."
+ },
+ {
+  "qid": "reclaim_volume",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "Do reclaims of the 50-day average on heavy volume do better than those on light volume?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M12 — Volume and liquidity interaction (2026-09-23) > Result (2026-09-23)",
+  "text": "0 |\n|---|---|---|---|---|---|\n| 20 | +0.45pp | [−0.93pp, +1.71pp] | 24,168 | 2,637 | no |\n| 50 | +0.21pp | [−1.86pp, +2.27pp] | 15,426 | 2,542 | no |\n| 200 | **+3.35pp** | [+0.44pp, +6.37pp] | 7,268 | 2,177 | **yes** |\n\nAt SMA200 only, a high-relative-volume reclaim is 3.35pp more likely to still hold\n21 trading days later than a low-relative-volume reclaim — the one cell in this\nmodule that supports DESIGN's literal hypothesis in the stated direction. Not a\nplateau (SMA20/SMA50 both flat) — read as a single-lookback mechanism result, not a\nfamily effect, same caveat this study applies to any lone significant cell among\nseveral flat neighbors, tempered here only by its being pre-declared as the flagship\nsub-question's own companion rather than a post-hoc pick.\n\n**Shape stats (CLAUDE.md invariant #10) for `dollar_volume`/SMA50:** top-tercile\n(event) side: hit rate 59.78% (C2 delta **−4.04pp** vs."
+ },
+ {
+  "qid": "zone_start",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "S/R zones looked like they started later than the peak that created them. What caused it?",
+  "cite": "docs/features/sr_lines_design_notes.md > sr_lines design notes > Resolved: `touch_quality`/`resilience`/`role_reversal` summed evidence across a line's *entire* history, letting old chop outscore a tight, honest fit",
+  "text": "The real cause: one of the three shown lines (`d249`) had accumulated\n**17 touches and 8 breaks** over 3.5 years -- almost all of that from one\nchaotic ~11-month stretch (2021-07 to 2022-06) where price whipsawed back\nand forth across its (looser-fit, `fit_rms>0.3`) band constantly. Every\nindividual event was real (genuinely classified against the actual moving\nband), but `touch_quality`/`resilience`/`role_reversal` summed evidence\nacross a line's *entire* history with no regard for how densely clustered\nor how long ago it was -- so a dozen-plus events from one old chop episode\nsaturated all three components' caps just as easily as genuine, sustained\nrespect would have. The peak-anchored line, by contrast, had only a\nhandful of clean, well-spaced touches (its tight fit means price rarely\nrevisits it by coincidence) -- objectively better evidence of a real\nlevel, but *fewer* raw events, so it scored lower under the old\naccumulate-forever formulas. This is the same structural failure shape as\nthe original \"hovering\" bug (a signal that can't distinguish real\nstrength from noisy volume of evidence), just showing up in the evidence\ncomponents instead of `in_play_gate`."
+ },
+ {
+  "qid": "e1_result",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 6,
+  "question": "Did the moving-average features add anything over the baseline in the first modeling experiment?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M6.1 — Does slope add anything over momentum? (2026-09-21)",
+  "text": "**M6.0 prerequisite (DESIGN §6.0), already established, not re-derived here:** the 1-day\nSMA slope is exact scaled momentum, and for a k-day window the identity generalizes to a\ndifference of block means: `SMAn(t) - SMAn(t-k) = (k/n) * [mean(recent k days) -\nmean(the k days ending n days back)]`. DESIGN's own words: \"a k-day SMA slope is\nmomentum with smoothed endpoints — the same signal as raw n-day momentum but with the\nstart and end points averaged over k days instead of sampled at a single close. That\nsmoothing is the only thing slope can possibly add over raw momentum... Test it\ndirectly (M6.1) rather than assuming it.\"\n\n**Hypothesis (skeptical, DESIGN's own wording):** SMA slope is momentum with cosmetic\nsmoothing, and the smoothing buys close to nothing.\n\n**New machinery: two small local features, computed in this module's own `prepare()`,\nnever written to the shared panel cache (`features/panel.py`) or to `features/slope.py`**\n— so this module and any sibling M6.x module running in parallel this session never\ntouch the same file:"
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 6,
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 6. Statistical methodology > 6.3 Cross-sectional dependence",
+  "text": "### 6.3 Cross-sectional dependence\n\nEvents cluster: on the day the market gaps down, 800 stocks lose their 50-day simultaneously. Those are **not 800 independent observations.**\n\n- Cluster standard errors **by date** (this is non-negotiable).\n- Report **effective N ≈ number of distinct event dates**, alongside raw N, in every table. If a table shows N = 45,000 and effective N = 61, the reader needs to see both.\n- For time-series claims (index level), report the number of independent **cycles**, which is typically < 10."
+ },
+ {
+  "qid": "id_dist_pct_sma200",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "dist_pct_sma_200_h21 result?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > dist_atr_sma_20_h21",
+  "text": "date: 2026-09-08\ntrack: B\nhypothesis: fwd 21d return is a structured function of displacement from SMA20 (dist_atr)\nstatistic: c2_decile_spread\npoint_estimate: -0.003716\nci_low: -0.006649\nci_high: -0.000937\nci_excludes_zero: True\nn_events: 244356.0\nn_dates: 2747\ncost_hurdle_annual: 0.02619\ncost_convention: costs.py signals_per_year, 10bps/rt (reconciled 2026-09-09; original ad hoc figure was ~5.06%/yr)\ncost_verdict: fails\nplateau_check: pass (agrees with dist_pct/dist_z at SMA20)\ncounted_in_n_tests: False\ndecisive_test_status: never_tested\nnotes: counted_in_n_tests set False 2026-09-29: excluded from the whole-grid pass by STATUS.md's dedup table (2026-09-17/23) but the flag was never updated (validation audit PR #120 D.1).\ndetail_ref: PREREGISTRATION.md#M4"
+ },
+ {
+  "qid": "holdout_opened",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "Has anyone looked at the 2022+ holdout yet?",
+  "cite": "docs/done.md > #76",
+  "text": "- **#76** [modeling] — **Modeling harness step 2: dataset, metrics, inference (`src/models/dataset.py`, `metrics.py`, `inference.py`, #152).** **Dataset:** (1) `check_holdout` refuses anything after 2021-12-31 unless `open_holdout=True`, which is logged and saved with the output; a label cache built with the holdout open can't be read without the flag. (2) `universe_mask` builds the point-in-time universe: one row per index member per date. Renames are applied to the membership first (tested equal to per-date `read_index_membership(as_of=…)`). Each row carries a trailing 20-day median dollar volume, a liquidity flag (unknown during warm-up counts as not liquid; floors per VALIDATION_HARNESS §2) and `history_breaks.training_eligibility`, each as its own column. (3) `build_labels` caches one parquet per side and horizon (all 9 (U, D) cells) with a JSON manifest. It stores member rows only, with the floors not yet applied, so changing a floor doesn't need a relabel. Bars are cut at the holdout, and each row adds `close_t`, the decision-day close. **Prices:** labels use `total_return`, the universe checks use `traded`; both are registered in `MODULE_PRICE_BASIS` as `models_labels` / `models_universe`."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes?",
+  "text": "**Module/track:** divergence-context, Track B. Second (and, per the disposition below,\nfinal) registered experiment of this study.\n**Promoted from:** EXPLORATION_LOG 2026-10-11 hidden-forms prep looks (Done #119) —\nboth prep gates the \"Hidden forms\" section above required: (a) hidden is independent\ninformation, not the regular cells' complement (only 29–34% of hidden events carry a\nmirrored-direction regular counterpart inside their pivot interval; hidden-alone cells\n~1,490–1,530 PIT dev dates); (b) the pivot-to-pivot retrace fraction is a well-defined\nhidden-geometry scalar (100% defined, mechanically bounded in (0,1), smooth) where the\nv0 63-bar impulse was shown misfit (retrace_frac > 1 on 66%/76% of defined hidden rows).\n\n**Hypothesis.** Hidden divergence is a continuation claim. For hidden divergences,\nforward outcomes after a *shallow* counter-move (trend barely dented — the textbook\n\"strong trend\" continuation setup) differ from outcomes after a *deep* counter-move\n(trend nearly given back), beyond what the same hidden-geometry structures show\n*without* a divergence. DC-B3 = bearish (downtrend, lower-high pairs), DC-B4 = bullish\n(uptrend, higher-low pairs)."
+ },
+ {
+  "qid": "ic_sweep_best",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 8,
+  "question": "How strong was the best feature in the wide IC sweep?",
+  "cite": "docs/features/moving-averages/EXPLORATION_LOG.md > Exploration Log > 2026-09-16",
+  "text": "- **Not run this pass, flagged as the natural follow-up**: `dist_from_52w_high`/`dist_from_52w_low` at 63d/126d with C1/C2 controls and a CI (the placebo-test/M2 machinery already exists and reuses directly) — the strongest candidate this sweep produced and the only one not yet touched by any Track B module."
+ },
+ {
+  "qid": "ic_sweep_best",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "How strong was the best feature in the wide IC sweep?",
+  "cite": "docs/features/chart_pattern_detection_design_notes.md > Chart pattern detection design notes > §7.4: pivot-extraction sensitivity sweep",
+  "text": "**Not claimed:** this sweep doesn't identify a \"better\" value than 2.5 --\nthat was never its purpose (per the doc's own framing, the point is\nreporting stability, not re-tuning). No change made to `pivot_atr_mult` or\nany other config value as a result of this sweep.\n\nThis closes out the initial investigation arc opened by the full-universe\noutcome backtest: dedup, rim/roundedness fixes, resolution horizon, the\nreclaim redesign, the rounding formation-completion fix, the mean/median\ndistortion fix, and now this sensitivity check. `docs/backlog.md` (or\nwherever future work gets tracked) is the right place for anything raised\nhere that warrants deeper follow-up -- the H&S sweet-spot shape and the\nrounding_top/falling_wedge degradation at wide multiples both seem like\nreasonable candidates."
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_sma20_above_h63",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real sma20 (confirmed break above the MA, then within 21d a touch from the above side that resolves as a confirmed bounce), on its confirmation day, predicts a more positive 63d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=126, 500 draws, 90% CI\npoint_estimate: 0.005506\nci_low: -0.001931\nci_high: 0.013091\nci_excludes_zero: False\nn_events: 1541\nn_dates: 893\nn_tickers: 398\ncost_hurdle_annual: 0.000317\ncost_convention: signals_per_year = retest events per ticker-year (0.317), 10bps/rt, vs the retest arm's own C2+rev delta x252/63 linear\ncost_verdict: retest arm fails ([-0.0171, 0.0262]/yr vs 0.00032); point 0."
+ },
+ {
+  "qid": "short_interest",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "Has short interest been tested as a feature?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 2. Feature-set implications > 2.4 Needs new infrastructure before it can be a feature",
+  "text": "### 2.4 Needs new infrastructure before it can be a feature\n\n| feature | blocker | where the study hit it |\n|---|---|---|\n| Point-in-time market cap / size decile | `shares_outstanding` history: yfinance 2016+, survivors only (IDEAS §7). SEC EDGAR bulk company-facts ingest has since landed on `main` (commits 8915910, a35b57f) — coverage against the 2010–2021 PIT universe is not verified in this document. | M12's `dollar_volume` cell capped for exactly this; C-1 candidate in `EXPLORATION_LOG.md` never disentangled. |\n| Earnings dates | no table anywhere in the DB | M6.3 substituted a large-move proxy; M13 deferred; DESIGN §7.4 unaddressable. For a barrier target this is the largest single gap (IDEAS §3 already says so). |\n| Intraday (wick) touches | close-only bars in the touch detector (`features/touch.py`) | M5's named caveat. Only matters if an LRP feature is rebuilt on intraday data. |\n| Point-in-time sector | `ticker_sector` is a current snapshot | Every C2 match in the study used a non-PIT sector column (`panel.py` docstring). Same leak in a model's sector feature."
+ },
+ {
+  "qid": "lag_where",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 4,
+  "question": "how is the one-bar lag applied and where in the code does it happen?",
+  "cite": "docs/done.md > #151",
+  "text": "- **#151** [llm] — **Strategy agent step 5: the exploratory look behind a grounded spec (`src/llm/strategy_spec/look.py`; workflow steps 5–6 of `docs/strategy-agent/idea.md`, Track A only).** Once a spec is complete and grounded, deterministic code (zero LLM calls) asks whether the setup predicted anything — the repo's way: a conditional forward-return delta against a matched control, never a trading backtest (a backtest hides hundreds of silent decisions; this look has one, the horizon, and the spec states it in `horizons_bars`). Events come from the same finder grounding used, on the **other alignment**: grounding un-lags so a chart's trigger date is the signal bar; the look flags the panel row *after* each match (`event_mask`, the exact inverse of `shift_to_signal_bar`), restoring the central one-bar lag — signal on close t, outcomes measured from the t+1 row, with a test pinning the alignment. A `direction=\"both\"` spec is tested one side at a time (the sides carry opposite expected signs; pooling would cancel a real effect into a confident nothing); no direction or no horizons is refused — finish elicitation."
+ },
+ {
+  "qid": "price_basis_choice",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "which price basis did we pick (adjusted vs raw) and why?",
+  "cite": "docs/decisions/price-basis.md > Price basis: which price series each module uses > Delisted members: Tiingo fallback (2026-10-05)",
+  "text": "- **The sources used are recorded:** the universe's `attrs[\"spec\"][\"price_sources\"]` and the\n  label manifest's `price_sources` count tickers per source.\n- Checked on overlapping tickers: on ordinary days the vendors agree (KO and AAPL <0.1%).\n  Around corporate actions each has its own errors (Done #86), so the modeling labels also\n  skip reviewed disputed days (`market_common/price_disputes.csv`), and a ticker whose\n  yfinance error can't be masked (T's dividend drift) is read from Tiingo instead\n  (`market_common/vendor_overrides.PREFER_TIINGO`)."
+ },
+ {
+  "qid": "harness_folds",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "how does the validation harness split train/test for the combined model?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 9. Code layout and build order",
+  "text": "- **R/R is still set by the barriers:** average win over average loss 1.0–2.85,\n       as before.\n     - **Against the result:** this is a second look at the same 2014–2021 predictions,\n       chosen after S1 (planned in #201's write-up before it ran, but still a fork);\n       the 36 readouts share one model's predictions and overlapping cells, so 36 of 36\n       is far from 36 independent confirmations, and none is corrected; one seed; one\n       bull market, long only; the per-trade edge (+0.1–0.6%) is small next to the\n       trade's spread. B4 ranked the same way is still beaten, so the gain isn't only\n       the ranking rule.\n     - **What it means:** the first readout where the combined model's picks look\n       better than buying everything, in both eras, at the same risk per name. Rank on\n       EV in ATR units from here on; top-20 is the better trade-off (Sharpe above the\n       market everywhere). Still Track A: the confirmation is the pre-registered test\n       after step 2–3, then the holdout.\n   - **Step 2b (Track A, in parallel with step 2): indicator and market-regime features.**\n     14 null-prior columns registered (§7): volatility regime, volume, RSI, SPY trend and vol,\n     point-in-time breadth, sector-relative momentum."
+ },
+ {
+  "qid": "harness_folds",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "how does the validation harness split train/test for the combined model?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 9. Code layout and build order",
+  "text": "- **BBT carries another company's prices.** The symbol was reused after BB&T\n     became TFC (same CIK), and `ticker_renames` only considers price-less\n     symbols, so BBT was never checked (`docs/backlog.md`, survivorship research).\n     Fixed (Done #92): `symbol_reuse.py` checks former members with bars; BBT and five\n     others are whole-history disputes, so their labels are dropped.\n   - The reverse-split cooldown flags DD (2019) and GE (2021) for a year each.\n     Both were large-cap reverse splits around spin-offs, not distress. This\n     feeds the with/without sensitivity in history-breaks follow-up (b).\n3. `baselines.py` + `learners.py` + `trial_log.py`. **Done (#157).** Choices made\n   there:\n   - **Baseline features** come from `features/baseline.py`: the study's definitions,\n     computed on bars up to t for the point-in-time universe, and cached as parquet.\n     The MA panel isn't reused: it is lagged one row, and it only covers the 405\n     tickers that survived to 2021.\n   - **The learner** is three-class `HistGradientBoostingClassifier` with fixed v1\n     defaults (`BoostingConfig`). Isotonic calibration (one class against the rest,\n     renormalised) is fitted on inner-fold out-of-sample predictions. Inner test rows\n     whose label window reaches the outer test year are purged as well."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > #139",
+  "text": "Test re-rank hit@5 is 0.73 against 0.83 on dev, the expected gap between questions methods were compared on and fresh ones, plus small-sample noise; re-rank's ordering edge holds on test (best hit@1, @3, @5 and MRR), while vector's hit@10 is higher by 1 question. Test misses are recall: 3 section questions aren't in any method's top 10, and the one multi-part question's full answer isn't in re-rank's top 10 (its first part is at rank 1). The test unanswerable question's re-rank top score (−1.0) sits inside the answerable range (−5.4 to 6.6), so a score cutoff can't say \"not in the docs\"; the answering step has to. Step 7 is closed with re-rank as the retrieval; the test split is now used, so later changes are judged on dev and on answer quality in step 6. Reports saved under `data/llm/final_eval_2026-10-14/` (git-ignored). After the runs, a data step merged to main (#137) changed the true answer to one dev question, so its golds were moved to the docs that now answer it and the ones describing the old state dropped (golds that reward an outdated answer grade the search backwards); the numbers above predate it. A doc change can make a question's answer key wrong, not just stale: `--check` catches a gold whose phrase disappears, not one whose phrase is still there but no longer true."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 9,
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance — plan > Open questions",
+  "text": "## Open questions\n\n- ~~Table layout: one long facts table (ticker, concept, period, filed, value) or wide\n  per-quarter rows?~~ Long (step 2, \"As built\"); features pivot what they need.\n- ~~Does step 1 also pick up 10-Q/10-K filing dates as a fallback when no item 2.02 8-K\n  exists?~~ Yes, flagged in `source` (step 1, \"As built\").\n- ~~Universe: S&P 500 + Nasdaq-100 first (the modeling universe), or everything EDGAR has?~~\n  All-time S&P 500 + Nasdaq-100 members for both steps (`--indices` widens it)."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rerank:L12",
+  "rank": 10,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/PREREGISTRATION.md > Modeling pre-registrations > E1: do the MA features add information over B4? (registered 2026-10-07) > Result (2026-10-08 addendum)",
+  "text": "- **The era pattern is universal.** All 8 trials are worse in 2014–17 and better in\n  2018–21. Two readings fit:\n  - *More training data.* With expanding folds, the later years train on 7–10 years,\n    against 3–6 for the early ones. Models with more columns may need that much.\n  - *A regime change.* The low-volatility 2014–17 market differs from the 2018–21\n    years, which include 2018 Q4 and 2020.\n\n  The sliding (3-year) scheme would separate the two readings. That is a candidate\n  addendum, not part of this verdict.\n- **Plateau:** no horizon passes, and the neighbouring horizons agree. There is no lone\n  bright cell."
+ },
+ {
+  "qid": "slope_pctile_by_id",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "What came of slope_pctile_21_sma_50?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > slope_magnitude_humped_test_sma20",
+  "text": "date: 2026-09-22\ntrack: B\nhypothesis: Forward 21d return is non-monotonic in slope_pctile_21_sma_20 -- specifically, do the pooled middle deciles (4,5) differ from the pooled tail deciles (0,1,8,9)\nstatistic: c2_delta (block_bootstrap_delta, group_col=is_middle, restricted to middle+tail deciles)\npoint_estimate: -0.001173\nci_low: -0.002286\nci_high: -6.3e-05\nci_excludes_zero: True\nn_events: 219654\nn_dates: 2747\nn_tickers: 402\ncost_hurdle_annual: 0.013365\ncost_convention: costs.py signals_per_year (is_middle state-flip turnover, entry+exit), 10bps/rt\ncost_verdict: fails (point -1.408%/yr clears, near edge -0.075%/yr misses, far edge -2.743%/yr clears)\nplateau_check: same sign as SMA50/SMA200 but shape is asymmetric (falling-tail-driven, not symmetric) -- see PREREGISTRATION.md\ncounted_in_n_tests: True\ndecisive_test_status: passed\nnotes: U-shaped, not humped as DESIGN hypothesized: tails (extreme slope magnitude,"
+ },
+ {
+  "qid": "reclaim_volume",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "Do reclaims of the 50-day average on heavy volume do better than those on light volume?",
+  "cite": "docs/features/chart_pattern_detection_design.md > Chart Pattern Detection Module — Design Doc > 3. Common Concepts Used Across All Patterns > 3.3 Volume confirmation",
+  "text": "### 3.3 Volume confirmation\nNearly every pattern in this doc has a volume signature that separates real institutional patterns from noise:\n- **Base-building phase:** volume should generally contract/decline as the pattern matures (supply drying up).\n- **Breakout bar:** volume should expand, typically **≥ 40–50% above the 50-day average volume** (this exact threshold shows up consistently across VCP and cup-and-handle sources — treat it as the default breakout-volume filter, tunable).\n- Compute `rel_volume = breakout_bar_volume / sma(volume, 50)` and use it both as a hard filter (reject breakout below 1.0×) and as a confidence input (score scales up to ~1.5×+)."
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 3. How it gets tested > Addendum (2026-10-11): judged on the trading scorecard",
+  "text": "### Addendum (2026-10-11): judged on the trading scorecard\n\nAdded after the modeling phase's direction changed (`VALIDATION_HARNESS.md` §9 step 6,\n2026-10-08). The text above stays as written. It describes the ablation plan from\nbefore that change.\n- **Where the level groups go:** §2.1–2.3 are registered as feature groups of the one\n  combined model. They are not a separate LRP model or a stand-alone test.\n- **What judges them:** the trading scorecard (`run-scorecard` / `rescore-scorecard`,\n  `rank=\"ev_atr\"`). The model's top-20 picks are compared with B4's picks ranked the\n  same way, the market basket and the random-k basket, after costs. The step 2 run\n  compares the model with the level columns against the step 1b (`S1b`) numbers. It is\n  Track A: a `TRIALS.csv` row per cell, no verdict.\n- **Ablations are diagnostics:** the order and the Brier-improvement metric above still\n  describe what to look at, for example whether a group carries anything the model\n  uses. No group is dropped, and no LRP verdict is recorded, from a Brier ablation."
+ },
+ {
+  "qid": "e1_result",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "Did the moving-average features add anything over the baseline in the first modeling experiment?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 2. Feature-set implications > 2.2 Recommended v1 MA-family feature list",
+  "text": "|\n| 12 | `adx_14` regime (`features/regime.py::adx_regime`) | M9 | The regime construction that actually persists (+10.4pp). Use as an interaction gate, not as a lookback selector (M9 killed that). |\n\nControls that belong in every feature set and every baseline (§3): `mom_12_1`, `mom_1_0`\n(reversal), `realized_vol_63`, `sector`, and `ext_tercile` (= `dist_pct_sma_50` tercile)."
+ },
+ {
+  "qid": "macd_beyond_spread",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "Does the MACD histogram tell us anything the moving-average spread doesn't?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > nonlinearity_macd_histogram_divergence_event",
+  "text": "date: 2026-09-25\ntrack: B\nhypothesis: Among new-21-day-high rows with an eligible prior high to compare against, does a bearish MACD-histogram divergence predict a different fwd_ret_21 than a non-divergent new high, C2-matched (mom_tercile/vol_tercile/sector)\nstatistic: block_bootstrap_delta(group_col=divergence, value_col=fwd_ret_21, match_cols=mom_tercile/vol_tercile/sector), restricted to is_new_high population\npoint_estimate: -0.00014691\nci_low: -0.00094453\nci_high: 0.00069198\nci_excludes_zero: False\nn_events: 180357\nn_dates: 2707\nn_tickers: 402\ncost_convention: not evaluated -- CI spans zero before cost is applied\ncost_verdict: not_tested\nplateau_check: n/a (single cell, no neighboring parameter)\ncounted_in_n_tests: True\ndecisive_test_status: inconclusive\nnotes: PREREGISTRATION.md M17 entry, histogram-divergence event test. CI spans zero -- not confirmed."
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 5,
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 7. Confounds and traps > 7.9 Self-reference",
+  "text": "### 7.9 Self-reference\n\nA stock is above its 200-day *because* it rose. Conditioning on the MA state and then measuring forward return from that elevated price embeds a \"this stock already rose\" selection. This is not automatically a bias — momentum is real — but it must be named, and it is exactly what C2 controls for."
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 7. Confounds and traps > 7.1 Momentum collinearity (the big one)",
+  "text": "### 7.1 Momentum collinearity (the big one)\n\n`price > 50 > 150 > 200 SMA, all rising` is, to a first approximation, a noisy indicator function for \"this stock's trailing 6–12 month return was positive and smooth.\" Cross-sectional momentum is a well-documented factor. Any MA study that doesn't control for it is a momentum study with extra steps.\n\n**Mitigation:** the C2 control (§6.1), plus an explicit regression:\n\n```\nfwd_exret ~ β₀ + β₁·mom_12_1 + β₂·mom_6_1 + β₃·vol + β₄·size + β₅·MA_FEATURE + ε\n```\n\n**β₅ is the entire finding.** Everything else in this document exists to make β₅ believable."
+ },
+ {
+  "qid": "id_placebo_ema21",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "What happened with placebo_ema21_h21?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > placebo_sma200_h21",
+  "text": "Descriptive only -- does not change this cell's Tier 4 (folklore-confirmed) verdict.\ndetail_ref: PREREGISTRATION.md#§7.5\ncorrection_2026_10: 2026-10-07 was:no_effect; three-verdict rule (CI spans zero and extends past the pre-registered floor — underpowered; not evidence of no effect); floor=return 0.10pct; edge/floor=5.3x; see PREREGISTRATION.md 2026-10-07 verdict-correction addendum"
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 9,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > Appendix D — Adjacent directions (in scope, outside the original question set) > D.2 — MAs on the relative-strength line, not price",
+  "text": "### D.2 — MAs on the relative-strength line, not price\nCompute MAs on the ratio `stock / benchmark` (or stock / sector ETF) instead of raw price. IBD-style practitioners watch the RS line explicitly. This is a genuinely different signal from price MAs and is automatically market-neutral, which sidesteps a large chunk of §5.2's confounds. Plausibly the highest-value single item on this list."
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 4,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_ema21_below_h21",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real ema21 (confirmed break below the MA, then within 21d a touch from the below side that resolves as a confirmed bounce), on its confirmation day, predicts a more negative 21d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=42, 500 draws, 90% CI\npoint_estimate: -0.007605\nci_low: -0.012363\nci_high: -0.002972\nci_excludes_zero: True\nn_events: 1157\nn_dates: 618\nn_tickers: 388\ncost_hurdle_annual: 0.000238\ncost_convention: signals_per_year = retest events per ticker-year (0.238), 10bps/rt, vs the retest arm's own C2+rev delta x252/21 linear\ncost_verdict: retest arm clears ([-0.1259, -0.0272]/yr vs 0.00024); point -0.0754/yr\nplateau_check: term structure: adjacent horizons same sign = False;"
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 5,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_sma20_below_h5",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real sma20 (confirmed break below the MA, then within 21d a touch from the below side that resolves as a confirmed bounce), on its confirmation day, predicts a more negative 5d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=10, 500 draws, 90% CI\npoint_estimate: 0.000423\nci_low: -0.002351\nci_high: 0.002964\nci_excludes_zero: False\nn_events: 1354\nn_dates: 715\nn_tickers: 396\ncost_hurdle_annual: 0.000279\ncost_convention: signals_per_year = retest events per ticker-year (0.279), 10bps/rt, vs the retest arm's own C2+rev delta x252/5 linear\ncost_verdict: retest arm fails ([-0.0600, 0.1816]/yr vs 0.00028); point 0."
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 6,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_ema21_below_h63",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real ema21 (confirmed break below the MA, then within 21d a touch from the below side that resolves as a confirmed bounce), on its confirmation day, predicts a more negative 63d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=126, 500 draws, 90% CI\npoint_estimate: -0.008354\nci_low: -0.018025\nci_high: 0.000740\nci_excludes_zero: False\nn_events: 1136\nn_dates: 608\nn_tickers: 388\ncost_hurdle_annual: 0.000234\ncost_convention: signals_per_year = retest events per ticker-year (0.234), 10bps/rt, vs the retest arm's own C2+rev delta x252/63 linear\ncost_verdict: retest arm fails ([-0.0416, 0.0065]/yr vs 0.00023); point -0."
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 9,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_sma200_below_h5",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real sma200 (confirmed break below the MA, then within 21d a touch from the below side that resolves as a confirmed bounce), on its confirmation day, predicts a more negative 5d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=10, 500 draws, 90% CI\npoint_estimate: 0.000702\nci_low: -0.004755\nci_high: 0.005966\nci_excludes_zero: False\nn_events: 306\nn_dates: 239\nn_tickers: 224\ncost_hurdle_annual: 0.000063\ncost_convention: signals_per_year = retest events per ticker-year (0.063), 10bps/rt, vs the retest arm's own C2+rev delta x252/5 linear\ncost_verdict: retest arm fails ([-0.1860, 0.3210]/yr vs 0.00006); point 0.0668/yr\nplateau_check: term structure: adjacent horizons same sign = False;"
+ },
+ {
+  "qid": "short_interest",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "Has short interest been tested as a feature?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 11. Priors: where I expect this to go > 11.2 Likely dead ends (test cheaply, then close)",
+  "text": "### 11.2 Likely dead ends (test cheaply, then close)\n\n| Direction | Why I expect it to fail | Confidence |\n|---|---|---|\n| **Optimal MA length** | Zakamulin's work is unambiguous: no stable optimum, and the surface is a noise field. Expect no plateau | High |\n| **MA family selection at matched lag** | Kernel shape is second-order to lag. HMA/DEMA/ZLEMA marketing is about lag, and once you match lag there's nothing left | High |\n| **Crossovers as standalone entries after costs** | The cross is redundant with the state, and short-lookback crosses generate a cost hurdle that eats the gross edge | High |\n| **Death cross as a short signal** | Signal fires after the majority of the decline; ~54% of the time the low is already in."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 4,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/done.md > #93",
+  "text": "- Secondary readouts: uncalibrated Brier (calibration shrinks weak signals, #84), log loss, IC, top-k after costs.\n  - **Runner:** the experiment is defined in code (`PREREGISTERED[\"E1\"]`, literal column lists that a test pins to the registry). Per horizon, each model is fitted once per fold and seed and reused as the next step's reference. Each trial gets a `TRIALS.csv` row with its draws archived; `close-experiment` applies BH and the verdicts. `fit_predict` can also return the same model's uncalibrated probabilities.\n  - **Adjusted for the 2026-10-07 data-thread changes:**\n    - The label manifest records a fingerprint of the disputes list, and `read_labels` refuses a cache built with another list. A label cache built before the reused-symbol PR (#184, e.g. BBT) can't be used by mistake.\n    - Both caches are rebuilt from `main` before the run.\n    - The registry's prior enum is unchanged (IDEAS §2's null/inconclusive split has no consumer yet).\n    - No code filters `EXPERIMENTS.csv` by outcome.\n  - **Code review before the PR:** four fixes.\n    - Pass now also needs the effect to reach the band; before, a significant but negligible gain could pass.\n    - `close-experiment` counts each trial's first clean, full-size row. Before, a later quick rerun could replace it.\n    - The runner refuses a feature cache built for another universe or window.\n    - The registered T2 vs B4 readout is now computed."
+ },
+ {
+  "qid": "cost_assumption",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 10,
+  "question": "what cost assumption do we use when judging whether a signal is tradeable?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M5 — Touch / test / bounce behaviour (2026-09-17)",
+  "text": "**Module-level kill** fires iff all 6\ncells are killed; DESIGN frames this as \"a major, satisfying negative result\" in its own\nright, not a failure to find something.\n\n**Control tier and why:** C1 default, **C2 is the tier the kill criterion is evaluated\non** — same rationale as every prior module: a raw hold rate could differ between focal\nand synthetic touches for reasons unrelated to the level itself (e.g. which tickers/\nregimes happen to generate more away-then-touch cycles at one lookback vs. a\nneighboring one), and C2's momentum/vol/sector matching is this study's standing answer\nto that class of confound.\n\n**Cost annotation:** not applicable to the kill/confirm call itself — like §7.5, this\nis a mechanism question (does the level itself matter) not a tradeable-edge question.\nIf any cell is confirmed, a cost annotation (turnover of the touch-event flow itself)\nwould be required before it's stated as an actionable claim (invariant #8) — deferred\nuntil/unless that happens, not computed here.\n\n**Plateau check (DESIGN §6.7):** built into the design itself, same as §7.5 — the\nsynthetic-neighbor comparison *is* the plateau check (does the focal lookback stand out\nfrom its own near neighborhood), not a separate post-hoc pass."
+ },
+ {
+  "qid": "divergence_trend_filter",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 7,
+  "question": "did we ever try RSI divergence combined with a trend filter, and what happened?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Pre-identified power risk and pre-committed disposition (the load-bearing part)",
+  "text": "### Pre-identified power risk and pre-committed disposition (the load-bearing part)\n\nSized blind on the recomputed base — counts and covariate definedness only, no\noutcome read — by `src/analysis/divergence_dcb3b4_sizing.py` (committed with this\ndraft, output reproducible): RSI hidden events, PIT, dev window: **DC-B3 3,758 rows /\n1,334 distinct p2 dates; DC-B4 6,780 / 1,451**; control pools after the strict\ngeometry and both divergence exclusions: **10,247 / 12,706 rows (2,011 / 2,067\ndates)** — 1.9–2.7× the event sets in aggregate, with per-pole coverage deferred to\nthe blind balance report. The ±5-calendar-day sizing approximation of the ±3-bar\nexclusion errs in both directions (it over-covers mid-week spans, excluding some\n4–5-bar neighbours, and under-covers holiday weeks, missing some 3-bar ones), so\nthese pool counts are sizing-grade: the build's exact-rule pool is printed in the\nblind balance report and supersedes them."
+ },
+ {
+  "qid": "earnings_financials",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "Do we have any financial data from companies' earning reports?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance — plan > Steps > 3. Features",
+  "text": "- **Leakage gate:** it gets a `future_filings` perturbation that rewrites every filing after\n  the cut: values, deleted rows, moved reaction dates, and a late report of a mid-history\n  period for both tables. It also gets a canary that reads net income by period end\n  instead of filing date.\n  - **Straddling quarters:** the synthetic filings use December, January and February\n    fiscal years, so some quarters end before the cut and are filed after it. That's the\n    case a period-end leak gets wrong, and a test plants such a leak and checks the gate\n    catches it.\n  - **Two leaks caught in the first version, both fixed:** a late report changed which\n    quarter matched as \"a year earlier\"; and a quarter with revenue filed but net income\n    not yet filed counted as known from its inputs' dates.\n  - **Passes** on synthetic data (3 seeds) and on 20 real tickers.\n\nCoverage on S&P 500 member rows (150-ticker sample, 81 with bars in the window):\n- earnings timing: 94–100%;\n- SUE: 90–99% from 2012 (it needs three years of quarters, so 2010–2011 are thin);\n- revenue growth: 87–94%;\n- net margin: 90–95%;"
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 1,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/TRIALS.csv > 20261012-170238-fbc2ecb-4e01c3",
+  "text": "\"sharpe\": 0.5291102339527212, \"cost_drag\": 0.004, \"annual_return_min\": 0.053986037487507854, \"annual_return_max\": 0.07053772710727912, \"n_draws\": 20}}}, \"20\": {\"vs_reference\": {\"point_estimate\": 0.0027161412599516557, \"ci_low\": -0.003972245578104718, \"ci_high\": 0.009775935748667319, \"near_edge\": -0.003972245578104718, \"boot_std\": 0.004266653028495899, \"higher_is_better\": true, \"n_dates\": 2001, \"n_rows\": 2001, \"n_boot\": 1000, \"block_length\": 126, \"ci\": 0.9, \"seed\": 0}, \"vs_market\": {\"point_estimate\": -0.0002489589042842913, \"ci_low\": -0.005310542440773653, \"ci_high\": 0.004837512567347502, \"near_edge\": -0."
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 2,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/TRIALS.csv > 20261016-201748-a794dc1-fd811c",
+  "text": "\"sharpe\": 0.8465281036408543, \"annual_return_min\": 0.023416268558254627, \"annual_return_max\": 0.12717299975437446, \"n_start_days\": 63}, \"atr_pct\": 0.024495882913470268}, \"reference\": {\"costs\": {\"0\": {\"n_trades\": 39089, \"n_dates\": 2001, \"trades_per_year\": 4922.752623688156, \"target_rate\": 0.3772160966000665, \"stop_rate\": 0.37931387346823914, \"timeout_rate\": 0.24347002993169434, \"win_rate\": 0.5558085394868122, \"avg_win\": 0.09697145968675613, \"avg_loss\": -0.07355409115552902, \"payoff_ratio\": 1.3183693885803223, \"expectancy\": 0.021225472912192345, \"median\": 0.027750827372074127, \"profit_factor\": 1.649651288986206,"
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/TRIALS.csv > 20261010-154342-5da44e0-d62cf2",
+  "text": "\"sharpe\": 0.6995864510536194, \"annual_return_min\": -0.021026378966011117, \"annual_return_max\": 0.17197248530054554, \"n_start_days\": 63}, \"atr_pct\": 0.025343524292111397}, \"reference\": {\"costs\": {\"0\": {\"n_trades\": 9809, \"n_dates\": 2001, \"trades_per_year\": 1235.3163418290853, \"target_rate\": 0.3329595269650321, \"stop_rate\": 0.3861759608522785, \"timeout_rate\": 0.2808645121826894, \"win_rate\": 0.5368539096747884, \"avg_win\": 0.10055661201477051, \"avg_loss\": -0.07609909772872925, \"payoff_ratio\": 1.3213903903961182, \"expectancy\": 0.018739214166998863, \"median\": 0.012930668890476227, \"profit_factor\": 1.5316842794418335,"
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 6,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/fundamentals/plan.md > Company financials: earnings, fundamentals, guidance — plan > Steps > 4. Research questions",
+  "text": "### 4. Research questions\n\nRun under the usual protocol (matched control, effective N, costs, three-way verdict),\npre-registered before running:\n\n- **Post-earnings drift:** after a large positive or negative surprise, does the stock\n  keep drifting in the same direction, beyond what price momentum alone predicts?\n- **Combined model:** does adding the step-3 features to the combined model improve top-k\n  R/R after costs? Judged on the existing scorecard, like any other feature set.\n- **Earnings as risk:** does excluding or flagging setups with earnings inside the horizon\n  change realized R/R?"
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 5,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 4. Target and label design",
+  "text": "|\n| 21d | Every Tier-2/3 return cell in the study | The study's evidence base is essentially a 21-day study. |\n| 63d | M11 `dist_pct_sma_20_h63` spans zero; M18 `dist_from_52w_low_h63` real; M17 RSI/%K span zero | SMA-distance fades by 63d; 52-week features begin. |\n| 126d | M18 `dist_from_52w_low_h126` +2.50%; IC sweep's strongest cells | Slow features need long horizons; the bootstrap block length becomes 252 days and n_dates/block ≈ 10. |\n\nImplications for the H × U × D grid in IDEAS §1: (a) the grid's H axis should span 5–126,\nnot 5–63, or the 52-week family is wasted; (b) effective N per H cell falls as\nn_dates / (2H) — at H=126 the study had about 10 independent blocks, which is a Tier-3\nceiling by DESIGN §6.4's own rule; (c) turnover differs by an order of magnitude across\nthe features (`above_sma_20` 30.4 flips/ticker-yr; `slope_log_21_sma_200` top-decile\n0.90; crossovers 1.4–11.8), so the cost term in the\nEV cell must be per-feature-implied-turnover, not one constant."
+ },
+ {
+  "qid": "model_running",
+  "split": "dev",
+  "method": "rewrite:L12",
+  "rank": 8,
+  "question": "Do we have any model running yet?",
+  "cite": "docs/done.md > #88",
+  "text": "- **#88** [modeling] — **Three-verdict rule (dead vs. inconclusive) fixed forward in the modeling docs before the harness runs it.** A 2026-10-07 audit found the repo's research logs conflate a demonstrated null (whole CI inside the economic-relevance band — an effect that matters is ruled out) with an inconclusive/underpowered cell (CI spans zero but extends past the band — the data couldn't tell). `LRP.md` §3's kill criterion (\"CI includes zero … written up as a null\") was the one place the flawed rule hadn't fired yet: it now keeps the operational drop gate but records null vs. inconclusive by the band test, with the minimum-relevant-improvement band pre-committed in the experiment's `PREREGISTRATION.md` entry before the run. `VALIDATION_HARNESS.md` §7's ablation note gets the same distinction for trial outcomes. `CLAUDE.md`'s kill-criterion bullet now defines both verdicts repo-wide. Reference wording: `docs/features/divergence-context/PREREGISTRATION.md` \"Verdicts and kill criteria\" (amended 2026-10-07). The historical-record side (EXPERIMENTS.csv relabels, DESIGN §9.2 tier note, summary-doc qualifiers) is a separate correction pending the user's pick of mechanism."
+ },
+ {
+  "qid": "holiday_calendar",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Does weekly and monthly resampling know about market holidays?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 2. Feature families (user's list), tagged",
+  "text": "Three distinct signals, not one: the ratio line (a level vs the benchmark), the raw weighted-return score (the stock's *own* 3/6/9/12-month return, IBD weights), and the percentile rank of that score among same-date peers. The rank is ordinal and saturates at the top, so a leader's score can halve while its rank stays at 99; the rank alone hides that move, the raw score carries it. Give the model the score (or score change) next to the rank, not the rank alone. `rs_mansfield` had a four-session look-ahead until 2026-09-30 (weekly value forward-filled from its Monday label; fixed in #141) — any RS feature in the harness is built on the fixed version, and `test_mansfield_on_a_day_ignores_closes_after_that_day` is the check to copy. |\n| F6 | Divergences, gaps, FVGs, fibs, AVWAP, AVP | `divergences`, `gaps` (FVGs included), `fibonacci`, `avwap` (now with volume-weighted std bands, #109). **AVP now built:** `signals/volume_profile` (#110), with shared anchor discovery in `market_common`. | Event/level objects, not series. They need converting to per-date features (§3). Check that each one is `as_of`-safe when computed across the full panel."
+ },
+ {
+  "qid": "slope_pctile_by_id",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "What came of slope_pctile_21_sma_50?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > slope_cond_extension_x_slope_sma50_bottom",
+  "text": "date: 2026-09-17\ntrack: B\nhypothesis: The bottom-decile dist_atr_sma_50 extension predicts a different fwd_ret_21 depending on whether the 50-day is rising or falling\nstatistic: c2_delta (block_bootstrap_delta, group_col=slope_sign_sma_50, restricted to bottom)\npoint_estimate: -0.001066\nci_low: -0.005056\nci_high: 0.002703\nci_excludes_zero: False\nn_events: 30330\nn_dates: 2551\nn_tickers: 402\ncost_verdict: n/a\nplateau_check: n/a\ncounted_in_n_tests: True\ndecisive_test_status: inconclusive\ndetail_ref: PREREGISTRATION.md#M6.2"
+ },
+ {
+  "qid": "reclaim_volume",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "Do reclaims of the 50-day average on heavy volume do better than those on light volume?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M12 — Volume and liquidity interaction (2026-09-23)",
+  "text": "\"Durable\" operationalized as (a) forward 21-day return\n(`fwd_ret_21`, this study's standard horizon) and (b) whether the reclaim still holds\n(state is still `above` 21 trading days later, a new forward-looking label — see\n\"New machinery\" below).\n\n**Scope decisions, stated up front:**"
+ },
+ {
+  "qid": "reclaim_volume",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "Do reclaims of the 50-day average on heavy volume do better than those on light volume?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > reclaim_hold_rate_relative_volume_sma20",
+  "text": "date: 2026-09-23\ntrack: B\nhypothesis: SMA20 reclaims in the top relative-volume tercile more often still hold (above_sma_20 still True) 21 trading days later than reclaims in the bottom tercile\nstatistic: c2_delta (block_bootstrap_delta, group_col=is_top_relative_volume_tercile, value_col=hold_20, restricted to SMA20 reclaim events in top/bottom tercile)\npoint_estimate: 0.004538\nci_low: -0.009274\nci_high: 0.017051\nci_excludes_zero: False\nn_events: 24168\nn_dates: 2637\nn_tickers: 402\ncost_convention: n/a -- mechanism/durability read, not a return claim (same convention as M5/M6.2 touch-outcome cells)\ncost_verdict: n/a\nplateau_check: flat at SMA20/SMA50, only SMA200 excludes zero -- not a plateau\ncounted_in_n_tests: False\ndecisive_test_status: n/a\nnotes: Companion cell (PREREGISTRATION.md's 'Durability's secondary facet'), sub_question=relative_volume only, no kill authority. CI spans zero.\ndetail_ref: PREREGISTRATION.md#M12"
+ },
+ {
+  "qid": "golden_cross",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "Does a golden cross of the 50-day over the 200-day average predict returns?",
+  "cite": "docs/features/moving-averages/REPORT.md > Moving-averages study — final report > 1. Executive summary",
+  "text": "## 1. Executive summary\n- **One Tier-2 result, no Tier 1.** Stocks whose 50-day SMA slope is at a cross-sectional\n  extreme, rising or falling, outperform stocks with a flat slope. The effect is 0.25% per\n  21 days, with a 90% CI of [0.15%, 0.35%]. It holds in each tail separately, under a\n  reversal control, with large moves excluded, and across seeds. It clears cost at\n  20 bps. That is about 3% a year gross: a feature, not a strategy.\n- **An FDR survivor that fails its plateau (M22, 2026-10-01).** After a break above SMA50, a\n  held retest is followed by 63-day returns 2.08% below an ordinary SMA50 bounce, and the cell\n  survives FDR at q=0.05. The pre-registered neighbour check cut it to Tier 3: SMA47 spans zero,\n  SMA53 is about half the size, and a coarser match spans zero. The sign is consistent; the\n  size is not."
+ },
+ {
+  "qid": "golden_cross",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Does a golden cross of the 50-day over the 200-day average predict returns?",
+  "cite": "docs/features/moving-averages/FINDINGS.md > Findings register — Tier 1, 2 and 3 > Tier 2 > M6.3 `slope_pctile_21_sma_50` — extreme 50-day slope beats flat slope",
+  "text": "### M6.3 `slope_pctile_21_sma_50` — extreme 50-day slope beats flat slope\n- **Hypothesis**: 21d return is non-monotonic in the per-date percentile of\n  `slope_log_21_sma_50`. DESIGN expected a hump (\"too much trend is exhaustion\").\n- **Why plausible**: trend-following folklore and the exhaustion story predict opposite\n  shapes; the magnitude of slope is untested by M6.1's linear test.\n- **Run**: middle deciles {4,5} vs tail deciles {0,1,8,9}, C2.\n- **Result**: **U-shaped.** Middle minus tails −0.248% [−0.354%, −0.153%] per 21d.\n  Most of the lift sits in deciles 0 and 9 alone.\n  - Rising tail alone: −0.254% [−0.429%, −0.085%].\n  - Falling tail alone: −0.244% [−0.413%, −0.096%].\n  - With a reversal control: −0.282%.\n  - Excluding recent large moves: −0.264%.\n  - Stable across seeds 0–3.\n- **Effective N**: 2,747 dates, 219,700 rows."
+ },
+ {
+  "qid": "sma200_placebo",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "Is the 200-day average special compared with nearby lookbacks like 193 or 207 days?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M6 — Slope and curvature > M6.0 — Two identities that constrain the whole module",
+  "text": "#### M6.0 — Two identities that constrain the whole module\n\n**Identity 1 — the 1-day slope of an SMA is exactly scaled momentum.**\n\nSMAₙ(t) − SMAₙ(t−1) = (Cₜ − Cₜ₋ₙ) / n\n\nThat is exact, not an approximation. **\"Is the 200-day SMA rising today?\" is literally identical to \"is today's close above the close 200 days ago?\"** Nothing more. Which means Minervini's criterion 3 — *the 200-day is trending up for at least 1 month* — decodes exactly to: *the close has exceeded its own value from 200 days prior, continuously, for the past 21 days.* No smoothing, no trend-quality content. Just a 200-day momentum sign, sustained."
+ },
+ {
+  "qid": "dead_vs_inconclusive",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "What is the difference between a dead result and an inconclusive one?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > 2026-10-07 — cross-module verdict correction: dead vs. inconclusive (EXPERIMENTS.csv relabel)",
+  "text": "- **M22** (25): `break_retest_sma20_above_h63`, `break_retest_sma20_below_h5`, `break_retest_sma20_below_h10`, `break_retest_sma20_below_h21`, `break_retest_sma20_below_h63`, `break_retest_ema21_above_h5`, `break_retest_ema21_above_h10`, `break_retest_ema21_above_h21`, `break_retest_ema21_above_h63`, `break_retest_ema21_below_h5`, `break_retest_ema21_below_h10`, `break_retest_ema21_below_h63`, `break_retest_sma50_above_h5`, `break_retest_sma50_above_h21`, `break_retest_sma50_below_h5`, `break_retest_sma50_below_h21`, `break_retest_sma50_below_h63`, `break_retest_sma200_above_h5`, `break_retest_sma200_above_h10`, `break_retest_sma200_above_h21`, `break_retest_sma200_above_h63`, `break_retest_sma200_below_h5`, `break_retest_sma200_below_h10`, `break_retest_sma200_below_h21`, `break_retest_sma200_below_h63`\n\n**Left alone, deliberately:**"
+ },
+ {
+  "qid": "dead_vs_inconclusive",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "What is the difference between a dead result and an inconclusive one?",
+  "cite": "docs/features/moving-averages/STATUS.md > Moving-averages study — status > 2026-10-07 verdict correction — dead vs. inconclusive",
+  "text": "What changes is the fence: only the 18\ndemonstrated nulls (M5's touch cells, M3's EMA pairs, M2's bullish stack, M7, M9's\ndecisive cell, two M20/M21 h5 cells) and M6.4's envelope keep the do-not-revisit read;\nthe module table's \"Killed, 0 of N\" lines for M19–M22 (89 of the 117), M4's SMA50/200\ncells, M14's three as-of-safe rows, and M18's 52w-high cells now read \"inconclusive at\nthis power\" — revisitable under a dated power amendment, with no obligation to revisit.\nSummary docs (`REPORT.md`, `docs/modeling/ma_study_insights.md`,\n`docs/modeling/IDEAS.md` prior buckets) are corrected in a separate same-dated pass."
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 2. Per-date features > 2.4 Directional pressure (non-level)",
+  "text": "- **Market structure:** direction of the last BOS/CHoCH and bars since it.\n- **Patterns:** direction of an as-of-safe active pattern, and its `confidence`.\n\n---"
+ },
+ {
+  "qid": "lrp_level_fields",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "In the least resistance path design, what information does each price level carry?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 2. Per-date features > 2.1 Per-source nearest distances (the learnable layer)",
+  "text": "### 2.1 Per-source nearest distances (the learnable layer)\n\nFor each source *s*: `near_up_s` = smallest `d > 0`, `near_dn_s` = smallest `|d|` for\n`d < 0`, plus that level's `w`. Capped at 10 ATR, with a missing flag when there's no\nlevel.\n\nThese let the model learn its own source weights instead of trusting §1.2's. There are\nabout 20 columns (10 sources × 2 sides) plus their weights."
+ },
+ {
+  "qid": "e1_result",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 5,
+  "question": "Did the moving-average features add anything over the baseline in the first modeling experiment?",
+  "cite": "docs/modeling/PREREGISTRATION.md > Modeling pre-registrations > E1: do the MA features add information over B4? (registered 2026-10-07) > Hypothesis",
+  "text": "### Hypothesis\n\nAdding the MA family to the v1 learner lowers the out-of-sample three-class Brier score\nof the calibrated barrier probabilities, on the same rows, compared with the B4\nbaseline. B4 is momentum, volatility, sector, reversal and extension.\n\nThe family enters in two groups, in prior order:\n\n| step | adds | columns | compared with |\n|---|---|---|---|\n| T1 | supported (2) | `slope_log_21_sma_50_rank`, `ribbon_agreement_state` | B4 |\n| T2 | weak (9) | `dist_z_sma_20`, `dist_from_52w_low`, `stack_fully_bearish`, `log_dollar_volume_20d_rank`, `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`, `slope_log_63_sma_50`, `adx_14` | T1 |\n\nEach group is judged against the step before it, as `VALIDATION_HARNESS.md` §7\nrequires. T2 vs B4 is reported next to it."
+ },
+ {
+  "qid": "e1_result",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "Did the moving-average features add anything over the baseline in the first modeling experiment?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 1. What the study established, at the confidence the evidence supports > 1.1 Track B — Tier 2 and the strongest Tier-3 cells (FDR survivors at N=219: M6.3, M6.6, and M22's SMA50 retest cell at Tier 3)",
+  "text": "−0.093%] | 175,152 / 2,549 | — | magnitude, not signed return | **target-design evidence** (compression predicts the size of the move, not its direction) + feature for a vol/barrier model |\n| `stack_fully_bearish_h21` (M2) | 3 | incremental C2 diff vs `above_sma_50`; standalone C2 +0.444% [+0.142%, +0.748%] | +1.011% incremental | [+0.359%, +1.682%] | 40,644 / 2,698 | hit 63.9%; skew +1.01 | DESIGN §7.3 survivorship cap (bearish bucket, zero delisted history pre-2024) | **feature** (full-stack state) with the survivorship caveat stamped on it |\n| `above_sma_20` (M1) | 3 | C2 delta | −0.215% | [−0.350%, −0.079%] | 751,406 / 2,744 | — | fails cost (30.4 flips/ticker-yr → 3.04%/yr hurdle) | **baseline** (cheap state feature);"
+ },
+ {
+  "qid": "divergence_registered",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 3,
+  "question": "What was the outcome of the divergence-context registered experiment?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > Hidden forms — planned second experiment (DC-B3/DC-B4, not yet drafted)",
+  "text": "## Hidden forms — planned second experiment (DC-B3/DC-B4, not yet drafted)\n\nHidden divergence tests the opposite-shaped claim (continuation, not reversal), its\nextension pole is ~20× thinner than its pullback pole (step 0: ~91% of hidden events\nare pullback+rebuild — near-mechanical, since hidden requires price to hold inside\nits prior extreme), and the v0 impulse scalar mismeasures its structure\n(retrace_frac medians > 1: p1 is often not an impulse top for hidden events).\nCombining it into DC-B1/B2 would tax their BH correction to fund a hypothesis known\nto be badly instrumented, so it is its own experiment, gated on two Track-A prep\nlooks:\n\n1. **Co-occurrence**: how often do a hidden bullish (at the pullback low) and a\n   regular bearish (at the new high) mark the same structure, and how do outcomes\n   look where the two labels \"disagree\" — i.e., is hidden independent information or\n   the regular cells' complement?\n2. **Scalar rework**: an impulse measure that fits hidden geometry (normalized to\n   local trend or pivot-to-pivot structure, not a fixed 63-bar window).\n\nDC-B3/B4 get drafted only if those motivate them, with their own N_tests and\ncorrection. Nothing here constrains DC-B1/B2's run."
+ },
+ {
+  "qid": "divergence_registered",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "What was the outcome of the divergence-context registered experiment?",
+  "cite": "docs/done.md > #121",
+  "text": "- **#121** [divergence_context] — **DC-B3/B4 drafted: hidden-divergence retracement-depth experiment registered as a DRAFT (PREREGISTRATION.md, not frozen; `src/analysis/divergence_dcb3b4_sizing.py`).** The registration the Done #119 prep gates called for. Four cells (N_tests = 4, own BH): per direction, a 63d binary DiD on shallow-vs-deep poles and a continuous divergence × depth interaction; poles are within-direction terciles of the EVENT distribution of the hidden-fit retrace fraction (event arms thirds by construction — the fix for DC-B1/B2's 85-event starved arm; controls classified by the same edges), middle tercile as buffer; RSI primary, MACD-hist same-sign robustness, OBV excluded by mechanism; plateau = direction-level sign agreement under quartile-pole and median-split re-classifications; three-verdict rule, with DC-B1/B2's power-amendment clause explicitly replaced by a pre-committed disposition; sign(DiD)×sign(b3) < 0 agreement gate. **Controls**: strict price-inequality hidden geometry (not `regular_geometry=0`, which admits equal extremes) with BOTH divergence exclusions — the stored `has_divergence` flag covers regular form only, and code review caught that the first draft's pool therefore contained the treatment itself (37–44% of pairs sit within ±5 days of a same-direction hidden divergence); the hidden-form exclusion is prerequisite 1."
+ },
+ {
+  "qid": "shares_before_2015",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "Where does share-count history before 2015 come from?",
+  "cite": "docs/backlog.md > Backlog > Data (sources, coverage, vendors, price bases)",
+  "text": "Retry its sector fetch later; if a second renamed member shows the same thing, add a small manual sector-override table (FISV -> Technology, Yahoo's classification of FI) instead of waiting on Yahoo), `ticker_metadata` 5,312 ok / 11 failed. Original notes: `shares_outstanding` (yfinance, `bulk_shares_outstanding_ingest.py` default path), `splits` (yfinance source, Done #58: `bulk_splits_ingest.py --source yfinance --all-active`), `ticker_sector` (`bulk_sector_ingest.py --all-active`, which also retries the 111 prior failures), `ticker_metadata` (Polygon, ~18h at 5 calls/min; resumes from ticker 51 after a lock crash, fixed by Done #57). All resumable via `fetch_jobs`; check each job type's success/failed counts before relying on the tables. Known coverage limits: yfinance share counts start ~2015-2017 (SEC EDGAR adds ~2009-2011 onward for most US filers, Done #60); yfinance has no data for delisted tickers (the yfinance splits source records them as failed jobs, deliberately -- see Done #58)."
+ },
+ {
+  "qid": "shares_before_2015",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Where does share-count history before 2015 come from?",
+  "cite": "docs/done.md > #149",
+  "text": "**Real data 2010–2021:** AAPL −4% to −8% a year, ORCL to −16%, AZO −5% to −12%; AAL +115% (US Airways), BMY +38% (Celgene), CCL +62% (2021). On S&P member rows: median −0.7%, 1st/99th percentile −14%/+45%; coverage 23% in 2010, 63–78% 2011–16, 81–85% 2017–19, 90–92% 2020–21 (122 members never covered, mostly no counts at all: EA, K, HOLX, AVB). **Found, not fixed (backlog):** the same spin-off factors inflate `market_caps` (EBAY 2.4× 2015–17, NI 2.5× 2015–20), so E/P, S/P and B/M are wrong there; and a scorecard noise test failing on main. Strategy catalogue entry added. Tests: 10 new (9 valuation, 1 fundamentals) plus a share-change assertion in the filing-day gate test; `synthetic_shares` now carries a source and hands off SEC → yfinance on every other ticker, so the gate exercises the same-source rule. Three code-review rounds: findings fixed (stale year-ago filings, mixed sources, a too-wide split window and then a too-narrow one, the source column now required, an untested source label), the rest logged as limits or backlog."
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > whole_grid_fdr_pass_2026_09_23",
+  "text": "TIER CALL (checked individually, none promoted to Tier 2 despite surviving FDR): above_sma_20 fails cost outright (established at M1's original write-up, unrelated to FDR). stack_fully_bearish is capped by DESIGN Sec7.3's explicit, pre-existing survivorship cap on weak/bearish-state buckets. ribbon_direction_magnitude is capped by its own magnitude-vs-signed-return actionability gap (named at its original write-up). dist_from_52w_low_h126 and slope_magnitude_humped_test_sma50 are both newly flagged (this pass, not previously considered) as touching weak/beaten-down-state-adjacent populations plausibly vulnerable to the same delisted-ticker survivorship ceiling already established for M1/M2's capped buckets (a stock near its 52-week low, or in the extreme-negative-slope tail, is exactly the kind of row a pre-2024-delisted bankrupt ticker would occupy immediately before disappearing from this panel) -- extended by analogy, not literally named in DESIGN Sec7.3's enumerated list (M1/M3/M4 only), so treated as an open, not-fully-resolved caveat rather than a hard pre-existing cap."
+ },
+ {
+  "qid": "bearish_stack",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M2 — Stack states and Minervini ablation (2026-09-12) > Result (reversal-robustness addendum, 2026-09-17)",
+  "text": "**`stack_fully_bullish`** was re-run alongside (same script, no added cost) purely for\ncompleteness: CI still spans zero under the reversal control, same as under the default\nC2 — no new information, does not change its Tier 4 status.\n\n**Logged:** `EXPERIMENTS.csv` (2 new rows, both dated 2026-09-17,\n`stack_fully_bearish_h21_reversal_robustness` / `stack_fully_bullish_h21_reversal_robustness`);\n`FINDINGS.md`'s `stack_fully_bearish` entry updated with this result in place of its\nprior \"live unresolved confound\" framing.\n\n---"
+ },
+ {
+  "qid": "sma20_bounce",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 2,
+  "question": "Is buying a bounce off the 20-day average a good entry?",
+  "cite": "docs/features/moving-averages/FINDINGS.md > Findings register — Tier 1, 2 and 3 > Tier 3 > M20 `bounce_entry_sma20_from_below_h21` — rejection at SMA20, then higher returns",
+  "text": "### M20 `bounce_entry_sma20_from_below_h21` — rejection at SMA20, then higher returns\n- **Hypothesis**: a confirmed rejection at SMA20 from below (touch, then ≥1 ATR back down\n  within 5 days, no close through) predicts a *negative* 21d return, beyond a same-size down\n  move that did not involve the MA. The result has the opposite sign.\n- **Result**: DiD vs the generic down-move +0.36% [+0.11%, +0.59%] at C2+rev; bounce arm\n  +0.30% [+0.11%, +0.50%]. Raw 21d means: rejection 2.67%, generic down-move 2.24%, base 1.48%.\n  Hit rate 63.7%, win/loss 1.28, skew +0.59.\n- **Effective N**: 4,816 events, 1,176 contributing dates.\n- **Cost**: +3.5%/yr [+1.4%, +6.0%] vs a 0.10% hurdle — as a *long* after a *rejection*.\n- **FDR**: fails (rank 10, p=0.015 vs 0.0065 at N=155)."
+ },
+ {
+  "qid": "sma20_bounce",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Is buying a bounce off the 20-day average a good entry?",
+  "cite": "docs/features/moving-averages/STATUS.md > Moving-averages study — status > Modules run",
+  "text": "Track A. | — |\n| M16 | rules as linear filters | 23 MA rules form 1 cluster at cosine ≥0.80, 10 at ≥0.95, ordered by effective lookback. Track A. | — |\n| M17 | MACD / RSI / stochastics | MACD histogram incremental IC +0.0089 [+0.00002, +0.0187], fails FDR. RSI and %K span zero. | 3 / 4 |\n| M18 | 52-week range | Near-52w-low: +0.96% at 63d (fails cost), +2.50% [+1.10, +4.02] at 126d (clears). Near-52w-high: spans zero. | 3 / 4 |\n| M19 | MA respect history (touch → confirmed reversal → next touch) | Killed, 0 of 8 hold cells. Raw hold rates flat across 0/1/≥2 prior bounces in both arms. Two C2+rev-only CIs off zero (SMA50↓ hold −13.7pp on 249 of 11,934 events, wrong sign; EMA21↑ fwd21 +0.42%) are thin-strata reads, absent at C1. | 4 / 3 |\n| M20 | confirmed bounce as an entry signal (return from the confirmation day, vs a same-size move without the MA) | Killed, 0 of 32."
+ },
+ {
+  "qid": "holdout_opened",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Has anyone looked at the 2022+ holdout yet?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B1 / DC-B2 — does structural context change regular-divergence outcomes? > Event set",
+  "text": "### Event set\n- Regular-form, **RSI only** for the primary test (largest single-indicator set; no\n  duplicate-swing pooling across indicators — a swing printing on 2 indicators is one\n  piece of evidence, not two events). **MACD-hist repeats as a pre-named same-sign\n  robustness pass**, not a new hypothesis: the speed-normalization mechanism applies\n  to it as much as to RSI, and sign agreement there is the generalization check\n  without doubling N_tests. If the two disagree in sign, that disagreement is itself\n  the result, and any pooled momentum cell is a new, later registration.\n- **OBV is excluded from these cells by mechanism, not oversight**: it cumulates\n  volume flow (participation), not price speed — a calm second leg does not\n  mechanically depress OBV highs, so the normalization-vs-deterioration frame does\n  not apply to its divergences. (Decided 2026-10-06, draft stage.)\n- Hidden forms are **not** in these cells — see \"Hidden forms — planned second\n  experiment\" below. (Decided 2026-10-06: separate experiment, own correction,\n  never combined into this one's N_tests.)"
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 5,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M18 — 52-week high/low range as a standalone predictor (added 2026-09-20, post-termination)",
+  "text": "Two independent Track A readings, both\nafter the study's formal termination, flagged them as the strongest unexplored candidate in\nthe whole feature set: M2's ablation (criterion 7, near-52w-high, the single largest\nattribution coefficient, negative) and the 2026-09-16 348-cell feature×horizon IC sweep\n(`dist_from_52w_low`@126d mean IC +0.0385, `dist_from_52w_high`@126d mean IC −0.0269 — both\n~2x the next-best cell and *strengthening*, not weakening, at longer horizons, unlike every\nSMA-distance feature this study built).\n\n**Hypothesis:** position within the trailing 252-day high/low range carries forward-return\ninformation at 63/126-day horizons, beyond what date + momentum-decile + vol-decile + sector\nmatching (C2) already explains — i.e. this is not just `mom_12_1` re-encoded, the same\nquestion this whole study asks of every MA-distance feature, applied here to a feature that\nhappens to already be highly correlated with 12-month momentum by construction."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 6. Statistical methodology > 6.2 Overlapping observations",
+  "text": "### 6.2 Overlapping observations\n\n21-day forward returns on daily data overlap 20/21. Naive t-stats will be inflated by roughly √21 ≈ 4.6×.\n\nMitigations (use at least two):\n- **Newey–West** SEs with lag = horizon.\n- **Block bootstrap** with block length ≥ 2× horizon, resampling *dates* not rows.\n- **Non-overlapping subsample** as a sanity check (sample every H-th day) — lower power, but unbiased."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M6 — Slope and curvature > M6.7 — What not to bother with",
+  "text": "#### M6.7 — What not to bother with\n**\"The angle of the moving average.\"** Chartists talk about a 45° MA. This is not a well-defined quantity: the visual angle depends on chart aspect ratio, the price axis range, and whether the axis is linear or log. There is no scale-invariant \"angle\" — there is only log-slope, which is what `slope_log_k` already measures. Note this in the report and move on; it saves anyone downstream from trying to reproduce a folklore metric that has no coordinate-free definition.\n\n---"
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > Appendix E — Indicator taxonomy: what's already in scope in disguise > E.4 — The general principle",
+  "text": "### E.4 — The general principle\n\nBefore adding any indicator to this study, answer one question: **what operation does it perform on the return series, and is that operation already represented?** If the answer is \"weighted average of past prices,\" it's already here — add it as an alias and a redundancy check, not a module. If it's something else, it earns a probe. This test is cheap, and it is the difference between a study that grows in depth and one that grows only in length."
+ },
+ {
+  "qid": "crypto_scope",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "Did the moving-average study look at crypto or futures?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 5. Outcome (label) design > 5.2 Return definitions — use all four, they answer different questions",
+  "text": "### 5.2 Return definitions — use all four, they answer different questions\n\n1. **Raw forward return.** Contaminated by market beta. Almost never the right headline number.\n2. **Excess vs benchmark** (SPY, or U1 equal-weight). Removes the market's drift, which is *the* dominant confound for any long-only conditioning signal.\n3. **Beta-adjusted alpha.** Uses trailing 252d beta. Necessary because high-beta names are systematically more often above/below MAs in trends.\n4. **Sector-relative.** Removes the \"you discovered that energy did well in 2021\" failure.\n\n**Report #2 as the headline.** If a claim only survives on raw returns, it is a claim about the equity risk premium."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 5,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Draft history (pre-freeze edits, per the no-silent-change spirit)",
+  "text": "- 2026-10-11, same day, second review round: the hidden-divergence exclusion (and\n  the sizing script) bounded to stored rows with `confirmed_at <= 2021-12-31` — the\n  first version consulted full-history (holdout-era) rows, letting post-2021 events\n  shape the dev-window pool (invariant #1; corrected bullish pool 12,705 → 12,706);\n  the power paragraph's half-width range restated 63d-only (1.8–4.0%, not 1.2–4.0%\n  which included the 21d cells) with the binary cells' smaller per-arm N stated;\n  MACD-pass and era-split tercile-edge scoping registered explicitly; sizing script\n  now reuses the shared study loader, membership attach, and the scalar's own mask\n  components instead of private copies.\n- 2026-10-11, same day, third review round: exclusion 1's lack of a `confirmed_at`\n  bound (the stored flag is built against full-history regular divergences)\n  registered explicitly as inherited DC-B1/B2 machinery rather than silently carried;\n  the calendar-day sizing approximation's error directions stated, with the build's\n  exact-rule pool declared the superseding number; sizing exclusion vectorized (same\n  counts)."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B1 / DC-B2 — does structural context change regular-divergence outcomes? > Event set",
+  "text": "- Window: p2 dates 2010-01-01..2021-12-31 (the repo's supported development window);\n  1990–2009 as a robustness era split only. Holdout untouched.\n- Universe: PIT S&P 500 + Nasdaq-100 membership at p2 (rename-aware). Delisted\n  members included; delisting-terminal returns realized, never dropped.\n- Events with undefined context scalars (NaN impulse — short pre-p1 history) are\n  excluded and counted in the report."
+ },
+ {
+  "qid": "stoch_divergence",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Are stochastic or CCI divergences part of the divergence study?",
+  "cite": "docs/features/divergence-context/PREREGISTRATION.md > Divergence-context study — Track B pre-registration > DC-B3 / DC-B4 — DRAFT 2026-10-11: does retracement depth change hidden-divergence outcomes? > Prerequisites before this can run (implementation, separate PR)",
+  "text": "### Prerequisites before this can run (implementation, separate PR)\n\n1. **The hidden-divergence control exclusion**: extend the controls machinery\n   (`controls.flag_divergences` computes against regular form only) so hidden-form\n   stored divergences of the same direction within ±3 bars of p2 (any indicator,\n   `confirmed_at <= 2021-12-31` — never holdout rows) also disqualify a pair — as a\n   second flag column or an analysis-time join; the registered pool is defined by\n   BOTH exclusions.\n2. Extend the Track-B machinery (`divergence_trackb_balance.py`,\n   `divergence_trackb_run.py`, matching) to hidden geometry: the hidden-fit scalar\n   as the classification/matching input, event-tercile classes, strict-geometry\n   control pools.\n3. The co-occurrence and duration facets wired as report splits.\n4. Balance report run and reviewed blind (before any outcome) — including per-pole\n   control:event coverage and minimum-arm counts.\n5. The run happens only after this section's final pre-run commit freezes it; the\n   runner stays blind-by-default with `--unblind` crossed exactly once."
+ },
+ {
+  "qid": "order_blocks",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Should order blocks be added as their own support/resistance source?",
+  "cite": "docs/features/order_blocks_design.md > Order Blocks — Design Doc > 4. Proposed implementation shape (if it clears the prototype check)",
+  "text": "- **What defines \"impulsive\"?** Not yet specified — candidate knobs: a bar (or short run of bars) whose range/gap exceeds some ATR multiple, mirroring how `patterns/config.py` already gates \"prior trend\" moves elsewhere in this codebase. Needs real-data calibration, same discipline `patterns/config.py`'s many hand-tuned, measured-against-real-data thresholds already follow (see that file's comments for the pattern to follow, e.g. `cup_rim_divergence_max_pct`'s calibration history)."
+ },
+ {
+  "qid": "m22_kill",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "What did a break-and-retest cell have to pass to count as confirmed?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > break_retest_ema21_below_h5",
+  "text": "date: 2026-10-01\ntrack: B\nhypothesis: A break-and-retest bounce off the real ema21 (confirmed break below the MA, then within 21d a touch from the below side that resolves as a confirmed bounce), on its confirmation day, predicts a more negative 5d forward return than an ordinary confirmed bounce off the same MA and side\nstatistic: DiD = delta_retest - delta_plain_bounce on fwd_ret_h, each arm date x mom_tercile x vol_tercile x sector x rev_tercile matched vs the same base controls; block_bootstrap_delta_diff, shared date blocks, block_length=10, 500 draws, 90% CI\npoint_estimate: 0.001577\nci_low: -0.001285\nci_high: 0.004407\nci_excludes_zero: False\nn_events: 1169\nn_dates: 624\nn_tickers: 388\ncost_hurdle_annual: 0.000241\ncost_convention: signals_per_year = retest events per ticker-year (0.241), 10bps/rt, vs the retest arm's own C2+rev delta x252/5 linear\ncost_verdict: retest arm fails ([-0.0575, 0.1941]/yr vs 0.00024); point 0."
+ },
+ {
+  "qid": "short_interest",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 2,
+  "question": "Has short interest been tested as a feature?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 2. Feature families (user's list), tagged",
+  "text": "- **Recurring confounds: momentum/vol matching and short-term reversal.** M6.2's touch\n  cell died to the reversal control; `dist_from_52w_high` died to momentum matching.\n  Extension killed the pooled pattern cell (M14). Every family's ablation baseline should\n  include `mom_12_1`, `mom_1_0`, realised vol and extension.\n- **A mean can hide an asymmetric stop-out rate.** M2's `stack_fully_bullish` has a flat\n  mean but a hit rate +1.2pp above control and skew −0.35: it wins slightly more often\n  and loses bigger. That's why the barrier/path target (§1) beats a mean-return target.\n- **Survivorship.** The study universe has no delisted tickers inside 2010–2021, so\n  weak-state (bearish-side) results are biased. The model universe should be\n  point-in-time with delisted history (§7). Partly done: the modeling dataset reads\n  132 delisted S&P 500/Nasdaq-100 members from Tiingo (Done #82, #83).\n\n**Keeping weak and null MA features (decided 2026-09-29).** Weak signals may still help\nin combination, so the model gets them rather than dropping them. Each feature carries a\n*prior* in the feature registry (§9), used only to order ablations and to read results:"
+ },
+ {
+  "qid": "short_interest",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 3,
+  "question": "Has short interest been tested as a feature?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 2. Feature-set implications > 2.4 Needs new infrastructure before it can be a feature",
+  "text": "Same leak in a model's sector feature. |\n| MFE / MAE / barrier hit times | `labels/path_metrics.py` has only `forward_max_drawdown` | Needed for the barrier surface (IDEAS §1). |\n| Delisted-ticker history before 2024 | zero rows (DESIGN §7.3, §12) | Every bearish/weak-state feature (rows 8, 9 in §2.2) is survivorship-exposed. |\n\n---"
+ },
+ {
+  "qid": "short_interest",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 4,
+  "question": "Has short interest been tested as a feature?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 2. Feature families (user's list), tagged",
+  "text": "|\n| F3 | Price distance from MAs (% / ATR) | `features/distance.py` | Already built; in the model. `extension_x_slope` (M6.2 Finding 1, weak prior): both of its inputs are in the model, so a tree can learn the interaction itself. A hand-built interaction column is an optional extra, not needed for v1. |\n| F4 | RSI, MACD, ATR, ADR… | `market_common.indicators`, `feature_engineering/`, `moving_averages/features/oscillators.py` (M17) | M17 (final): MACD adds information beyond the MA set at its control (Tier 3) but **fails the whole-grid FDR pass** (p=0.115). RSI/stochastics inconclusive; RSI flips sign when price is near its MA, a hint of an interaction worth letting a tree find. MACD is in the model with a weak prior: both lines *and* the histogram, and the ablation decides. (Its study evidence is thin: incremental IC barely above zero, never tested against `mom_1_0`.) ATR is needed anyway (barrier units). |\n| F5 | Relative strength | `signals/relative_strength` (`rs_rating`, plus `rs_ratio`, `rs_mansfield`, and since #141 the raw `rs_weighted_return`) | Also the momentum **baseline** (see §6)."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 1,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/features/pivot_breakout_validation_backtest_design.md > Pivot Breakout Validation — Backtest / Validation Design Doc",
+  "text": "# Pivot Breakout Validation — Backtest / Validation Design Doc\n\n**Status:** §2's trigger-key fix and §3's `market_structure/backtest.py` are implemented and sanity-checked against real data (AAPL/MSFT/NVDA, both timeframes). §4's full-universe `--all` runs (both modules, both timeframes) have not been done — that's a multi-hour job across ~6,554 tickers, deliberately left as a separate, explicit step rather than run silently as part of landing the code (see §4 below for the runtime estimate).\n\n**Depends on:** `feature/pivot-breakout-validation` (BOS/CHoCH, Triple Top/Bottom, 1-2-3 Reversal — see `docs/features/pivot_breakout_validation_design.md`) merged to `main` first. This doc references files that only exist on that branch.\n\n**Origin:** While reviewing real chart examples for that branch's three new detectors, two things came up that a single example chart can't settle:\n1. Whether BOS/CHoCH (and the other two patterns) are actually good signals, or just correctly-detected geometry — a chart can show the rule fired, not whether it was worth trading.\n2."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 2,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/features/pivot_breakout_validation_backtest_design.md > Pivot Breakout Validation — Backtest / Validation Design Doc > 3. BOS/CHoCH (`market_structure`): genuinely new work",
+  "text": "This is the natural split: does a CHoCH's implied reversal actually hold, separately from whether a BOS's implied continuation holds.\n  - **A question forward-return-at-fixed-horizon doesn't answer, worth computing separately: does the regime whipsaw?** A CHoCH can show a solidly positive 20-bar return while having *already flipped back* by bar 12 — the AAPL example found while building the earlier chart (CHoCH → BOS → BOS → CHoCH again inside one year, on the same ticker) is a real instance of exactly this. A useful second metric: for each CHoCH, does an opposite-direction CHoCH occur within N bars (a \"regime survival\" / whipsaw rate) — bounded-formation pattern backtesting doesn't need this because a `PatternMatch`'s lifecycle already terminates (HIT_TARGET/INVALIDATED/EXPIRED); an open-ended regime tracker does.\n  - `run_backtest(conn, tickers, timeframe, config)` / CLI entry point, same shape as `evaluator.py`'s (`--all`, `--timeframe`, `--horizons`)."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 4,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/features/chart_pattern_detection_design_notes.md > Chart pattern detection design notes > Phase 7: outcome-based backtest (§7.3)",
+  "text": "## Phase 7: outcome-based backtest (§7.3)\n\nAll six pattern families from the design doc's §4 are now landed (Phases\n1-6) -- there's no further detector phase in the plan. The design doc's\nown §7 validation methodology has two halves that were both deferred\nuntil \"enough labeled data / detectors exist to make backtesting\nworthwhile\" (`docs/backlog.md`): §7.2 precision/recall against a hand-\nlabeled ground-truth set, and §7.3 an outcome-based backtest (forward\nreturns, target-hit rate, failure rate) measured against real subsequent\nprice action. Only §7.3 turned out to be buildable now -- checked `data/\nderived/analysis.sqlite`'s `pattern_labels` table directly before\nstarting: zero rows. `backtest/labeler.py` (Phase 1) is human-in-the-loop\nand nobody has actually run it against real charts since it landed, so\nthere's no ground truth to compute precision/recall against, and nothing\nin this module ships a metric it can't check against something real.\n§7.3 needs no labels at all -- just real historical price data, which\nalready exists -- so that's the whole scope of this phase.\n\n**The backtest/evaluator harness turned out to need no new re-run\ninfrastructure."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 5,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/features/sr_lines_design_notes.md > sr_lines design notes > Backtesting / `as_of` semantics",
+  "text": "## Backtesting / `as_of` semantics\n- **Detection must never see the future.** `engine.detect(conn, ticker, config, as_of=X)` loads bars only through X. This already gives correct\n  lookahead-safety for free: a pivot can't appear unless its confirming\n  reversal was observed within the visible window, and an in-progress\n  body-break correctly lands as `pending=True` if there aren't enough bars\n  left within the window to resolve fakeout vs. break.\n- **Visual review needs the opposite.** For manually checking \"did this zone\n  drawn at X actually hold up,\" the *chart* should show real price action\n  past X even though the *detection* stayed blind to it. `cli.py` now loads\n  two bar sets when `--as-of` is given: bounded bars feed `engine.detect()`,\n  extended bars (same start, through whatever's latest available) feed the\n  chart. `render_review_chart()` takes a `reference_date` so zone extents\n  use the detection cutoff, not the (longer) displayed range, plus a dotted\n  vertical line marking exactly where the cutoff falls.\n- **Zones always render to the reference date regardless of state.** A zone\n  detected as of X should show in full as of X whether or not it later broke\n  or flipped -- state is a label/color (dash style, break/flip annotations),\n  not something that should shorten the box. (Diagonal equivalent: the band\n  should extend the same way; slope doesn't change this.)"
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 9. Code layout and build order",
+  "text": "- **Gate runs are not trials.** They write nothing to `TRIALS.csv`, so they don't\n     count toward any experiment's multiple-testing count.\n   - **Full run** (v1 folds, 200 tickers, 341k test rows, 1,985 dates):\n     - planted Brier gain −0.00507 (oracle −0.00500);\n     - one bar late −0.00148 (oracle −0.00163);\n     - noise −0.00026, CI [−0.00061, +0.00005];\n     - planted uplift 0.0997 (δ = 0.10);\n     - after the shuffle: IC +0.0002, top-20 excess −0.0001, both CIs spanning 0. The\n       shuffled Brier gain is −0.00031, CI [−0.00068, +0.00001]: a pass, but only just\n       (with noise's −0.00026, it's the same small, not significant edge for a calibrated\n       boosted model over B0).\n\n     All gates pass, including the read-only smoke run on 20 real S&P 500 tickers (4 of\n     them delisted and read from Tiingo, with real splits from both vendors). About 10\n     minutes.\n   - **Isotonic calibration shrinks a weak, smooth signal.** The one-bar-late feature's\n     expected uplift is 0.049."
+ },
+ {
+  "qid": "ichimoku",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "Did we test Ichimoku cloud signals?",
+  "cite": "docs/features/shared_outcome_statistics_design.md > Shared Outcome-Statistics Toolkit — Design Doc",
+  "text": "# Shared Outcome-Statistics Toolkit — Design Doc\n\n**Status:** §2-3 steps 1-3 implemented (`market_common/stats.py`, `evaluator.py` migrated, `PatternOutcome.confidence` added). §3 steps 4-5 (the `market_structure/backtest.py` module and per-module aggregation for gaps/divergences/fibonacci/avwap/sr_lines) not started — tracked in `docs/features/pivot_breakout_validation_backtest_design.md` and §3 step 5 below respectively.\n\n**Related:** `docs/features/pivot_breakout_validation_backtest_design.md` (scoped to the three new `feature/pivot-breakout-validation` detectors specifically). That doc's §3 says the new `market_structure/backtest.py` should \"reuse `evaluator._return_stats` and its exact three-statistic convention\" via cross-import from `patterns`. This doc formalizes that instead of leaving it as an informal cross-module import — extract the statistic, not just borrow it.\n\n**Origin:** \"Do you think it's possible to create the framework for all signals?\" — asked while scoping backtesting for the three new detectors. Investigated before writing this: is a single outcome-evaluation framework across all 8 signal modules (`avwap`, `breadth`, `divergences`, `fibonacci`, `gaps`, `market_structure`, `patterns`, `relative_strength`, `sr_lines`) realistic?\n\n---"
+ },
+ {
+  "qid": "divergence_trend_filter",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "did we ever try RSI divergence combined with a trend filter, and what happened?",
+  "cite": "docs/features/moving-averages/EXPERIMENTS.csv > whole_grid_fdr_pass_2026_09_25_batch4",
+  "text": "M17 contributes 6 (6 primary/decisive incremental-IC and divergence-event cells; 4 diagnostic/descriptive checks -- the MACD redundancy-correlation check, the MACD zero-vs-signal-line agreement check, the RSI reverse-correlation-vs-dist_z check, and the RSI ambiguous-region restricted re-reading -- excluded as descriptive-only or as a restricted re-reading of an already-counted cell, same convention as this study's other correlation/agreement-rate readouts). M14 contributes 2 (the pooled primary reclaim-context cell plus the VCP-specific addendum, a restricted subpopulation of the same underlying reclaim construction, counted independently per this study's own established treatment of within-restriction facets -- same bar as M6.2's/M3's own quality facets). Independence explicitly checked before trusting these counts: grepped M17's and M14's own PREREGISTRATION.md sections for any 'not checked for correlation'-style admission -- none found. RESULT: 11 of 107 cells now reject the null at q=0.10 (6 at q=0.05) -- one net new survivor vs. the Batch-3 pass. New rank 6: pattern_context_reclaim_sma50_vcp_only (M14), p=0.000425 -- the largest point estimate this study has ever produced (point +21.96%/yr vs."
+ },
+ {
+  "qid": "price_basis_choice",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "which price basis did we pick (adjusted vs raw) and why?",
+  "cite": "docs/decisions/price-basis.md > Price basis: which price series each module uses > Delisted members: Tiingo fallback (2026-10-05)",
+  "text": "## Delisted members: Tiingo fallback (2026-10-05)\n\nIndex members yfinance can't serve (delisted before it could) have Tiingo bars on the same\ntwo bases: `tiingo` (total return) and `tiingo_split_only` (traded), plus their splits under\n`splits.source = 'tiingo'` (`bulk_tiingo_ingest.py`, Done #82). A module reads them only if\nit's in `price_basis.MODULES_WITH_FALLBACK`: the three modeling modules\n(`models_labels`, `models_universe`, `models_features`), so delisted members aren't missing\nfrom the training set, and since 2026-10-08 `divergences` (its event base was survivors-only\n— the backlog's Signals item; detection, context scalars and control pairs all resolve the\nsame per-ticker vendor, and a whole-history-disputed ticker is skipped everywhere).\nEverything else, the MA study included, reads yfinance only.\n- **One vendor per ticker, never spliced.** A ticker with any yfinance bars on the basis is\n  read from yfinance alone; only a ticker with none is read from Tiingo\n  (`price_basis.ticker_sources`). The choice doesn't depend on the dates asked for.\n- **Splits come from the same vendor as the bars** (`SPLITS_SOURCE_BY_BAR_SOURCE`), since\n  `history_breaks` recovers traded prices from them."
+ },
+ {
+  "qid": "harness_folds",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 10,
+  "question": "how does the validation harness split train/test for the combined model?",
+  "cite": "docs/done.md > #110",
+  "text": "- **#110** [modeling] — **Combined model, step 1 (Track A): the trading scorecard (`src/models/trading.py`, `cli.py run-scorecard`).** Direction set 2026-10-08 after E1: one model over every simple feature, judged on the trades its top picks make, with ablations as diagnostics (`VALIDATION_HARNESS.md` §9 step 6). At each barrier cell the model (every registered column) and B4 are fitted as in E1 (one seed), and each day's top 5 / top 20 by EV are scored against B4's picks and the market (every eligible row's trade, same barriers): target/stop/timeout and win rates, average win/loss (realised R/R), expectancy, profit factor, skew at 0/10/25 bps; per era with its N; a non-overlapping portfolio (annual return, drawdown, Sharpe, median over the H start days, with its yearly cost drag); date-block CIs on model − B4 and model − market. Each cell is a `TRIALS.csv` row (`S1`, no verdict). **Run** (H 21 and 63, all 9 cells, ~4 h; Track A looks, uncorrected): against the market, no clear edge either way (model − market spans zero at 34 of 36 cell × k readouts; H = 21 small and mostly negative, H = 63 top-5 positive in all 9 cells with 2 clearing zero, CIs ~±1% per trade, so inconclusive)."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 4,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > #36",
+  "text": "- **#36** [signals] — **fibonacci: per-level touch/respect tracking** (module 1 of the comprehensive-output-model effort across gaps/divergences/fibonacci/avwap). Each `FibLevel` now records what price actually did at that level since it was computed, not just its static ratio→price mapping: `n_touches`/`n_violations` (a violated cross that reclaims within `level_violation_reclaim_bars` still counts as a touch, same \"Undercut and Rally\" leniency sr_lines gives a reclaimed `BODY_FAKE`), `first_touch_date`/`last_touch_date`, `avg_reaction_atr` (does price actually bounce off this level), and a derived `respected` flag. New `FibConfig` fields: `level_touch_atr_tolerance`, `level_violation_reclaim_bars`, `touch_reaction_window_bars`. New `fibonacci/lifecycle.py` function `evaluate_level_touches`, deliberately run only against a swing's *selected* (top-`max_sets`) levels, not every candidate in `all_sets` — a real per-bar walk per level, wasted work for a swing ranking discards. Closes the \"fib level touch/respect scoring\" backlog item. Verified against real AAPL/T/GEVO data (idempotent reruns, sane touch/violation/reaction values). 304 tests passing (5 new)."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 6,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/decisions/price-basis.md > Price basis: which price series each module uses > Rules that follow from it",
+  "text": "## Rules that follow from it\n- **Never mix bases within one calculation.** A level and the close or ATR it's compared\n  with must come from the same basis. Ratios like `(level − close) / ATR` are the safe way\n  to combine one module's levels with another module's features.\n- **Outcomes measured inside a level module are price returns, on `traded`.** The patterns\n  and market-structure backtests and the gap-fill analysis check whether price reached a\n  target, stop or zone, which are levels, so they use the same series as the levels.\n  Switching only their returns to `total_return` would compare levels and prices from two\n  series. The cost is known and small: those returns leave out dividends, about the\n  dividend yield × the horizon (e.g. ~0.5% over a quarter for a 2% yielder). Anything that\n  measures **total** return (the MA study, modeling labels) uses `total_return`.\n- **Stored level tables are tied to the basis and bars of their run.** `gaps.store.read_gaps`\n  refuses stored gaps when the bars passed in are on another basis, or when zones no longer\n  match the bars. Other level tables have no read-back path; recompute with `as_of`."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/done.md > #33",
+  "text": "- **#33** [signals] — **Four new TA modules built on `market_common`** (gaps, divergences, fibonacci, avwap), each with its own config dataclass, detection logic, SQLite lifecycle tracking in `data/derived/analysis.sqlite`, Plotly chart, and CLI (`python -m src.<module>.cli TICKER|--all --timeframe daily|weekly|both [--as-of] [--plot]`). Built in parallel (four agents, disjoint directories) against a shared, pre-agreed spec. `gaps/`: classic 2-bar + 3-bar FVG detection, ATR-sized, forward-walked fill lifecycle (open/partial/soft_closed/closed). `divergences/`: RSI/MACD-hist/OBV price-divergence detection via paired price/indicator pivots, weighted strength score. `fibonacci/`: multi-scale (2/4/8x ATR) swing detection with cross-scale dedup, retracement/extension levels (linear or log), top-K weighted set ranking, origin-cross invalidation. `avwap/`: pure `anchored_vwap()` computation (zero-lookahead, NaN before anchor) plus anchor discovery (ath/atl/52w high-low/cycle high-low) with same-date dedup, cap-trimming, and staleness tracking. All four share the `runs` table and `ON CONFLICT DO UPDATE` upsert pattern (new to this repo — needed to preserve a row's uuid4 `id` across re-runs without an extra SELECT). 278 tests passing (223 baseline + 55 new)."
+ },
+ {
+  "qid": "retest_continuation",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?",
+  "cite": "docs/modeling/LRP.md > Least resistance path (LRP) — formulation > 4. Point-in-time computation — the real cost > Addendum (2026-10-11): timing, and the v1 source list",
+  "text": "- **Storage:** weekly snapshots of S/R, AVWAP and VP (~40 levels per ticker-week) are\n  ~0.3–0.5 GB as parquet; the gap list ~50 MB. Daily gap states (~80M rows) are computed\n  when features are built, never stored. With the feature cache and one scorecard run,\n  step 2 adds ~1.5–2 GB.\n\n**v1 sources (decided 2026-10-11): the cheap set, on the full universe.** S/R lines,\nAVWAP, volume profile and gaps, plus the three that need no detector (MA 20/50/200,\n52-week high/low, round numbers): about 10 h on 4 cores, resumable per ticker. Market\nstructure (+5.5 h) and fibonacci (+9.4 h) are added as their own builds only if the\ncheap set shows something on the scorecard; the cache is per source, so adding them\nredoes nothing. Two alternatives were rejected:\n- **All six level sources at once** (~22 h): the extra 9.4 h is mostly fibonacci, spent\n  before knowing whether levels help at all."
+ },
+ {
+  "qid": "sharpe_used",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 3,
+  "question": "Do we consider Sharpe value in our model and/or analysis?",
+  "cite": "docs/modeling/TRIALS.csv > 20261011-163335-fbc2ecb-14498c",
+  "text": "\"sharpe\": 0.4960912103586881, \"annual_return_min\": -0.019438133379069966, \"annual_return_max\": 0.09639688492446719, \"n_start_days\": 21}, \"atr_pct\": 0.022799698635935783}, \"reference\": {\"costs\": {\"0\": {\"n_trades\": 9977, \"n_dates\": 2001, \"trades_per_year\": 1256.4737631184407, \"target_rate\": 0.4919314423173299, \"stop_rate\": 0.38037486218302097, \"timeout_rate\": 0.1276936954996492, \"win_rate\": 0.5589856670341786, \"avg_win\": 0.04160778596997261, \"avg_loss\": -0.040795378386974335, \"payoff_ratio\": 1.019914150238037, \"expectancy\": 0.005266811233013868, \"median\": 0.019422946497797966, \"profit_factor\": 1.292741298675537,"
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 2,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 2. Feature families (user's list), tagged",
+  "text": "They need converting to per-date features (§3). Check that each one is `as_of`-safe when computed across the full panel. **Divergences specifically: four binding constraints in LRP.md §2.4 (2026-10-09)** — PIT-recomputed confluence (stored column is full-run = look-ahead), regular vs hidden forms decided explicitly, context-conditioning prior, and the Done #103 survivorship recompute gate. |\n| F7 | S/R lines (duration, relevance, strength) | `sr_lines` (has scoring and lifecycle) | Same conversion to per-date features. |\n| F8 | Chart patterns (duration, relevance, strength) | `patterns` (7 detectors, scoring); a holdout-bounded `pattern_matches` table was populated by M14 | **M14:** nothing once the pattern flag is as-of-safe. The earlier flag used the future breakout. Pooled +0.07% [−0.31%, +0.42%]; VCP-only +0.85% [−0.10%, +1.88%] on 402 events / 335 dates; both span zero. So per-pattern-type features are *untested*, not supported. Keep them as null-prior candidates, each of which must beat an extension-aware baseline, not just a base rate. |\n| F9 | Metadata: market cap, shares, sector… | Code exists: `shares_outstanding` table (historical, from yfinance), `market_cap.py` (split-reconciled)."
+ },
+ {
+  "qid": "sr_line_limits",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Do we restrict R/S lines to horizon, their own angles or their width?",
+  "cite": "docs/modeling/IDEAS.md > Modeling — ideas inbox > 1. What the model should output",
+  "text": "- **(a) One classifier per cell, or one multi-output model.** Simple to train. But the\n  cells can contradict each other: nothing stops the model from saying a wider stop has a\n  *lower* hit rate. That needs monotonicity constraints or post-hoc fixing.\n- **(b) Model the path distribution, then derive every cell from it.** Predict the joint\n  distribution of (max favourable excursion, max adverse excursion, which came first,\n  when), for example with quantile or discretised-hazard heads. Every barrier\n  probability then comes from one consistent distribution. More work up front, but this\n  one fits \"find the best R/R\" best.\n  `src/signals/moving_averages/labels/path_metrics.py` already computes MFE/MAE.\n\n**Trap to design against:** picking the best cell per ticker is itself a selection step.\nThe best of 100 noisy cells looks good by construction (winner's curse). Probabilities\nmust be **calibrated**, and the reported EV must be measured on out-of-sample data\n*after* the argmax, not the in-sample value of the chosen cell.\n\n**Barrier units:** use ATR multiples as the primary units, because % barriers mean\ndifferent things for a utility and a biotech. They should also share units with the\nlevel-distance features below (§3, \"LRP made quantitative\").\n\n---"
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 1,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M9 — Regime-conditional lookback (2026-09-24)",
+  "text": "**Fit\nperiod**: 2010-01-04 to 2016-12-31 (used for the descriptive surface, stage 1, and\nto learn the per-regime \"best lookback\" mapping, stage 2). **Test period**:\n2017-01-01 to 2021-12-31 (used to evaluate whether that mapping's persistence holds\nand whether the resulting adaptive rule beats the fixed benchmark, stage 3). This\nsplit is fixed before stage 1 runs.\n\n**Method — DESIGN's own three-stage design, staging matters, no skipping to stage 3:**\n1. **Descriptive** (fit period only): for each ER regime bucket, the C2 delta of\n   `above_ema_{10,20,50}` on `fwd_ret_21`, restricted to that bucket. Produces the\n   regime × lookback surface. Plateau rule applied per DESIGN's own \"ruthlessly\"\n   instruction — a single bright cell among a noisy surface is not trusted.\n   ADX-regime version of the same surface computed as the corroboration check.\n2. **Predictive**: within the fit period, for each ER regime bucket, identify the\n   lookback with the largest-magnitude, correctly-signed (state=True predicts\n   *positive* continuation) C2 delta — this regime's \"best\" lookback."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 3,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study",
+  "text": "# Modeling phase — insights from the completed moving-averages study\n\n**Date:** 2026-09-28. **Scope:** what the MA study (`docs/features/moving-averages/`,\n22 modules, 221 `EXPERIMENTS.csv` rows, six whole-grid FDR passes, closed 2026-09-25)\nactually established, and what that implies for the modeling phase sketched in the\nideas inbox (`docs/modeling/IDEAS.md`, referenced below by its own section numbers).\nThis document complements the inbox; it does not restate it. Every number traces to\n`EXPERIMENTS.csv` (cited by `cell_id`), `FINDINGS.md`, `PREREGISTRATION.md`,\n`STATUS.md`, `REPORT.md`, or a file in `src/signals/moving_averages/`.\n\n**Track discipline carried over:** everything under \"Track B\" below is a pre-registered,\nC2-controlled, block-bootstrapped result. Everything under \"Track A\" is an uncontrolled\nscreen and is cited only as feature-selection evidence, never as an effect size.\n\n**The honest headline, before any table:** the study's single Tier-2 effect is\n−0.248% per 21 trading days (`slope_magnitude_humped_test_sma50`), and only 3 of 219\ntests survive whole-grid FDR. The third survivor (M22's SMA50 breakout-retest, −2.08% at 63d)\nfailed its lookback-neighbour check and is Tier 3."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 4,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/backlog.md > Backlog > Data (sources, coverage, vendors, price bases)",
+  "text": "- **History breaks (Done #62) -- follow-ups.** (a) Resolved with an \"established company\" guard (783 -> 701 resets); per-ticker exceptions go in `history_break_overrides.py`. (b) `training_eligibility` has no consumer yet; the modeling pipeline should apply it identically at train and prediction time, and report a with/without-filter sensitivity. (c) Only active tickers have yfinance bars; the modeling dataset adds 132 delisted members from Tiingo (Done #83), so its training set is no longer survivors-only, but the 101 members Tiingo couldn't serve are still missing (EODHD item above)."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 5,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 2. Feature-set implications > 2.2 Recommended v1 MA-family feature list",
+  "text": "Also the extension confound control for every pattern feature (M14). |\n| 4 | `dist_z_sma_200` | panel | Keeps a slow-lookback extension that is only 0.69-correlated with `dist_pct_sma_200` (sweep). Carries the SMA200 anomaly; expect little. |\n| 5 | `slope_log_63_sma_50` | panel | The one slope window that decorrelates from distance at every lookback (0.18–0.32, sweep). Cheap diversification of the slope cluster. |\n| 6 | `ribbon_agreement_state` (0–5 over {10,20,50,100,200} slope signs) | rebuild as in `modules/ribbon_slope_agreement.py` | M6.6: predicts `fwd_mdd_21` (+0.65pp), pairwise slope correlations 0.28–0.89 so it is not one MA in disguise. A drawdown-side feature. |\n| 7 | `ribbon_width_pctile` | `features/ribbon.py::ribbon_width_pctile` | M7: compression predicts the size of the forward return (−0.25% decile spread on `abs(fwd_ret_21)`). Directly relevant to a barrier target's reach probability."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 7,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M9 — Regime-conditional lookback (the user's \"5 EMA in chop\" question)",
+  "text": "### M9 — Regime-conditional lookback (the user's \"5 EMA in chop\" question)\n**Hypothesis:** The best short-term MA lookback varies with regime.\n**Method — three-stage, and the staging matters:**\n1. **Descriptive:** bucket by ER/ADX/vol regime; for each, compute performance across the lookback grid. Produce the regime × lookback surface. Apply the plateau rule ruthlessly.\n2. **Predictive:** is regime at time *t* predictive of the best lookback over *t+1…t+k*? Regimes are persistent, so this should partly work — but persistence is not the same as exploitability.\n3. **Adaptive:** does a rule that switches lookback by regime beat the best *fixed* lookback out of sample, net of switching costs? Also compare against KAMA, which does this continuously and for free.\n\n**This is the module most likely to produce a false positive**, because a regime × lookback grid is a large search space over data with tiny effective N (§6.4). Pre-register the regime definition. Do not tune the regime thresholds. If you find yourself adjusting the ER cutoff to make results look better, you have left the study and entered the overfitting."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/features/moving-averages/DESIGN.md > Design Doc: A Systematic Study of Moving-Average Behaviour in Equities > 8. Analysis modules > M10 — Timeframe and sampling",
+  "text": "### M10 — Timeframe and sampling\n**Hypothesis:** Weekly MAs offer a better lag/whipsaw tradeoff than lookback-equivalent daily MAs.\n**Method:** Compare (a) daily 50/150/200 evaluated daily, (b) weekly 10/30/40 evaluated weekly (Friday close only), (c) daily 50/150/200 evaluated **only on Fridays** — this last one is the key control, since it isolates *sampling frequency* from *lookback*. Also test multi-timeframe confluence (daily and weekly agreeing).\n**Output:** decomposition of the weekly advantage (if any) into lag effect vs sampling effect."
+ },
+ {
+  "qid": "windows_horizons",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "What are the history windows and horizons lengths we check in our analysis and modeling?",
+  "cite": "docs/features/moving-averages/PREREGISTRATION.md > Pre-registration > M9 — Regime-conditional lookback (2026-09-24)",
+  "text": "Separately,\n   measure regime persistence: per ticker, the fraction of rows where the ER\n   regime bucket at date *t* still holds at *t*+21 trading days, vs. the base rate\n   a memoryless (i.i.d.-regime) process would produce.\n3. **Adaptive** (test period only): construct a switching signal — on each test-\n   period row, look up that row's *current* ER regime bucket, use the fit-period\n   mapping to pick that regime's \"best\" lookback, and read that lookback's\n   `above_ema` state for the row. Compare this adaptive series' C2 delta against\n   (a) the single fixed lookback with the best *overall* fit-period C2 delta held\n   constant through the test period, via\n   `stats/inference.py::block_bootstrap_group_diff` (a proper CI on the\n   *difference*, not two separately-CI'd deltas eyeballed against each other), and\n   (b) KAMA's own above/below state (`features/kernels.py::kama`, already built\n   for M8) over the same test period, DESIGN's own named comparison — KAMA adapts\n   continuously and for free, the natural benchmark for whether a discrete\n   regime-switching rule adds anything a continuous one doesn't already give.\n   Switching cost: `stats/costs.py::signals_per_year` on the adaptive series'\n   own flip rate vs."
+ },
+ {
+  "qid": "model_running",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 8,
+  "question": "Do we have any model running yet?",
+  "cite": "docs/modeling/ma_study_insights.md > Modeling phase — insights from the completed moving-averages study > 7. Reusable infrastructure",
+  "text": "|\n| `labels/forward_returns.py`, `labels/path_metrics.py` | yes | add MFE, first-touch ordering, hit time, and a triple-barrier label alongside `forward_max_drawdown`, keeping its `skipna=False` convention | Only `forward_return`, `forward_realized_vol`, `forward_max_drawdown` exist. |\n| `synthetic.py` (`build_synthetic_panels`, `run_validation`, `gate_verdict`) | port the pattern | plant a barrier-hit effect rather than a +3% mean shift | The gate tests a 5-day SMA state and `c1_delta`; the model harness needs its own planted target. |\n| `features/state.py` (`state_run_id`, `days_in_run`) | yes | age of any state | Rejects internal NaN gaps by design. |\n| `features/touch.py`, `features/crossover.py`, `features/placebo_ma.py` | available | only if an event-population model is built on touches/crosses (both are study nulls) | Close-only touches; first-pass thresholds. |\n| `modules/pattern_context.py` (`load_qualifying_patterns`, `attach_breakout_dates`, `add_pattern_context_flag`) | only if pattern features are tried | use the as-of-safe flag (window after the verified breakout date, no status filter) | `pattern_matches` is current-state-only; a strict point-in-time history needs the scanner re-run as of each date."
+ },
+ {
+  "qid": "model_running",
+  "split": "dev",
+  "method": "rewrite-max:L6",
+  "rank": 9,
+  "question": "Do we have any model running yet?",
+  "cite": "docs/modeling/VALIDATION_HARNESS.md > Validation harness — design > 7. Feature registry",
+  "text": "- **source function, warmup in bars, and whether it's per-date ranked.**\n\nAblations run by *group*, in prior order: supported, then weak, then null. A null group\nstays only on an out-of-sample gain over the step before it. Dropping a group is an\noperational decision; the trial's recorded outcome distinguishes a **demonstrated null**\n(the whole CI sits inside the pre-committed minimum-relevant-improvement band) from\n**inconclusive** (the CI spans zero but extends beyond the band — underpowered, not\nevidence of no effect). Rule and dating: `LRP.md` §3 kill criterion, amended 2026-10-07.\n\n**Built (step 4), minimal.** `registry.py` declares every column decided at the close of\n*t*, not just model inputs: each entry has a `role` (`model`, `universe` for the H3\nfilters, `decision` for the EV ranking's ATR %). The leakage gate (§8) runs every\nregistered source, so a feature registered later is covered automatically.\n`BoostedModel` refuses a column that isn't registered (`check_columns`); only the\nsynthetic gates and unit tests opt out. The baseline columns, the\nuniverse filters and `atr_pct` are registered today. `sector` is registered as static\n(not bar-derived, so the leakage gate can't cover it).\n\n**MA family (E1 step 1, 2026-10-06)."
+ }
+]
