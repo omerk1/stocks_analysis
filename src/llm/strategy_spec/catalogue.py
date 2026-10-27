@@ -122,6 +122,9 @@ DETECTORS = [
                "from the same anchors as anchored VWAP", "src.signals.volume_profile.detect:detect"),
     Capability("detector:ma.first_touch", "detector", "first touch of a moving average after price has been away "
                "from it (SMA or EMA, 20/50/150/200)", "src.signals.moving_averages.features.touch:touch_events"),
+    Capability("detector:base_breakout.retest", "detector", "decisive breakout above the multiply-touched "
+               "ceiling of a long flat base (length and depth bounded), a rally away, then a retest of the "
+               "breakout level from above that holds (long side only)", "src.signals.base_breakout.detect:detect"),
     Capability("detector:ma.crossover", "detector", "a fast moving average crossing a slow one (golden or death cross)",
                "src.signals.moving_averages.features.crossover:crossover_events"),
 ]
@@ -150,6 +153,49 @@ NOT_USER_FACING_INDICATORS = {
     "percentile_rank": "a normalisation (the spec's `percentile`), not an indicator",
     "scale_consistent": "a sanity check on two prices' scale",
 }
+
+def _level_features() -> dict[str, str]:
+    """The price-level features (`src/models/features/level_features.py`), one line per
+    column, worded per family; the conventions they share are in `_NOTES["feature"]`."""
+    sources = {"sr_line": "support/resistance line", "avwap": "anchored VWAP",
+               "vp": "volume-profile level", "gap": "open (not fully filled) price gap",
+               "ma": "SMA 20, 50 or 200", "round": "round-number price"}
+    above, below = "above the close", "below the close"
+    items = {}
+    for source, name in sources.items():
+        items[f"near_up_{source}"] = f"distance to the nearest {name} {above}"
+        items[f"near_dn_{source}"] = f"distance to the nearest {name} {below}"
+    items["near_up_hi52"] = "distance up to the 52-week high"
+    items["near_dn_lo52"] = "distance down to the 52-week low"
+    for source in ("sr_line", "avwap", "vp", "gap"):
+        items[f"near_up_w_{source}"] = f"weight of the nearest {sources[source]} {above}"
+        items[f"near_dn_w_{source}"] = f"weight of the nearest {sources[source]} {below}"
+    for tag, theta in (("0p5", "0.5"), ("1p5", "1.5")):
+        items[f"clear_up_{tag}"] = f"distance up to where the levels above add up to weight {theta}"
+        items[f"clear_dn_{tag}"] = f"distance down to where the levels below add up to weight {theta}"
+    for h in (1, 2, 3, 5, 7):
+        items[f"density_up_{h}"] = f"total level weight within {h} ATR {above}"
+        items[f"density_dn_{h}"] = f"total level weight within {h} ATR {below}"
+    items["lrp_dir"] = ("room to run up vs down: log of (clear_up_1p5 + 0.25) / (clear_dn_1p5 + 0.25); "
+                        "positive means resistance is farther than support")
+    for h in (2, 3):
+        items[f"lrp_pressure_{h}"] = f"support weight minus resistance weight within {h} ATR"
+    for side, where in (("up", "above"), ("dn", "below")):
+        items[f"confluence_{side}"] = (f"weight of the heaviest 0.5-ATR-wide cluster of levels from two or "
+                                       f"more sources within 5 ATR {where} (0 if none)")
+        items[f"confluence_{side}_dist"] = f"distance to that cluster {where} (blank if none)"
+    for u in (2, 3, 5, 7):
+        items[f"target_on_wall_{u}"] = (f"weight of the heaviest level within 0.25 ATR of a target {u} ATR "
+                                        f"{above} (0 if none)")
+    for d in (1, 2, 3):
+        items[f"stop_below_floor_{d}"] = (f"1 if a level of weight 0.5 or more sits within 0.5 ATR above a "
+                                          f"stop {d} ATR {below}, else 0")
+    for u in (2, 3, 5, 7):
+        items[f"vp_ease_up_{u}"] = f"share of the latest volume profile's volume from the close to {u} ATR above"
+    for d in (1, 2, 3):
+        items[f"vp_ease_dn_{d}"] = f"share of the latest volume profile's volume from the close to {d} ATR below"
+    return items
+
 
 # The model feature registry's model inputs (`src/models/features/registry.py`).
 _REG = "src.models.features.registry:REGISTRY"
@@ -198,65 +244,7 @@ FEATURES = _entries("feature", "", _REG, {
     "book_to_market": "book-to-market: equity over market cap",
     "share_change_yoy": "change in shares outstanding over the past year (log, split-adjusted): positive is "
                         "dilution, negative is buybacks",
-    # Price levels (`src/models/features/level_features.py`): distances in ATR(14) from the close to
-    # point-in-time levels; a level's weight is its strength percentile x age decay x tested/flipped factor.
-    "near_up_sr_line": "distance up to the nearest support/resistance line above the close, in ATRs",
-    "near_dn_sr_line": "distance down to the nearest support/resistance line below the close, in ATRs",
-    "near_up_avwap": "distance up to the nearest anchored VWAP above the close, in ATRs",
-    "near_dn_avwap": "distance down to the nearest anchored VWAP below the close, in ATRs",
-    "near_up_vp": "distance up to the nearest volume-profile level above the close, in ATRs",
-    "near_dn_vp": "distance down to the nearest volume-profile level below the close, in ATRs",
-    "near_up_gap": "distance up to the nearest unfilled price gap above the close, in ATRs",
-    "near_dn_gap": "distance down to the nearest unfilled price gap below the close, in ATRs",
-    "near_up_ma": "distance up to the nearest moving average above the close, in ATRs",
-    "near_dn_ma": "distance down to the nearest moving average below the close, in ATRs",
-    "near_up_round": "distance up to the nearest round-number price above the close, in ATRs",
-    "near_dn_round": "distance down to the nearest round-number price below the close, in ATRs",
-    "near_up_hi52": "distance up to the 52-week high, in ATRs",
-    "near_dn_lo52": "distance down to the 52-week low, in ATRs",
-    "near_up_w_sr_line": "weight of the nearest support/resistance line above the close",
-    "near_dn_w_sr_line": "weight of the nearest support/resistance line below the close",
-    "near_up_w_avwap": "weight of the nearest anchored VWAP above the close",
-    "near_dn_w_avwap": "weight of the nearest anchored VWAP below the close",
-    "near_up_w_vp": "weight of the nearest volume-profile level above the close",
-    "near_dn_w_vp": "weight of the nearest volume-profile level below the close",
-    "near_up_w_gap": "weight of the nearest price gap above the close",
-    "near_dn_w_gap": "weight of the nearest price gap below the close",
-    "clear_up_0p5": "distance up to where the levels above add up to weight 0.5 (light resistance), in ATRs",
-    "clear_dn_0p5": "distance down to where the levels below add up to weight 0.5 (light support), in ATRs",
-    "clear_up_1p5": "distance up to where the levels above add up to weight 1.5 (heavy resistance), in ATRs",
-    "clear_dn_1p5": "distance down to where the levels below add up to weight 1.5 (heavy support), in ATRs",
-    "density_up_1": "total level weight within 1 ATR above the close",
-    "density_dn_1": "total level weight within 1 ATR below the close",
-    "density_up_2": "total level weight within 2 ATRs above the close",
-    "density_dn_2": "total level weight within 2 ATRs below the close",
-    "density_up_3": "total level weight within 3 ATRs above the close",
-    "density_dn_3": "total level weight within 3 ATRs below the close",
-    "density_up_5": "total level weight within 5 ATRs above the close",
-    "density_dn_5": "total level weight within 5 ATRs below the close",
-    "density_up_7": "total level weight within 7 ATRs above the close",
-    "density_dn_7": "total level weight within 7 ATRs below the close",
-    "lrp_dir": "room to run up vs down: log ratio of the heavy-resistance to heavy-support distances",
-    "lrp_pressure_2": "support minus resistance weight within 2 ATRs of the close",
-    "lrp_pressure_3": "support minus resistance weight within 3 ATRs of the close",
-    "confluence_up": "weight of the strongest cluster of levels from two or more sources within 5 ATRs above",
-    "confluence_up_dist": "distance up to that strongest level cluster, in ATRs",
-    "confluence_dn": "weight of the strongest cluster of levels from two or more sources within 5 ATRs below",
-    "confluence_dn_dist": "distance down to that strongest level cluster, in ATRs",
-    "target_on_wall_2": "weight of the strongest level about 2 ATRs above the close (a target hitting a wall)",
-    "target_on_wall_3": "weight of the strongest level about 3 ATRs above the close",
-    "target_on_wall_5": "weight of the strongest level about 5 ATRs above the close",
-    "target_on_wall_7": "weight of the strongest level about 7 ATRs above the close",
-    "stop_below_floor_1": "whether a solid level sits just above a stop 1 ATR below the close (0/1)",
-    "stop_below_floor_2": "whether a solid level sits just above a stop 2 ATRs below the close (0/1)",
-    "stop_below_floor_3": "whether a solid level sits just above a stop 3 ATRs below the close (0/1)",
-    "vp_ease_up_2": "share of the latest volume profile's volume between the close and 2 ATRs above",
-    "vp_ease_up_3": "share of the latest volume profile's volume between the close and 3 ATRs above",
-    "vp_ease_up_5": "share of the latest volume profile's volume between the close and 5 ATRs above",
-    "vp_ease_up_7": "share of the latest volume profile's volume between the close and 7 ATRs above",
-    "vp_ease_dn_1": "share of the latest volume profile's volume between the close and 1 ATR below",
-    "vp_ease_dn_2": "share of the latest volume profile's volume between the close and 2 ATRs below",
-    "vp_ease_dn_3": "share of the latest volume profile's volume between the close and 3 ATRs below",
+    **_level_features(),
 })
 
 _CTL = "src.signals.moving_averages.stats.controls"
@@ -306,6 +294,16 @@ _HEADINGS = {
     "metric": "Outcome metrics",
 }
 
+# Printed under a section's heading: conventions a family of entries shares, said once.
+_NOTES = {
+    "feature": (
+        "Price-level features (near_*, clear_*, density_*, lrp_*, confluence_*, target_on_wall_*, "
+        "stop_below_floor_*, vp_ease_*): distances are in ATRs from the close, capped (blank or the cap "
+        "when nothing is there); a level touching the close counts on both sides; a level's weight, "
+        "roughly 0 to 1, says how strong, recent and tested it is."
+    ),
+}
+
 
 def render() -> str:
     """The catalogue as prompt text: the spec's fixed choices, then every entry by kind."""
@@ -329,6 +327,8 @@ def render() -> str:
     ]
     for kind in get_args(Kind):
         lines += ["", f"## {_HEADINGS[kind]}"]
+        if kind in _NOTES:
+            lines.append(_NOTES[kind])
         lines += [f"- {c.id}: {c.description}" for c in CATALOGUE if c.kind == kind]
     return "\n".join(lines) + "\n"
 
