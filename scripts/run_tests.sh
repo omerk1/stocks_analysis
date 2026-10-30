@@ -13,11 +13,18 @@
 set -euo pipefail
 
 checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-main=$(git -C "$checkout" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)
-python="${main:-$checkout}/venv/bin/python"
-if [[ ! -x "$python" ]]; then
-    echo "no project venv at ${main:-$checkout}/venv -- create it as in README 'Setup'" >&2
+if ! main=$(git -C "$checkout" worktree list --porcelain | sed -n '1s/^worktree //p') || [[ -z "$main" ]]; then
+    echo "can't find the main checkout from $checkout (git worktree list failed); the venv lives there" >&2
     exit 1
+fi
+python="$main/venv/bin/python"
+if [[ ! -x "$python" ]]; then
+    echo "no project venv at $main/venv -- create it as in README 'Setup'" >&2
+    exit 1
+fi
+caller=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$caller" && "$caller" != "$checkout" ]]; then
+    echo "note: testing $checkout (this script's checkout), not $caller" >&2
 fi
 cd "$checkout"
 

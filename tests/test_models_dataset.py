@@ -158,6 +158,18 @@ def test_liquidity_is_not_known_during_warmup(conn):
     assert traded["liquid"].iloc[19]
 
 
+def test_an_empty_batch_leaves_the_prices_float(conn):
+    # Two source groups, one with no bars in the window: its empty batch must not make
+    # the price columns object-typed (pandas 3 counts an empty frame's dtypes in concat).
+    bars = dataset.read_bars_bulk(conn, ["AAA", "NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
+                                  sources={"AAA": db.YFINANCE, "NOPE": db.TIINGO})
+    assert len(bars) and set(bars["ticker"]) == {"AAA"}
+    assert all(bars[c].dtype == "float64" for c in ("open", "high", "low", "close", "volume"))
+    none = dataset.read_bars_bulk(conn, ["NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
+                                  sources={"NOPE": db.TIINGO})
+    assert none.empty and none["close"].dtype == "float64"
+
+
 def test_dollar_volume_ignores_the_future(conn):
     bars = dataset.read_bars_bulk(conn, ["AAA"], dataset.UNIVERSE_BASIS, "2019-06-01", "2021-12-31")
     base = dataset.trailing_dollar_volume(bars)

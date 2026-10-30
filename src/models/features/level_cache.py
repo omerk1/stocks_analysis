@@ -156,14 +156,12 @@ def _ns_dates(frame: pd.DataFrame) -> pd.DataFrame:
     pandas 3 infers a column's unit from its data (seconds for these snapshots,
     milliseconds after a parquet round-trip, which can't store seconds), so without
     this a cache hit and a fresh computation of the same snapshots differ in dtype."""
-    coarse = [c for c in frame.columns
-              if pd.api.types.is_datetime64_any_dtype(frame[c]) and frame[c].dt.unit != "ns"]
-    if not coarse:
-        return frame
-    frame = frame.copy()
-    for c in coarse:
-        frame[c] = frame[c].dt.as_unit("ns")
-    return frame
+    targets = {}
+    for c in frame.columns:
+        if pd.api.types.is_datetime64_any_dtype(frame[c]) and frame[c].dt.unit != "ns":
+            tz = frame[c].dt.tz
+            targets[c] = pd.DatetimeTZDtype("ns", tz) if tz is not None else "datetime64[ns]"
+    return frame.astype(targets) if targets else frame
 
 
 def read_cached(root: Path, source: str, ticker: str, key: str) -> pd.DataFrame | None:
