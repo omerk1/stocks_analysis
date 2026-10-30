@@ -30,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from bs4.element import PreformattedString
+from bs4.element import NavigableString, PreformattedString
 
 from src.foundation.utils.config_loader import load_config
 from src.llm.guidance.sample import SAMPLE_PATH
@@ -145,13 +145,32 @@ def close_unclosed(soup: BeautifulSoup) -> None:
     </td> and </tr>, and html.parser then nests each row inside the row before it and
     each cell inside the cell before it, where a browser would close them. Each such
     row or cell is moved out to follow the one it was nested in, in document order,
-    so a deeper one follows its new place in turn. A nested table is not this: its rows
-    have their own table between them and the outer row."""
-    for tag, bounds in (("tr", ["tr", "table"]), (["td", "th"], ["td", "th", "tr", "table"])):
+    so a deeper one follows its new place in turn. Everything after the nested node in
+    its holder moves with it, in order (closed rows or cells that followed it, so none
+    is reversed); loose text among them gets a cell of its own, so it is neither glued
+    to a neighbouring cell nor dropped. A nested table is not this: its rows have
+    their own table between them and the outer row."""
+    for tag, bounds, holders in (("tr", ["tr", "table"], ("tr",)),
+                                 (["td", "th"], ["td", "th", "tr", "table"], ("td", "th"))):
         for node in soup.find_all(tag):
             holder = node.find_parent(bounds)
-            if holder is not None and holder.name in (["tr"] if tag == "tr" else ["td", "th"]):
-                holder.insert_after(node.extract())
+            if holder is None or holder.name not in holders:
+                continue  # not nested, or already moved out with an earlier one
+            anchor = holder
+            for moving in [node, *node.next_siblings]:
+                moving = moving.extract()
+                if isinstance(moving, NavigableString):
+                    if not moving.strip():
+                        continue
+                    cell = soup.new_tag("td")
+                    cell.append(moving)
+                    moving = cell
+                    if tag == "tr":
+                        row = soup.new_tag("tr")
+                        row.append(cell)
+                        moving = row
+                anchor.insert_after(moving)
+                anchor = moving
 
 
 def release_text(raw: bytes) -> str:
@@ -181,8 +200,10 @@ def release_text(raw: bytes) -> str:
             tag.insert_after("\n")
         for tr in reversed(soup.find_all("tr")):  # inner rows first
             if tr.find("table") is not None:  # a layout row holding a table: one line per cell
-                for cell in tr.find_all(["td", "th"], recursive=False):
-                    cell.insert_before("\n")
+                own = tr.find_parent("table")  # its own cells, even inside an inline wrapper like <font>
+                for cell in tr.find_all(["td", "th"]):
+                    if cell.find_parent("table") is own:
+                        cell.insert_before("\n")
                 continue
             cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")

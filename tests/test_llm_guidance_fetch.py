@@ -64,6 +64,15 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(no_tr_end).splitlines() == ["A | B", "", "C | D"]
     no_ends = b"<table><tr><td>Revenue<td>$9.5B<tr><td>EPS<td>2.1<tr><td>Margin<td>40%</table>"  # rows apart
     assert fetch.release_text(no_ends).splitlines() == ["Revenue | $9.5B", "", "EPS | 2.1", "", "Margin | 40%"]
+    header_open = b"<table><tr><td>A</td><td>B</td><tr><td>C</td></tr><tr><td>D</td></tr><tr><td>E</td></tr></table>"
+    assert fetch.release_text(header_open).splitlines() == ["A | B", "", "C", "", "D", "", "E"]  # order kept
+    first_open = b"<table><tr><td>EPS<td>2.10</td><td>2.20</td><td>raised</td></tr></table>"  # low before high
+    assert fetch.release_text(first_open) == "EPS | 2.10 | 2.20 | raised"
+    tail = b"<table><tr><td>A<td>B</td>tail</tr></table>"
+    assert fetch.release_text(tail) == "A | B | tail"  # loose text kept, in its own cell
+    wrapped = b"""<table><tr><td>Outlook</td><font><td>Note</td></font><td><table><tr><td>EPS</td><td>2.1</td>
+    </tr></table></td></tr></table>"""
+    assert fetch.release_text(wrapped).splitlines() == ["Outlook", "Note", "", "EPS | 2.1"]
 
 
 def test_release_text_detects_windows_1252():
