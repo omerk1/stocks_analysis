@@ -57,13 +57,14 @@ def test_a_lock_on_one_ticker_does_not_fail_the_rest(module, tmp_path, monkeypat
         return success
 
     monkeypatch.setattr(cli, fn_name, run)
-    def bootstrap(create_result_table):
-        # Like the real bootstrap: the module's result table exists before main() reads it.
-        create_result_table(derived)
-        derived.commit()
-        return raw, derived
 
-    monkeypatch.setattr(cli.derived_db, "bootstrap_cli", bootstrap)
+    # The real bootstrap_cli runs (so the module's own tables exist exactly as in
+    # production); only where it connects is redirected to this test's databases.
+    config = SimpleNamespace(data_paths=SimpleNamespace(raw=str(tmp_path), derived=str(tmp_path)))
+    monkeypatch.setattr(derived_db, "load_dotenv", lambda *_, **__: None)
+    monkeypatch.setattr(derived_db, "load_config", lambda *_, **__: config)
+    monkeypatch.setattr(derived_db.raw_db, "get_connection", lambda *_, **__: raw)
+    monkeypatch.setattr(derived_db, "get_connection", lambda *_, **__: derived)
     monkeypatch.setattr(sys, "argv", ["cli", "--all", "--timeframe", "daily"])
     cli.main()
 
