@@ -22,14 +22,14 @@
    "values": 0.9855072463768116,
    "unit": 0.927536231884058,
    "basis": 0.8695652173913043,
-   "revision": 0.8985507246376812
+   "revision": 0.927536231884058
   },
   "revision": {
-   "gold_items_readable": 20,
-   "share_of_gold_items": 0.273972602739726,
-   "model_right_on_readable": 1.0,
+   "gold_items_readable": 23,
+   "share_of_gold_items": 0.3150684931506849,
+   "model_right_on_readable": 0.9565217391304348,
    "releases_with_guidance": 24,
-   "releases_with_a_readable_revision": 12
+   "releases_with_a_readable_revision": 13
   },
   "coverage": {
    "year": [

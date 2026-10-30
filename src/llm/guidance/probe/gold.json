@@ -805,7 +805,7 @@
     "high": 4325.0,
     "unit": "USD millions",
     "basis": "unstated",
-    "revision": "not_stated",
+    "revision": "lowered",
     "evidence": "Revenue | $4,250-$4,325 | $4,200-$4,400"
    },
    {
@@ -818,7 +818,7 @@
     "high": 1.1,
     "unit": "USD per share",
     "basis": "adjusted",
-    "revision": "not_stated",
+    "revision": "lowered",
     "evidence": "Adjusted EPS | $1.00-$1.10 | $1.08-$1.18"
    }
   ],
@@ -956,7 +956,7 @@
     "high": 4.4,
     "unit": "USD per share",
     "basis": "adjusted",
-    "revision": "not_stated",
+    "revision": "raised",
     "evidence": "Adjusted diluted earnings per share in the range of $4.35 to $4.40. This compares to the Company\u2019s prior expectation of adjusted diluted earnings per share in the range of $4.25 to $4.45."
    },
    {

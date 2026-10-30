@@ -361,10 +361,18 @@ EDGAR).
 - **Feasibility probe first:** fetch ~50 press releases, hand-label the guidance in them
   (present or not, metric, period, range), and see how often it's there and how well an
   extraction prompt recovers it.
-  **In progress (2026-10-18), `docs/fundamentals/guidance_probe.md`:** the sample (50
-  releases, 50 companies, 2010–2021, stratified by year, sector and size), the label
-  schema and the frozen extraction prompt v1 are committed (Done #159), all before any
-  release was read. Next: fetch, label, score.
+  **Done (2026-10-30), `docs/fundamentals/guidance_probe.md` "Result":** the sample,
+  schema and frozen prompt v1 came first (Done #159). Then the fetch, an adjudicated
+  gold set and v1's score (Done #170).
+  - Coverage: headline guidance (revenue, EPS, margin) in 24 of 50 releases, none in
+    Energy, banks or Communication Services; any guidance in 40 of 50.
+  - v1's accuracy: presence recall 23/24 with no false alarm; items 69/73 found;
+    values 68/69; adjusted vs GAAP 60/69 is the weak field.
+  - Raised, maintained or lowered is readable in 13 of the 24 releases with headline
+    guidance. Gemini's own revision word is right 22 times out of 27.
+  - Recommendation: go on the fetch; go on extraction only once the owner writes the
+    ground-rule exception. The probe doc lists what that exception would need.
+    Revisions should be computed by code, not taken from the model.
 - **If it holds up:** fetch the press releases for the universe (~25–30k for
   S&P 500 + Nasdaq-100 since 2010; EDGAR allows ~10 requests/s, so hours, not days)
   and extract guidance into a table.
@@ -375,9 +383,11 @@ EDGAR).
   (`docs/ideation/llm_agentic_workflows.md`, "Ground rule"). Extraction would need an
   explicit, documented exception: a frozen prompt version, cached outputs, and accuracy
   measured against the hand-labeled set before any backtest trusts it.
-- **Paid alternatives, not checked yet:** structured guidance datasets exist (LSEG I/B/E/S,
-  FactSet, S&P Capital IQ at institutional prices; Benzinga at retail prices, possibly via
-  Polygon as an add-on). Pricing, history depth and point-in-time quality unverified.
+- **Paid alternatives, checked 2026-10-18** (table in the probe doc): Benzinga via
+  Polygon (now "Massive") is $99/month for individual use and starts in 2011–2012. It
+  covers EPS and revenue only, with timestamps and the previous range on each record.
+  LSEG I/B/E/S (US from 1994) is the reference but institutional. FactSet and S&P
+  Capital IQ are by quote, and Capital IQ is point-in-time only from 2016.
 
 ## Known limits
 
