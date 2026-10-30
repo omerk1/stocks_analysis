@@ -207,7 +207,10 @@ def _vendor_bars(conn, tickers: list[str], source: str, start, end) -> pd.DataFr
             "AND timestamp >= ? AND timestamp <= ?",
             conn, params=[source, *batch, pd.Timestamp(start).isoformat(),
                           (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()]))
-    bars = pd.concat(frames, ignore_index=True)
+    # An empty batch reads back object-typed; under pandas 3 one such piece makes the
+    # concat object-typed too, so the price columns are set to float explicitly.
+    bars = pd.concat(frames, ignore_index=True).astype(
+        {c: "float64" for c in ("open", "high", "low", "close", "volume")})
     bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
     return bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"], ignore_index=True)
 

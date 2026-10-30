@@ -515,3 +515,14 @@ def test_cached_dates_come_back_at_one_resolution_and_keep_their_zone():
     assert str(out["s"].dtype) == str(out["ms"].dtype) == "datetime64[ns]"
     assert str(out["utc"].dtype) == "datetime64[ns, UTC]" and out["x"].dtype == "float64"
     assert out["s"].iloc[0] == out["ms"].iloc[0] == when
+
+
+def test_a_cache_hit_has_the_same_dtypes_as_the_frame_that_was_stored(tmp_path):
+    # Parquet can't store seconds: a seconds column comes back as milliseconds unless
+    # read_cached normalises it, which is what made a hit differ from a computation.
+    when = pd.Timestamp("2020-01-02")
+    snaps = pd.DataFrame({"anchor_date": pd.Series([when]).astype("datetime64[s]"),
+                          "formed": pd.Series([when.tz_localize("UTC")]), "lo": [1.0]})
+    level_cache._write(tmp_path, "avwap", "AAA", "key", snaps)  # as a pre-#167 cache file holds it
+    hit = level_cache.read_cached(tmp_path, "avwap", "AAA", "key")
+    pd.testing.assert_frame_equal(hit, level_cache._ns_dates(snaps))

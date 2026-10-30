@@ -7,16 +7,19 @@
 # installed there before its tests mean anything. The stub lives in a temp dir
 # removed on exit; nothing is written to the repo.
 #
-# Usage: bash scripts/run_tests.sh [pytest args...]   (from the checkout, any cwd)
+# Usage: bash scripts/run_tests.sh [pytest args...]
+# Tests run in this script's own checkout (worktree or main), so test paths are
+# relative to it and its `src` is the code imported, whatever the caller's cwd.
 set -euo pipefail
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-repo_root=$(git -C "$here" worktree list --porcelain | sed -n '1s/^worktree //p')
-python="$repo_root/venv/bin/python"
+checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+main=$(git -C "$checkout" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p' || true)
+python="${main:-$checkout}/venv/bin/python"
 if [[ ! -x "$python" ]]; then
-    echo "no project venv at $repo_root/venv -- create it as in README 'Setup'" >&2
+    echo "no project venv at ${main:-$checkout}/venv -- create it as in README 'Setup'" >&2
     exit 1
 fi
+cd "$checkout"
 
 stub=$(mktemp -d)
 trap 'rm -rf "$stub"' EXIT
