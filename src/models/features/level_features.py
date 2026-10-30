@@ -303,4 +303,4 @@ def ticker_features(
         else clean.index[:0]
     daily = levels.daily_levels(clean, splits, snaps, days, taken, configs)
     out = features(clean, daily, taken, configs).reindex(pd.DatetimeIndex(bars.index))
-    return out.astype("float32", copy=False)  # the registry's contract, whatever features() returns
+    return out.astype("float32")  # the registry's contract, whatever features() returns

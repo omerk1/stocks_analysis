@@ -1,7 +1,7 @@
 """DataFrame-in indicator adapters, shared by sr_lines and the gaps/
 divergences/fibonacci/avwap modules.
 
-These are thin wrappers, not reimplementations -- `src/feature_engineering/`
+These are thin wrappers, not reimplementations -- `src/foundation/feature_engineering/`
 already has tested, talib-backed RSI/MACD/OBV/ATR (Series-in/Series-out).
 Duplicating that logic here under a second name/signature would be exactly
 the kind of drift risk this project has caught and fixed elsewhere (one

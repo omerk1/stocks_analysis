@@ -32,8 +32,8 @@ Read-only by construction, not just convention: both DB connections are
 opened in SQLite's own `mode=ro` URI mode, so a write would fail at the
 sqlite3 layer even if this script tried one. It never imports
 `gaps.store`/`gaps.detect`, never creates a table, never touches
-`src/gaps/*`'s own schema. `fill_by` is NOT a column on the `gaps` table
-(confirmed by reading `src/gaps/store.py`'s actual `_GAPS_SCHEMA` before
+`src/signals/gaps/*`'s own schema. `fill_by` is NOT a column on the `gaps` table
+(confirmed by reading `src/signals/gaps/store.py`'s actual `_GAPS_SCHEMA` before
 writing this -- only `GapConfig`/`runs.config_json` carry it), so it's
 recovered here via a join against `runs.config_json`.
 """
@@ -100,7 +100,7 @@ def reconstruct_fill_series(bars: pd.DataFrame, gap: pd.Series) -> pd.DataFrame 
     fully closed, `cummax_pct` can never move again (it's a running max
     saturated at its own ceiling), so every bar walked past that point
     would just repeat the same 100.0 forever. This mirrors `_walk`'s own
-    `n_approaches` bounding logic in `src/gaps/lifecycle.py` ("once cummax
+    `n_approaches` bounding logic in `src/signals/gaps/lifecycle.py` ("once cummax
     first reaches 100%, the gap is fully closed and done" -- confirmed
     there against real data, where *not* bounding this way let a real
     AAPL gap keep accumulating unrelated activity for two more years).

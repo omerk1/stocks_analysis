@@ -122,6 +122,9 @@ DETECTORS = [
                "from the same anchors as anchored VWAP", "src.signals.volume_profile.detect:detect"),
     Capability("detector:ma.first_touch", "detector", "first touch of a moving average after price has been away "
                "from it (SMA or EMA, 20/50/150/200)", "src.signals.moving_averages.features.touch:touch_events"),
+    Capability("detector:base_breakout.retest", "detector", "decisive breakout above the multiply-touched "
+               "ceiling of a long flat base (length and depth bounded), a rally away, then a retest of the "
+               "breakout level from above that holds (long side only)", "src.signals.base_breakout.detect:detect"),
     Capability("detector:ma.crossover", "detector", "a fast moving average crossing a slow one (golden or death cross)",
                "src.signals.moving_averages.features.crossover:crossover_events"),
 ]
@@ -150,6 +153,49 @@ NOT_USER_FACING_INDICATORS = {
     "percentile_rank": "a normalisation (the spec's `percentile`), not an indicator",
     "scale_consistent": "a sanity check on two prices' scale",
 }
+
+def _level_features() -> dict[str, str]:
+    """The price-level features (`src/models/features/level_features.py`), one line per
+    column, worded per family; the conventions they share are in `_NOTES["feature"]`."""
+    sources = {"sr_line": "support/resistance line", "avwap": "anchored VWAP",
+               "vp": "volume-profile level", "gap": "open (not fully filled) price gap",
+               "ma": "SMA 20, 50 or 200", "round": "round-number price"}
+    above, below = "above the close", "below the close"
+    items = {}
+    for source, name in sources.items():
+        items[f"near_up_{source}"] = f"distance to the nearest {name} {above}"
+        items[f"near_dn_{source}"] = f"distance to the nearest {name} {below}"
+    items["near_up_hi52"] = "distance up to the 52-week high"
+    items["near_dn_lo52"] = "distance down to the 52-week low"
+    for source in ("sr_line", "avwap", "vp", "gap"):
+        items[f"near_up_w_{source}"] = f"weight of the nearest {sources[source]} {above}"
+        items[f"near_dn_w_{source}"] = f"weight of the nearest {sources[source]} {below}"
+    for tag, theta in (("0p5", "0.5"), ("1p5", "1.5")):
+        items[f"clear_up_{tag}"] = f"distance up to where the levels above add up to weight {theta}"
+        items[f"clear_dn_{tag}"] = f"distance down to where the levels below add up to weight {theta}"
+    for h in (1, 2, 3, 5, 7):
+        items[f"density_up_{h}"] = f"total level weight within {h} ATR {above}"
+        items[f"density_dn_{h}"] = f"total level weight within {h} ATR {below}"
+    items["lrp_dir"] = ("room to run up vs down: log of (clear_up_1p5 + 0.25) / (clear_dn_1p5 + 0.25); "
+                        "positive means resistance is farther than support")
+    for h in (2, 3):
+        items[f"lrp_pressure_{h}"] = f"support weight minus resistance weight within {h} ATR"
+    for side, where in (("up", "above"), ("dn", "below")):
+        items[f"confluence_{side}"] = (f"weight of the heaviest 0.5-ATR-wide cluster of levels from two or "
+                                       f"more sources within 5 ATR {where} (0 if none)")
+        items[f"confluence_{side}_dist"] = f"distance to that cluster {where} (blank if none)"
+    for u in (2, 3, 5, 7):
+        items[f"target_on_wall_{u}"] = (f"weight of the heaviest level within 0.25 ATR of a target {u} ATR "
+                                        f"{above} (0 if none)")
+    for d in (1, 2, 3):
+        items[f"stop_below_floor_{d}"] = (f"1 if a level of weight 0.5 or more sits within 0.5 ATR above a "
+                                          f"stop {d} ATR {below}, else 0")
+    for u in (2, 3, 5, 7):
+        items[f"vp_ease_up_{u}"] = f"share of the latest volume profile's volume from the close to {u} ATR above"
+    for d in (1, 2, 3):
+        items[f"vp_ease_dn_{d}"] = f"share of the latest volume profile's volume from the close to {d} ATR below"
+    return items
+
 
 # The model feature registry's model inputs (`src/models/features/registry.py`).
 _REG = "src.models.features.registry:REGISTRY"
@@ -198,6 +244,7 @@ FEATURES = _entries("feature", "", _REG, {
     "book_to_market": "book-to-market: equity over market cap",
     "share_change_yoy": "change in shares outstanding over the past year (log, split-adjusted): positive is "
                         "dilution, negative is buybacks",
+    **_level_features(),
 })
 
 _CTL = "src.signals.moving_averages.stats.controls"
@@ -247,6 +294,16 @@ _HEADINGS = {
     "metric": "Outcome metrics",
 }
 
+# Printed under a section's heading: conventions a family of entries shares, said once.
+_NOTES = {
+    "feature": (
+        "Price-level features (near_*, clear_*, density_*, lrp_*, confluence_*, target_on_wall_*, "
+        "stop_below_floor_*, vp_ease_*): distances are in ATRs from the close, capped (blank or the cap "
+        "when nothing is there); a level touching the close counts on both sides; a level's weight, "
+        "roughly 0 to 1, says how strong, recent and tested it is."
+    ),
+}
+
 
 def render() -> str:
     """The catalogue as prompt text: the spec's fixed choices, then every entry by kind."""
@@ -270,6 +327,8 @@ def render() -> str:
     ]
     for kind in get_args(Kind):
         lines += ["", f"## {_HEADINGS[kind]}"]
+        if kind in _NOTES:
+            lines.append(_NOTES[kind])
         lines += [f"- {c.id}: {c.description}" for c in CATALOGUE if c.kind == kind]
     return "\n".join(lines) + "\n"
 

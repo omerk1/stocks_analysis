@@ -84,9 +84,19 @@ class BudgetExceeded(RuntimeError):
     """A call was refused before reaching the model. Nothing was spent."""
 
 
+class DailyCapExceeded(BudgetExceeded):
+    """Refused by the daily cap (not the per-call one): the same call fits tomorrow (UTC)."""
+
+
 class ReplyError(RuntimeError):
     """The model replied, but not usably (cut off, blocked, empty, or not the requested
     shape). The tokens were spent and are in the ledger."""
+
+
+class ShapeError(ReplyError):
+    """A complete reply that isn't the requested shape (say, plain text where a JSON
+    object was asked for). At temperature 0 a retry tends to repeat it, unlike a blocked
+    or cut-off reply."""
 
 
 @dataclass(frozen=True)
@@ -207,7 +217,7 @@ class GeminiClient:
         with locked(self.ledger_path):
             used = used_on(self.ledger_path, self._now().date().isoformat())
             if used + worst > b.daily_token_cap:
-                raise BudgetExceeded(
+                raise DailyCapExceeded(
                     f"{used} tokens used today; this call could take {worst} more, "
                     f"over the daily cap of {b.daily_token_cap}")
             try:
@@ -259,7 +269,7 @@ class GeminiClient:
             try:
                 parsed = response_schema.model_validate_json(text)
             except ValidationError as e:
-                raise ReplyError(f"reply doesn't match {response_schema.__name__}: {e}") from e
+                raise ShapeError(f"reply doesn't match {response_schema.__name__}: {e}") from e
         return Reply(text=text, parsed=parsed, usage=usage, finish_reason=finish_reason)
 
     def _record(self, purpose: str, usage: Usage, estimated: bool = False) -> None:

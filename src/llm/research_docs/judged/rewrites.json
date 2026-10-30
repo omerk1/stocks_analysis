@@ -1,0 +1,346 @@
+{
+ "Why does the locked holdout start in 2022 instead of 2017?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Why is the locked holdout period from 2022 onwards, not 2017?",
+   "Reason for locked holdout beginning in 2022 rather than 2017?",
+   "Explanation for the locked holdout's 2022 start date instead of 2017?"
+  ]
+ },
+ "Does weekly and monthly resampling know about market holidays?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Are market holidays accounted for in weekly and monthly resampling?",
+   "Does weekly and monthly resampling consider market holidays?",
+   "Is market holiday information included in weekly and monthly resampling?"
+  ]
+ },
+ "Is the end date in a yfinance download included, like it is with Polygon?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Does yfinance include the end date in its data downloads, similar to Polygon?",
+   "When downloading data from yfinance, is the specified end date inclusive, as it is with Polygon?",
+   "yfinance download end date inclusion vs Polygon"
+  ]
+ },
+ "What came of slope_pctile_21_sma_50?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What were the results of slope_pctile_21_sma_50?",
+   "What was the outcome of slope_pctile_21_sma_50?",
+   "What happened with slope_pctile_21_sma_50?"
+  ]
+ },
+ "Do reclaims of the 50-day average on heavy volume do better than those on light volume?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Does high volume on 50-day average reclaims improve performance?",
+   "Is there a performance difference for 50-day average reclaims based on trading volume?",
+   "Comparing performance of 50-day average reclaims with heavy versus light volume."
+  ]
+ },
+ "Does how far a stock sits above its 52-week low predict longer-horizon returns?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is the proximity of a stock to its 52-week low a predictor of long-term returns?",
+   "Does the distance from a stock's 52-week low correlate with future returns over longer horizons?",
+   "Can a stock's position relative to its 52-week low forecast extended-period returns?"
+  ]
+ },
+ "Does a golden cross of the 50-day over the 200-day average predict returns?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Does a 50-day moving average crossing above a 200-day moving average forecast returns?",
+   "Is a golden cross using the 50-day and 200-day simple moving averages a predictor of future returns?",
+   "What is the predictive power of a 50-day SMA crossing over a 200-day SMA for returns?"
+  ]
+ },
+ "Is the 200-day average special compared with nearby lookbacks like 193 or 207 days?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is the 200-day moving average unique compared to lookbacks such as 193 or 207 days?",
+   "Does the 200-day mean stand out when compared to similar lookback periods like 193 or 207 days?",
+   "Is there anything special about the 200-day simple moving average versus lookbacks like 193 or 207 days?"
+  ]
+ },
+ "What is the difference between a dead result and an inconclusive one?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What distinguishes a dead result from an inconclusive result?",
+   "Dead result vs. inconclusive result",
+   "Compare dead results and inconclusive results"
+  ]
+ },
+ "S/R zones looked like they started later than the peak that created them. What caused it?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Why did S/R zones appear to begin after their generating peak?",
+   "What is the reason for the delayed start of S/R zones relative to their creating peak?",
+   "S/R zones: cause of delayed initiation compared to peak creation?"
+  ]
+ },
+ "Why was the double top detector built before head and shoulders?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What was the rationale for developing the double top pattern recognition system prior to the head and shoulders pattern recognition system?",
+   "Reason for prioritizing double top detector construction over head and shoulders?",
+   "Why was the double top detection algorithm implemented before the head and shoulders detection algorithm?"
+  ]
+ },
+ "In the least resistance path design, what information does each price level carry?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What data is associated with each price point in the least resistance path design?",
+   "Least resistance path design: information per price level?",
+   "What kind of information is contained at each price level within the least resistance path framework?"
+  ]
+ },
+ "Did the moving-average features add anything over the baseline in the first modeling experiment?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Did the MA features improve performance compared to the baseline in the initial modeling experiment?",
+   "What was the incremental value of moving-average features versus the baseline in the first modeling experiment?",
+   "First modeling experiment: moving-average features vs. baseline performance contribution?"
+  ]
+ },
+ "What was the outcome of the divergence-context registered experiment?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What were the results of the divergence-context registered experiment?",
+   "divergence-context registered experiment findings",
+   "divergence-context registered experiment conclusion"
+  ]
+ },
+ "Where does share-count history before 2015 come from?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Source of share count data prior to 2015?",
+   "From what source is pre-2015 share count history derived?",
+   "What is the origin of share-count historical data before 2015?"
+  ]
+ },
+ "Why are the research-doc chunks capped at 384 tokens?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What is the token limit for research-doc chunks?",
+   "Maximum token count for research-doc chunks?",
+   "Research-doc chunk token cap of 384: reason?"
+  ]
+ },
+ "Does the MACD histogram tell us anything the moving-average spread doesn't?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is there unique information in the MACD histogram not present in the moving average spread?",
+   "What distinct insights does the MACD histogram offer beyond the moving average spread?",
+   "Does the MACD histogram provide incremental information compared to the moving-average spread?"
+  ]
+ },
+ "Are stocks trading below all their moving averages, stacked bearishly, worse bets over the next month?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Do stocks with bearishly stacked moving averages underperform in the coming month?",
+   "Is a bearish moving average stack a negative indicator for next month's stock performance?",
+   "What is the predictive power of bearishly stacked moving averages for one-month stock returns?"
+  ]
+ },
+ "Is buying a bounce off the 20-day average a good entry?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is a long entry on a bounce off the 20-day moving average effective?",
+   "Does purchasing a rebound from the 20-day MA provide a profitable entry point?",
+   "What is the efficacy of entering a trade by buying a bounce off the 20-day average?"
+  ]
+ },
+ "dist_pct_sma_200_h21 result?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "dist_pct_sma_200_h21 outcome?",
+   "What was the dist_pct_sma_200_h21 finding?",
+   "dist_pct_sma_200_h21 conclusion?"
+  ]
+ },
+ "What happened with placebo_ema21_h21?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What was the outcome of placebo_ema21_h21?",
+   "Results for placebo_ema21_h21?",
+   "Summary of placebo_ema21_h21 activity?"
+  ]
+ },
+ "Has anyone looked at the 2022+ holdout yet?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Has the 2022+ out-of-sample data been analyzed?",
+   "Any analysis of the 2022+ unseen data?",
+   "Is there any examination of the 2022+ test set?"
+  ]
+ },
+ "Did the moving-average study look at crypto or futures?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Moving average study: crypto or futures?",
+   "Was the moving average study conducted on cryptocurrency or futures contracts?",
+   "Moving average study asset classes: crypto or futures?"
+  ]
+ },
+ "Are stochastic or CCI divergences part of the divergence study?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is stochastic divergence included in the divergence study?",
+   "Does the divergence study incorporate CCI divergences?",
+   "Are stochastic or Commodity Channel Index divergences part of the divergence analysis?"
+  ]
+ },
+ "Should order blocks be added as their own support/resistance source?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Are order blocks a valid source of support and resistance?",
+   "Can order blocks be used as support/resistance levels?",
+   "Should order blocks be considered for support/resistance?"
+  ]
+ },
+ "How strong was the best feature in the wide IC sweep?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What was the maximum feature IC from the wide sweep?",
+   "What was the highest IC value found in the wide feature sweep?",
+   "Best feature information coefficient from wide sweep?"
+  ]
+ },
+ "What did a break-and-retest cell have to pass to count as confirmed?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What criteria confirmed a break-and-retest cell?",
+   "What conditions made a break-and-retest cell confirmed?",
+   "What was the confirmation requirement for a break-and-retest cell?"
+  ]
+ },
+ "Has short interest been tested as a feature?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Has short interest been used as a feature?",
+   "Is short interest a feature in the model?",
+   "Testing of short interest as a feature"
+  ]
+ },
+ "Did we test Ichimoku cloud signals?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Ichimoku cloud signal testing",
+   "Ichimoku cloud backtesting",
+   "Ichimoku cloud signal validation"
+  ]
+ },
+ "how is the one-bar lag applied and where in the code does it happen?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "how is the 1-bar lag implemented and where in the code is it applied?",
+   "where is the one-bar lag logic in the code and how is it used?",
+   "how is the single-bar delay applied and what code implements it?"
+  ]
+ },
+ "what cost assumption do we use when judging whether a signal is tradeable?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "what transaction cost model is used for signal tradability assessment?",
+   "what trading expense assumptions are made when evaluating signal viability?",
+   "how do we account for costs when determining if a signal is actionable?"
+  ]
+ },
+ "did we ever try RSI divergence combined with a trend filter, and what happened?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "RSI divergence plus trend filter backtesting results",
+   "RSI divergence and trend filter strategy performance",
+   "What were the outcomes of using RSI divergence with a trend filter?"
+  ]
+ },
+ "which price basis did we pick (adjusted vs raw) and why?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "adjusted vs raw price basis selection rationale",
+   "what was the justification for choosing the price basis (adjusted versus raw)?",
+   "reasoning behind our price basis choice (adjusted or raw)"
+  ]
+ },
+ "is the order blocks feature done or still in the backlog?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "order blocks feature status",
+   "completion status of order blocks",
+   "has the order blocks feature been implemented"
+  ]
+ },
+ "what's the least resistance path idea and has it been tested?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "what is the least resistance path concept and its testing status?",
+   "least resistance path hypothesis and testing results",
+   "explain the least resistance path theory and any validation efforts"
+  ]
+ },
+ "how does the validation harness split train/test for the combined model?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "combined model validation harness train/test split method",
+   "validation harness splitting methodology for combined model",
+   "what is the train-test split strategy for the combined model's validation harness?"
+  ]
+ },
+ "what are the known data limitations, like delisted tickers or vendor gaps?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "known data limitations",
+   "data gaps and limitations",
+   "data quality issues"
+  ]
+ },
+ "Did we try analyzing retesting interesting areas (gap fills, fibs, etc) and continuation in the original direction?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Did we analyze retesting of significant price levels (such as gap fills, Fibonacci retracements, etc.) and subsequent continuation in the initial trend?",
+   "Was there an analysis of price action retesting key zones (like gap fills, Fibonacci levels) and then continuing in the prior direction?",
+   "Have we investigated the retesting of notable regions (e.g., gap fills, Fibonacci levels) and the continuation of the original trend?"
+  ]
+ },
+ "Do we have any financial data from companies' earning reports?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Do we have any earnings report data?",
+   "Are there any corporate earnings figures available?",
+   "Is there financial information from company reports?"
+  ]
+ },
+ "Do we consider Sharpe value in our model and/or analysis?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is Sharpe ratio a factor in our model or analysis?",
+   "Does our model or analysis take into account the Sharpe metric?",
+   "Are Sharpe values included in the model and/or analysis?"
+  ]
+ },
+ "Do we restrict R/S lines to horizon, their own angles or their width?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Are R/S lines limited by horizon, their angles, or their width?",
+   "What are the constraints on R/S lines regarding horizon, angle, or width?",
+   "Is there a restriction on R/S lines based on horizon, angle, or width?"
+  ]
+ },
+ "What are the history windows and horizons lengths we check in our analysis and modeling?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "What are the lookback periods and forecast durations we examine in our analysis and modeling?",
+   "What are the historical data ranges and prediction timeframes used in our analysis and modeling?",
+   "What are the observation windows and projection lengths considered in our analysis and modeling?"
+  ]
+ },
+ "Do we have any model running yet?": {
+  "prompt": "51d8c47099b41621",
+  "rewrites": [
+   "Is any model currently operational?",
+   "Are there any active models?",
+   "Status of running models?"
+  ]
+ }
+}

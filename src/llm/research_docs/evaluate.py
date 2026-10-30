@@ -54,16 +54,17 @@ were added. Golds are only as complete as the pool, which favours those two sear
 step-7 method that surfaces chunks nobody judged (a re-ranker, deduplication) would score
 a correct unjudged chunk as a miss. So before comparing a new method, judge its top 5's
 unjudged chunks, on both splits, and add the ones that answer (hybrid search: 93 judged,
-12 added; the two re-rankers: 152 judged, 19 added; MMR: 16 judged, 1 added). Nothing records the chunks judged
+12 added; the two re-rankers: 152 judged, 19 added; MMR: 16 judged, 1 added; question splitting, its dev top 10: 35 judged, 3 added; query rewording, its dev top 10: 81 judged, 10 added; a stronger re-ranker and max-score over the rewordings, their dev top 10: 104 judged, 4 added). Nothing records the chunks judged
 "no", and node ids change on every rebuild: a chunk counts as judged if it is a gold or in
 the vector, keyword, hybrid or rerank top 5 for that question, matched by its text. A
 rebuild changes those top 5s too, so before one, save every method's top 5 texts and
-count those as judged afterwards (the 2026-10-14 rebuild: 36 judged, 2 added; the saved
-texts and the rebuilt pool are in `judged/pooling/`).
+count those as judged afterwards (the 2026-10-14 rebuild: 36 judged, 2 added; the
+2026-10-17 rebuild, the dev re-rank top 10: 116 judged, 10 added; the saved texts and the
+rebuilt pools are in `judged/pooling/`).
 
     python -m src.llm.research_docs.evaluate           # run the dev questions against the index
     python -m src.llm.research_docs.evaluate --split test   # the held-out questions, once
-    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr; default vector
+    python -m src.llm.research_docs.evaluate --method hybrid  # or keyword, rerank, mmr, split, rewrite; default vector
     python -m src.llm.research_docs.evaluate --method rerank --reranker BAAI/bge-reranker-base
     python -m src.llm.research_docs.evaluate --check   # every gold still matches a chunk? (no model)
 """
@@ -286,13 +287,23 @@ def main() -> None:
     ap.add_argument("--check", action="store_true", help="only check golds against the chunks (all splits)")
     ap.add_argument("--split", choices=("dev", "test"), default="dev",
                     help="which questions to score (default dev; test is the held-out set)")
-    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr"), default="vector",
-                    help="search to score (default vector; mmr: rerank, then diversify.mmr)")
+    ap.add_argument("--method", choices=("vector", "keyword", "hybrid", "rerank", "mmr", "split", "rewrite"),
+                    default="vector",
+                    help="search to score (default vector; mmr: rerank, then diversify.mmr; "
+                         "split: rerank once per sub-question, split.py, Gemini for questions not in --splits; "
+                         "rewrite: rerank the pool of the question and its rewordings, rewrite.py, Gemini for "
+                         "questions not in rewrite.REWRITES)")
     ap.add_argument("--reranker", default=None,
-                    help="cross-encoder for --method rerank or mmr (default rerank.MODELS[0])")
+                    help="cross-encoder for --method rerank, mmr, split or rewrite (default rerank.MODELS[0])")
+    ap.add_argument("--splits", type=Path, default=None,
+                    help="split cache for --method split (default split.SPLITS)")
     args = ap.parse_args()
-    if args.reranker and args.method not in ("rerank", "mmr"):
-        ap.error("--reranker needs --method rerank or mmr")
+    if args.reranker and args.method not in ("rerank", "mmr", "split", "rewrite"):
+        ap.error("--reranker needs --method rerank, mmr, split or rewrite")
+    if args.splits and args.method != "split":
+        ap.error("--splits needs --method split")
+    if args.method in ("split", "rewrite") and args.split == "test":  # both came after step 7's one test run
+        ap.error(f"--method {args.method} scores the dev split only: the test split is spent")
     questions = load_questions()
     from src.llm.research_docs.chunk import chunk_documents
     from src.llm.research_docs.load import load_documents
@@ -324,14 +335,27 @@ def main() -> None:
         find = keywords.search
     elif args.method == "hybrid":
         find = lambda question, k: hybrid_search(index, keywords, question, k)  # noqa: E731
-    elif args.method in ("rerank", "mmr"):
+    elif args.method in ("rerank", "mmr", "split", "rewrite"):
         from src.llm.research_docs.rerank import DEPTH, MODELS, cross_encoder, rerank_search
         name = args.reranker or MODELS[0]
         score = cross_encoder(name)
         method = f"rerank (hybrid top {DEPTH}, {name})"
-        if args.method == "rerank":
+        if args.method in ("rerank", "split"):
             find = lambda question, k: rerank_search(index, keywords, score, question, k)  # noqa: E731
-        else:
+        if args.method == "split":
+            from src.llm.gemini import GeminiClient
+            from src.llm.research_docs.split import BUDGET, SPLITS, Splitter, split_search
+            splitter = Splitter(lambda: GeminiClient(budget=BUDGET), args.splits or SPLITS)
+            rerank_one = find
+            find = lambda question, k: split_search(rerank_one, splitter, question, k)  # noqa: E731
+            method += ", once per sub-question (split.py), merged round-robin"
+        elif args.method == "rewrite":
+            from src.llm.gemini import GeminiClient
+            from src.llm.research_docs import rewrite
+            rewriter = rewrite.Rewriter(lambda: GeminiClient(budget=rewrite.BUDGET), rewrite.REWRITES)
+            find = lambda question, k: rewrite.pooled_search(index, keywords, score, rewriter, question, k)  # noqa: E731
+            method += f" of the pool of the question and {rewrite.N_REWRITES} rewordings (rewrite.py)"
+        elif args.method == "mmr":
             from src.llm.research_docs.diversify import LAMBDA, mmr_search
             from src.llm.research_docs.index import stored_vectors
             vectors = {nid: v for nid, (_, v) in stored_vectors(index).items()}
