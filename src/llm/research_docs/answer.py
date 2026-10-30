@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import argparse
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 
 from llama_index.core.schema import BaseNode, MetadataMode, NodeWithScore
@@ -170,12 +170,25 @@ def answer(question: str, find: Callable[[str, int], list[NodeWithScore]],
     return Answered(question, reply.parsed, list(sources), check(reply.parsed, len(sources)), reply.usage)
 
 
-def format_answered(a: Answered) -> str:
+def source_lines(sources: Sequence[NodeWithScore], used: Collection[int] = (),
+                 mark: Callable[[BaseNode], str] = lambda node: "",
+                 text: Callable[[str], list[str]] | None = None) -> list[str]:
+    """One line per source, `*` when its number is in `used`, `mark(node)` after its
+    citation and, given `text`, the lines `text(source_text(node))` under it."""
+    lines = []
+    for n, h in enumerate(sources, 1):
+        lines.append(f"  [{n}]{'*' if n in used else ' '} {cite(h.node)}{mark(h.node)}")
+        if text:
+            lines += text(source_text(h.node))
+    return lines
+
+
+def format_answered(a: Answered, mark: Callable[[BaseNode], str] = lambda node: "",
+                    text: Callable[[str], list[str]] | None = None) -> str:
+    """The answer, then its sources (`source_lines`, which has `mark` and `text`)."""
     verdict = "" if a.answer.in_docs else "(not in the docs)\n"
     lines = [verdict + a.answer.answer, "", "Sources:"]
-    used = set(cited(a.answer.answer))
-    for n, h in enumerate(a.sources, 1):
-        lines.append(f"  [{n}]{'*' if n in used else ' '} {cite(h.node)}")
+    lines += source_lines(a.sources, set(cited(a.answer.answer)), mark, text)
     lines.append("  (* cited)")
     lines += [f"CITATION PROBLEM: {p}" for p in a.problems]
     lines.append(f"tokens: {a.usage.prompt_tokens} in, {a.usage.output_tokens} out")

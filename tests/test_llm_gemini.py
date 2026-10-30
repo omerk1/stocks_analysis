@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from src.llm.gemini import (
-    Budget, BudgetExceeded, GeminiClient, ReplyError, ShapeError, read_ledger, summarise, used_on)
+    Budget, BudgetExceeded, DailyCapExceeded, GeminiClient, ReplyError, ShapeError, read_ledger, summarise, used_on)
 
 NOW = datetime(2026, 10, 13, 9, 30, tzinfo=timezone.utc)
 
@@ -89,7 +89,7 @@ def test_daily_cap_checks_the_worst_case(tmp_path):
         + json.dumps({"time": "2026-10-13T08:00:00+00:00", "total_tokens": 500}) + "\n")
     assert used_on(ledger, "2026-10-13") == 500
     client, models = _client(tmp_path, budget=budget, prompt_tokens=100)
-    with pytest.raises(BudgetExceeded, match="daily cap"):  # 500 + 100 + 400 = 1,000 fits; next one doesn't
+    with pytest.raises(DailyCapExceeded, match="daily cap"):  # 500 + 100 + 400 = 1,000 fits; next one doesn't
         client.generate("a", purpose="test")
         client.generate("b", purpose="test")
     assert len(models.generate_calls) == 1
