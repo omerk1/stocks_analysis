@@ -84,6 +84,10 @@ class BudgetExceeded(RuntimeError):
     """A call was refused before reaching the model. Nothing was spent."""
 
 
+class DailyCapExceeded(BudgetExceeded):
+    """Refused by the daily cap (not the per-call one): the same call fits tomorrow (UTC)."""
+
+
 class ReplyError(RuntimeError):
     """The model replied, but not usably (cut off, blocked, empty, or not the requested
     shape). The tokens were spent and are in the ledger."""
@@ -213,7 +217,7 @@ class GeminiClient:
         with locked(self.ledger_path):
             used = used_on(self.ledger_path, self._now().date().isoformat())
             if used + worst > b.daily_token_cap:
-                raise BudgetExceeded(
+                raise DailyCapExceeded(
                     f"{used} tokens used today; this call could take {worst} more, "
                     f"over the daily cap of {b.daily_token_cap}")
             try:
