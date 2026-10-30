@@ -62,11 +62,13 @@ def test_a_lock_on_one_ticker_does_not_fail_the_rest(module, tmp_path, monkeypat
                 derived_db.record_run(derived_conn, module, ticker, "daily", None, "{}", 0, False)
             return success
 
-        def connect_derived(path, *_, **__):
-            # Only the configured derived file is swapped for the short-timeout handle the
-            # lock needs; any other path means bootstrap_cli changed how it connects.
-            assert path == db_path, f"bootstrap_cli opened {path}, not the configured {db_path}"
-            return derived
+        def swap(expected, conn):
+            # Only the configured file is swapped for this test's handle; any other path
+            # means bootstrap_cli changed how it connects.
+            def connect(path, *_, **__):
+                assert path == expected, f"opened {path}, not the configured {expected}"
+                return conn
+            return connect
 
         monkeypatch.setattr(cli, fn_name, run)
         # The real bootstrap_cli runs, so the runs table and the module's own tables are
@@ -74,8 +76,9 @@ def test_a_lock_on_one_ticker_does_not_fail_the_rest(module, tmp_path, monkeypat
         config = SimpleNamespace(data_paths=SimpleNamespace(raw=str(raw_dir), derived=str(derived_dir)))
         monkeypatch.setattr(derived_db, "load_dotenv", lambda *_, **__: None)
         monkeypatch.setattr(derived_db, "load_config", lambda *_, **__: config)
-        monkeypatch.setattr(derived_db.raw_db, "get_connection", lambda *_, **__: raw)
-        monkeypatch.setattr(derived_db, "get_connection", connect_derived)
+        monkeypatch.setattr(derived_db.raw_db, "get_connection",
+                            swap(derived_db.raw_db.default_db_path(raw_dir), raw))
+        monkeypatch.setattr(derived_db, "get_connection", swap(db_path, derived))
         monkeypatch.setattr(sys, "argv", ["cli", "--all", "--timeframe", "daily"])
         cli.main()
 
