@@ -184,7 +184,10 @@ def test_the_vendor_check_reads_bars_exactly_as_the_dataset_reader_does(conn):
         want = dataset.read_bars_bulk(conn, tickers, basis, *window, sources={t: source for t in tickers})
         pd.testing.assert_frame_equal(got, want)
         assert got["close"].dtype == "float64" and str(got["date"].dtype) == "datetime64[ns]"
-    assert not vendor_check._vendor_bars(conn, ["AAA"], "yfinance", basis, *window).empty
+    # The source is the vendor's own, named here independently of VENDOR_SOURCES.
+    own = vendor_check._vendor_bars(conn, ["AAA"], "yfinance", basis, *window)
+    assert not own.empty
+    assert own.attrs["ticker_sources"] == {"AAA": db.YFINANCE_SPLIT_ONLY if basis == "traded" else db.YFINANCE}
 
 
 def test_dollar_volume_ignores_the_future(conn):

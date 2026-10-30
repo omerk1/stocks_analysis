@@ -159,7 +159,7 @@ def read_bars_bulk(
         bars = bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"])
         bars = bars[columns].reset_index(drop=True)
     # An empty batch (or no batch at all) reads back object-typed, and under pandas 3
-    # one such piece makes the whole concat object-typed: prices are set to float here.
+    # one such piece makes the whole concat object-typed: ticker and prices are typed here.
     bars = bars.astype({"ticker": "str", **{c: "float64" for c in ("open", "high", "low", "close", "volume")}})
     bars.attrs["price_basis"] = basis.value
     bars.attrs["price_sources"] = {s: len(g) for s, g in _source_groups(sources).items()}

@@ -13,12 +13,14 @@
 set -euo pipefail
 
 checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-if ! main=$(git -C "$checkout" worktree list --porcelain | sed -n '1s/^worktree //p') || [[ -z "$main" ]]; then
+if ! worktrees=$(git -C "$checkout" worktree list --porcelain) || [[ -z "$worktrees" ]]; then
     echo "can't find the main checkout from $checkout (git worktree list failed); the venv lives there" >&2
     exit 1
 fi
+first=$(printf '%s\n' "$worktrees" | sed '/^$/q')   # the main entry: lines up to the first blank
+main=$(printf '%s\n' "$first" | sed -n 's/^worktree //p')
 venv_home=$main
-if git -C "$checkout" worktree list --porcelain | sed -n '2p' | grep -qx bare; then
+if printf '%s\n' "$first" | grep -qx bare; then
     venv_home=$checkout   # a bare main repo has no working tree to hold the venv
 fi
 python="$venv_home/venv/bin/python"
