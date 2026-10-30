@@ -140,11 +140,18 @@ def fetch_one(edgar: Edgar, accession: str, index_url: str, root: Path) -> dict:
     return manifest
 
 
-def own_text(cell) -> str:
-    """A table cell's own text. html.parser nests an unclosed <td> inside the one before
-    it (old EDGAR HTML often leaves out </td>), so a cell's full text would also hold
-    every cell after it; only strings whose nearest cell is this one count."""
-    return "".join(s for s in cell.find_all(string=True) if s.find_parent(["td", "th"]) is cell)
+def close_unclosed(soup: BeautifulSoup) -> None:
+    """Undo html.parser's nesting of unclosed table tags. Old EDGAR HTML often leaves out
+    </td> and </tr>, and html.parser then nests each row inside the row before it and
+    each cell inside the cell before it, where a browser would close them. Each such
+    row or cell is moved out to follow the one it was nested in, in document order,
+    so a deeper one follows its new place in turn. A nested table is not this: its rows
+    have their own table between them and the outer row."""
+    for tag, bounds in (("tr", ["tr", "table"]), (["td", "th"], ["td", "th", "tr", "table"])):
+        for node in soup.find_all(tag):
+            holder = node.find_parent(bounds)
+            if holder is not None and holder.name in (["tr"] if tag == "tr" else ["td", "th"]):
+                holder.insert_after(node.extract())
 
 
 def release_text(raw: bytes) -> str:
@@ -159,6 +166,7 @@ def release_text(raw: bytes) -> str:
         text = raw.decode("cp1252", errors="replace")
     if re.search(r"<(html|body|p|div|table)\b", text, re.IGNORECASE):
         soup = BeautifulSoup(text, "html.parser")
+        close_unclosed(soup)
         for tag in soup(["script", "style"]):
             tag.decompose()
         for node in soup.find_all(string=lambda s: isinstance(s, PreformattedString)):
@@ -173,12 +181,10 @@ def release_text(raw: bytes) -> str:
             tag.insert_after("\n")
         for tr in reversed(soup.find_all("tr")):  # inner rows first
             if tr.find("table") is not None:  # a layout row holding a table: one line per cell
-                own = tr.find_parent("table")  # its own cells, even unclosed ones html.parser nests
-                for cell in tr.find_all(["td", "th"]):
-                    if cell.find_parent("table") is own:
-                        cell.insert_before("\n")
+                for cell in tr.find_all(["td", "th"], recursive=False):
+                    cell.insert_before("\n")
                 continue
-            cells = [re.sub(r"\s+", " ", own_text(c)).strip() for c in tr.find_all(["td", "th"])]
+            cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")
         text = soup.get_text("")
     lines = (re.sub(r"[ \t ​]+", " ", line).strip() for line in text.splitlines())

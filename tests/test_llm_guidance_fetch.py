@@ -60,6 +60,10 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(unclosed).splitlines() == ["Revenue", "$9.5B", "", "EPS | 2.1"]
     data_row = b"<table><tr><td>Revenue<td>$9.5B<td>$9.7B</tr><tr><td>EPS<td>2.1</table>"
     assert fetch.release_text(data_row).splitlines() == ["Revenue | $9.5B | $9.7B", "", "EPS | 2.1"]
+    no_tr_end = b"<table><tr><td>A</td><td>B</td><tr><td>C</td><td>D</td></table>"  # no row lost
+    assert fetch.release_text(no_tr_end).splitlines() == ["A | B", "", "C | D"]
+    no_ends = b"<table><tr><td>Revenue<td>$9.5B<tr><td>EPS<td>2.1<tr><td>Margin<td>40%</table>"  # rows apart
+    assert fetch.release_text(no_ends).splitlines() == ["Revenue | $9.5B", "", "EPS | 2.1", "", "Margin | 40%"]
 
 
 def test_release_text_detects_windows_1252():
