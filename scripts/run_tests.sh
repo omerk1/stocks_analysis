@@ -12,18 +12,19 @@
 # relative to it and its `src` is the code imported, whatever the caller's cwd.
 set -euo pipefail
 
-checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+checkout=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 if ! main=$(git -C "$checkout" worktree list --porcelain | sed -n '1s/^worktree //p') || [[ -z "$main" ]]; then
     echo "can't find the main checkout from $checkout (git worktree list failed); the venv lives there" >&2
     exit 1
 fi
 python="$main/venv/bin/python"
+[[ -x "$python" ]] || python="$checkout/venv/bin/python"   # a bare main repo holds no venv
 if [[ ! -x "$python" ]]; then
     echo "no project venv at $main/venv -- create it as in README 'Setup'" >&2
     exit 1
 fi
-caller=$(git rev-parse --show-toplevel 2>/dev/null || true)
-if [[ -n "$caller" && "$caller" != "$checkout" ]]; then
+caller=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && pwd -P)
+if [[ "$caller" != "$checkout" && -n "$(git rev-parse --show-toplevel 2>/dev/null)" ]]; then
     echo "note: testing $checkout (this script's checkout), not $caller" >&2
 fi
 cd "$checkout"

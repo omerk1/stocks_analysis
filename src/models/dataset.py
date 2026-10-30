@@ -153,7 +153,9 @@ def read_bars_bulk(
         bars = pd.DataFrame(columns=columns).astype({"date": "datetime64[ns]"})
     else:
         bars = pd.concat(frames, ignore_index=True)
-        bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
+        # pandas 3 infers the unit from the strings (microseconds, or seconds when empty):
+        # one fixed unit, so results on any path compare and merge alike.
+        bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize().dt.as_unit("ns")
         bars = bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"])
         bars = bars[columns].reset_index(drop=True)
     # An empty batch (or no batch at all) reads back object-typed, and under pandas 3

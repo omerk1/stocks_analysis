@@ -167,7 +167,18 @@ def test_an_empty_batch_leaves_the_prices_float(conn):
     assert all(bars[c].dtype == "float64" for c in ("open", "high", "low", "close", "volume"))
     none = dataset.read_bars_bulk(conn, ["NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
                                   sources={"NOPE": db.TIINGO})
-    assert none.empty and none["close"].dtype == "float64"
+    nothing = dataset.read_bars_bulk(conn, [], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31")
+    for frame in (bars, none, nothing):  # one dtype per column whichever path ran
+        assert frame["close"].dtype == "float64" and str(frame["date"].dtype) == "datetime64[ns]"
+    assert none.empty and nothing.empty
+
+
+def test_the_vendor_check_reads_bars_through_the_dataset_reader(conn):
+    # A vendor with no bars for the tickers: still float prices, and no ticker list is fine.
+    from src.models import vendor_check
+    empty = vendor_check._vendor_bars(conn, ["AAA"], dataset.LABEL_BASIS, db.TIINGO, "2019-06-01", "2021-12-31")
+    assert empty.empty and empty["close"].dtype == "float64"
+    assert vendor_check._vendor_bars(conn, [], dataset.LABEL_BASIS, db.TIINGO, "2019-06-01", "2021-12-31").empty
 
 
 def test_dollar_volume_ignores_the_future(conn):
