@@ -166,8 +166,10 @@ def release_text(raw: bytes) -> str:
             tag.insert_after("\n")
         for tr in reversed(soup.find_all("tr")):  # inner rows first
             if tr.find("table") is not None:  # a layout row holding a table: one line per cell
-                for cell in tr.find_all(["td", "th"], recursive=False):
-                    cell.insert_after("\n")
+                own = tr.find_parent("table")  # its own cells, even unclosed ones html.parser nests
+                for cell in tr.find_all(["td", "th"]):
+                    if cell.find_parent("table") is own:
+                        cell.insert_before("\n")
                 continue
             cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")

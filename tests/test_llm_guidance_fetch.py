@@ -55,6 +55,9 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     layout = b"""<html><body><table><tr><td>Revenue</td><td>$9.5B</td><td><table>
     <tr><td>EPS</td><td>2.1</td></tr></table></td></tr></table></body></html>"""
     assert fetch.release_text(layout).splitlines() == ["Revenue", "$9.5B", "", "EPS | 2.1"]  # cells never merge
+    unclosed = b"""<table><tr><td>Revenue<td>$9.5B<td><table><tr><td>EPS</td><td>2.1</td></tr></table></td></tr>
+    </table>"""  # old EDGAR HTML often leaves out </td>
+    assert fetch.release_text(unclosed).splitlines() == ["Revenue", "$9.5B", "", "EPS | 2.1"]
 
 
 def test_release_text_detects_windows_1252():

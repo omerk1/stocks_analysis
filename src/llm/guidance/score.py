@@ -44,7 +44,6 @@ from src.llm.guidance.schema import READABLE_REVISIONS, GuidanceItem, ReleaseLab
 
 GOLD_PATH = PROBE_DIR / "gold.json"
 PRESENCE_PATH = PROBE_DIR / "gold_presence.json"
-FIELDS = ("shape", "values", "basis", "revision")  # `field_agreement`'s keys; unit only through the values' scale
 HEADLINE = ("revenue", "eps", "margin")
 SCALES = {"trillion": 1e12, "billion": 1e9, "million": 1e6, "thousand": 1e3}
 
@@ -98,11 +97,15 @@ def scoped(labels: dict[str, ReleaseLabel | None], release_years: dict[str, int]
     return keep(labels, lambda acc, i: in_scope(i, release_years[acc]))
 
 
+CHECKS = {"shape": lambda g, p: g.shape == p.shape,
+          "values": lambda g, p: same_values(g, p),
+          "basis": lambda g, p: g.basis == p.basis,
+          "revision": lambda g, p: revision_kind(g.revision) == revision_kind(p.revision)}
+FIELDS = tuple(CHECKS)  # the unit is compared only through the values' scale: never adjudicated
+
+
 def field_agreement(g: GuidanceItem, p: GuidanceItem) -> dict[str, bool]:
-    return {"shape": g.shape == p.shape,
-            "values": same_values(g, p),
-            "basis": g.basis == p.basis,
-            "revision": revision_kind(g.revision) == revision_kind(p.revision)}
+    return {f: check(g, p) for f, check in CHECKS.items()}
 
 
 def revision_kind(revision: str) -> str:
@@ -227,8 +230,7 @@ def main(argv: list[str] | None = None) -> None:
     gold_any = json.loads(args.presence.read_text())
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
     pred = scoped(load_extractions(args.extractions), dict(zip(sample["accession"], sample["year"])))
-    require_extractions(gold, pred)
-    require_extractions(gold_any, pred)
+    require_extractions(gold_any, pred)  # score() checks the headline gold itself
     r = score(gold, headline_only(pred))
     rev = revision_by_release(gold)
     r["revision"] |= {"releases_with_guidance": len(rev), "releases_with_a_readable_revision": int(rev.sum())}

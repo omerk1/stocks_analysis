@@ -78,13 +78,15 @@ def test_overrides_are_checked_against_their_question():
     bad = {"Q99": {"accession": "a"},
            ids[("a", "fields")]: {"accession": "b", "items": []},  # renumbered: another release's question
            ids[("b", "other")]: {"accession": "b", "items": []},  # an other question needs 'present'
-           ids[("c", "check")]: {"accession": "c", "winner": "me"}}
+           ids[("c", "check")]: {"accession": "c", "winner": "me"},
+           ids[("b", "only")]: {"accession": "b", "items": [], "winner": "me"}}
     problems = adjudicate.override_problems(qs, bad)
-    assert len(problems) == 5 and any("doesn't exist" in p for p in problems)
+    assert len(problems) == 6 and any("doesn't exist" in p for p in problems)
     assert any("counts only on" in p for p in problems)  # a winner on a check
+    assert any("winner must be one of" in p for p in problems)  # an unknown winner where it counts
 
 
-def test_a_check_override_without_items_keeps_the_agreed_items_and_records_the_winner():
+def test_a_check_override_without_items_keeps_the_agreed_items():
     qs = adjudicate.questions(PAIRS, SAMPLE, n_check=2)
     ids = {(q["accession"], q["kind"]): q["id"] for q in qs}
     ans = answers_for(qs, a_fields="", b_only="no", b_other="no", c_check="fine, wording only", d_check="ok")

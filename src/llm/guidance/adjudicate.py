@@ -26,8 +26,9 @@ guessing it. Anything else is a correction in words, which
 `probe/answer_overrides.json` turns into labels: qid -> {"accession", then "items"
 for a fields or only question, "present" for an other question, and for a check
 "items" (else the agreed items stand), "agrees" (the words confirm the readings) or
-"present"; "winner" (draft / model / split / neither) for the dispute tally; "note"
-for why}. The accession catches renumbered questions; `gold` refuses to build until every question has a usable answer.
+"present"; on a fields or only question only, "winner" (draft / model / split /
+neither) for the dispute tally; "note" for why}. The accession catches renumbered
+questions; `gold` refuses to build until every question has a usable answer.
 
     python -m src.llm.guidance.adjudicate questions   # -> probe/questions.md, probe/questions.json
     python -m src.llm.guidance.adjudicate gold        # -> probe/gold.json, gold_presence.json, gold_meta.json
@@ -52,7 +53,6 @@ DRAFTS_PATH = PROBE_DIR / "drafts.json"
 UNSURE = "?"
 SEED = 20261024
 N_CHECK = 8
-COMPARED = ("shape", "values", "basis", "revision")  # unit is compared through the values' scale
 QUESTIONS_MD = PROBE_DIR / "questions.md"
 QUESTIONS_JSON = PROBE_DIR / "questions.json"
 OVERRIDES_PATH = PROBE_DIR / "answer_overrides.json"
@@ -78,8 +78,9 @@ def readings(drafts: dict[str, dict], extractions: dict[str, ReleaseLabel | None
 
 
 def differing(g: GuidanceItem, p: GuidanceItem) -> list[str]:
-    agree = score.field_agreement(g, p)
-    return [f for f in COMPARED if not agree[f]]
+    """The fields the scorer compares on which two items disagree (unit only through the
+    values' scale)."""
+    return [f for f, ok in score.field_agreement(g, p).items() if not ok]
 
 
 def questions(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], sample: pd.DataFrame,
@@ -299,8 +300,9 @@ WINNERS = {"draft", "model", "split", "neither"}
 
 def override_problems(qs: list[dict], overrides: dict[str, dict]) -> list[str]:
     """What's wrong with the overrides: an unknown qid, a release that isn't the
-    question's (the questions were renumbered since), a missing key for its kind, an
-    unknown winner. Each override names its question's accession for that check."""
+    question's (the questions were renumbered since), a missing key for its kind, a
+    winner on a kind the tally doesn't count (check, other) or an unknown winner. Each
+    override names its question's accession for that check."""
     by_id, problems = {q["id"]: q for q in qs}, []
     for qid, ov in overrides.items():
         q = by_id.get(qid)
@@ -408,6 +410,9 @@ def load_inputs(frozen: bool) -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabe
     if frozen:
         model = {a: (ReleaseLabel.model_validate(v) if v is not None else None)
                  for a, v in json.loads(READINGS_PATH.read_text()).items()}
+        if set(model) != set(drafts):  # a release missing here would read as "no items", silently
+            raise ValueError(f"{READINGS_PATH.name} doesn't cover the drafted releases: "
+                             f"{sorted(set(model) ^ set(drafts))[:5]}")
     else:
         model = load_extractions(EXTRACTIONS_DIR)
     return sample, readings(drafts, model, sample)
@@ -418,8 +423,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("step", choices=["questions", "gold"])
     args = parser.parse_args(argv)
     if args.step == "questions":
-        if QUESTIONS_MD.exists() and any(parse_answers(QUESTIONS_MD.read_text()).values()):
-            raise SystemExit(f"{QUESTIONS_MD} already has answers; not overwriting it")
+        made = [p.name for p in (QUESTIONS_JSON, READINGS_PATH, OVERRIDES_PATH) if p.exists()]
+        if made:  # answers, written or not yet, belong to these questions and these readings
+            raise SystemExit(f"questions already built ({', '.join(made)} exist); to start over, "
+                             "remove them deliberately first")
         READINGS_PATH.write_text(json.dumps(snapshot(load_extractions(EXTRACTIONS_DIR)), indent=1) + "\n")
         sample, pairs = load_inputs(frozen=True)
         qs = questions(pairs, sample)
