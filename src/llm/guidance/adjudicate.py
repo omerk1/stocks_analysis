@@ -400,22 +400,30 @@ def snapshot(extractions: dict[str, ReleaseLabel | None]) -> dict[str, dict | No
     return {a: (lab.model_dump() if lab is not None else None) for a, lab in sorted(extractions.items())}
 
 
-def load_inputs(frozen: bool) -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabel, ReleaseLabel]]]:
-    """The two readings. `frozen`: the model readings the questions were built from
-    (`READINGS_PATH`), not today's cache, so the gold set rebuilds the same whatever
-    happens to the cache later (a reply asked again on changed text, a regenerated
-    cache)."""
+def frozen_model(snap: dict[str, dict | None], drafts: dict[str, dict]) -> dict[str, ReleaseLabel | None]:
+    """The model readings from a snapshot, which must cover exactly the drafted
+    releases: a release missing from it would read as "no items", silently."""
+    if set(snap) != set(drafts):
+        raise ValueError(f"the model readings don't cover the drafted releases: {sorted(set(snap) ^ set(drafts))[:5]}")
+    return {a: (ReleaseLabel.model_validate(v) if v is not None else None) for a, v in snap.items()}
+
+
+def already_built(paths: list[Path], questions_md: Path) -> list[str]:
+    """The files that mean questions exist and may carry answers, typed or written."""
+    made = [p.name for p in paths if p.exists()]
+    if questions_md.exists() and any(parse_answers(questions_md.read_text()).values()):
+        made.append(f"{questions_md.name} (with answers)")
+    return made
+
+
+def load_inputs(snap: dict[str, dict | None]) -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabel, ReleaseLabel]]]:
+    """The two readings, the model's taken from `snap`: the readings the questions were
+    built from (`READINGS_PATH`), never today's cache, so the gold set rebuilds the same
+    whatever happens to the cache later (a reply asked again on changed text, a
+    regenerated cache)."""
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
     drafts = json.loads(DRAFTS_PATH.read_text())
-    if frozen:
-        model = {a: (ReleaseLabel.model_validate(v) if v is not None else None)
-                 for a, v in json.loads(READINGS_PATH.read_text()).items()}
-        if set(model) != set(drafts):  # a release missing here would read as "no items", silently
-            raise ValueError(f"{READINGS_PATH.name} doesn't cover the drafted releases: "
-                             f"{sorted(set(model) ^ set(drafts))[:5]}")
-    else:
-        model = load_extractions(EXTRACTIONS_DIR)
-    return sample, readings(drafts, model, sample)
+    return sample, readings(drafts, frozen_model(snap, drafts), sample)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -423,19 +431,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("step", choices=["questions", "gold"])
     args = parser.parse_args(argv)
     if args.step == "questions":
-        made = [p.name for p in (QUESTIONS_JSON, READINGS_PATH, OVERRIDES_PATH) if p.exists()]
-        if made:  # answers, written or not yet, belong to these questions and these readings
-            raise SystemExit(f"questions already built ({', '.join(made)} exist); to start over, "
-                             "remove them deliberately first")
-        READINGS_PATH.write_text(json.dumps(snapshot(load_extractions(EXTRACTIONS_DIR)), indent=1) + "\n")
-        sample, pairs = load_inputs(frozen=True)
+        made = already_built([QUESTIONS_JSON, READINGS_PATH, OVERRIDES_PATH], QUESTIONS_MD)
+        if made:  # answers, typed or written, belong to these questions and these readings
+            raise SystemExit(f"questions already built ({', '.join(made)}); to start over, remove "
+                             "them deliberately first")
+        snap = snapshot(load_extractions(EXTRACTIONS_DIR))
+        sample, pairs = load_inputs(snap)  # checks the snapshot before anything is written
         qs = questions(pairs, sample)
+        READINGS_PATH.write_text(json.dumps(snap, indent=1) + "\n")
         QUESTIONS_JSON.write_text(json.dumps(qs, indent=1) + "\n")
         QUESTIONS_MD.write_text(render(qs, release_links(sample)) + "\n")
         kinds = pd.Series([q["kind"] for q in qs]).value_counts().to_dict()
         print(f"wrote {len(qs)} questions ({kinds}) over {len({q['accession'] for q in qs})} releases")
         return
-    sample, pairs = load_inputs(frozen=True)
+    sample, pairs = load_inputs(json.loads(READINGS_PATH.read_text()))
     qs = json.loads(QUESTIONS_JSON.read_text())
     overrides = json.loads(OVERRIDES_PATH.read_text()) if OVERRIDES_PATH.exists() else {}
     gold, presence, meta = build_gold(pairs, qs, parse_answers(QUESTIONS_MD.read_text()), overrides)

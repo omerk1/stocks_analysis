@@ -140,6 +140,13 @@ def fetch_one(edgar: Edgar, accession: str, index_url: str, root: Path) -> dict:
     return manifest
 
 
+def own_text(cell) -> str:
+    """A table cell's own text. html.parser nests an unclosed <td> inside the one before
+    it (old EDGAR HTML often leaves out </td>), so a cell's full text would also hold
+    every cell after it; only strings whose nearest cell is this one count."""
+    return "".join(s for s in cell.find_all(string=True) if s.find_parent(["td", "th"]) is cell)
+
+
 def release_text(raw: bytes) -> str:
     """Plain text of a release (HTML or plain-text exhibit). Table rows become one line
     each, cells joined by ' | ', so a guidance table stays readable. Only block-level
@@ -171,7 +178,7 @@ def release_text(raw: bytes) -> str:
                     if cell.find_parent("table") is own:
                         cell.insert_before("\n")
                 continue
-            cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
+            cells = [re.sub(r"\s+", " ", own_text(c)).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")
         text = soup.get_text("")
     lines = (re.sub(r"[ \t ​]+", " ", line).strip() for line in text.splitlines())

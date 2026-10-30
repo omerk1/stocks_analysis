@@ -115,6 +115,25 @@ def test_a_letter_per_row():
     assert (mixed["low"], mixed["basis"], mixed["revision"]) == (2.0, "gaap", "maintained")
 
 
+def test_frozen_readings_must_cover_every_drafted_release():
+    drafts = {"a": {}, "b": {}}
+    snap = adjudicate.snapshot({"a": label(item()), "b": None})
+    assert adjudicate.frozen_model(snap, drafts)["b"] is None
+    with pytest.raises(ValueError, match="don't cover"):
+        adjudicate.frozen_model({"a": snap["a"]}, drafts)  # b would silently read as "no items"
+
+
+def test_questions_are_not_rebuilt_over_existing_ones(tmp_path):
+    md = tmp_path / "questions.md"
+    assert adjudicate.already_built([tmp_path / "questions.json"], md) == []
+    md.write_text("### Q01 · x\n**Answer:** \n")
+    assert adjudicate.already_built([tmp_path / "questions.json"], md) == []  # no answer typed yet
+    md.write_text("### Q01 · x\n**Answer:** A\n")
+    assert adjudicate.already_built([], md) == ["questions.md (with answers)"]
+    (tmp_path / "answer_overrides.json").write_text("{}")
+    assert adjudicate.already_built([tmp_path / "answer_overrides.json"], md)[0] == "answer_overrides.json"
+
+
 def test_snapshot_round_trips():
     snap = adjudicate.snapshot({"b": label(item()), "a": None})
     assert list(snap) == ["a", "b"] and snap["a"] is None

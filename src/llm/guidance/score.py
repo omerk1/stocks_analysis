@@ -98,7 +98,7 @@ def scoped(labels: dict[str, ReleaseLabel | None], release_years: dict[str, int]
 
 
 CHECKS = {"shape": lambda g, p: g.shape == p.shape,
-          "values": lambda g, p: same_values(g, p),
+          "values": same_values,
           "basis": lambda g, p: g.basis == p.basis,
           "revision": lambda g, p: revision_kind(g.revision) == revision_kind(p.revision)}
 FIELDS = tuple(CHECKS)  # the unit is compared only through the values' scale: never adjudicated

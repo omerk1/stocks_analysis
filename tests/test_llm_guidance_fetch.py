@@ -58,6 +58,8 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     unclosed = b"""<table><tr><td>Revenue<td>$9.5B<td><table><tr><td>EPS</td><td>2.1</td></tr></table></td></tr>
     </table>"""  # old EDGAR HTML often leaves out </td>
     assert fetch.release_text(unclosed).splitlines() == ["Revenue", "$9.5B", "", "EPS | 2.1"]
+    data_row = b"<table><tr><td>Revenue<td>$9.5B<td>$9.7B</tr><tr><td>EPS<td>2.1</table>"
+    assert fetch.release_text(data_row).splitlines() == ["Revenue | $9.5B | $9.7B", "", "EPS | 2.1"]
 
 
 def test_release_text_detects_windows_1252():
