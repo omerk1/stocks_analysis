@@ -74,6 +74,8 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(tagged_tail) == "A | B | 2.1"  # a figure in an inline tag kept too
     wrapped_cell = b"<table><tr><td>A<font><td>B</font><td>C</td></tr></table>"
     assert fetch.release_text(wrapped_cell) == "A | B | C"
+    block = b"<table><tr><td>Revenue grew<p>strongly<td>2.1</p></td></tr></table>"  # a block isn't unwrapped
+    assert "Revenue grew" in fetch.release_text(block) and "grewstrongly" not in fetch.release_text(block)
     wrapped_row = b"<table><tr><td>A</td><font><tr><td>B</td></tr></font><tr><td>C</td></tr></table>"
     assert fetch.release_text(wrapped_row).splitlines() == ["A", "", "B", "", "C"]
     wrapped = b"""<table><tr><td>Outlook</td><font><td>Note</td></font><td><table><tr><td>EPS</td><td>2.1</td>

@@ -158,8 +158,8 @@ def close_unclosed(soup: BeautifulSoup) -> None:
             holder = node.find_parent(bounds)
             if holder is None or holder.name not in holders:
                 continue  # not nested, or already moved out with an earlier one
-            while node.parent is not holder and node.parent.name not in ("td", "th"):
-                node.parent.unwrap()  # an inline wrapper; an unclosed cell holding a row stays a cell
+            while node.parent is not holder and node.parent.name not in ("td", "th", *BLOCK_TAGS):
+                node.parent.unwrap()  # an inline wrapper; a cell or a block (its line breaks) stays
             anchor = holder
             for moving in [node, *node.next_siblings]:
                 moving = moving.extract()
