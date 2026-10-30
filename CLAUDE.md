@@ -183,7 +183,7 @@ tests/test_moving_averages_*.py   golden fixtures, look-ahead shift test, hygien
 No Makefile yet — run directly:
 
 ```bash
-pytest tests/test_moving_averages_*.py                     # unit + hygiene + look-ahead tests. Must pass before any analysis is trusted.
+bash scripts/run_tests.sh tests/test_moving_averages_*.py  # unit + hygiene + look-ahead tests, in the project venv. Must pass before any analysis is trusted.
 python -m src.signals.moving_averages.cli build-panel      # rebuild feature panel (slow, cached)
 python -m src.signals.moving_averages.cli validate-synth   # synthetic planted-effect check — see below
 ```

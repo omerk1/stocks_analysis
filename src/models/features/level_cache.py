@@ -190,6 +190,15 @@ def _write(root: Path, source: str, ticker: str, key: str, snaps: pd.DataFrame) 
         tmp.unlink(missing_ok=True)
 
 
+def _ns_dates(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every datetime column at nanosecond resolution. pandas 3 infers a column's
+    unit from its data (seconds here, milliseconds after a parquet round-trip, which
+    can't store seconds), so without this a cache hit and a fresh computation of
+    the same snapshots would differ in dtype."""
+    dated = [c for c in frame.columns if pd.api.types.is_datetime64_any_dtype(frame[c])]
+    return frame.astype({c: "datetime64[ns]" for c in dated}) if dated else frame
+
+
 def cached_snapshots(
     root: Path | None, source: str, ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, dates, config,
     store: bool = False, key: str | None = None,
@@ -204,8 +213,8 @@ def cached_snapshots(
     if root is not None and not store:
         hit = read_cached(root, source, ticker, key)
         if hit is not None:
-            return hit
-    snaps = snap.snapshots(source, bars, splits, dates, config, ticker)
+            return _ns_dates(hit)
+    snaps = _ns_dates(snap.snapshots(source, bars, splits, dates, config, ticker))
     if root is not None and store:
         _write(root, source, ticker, key, snaps)
     return snaps

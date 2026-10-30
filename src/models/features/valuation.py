@@ -168,7 +168,7 @@ def share_changes(rows: pd.DataFrame, shares: pd.DataFrame, splits: dict[str, pd
     right = right.assign(dated_ago=right["target"])
     m = pd.merge_asof(left.sort_values("target"), right.sort_values("target"), on="target", by=["ticker", "source"],
                       direction="nearest", tolerance=pd.Timedelta(days=SHARE_CHANGE_TOLERANCE)).sort_values("row")
-    change = (m["level"] - m["level_ago"]).to_numpy()
+    change = (m["level"] - m["level_ago"]).to_numpy(copy=True)  # written below; pandas 3 views are read-only
     by_ticker = counts.groupby("ticker", sort=False)
     for ticker, at in m.groupby("ticker", sort=False).indices.items():
         if ticker not in splits:

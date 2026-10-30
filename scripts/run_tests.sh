@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# Run pytest with a stub `polygon` package on PYTHONPATH, so test files that
-# import polygon_client (tests/test_models_*.py,
-# tests/test_market_common_price_basis.py) collect in an environment whose
-# installed polygon package lacks RESTClient. The stub lives in a temp dir
-# removed on exit; nothing is written to the repo.
+# Run pytest with the project venv (the one environment the tests are written
+# for; see README "Setup") and a stub `polygon` package first on PYTHONPATH, so
+# no test can construct a real Polygon client and reach the network. The venv
+# lives in the main checkout, so this works the same from any worktree. The stub
+# lives in a temp dir removed on exit; nothing is written to the repo.
 #
 # Usage: bash scripts/run_tests.sh [pytest args...]
 set -euo pipefail
+
+repo_root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
+python="$repo_root/venv/bin/python"
+if [[ ! -x "$python" ]]; then
+    echo "no project venv at $repo_root/venv -- create it as in README 'Setup'" >&2
+    exit 1
+fi
 
 stub=$(mktemp -d)
 trap 'rm -rf "$stub"' EXIT
@@ -21,4 +28,4 @@ class BaseClient:
     pass
 PY
 
-PYTHONPATH="$stub${PYTHONPATH:+:$PYTHONPATH}" python3 -m pytest "$@"
+PYTHONPATH="$stub${PYTHONPATH:+:$PYTHONPATH}" "$python" -m pytest "$@"

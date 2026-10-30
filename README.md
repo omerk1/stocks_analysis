@@ -16,6 +16,11 @@ pip install -r requirements.txt
 cp .env.example .env   # then fill in the keys below
 ```
 
+This venv is the one environment the code and tests are written for; a system or
+Anaconda Python with other package versions (pandas 2, no `llama_index`) fails parts
+of the suite. Run the tests through it with `bash scripts/run_tests.sh [pytest args]`,
+which finds the venv from any worktree.
+
 | Key | Used for | Free tier |
 |---|---|---|
 | `POLYGON_API_KEY` | ticker universe, reference metadata | 5 requests/min |
