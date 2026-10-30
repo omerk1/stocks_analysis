@@ -52,6 +52,9 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     <tr><td>EPS</td><td>$2.10</td></tr><tr><td>Revenue</td><td>$9.5 billion</td></tr></table></td></tr></table>
     </body></html>"""
     assert fetch.release_text(html).splitlines() == ["Outlook", "", "EPS | $2.10", "", "Revenue | $9.5 billion"]
+    layout = b"""<html><body><table><tr><td>Revenue</td><td>$9.5B</td><td><table>
+    <tr><td>EPS</td><td>2.1</td></tr></table></td></tr></table></body></html>"""
+    assert fetch.release_text(layout).splitlines() == ["Revenue", "$9.5B", "", "EPS | 2.1"]  # cells never merge
 
 
 def test_release_text_detects_windows_1252():
@@ -99,17 +102,27 @@ def test_edgar_needs_a_contact():
 
 
 def test_edgar_spaces_requests_and_retries_transient_errors():
-    clock, session = Clock(), FakeSession([200, 200, 503, 403, 200, 404])
+    clock, session = Clock(), FakeSession([200, 200, 503, 429, 200, 404, 403])
     edgar = fetch.Edgar("me me@example.com", session=session, sleep=clock.sleep, clock=clock.now)
     assert session.headers["User-Agent"] == "me me@example.com"
     edgar.get("a")
     edgar.get("b")  # back to back: waits out the interval
     assert clock.sleeps == [pytest.approx(fetch.MIN_INTERVAL)]
-    edgar.get("c")  # 503, then 403 (SEC's rate limit), each paused, then 200
+    edgar.get("c")  # 503, then 429, each paused, then 200
     assert session.urls == ["a", "b", "c", "c", "c"]
     with pytest.raises(RuntimeError):
         edgar.get("d")  # 404 is not retried
     assert session.urls[-1] == "d" and session.urls.count("d") == 1
+    with pytest.raises(RuntimeError, match="403 from EDGAR"):
+        edgar.get("e")  # 403 stops at once: a ~10-minute block no short retry outlasts
+    assert session.urls.count("e") == 1
+
+
+def test_edgar_says_what_kept_failing():
+    clock, session = Clock(), FakeSession([503] * fetch.RETRIES)
+    edgar = fetch.Edgar("me me@example.com", session=session, sleep=clock.sleep, clock=clock.now)
+    with pytest.raises(RuntimeError, match="last: HTTP 503"):
+        edgar.get("a")
 
 
 def test_fetch_one_caches(tmp_path):
@@ -140,3 +153,16 @@ def test_fetch_one_refuses_an_index_it_cannot_read(tmp_path):
         fetch.fetch_one(ErrorPage(), "0000000000-12-000002", INDEX_URL, tmp_path)
     folder = tmp_path / "0000000000-12-000002"
     assert not (folder / "manifest.json").exists() and not (folder / "index.htm").exists()
+
+
+def test_fetch_one_asks_again_for_a_cached_error_page(tmp_path):
+    folder = tmp_path / "0000000000-12-000003"
+    folder.mkdir()
+    (folder / "index.htm").write_bytes(b"<html><body>Request Rate Threshold Exceeded</body></html>")  # an old run's
+
+    class Edgar:
+        def get(self, url):
+            return INDEX if url == INDEX_URL else b"<p>release</p>"
+
+    m = fetch.fetch_one(Edgar(), "0000000000-12-000003", INDEX_URL, tmp_path)
+    assert m["release_file"] == "ex99-1.htm" and (folder / "index.htm").read_bytes() == INDEX

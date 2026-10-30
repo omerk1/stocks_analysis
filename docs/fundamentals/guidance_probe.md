@@ -127,9 +127,10 @@ is outside the agreed scope.
 changed the text of one release, Newell Brands (slot 46). Its slide appendix no longer
 reads as "X | X". v1 was rerun on that text, one call. The new reply differs: net-sales
 growth is now filed as "other", not revenue, and an EPS-growth item appears twice. The
-gold set stands as adjudicated (`probe/question_readings.json` records which replies
-the questions were built from, and a rebuild refuses while one has changed), and the
-score is against the new reply. So the same frozen prompt, at temperature 0, gave a
+gold set stands as adjudicated, and the score is against the new reply.
+`probe/question_readings.json` freezes the model readings the questions were built
+from, Newell's old reply included. The gold set is rebuilt from that file, not from
+today's cache, and it rebuilds byte for byte. So the same frozen prompt, at temperature 0, gave a
 different answer when only the table formatting changed. The text conversion is part
 of what has to be frozen.
 

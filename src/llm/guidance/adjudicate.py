@@ -58,7 +58,7 @@ QUESTIONS_JSON = PROBE_DIR / "questions.json"
 OVERRIDES_PATH = PROBE_DIR / "answer_overrides.json"
 PRESENCE_PATH = score.PRESENCE_PATH
 META_PATH = PROBE_DIR / "gold_meta.json"
-READINGS_PATH = PROBE_DIR / "question_readings.json"  # which cached replies the questions were built from
+READINGS_PATH = PROBE_DIR / "question_readings.json"  # the model readings the questions were built from
 
 ACCEPT = {"fields": {"a", "b"}, "only": {"yes", "no"}, "other": {"yes", "no"},
           "check": {"ok", "yes", "none found"}}
@@ -312,7 +312,9 @@ def override_problems(qs: list[dict], overrides: dict[str, dict]) -> list[str]:
         problems += [f"{qid}: a {q['kind']} override needs '{k}'" for k in NEEDS[q["kind"]] if k not in ov]
         if q["kind"] == "check" and not ({"items", "agrees", "present"} & set(ov)):
             problems.append(f"{qid}: a check override needs 'items', 'agrees' or 'present'")
-        if ov.get("winner", "neither") not in WINNERS:
+        if "winner" in ov and q["kind"] not in ("fields", "only"):
+            problems.append(f"{qid}: 'winner' counts only on a fields or only question (the dispute tally)")
+        elif ov.get("winner", "neither") not in WINNERS:
             problems.append(f"{qid}: winner must be one of {sorted(WINNERS)}")
     return problems
 
@@ -391,44 +393,42 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
     return gold, presence, meta
 
 
-def reading_hashes(out_dir: Path = EXTRACTIONS_DIR) -> dict[str, str]:
-    """accession -> the hash of the text each cached reply read: which model readings
-    the questions were built from."""
-    return {r["accession"]: r["text_sha256"]
-            for r in (json.loads(p.read_text()) for p in sorted(out_dir.glob("*.json")))}
+def snapshot(extractions: dict[str, ReleaseLabel | None]) -> dict[str, dict | None]:
+    """The model readings as JSON, to freeze next to the questions built from them."""
+    return {a: (lab.model_dump() if lab is not None else None) for a, lab in sorted(extractions.items())}
 
 
-def changed_readings(recorded: dict[str, str], current: dict[str, str]) -> list[str]:
-    """Releases whose reply is not the one the questions were built from: the gold set
-    can't be rebuilt for them without asking again."""
-    return sorted(a for a in recorded.keys() | current.keys() if recorded.get(a) != current.get(a))
-
-
-def load_inputs() -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabel, ReleaseLabel]]]:
+def load_inputs(frozen: bool) -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabel, ReleaseLabel]]]:
+    """The two readings. `frozen`: the model readings the questions were built from
+    (`READINGS_PATH`), not today's cache, so the gold set rebuilds the same whatever
+    happens to the cache later (a reply asked again on changed text, a regenerated
+    cache)."""
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
     drafts = json.loads(DRAFTS_PATH.read_text())
-    return sample, readings(drafts, load_extractions(EXTRACTIONS_DIR), sample)
+    if frozen:
+        model = {a: (ReleaseLabel.model_validate(v) if v is not None else None)
+                 for a, v in json.loads(READINGS_PATH.read_text()).items()}
+    else:
+        model = load_extractions(EXTRACTIONS_DIR)
+    return sample, readings(drafts, model, sample)
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.llm.guidance.adjudicate")
     parser.add_argument("step", choices=["questions", "gold"])
     args = parser.parse_args(argv)
-    sample, pairs = load_inputs()
     if args.step == "questions":
         if QUESTIONS_MD.exists() and any(parse_answers(QUESTIONS_MD.read_text()).values()):
             raise SystemExit(f"{QUESTIONS_MD} already has answers; not overwriting it")
+        READINGS_PATH.write_text(json.dumps(snapshot(load_extractions(EXTRACTIONS_DIR)), indent=1) + "\n")
+        sample, pairs = load_inputs(frozen=True)
         qs = questions(pairs, sample)
         QUESTIONS_JSON.write_text(json.dumps(qs, indent=1) + "\n")
-        READINGS_PATH.write_text(json.dumps(reading_hashes(), indent=1) + "\n")
         QUESTIONS_MD.write_text(render(qs, release_links(sample)) + "\n")
         kinds = pd.Series([q["kind"] for q in qs]).value_counts().to_dict()
         print(f"wrote {len(qs)} questions ({kinds}) over {len({q['accession'] for q in qs})} releases")
         return
-    changed = changed_readings(json.loads(READINGS_PATH.read_text()), reading_hashes())
-    if changed:
-        raise SystemExit(f"the model's reply changed since the questions were built for {changed}; "
-                         "the committed gold set stands, and rebuilding it needs those releases asked again")
+    sample, pairs = load_inputs(frozen=True)
     qs = json.loads(QUESTIONS_JSON.read_text())
     overrides = json.loads(OVERRIDES_PATH.read_text()) if OVERRIDES_PATH.exists() else {}
     gold, presence, meta = build_gold(pairs, qs, parse_answers(QUESTIONS_MD.read_text()), overrides)

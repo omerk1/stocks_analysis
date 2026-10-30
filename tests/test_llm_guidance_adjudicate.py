@@ -81,6 +81,7 @@ def test_overrides_are_checked_against_their_question():
            ids[("c", "check")]: {"accession": "c", "winner": "me"}}
     problems = adjudicate.override_problems(qs, bad)
     assert len(problems) == 5 and any("doesn't exist" in p for p in problems)
+    assert any("counts only on" in p for p in problems)  # a winner on a check
 
 
 def test_a_check_override_without_items_keeps_the_agreed_items_and_records_the_winner():
@@ -112,9 +113,10 @@ def test_a_letter_per_row():
     assert (mixed["low"], mixed["basis"], mixed["revision"]) == (2.0, "gaap", "maintained")
 
 
-def test_changed_readings():
-    assert adjudicate.changed_readings({"a": "1", "b": "2"}, {"a": "1", "b": "3", "c": "4"}) == ["b", "c"]
-    assert adjudicate.changed_readings({"a": "1"}, {"a": "1"}) == []
+def test_snapshot_round_trips():
+    snap = adjudicate.snapshot({"b": label(item()), "a": None})
+    assert list(snap) == ["a", "b"] and snap["a"] is None
+    assert ReleaseLabel.model_validate(snap["b"]) == label(item())
 
 
 def test_numbers_are_exact():

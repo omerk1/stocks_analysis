@@ -44,7 +44,7 @@ from src.llm.guidance.schema import READABLE_REVISIONS, GuidanceItem, ReleaseLab
 
 GOLD_PATH = PROBE_DIR / "gold.json"
 PRESENCE_PATH = PROBE_DIR / "gold_presence.json"
-FIELDS = ("shape", "values", "basis", "revision")  # unit only through the values' scale: never adjudicated
+FIELDS = ("shape", "values", "basis", "revision")  # `field_agreement`'s keys; unit only through the values' scale
 HEADLINE = ("revenue", "eps", "margin")
 SCALES = {"trillion": 1e12, "billion": 1e9, "million": 1e6, "thousand": 1e3}
 
@@ -101,7 +101,6 @@ def scoped(labels: dict[str, ReleaseLabel | None], release_years: dict[str, int]
 def field_agreement(g: GuidanceItem, p: GuidanceItem) -> dict[str, bool]:
     return {"shape": g.shape == p.shape,
             "values": same_values(g, p),
-            "unit": g.unit.strip().lower() == p.unit.strip().lower(),
             "basis": g.basis == p.basis,
             "revision": revision_kind(g.revision) == revision_kind(p.revision)}
 
@@ -179,9 +178,8 @@ def score(gold: dict[str, ReleaseLabel], pred: dict[str, ReleaseLabel | None]) -
         pairs = match_items(g.items, p_items)
         n_matched += len(pairs)
         for i, j in pairs:
-            ok = field_agreement(g.items[i], p_items[j])
-            for f in FIELDS:
-                agree[f] += ok[f]
+            for f, ok in field_agreement(g.items[i], p_items[j]).items():
+                agree[f] += ok
         by_gold = dict(pairs)
         for i, item in enumerate(g.items):
             if item.revision in READABLE_REVISIONS:
@@ -229,8 +227,9 @@ def main(argv: list[str] | None = None) -> None:
     gold_any = json.loads(args.presence.read_text())
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
     pred = scoped(load_extractions(args.extractions), dict(zip(sample["accession"], sample["year"])))
-    r = score(gold, headline_only(pred))
+    require_extractions(gold, pred)
     require_extractions(gold_any, pred)
+    r = score(gold, headline_only(pred))
     rev = revision_by_release(gold)
     r["revision"] |= {"releases_with_guidance": len(rev), "releases_with_a_readable_revision": int(rev.sum())}
     views = {"headline": (r, coverage({a: g.guidance_present for a, g in gold.items()}, sample)),
