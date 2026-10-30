@@ -61,7 +61,7 @@ here first.
 
 ## sr_lines
 
-- **sr_lines, still open** (grouped since they're all part of the same ongoing review — full detail in `docs/sr_lines_design_notes.md`):
+- **sr_lines, still open** (grouped since they're all part of the same ongoing review — full detail in `docs/features/sr_lines_design_notes.md`):
   - `in_play_gate` is only *partly* fixed. `regime_start` (Done #22/#24/#25) fixed averaging over a line's entire history; still not fixed: it's one flat average *within* the current regime, so it can't tell "scattered near-misses" from "one solid contiguous block of disconnection." Likely needs a max-contiguous-out-of-play penalty, not a different average.
   - Milestones 6 (`as_of` test coverage) and 7 (systematic weight-tuning pass) still ahead. Carried-forward calibration questions: `resilience`'s cap can still be hit by enough recent events; wick-fake vs. body-fake resilience credit may be inverted from real-world evidence-strength (as of Done #35, whether `BODY_TOUCH` should also earn resilience credit is the same open question, now with a third type in the mix); why `--dedup-threshold` affects diagonal clutter much less than horizontal.
   - **Weekly-bar mechanism shipped (Done #30), calibration still open**: the three original bar-count-denominated config knobs (`fakeout_reclaim_bars=1`, `touch_reaction_window_bars=2`, `diagonal_min_pivot_separation_bars=4`) — plus, as of Done #35, `max_diagonal_slope_atr_per_bar=1.75` for the same reason — are a first-pass starting point, not yet validated against real weekly charts.

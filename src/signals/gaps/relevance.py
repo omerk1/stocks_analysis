@@ -149,13 +149,6 @@ def gap_states(
     return out.sort_values(["date", "created_at"], kind="stable").reset_index(drop=True)
 
 
-def gaps_as_of(
-    bars: pd.DataFrame, gaps: list[Gap], as_of, config: GapConfig, include_closed: bool = False,
-) -> pd.DataFrame:
-    """`gap_states` for a single date."""
-    return gap_states(bars, gaps, [as_of], config, include_closed=include_closed)
-
-
 def apply_snapshot_relevance(bars: pd.DataFrame, gaps: list[Gap], config: GapConfig) -> list[Gap]:
     """Sets `distance_x`/`in_reach` on each gap against the frame's last
     close -- the stored snapshot's view, alongside its status/fill."""
