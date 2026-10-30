@@ -9,6 +9,7 @@ locked") until it rolls back -- one collision used to fail the rest of the run.
 import importlib
 import sqlite3
 import sys
+from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
@@ -34,11 +35,15 @@ def test_a_lock_on_one_ticker_does_not_fail_the_rest(module, tmp_path, monkeypat
     fn_name, success = CLIS[module]
 
     raw = sqlite3.connect(":memory:")
-    raw.execute("CREATE TABLE bars_1d (ticker TEXT, source TEXT)")
-    raw.executemany("INSERT INTO bars_1d VALUES (?, ?)",
+    derived_db.raw_db.create_tables(raw)   # the real raw schema, not a stub table
+    raw.executemany("INSERT INTO bars_1d (ticker, timestamp, source) VALUES (?, '2020-01-02', ?)",
                     [(t, source_for(MODULE_PRICE_BASIS[module])) for t in ("AAA", "BBB")])
 
-    db_path = tmp_path / "derived.sqlite"
+    # The config points into tmp_path too, so even if a redirect below stopped applying
+    # (bootstrap_cli changed how it connects), nothing could reach the real databases.
+    raw_dir, derived_dir = tmp_path / "raw", tmp_path / "derived"
+    db_path = derived_db.default_derived_db_path(derived_dir)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     derived = sqlite3.connect(db_path, timeout=0.1)
     derived.execute("PRAGMA journal_mode=WAL")
     derived_db.create_runs_table(derived)
@@ -59,15 +64,23 @@ def test_a_lock_on_one_ticker_does_not_fail_the_rest(module, tmp_path, monkeypat
     monkeypatch.setattr(cli, fn_name, run)
 
     # The real bootstrap_cli runs (so the module's own tables exist exactly as in
-    # production); only where it connects is redirected to this test's databases.
-    config = SimpleNamespace(data_paths=SimpleNamespace(raw=str(tmp_path), derived=str(tmp_path)))
+    # production); only the connections it opens are swapped for this test's handles
+    # (the in-memory raw stub, and the short-timeout derived connection the lock needs).
+    config = SimpleNamespace(data_paths=SimpleNamespace(raw=str(raw_dir), derived=str(derived_dir)))
     monkeypatch.setattr(derived_db, "load_dotenv", lambda *_, **__: None)
     monkeypatch.setattr(derived_db, "load_config", lambda *_, **__: config)
     monkeypatch.setattr(derived_db.raw_db, "get_connection", lambda *_, **__: raw)
     monkeypatch.setattr(derived_db, "get_connection", lambda *_, **__: derived)
     monkeypatch.setattr(sys, "argv", ["cli", "--all", "--timeframe", "daily"])
-    cli.main()
-
-    check = sqlite3.connect(db_path)
-    tickers = {r[0] for r in check.execute("SELECT ticker FROM runs WHERE module = ?", (module,))}
+    try:
+        cli.main()
+        with closing(sqlite3.connect(db_path)) as check:
+            tickers = {r[0] for r in check.execute("SELECT ticker FROM runs WHERE module = ?", (module,))}
+            tables = {r[0] for r in check.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    finally:
+        for conn in (raw, derived, other):
+            conn.close()
     assert tickers == {"BBB"}
+    assert tables - {"runs"}, "the module's own result table was never created"
+    if module == "divergences":   # the table its --all run reads at startup (#196)
+        assert "divergences" in tables
