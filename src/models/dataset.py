@@ -150,12 +150,17 @@ def read_bars_bulk(
                         (pd.Timestamp(end) + pd.Timedelta(hours=23, minutes=59)).isoformat()],
             ))
     if not frames:
-        bars = pd.DataFrame(columns=columns)
+        bars = pd.DataFrame(columns=columns).astype({"date": "datetime64[ns]"})
     else:
         bars = pd.concat(frames, ignore_index=True)
-        bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize()
+        # pandas 3 infers the unit from the strings (microseconds, or seconds when empty):
+        # one fixed unit, so results on any path compare and merge alike.
+        bars["date"] = pd.to_datetime(bars.pop("timestamp")).dt.normalize().dt.as_unit("ns")
         bars = bars.drop_duplicates(["ticker", "date"], keep="last").sort_values(["ticker", "date"])
         bars = bars[columns].reset_index(drop=True)
+    # An empty batch (or no batch at all) reads back object-typed, and under pandas 3
+    # one such piece makes the whole concat object-typed: ticker and prices are typed here.
+    bars = bars.astype({"ticker": "str", **{c: "float64" for c in ("open", "high", "low", "close", "volume")}})
     bars.attrs["price_basis"] = basis.value
     bars.attrs["price_sources"] = {s: len(g) for s, g in _source_groups(sources).items()}
     bars.attrs["ticker_sources"] = sources

@@ -151,6 +151,19 @@ def snapshot_path(root: Path, source: str, ticker: str) -> Path:
     return Path(root) / source / f"{ticker}.parquet"
 
 
+def _ns_dates(frame: pd.DataFrame) -> pd.DataFrame:
+    """Every datetime column at nanosecond resolution (a time zone, if any, kept).
+    pandas 3 infers a column's unit from its data (seconds for these snapshots,
+    milliseconds after a parquet round-trip, which can't store seconds), so without
+    this a cache hit and a fresh computation of the same snapshots differ in dtype."""
+    targets = {}
+    for c in frame.columns:
+        if pd.api.types.is_datetime64_any_dtype(frame[c]) and frame[c].dt.unit != "ns":
+            tz = frame[c].dt.tz
+            targets[c] = pd.DatetimeTZDtype("ns", tz) if tz is not None else "datetime64[ns]"
+    return frame.astype(targets) if targets else frame
+
+
 def read_cached(root: Path, source: str, ticker: str, key: str) -> pd.DataFrame | None:
     """The stored rows if the file's own fingerprint is `key`; a missing or
     unreadable file is a miss. The fingerprint is in the parquet's metadata and
@@ -162,7 +175,7 @@ def read_cached(root: Path, source: str, ticker: str, key: str) -> pd.DataFrame 
         return None
     if (table.schema.metadata or {}).get(FINGERPRINT_KEY, b"").decode() != key:
         return None
-    return table.to_pandas()
+    return _ns_dates(table.to_pandas())
 
 
 def cached_rows(root: Path, source: str, ticker: str, key: str) -> int | None:
@@ -205,7 +218,7 @@ def cached_snapshots(
         hit = read_cached(root, source, ticker, key)
         if hit is not None:
             return hit
-    snaps = snap.snapshots(source, bars, splits, dates, config, ticker)
+    snaps = _ns_dates(snap.snapshots(source, bars, splits, dates, config, ticker))
     if root is not None and store:
         _write(root, source, ticker, key, snaps)
     return snaps
