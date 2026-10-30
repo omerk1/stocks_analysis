@@ -1,0 +1,28 @@
+{
+ "Q11": {"items": [], "present": false, "agrees": true,
+  "note": "Answer: guidance-related language is present, but no financial guidance. Same as 'none found'."},
+ "Q15": {"present": true,
+  "note": "Answer: yes; two qualifying forecasts, leverage below 1.0x by year-end 2021 and Williston Basin free cash flow of nearly $700 million in 2021."},
+ "Q19": {"present": true,
+  "note": "Answer: yes; three qualifying outlook statements, excluding the synergy targets."},
+ "Q36": {"items": [
+   {"metric": "eps", "metric_text": "NAREIT FFO per diluted share", "period": "year", "period_text": "Full Year 2018", "shape": "range", "low": 1.6, "high": 1.7, "unit": "USD per share", "basis": "adjusted", "revision": "initiated", "evidence": "NAREIT FFO per diluted share | $1.60 to $1.70"}],
+  "note": "Answer: no as written; it is guidance, but the release identifies NAREIT FFO as non-GAAP, so the basis is adjusted, not 'not said'."},
+ "Q41": {"items": [
+   {"metric": "revenue", "metric_text": "revenue", "period": "quarter", "period_text": "the first fiscal quarter of 2013", "shape": "point", "low": 52.0, "high": 52.0, "unit": "USD billions", "basis": "unstated", "revision": "not_stated", "evidence": "Looking ahead to the first fiscal quarter of 2013, we expect revenue of about $52 billion and diluted earnings per share of about $11.75."}],
+  "note": "Answer 'A B': period wording from A (the period row was shown for information only), forecast from B ($52 billion; A's 52,000,000,000 billions was wrong)."},
+ "Q48": {"items": [
+   {"metric": "revenue", "metric_text": "Revenue", "period": "year", "period_text": "2019 full-year", "shape": "range", "low": 4250.0, "high": 4325.0, "unit": "USD millions", "basis": "unstated", "revision": "not_stated", "evidence": "Revenue | $4,250-$4,325 | $4,200-$4,400"},
+   {"metric": "eps", "metric_text": "Adjusted EPS", "period": "year", "period_text": "2019 full-year", "shape": "range", "low": 1.0, "high": 1.1, "unit": "USD per share", "basis": "adjusted", "revision": "not_stated", "evidence": "Adjusted EPS | $1.00-$1.10 | $1.08-$1.18"}],
+  "agrees": false,
+  "note": "Answer: not ok; the release says 'updated', not 'lowered', so the change vs earlier guidance is not said. Both readings shared this error."},
+ "Q55": {"items": [
+   {"metric": "revenue", "metric_text": "GAAP revenue", "period": "quarter", "period_text": "first quarter 2018", "shape": "range", "low": 762.0, "high": 802.0, "unit": "USD millions", "basis": "gaap", "revision": "not_stated", "evidence": "Keysight’s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million"},
+   {"metric": "revenue", "metric_text": "non-GAAP revenue", "period": "quarter", "period_text": "first quarter 2018", "shape": "range", "low": 780.0, "high": 820.0, "unit": "USD millions", "basis": "adjusted", "revision": "not_stated", "evidence": "Keysight’s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million"},
+   {"metric": "eps", "metric_text": "non-GAAP earnings per share", "period": "quarter", "period_text": "first quarter 2018", "shape": "range", "low": 0.29, "high": 0.43, "unit": "USD per share", "basis": "adjusted", "revision": "not_stated", "evidence": "Non-GAAP earnings per share for the first half of 2018 are expected to be approximately $1.29 and first quarter 2018 non-GAAP earnings per share are expected to be in the range of $0.29 to $0.43."}],
+  "agrees": true,
+  "note": "Answer: not ok, missing the first-half 2018 revenue (GAAP ~$1,748M, non-GAAP ~$1,775M) and non-GAAP EPS (~$1.29). A half year is outside the agreed scope (a quarter or a fiscal year), and the code drops it from both readings, so the three in-scope items stand; pending the person's confirmation."},
+ "Q57": {"items": [
+   {"metric": "eps", "metric_text": "Adjusted diluted earnings per share", "period": "year", "period_text": "2012", "shape": "range", "low": 4.35, "high": 4.4, "unit": "USD per share", "basis": "adjusted", "revision": "not_stated", "evidence": "Adjusted diluted earnings per share in the range of $4.35 to $4.40. This compares to the Company’s prior expectation of adjusted diluted earnings per share in the range of $4.25 to $4.45."}],
+  "note": "Answer: neither A (kept the same) nor B (raised); the release gives the prior range but no word for the change, so not said."}
+}

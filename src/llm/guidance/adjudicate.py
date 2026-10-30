@@ -24,7 +24,8 @@ row, `A B`), yes or no (or, for a check, ok / none found), or `?` for can't tell
 which leaves that release out of the gold set (listed as unresolved) rather than
 guessing it. Anything else is a correction in words, which
 `probe/answer_overrides.json` turns into labels (qid -> {"items": [...]} or
-{"present": bool}); `gold` refuses to build until every question has a usable answer.
+{"present": bool}; on a spot check, "agrees": true when the words confirm the
+readings; "note" records why); `gold` refuses to build until every question has a usable answer.
 
     python -m src.llm.guidance.adjudicate questions   # -> probe/questions.md, probe/questions.json
     python -m src.llm.guidance.adjudicate gold        # -> probe/gold.json, gold_presence.json, gold_meta.json
@@ -348,9 +349,10 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
                 other = ov["present"] if ov is not None else a == "yes"
             else:
                 check["asked"] += 1
-                if ov is not None:
+                if ov is not None:  # "agrees": the answer was in words but confirms the readings
                     items = [GuidanceItem.model_validate(i) for i in ov.get("items", [])]
                     other = ov.get("present", other)
+                    check["right"] += bool(ov.get("agrees"))
                 else:
                     check["right"] += 1
         gold[acc] = ReleaseLabel(guidance_present=bool(items), items=items)

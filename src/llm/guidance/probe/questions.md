@@ -38,7 +38,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q02 · 01 CMS (2018) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/201533/000110465918026879/a18-12207_1ex99d1.htm)
@@ -55,7 +55,7 @@ Is any of these guidance under the rules (a forecast of the company's own result
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q03 · 02 BF.B (2014) · revenue for "fiscal 2015"
 [release](https://www.sec.gov/Archives/edgar/data/14693/000001469314000017/fy15_q1xer.htm)
@@ -70,7 +70,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** B
 
 ### Q04 · 02 BF.B (2014) · eps for "fiscal 2015"
 [release](https://www.sec.gov/Archives/edgar/data/14693/000001469314000017/fy15_q1xer.htm)
@@ -86,7 +86,7 @@ The readings differ on:
 
 Which is right: A or B? If each is right on a different row, give one letter per row, top to bottom (e.g. `A B`).
 
-**Answer:** 
+**Answer:** A B
 
 ### Q05 · 02 BF.B (2014) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/14693/000001469314000017/fy15_q1xer.htm)
@@ -103,7 +103,7 @@ Which is right: A or B? If each is right on a different row, give one letter per
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q06 · 03 CSGP (2020) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1057352/000105735220000033/q42019earningspressrel.htm)
@@ -120,7 +120,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q07 · 03 CSGP (2020) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1057352/000105735220000033/q42019earningspressrel.htm)
@@ -137,7 +137,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q08 · 03 CSGP (2020) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1057352/000105735220000033/q42019earningspressrel.htm)
@@ -154,7 +154,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q09 · 03 CSGP (2020) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1057352/000105735220000033/q42019earningspressrel.htm)
@@ -171,21 +171,21 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q10 · 06 OMC (2012) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/29989/000089109212003928/e49145ex99_1.htm)
 
 Both readings found no guidance at all. Open the release and search for "outlook", "expect", "guidance". none found, or what you found.
 
-**Answer:** 
+**Answer:** None found
 
 ### Q11 · 07 RF (2015) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1281761/000128176115000058/rf-2015630xexhibit991.htm)
 
 Both readings found no guidance at all. Open the release and search for "outlook", "expect", "guidance". none found, or what you found.
 
-**Answer:** 
+**Answer:** No — guidance-related language is present, but no financial guidance is provided.
 
 ### Q12 · 08 MSFT (2010) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/789019/000119312510090109/dex991.htm)
@@ -197,7 +197,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q13 · 09 PFE (2016) · revenue for "2016"
 [release](https://www.sec.gov/Archives/edgar/data/78003/000007800316000110/pfe-10022016xex99.htm)
@@ -212,7 +212,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q14 · 10 MCD (2011) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/63908/000119312511276724/d245105dex991.htm)
@@ -224,7 +224,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q15 · 11 DVN (2021) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1090012/000119312521234972/d197325dex991.htm)
@@ -242,7 +242,11 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes.
+
+The two qualifying forecasts are:
+1. Leverage ratio: less than 1.0x by year-end 2021.
+2. Williston Basin free cash flow: nearly $700 million in 2021 at current pricing.
 
 ### Q16 · 12 LNT (2019) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/52485/000035254119000010/lnt022120198-kexh991.htm)
@@ -259,7 +263,7 @@ Is any of these guidance under the rules (a forecast of the company's own result
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q17 · 12 LNT (2019) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/52485/000035254119000010/lnt022120198-kexh991.htm)
@@ -276,7 +280,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q18 · 12 LNT (2019) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/52485/000035254119000010/lnt022120198-kexh991.htm)
@@ -293,7 +297,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q19 · 13 COTY (2018) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1024305/000102430518000066/exhibit991-earningsrelease.htm)
@@ -305,7 +309,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes - there are three qualifying financial outlook statements, excluding the synergy targets.
 
 ### Q20 · 15 MOS (2020) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1285785/000124378620000119/pressreleaseq32020-ex9.htm)
@@ -329,7 +333,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q21 · 16 LHX (2013) · eps for "fiscal 2014"
 [release](https://www.sec.gov/Archives/edgar/data/202058/000119312513414291/d617731dex991.htm)
@@ -344,7 +348,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q22 · 17 LYV (2017) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1335258/000133525817000115/lyv-2017q2xex991.htm)
@@ -360,7 +364,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q23 · 18 ZION (2012) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/109380/000010938012000198/ex99_1.htm)
@@ -374,7 +378,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q24 · 19 BR (2015) · eps for "fiscal year 2016"
 [release](https://www.sec.gov/Archives/edgar/data/1383312/000138331215000049/ex991earningsrelease-20150.htm)
@@ -390,7 +394,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** B
 
 ### Q25 · 19 BR (2015) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1383312/000138331215000049/ex991earningsrelease-20150.htm)
@@ -407,14 +411,14 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q26 · 20 ILMN (2010) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1110803/000095012310096124/a57638exv99w1.htm)
 
 Both readings found no guidance at all. Open the release and search for "outlook", "expect", "guidance". none found, or what you found.
 
-**Answer:** 
+**Answer:** None found
 
 ### Q27 · 21 BWA (2016) · revenue for "2016 full year"
 [release](https://www.sec.gov/Archives/edgar/data/908255/000090825516000133/a8k9302016exhibit991pressr.htm)
@@ -430,7 +434,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q28 · 21 BWA (2016) · revenue for "2016 full year"
 [release](https://www.sec.gov/Archives/edgar/data/908255/000090825516000133/a8k9302016exhibit991pressr.htm)
@@ -445,7 +449,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** B
 
 ### Q29 · 21 BWA (2016) · eps for "2016 full year"
 [release](https://www.sec.gov/Archives/edgar/data/908255/000090825516000133/a8k9302016exhibit991pressr.htm)
@@ -460,7 +464,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q30 · 21 BWA (2016) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/908255/000090825516000133/a8k9302016exhibit991pressr.htm)
@@ -477,7 +481,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q31 · 21 BWA (2016) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/908255/000090825516000133/a8k9302016exhibit991pressr.htm)
@@ -494,7 +498,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q32 · 22 NBR (2011) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1163739/000095012311039376/h81629exv99w1.htm)
@@ -510,7 +514,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q33 · 24 LW (2019) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1679273/000155837019002725/ex-99d1.htm)
@@ -542,7 +546,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q34 · 25 HST (2018) · margin for "Full Year 2018"
 [release](https://www.sec.gov/Archives/edgar/data/1070750/000156459018002710/hst-ex991_6.htm)
@@ -557,7 +561,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q35 · 25 HST (2018) · eps for "Full Year 2018"
 [release](https://www.sec.gov/Archives/edgar/data/1070750/000156459018002710/hst-ex991_6.htm)
@@ -572,7 +576,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q36 · 25 HST (2018) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1070750/000156459018002710/hst-ex991_6.htm)
@@ -589,7 +593,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no — the release identifies NAREIT FFO as non-GAAP, so “not said” is incorrect.
 
 ### Q37 · 25 HST (2018) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/1070750/000156459018002710/hst-ex991_6.htm)
@@ -606,7 +610,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q38 · 26 CF (2014) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1324404/000110465914057620/a14-18387_1ex99d1.htm)
@@ -624,14 +628,14 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q39 · 27 TDG (2020) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1260221/000126022120000095/a2020q4earningsrelease.htm)
 
 Both readings found no guidance at all. Open the release and search for "outlook", "expect", "guidance". none found, or what you found.
 
-**Answer:** 
+**Answer:** None found
 
 ### Q40 · 28 CHTR (2013) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1091667/000109166713000087/exhibit991earningsrelease3.htm)
@@ -645,7 +649,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q41 · 30 AAPL (2012) · revenue for "the first fiscal quarter of 2013"
 [release](https://www.sec.gov/Archives/edgar/data/320193/000119312512435506/d429806dex991.htm)
@@ -661,7 +665,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A B
 
 ### Q42 · 31 SYK (2015) · revenue for "2015"
 [release](https://www.sec.gov/Archives/edgar/data/310764/000031076415000150/sykexhibit99110222015.htm)
@@ -676,7 +680,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q43 · 31 SYK (2015) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/310764/000031076415000150/sykexhibit99110222015.htm)
@@ -693,7 +697,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q44 · 31 SYK (2015) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/310764/000031076415000150/sykexhibit99110222015.htm)
@@ -710,7 +714,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q45 · 33 EQT (2016) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/33213/000115752316005287/a51329951-ex991.htm)
@@ -744,7 +748,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q46 · 34 PCG (2011) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1004980/000100498011000036/ex9901.htm)
@@ -771,7 +775,7 @@ Is any of these guidance under the rules (a forecast of the company's own result
 
 Is this right (and nothing missing on revenue, EPS or margin)? ok, or what's wrong.
 
-**Answer:** 
+**Answer:** ok
 
 ### Q47 · 35 ADM (2021) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/7084/000000708421000028/adm-ex991_2021630xq2.htm)
@@ -785,7 +789,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q48 · 36 IRM (2019) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1020569/000102056919000194/q22019earningsreleasefinal.htm)
@@ -812,7 +816,7 @@ Is any of these guidance under the rules (a forecast of the company's own result
 
 Is this right (and nothing missing on revenue, EPS or margin)? ok, or what's wrong.
 
-**Answer:** 
+**Answer:** Not ok — the ranges are listed, but the release says “updated,” not “lowered”; change vs earlier guidance should be “not said.”
 
 ### Q49 · 37 CLF (2018) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/764065/000076406518000123/clfq220188-kex991.htm)
@@ -829,7 +833,7 @@ Is this right (and nothing missing on revenue, EPS or margin)? ok, or what's wro
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q50 · 37 CLF (2018) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/764065/000076406518000123/clfq220188-kex991.htm)
@@ -877,7 +881,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q51 · 38 CTAS (2014) · eps for "fiscal 2015"
 [release](https://www.sec.gov/Archives/edgar/data/723254/000072325414000039/ex9912-14.htm)
@@ -892,7 +896,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** B
 
 ### Q52 · 38 CTAS (2014) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/723254/000072325414000039/ex9912-14.htm)
@@ -909,7 +913,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q53 · 39 NWS (2020) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1564708/000156470820000019/earningsrelease-q4fy20.htm)
@@ -929,14 +933,14 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q54 · 40 MSCI (2013) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1408198/000115752313005156/a50740753ex99_1.htm)
 
 Both readings found no guidance at all. Open the release and search for "outlook", "expect", "guidance". none found, or what you found.
 
-**Answer:** 
+**Answer:** None found
 
 ### Q55 · 41 KEYS (2017) · spot check, the readings agree
 [release](https://www.sec.gov/Archives/edgar/data/1601046/000160104617000029/exhibit991-q417pressrelease.htm)
@@ -973,7 +977,7 @@ Both readings found no guidance at all. Open the release and search for "outlook
 
 Is this right (and nothing missing on revenue, EPS or margin)? ok, or what's wrong.
 
-**Answer:** 
+**Answer:** Not ok — missing first-half 2018 GAAP revenue (~$1,748 million), non-GAAP revenue (~$1,775 million), and non-GAAP EPS (~$1.29).
 
 ### Q56 · 42 TFX (2012) · revenue for "full year 2012"
 [release](https://www.sec.gov/Archives/edgar/data/96943/000119312512442457/d431199dex991.htm)
@@ -989,7 +993,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q57 · 42 TFX (2012) · eps for "2012"
 [release](https://www.sec.gov/Archives/edgar/data/96943/000119312512442457/d431199dex991.htm)
@@ -1004,7 +1008,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** Neither A nor B; change vs earlier guidance is not said.
 
 ### Q58 · 42 TFX (2012) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/96943/000119312512442457/d431199dex991.htm)
@@ -1021,7 +1025,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q59 · 44 VLO (2010) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1035002/000095012310095919/c07240exv99w01.htm)
@@ -1045,7 +1049,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q60 · 45 NRG (2016) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/1013871/000101387116000036/ex991.htm)
@@ -1071,7 +1075,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q61 · 46 NWL (2011) · revenue for "2011"
 [release](https://www.sec.gov/Archives/edgar/data/814453/000119312511015398/dex991.htm)
@@ -1086,7 +1090,7 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** A
 
 ### Q62 · 47 KIM (2021) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/879101/000115752321000167/a52377561ex99_1.htm)
@@ -1103,7 +1107,7 @@ Which is right: A or B?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** no
 
 ### Q63 · 47 KIM (2021) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/879101/000115752321000167/a52377561ex99_1.htm)
@@ -1120,7 +1124,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q64 · 47 KIM (2021) · no revenue, EPS or margin guidance; other items
 [release](https://www.sec.gov/Archives/edgar/data/879101/000115752321000167/a52377561ex99_1.htm)
@@ -1134,7 +1138,7 @@ Neither reading found revenue, EPS or margin guidance here, but they found:
 
 Is any of these guidance under the rules (a forecast of the company's own results, not a synergy target or capital-return plan): yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q65 · 48 FMC (2019) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/37785/000003778519000087/fmcex991063019.htm)
@@ -1151,7 +1155,7 @@ Is any of these guidance under the rules (a forecast of the company's own result
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q66 · 48 FMC (2019) · only one reading found this
 [release](https://www.sec.gov/Archives/edgar/data/37785/000003778519000087/fmcex991063019.htm)
@@ -1168,7 +1172,7 @@ Is this guidance under the rules, and right as written: yes or no?
 
 Is this guidance under the rules, and right as written: yes or no?
 
-**Answer:** 
+**Answer:** yes
 
 ### Q67 · 49 MMM (2018) · revenue for "2018"
 [release](https://www.sec.gov/Archives/edgar/data/66740/000110465918003876/a18-3781_1ex99d1.htm)
@@ -1184,5 +1188,5 @@ The readings differ on:
 
 Which is right: A or B?
 
-**Answer:** 
+**Answer:** B
 
