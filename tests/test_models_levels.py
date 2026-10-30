@@ -503,3 +503,15 @@ def _one_ticker_db():
 
 def _boom(*a):
     raise RuntimeError("boom")
+
+
+def test_cached_dates_come_back_at_one_resolution_and_keep_their_zone():
+    when = pd.Timestamp("2020-01-02")
+    frame = pd.DataFrame({"s": pd.Series([when]).astype("datetime64[s]"),
+                          "ms": pd.Series([when]).astype("datetime64[ms]"),
+                          "utc": pd.Series([when.tz_localize("UTC")]),
+                          "x": [1.0]})
+    out = level_cache._ns_dates(frame)
+    assert str(out["s"].dtype) == str(out["ms"].dtype) == "datetime64[ns]"
+    assert str(out["utc"].dtype) == "datetime64[ns, UTC]" and out["x"].dtype == "float64"
+    assert out["s"].iloc[0] == out["ms"].iloc[0] == when

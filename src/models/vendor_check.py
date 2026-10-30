@@ -242,7 +242,8 @@ def vendor_features(conn, tickers: list[str], vendor: str, start, end,
         bench = dataset.read_bars_bulk(conn, [market.BENCHMARK], basis, warm, end)
         own = _vendor_bars(conn, tickers, source, warm, end)
         # An empty frame's object columns would make pandas 3's concat object-typed too.
-        bars[basis] = pd.concat([own, bench], ignore_index=True) if len(bench) else own
+        parts = [f for f in (own, bench) if len(f)] or [own]
+        bars[basis] = pd.concat(parts, ignore_index=True)
     splits = {}
     for t in tickers:
         sp = db.read_splits(conn, t, VENDOR_SPLITS[vendor])
