@@ -168,17 +168,23 @@ def test_an_empty_batch_leaves_the_prices_float(conn):
     none = dataset.read_bars_bulk(conn, ["NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
                                   sources={"NOPE": db.TIINGO})
     nothing = dataset.read_bars_bulk(conn, [], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31")
-    for frame in (bars, none, nothing):  # one dtype per column whichever path ran
-        assert frame["close"].dtype == "float64" and str(frame["date"].dtype) == "datetime64[ns]"
+    for frame in (none, nothing):  # one dtype per column whichever path ran
+        assert frame.dtypes.equals(bars.dtypes), (frame.dtypes, bars.dtypes)
+    assert bars["close"].dtype == "float64" and str(bars["date"].dtype) == "datetime64[ns]"
     assert none.empty and nothing.empty
 
 
-def test_the_vendor_check_reads_bars_through_the_dataset_reader(conn):
-    # A vendor with no bars for the tickers: still float prices, and no ticker list is fine.
+def test_the_vendor_check_reads_bars_exactly_as_the_dataset_reader_does(conn):
+    # Same frame, dtypes included, for a vendor with bars, one without, and no tickers.
     from src.models import vendor_check
-    empty = vendor_check._vendor_bars(conn, ["AAA"], dataset.LABEL_BASIS, db.TIINGO, "2019-06-01", "2021-12-31")
-    assert empty.empty and empty["close"].dtype == "float64"
-    assert vendor_check._vendor_bars(conn, [], dataset.LABEL_BASIS, db.TIINGO, "2019-06-01", "2021-12-31").empty
+    basis, window = dataset.LABEL_BASIS, ("2019-06-01", "2021-12-31")
+    for vendor, tickers in (("yfinance", ["AAA", "BBB"]), ("tiingo", ["AAA"]), ("yfinance", [])):
+        source = vendor_check.VENDOR_SOURCES[vendor][basis]
+        got = vendor_check._vendor_bars(conn, tickers, vendor, basis, *window)
+        want = dataset.read_bars_bulk(conn, tickers, basis, *window, sources={t: source for t in tickers})
+        pd.testing.assert_frame_equal(got, want)
+        assert got["close"].dtype == "float64" and str(got["date"].dtype) == "datetime64[ns]"
+    assert not vendor_check._vendor_bars(conn, ["AAA"], "yfinance", basis, *window).empty
 
 
 def test_dollar_volume_ignores_the_future(conn):

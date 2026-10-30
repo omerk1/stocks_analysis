@@ -197,9 +197,10 @@ def both_vendor_tickers(conn, tickers: list[str]) -> list[str]:
     return [t for t in tickers if has(t, db.YFINANCE) and has(t, db.TIINGO)]
 
 
-def _vendor_bars(conn, tickers: list[str], basis: PriceBasis, source: str, start, end) -> pd.DataFrame:
-    """Every ticker's bars from one vendor's `source` only: the dataset's own reader
+def _vendor_bars(conn, tickers: list[str], vendor: str, basis: PriceBasis, start, end) -> pd.DataFrame:
+    """Every ticker's bars from one vendor only, on `basis`: the dataset's own reader
     with the source fixed, so the two can't drift (types, partial rows, the end bound)."""
+    source = VENDOR_SOURCES[vendor][basis]
     return dataset.read_bars_bulk(conn, tickers, basis, start, end, sources={t: source for t in tickers})
 
 
@@ -211,9 +212,8 @@ def common_rows(conn, tickers: list[str], start, end) -> pd.DataFrame:
     """(ticker, date) rows both vendors have a bar for, warm-up included: the
     panel columns' membership, so breadth and sector peers average over the
     same names on both sides (a coverage difference isn't a value difference)."""
-    rows = [_vendor_bars(conn, tickers, PriceBasis.TOTAL_RETURN, VENDOR_SOURCES[v][PriceBasis.TOTAL_RETURN],
-                         _warm_start(start), end)
-            [["ticker", "date"]] for v in ("yfinance", "tiingo")]
+    rows = [_vendor_bars(conn, tickers, v, PriceBasis.TOTAL_RETURN, _warm_start(start), end)[["ticker", "date"]]
+            for v in ("yfinance", "tiingo")]
     return rows[0].merge(rows[1], on=["ticker", "date"])
 
 
@@ -230,9 +230,9 @@ def vendor_features(conn, tickers: list[str], vendor: str, start, end,
     sources = sources if sources is not None else registry.SOURCES
     warm = pd.Timestamp(bars_start) if bars_start is not None else _warm_start(start)
     bars = {}
-    for basis, source in VENDOR_SOURCES[vendor].items():
+    for basis in VENDOR_SOURCES[vendor]:
         bench = dataset.read_bars_bulk(conn, [market.BENCHMARK], basis, warm, end)
-        bars[basis] = pd.concat([_vendor_bars(conn, tickers, basis, source, warm, end), bench], ignore_index=True)
+        bars[basis] = pd.concat([_vendor_bars(conn, tickers, vendor, basis, warm, end), bench], ignore_index=True)
     splits = {}
     for t in tickers:
         sp = db.read_splits(conn, t, VENDOR_SPLITS[vendor])

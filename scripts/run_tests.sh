@@ -17,14 +17,18 @@ if ! main=$(git -C "$checkout" worktree list --porcelain | sed -n '1s/^worktree 
     echo "can't find the main checkout from $checkout (git worktree list failed); the venv lives there" >&2
     exit 1
 fi
-python="$main/venv/bin/python"
-[[ -x "$python" ]] || python="$checkout/venv/bin/python"   # a bare main repo holds no venv
+venv_home=$main
+if git -C "$checkout" worktree list --porcelain | sed -n '2p' | grep -qx bare; then
+    venv_home=$checkout   # a bare main repo has no working tree to hold the venv
+fi
+python="$venv_home/venv/bin/python"
 if [[ ! -x "$python" ]]; then
-    echo "no project venv at $main/venv -- create it as in README 'Setup'" >&2
+    echo "no project venv at $venv_home/venv -- create it as in README 'Setup'" >&2
     exit 1
 fi
-caller=$(cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && pwd -P)
-if [[ "$caller" != "$checkout" && -n "$(git rev-parse --show-toplevel 2>/dev/null)" ]]; then
+top=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [[ -n "$top" && "$(cd "$top" && pwd -P)" != "$checkout" ]]; then
+    caller=$(cd "$top" && pwd -P)
     echo "note: testing $checkout (this script's checkout), not $caller" >&2
 fi
 cd "$checkout"
