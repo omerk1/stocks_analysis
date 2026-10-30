@@ -158,6 +158,38 @@ def test_liquidity_is_not_known_during_warmup(conn):
     assert traded["liquid"].iloc[19]
 
 
+def test_an_empty_batch_leaves_the_prices_float(conn):
+    # Two source groups, one with no bars in the window: its empty batch must not make
+    # the price columns object-typed (pandas 3 counts an empty frame's dtypes in concat).
+    bars = dataset.read_bars_bulk(conn, ["AAA", "NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
+                                  sources={"AAA": db.YFINANCE, "NOPE": db.TIINGO})
+    assert len(bars) and set(bars["ticker"]) == {"AAA"}
+    assert all(bars[c].dtype == "float64" for c in ("open", "high", "low", "close", "volume"))
+    none = dataset.read_bars_bulk(conn, ["NOPE"], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31",
+                                  sources={"NOPE": db.TIINGO})
+    nothing = dataset.read_bars_bulk(conn, [], dataset.LABEL_BASIS, "2019-06-01", "2021-12-31")
+    for frame in (none, nothing):  # one dtype per column whichever path ran
+        assert frame.dtypes.equals(bars.dtypes), (frame.dtypes, bars.dtypes)
+    assert bars["close"].dtype == "float64" and str(bars["date"].dtype) == "datetime64[ns]"
+    assert none.empty and nothing.empty
+
+
+def test_the_vendor_check_reads_bars_exactly_as_the_dataset_reader_does(conn):
+    # Same frame, dtypes included, for a vendor with bars, one without, and no tickers.
+    from src.models import vendor_check
+    basis, window = dataset.LABEL_BASIS, ("2019-06-01", "2021-12-31")
+    for vendor, tickers in (("yfinance", ["AAA", "BBB"]), ("tiingo", ["AAA"]), ("yfinance", [])):
+        source = vendor_check.VENDOR_SOURCES[vendor][basis]
+        got = vendor_check._vendor_bars(conn, tickers, vendor, basis, *window)
+        want = dataset.read_bars_bulk(conn, tickers, basis, *window, sources={t: source for t in tickers})
+        pd.testing.assert_frame_equal(got, want)
+        assert got["close"].dtype == "float64" and str(got["date"].dtype) == "datetime64[ns]"
+    # The source is the vendor's own, named here independently of VENDOR_SOURCES.
+    own = vendor_check._vendor_bars(conn, ["AAA"], "yfinance", basis, *window)
+    assert not own.empty
+    assert own.attrs["ticker_sources"] == {"AAA": db.YFINANCE_SPLIT_ONLY if basis == "traded" else db.YFINANCE}
+
+
 def test_dollar_volume_ignores_the_future(conn):
     bars = dataset.read_bars_bulk(conn, ["AAA"], dataset.UNIVERSE_BASIS, "2019-06-01", "2021-12-31")
     base = dataset.trailing_dollar_volume(bars)
