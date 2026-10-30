@@ -70,6 +70,12 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(first_open) == "EPS | 2.10 | 2.20 | raised"
     tail = b"<table><tr><td>A<td>B</td>tail</tr></table>"
     assert fetch.release_text(tail) == "A | B | tail"  # loose text kept, in its own cell
+    tagged_tail = b"<table><tr><td>A<td>B</td><font>2.1</font></tr></table>"
+    assert fetch.release_text(tagged_tail) == "A | B | 2.1"  # a figure in an inline tag kept too
+    wrapped_cell = b"<table><tr><td>A<font><td>B</font><td>C</td></tr></table>"
+    assert fetch.release_text(wrapped_cell) == "A | B | C"
+    wrapped_row = b"<table><tr><td>A</td><font><tr><td>B</td></tr></font><tr><td>C</td></tr></table>"
+    assert fetch.release_text(wrapped_row).splitlines() == ["A", "", "B", "", "C"]
     wrapped = b"""<table><tr><td>Outlook</td><font><td>Note</td></font><td><table><tr><td>EPS</td><td>2.1</td>
     </tr></table></td></tr></table>"""
     assert fetch.release_text(wrapped).splitlines() == ["Outlook", "Note", "", "EPS | 2.1"]

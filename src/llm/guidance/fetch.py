@@ -145,32 +145,44 @@ def close_unclosed(soup: BeautifulSoup) -> None:
     </td> and </tr>, and html.parser then nests each row inside the row before it and
     each cell inside the cell before it, where a browser would close them. Each such
     row or cell is moved out to follow the one it was nested in, in document order,
-    so a deeper one follows its new place in turn. Everything after the nested node in
-    its holder moves with it, in order (closed rows or cells that followed it, so none
-    is reversed); loose text among them gets a cell of its own, so it is neither glued
-    to a neighbouring cell nor dropped. A nested table is not this: its rows have
-    their own table between them and the outer row."""
-    for tag, bounds, holders in (("tr", ["tr", "table"], ("tr",)),
-                                 (["td", "th"], ["td", "th", "tr", "table"], ("td", "th"))):
-        for node in soup.find_all(tag):
+    so a deeper one follows its new place in turn. Inline wrappers between it and its
+    holder (<font>, <b>: no meaning around a cell or row) are unwrapped first. Then
+    everything after it in the holder moves with it, in order, so nothing is reversed.
+    Among those, anything that is not a row (at row level) or a cell (at cell level),
+    loose text or an inline tag holding a figure, gets a row or cell of its own, so it
+    is neither glued to a neighbour nor dropped. A nested table is not this: its rows
+    have their own table between them and the outer row."""
+    for level, bounds, holders in (("tr", ["tr", "table"], ("tr",)),
+                                   ("td", ["td", "th", "tr", "table"], ("td", "th"))):
+        for node in soup.find_all(["tr"] if level == "tr" else ["td", "th"]):
             holder = node.find_parent(bounds)
             if holder is None or holder.name not in holders:
                 continue  # not nested, or already moved out with an earlier one
+            while node.parent is not holder and node.parent.name not in ("td", "th"):
+                node.parent.unwrap()  # an inline wrapper; an unclosed cell holding a row stays a cell
             anchor = holder
             for moving in [node, *node.next_siblings]:
                 moving = moving.extract()
-                if isinstance(moving, NavigableString):
-                    if not moving.strip():
-                        continue
-                    cell = soup.new_tag("td")
-                    cell.append(moving)
-                    moving = cell
-                    if tag == "tr":
-                        row = soup.new_tag("tr")
-                        row.append(cell)
-                        moving = row
+                if isinstance(moving, NavigableString) and not moving.strip():
+                    continue
+                moving = as_table_part(soup, moving, level)
                 anchor.insert_after(moving)
                 anchor = moving
+
+
+def as_table_part(soup: BeautifulSoup, node, level: str):
+    """`node` as a row (level 'tr') or a cell (level 'td'), wrapped as needed."""
+    def wrapped(name, inner):
+        outer = soup.new_tag(name)
+        outer.append(inner)
+        return outer
+
+    is_cell = getattr(node, "name", None) in ("td", "th")
+    if level == "td":
+        return node if is_cell else wrapped("td", node)
+    if getattr(node, "name", None) == "tr":
+        return node
+    return wrapped("tr", node if is_cell else wrapped("td", node))
 
 
 def release_text(raw: bytes) -> str:
