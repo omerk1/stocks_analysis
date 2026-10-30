@@ -104,8 +104,8 @@ set was **adjudicated** instead (`src/llm/guidance/adjudicate.py`):
    Answers in words became labels in `probe/answer_overrides.json`, each with its
    reason. Where both readings agree, the reading stands as gold.
 
-Outcome of the disputes: the draft's reading was right in 22 and Gemini's in 14; the
-rest were split or neither. The spot checks found 8 of 8 right. That doesn't measure
+Outcome of the disputes: the draft's reading was right in 24 and Gemini's in 14, 1 was
+split and 1 neither (`probe/gold_meta.json`). The spot checks found 8 of 8 right. That doesn't measure
 errors both readings share, though: 0 in 8 only rules out a rate above about a third
 (interval 0–0.32).
 
@@ -122,6 +122,16 @@ Two rulings to know about:
 
 Keysight's first-half 2018 figures were flagged as missing. They stay out: a half year
 is outside the agreed scope.
+
+**One reply changed after adjudication.** The code review's fix for nested tables
+changed the text of one release, Newell Brands (slot 46). Its slide appendix no longer
+reads as "X | X". v1 was rerun on that text, one call. The new reply differs: net-sales
+growth is now filed as "other", not revenue, and an EPS-growth item appears twice. The
+gold set stands as adjudicated (`probe/question_readings.json` records which replies
+the questions were built from, and a rebuild refuses while one has changed), and the
+score is against the new reply. So the same frozen prompt, at temperature 0, gave a
+different answer when only the table formatting changed. The text conversion is part
+of what has to be frozen.
 
 ### Coverage: how often releases carry guidance
 
@@ -158,20 +168,24 @@ By sector, as headline / any, with 4–5 releases each:
 |---|---|
 | presence, headline | precision 23/23, recall 23/24 (0.80–0.99) |
 | presence, any guidance | precision 39/40, recall 39/40 (the one false alarm is a synergy target, which v1 was never told to skip) |
-| headline items found | recall 69/73 (0.87–0.98), precision 69/76 (0.82–0.95) |
-| values, on matched items | 68/69 |
-| unit | 64/69 (mostly wording, e.g. "percent growth" vs "percent") |
-| adjusted vs GAAP | 60/69 (0.77–0.93), the weakest field: it says "not said" where the release calls the figure non-GAAP, or the reverse |
-| revision, on matched items | 64/69 |
+| headline items found | recall 68/73 (0.85–0.97), precision 68/76 (0.81–0.95) |
+| values, on matched items | 67/68 (scale-aware: $1.2 billion = $1,200 million) |
+| adjusted vs GAAP | 59/68 (0.77–0.93), the weakest field: it says "not said" where the release calls the figure non-GAAP, or the reverse |
+| revision, on matched items | 63/68 |
 
-Of the 76 headline items Gemini returned, 7 were wrong extras. Most were parts rather
+The unit's wording isn't scored. The adjudication never asked about it, so gold's
+wording is just the draft's.
+
+Of the 76 headline items Gemini returned, 8 were wrong extras. Most were parts rather
 than the company total, filed as revenue or EPS: Alliant's per-subsidiary EPS (3), Broadridge's
-recurring-fee revenue growth and Stryker's organic growth. The other 2 were BorgWarner's
-operating-margin floors, which the person ruled out.
+recurring-fee revenue growth and Stryker's organic growth. Two were BorgWarner's
+operating-margin floors, which the person ruled out, and one is Newell's repeated
+EPS-growth item.
 
-- **Quotes are real.** 164 of the 175 in-scope evidence quotes appear verbatim in the
+- **Quotes are real.** 166 of the 177 in-scope evidence quotes appear verbatim in the
   release text. The other 11 are stitched from pieces that all appear, sometimes with a
-  table column header added. None is made up.
+  table column header added. None is made up. This was a one-off check, not code in
+  the repo; the exception below would need it in code.
 
 ### Raised / maintained / lowered: how often can it be read at all
 
@@ -206,7 +220,7 @@ exception is written.**
 
 Why go:
 - Presence, item finding and values are accurate enough to build features on:
-  recall 0.96 and 0.95, values 68/69.
+  recall 0.96 and 0.93, values 67/68.
 - The free source covers 2010 and margins, which Benzinga doesn't.
 - Point-in-time comes from EDGAR's acceptance time.
 
@@ -227,9 +241,11 @@ Why only conditionally:
 backtested path. This probe doesn't change that. An exception is the owner's to write. It
 would need at least the following:
 
-1. **A frozen prompt.** One version, pinned by hash (v1 is:
-   `tests/test_llm_guidance.py`). Any change is a new version, measured again on a
-   gold set it hasn't seen. These 50 are now known to whoever tunes the prompt.
+1. **A frozen prompt, and frozen text going into it.** One prompt version, pinned by
+   hash (v1 is: `tests/test_llm_guidance.py`). Any change is a new version, measured
+   again on a gold set it hasn't seen; these 50 are now known to whoever tunes the
+   prompt. The HTML-to-text conversion counts as part of that version too: Newell's
+   reply changed when only the table formatting did.
 2. **Cached outputs.** Every reply is stored with its prompt fingerprint and a
    hash of the text it read. The backtest reads only the cache, with no live call in its
    path, and is reproducible from it.

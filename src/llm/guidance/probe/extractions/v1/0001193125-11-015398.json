@@ -3,7 +3,7 @@
  "prompt_version": "v1",
  "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
  "model": "gemini-2.5-flash",
- "text_sha256": "7b95ff2ad16143ffcedfdc3ffff6be74f69f2bfebfb47a04f77fca410dad35ef",
+ "text_sha256": "d021f97b1fda6fe764a240a17ae2c73920f6f7859e058e1970d673d2dce954b4",
  "label": {
   "guidance_present": true,
   "items": [
@@ -21,7 +21,7 @@
     "evidence": "Provides 2011 Guidance for 10% to 12% Normalized EPS Growth"
    },
    {
-    "metric": "revenue",
+    "metric": "other",
     "metric_text": "core sales",
     "period": "year",
     "period_text": "2011",
@@ -29,19 +29,6 @@
     "low": 4.0,
     "high": 5.0,
     "unit": "percent growth",
-    "basis": "unstated",
-    "revision": "initiated",
-    "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
-   },
-   {
-    "metric": "other",
-    "metric_text": "foreign currency",
-    "period": "year",
-    "period_text": "2011",
-    "shape": "qualitative",
-    "low": null,
-    "high": null,
-    "unit": "percent",
     "basis": "unstated",
     "revision": "initiated",
     "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
@@ -65,9 +52,9 @@
     "period": "year",
     "period_text": "2011",
     "shape": "range",
-    "low": 1.67,
-    "high": 1.7,
-    "unit": "USD per share",
+    "low": 10.0,
+    "high": 12.0,
+    "unit": "percent growth",
     "basis": "adjusted",
     "revision": "initiated",
     "evidence": "The company expects normalized earnings per diluted share to increase 10 to 12 percent in 2011."
@@ -128,7 +115,7 @@
     "metric": "other",
     "metric_text": "restructuring and restructuring related cash payments",
     "period": "year",
-    "period_text": "during the year",
+    "period_text": "the year",
     "shape": "range",
     "low": 90.0,
     "high": 100.0,
@@ -141,7 +128,7 @@
     "metric": "other",
     "metric_text": "capital expenditures",
     "period": "year",
-    "period_text": "during the year",
+    "period_text": "the year",
     "shape": "range",
     "low": 180.0,
     "high": 200.0,
@@ -162,14 +149,40 @@
     "basis": "gaap",
     "revision": "initiated",
     "evidence": "Diluted earnings per share: $1.43 to $1.46"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Restructuring and restructuring related costs, net of tax",
+    "period": "year",
+    "period_text": "FY 2011",
+    "shape": "range",
+    "low": 0.22,
+    "high": 0.26,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "Restructuring and restructuring related costs, net of tax [ 1 ] $0.22 to $0.26"
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Normalized\" EPS",
+    "period": "year",
+    "period_text": "FY 2011",
+    "shape": "range",
+    "low": 1.67,
+    "high": 1.7,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "\"Normalized\" EPS: $1.67 to $1.70"
    }
   ],
   "notes": ""
  },
  "usage": {
-  "prompt_tokens": 19924,
-  "output_tokens": 1711,
+  "prompt_tokens": 16777,
+  "output_tokens": 1846,
   "thinking_tokens": 0,
-  "total_tokens": 21635
+  "total_tokens": 18623
  }
 }

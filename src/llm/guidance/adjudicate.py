@@ -23,9 +23,11 @@ Answers go on the `**Answer:**` line of `probe/questions.md`: A or B (or a lette
 row, `A B`), yes or no (or, for a check, ok / none found), or `?` for can't tell,
 which leaves that release out of the gold set (listed as unresolved) rather than
 guessing it. Anything else is a correction in words, which
-`probe/answer_overrides.json` turns into labels (qid -> {"items": [...]} or
-{"present": bool}; on a spot check, "agrees": true when the words confirm the
-readings; "note" records why); `gold` refuses to build until every question has a usable answer.
+`probe/answer_overrides.json` turns into labels: qid -> {"accession", then "items"
+for a fields or only question, "present" for an other question, and for a check
+"items" (else the agreed items stand), "agrees" (the words confirm the readings) or
+"present"; "winner" (draft / model / split / neither) for the dispute tally; "note"
+for why}. The accession catches renumbered questions; `gold` refuses to build until every question has a usable answer.
 
     python -m src.llm.guidance.adjudicate questions   # -> probe/questions.md, probe/questions.json
     python -m src.llm.guidance.adjudicate gold        # -> probe/gold.json, gold_presence.json, gold_meta.json
@@ -56,6 +58,7 @@ QUESTIONS_JSON = PROBE_DIR / "questions.json"
 OVERRIDES_PATH = PROBE_DIR / "answer_overrides.json"
 PRESENCE_PATH = score.PRESENCE_PATH
 META_PATH = PROBE_DIR / "gold_meta.json"
+READINGS_PATH = PROBE_DIR / "question_readings.json"  # which cached replies the questions were built from
 
 ACCEPT = {"fields": {"a", "b"}, "only": {"yes", "no"}, "other": {"yes", "no"},
           "check": {"ok", "yes", "none found"}}
@@ -290,10 +293,34 @@ def other_side(side: str) -> str:
     return "model" if side == "draft" else "draft"
 
 
+NEEDS = {"fields": ("items",), "only": ("items",), "other": ("present",), "check": ()}
+WINNERS = {"draft", "model", "split", "neither"}
+
+
+def override_problems(qs: list[dict], overrides: dict[str, dict]) -> list[str]:
+    """What's wrong with the overrides: an unknown qid, a release that isn't the
+    question's (the questions were renumbered since), a missing key for its kind, an
+    unknown winner. Each override names its question's accession for that check."""
+    by_id, problems = {q["id"]: q for q in qs}, []
+    for qid, ov in overrides.items():
+        q = by_id.get(qid)
+        if q is None:
+            problems.append(f"{qid}: override for a question that doesn't exist")
+            continue
+        if ov.get("accession") != q["accession"]:
+            problems.append(f"{qid}: override is for {ov.get('accession')}, the question for {q['accession']}")
+        problems += [f"{qid}: a {q['kind']} override needs '{k}'" for k in NEEDS[q["kind"]] if k not in ov]
+        if q["kind"] == "check" and not ({"items", "agrees", "present"} & set(ov)):
+            problems.append(f"{qid}: a check override needs 'items', 'agrees' or 'present'")
+        if ov.get("winner", "neither") not in WINNERS:
+            problems.append(f"{qid}: winner must be one of {sorted(WINNERS)}")
+    return problems
+
+
 def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dict], answers: dict[str, str],
                overrides: dict[str, dict]) -> tuple[dict[str, ReleaseLabel], dict[str, bool], dict]:
     """(headline gold labels, presence of any in-scope guidance, a summary)."""
-    problems = []
+    problems = override_problems(qs, overrides)
     for q in qs:
         a = normal(answers.get(q["id"], ""))
         if q["id"] in overrides:
@@ -329,7 +356,7 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
             if q["kind"] == "fields":
                 if ov is not None:
                     items += [GuidanceItem.model_validate(i) for i in ov["items"]]
-                    wins["neither"] += 1
+                    wins[ov.get("winner", "neither")] += 1
                 else:
                     letters = picks(q, a)
                     items.append(GuidanceItem.model_validate(combined(q, letters)))
@@ -340,7 +367,7 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
             elif q["kind"] == "only":
                 if ov is not None:
                     items += [GuidanceItem.model_validate(i) for i in ov["items"]]
-                    wins["neither"] += 1
+                    wins[ov.get("winner", "neither")] += 1
                 else:
                     if a == "yes":
                         items.append(GuidanceItem.model_validate(q["item"]))
@@ -350,7 +377,8 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
             else:
                 check["asked"] += 1
                 if ov is not None:  # "agrees": the answer was in words but confirms the readings
-                    items = [GuidanceItem.model_validate(i) for i in ov.get("items", [])]
+                    if "items" in ov:  # else the agreed items stand
+                        items = [GuidanceItem.model_validate(i) for i in ov["items"]]
                     other = ov.get("present", other)
                     check["right"] += bool(ov.get("agrees"))
                 else:
@@ -361,6 +389,19 @@ def build_gold(pairs: dict[str, tuple[ReleaseLabel, ReleaseLabel]], qs: list[dic
             "disagreements_won": wins, "spot_check": check, "overrides": sorted(overrides),
             "unresolved_releases": unresolved}
     return gold, presence, meta
+
+
+def reading_hashes(out_dir: Path = EXTRACTIONS_DIR) -> dict[str, str]:
+    """accession -> the hash of the text each cached reply read: which model readings
+    the questions were built from."""
+    return {r["accession"]: r["text_sha256"]
+            for r in (json.loads(p.read_text()) for p in sorted(out_dir.glob("*.json")))}
+
+
+def changed_readings(recorded: dict[str, str], current: dict[str, str]) -> list[str]:
+    """Releases whose reply is not the one the questions were built from: the gold set
+    can't be rebuilt for them without asking again."""
+    return sorted(a for a in recorded.keys() | current.keys() if recorded.get(a) != current.get(a))
 
 
 def load_inputs() -> tuple[pd.DataFrame, dict[str, tuple[ReleaseLabel, ReleaseLabel]]]:
@@ -379,10 +420,15 @@ def main(argv: list[str] | None = None) -> None:
             raise SystemExit(f"{QUESTIONS_MD} already has answers; not overwriting it")
         qs = questions(pairs, sample)
         QUESTIONS_JSON.write_text(json.dumps(qs, indent=1) + "\n")
+        READINGS_PATH.write_text(json.dumps(reading_hashes(), indent=1) + "\n")
         QUESTIONS_MD.write_text(render(qs, release_links(sample)) + "\n")
         kinds = pd.Series([q["kind"] for q in qs]).value_counts().to_dict()
         print(f"wrote {len(qs)} questions ({kinds}) over {len({q['accession'] for q in qs})} releases")
         return
+    changed = changed_readings(json.loads(READINGS_PATH.read_text()), reading_hashes())
+    if changed:
+        raise SystemExit(f"the model's reply changed since the questions were built for {changed}; "
+                         "the committed gold set stands, and rebuilding it needs those releases asked again")
     qs = json.loads(QUESTIONS_JSON.read_text())
     overrides = json.loads(OVERRIDES_PATH.read_text()) if OVERRIDES_PATH.exists() else {}
     gold, presence, meta = build_gold(pairs, qs, parse_answers(QUESTIONS_MD.read_text()), overrides)

@@ -366,8 +366,10 @@ EDGAR).
   gold set and v1's score (Done #170).
   - Coverage: headline guidance (revenue, EPS, margin) in 24 of 50 releases, none in
     Energy, banks or Communication Services; any guidance in 40 of 50.
-  - v1's accuracy: presence recall 23/24 with no false alarm; items 69/73 found;
-    values 68/69; adjusted vs GAAP 60/69 is the weak field.
+  - v1's accuracy: presence recall 23/24 with no false alarm; items 68/73 found;
+    values 67/68; adjusted vs GAAP 59/68 is the weak field. One reply changed when
+    only the text's table formatting did, so the text conversion has to be frozen
+    along with the prompt.
   - Raised, maintained or lowered is readable in 13 of the 24 releases with headline
     guidance. Gemini's own revision word is right 22 times out of 27.
   - Recommendation: go on the fetch; go on extraction only once the owner writes the

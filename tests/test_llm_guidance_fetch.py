@@ -47,6 +47,13 @@ def test_release_text_keeps_inline_tags_in_their_sentence():
         "keep", "this"]
 
 
+def test_release_text_keeps_a_nested_table_s_rows_apart():
+    html = b"""<html><body><table><tr><td><p>Outlook</p><table>
+    <tr><td>EPS</td><td>$2.10</td></tr><tr><td>Revenue</td><td>$9.5 billion</td></tr></table></td></tr></table>
+    </body></html>"""
+    assert fetch.release_text(html).splitlines() == ["Outlook", "", "EPS | $2.10", "", "Revenue | $9.5 billion"]
+
+
 def test_release_text_detects_windows_1252():
     html = "<html><body><p>EPS of $2.10–$2.20, Company X</p></body></html>".encode("cp1252")
     assert fetch.release_text(html) == "EPS of $2.10–$2.20, Company X"
@@ -92,14 +99,14 @@ def test_edgar_needs_a_contact():
 
 
 def test_edgar_spaces_requests_and_retries_transient_errors():
-    clock, session = Clock(), FakeSession([200, 200, 503, 200, 404])
+    clock, session = Clock(), FakeSession([200, 200, 503, 403, 200, 404])
     edgar = fetch.Edgar("me me@example.com", session=session, sleep=clock.sleep, clock=clock.now)
     assert session.headers["User-Agent"] == "me me@example.com"
     edgar.get("a")
     edgar.get("b")  # back to back: waits out the interval
     assert clock.sleeps == [pytest.approx(fetch.MIN_INTERVAL)]
-    edgar.get("c")  # 503, pause, then 200
-    assert session.urls == ["a", "b", "c", "c"]
+    edgar.get("c")  # 503, then 403 (SEC's rate limit), each paused, then 200
+    assert session.urls == ["a", "b", "c", "c", "c"]
     with pytest.raises(RuntimeError):
         edgar.get("d")  # 404 is not retried
     assert session.urls[-1] == "d" and session.urls.count("d") == 1
@@ -122,3 +129,14 @@ def test_fetch_one_caches(tmp_path):
     assert len(edgar.urls) == 2 and again == m  # nothing refetched
     saved = json.loads((tmp_path / "0000000000-12-000001" / "manifest.json").read_text())
     assert saved["release_file"] == "ex99-1.htm"
+
+
+def test_fetch_one_refuses_an_index_it_cannot_read(tmp_path):
+    class ErrorPage:
+        def get(self, url):
+            return b"<html><body>Request Rate Threshold Exceeded</body></html>"
+
+    with pytest.raises(ValueError, match="no document table"):
+        fetch.fetch_one(ErrorPage(), "0000000000-12-000002", INDEX_URL, tmp_path)
+    folder = tmp_path / "0000000000-12-000002"
+    assert not (folder / "manifest.json").exists() and not (folder / "index.htm").exists()

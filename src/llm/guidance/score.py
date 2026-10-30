@@ -17,8 +17,9 @@ the other items, capex and the like, were checked at release level only).
   (basis, shape, values, revision), one-to-one. Item recall = matched / gold items,
   precision = matched / predicted items.
 - **Fields,** on matched pairs: shape, values (low and high equal, to 1e-6
-  relative, once the unit's scale is applied), unit, basis, revision ('initiated'
-  counted as 'not_stated', `revision_kind`).
+  relative, once the unit's scale is applied), basis, revision ('initiated'
+  counted as 'not_stated', `revision_kind`). The unit's wording is not scored: the
+  adjudication never asked about it, so gold's wording is just the draft's.
 - **Revision readability:** of gold items, the share whose revision is raised,
   maintained or lowered, i.e. readable from the release; per release, whether any
   item's is. Plus the model's accuracy on those items.
@@ -43,7 +44,7 @@ from src.llm.guidance.schema import READABLE_REVISIONS, GuidanceItem, ReleaseLab
 
 GOLD_PATH = PROBE_DIR / "gold.json"
 PRESENCE_PATH = PROBE_DIR / "gold_presence.json"
-FIELDS = ("shape", "values", "unit", "basis", "revision")
+FIELDS = ("shape", "values", "basis", "revision")  # unit only through the values' scale: never adjudicated
 HEADLINE = ("revenue", "eps", "margin")
 SCALES = {"trillion": 1e12, "billion": 1e9, "million": 1e6, "thousand": 1e3}
 
@@ -80,16 +81,21 @@ def in_scope(item: GuidanceItem, release_year: int) -> bool:
             and all(int(y) <= release_year + 1 for y in years(item.period_text)))
 
 
-def scoped(labels: dict[str, ReleaseLabel | None], release_years: dict[str, int]) -> dict[str, ReleaseLabel | None]:
-    """The labels with out-of-scope items dropped (`in_scope`)."""
+def keep(labels: dict[str, ReleaseLabel | None], test) -> dict[str, ReleaseLabel | None]:
+    """The labels with only the items for which `test(accession, item)` holds."""
     out = {}
     for acc, lab in labels.items():
         if lab is None:
             out[acc] = None
             continue
-        items = [i for i in lab.items if in_scope(i, release_years[acc])]
+        items = [i for i in lab.items if test(acc, i)]
         out[acc] = ReleaseLabel(guidance_present=bool(items), items=items, notes=lab.notes)
     return out
+
+
+def scoped(labels: dict[str, ReleaseLabel | None], release_years: dict[str, int]) -> dict[str, ReleaseLabel | None]:
+    """The labels with out-of-scope items dropped (`in_scope`)."""
+    return keep(labels, lambda acc, i: in_scope(i, release_years[acc]))
 
 
 def field_agreement(g: GuidanceItem, p: GuidanceItem) -> dict[str, bool]:
@@ -137,14 +143,7 @@ def match_items(gold: list[GuidanceItem], pred: list[GuidanceItem]) -> list[tupl
 def headline_only(labels: dict[str, ReleaseLabel | None]) -> dict[str, ReleaseLabel | None]:
     """The same labels kept to revenue, EPS and margin items: the outlook a reader of
     "guidance" usually means, without capex, tax rates, production and the like."""
-    out = {}
-    for acc, lab in labels.items():
-        if lab is None:
-            out[acc] = None
-            continue
-        items = [i for i in lab.items if i.metric in HEADLINE]
-        out[acc] = ReleaseLabel(guidance_present=bool(items), items=items, notes=lab.notes)
-    return out
+    return keep(labels, lambda acc, i: i.metric in HEADLINE)
 
 
 def _ratio(a: int, b: int) -> float | None:
@@ -160,10 +159,14 @@ def presence(gold: dict[str, bool], pred: dict[str, bool]) -> dict:
     return {"tp": tp, "fp": fp, "fn": fn, "tn": tn, "precision": _ratio(tp, tp + fp), "recall": _ratio(tp, tp + fn)}
 
 
-def score(gold: dict[str, ReleaseLabel], pred: dict[str, ReleaseLabel | None]) -> dict:
+def require_extractions(gold: dict, pred: dict) -> None:
     missing = sorted(set(gold) - set(pred))
     if missing:
         raise ValueError(f"no extraction for {len(missing)} gold releases, e.g. {missing[:3]}")
+
+
+def score(gold: dict[str, ReleaseLabel], pred: dict[str, ReleaseLabel | None]) -> dict:
+    require_extractions(gold, pred)
     errors = n_gold = n_pred = n_matched = 0
     agree = {f: 0 for f in FIELDS}
     readable_items = readable_right = 0
@@ -176,23 +179,23 @@ def score(gold: dict[str, ReleaseLabel], pred: dict[str, ReleaseLabel | None]) -
         pairs = match_items(g.items, p_items)
         n_matched += len(pairs)
         for i, j in pairs:
-            for f, ok in field_agreement(g.items[i], p_items[j]).items():
-                agree[f] += ok
+            ok = field_agreement(g.items[i], p_items[j])
+            for f in FIELDS:
+                agree[f] += ok[f]
         by_gold = dict(pairs)
         for i, item in enumerate(g.items):
             if item.revision in READABLE_REVISIONS:
                 readable_items += 1
                 readable_right += i in by_gold and p_items[by_gold[i]].revision == item.revision
-    ratio = _ratio
     return {
         "releases": len(gold), "unusable_replies": errors,
         "presence": presence({a: g.guidance_present for a, g in gold.items()},
                              {a: bool(pred[a] and pred[a].items) for a in gold}),
         "items": {"gold": n_gold, "predicted": n_pred, "matched": n_matched,
-                  "recall": ratio(n_matched, n_gold), "precision": ratio(n_matched, n_pred)},
-        "field_accuracy_on_matched": {f: ratio(agree[f], n_matched) for f in FIELDS},
-        "revision": {"gold_items_readable": readable_items, "share_of_gold_items": ratio(readable_items, n_gold),
-                     "model_right_on_readable": ratio(readable_right, readable_items)},
+                  "recall": _ratio(n_matched, n_gold), "precision": _ratio(n_matched, n_pred)},
+        "field_accuracy_on_matched": {f: _ratio(agree[f], n_matched) for f in FIELDS},
+        "revision": {"gold_items_readable": readable_items, "share_of_gold_items": _ratio(readable_items, n_gold),
+                     "model_right_on_readable": _ratio(readable_right, readable_items)},
     }
 
 
@@ -227,6 +230,7 @@ def main(argv: list[str] | None = None) -> None:
     sample = pd.read_csv(SAMPLE_PATH, dtype={"accession": str})
     pred = scoped(load_extractions(args.extractions), dict(zip(sample["accession"], sample["year"])))
     r = score(gold, headline_only(pred))
+    require_extractions(gold_any, pred)
     rev = revision_by_release(gold)
     r["revision"] |= {"releases_with_guidance": len(rev), "releases_with_a_readable_revision": int(rev.sum())}
     views = {"headline": (r, coverage({a: g.guidance_present for a, g in gold.items()}, sample)),

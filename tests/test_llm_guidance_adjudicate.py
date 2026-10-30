@@ -67,9 +67,33 @@ def test_gold_refuses_missing_or_free_text_answers_until_overridden():
     with pytest.raises(ValueError, match="needs an override"):
         adjudicate.build_gold(PAIRS, qs, ans, {})
     found = item(low=1.0, high=1.0, shape="point").model_dump()
-    gold, presence, meta = adjudicate.build_gold(PAIRS, qs, ans, {d_id: {"items": [found]}})
+    gold, presence, meta = adjudicate.build_gold(PAIRS, qs, ans, {d_id: {"accession": "d", "items": [found]}})
     assert gold["d"].items[0].low == 1.0 and presence["d"]
     assert meta["spot_check"] == {"asked": 2, "right": 1}
+
+
+def test_overrides_are_checked_against_their_question():
+    qs = adjudicate.questions(PAIRS, SAMPLE, n_check=2)
+    ids = {(q["accession"], q["kind"]): q["id"] for q in qs}
+    bad = {"Q99": {"accession": "a"},
+           ids[("a", "fields")]: {"accession": "b", "items": []},  # renumbered: another release's question
+           ids[("b", "other")]: {"accession": "b", "items": []},  # an other question needs 'present'
+           ids[("c", "check")]: {"accession": "c", "winner": "me"}}
+    problems = adjudicate.override_problems(qs, bad)
+    assert len(problems) == 5 and any("doesn't exist" in p for p in problems)
+
+
+def test_a_check_override_without_items_keeps_the_agreed_items_and_records_the_winner():
+    qs = adjudicate.questions(PAIRS, SAMPLE, n_check=2)
+    ids = {(q["accession"], q["kind"]): q["id"] for q in qs}
+    ans = answers_for(qs, a_fields="", b_only="no", b_other="no", c_check="fine, wording only", d_check="ok")
+    ov = {ids[("c", "check")]: {"accession": "c", "agrees": True},
+          ids[("a", "fields")]: {"accession": "a", "winner": "draft", "items": [item(revision="raised").model_dump()]}}
+    gold, _, meta = adjudicate.build_gold(PAIRS, qs, ans, ov)
+    assert len(gold["c"].items) == 1 and meta["spot_check"] == {"asked": 2, "right": 2}
+    # the override's winner, and b's draft-only item rejected: a win for the model
+    assert meta["disagreements_won"] == {"draft": 1, "model": 1, "split": 0, "neither": 0}
+
 
 
 def test_unsure_leaves_the_release_out():
@@ -86,6 +110,11 @@ def test_a_letter_per_row():
     assert adjudicate.picks(q, "b") == ["b", "b", "b"] and adjudicate.picks(q, "a b") is None
     mixed = adjudicate.combined(q, adjudicate.picks(q, "b, a, b"))
     assert (mixed["low"], mixed["basis"], mixed["revision"]) == (2.0, "gaap", "maintained")
+
+
+def test_changed_readings():
+    assert adjudicate.changed_readings({"a": "1", "b": "2"}, {"a": "1", "b": "3", "c": "4"}) == ["b", "c"]
+    assert adjudicate.changed_readings({"a": "1"}, {"a": "1"}) == []
 
 
 def test_numbers_are_exact():

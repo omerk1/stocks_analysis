@@ -8,8 +8,9 @@ which document was taken, so a rerun fetches nothing it already has.
 
 EDGAR's fair-access rules: a User-Agent naming who is asking, with a contact
 (read from `SEC_USER_AGENT`; the fetcher refuses to run without it), and at most
-10 requests a second (here at most one per `MIN_INTERVAL`, ~6/s). A 429 or 5xx is
-retried after a pause; anything else fails loudly.
+10 requests a second (here at most one per `MIN_INTERVAL`, ~6/s). A 403 (SEC's
+rate-limit answer), 429 or 5xx is retried after a pause; anything else fails loudly,
+including a filing index with no document table (never cached as "no press release").
 
     SEC_USER_AGENT="name email" python -m src.llm.guidance.fetch
 """
@@ -65,9 +66,10 @@ class Edgar:
             self._last = self._clock()
             try:
                 r = self.session.get(url, timeout=TIMEOUT)
-            except (requests.ConnectionError, requests.Timeout):
+            except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError):
                 r = None
-            if r is None or r.status_code == 429 or r.status_code >= 500:
+            # SEC answers an exceeded rate limit with 403 ("Request Rate Threshold Exceeded")
+            if r is None or r.status_code in (403, 429) or r.status_code >= 500:
                 if attempt < RETRIES - 1:
                     self._sleep(2.0 * 2 ** attempt)
                 continue
@@ -111,9 +113,11 @@ def fetch_one(edgar: Edgar, accession: str, index_url: str, root: Path) -> dict:
         return json.loads(manifest_path.read_text())
     folder.mkdir(parents=True, exist_ok=True)
     index_path = folder / "index.htm"
-    if not index_path.exists():
-        index_path.write_bytes(edgar.get(index_url))
-    docs = index_documents(index_path.read_bytes(), index_url)
+    index = index_path.read_bytes() if index_path.exists() else edgar.get(index_url)
+    docs = index_documents(index, index_url)
+    if not docs:  # an error page or a changed layout, not "no press release": fail, cache nothing
+        raise ValueError(f"{accession}: no document table in the filing index {index_url}")
+    index_path.write_bytes(index)
     chosen = pick_release(docs)
     manifest = {"accession": accession, "index_url": index_url, "documents": docs, "release": chosen,
                 "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -149,7 +153,9 @@ def release_text(raw: bytes) -> str:
         for tag in soup.find_all(BLOCK_TAGS):
             tag.insert_before("\n")
             tag.insert_after("\n")
-        for tr in soup.find_all("tr"):
+        for tr in reversed(soup.find_all("tr")):  # inner rows first
+            if tr.find("table") is not None:  # a layout row holding a table: leave its lines as they are
+                continue
             cells = [re.sub(r"\s+", " ", c.get_text("")).strip() for c in tr.find_all(["td", "th"])]
             tr.replace_with("\n" + " | ".join(c for c in cells if c) + "\n")
         text = soup.get_text("")

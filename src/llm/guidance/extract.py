@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.llm.gemini import BudgetExceeded, ReplyError
+from src.llm.gemini import BudgetExceeded, DailyCapExceeded, ReplyError
 from src.llm.guidance import fetch, prompt
 from src.llm.guidance.sample import PROBE_DIR, SAMPLE_PATH
 from src.llm.guidance.schema import ReleaseLabel
@@ -52,6 +52,8 @@ def run_one(gemini, accession: str, text: str, out_dir: Path = EXTRACTIONS_DIR) 
     try:
         reply = prompt.extract(gemini, text)
         row |= {"label": reply.parsed.model_dump(), "usage": asdict(reply.usage)}
+    except DailyCapExceeded:
+        raise  # today's budget, not this release: nothing to cache, a rerun tomorrow asks again
     except (ReplyError, BudgetExceeded) as e:  # BudgetExceeded: e.g. a release over the input cap
         row["error"] = f"{type(e).__name__}: {e}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -62,10 +64,10 @@ def run_one(gemini, accession: str, text: str, out_dir: Path = EXTRACTIONS_DIR) 
 def load_extractions(out_dir: Path = EXTRACTIONS_DIR) -> dict[str, ReleaseLabel | None]:
     """accession -> the parsed reply, or None for a cached error. Refuses a reply made
     under another fingerprint: scoring it as this version would be scoring a stale run."""
-    out = {}
+    out, fp = {}, prompt.fingerprint()
     for path in sorted(out_dir.glob("*.json")):
         row = json.loads(path.read_text())
-        if row.get("fingerprint") != prompt.fingerprint():
+        if row.get("fingerprint") != fp:
             raise ValueError(f"{path.name} was made under another prompt fingerprint; rerun the extraction")
         out[row["accession"]] = ReleaseLabel.model_validate(row["label"]) if "label" in row else None
     return out

@@ -13,16 +13,15 @@
   "items": {
    "gold": 73,
    "predicted": 76,
-   "matched": 69,
-   "recall": 0.9452054794520548,
-   "precision": 0.9078947368421053
+   "matched": 68,
+   "recall": 0.9315068493150684,
+   "precision": 0.8947368421052632
   },
   "field_accuracy_on_matched": {
    "shape": 1.0,
-   "values": 0.9855072463768116,
-   "unit": 0.927536231884058,
-   "basis": 0.8695652173913043,
-   "revision": 0.927536231884058
+   "values": 0.9852941176470589,
+   "basis": 0.8676470588235294,
+   "revision": 0.9264705882352942
   },
   "revision": {
    "gold_items_readable": 23,

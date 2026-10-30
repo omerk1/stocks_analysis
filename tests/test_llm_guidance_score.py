@@ -43,6 +43,18 @@ def test_run_one_records_a_refused_call(tmp_path):
     assert row["error"].startswith("BudgetExceeded") and extract.load_extractions(tmp_path)["big"] is None
 
 
+def test_run_one_never_caches_a_spent_daily_cap(tmp_path):
+    from src.llm.gemini import DailyCapExceeded
+
+    class Spent(StubGemini):
+        def generate(self, text, **kw):
+            raise DailyCapExceeded("cap reached")
+
+    with pytest.raises(DailyCapExceeded):
+        extract.run_one(Spent(), "acc", "text", tmp_path)
+    assert not (tmp_path / "acc.json").exists()
+
+
 def test_match_needs_same_metric_and_period_and_prefers_agreement():
     gold = [item(), item(basis="gaap", low=2.0, high=2.1)]
     pred = [item(basis="gaap", low=2.0, high=2.1), item(period="quarter"), item()]
@@ -67,7 +79,7 @@ def test_score_counts_presence_items_fields_and_revisions():
     assert r["presence"] == {"tp": 2, "fp": 1, "fn": 1, "tn": 0, "precision": 2 / 3, "recall": 2 / 3}
     assert r["unusable_replies"] == 1
     assert r["items"] == {"gold": 4, "predicted": 3, "matched": 2, "recall": 0.5, "precision": 2 / 3}
-    assert r["field_accuracy_on_matched"] == {"shape": 1.0, "values": 0.5, "unit": 1.0, "basis": 1.0, "revision": 0.5}
+    assert r["field_accuracy_on_matched"] == {"shape": 1.0, "values": 0.5, "basis": 1.0, "revision": 0.5}
     assert r["revision"] == {"gold_items_readable": 3, "share_of_gold_items": 0.75, "model_right_on_readable": 1 / 3}
     with pytest.raises(ValueError):
         score.score(gold, {"a": None})
