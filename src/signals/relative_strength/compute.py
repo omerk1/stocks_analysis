@@ -12,7 +12,7 @@ against a peer group) applied to a different pairing:
 - sector-vs-market: the 11 sector ETFs themselves vs `config
   .market_benchmark`, rs_rating ranked among just the 11 sectors.
 
-Cross-sectional like `src/breadth/`, but with a second, different ticker's
+Cross-sectional like `src/signals/breadth/`, but with a second, different ticker's
 price series joined in -- the first place in this codebase two different
 tickers' price series are compared directly (see `indicators.ratio`).
 Point-in-time correct for the stock-level axes via the same

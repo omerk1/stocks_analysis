@@ -6,7 +6,7 @@ tradeoff for now — not necessarily a to-do.
 
 ## No real trading calendar
 
-`src/data_processing/resample.py` (`_resample`, see docstring at the top of that
+`src/foundation/data_processing/resample.py` (`_resample`, see docstring at the top of that
 function) decides whether a week/month is "closed" using pure calendar logic:
 the last weekday on/before the period's nominal end. It has no concept of
 market holidays.
@@ -23,7 +23,7 @@ market holidays.
 
 ## `is_partial` is a same-day heuristic, not a market-clock check
 
-`src/data_processing/fetch_data.py` (`mark_partial`) flags a daily bar as
+`src/foundation/data_processing/fetch_data.py` (`mark_partial`) flags a daily bar as
 partial if its date is `>= as_of`'s date. It doesn't know the actual market
 close time.
 
@@ -34,7 +34,7 @@ close time.
 ## Polygon free tier has no intraday data
 
 Only end-of-day (1D) bars are available from Polygon on the free tier
-(`src/data_processing/polygon_client.py`), rate-limited to 5 requests/minute
+(`src/foundation/data_processing/polygon_client.py`), rate-limited to 5 requests/minute
 (confirmed via Polygon's own pricing page and by testing the actual 2-year
 historical boundary directly). This is why yfinance is the intended intraday
 source, and why `bars_4h` doesn't exist yet at all.
@@ -77,7 +77,7 @@ ceiling everywhere.
 
 ## `bars_1h` storage isn't wired up yet
 
-The schema (`src/data_processing/db.py`) reserves a `bars_1h` table, and
+The schema (`src/foundation/data_processing/db.py`) reserves a `bars_1h` table, and
 `YFinanceClient.get_hourly_bars` returns correctly-shaped data for it, but
 `fetch_data.py` only ever fetches daily bars right now -- nothing calls
 `get_hourly_bars` and upserts the result. This is a smaller gap than the 4H
@@ -101,7 +101,7 @@ just returns a truncated range starting later than requested.
 
 ## Source validation only checks dates present in both sources
 
-`src/data_processing/validate_sources.py` (`compare_stored_daily_bars`) does
+`src/foundation/data_processing/validate_sources.py` (`compare_stored_daily_bars`) does
 an inner join on date before comparing closes, over data both sources have
 already had fetched and stored (it's a DB query, not a live re-fetch). A date
 missing entirely from one source is not flagged as a discrepancy — only dates
@@ -129,7 +129,7 @@ dataset only (Done #83); 101 remain (`docs/backlog.md`).
 
 ## Weekly/monthly bars are recomputed from full history every fetch
 
-`fetch_ticker` (`src/data_processing/fetch_data.py`) reads *all* stored daily
+`fetch_ticker` (`src/foundation/data_processing/fetch_data.py`) reads *all* stored daily
 bars for a ticker and re-resamples the whole history into `bars_1w`/`bars_1mo`
 on every run, rather than only the periods touched by the newly fetched range.
 Correct (a still-open period needs its earlier days re-read anyway) but doesn't

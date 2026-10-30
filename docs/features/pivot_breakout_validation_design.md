@@ -1,5 +1,7 @@
 # Pivot Breakout Validation — Design Doc
 
+> **Path note:** written before the `src/` layout reorder. Read `src/<pkg>/` below as `src/signals/<pkg>/` for `patterns`, `sr_lines` and `market_structure`, and `src/market_common/` as `src/foundation/market_common/`. All three behaviors are built; line numbers cited below are from the time of writing.
+
 **Purpose:** Implementation brief for three "universal pivot variation" breakout behaviors layered on top of the existing pivot/S-R/pattern infrastructure: **Break of Structure (BOS) / Change of Character (CHoCH)**, **Double/Triple Top-Bottom S/R Flip**, and **1-2-3 Reversal**. Originates from an LLM-drafted spec (reviewed, contains no harmful/irrelevant content, reflects the author's actual intent) reconciled against what already exists in `src/`.
 
 **Ground rule carried over from the original spec:** do not rewrite the core pivot detection algorithm (`market_common.pivots.detect_pivots`). Every feature below is a layer of execution/breakout logic on top of it, reusing existing primitives wherever they already do the job.

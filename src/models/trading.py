@@ -588,12 +588,6 @@ def cell_picks(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.
     return out
 
 
-def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame, k: int,
-                 keep=None) -> dict[str, pd.Series]:
-    """Per-date gross top-`k` basket return of each side's `cell_picks`."""
-    return {side: basket(p) for side, p in cell_picks(sc, cell, preds, frame, k, keep).items()}
-
-
 def pick_diagnostics(picked: dict[str, pd.DataFrame], features: pd.DataFrame, columns: list[str],
                      horizon: int) -> dict:
     """Descriptive, never a verdict: the model's and the reference's daily
