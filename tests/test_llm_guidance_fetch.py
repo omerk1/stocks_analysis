@@ -74,8 +74,15 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(tagged_tail) == "A | B | 2.1"  # a figure in an inline tag kept too
     wrapped_cell = b"<table><tr><td>A<font><td>B</font><td>C</td></tr></table>"
     assert fetch.release_text(wrapped_cell) == "A | B | C"
-    block = b"<table><tr><td>Revenue grew<p>strongly<td>2.1</p></td></tr></table>"  # a block isn't unwrapped
-    assert "Revenue grew" in fetch.release_text(block) and "grewstrongly" not in fetch.release_text(block)
+    blocks = {  # a block wrapper is unwrapped with a line break in its place: no glued words, order kept
+        b"<table><tr><td>Revenue grew<p>strongly<td>2.1</p></td></tr></table>": ["Revenue grew strongly | 2.1"],
+        b"<table><tr><td>A<p>B<td>C</td></p>D<td>E</td></tr></table>": ["A B | C | D | E"],
+        b"<table><tr><td>Outlook<ul><li>EPS<td>2.1</ul><td>raised</tr></table>": ["Outlook EPS | 2.1 | raised"],
+        b"<table><tr><td>A<center><tr><td>B<td>C</center><tr><td>D</table>": ["A", "", "B | C", "", "D"],
+        b"<table><tr><td>A</td><div><tr><td>B</td></tr></div>X<tr><td>C</td></tr></table>": ["A", "", "B", "", "X", "", "C"],
+    }
+    for html, lines in blocks.items():
+        assert fetch.release_text(html).splitlines() == lines, html
     wrapped_row = b"<table><tr><td>A</td><font><tr><td>B</td></tr></font><tr><td>C</td></tr></table>"
     assert fetch.release_text(wrapped_row).splitlines() == ["A", "", "B", "", "C"]
     wrapped = b"""<table><tr><td>Outlook</td><font><td>Note</td></font><td><table><tr><td>EPS</td><td>2.1</td>
