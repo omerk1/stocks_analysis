@@ -1,0 +1,32 @@
+{
+ "accession": "0001193125-11-276724",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "c340aeef44c652ea7c20f9c8688717555c3370987754a5cec842d652628733d5",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "global comparable sales",
+    "period": "quarter",
+    "period_text": "October",
+    "shape": "range",
+    "low": 4.0,
+    "high": 5.0,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "As we enter the final quarter of 2011, our global comparable sales remain strong with October comparable sales expected to be up 4.0% to 5.0%."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 3984,
+  "output_tokens": 166,
+  "thinking_tokens": 0,
+  "total_tokens": 4150
+ }
+}

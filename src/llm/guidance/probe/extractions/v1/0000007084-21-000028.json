@@ -1,0 +1,45 @@
+{
+ "accession": "0000007084-21-000028",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "f677c3a4fc16da243baebf66e05c065264913c6b32c5bb5f629b26ea341b553d",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "profit growth for Nutrition",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "point",
+    "low": 20.0,
+    "high": 20.0,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "in fact, we are now raising our expectations of full-year profit growth for Nutrition to 20 percent."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "full-year earnings",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Given our great start to the year and our expectation of continued momentum in the second half, we are confident in delivering very strong full-year earnings, and we remain well-positioned for robust, sustained growth in the years to come."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 9366,
+  "output_tokens": 304,
+  "thinking_tokens": 0,
+  "total_tokens": 9670
+ }
+}

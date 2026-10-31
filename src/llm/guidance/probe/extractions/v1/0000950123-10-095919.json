@@ -1,0 +1,84 @@
+{
+ "accession": "0000950123-10-095919",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "92359f065ad574afa2c826e4d535dc505c1d51cdbe21fbdca050b7108110fbd0",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "cost savings",
+    "period": "year",
+    "period_text": "2010",
+    "shape": "point",
+    "low": 185.0,
+    "high": 185.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "We have achieved $140 million in year-to-date cost savings, and we are on pace to reduce costs by a total of $185 million in 2010."
+   },
+   {
+    "metric": "other",
+    "metric_text": "costs",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "point",
+    "low": 100.0,
+    "high": 100.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "In 2011, we expect to reduce costs throughout our ongoing businesses by another $100 million."
+   },
+   {
+    "metric": "other",
+    "metric_text": "cumulative pre-tax costs savings",
+    "period": "other",
+    "period_text": "2009 through 2011",
+    "shape": "point",
+    "low": 500.0,
+    "high": 500.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "When achieved, our 2009 through 2011 cumulative pre-tax costs savings are estimated at $500 million."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Capital spending",
+    "period": "year",
+    "period_text": "full-year 2010",
+    "shape": "point",
+    "low": 2.3,
+    "high": 2.3,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Capital spending is expected to be approximately $2.3 billion for the full-year 2010."
+   },
+   {
+    "metric": "other",
+    "metric_text": "capital spending",
+    "period": "year",
+    "period_text": "2011",
+    "shape": "point",
+    "low": 2.6,
+    "high": 2.6,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The company has announced a preliminary capital spending estimate of $2.6 billion for 2011, which includes a decline in regulatory spending and an increase in spending for economic growth projects."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 8091,
+  "output_tokens": 728,
+  "thinking_tokens": 0,
+  "total_tokens": 8819
+ }
+}

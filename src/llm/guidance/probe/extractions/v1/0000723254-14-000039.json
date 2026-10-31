@@ -1,0 +1,45 @@
+{
+ "accession": "0000723254-14-000039",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "2c54aef5645e885a8b5e51c2884750eeedc0c53e4a24ae83078637dfeeb95068",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "fiscal 2015 revenue",
+    "period": "year",
+    "period_text": "fiscal 2015",
+    "shape": "range",
+    "low": 4.45,
+    "high": 4.5,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We now expect fiscal 2015 revenue to be in the range of $4.45 billion to $4.50 billion, and fiscal 2015 EPS to be in the range of $3.49 to $3.54."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "fiscal 2015 EPS",
+    "period": "year",
+    "period_text": "fiscal 2015",
+    "shape": "range",
+    "low": 3.49,
+    "high": 3.54,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We now expect fiscal 2015 revenue to be in the range of $4.45 billion to $4.50 billion, and fiscal 2015 EPS to be in the range of $3.49 to $3.54."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 11664,
+  "output_tokens": 374,
+  "thinking_tokens": 0,
+  "total_tokens": 12038
+ }
+}

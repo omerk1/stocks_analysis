@@ -1,0 +1,71 @@
+{
+ "accession": "0001020569-19-000194",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "0796fa046a547bb8012e22a1527c24165e7e3463a0481c7a0730c78c103249f7",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "Revenue",
+    "period": "year",
+    "period_text": "2019 full-year",
+    "shape": "range",
+    "low": 4250.0,
+    "high": 4325.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "With two quarters now complete, Iron Mountain updated its 2019 full-year guidance ranges as follows. Additional guidance details and assumptions are available on Page 6 of the Q2 2019 supplemental financial information. 2019 Guidance (Dollars in millions, except per share data) New | Previous Revenue | $4,250-$4,325 | $4,200-$4,400"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Adjusted EBITDA",
+    "period": "year",
+    "period_text": "2019 full-year",
+    "shape": "range",
+    "low": 1440.0,
+    "high": 1480.0,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "With two quarters now complete, Iron Mountain updated its 2019 full-year guidance ranges as follows. Additional guidance details and assumptions are available on Page 6 of the Q2 2019 supplemental financial information. 2019 Guidance (Dollars in millions, except per share data) New | Previous Adjusted EBITDA | $1,440-$1,480 | $1,420-$1,530"
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Adjusted EPS",
+    "period": "year",
+    "period_text": "2019 full-year",
+    "shape": "range",
+    "low": 1.0,
+    "high": 1.1,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "lowered",
+    "evidence": "With two quarters now complete, Iron Mountain updated its 2019 full-year guidance ranges as follows. Additional guidance details and assumptions are available on Page 6 of the Q2 2019 supplemental financial information. 2019 Guidance (Dollars in millions, except per share data) New | Previous Adjusted EPS | $1.00-$1.10 | $1.08-$1.18"
+   },
+   {
+    "metric": "other",
+    "metric_text": "AFFO",
+    "period": "year",
+    "period_text": "2019 full-year",
+    "shape": "range",
+    "low": 870.0,
+    "high": 900.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "With two quarters now complete, Iron Mountain updated its 2019 full-year guidance ranges as follows. Additional guidance details and assumptions are available on Page 6 of the Q2 2019 supplemental financial information. 2019 Guidance (Dollars in millions, except per share data) New | Previous AFFO | $870-$900 | $870-$930"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 9987,
+  "output_tokens": 850,
+  "thinking_tokens": 0,
+  "total_tokens": 10837
+ }
+}

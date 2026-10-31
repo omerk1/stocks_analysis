@@ -1,0 +1,162 @@
+{
+ "accession": "0001383312-15-000049",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "394c001294fd6a06875bcca6d46c94c2c6322118a1bdc47fb80643db81ae1b42",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "recurring fee revenue growth",
+    "period": "year",
+    "period_text": "fiscal year 2016",
+    "shape": "range",
+    "low": 10.0,
+    "high": 12.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Our fiscal year 2016 guidance is highlighted by planned strong recurring fee revenue growth of 10% to 12% and Adjusted Diluted earnings per share growth of 8% to 12%."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Adjusted Diluted earnings per share growth",
+    "period": "year",
+    "period_text": "fiscal year 2016",
+    "shape": "range",
+    "low": 8.0,
+    "high": 12.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Our fiscal year 2016 guidance is highlighted by planned strong recurring fee revenue growth of 10% to 12% and Adjusted Diluted earnings per share growth of 8% to 12%."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "recurring fee revenue growth",
+    "period": "other",
+    "period_text": "three-year performance objectives",
+    "shape": "range",
+    "low": 7.0,
+    "high": 10.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Given the strong fiscal year 2015 performance, I remain confident in Broadridge\u2019s ability to continue to successfully execute our long term strategy and achieve our three-year performance objectives which, on a compounded annual growth rate basis, include recurring fee revenue growth of 7% to 10% and adjusted net earnings growth of 9% to 11%."
+   },
+   {
+    "metric": "other",
+    "metric_text": "adjusted net earnings growth",
+    "period": "other",
+    "period_text": "three-year performance objectives",
+    "shape": "range",
+    "low": 9.0,
+    "high": 11.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Given the strong fiscal year 2015 performance, I remain confident in Broadridge\u2019s ability to continue to successfully execute our long term strategy and achieve our three-year performance objectives which, on a compounded annual growth rate basis, include recurring fee revenue growth of 7% to 10% and adjusted net earnings growth of 9% to 11%."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "total revenue growth",
+    "period": "year",
+    "period_text": "Fiscal Year 2016",
+    "shape": "range",
+    "low": 8.0,
+    "high": 10.0,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "The Company anticipates: \u2022 | Recurring fee revenue growth in the range of 10% to 12% and total revenue growth in the range of 8% to 10%"
+   },
+   {
+    "metric": "margin",
+    "metric_text": "Adjusted Operating income margin",
+    "period": "year",
+    "period_text": "Fiscal Year 2016",
+    "shape": "point",
+    "low": 18.4,
+    "high": 18.4,
+    "unit": "percent",
+    "basis": "adjusted",
+    "revision": "initiated",
+    "evidence": "\u2022 | Adjusted Operating income margin of ~18.4%"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Effective tax rate",
+    "period": "year",
+    "period_text": "Fiscal Year 2016",
+    "shape": "point",
+    "low": 34.8,
+    "high": 34.8,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "\u2022 | Effective tax rate of ~34.8%"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Free cash flows",
+    "period": "year",
+    "period_text": "Fiscal Year 2016",
+    "shape": "range",
+    "low": 350.0,
+    "high": 400.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "\u2022 | Free cash flows in the range of $350 million to $400 million"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Recurring revenue closed sales",
+    "period": "year",
+    "period_text": "Fiscal Year 2016",
+    "shape": "range",
+    "low": 120.0,
+    "high": 160.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "initiated",
+    "evidence": "\u2022 | Recurring revenue closed sales in the range of $120 million to $160 million"
+   },
+   {
+    "metric": "eps",
+    "metric_text": "Diluted earnings per share (GAAP)",
+    "period": "year",
+    "period_text": "FY16",
+    "shape": "range",
+    "low": 7.0,
+    "high": 12.0,
+    "unit": "percent growth",
+    "basis": "gaap",
+    "revision": "initiated",
+    "evidence": "Earnings Per Share Growth Rate (1) | FY16 Guidance Adjusted Diluted earnings per share (Non-GAAP) | 8% - 12% growth Diluted earnings per share (GAAP) | 7% - 12% growth"
+   },
+   {
+    "metric": "margin",
+    "metric_text": "Operating income margin % (GAAP)",
+    "period": "year",
+    "period_text": "FY16",
+    "shape": "point",
+    "low": 17.3,
+    "high": 17.3,
+    "unit": "percent",
+    "basis": "gaap",
+    "revision": "initiated",
+    "evidence": "Operating Income Margin (2) | FY16 Guidance Adjusted Operating income margin % (Non-GAAP) | ~18.4% Operating income margin % (GAAP) | ~17.3%"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 7719,
+  "output_tokens": 1677,
+  "thinking_tokens": 0,
+  "total_tokens": 9396
+ }
+}

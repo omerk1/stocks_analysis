@@ -1,0 +1,71 @@
+{
+ "accession": "0001104659-18-003876",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "3f7e74870569f5100f28ee8ac7570aa54e75923a322db46948885174ecd2a8ca",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "GAAP EPS",
+    "period": "year",
+    "period_text": "2018 full-year",
+    "shape": "range",
+    "low": 10.2,
+    "high": 10.7,
+    "unit": "USD per share",
+    "basis": "gaap",
+    "revision": "raised",
+    "evidence": "Raised 2018 full-year earnings outlook: GAAP EPS of $10.20 to $10.70 versus $9.60 to $10.00 previously"
+   },
+   {
+    "metric": "other",
+    "metric_text": "full-year tax rate",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "range",
+    "low": 20.0,
+    "high": 22.0,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "The company also anticipates its full-year tax rate will be 20.0 to 22.0 percent, versus a prior range of 26.0 to 27.0 percent"
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "organic local-currency sales growth",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 3.0,
+    "high": 5.0,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "3M affirmed its organic local-currency sales growth expectations of 3 to 5 percent and free cash flow conversion of 90 to 100 percent, as referenced in the \u201cSupplemental Financial Information Non-GAAP Measures\u201d section"
+   },
+   {
+    "metric": "other",
+    "metric_text": "free cash flow conversion",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "range",
+    "low": 90.0,
+    "high": 100.0,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "3M affirmed its organic local-currency sales growth expectations of 3 to 5 percent and free cash flow conversion of 90 to 100 percent, as referenced in the \u201cSupplemental Financial Information Non-GAAP Measures\u201d section"
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 11141,
+  "output_tokens": 640,
+  "thinking_tokens": 0,
+  "total_tokens": 11781
+ }
+}
