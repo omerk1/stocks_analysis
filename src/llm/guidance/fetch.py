@@ -145,14 +145,18 @@ def close_unclosed(soup: BeautifulSoup) -> None:
     </td> and </tr>, and html.parser then nests each row inside the row before it and
     each cell inside the cell before it, where a browser would close them. Each such
     row or cell is moved out to follow the one it was nested in, in document order,
-    so a deeper one follows its new place in turn. Wrappers between it and its holder
-    are unwrapped first: inline ones (<font>, <b>) carry no meaning around a cell or
-    row, and a block one (<p>, <div>) leaves a line break in its place. Then
-    everything after it in the holder moves with it, in order, so nothing is reversed.
-    Among those, anything that is not a row (at row level) or a cell (at cell level),
-    loose text or an inline tag holding a figure, gets a row or cell of its own, so it
-    is neither glued to a neighbour nor dropped. A nested table is not this: its rows
-    have their own table between them and the outer row."""
+    so a deeper one follows its new place in turn. Non-cell wrappers between it and its
+    holder are unwrapped first: inline ones (<font>, <b>) carry no meaning around a
+    cell or row, and one in BLOCK_TAGS (<p>, <div>) leaves a separator in its place,
+    which the later whitespace pass makes a space, so words don't glue (a block tag
+    outside BLOCK_TAGS, like <dd>, still glues). Then everything after it in what now
+    holds it moves with it, in order, so nothing is reversed: the holder, or, for a row
+    inside an unclosed cell, that cell, which stays a cell (cells after it in the
+    holder row then stay ahead of the row: a gap the probe doc lists). Among those,
+    anything that is not a row (at row level) or a cell (at cell level), loose text or
+    an inline tag holding a figure, gets a row or cell of its own, so it is neither
+    glued to a neighbour nor dropped. A nested table is not this: its rows have their
+    own table between them and the outer row."""
     for level, bounds, holders in (("tr", ["tr", "table"], ("tr",)),
                                    ("td", ["td", "th", "tr", "table"], ("td", "th"))):
         for node in soup.find_all(["tr"] if level == "tr" else ["td", "th"]):
@@ -161,7 +165,7 @@ def close_unclosed(soup: BeautifulSoup) -> None:
                 continue  # not nested, or already moved out with an earlier one
             while node.parent is not holder and node.parent.name not in ("td", "th"):
                 wrapper = node.parent  # an unclosed cell holding a row stays a cell
-                if wrapper.name in BLOCK_TAGS:  # its line break stays where it was, so no words glue
+                if wrapper.name in BLOCK_TAGS:  # a separator in its place (a space by the end), so no words glue
                     wrapper.insert_before("\n")
                     wrapper.insert_after("\n")
                 wrapper.unwrap()
