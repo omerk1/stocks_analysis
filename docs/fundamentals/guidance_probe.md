@@ -134,6 +134,22 @@ today's cache, and it rebuilds byte for byte. So the same frozen prompt, at temp
 different answer when only the table formatting changed. The text conversion is part
 of what has to be frozen.
 
+**Text conversion: known gaps.** Old EDGAR HTML often leaves out `</td>` and `</tr>`, and
+Python's `html.parser` then nests rows and cells instead of closing them.
+`fetch.close_unclosed` undoes the common cases. The code reviews still found rarer
+shapes it gets wrong:
+- a run of cells after a nested row lands one per line, not as one row;
+- text in a wrapper just before a nested row is dropped;
+- a cell after an unclosed cell that holds a row comes out ahead of that row;
+- a "$" and its figure split into two cells.
+
+None of these occurs in the 50 releases: their text is the same under every version
+of the fix. Before the full fetch, the conversion should move to a parser that closes
+tags the way browsers do (lxml or html5lib; neither is in the project venv yet),
+measured on a sample of releases. Because v1's replies change with the text (Newell
+above), that switch is also a new text version for the purposes of the exception
+below.
+
 ### Coverage: how often releases carry guidance
 
 | | releases | headline (revenue, EPS, margin) | any guidance in scope |
