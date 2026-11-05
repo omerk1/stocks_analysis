@@ -104,7 +104,7 @@ def check_environment(trials: pd.DataFrame | None, experiment_id: str) -> None:
     """Refuses to fit more trials under an id whose `ok` rows were fitted in
     another environment, or before environments were logged: its cells and the
     new ones wouldn't be one fit's (Done #172). Failed and abandoned rows don't
-    count; `trials` None is a new log. Called once, before a run logs anything."""
+    count; `trials` None is a new log. Callers check before each horizon's fits."""
     if trials is None:
         return
     env = environment()

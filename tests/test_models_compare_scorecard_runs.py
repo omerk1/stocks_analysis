@@ -23,10 +23,14 @@ def _cells(*envs) -> dict:
     return {(21, 2.0, float(i)): pd.Series({"universe": universe(e)}) for i, e in enumerate(envs)}
 
 
+def _check(new: dict, old: dict) -> None:
+    compare_scorecard_runs.check_environments(new, old, sorted(set(new) & set(old)), "S3", "S1v")
+
+
 def test_runs_from_one_environment_compare():
-    compare_scorecard_runs.check_environments(_cells(HERE, HERE), _cells(HERE, HERE), "S3", "S1v")
+    _check(_cells(HERE, HERE), _cells(HERE, HERE))
     # a cell only one run has isn't compared, so its environment doesn't count
-    compare_scorecard_runs.check_environments(_cells(HERE, None), _cells(HERE), "S3", "S1v")
+    _check(_cells(HERE, None), _cells(HERE))
 
 
 @pytest.mark.parametrize("new, old, says", [
@@ -37,7 +41,7 @@ def test_runs_from_one_environment_compare():
 ])
 def test_runs_not_from_one_known_environment_are_refused(new, old, says):
     with pytest.raises(SystemExit, match=f"{says}.*--across-environments"):
-        compare_scorecard_runs.check_environments(_cells(*new), _cells(*old), "S3", "S1v")
+        _check(_cells(*new), _cells(*old))
 
 
 @pytest.mark.parametrize("across", [False, True])
