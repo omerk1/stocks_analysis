@@ -15,15 +15,22 @@ re-raised after logging. Draws and per-fold tables go to
 
 `spec` must state every setting the design asks a trial to log (`SPEC_FIELDS`),
 `open_holdout` included; a trial missing one is refused before it runs.
+
+The scorecard's and the ablation's specs record `environment()` under
+`universe`, next to the caches the fit read: the same code and caches fit
+differently under other library versions (S1r didn't reproduce after the move
+to the venv, Done #172), so two fits are comparable only from one environment.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import platform
 import subprocess
 import uuid
 from contextlib import contextmanager
+from importlib.metadata import version
 from pathlib import Path
 
 import pandas as pd
@@ -47,6 +54,24 @@ SPEC_FIELDS = (
 )
 COLUMNS = ["trial_id", "date", "experiment_id", "status", "git_sha", "git_dirty", *SPEC_FIELDS,
            "metrics", "n_dates", "outcome"]
+
+# The libraries a fit's numbers depend on (scipy: scikit-learn's numerics).
+ENVIRONMENT_PACKAGES = ("numpy", "pandas", "scipy", "scikit-learn")
+
+
+def environment() -> dict[str, str]:
+    """The Python and library versions this process fits with."""
+    return {"python": platform.python_version(), **{p: version(p) for p in ENVIRONMENT_PACKAGES}}
+
+
+def logged_environment(row) -> dict | None:
+    """The environment a logged trial row was fitted in; None when the row
+    predates the field (or has no `universe`): unknown, so it matches nothing."""
+    universe = row.get("universe")
+    if not isinstance(universe, str):
+        return None
+    parsed = json.loads(universe)
+    return parsed.get("environment") if isinstance(parsed, dict) else None
 
 
 def _git(*args: str) -> str | None:

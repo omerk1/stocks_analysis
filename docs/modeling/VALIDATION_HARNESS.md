@@ -694,7 +694,8 @@ Build order, one PR each, each with its own tests:
        cell (H63 2/1) differs on every row (B4 mean |Δp| 0.002, S1 0.005, max ≈ 0.48). So S1
        was refitted in the venv on `sp500_levels` as `S1v` (`--columns S1 --experiment-id
        S1v`, 18 rows); S3's archived B4 predictions equal S1v's exactly in all 18 cells.
-       TRIALS.csv doesn't record library versions (backlog).
+       Trials now log their library versions, and runs from different environments
+       aren't paired (Done #173).
      - **The environment change alone is refit-sized.** S1v − S1r: picks overlap 55–74%,
        negative at 17 of 36, CI below zero at 1, above at none, mean size 0.05%, the same as
        S1r vs S1b's refit noise above. Readouts vs market and B4 are unchanged in kind.

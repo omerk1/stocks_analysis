@@ -295,7 +295,8 @@ def trial_spec(exp: Experiment, i: int, horizon: int, features: pd.DataFrame, la
         **design(exp, i, horizon),
         "universe": {"indices": list(exp.indices), "features_built": fm.get("created"),
                      "labels_built": lm.get("created"), "disputes": lm.get("disputes"),
-                     "n_disputed_dropped": lm.get("n_disputed_dropped")},
+                     "n_disputed_dropped": lm.get("n_disputed_dropped"),
+                     "environment": trial_log.environment()},
         "liquidity_floors": fm.get("universe", {}).get("floors"),
         "open_holdout": False,
     }
