@@ -1,0 +1,149 @@
+{
+ "accession": "0000764065-18-000123",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "f0d03fd78e0568cbae91916b2ff3e150cf9a7b108da6b5dc1e879075c451fdf5",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "U.S. Iron Ore pellet sales volume",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "point",
+    "low": 21.0,
+    "high": 21.0,
+    "unit": "million long tons",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "As a result of strong market demand for pellets in the Great Lakes, Cliffs has increased its full-year sales volume expectation by 500,000 long tons to 21 million long tons."
+   },
+   {
+    "metric": "other",
+    "metric_text": "production volume",
+    "period": "year",
+    "period_text": "full-year",
+    "shape": "point",
+    "low": 20.0,
+    "high": 20.0,
+    "unit": "million long tons",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Its production volume expectation of 20 million long tons is being maintained."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "USIO revenue rates",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 105.0,
+    "high": 110.0,
+    "unit": "USD per long ton",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "Based on the assumption that iron ore prices, steel prices, and pellet premiums will average for the remainder of 2018 their respective year-to-date averages, Cliffs would realize USIO revenue rates in the range of $105 to $110 per long ton. This represents an increase from the prior calculation based on the increase in hot-rolled coil steel prices, partially offset by lower iron ore prices."
+   },
+   {
+    "metric": "other",
+    "metric_text": "U.S. Iron Ore cash cost of goods sold and operating expense",
+    "period": "year",
+    "period_text": "full-year 2018",
+    "shape": "range",
+    "low": 58.0,
+    "high": 63.0,
+    "unit": "USD per long ton",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "Cliffs' full-year 2018 U.S. Iron Ore cash cost of goods sold and operating expense2 expectation is being maintained at $58 - $63 per long ton."
+   },
+   {
+    "metric": "other",
+    "metric_text": "SG&A expense",
+    "period": "year",
+    "period_text": "full-year 2018",
+    "shape": "point",
+    "low": 115.0,
+    "high": 115.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Cliffs' full-year 2018 SG&A expense expectation of $115 million is being maintained."
+   },
+   {
+    "metric": "other",
+    "metric_text": "net interest expense",
+    "period": "year",
+    "period_text": "full-year 2018",
+    "shape": "point",
+    "low": 120.0,
+    "high": 120.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "The Company's full-year 2018 net interest expense expectation is being lowered by $10 million to $120 million, as income on short-term instruments has increased in the current rate environment."
+   },
+   {
+    "metric": "other",
+    "metric_text": "depreciation, depletion and amortization associated with U.S. Iron Ore and Corporate/Other",
+    "period": "year",
+    "period_text": "Full-year 2018",
+    "shape": "point",
+    "low": 80.0,
+    "high": 80.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Full-year 2018 depreciation, depletion and amortization associated with U.S. Iron Ore and Corporate/Other is expected to be approximately $80 million."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Toledo HBI Project spend expectation",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "point",
+    "low": 200.0,
+    "high": 200.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "the Toledo HBI Project spend expectation was reduced by $25 million to $200 million due to further development and refined timing of the project spending plan;"
+   },
+   {
+    "metric": "other",
+    "metric_text": "sustaining capital expectation",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "point",
+    "low": 75.0,
+    "high": 75.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million; and"
+   },
+   {
+    "metric": "other",
+    "metric_text": "Northshore Mine upgrade spend expectation",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "point",
+    "low": 50.0,
+    "high": 50.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "the Northshore Mine upgrade spend expectation of $50 million is being maintained."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 8082,
+  "output_tokens": 1552,
+  "thinking_tokens": 0,
+  "total_tokens": 9634
+ }
+}

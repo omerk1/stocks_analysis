@@ -1,0 +1,45 @@
+{
+ "accession": "0001281761-15-000058",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "c84d09750023be47cc693c2ca23c529e3a57a15e7a35723573032ae231574daa",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "estimate of reasonably possible contingent losses",
+    "period": "other",
+    "period_text": "going forward",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Consequently, based on current information, the company expects the estimate of reasonably possible contingent losses going forward to decrease by a significant amount."
+   },
+   {
+    "metric": "other",
+    "metric_text": "liquidity coverage ratio rule",
+    "period": "year",
+    "period_text": "January 2016",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "The company remains well positioned as it relates to the final liquidity coverage ratio rule and expects to be fully compliant by the January 2016 deadline."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 9604,
+  "output_tokens": 297,
+  "thinking_tokens": 0,
+  "total_tokens": 9901
+ }
+}

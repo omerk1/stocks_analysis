@@ -1,0 +1,32 @@
+{
+ "accession": "0001193125-10-090109",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "a328d90d78c3db9778de75951741ef21a24274c5d7bbaf28e7cb0c303858d6b8",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "operating expense",
+    "period": "year",
+    "period_text": "full year ending June 30, 2010",
+    "shape": "range",
+    "low": 26.1,
+    "high": 26.3,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Microsoft offers operating expense guidance of $26.1 billion to $26.3 billion for the full year ending June 30, 2010."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 5523,
+  "output_tokens": 182,
+  "thinking_tokens": 0,
+  "total_tokens": 5705
+ }
+}

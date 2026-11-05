@@ -1,0 +1,84 @@
+{
+ "accession": "0000310764-15-000150",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "da66bd3c5040f3cfeb84ce6e582a120ea21c2bf7ef3ad890fc053f82f97666f6",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "constant currency sales growth",
+    "period": "year",
+    "period_text": "2015",
+    "shape": "range",
+    "low": 6.5,
+    "high": 7.5,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect 2015 constant currency sales growth in the range of 6.5% to 7.5%, including organic sales growth in the range of 5.5% to 6.5%."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "organic sales growth",
+    "period": "year",
+    "period_text": "2015",
+    "shape": "range",
+    "low": 5.5,
+    "high": 6.5,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect 2015 constant currency sales growth in the range of 6.5% to 7.5%, including organic sales growth in the range of 5.5% to 6.5%."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "adjusted diluted net earnings per share",
+    "period": "year",
+    "period_text": "full year",
+    "shape": "range",
+    "low": 5.07,
+    "high": 5.12,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "not_stated",
+    "evidence": "Based on current foreign currency exchange rates, we expect adjusted diluted net earnings per share to be in the range of $5.07-$5.12 for the full year."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "sales",
+    "period": "year",
+    "period_text": "full year of 2015",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "If foreign currency exchange rates hold near current levels, we expect sales in the full year of 2015 to be negatively impacted by approximately 4.0% and adjusted diluted net earnings per share to be negatively impacted by approximately $0.25 in the full year."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "adjusted diluted net earnings per share",
+    "period": "year",
+    "period_text": "full year",
+    "shape": "point",
+    "low": -0.25,
+    "high": -0.25,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "not_stated",
+    "evidence": "If foreign currency exchange rates hold near current levels, we expect sales in the full year of 2015 to be negatively impacted by approximately 4.0% and adjusted diluted net earnings per share to be negatively impacted by approximately $0.25 in the full year."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 8783,
+  "output_tokens": 819,
+  "thinking_tokens": 0,
+  "total_tokens": 9602
+ }
+}

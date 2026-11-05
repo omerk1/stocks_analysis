@@ -1,0 +1,149 @@
+{
+ "accession": "0001024305-18-000066",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "63d2e70800ac7db73f01961d4b64121b6c42aa1605d3e1550c6eb65a8e9166c3",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "revenue",
+    "metric_text": "underlying YoY net revenue trends",
+    "period": "quarter",
+    "period_text": "2Q19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect underlying YoY net revenue trends in 2Q19 to improve versus 1Q19 across all three divisions, inclusive of expected supply chain headwinds."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "LFL net revenue growth",
+    "period": "quarter",
+    "period_text": "2Q19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect Luxury and Professional Beauty to return to LFL net revenue growth in 2Q19, while Consumer Beauty YoY trends should improve to a high single digit decline."
+   },
+   {
+    "metric": "revenue",
+    "metric_text": "Consumer Beauty YoY trends",
+    "period": "quarter",
+    "period_text": "2Q19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent decline",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect Luxury and Professional Beauty to return to LFL net revenue growth in 2Q19, while Consumer Beauty YoY trends should improve to a high single digit decline."
+   },
+   {
+    "metric": "other",
+    "metric_text": "adjusted operating income",
+    "period": "quarter",
+    "period_text": "2Q19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "adjusted",
+    "revision": "not_stated",
+    "evidence": "On adjusted operating income, we expect 2Q19 adjusted operating income to be moderately lower YoY, driven by remaining supply chain impacts and FX headwinds."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "adjusted EPS comparison",
+    "period": "quarter",
+    "period_text": "2Q19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "not_stated",
+    "evidence": "The 2Q19 year-over-year adjusted EPS comparison will be pressured by the $42 million positive tax settlement recorded in 2Q18."
+   },
+   {
+    "metric": "other",
+    "metric_text": "operating profit",
+    "period": "year",
+    "period_text": "FY19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Despite the supply chain headwinds, we continue to expect operating profit and margin growth in FY19, driven by significant progress in fixed cost reductions and synergy delivery."
+   },
+   {
+    "metric": "margin",
+    "metric_text": "margin growth",
+    "period": "year",
+    "period_text": "FY19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Despite the supply chain headwinds, we continue to expect operating profit and margin growth in FY19, driven by significant progress in fixed cost reductions and synergy delivery."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net Debt to adjusted EBITDA ratio",
+    "period": "other",
+    "period_text": "by the end of calendar 2020",
+    "shape": "ceiling",
+    "low": null,
+    "high": 4.0,
+    "unit": "x",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+   },
+   {
+    "metric": "other",
+    "metric_text": "free cash flow",
+    "period": "year",
+    "period_text": "FY19",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+   },
+   {
+    "metric": "other",
+    "metric_text": "free cash flow",
+    "period": "other",
+    "period_text": "remaining quarters",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 16688,
+  "output_tokens": 1446,
+  "thinking_tokens": 0,
+  "total_tokens": 18134
+ }
+}

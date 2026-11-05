@@ -1,0 +1,58 @@
+{
+ "accession": "0001104659-14-057620",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "63ea825933b4ceb36249d475b369c317763eb7d1f7bb3a8f7da201081a9b869b",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "total capital expenditures",
+    "period": "year",
+    "period_text": "For 2014",
+    "shape": "point",
+    "low": 2.2,
+    "high": 2.2,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "lowered",
+    "evidence": "For 2014, the company expects total capital expenditures of approximately $2.2 billion."
+   },
+   {
+    "metric": "other",
+    "metric_text": "capital expenditures for the capacity expansion projects",
+    "period": "year",
+    "period_text": "2014",
+    "shape": "point",
+    "low": 1.7,
+    "high": 1.7,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "This consists of approximately $1.7 billion for the capacity expansion projects and $0.5 billion of sustaining and other capital expenditures."
+   },
+   {
+    "metric": "other",
+    "metric_text": "sustaining and other capital expenditures",
+    "period": "year",
+    "period_text": "2014",
+    "shape": "point",
+    "low": 0.5,
+    "high": 0.5,
+    "unit": "USD billions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "This consists of approximately $1.7 billion for the capacity expansion projects and $0.5 billion of sustaining and other capital expenditures."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 12836,
+  "output_tokens": 437,
+  "thinking_tokens": 0,
+  "total_tokens": 13273
+ }
+}

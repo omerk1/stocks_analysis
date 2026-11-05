@@ -1,0 +1,360 @@
+{
+ "headline": {
+  "releases": 50,
+  "unusable_replies": 0,
+  "presence": {
+   "tp": 23,
+   "fp": 0,
+   "fn": 1,
+   "tn": 26,
+   "precision": 1.0,
+   "recall": 0.9583333333333334
+  },
+  "items": {
+   "gold": 73,
+   "predicted": 76,
+   "matched": 68,
+   "recall": 0.9315068493150684,
+   "precision": 0.8947368421052632
+  },
+  "field_accuracy_on_matched": {
+   "shape": 1.0,
+   "values": 0.9852941176470589,
+   "basis": 0.8676470588235294,
+   "revision": 0.9264705882352942
+  },
+  "revision": {
+   "gold_items_readable": 23,
+   "share_of_gold_items": 0.3150684931506849,
+   "model_right_on_readable": 0.9565217391304348,
+   "releases_with_guidance": 24,
+   "releases_with_a_readable_revision": 13
+  },
+  "coverage": {
+   "year": [
+    {
+     "year": 2010,
+     "releases": 4,
+     "with_guidance": 1,
+     "share": 0.25
+    },
+    {
+     "year": 2011,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2012,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2013,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2014,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2015,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2016,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2017,
+     "releases": 4,
+     "with_guidance": 1,
+     "share": 0.25
+    },
+    {
+     "year": 2018,
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    },
+    {
+     "year": 2019,
+     "releases": 5,
+     "with_guidance": 3,
+     "share": 0.6
+    },
+    {
+     "year": 2020,
+     "releases": 4,
+     "with_guidance": 1,
+     "share": 0.25
+    },
+    {
+     "year": 2021,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    }
+   ],
+   "sector": [
+    {
+     "sector": "Basic Materials",
+     "releases": 5,
+     "with_guidance": 3,
+     "share": 0.6
+    },
+    {
+     "sector": "Communication Services",
+     "releases": 4,
+     "with_guidance": 0,
+     "share": 0.0
+    },
+    {
+     "sector": "Consumer Cyclical",
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "sector": "Consumer Defensive",
+     "releases": 5,
+     "with_guidance": 2,
+     "share": 0.4
+    },
+    {
+     "sector": "Energy",
+     "releases": 5,
+     "with_guidance": 0,
+     "share": 0.0
+    },
+    {
+     "sector": "Financial Services",
+     "releases": 4,
+     "with_guidance": 0,
+     "share": 0.0
+    },
+    {
+     "sector": "Healthcare",
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "sector": "Industrials",
+     "releases": 5,
+     "with_guidance": 3,
+     "share": 0.6
+    },
+    {
+     "sector": "Real Estate",
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    },
+    {
+     "sector": "Technology",
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "sector": "Utilities",
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    }
+   ],
+   "size": [
+    {
+     "size": "large",
+     "releases": 26,
+     "with_guidance": 12,
+     "share": 0.46
+    },
+    {
+     "size": "mid",
+     "releases": 24,
+     "with_guidance": 12,
+     "share": 0.5
+    }
+   ]
+  }
+ },
+ "any": {
+  "presence": {
+   "tp": 39,
+   "fp": 1,
+   "fn": 1,
+   "tn": 9,
+   "precision": 0.975,
+   "recall": 0.975
+  },
+  "coverage": {
+   "year": [
+    {
+     "year": 2010,
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "year": 2011,
+     "releases": 4,
+     "with_guidance": 4,
+     "share": 1.0
+    },
+    {
+     "year": 2012,
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "year": 2013,
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "year": 2014,
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "year": 2015,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2016,
+     "releases": 4,
+     "with_guidance": 4,
+     "share": 1.0
+    },
+    {
+     "year": 2017,
+     "releases": 4,
+     "with_guidance": 2,
+     "share": 0.5
+    },
+    {
+     "year": 2018,
+     "releases": 5,
+     "with_guidance": 5,
+     "share": 1.0
+    },
+    {
+     "year": 2019,
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    },
+    {
+     "year": 2020,
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "year": 2021,
+     "releases": 4,
+     "with_guidance": 4,
+     "share": 1.0
+    }
+   ],
+   "sector": [
+    {
+     "sector": "Basic Materials",
+     "releases": 5,
+     "with_guidance": 5,
+     "share": 1.0
+    },
+    {
+     "sector": "Communication Services",
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "sector": "Consumer Cyclical",
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "sector": "Consumer Defensive",
+     "releases": 5,
+     "with_guidance": 5,
+     "share": 1.0
+    },
+    {
+     "sector": "Energy",
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    },
+    {
+     "sector": "Financial Services",
+     "releases": 4,
+     "with_guidance": 1,
+     "share": 0.25
+    },
+    {
+     "sector": "Healthcare",
+     "releases": 4,
+     "with_guidance": 3,
+     "share": 0.75
+    },
+    {
+     "sector": "Industrials",
+     "releases": 5,
+     "with_guidance": 3,
+     "share": 0.6
+    },
+    {
+     "sector": "Real Estate",
+     "releases": 5,
+     "with_guidance": 4,
+     "share": 0.8
+    },
+    {
+     "sector": "Technology",
+     "releases": 4,
+     "with_guidance": 4,
+     "share": 1.0
+    },
+    {
+     "sector": "Utilities",
+     "releases": 5,
+     "with_guidance": 5,
+     "share": 1.0
+    }
+   ],
+   "size": [
+    {
+     "size": "large",
+     "releases": 26,
+     "with_guidance": 20,
+     "share": 0.77
+    },
+    {
+     "size": "mid",
+     "releases": 24,
+     "with_guidance": 20,
+     "share": 0.83
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,149 @@
+{
+ "accession": "0001157523-16-005287",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "68355b7fc051e7d79be0c70131d60d98787a9596a978cfe97901ff2c3775fc46",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "production sales volume",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 710.0,
+    "high": 730.0,
+    "unit": "Bcfe",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The Company increased its 2016 guidance for production sales volume to 710 \u2013 730 Bcfe, including liquids volume of 10,250 \u2013 10,750 MBBls."
+   },
+   {
+    "metric": "other",
+    "metric_text": "liquids volume",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": 10250.0,
+    "high": 10750.0,
+    "unit": "MBBls",
+    "basis": "unstated",
+    "revision": "raised",
+    "evidence": "The Company increased its 2016 guidance for production sales volume to 710 \u2013 730 Bcfe, including liquids volume of 10,250 \u2013 10,750 MBBls."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Production sales volume",
+    "period": "quarter",
+    "period_text": "second quarter of 2016",
+    "shape": "range",
+    "low": 175.0,
+    "high": 180.0,
+    "unit": "Bcfe",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Production sales volume for the second quarter of 2016 is projected to be 175 \u2013 180 Bcfe; and liquids volume is expected to be 2,700 \u2013 2,750 MBBls."
+   },
+   {
+    "metric": "other",
+    "metric_text": "liquids volume",
+    "period": "quarter",
+    "period_text": "second quarter of 2016",
+    "shape": "range",
+    "low": 2700.0,
+    "high": 2750.0,
+    "unit": "MBBls",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Production sales volume for the second quarter of 2016 is projected to be 175 \u2013 180 Bcfe; and liquids volume is expected to be 2,700 \u2013 2,750 MBBls."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Average differential to the NYMEX price forecast",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": -0.7,
+    "high": -0.6,
+    "unit": "USD per Mcf",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Average differential to the NYMEX price forecast of negative $0.60 \u2013 negative $0.70 per Mcf for 2016; and negative $0.70 \u2013 negative $0.75 per Mcf for the second quarter of 2016."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Average differential to the NYMEX price forecast",
+    "period": "quarter",
+    "period_text": "second quarter of 2016",
+    "shape": "range",
+    "low": -0.75,
+    "high": -0.7,
+    "unit": "USD per Mcf",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Average differential to the NYMEX price forecast of negative $0.60 \u2013 negative $0.70 per Mcf for 2016; and negative $0.70 \u2013 negative $0.75 per Mcf for the second quarter of 2016."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net marketing services",
+    "period": "year",
+    "period_text": "2016",
+    "shape": "range",
+    "low": -5.0,
+    "high": 5.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Net marketing services are expected to be positive $5.0 million \u2013 negative $5.0 million in 2016; and zero \u2013 negative $5.0 million in the second quarter of 2016."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net marketing services",
+    "period": "quarter",
+    "period_text": "second quarter of 2016",
+    "shape": "range",
+    "low": -5.0,
+    "high": 0.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Net marketing services are expected to be positive $5.0 million \u2013 negative $5.0 million in 2016; and zero \u2013 negative $5.0 million in the second quarter of 2016."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net income attributable to noncontrolling interest",
+    "period": "quarter",
+    "period_text": "second quarter 2016",
+    "shape": "point",
+    "low": 77.0,
+    "high": 77.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Net income attributable to noncontrolling interest is projected to be approximately $77 million for the second quarter 2016, and approximately $320 million for the full year 2016."
+   },
+   {
+    "metric": "other",
+    "metric_text": "Net income attributable to noncontrolling interest",
+    "period": "year",
+    "period_text": "full year 2016",
+    "shape": "point",
+    "low": 320.0,
+    "high": 320.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Net income attributable to noncontrolling interest is projected to be approximately $77 million for the second quarter 2016, and approximately $320 million for the full year 2016."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 12445,
+  "output_tokens": 1695,
+  "thinking_tokens": 0,
+  "total_tokens": 14140
+ }
+}

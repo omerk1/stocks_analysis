@@ -1,0 +1,3873 @@
+{
+ "0001510295-19-000010": {
+  "ticker": "MPC",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "total annual gross run-rate synergies",
+     "period": "year",
+     "period_text": "year-end 2019",
+     "shape": "ceiling",
+     "low": null,
+     "high": 600,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "By executing the strategy outlined during our recent Investor Day, we have realized $160 million of synergies in just three months and continue to expect total annual gross run-rate synergies of up to $600 million at year-end 2019 and $1.4 billion by the end of 2021."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total annual gross run-rate synergies",
+     "period": "other",
+     "period_text": "by the end of 2021",
+     "shape": "point",
+     "low": 1.4,
+     "high": 1.4,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "By executing the strategy outlined during our recent Investor Day, we have realized $160 million of synergies in just three months and continue to expect total annual gross run-rate synergies of up to $600 million at year-end 2019 and $1.4 billion by the end of 2021."
+    }
+   ],
+   "notes": "Only guidance is the Andeavor synergy run-rate targets in the CEO quote ('continue to expect' read as maintained). No financial outlook for 2019; the 'at least 50 percent of discretionary free cash flow' return commitment is capital-return policy, not counted."
+  },
+  "uncertain": "Synergy targets counted as guidance (metric other); unclear whether 'up to' also governs the $1.4B 2021 figure (labeled point) and whether 'year-end 2019' run-rate is period year or other; 'continue to expect' read as maintained; excluded the long-term >=50% FCF return policy."
+ },
+ "0001104659-18-026879": {
+  "ticker": "CMS",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "adjusted earnings per share",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 2.3,
+     "high": 2.34,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "CMS Energy reaffirmed its guidance for 2018 adjusted earnings of $2.30 - $2.34 per share (* See below for important information about non-GAAP measures) or 6 to 8 percent annual adjusted earnings per share growth."
+    }
+   ],
+   "notes": "2018 adjusted EPS guidance reaffirmed; the '6 to 8 percent annual adjusted EPS growth' is the same guidance restated as growth. No GAAP EPS guidance (release says so). Clean Energy goal (80% carbon reduction by 2040) and the up-to-4% customer bill reduction proposal not counted as guidance."
+  },
+  "uncertain": "The 6-8% adjusted EPS growth could be read as a separate long-term growth target (period other) rather than a restatement of the 2018 range; excluded the 2040 Clean Energy Breakthrough Goal (non-financial long-term target)."
+ },
+ "0000014693-14-000017": {
+  "ticker": "BF.B",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "reported net sales growth",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 6,
+     "high": 8,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "maintained",
+     "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "underlying net sales growth",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 6,
+     "high": 8,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+    },
+    {
+     "metric": "other",
+     "metric_text": "reported operating income growth",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 9,
+     "high": 11,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "maintained",
+     "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+    },
+    {
+     "metric": "other",
+     "metric_text": "underlying operating income growth",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 9,
+     "high": 11,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "Assuming no deterioration in current global market conditions, the company is reaffirming its growth outlook for fiscal 2015, including 6-8% growth in reported and underlying net sales, and 9-11% growth in reported and underlying operating income."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "diluted earnings per share",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 3.25,
+     "high": 3.45,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "The company also expects diluted earnings per share of $3.25 to $3.45, which now incorporates an anticipated negative impact from foreign exchange of $0.06 per share, partially offset by a lower expected tax rate of 29.5%."
+    },
+    {
+     "metric": "other",
+     "metric_text": "expected tax rate",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "point",
+     "low": 29.5,
+     "high": 29.5,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "The company also expects diluted earnings per share of $3.25 to $3.45, which now incorporates an anticipated negative impact from foreign exchange of $0.06 per share, partially offset by a lower expected tax rate of 29.5%."
+    }
+   ],
+   "notes": "Fiscal 2015 Outlook section; growth outlook explicitly reaffirmed. EPS range 'now incorporates' FX and tax changes with no prior range stated."
+  },
+  "uncertain": "EPS revision: CEO says 'We reaffirm our full-year guidance' but the outlook says the EPS range 'now incorporates' FX/tax changes with no prior figures -> labeled not_stated; tax rate 'lower expected tax rate' read as lowered (could be not_stated); EPS basis taken as gaap (reported diluted EPS)."
+ },
+ "0001057352-20-000033": {
+  "ticker": "CSGP",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "year",
+     "period_text": "full year of 2020",
+     "shape": "range",
+     "low": 1.65,
+     "high": 1.665,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The Company expects revenue in the range of $1.650 billion to $1.665 billion for the full year of 2020, representing growth of 18% to 19% for the year."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "quarter",
+     "period_text": "first quarter of 2020",
+     "shape": "range",
+     "low": 387,
+     "high": 392,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We expect revenue for the first quarter of 2020 in the range of $387 million to $392 million, representing revenue growth of 19% at the midpoint of the range."
+    },
+    {
+     "metric": "other",
+     "metric_text": "STR revenue contribution",
+     "period": "year",
+     "period_text": "full year 2020",
+     "shape": "range",
+     "low": 61,
+     "high": 63,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This guidance includes an estimated full year 2020 revenue contribution from STR of $61 to $63 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "adjusted EBITDA",
+     "period": "year",
+     "period_text": "full year of 2020",
+     "shape": "range",
+     "low": 520,
+     "high": 530,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "The Company expects adjusted EBITDA in a range of $520 million to $530 million for the full year of 2020, an increase of 4% at the midpoint of the range."
+    },
+    {
+     "metric": "other",
+     "metric_text": "adjusted EBITDA",
+     "period": "quarter",
+     "period_text": "first quarter of 2020",
+     "shape": "range",
+     "low": 115,
+     "high": 120,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "For the first quarter of 2020, the Company expects adjusted EBITDA in a range of $115 million to $120 million."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP net income per diluted share",
+     "period": "year",
+     "period_text": "full-year 2020",
+     "shape": "range",
+     "low": 10.2,
+     "high": 10.4,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We expect full-year 2020 non-GAAP net income per diluted share in a range of $10.20 to $10.40 based on 36.8 million shares."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP net income per diluted share",
+     "period": "quarter",
+     "period_text": "first quarter of 2020",
+     "shape": "range",
+     "low": 2.25,
+     "high": 2.35,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "For the first quarter of 2020, we expect non-GAAP net income per diluted share in a range of $2.25 to $2.35 based on 36.7 million shares."
+    },
+    {
+     "metric": "other",
+     "metric_text": "non-GAAP tax rate",
+     "period": "year",
+     "period_text": "2020",
+     "shape": "point",
+     "low": 25,
+     "high": 25,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "These ranges include a non-GAAP tax rate of 25%."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "net income per share - diluted",
+     "period": "year",
+     "period_text": "twelve months ended December 31, 2020",
+     "shape": "range",
+     "low": 7.23,
+     "high": 7.53,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income per share - diluted | $ | 1.47 | $ | 1.63 | $ | 7.23 | $ | 7.53"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "net income per share - diluted",
+     "period": "quarter",
+     "period_text": "three months ended March 31, 2020",
+     "shape": "range",
+     "low": 1.47,
+     "high": 1.63,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income per share - diluted | $ | 1.47 | $ | 1.63 | $ | 7.23 | $ | 7.53"
+    },
+    {
+     "metric": "other",
+     "metric_text": "net income",
+     "period": "year",
+     "period_text": "twelve months ended December 31, 2020",
+     "shape": "range",
+     "low": 266000,
+     "high": 277000,
+     "unit": "USD thousands",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income | $ | 54,000 | $ | 60,000 | $ | 266,000 | $ | 277,000"
+    },
+    {
+     "metric": "other",
+     "metric_text": "net income",
+     "period": "quarter",
+     "period_text": "three months ended March 31, 2020",
+     "shape": "range",
+     "low": 54000,
+     "high": 60000,
+     "unit": "USD thousands",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income | $ | 54,000 | $ | 60,000 | $ | 266,000 | $ | 277,000"
+    },
+    {
+     "metric": "other",
+     "metric_text": "non-GAAP net income",
+     "period": "year",
+     "period_text": "twelve months ended December 31, 2020",
+     "shape": "range",
+     "low": 375500,
+     "high": 382700,
+     "unit": "USD thousands",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Non-GAAP net income | $ | 82,500 | $ | 86,200 | $ | 375,500 | $ | 382,700"
+    },
+    {
+     "metric": "other",
+     "metric_text": "non-GAAP net income",
+     "period": "quarter",
+     "period_text": "three months ended March 31, 2020",
+     "shape": "range",
+     "low": 82500,
+     "high": 86200,
+     "unit": "USD thousands",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Non-GAAP net income | $ | 82,500 | $ | 86,200 | $ | 375,500 | $ | 382,700"
+    }
+   ],
+   "notes": "2020 Outlook section plus the 'Reconciliation of Forward-Looking Guidance' tables (GAAP net income, GAAP diluted EPS, non-GAAP net income for Q1 2020 and FY2020). Revenue growth % (18-19%, 19% at midpoint) is the same guidance restated, not separate items. Guidance excludes the proposed RentPath acquisition. No prior-outlook comparison stated."
+  },
+  "uncertain": "Included GAAP net income/EPS and non-GAAP net income only from the reconciliation tables (reconciling line items like tax expense, D&A, SBC not itemized); STR contribution counted as a separate 'other' item though it is a component of total revenue; share-count assumptions (36.8M/36.7M) not itemized; first 2020 outlook but release doesn't say 'initial', so not_stated."
+ },
+ "0000915389-13-000039": {
+  "ticker": "EMN",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "earnings per share (excluding Solutia integration costs, asset impairments and restructuring charges, and mark-to-market pension and OPEB gains or losses)",
+     "period": "year",
+     "period_text": "2013",
+     "shape": "range",
+     "low": 6.4,
+     "high": 6.5,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "As a result, we are increasing our expectations for 2013 earnings per share to between $6.40 and $6.50."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "earnings",
+     "period": "other",
+     "period_text": "second half of the year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We expect earnings in the second half of the year will be slightly lower than first half due to normal seasonality of sales volume."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "double-digit earnings growth",
+     "period": "other",
+     "period_text": "through 2015",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "We continue to expect double-digit earnings growth through 2015 given our leading market positions, our end-market and geographic diversity, and the growth initiatives we are pursuing throughout the company."
+    }
+   ],
+   "notes": "Outlook paragraph raises 2013 EPS (excluding items) to $6.40-$6.50 without stating the prior range. The CEO's 'fourth consecutive year of double-digit earnings growth' for 2013 is covered by the 2013 EPS item. Release says earnings referenced are non-GAAP (exclude items)."
+  },
+  "uncertain": "'Earnings' in the qualitative items mapped to metric eps with basis adjusted (release says the earnings referenced exclude items); second-half outlook included as a qualitative period-other item (could be considered too vague); 'continue to expect' through 2015 read as maintained."
+ },
+ "0001193125-17-137051": {
+  "ticker": "CHRW",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "No outlook in the release: first-quarter 2017 results only; forward-looking content limited to safe-harbor boilerplate. Any outlook would be on the conference call."
+  },
+  "uncertain": ""
+ },
+ "0000891092-12-003928": {
+  "ticker": "OMC",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "Short release with second-quarter 2012 results and financial tables only; no outlook. Declared dividend is not guidance."
+  },
+  "uncertain": ""
+ },
+ "0001281761-15-000058": {
+  "ticker": "RF",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "Second-quarter 2015 results only; no financial outlook. Forward statements present are not period metric guidance: expects the estimate of reasonably possible contingent losses to decrease significantly, and expects to be fully compliant with the liquidity coverage ratio rule by January 2016."
+  },
+  "uncertain": "Excluded the contingent-loss estimate decrease and LCR compliance-by-January-2016 statements as non-guidance; a reviewer could count either as a qualitative item."
+ },
+ "0001193125-10-090109": {
+  "ticker": "MSFT",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "operating expense",
+     "period": "year",
+     "period_text": "full year ending June 30, 2010",
+     "shape": "range",
+     "low": 26.1,
+     "high": 26.3,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Microsoft offers operating expense guidance of $26.1 billion to $26.3 billion for the full year ending June 30, 2010."
+    }
+   ],
+   "notes": "Business Outlook section gives only fiscal 2010 operating expense guidance; other forward-looking information deferred to the conference call."
+  },
+  "uncertain": ""
+ },
+ "0000078003-16-000110": {
+  "ticker": "PFE",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "Revenues",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 52.0,
+     "high": 53.0,
+     "unit": "USD billions",
+     "basis": "gaap",
+     "revision": "raised",
+     "evidence": "Revenues | $52.0 to $53.0 billion (previously $51.0 to $53.0 billion)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted Cost of Sales as a Percentage of Revenues",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 21.5,
+     "high": 22.0,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted Cost of Sales (2) as a Percentage of Revenues | 21.5% to 22.0% (previously 21.0% to 22.0%)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted SI&A Expenses",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 14.2,
+     "high": 14.7,
+     "unit": "USD billions",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted SI&A Expenses (2) | $14.2 to $14.7 billion (previously $13.7 to $14.7 billion)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted R&D Expenses",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 7.8,
+     "high": 8.1,
+     "unit": "USD billions",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted R&D Expenses (2) | $7.8 to $8.1 billion (previously $7.4 to $7.8 billion)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted Other (Income)/Deductions (income)",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "point",
+     "low": 600,
+     "high": 600,
+     "unit": "USD millions (income)",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted Other (Income)/Deductions (2) | Approximately ($600 million) of income (previously approx. ($500 million) of income)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Effective Tax Rate on Adjusted Income",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "point",
+     "low": 24.0,
+     "high": 24.0,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Effective Tax Rate on Adjusted Income (2) | Approximately 24.0%"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Adjusted Diluted EPS",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 2.38,
+     "high": 2.43,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "Adjusted Diluted EPS (2) | $2.38 to $2.43 (previously $2.38 to $2.48)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Medivation accretion to Adjusted Diluted EPS",
+     "period": "other",
+     "period_text": "first full year following the close",
+     "shape": "point",
+     "low": 0.05,
+     "high": 0.05,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "Pfizer continues to expect the transaction to be immediately accretive to Adjusted Diluted EPS (2) by approximately $0.05 in the first full year following the close, with additional accretion and growth anticipated thereafter (12) ."
+    }
+   ],
+   "notes": "Updated 2016 financial guidance table states prior ranges; revisions from midpoint comparison (revenue 52.0->52.5 raised; cost-of-sales % 21.5->21.75 raised; SI&A 14.2->14.45 raised; R&D 7.6->7.95 raised; other income 500->600 raised; adjusted EPS 2.43->2.405 lowered, which the CFO attributes to bococizumab). Tax rate has no prior figure. Pfizer gives no GAAP guidance other than revenues. Ex-bococizumab reconciliation figures ($7.5-$7.8B R&D, $2.42-$2.47 EPS) are not separate guidance."
+  },
+  "uncertain": "Cost of sales % of revenue labeled 'other' rather than 'margin' (it is an inverse gross margin); Other (Income)/Deductions recorded as 600 of income (positive) with revision raised, sign convention debatable; Medivation EPS accretion counted as guidance; excluded share-count assumption (~6.2B), FX/generic revenue impacts, and the qualitative Essential Health 'modest revenue growth' transition (no period)."
+ },
+ "0001193125-11-276724": {
+  "ticker": "MCD",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "October comparable sales",
+     "period": "other",
+     "period_text": "October",
+     "shape": "range",
+     "low": 4.0,
+     "high": 5.0,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "As we enter the final quarter of 2011, our global comparable sales remain strong with October comparable sales expected to be up 4.0% to 5.0%."
+    }
+   ],
+   "notes": "Only forward number is a month-to-date (October) comparable sales expectation in the CEO quote; no EPS/revenue outlook in the release."
+  },
+  "uncertain": "Monthly comparable-sales expectation for a month already under way: counted as guidance with period 'other' (month); a reviewer may treat it as not guidance."
+ },
+ "0001193125-21-234972": {
+  "ticker": "DVN",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "capital budget",
+     "period": "year",
+     "period_text": "2021",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+    },
+    {
+     "metric": "other",
+     "metric_text": "oil production outlook",
+     "period": "year",
+     "period_text": "2021",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "barrels per day",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+    },
+    {
+     "metric": "other",
+     "metric_text": "leverage ratio",
+     "period": "year",
+     "period_text": "by year end",
+     "shape": "ceiling",
+     "low": null,
+     "high": 1.0,
+     "unit": "times",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "we are positioned to have the highest forward dividend yield in the entire S&P 500 index that is accompanied by a strong balance sheet projected to have a leverage ratio of less than 1-turn by year end."
+    },
+    {
+     "metric": "other",
+     "metric_text": "merger cost savings (annual cash flow improvements)",
+     "period": "other",
+     "period_text": "by year-end 2021 (annual run rate)",
+     "shape": "point",
+     "low": 600,
+     "high": 600,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Devon expects its merger cost savings to drive $600 million in annual cash flow improvements by year-end 2021."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Williston Basin free cash flow",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "point",
+     "low": 700,
+     "high": 700,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "With a capital program tailored to mitigate production declines and optimize margins, this asset is projected to generate nearly $700 million of free cash flow this year at current pricing."
+    },
+    {
+     "metric": "other",
+     "metric_text": "wells drilled with Dow partnership (Anadarko Basin)",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "ceiling",
+     "low": null,
+     "high": 30,
+     "unit": "wells",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Overall, Devon plans to drill up to 30 wells with its Dow partnership this year, with first production from this carry-enhanced activity expected in the second half of the year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "GHG emissions reduction",
+     "period": "other",
+     "period_text": "by 2030",
+     "shape": "point",
+     "low": 50,
+     "high": 50,
+     "unit": "percent reduction",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Highlights from these targets include reducing GHG emissions 50 percent by 2030, achieving net zero emissions by 2050 and initiatives to constructively engage with upstream and downstream stakeholders to improve performance."
+    }
+   ],
+   "notes": "Detailed Q3 and full-year 2021 guidance is only on the company website/supplemental tables, not in the release; release states capital budget and oil production outlook unchanged."
+  },
+  "uncertain": "Merger savings period ('by year-end 2021', annual run rate) labeled 'other'; 'nearly $700 million' Williston FCF taken as point 700 (could be ceiling); GHG 2030 target included as long-term target, net-zero-by-2050 left out (could be another item); Eagle Ford 'maintain production' plan not included."
+ },
+ "0000352541-19-000010": {
+  "ticker": "LNT",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "Alliant Energy consolidated EPS",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": 2.17,
+     "high": 2.31,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Alliant Energy consolidated EPS guidance for 2019 remains unchanged. 2019 EPS guidance for the reporting companies is as follows: ... Alliant Energy Consolidated | $2.17 - $2.31"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Utilities and Corporate Services EPS",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": 2.14,
+     "high": 2.24,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Utilities and Corporate Services | $2.14 - $2.24"
+    },
+    {
+     "metric": "other",
+     "metric_text": "ATC Holdings EPS",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": 0.11,
+     "high": 0.13,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "ATC Holdings | 0.11 - 0.13"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Non-utility and Parent EPS",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": -0.08,
+     "high": -0.06,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Non-utility and Parent | (0.08) - (0.06)"
+    },
+    {
+     "metric": "other",
+     "metric_text": "consolidated effective tax rate",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "point",
+     "low": 11,
+     "high": 11,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Assumptions for Alliant Energy's 2019 earnings guidance include, but are not limited to: ... Consolidated effective tax rate of 11%"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "long-term earnings (EPS) growth objective",
+     "period": "other",
+     "period_text": "annually (long-term)",
+     "shape": "range",
+     "low": 5,
+     "high": 7,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Our 2019 earnings guidance of $2.17 to $2.31 per share is consistent with our long-term growth objective of 5 to 7 percent annually,\" said Kampling."
+    }
+   ],
+   "notes": "2019 EPS guidance reaffirmed (consolidated plus reporting-company breakdown); release does not label the guidance GAAP or non-GAAP."
+  },
+  "uncertain": "Basis of 2019 EPS guidance not stated (GAAP vs non-GAAP); 'remains unchanged' applied as maintained only to consolidated EPS, segment rows left not_stated; tax rate is a guidance assumption, included as an item."
+ },
+ "0001024305-18-000066": {
+  "ticker": "COTY",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "underlying YoY net revenue trends",
+     "period": "quarter",
+     "period_text": "2Q19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We expect underlying YoY net revenue trends in 2Q19 to improve versus 1Q19 across all three divisions, inclusive of expected supply chain headwinds."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Luxury and Professional Beauty LFL net revenue growth",
+     "period": "quarter",
+     "period_text": "2Q19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We expect Luxury and Professional Beauty to return to LFL net revenue growth in 2Q19, while Consumer Beauty YoY trends should improve to a high single digit decline."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Consumer Beauty YoY net revenue trend",
+     "period": "quarter",
+     "period_text": "2Q19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We expect Luxury and Professional Beauty to return to LFL net revenue growth in 2Q19, while Consumer Beauty YoY trends should improve to a high single digit decline."
+    },
+    {
+     "metric": "other",
+     "metric_text": "adjusted operating income",
+     "period": "quarter",
+     "period_text": "2Q19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "On adjusted operating income, we expect 2Q19 adjusted operating income to be moderately lower YoY, driven by remaining supply chain impacts and FX headwinds."
+    },
+    {
+     "metric": "other",
+     "metric_text": "operating profit growth",
+     "period": "year",
+     "period_text": "FY19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Despite the supply chain headwinds, we continue to expect operating profit and margin growth in FY19, driven by significant progress in fixed cost reductions and synergy delivery."
+    },
+    {
+     "metric": "margin",
+     "metric_text": "operating margin growth",
+     "period": "year",
+     "period_text": "FY19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Despite the supply chain headwinds, we continue to expect operating profit and margin growth in FY19, driven by significant progress in fixed cost reductions and synergy delivery."
+    },
+    {
+     "metric": "other",
+     "metric_text": "synergies",
+     "period": "year",
+     "period_text": "FY19",
+     "shape": "point",
+     "low": 225,
+     "high": 225,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "With a healthy synergy delivery already in 1Q19, these modifications should have no impact to our commitment of $225 million of synergies in FY19 and $750 million total by the end of FY20."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total synergies",
+     "period": "other",
+     "period_text": "total by the end of FY20",
+     "shape": "point",
+     "low": 750,
+     "high": 750,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "With a healthy synergy delivery already in 1Q19, these modifications should have no impact to our commitment of $225 million of synergies in FY19 and $750 million total by the end of FY20."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Net Debt to adjusted EBITDA ratio",
+     "period": "other",
+     "period_text": "by the end of calendar 2020",
+     "shape": "ceiling",
+     "low": null,
+     "high": 4.0,
+     "unit": "times",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+    },
+    {
+     "metric": "other",
+     "metric_text": "free cash flow",
+     "period": "year",
+     "period_text": "FY19",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We remain committed to our target of achieving a Net Debt to adjusted EBITDA ratio of below 4.0x by the end of calendar 2020 and we expect positive free cash flow in the remaining quarters and in FY19."
+    }
+   ],
+   "notes": "Company says it is 'not providing any further guidance' for FY19 beyond operating profit/margin growth and will update on next call. Release footnote: guidance, when given, is only on a non-GAAP basis."
+  },
+  "uncertain": "Whether 'at this stage we are not providing any further guidance' is a partial withdrawal of prior FY19 guidance (labeled maintained for profit/margin growth, no withdrawn item); basis of revenue/operating-profit items left unstated despite non-GAAP-only footnote; positive FCF in 'remaining quarters' folded into the FY19 item; 'positive' FCF kept qualitative rather than floor 0."
+ },
+ "0001104659-14-005195": {
+  "ticker": "SLG",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "No outlook in the release; 2014 guidance was given at the December 9, 2013 annual investor conference (referenced only), and the call is Q&A only. Dividend increase is a declared dividend, not guidance."
+  },
+  "uncertain": ""
+ },
+ "0001243786-20-000119": {
+  "ticker": "MOS",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "Mosaic Fertilizantes transformation target",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "floor",
+     "low": 50,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Mosaic Fertilizantes remains on track to exceed its full year transformation target of $50 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cash costs of brine management",
+     "period": "other",
+     "period_text": "by 2022",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "These costs are expected to be eliminated by 2022."
+    },
+    {
+     "metric": "other",
+     "metric_text": "SG&A expenses vs stated target",
+     "period": "year",
+     "period_text": "2020",
+     "shape": "range",
+     "low": 10,
+     "high": 15,
+     "unit": "USD millions above stated target",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company expects SG&A expenses to end 2020 approximately $10 to $15 million above its stated target."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cash taxes",
+     "period": "year",
+     "period_text": "2020",
+     "shape": "point",
+     "low": 0,
+     "high": 0,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "While cash taxes are expected to be approximately zero in 2020, the effective rate for full year 2020 is expected to be in the mid-to-high 50 percent range due to the mix of earnings by jurisdiction."
+    },
+    {
+     "metric": "other",
+     "metric_text": "effective tax rate",
+     "period": "year",
+     "period_text": "full year 2020",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "While cash taxes are expected to be approximately zero in 2020, the effective rate for full year 2020 is expected to be in the mid-to-high 50 percent range due to the mix of earnings by jurisdiction."
+    },
+    {
+     "metric": "other",
+     "metric_text": "effective tax rate",
+     "period": "year",
+     "period_text": "2021",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The full year effective tax rate for 2021 is expected to be in the mid-30 percent range under current tax regulations."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Depreciation, Depletion and Amortization",
+     "period": "year",
+     "period_text": "Full Year 2020",
+     "shape": "range",
+     "low": 860,
+     "high": 900,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Depreciation, Depletion and Amortization | $860 - $900 million* ... *Changed from assumptions provided in the prior period."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Net Interest Expense",
+     "period": "year",
+     "period_text": "Full Year 2020",
+     "shape": "range",
+     "low": 180,
+     "high": 190,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net Interest Expense | $180 - $190 million"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Non-notable adjustments",
+     "period": "year",
+     "period_text": "Full Year 2020",
+     "shape": "range",
+     "low": 80,
+     "high": 90,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Non-notable adjustments | $80 - $90 million"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Capital expenditures",
+     "period": "year",
+     "period_text": "Full Year 2020",
+     "shape": "point",
+     "low": 1.2,
+     "high": 1.2,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Capital expenditures | ~ $1.2 billion"
+    }
+   ],
+   "notes": "Full-year 2020 modeling assumptions table; D,D&A and effective tax rate marked 'Changed from assumptions provided in the prior period' without prior figures (so not_stated). Equity earnings: 'No guidance'. No EPS/revenue guidance."
+  },
+  "uncertain": "Effective tax rate 2020 appears twice (text and table, same 'mid to high 50s') - merged into one item; 'approximately zero' cash taxes taken as point 0; brine cost elimination by 2022 kept qualitative; 'on track to exceed' $50M labeled floor/maintained; CEO 'strong business conditions to continue into 2021' treated as macro, not guidance."
+ },
+ "0001193125-13-414291": {
+  "ticker": "LHX",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "income from continuing operations per diluted share",
+     "period": "year",
+     "period_text": "fiscal 2014",
+     "shape": "range",
+     "low": 4.65,
+     "high": 4.85,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "maintained",
+     "evidence": "Harris reiterated its fiscal 2014 guidance for income from continuing operations in a range of $4.65 to $4.85 per diluted share and for revenue declining 1 to 3 percent compared with the prior year."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "year",
+     "period_text": "fiscal 2014",
+     "shape": "range",
+     "low": -3,
+     "high": -1,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Harris reiterated its fiscal 2014 guidance for income from continuing operations in a range of $4.65 to $4.85 per diluted share and for revenue declining 1 to 3 percent compared with the prior year."
+    }
+   ],
+   "notes": "Fiscal 2014 guidance reiterated (Harris Corporation, filed under LHX)."
+  },
+  "uncertain": "EPS basis labeled gaap because income from continuing operations per diluted share is a GAAP line and the release calls nothing in the guidance non-GAAP; release does not say 'GAAP' explicitly."
+ },
+ "0001335258-17-000115": {
+  "ticker": "LYV",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "ancillary spend per fan (amphitheaters)",
+     "period": "other",
+     "period_text": "this summer",
+     "shape": "point",
+     "low": 2,
+     "high": 2,
+     "unit": "USD per fan increase",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "As a result, we continue to expect to increase ancillary spend by approximately $2 per fan again this summer."
+    },
+    {
+     "metric": "other",
+     "metric_text": "fan base",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "point",
+     "low": 80,
+     "high": 80,
+     "unit": "million fans",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Given the strong performance of our shows to date and the pipeline of shows for the rest of the year, I expect us to grow our fan base to 80 million this year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "concerts results growth",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "And with these additional fans I am confident that we will deliver strong growth in our concerts results, providing the flywheel to grow our sponsorship and ticketing businesses."
+    },
+    {
+     "metric": "other",
+     "metric_text": "festival sponsorship revenue growth",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Festival sponsorship continues to provide the most attractive onsite platform; in the second quarter we grew revenue in this category by 32% year-on-year, and for the full year we are tracking toward mid-teens growth across our 95 festivals with over 8 million fans."
+    },
+    {
+     "metric": "other",
+     "metric_text": "sponsorship & advertising operating income growth",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Based on this strong start to the year, and now with over 90% of our planned sponsorship for the year under contract, I currently expect double-digit operating income and AOI growth in the low teens for this business for the full year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "sponsorship & advertising AOI growth",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Based on this strong start to the year, and now with over 90% of our planned sponsorship for the year under contract, I currently expect double-digit operating income and AOI growth in the low teens for this business for the full year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "ticketing operating income growth",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "By continuing to do so effectively, I expect us to again deliver high-single-digit growth in ticketing operating income and AOI this year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "ticketing AOI growth",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "By continuing to do so effectively, I expect us to again deliver high-single-digit growth in ticketing operating income and AOI this year."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "record revenue",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Our key indicators for our businesses ... are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "record operating income",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Our key indicators for our businesses ... are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "record AOI",
+     "period": "year",
+     "period_text": "this year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Our key indicators for our businesses ... are all pacing double digits ahead of last year and as a result we expect each of our businesses to deliver record revenue, operating income and AOI this year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "point",
+     "low": 220,
+     "high": 220,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We currently expect capital expenditures for the full year to be approximately $220 million, with approximately 50% to be revenue generating capital expenditures."
+    },
+    {
+     "metric": "other",
+     "metric_text": "amortization of nonrecoupable ticketing contract advances",
+     "period": "year",
+     "period_text": "full year 2017",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We currently expect the amortization of nonrecoupable ticketing contract advances for the full year 2017 to be approximately in line with the total amount in 2016."
+    }
+   ],
+   "notes": "All guidance is worded (CEO letter) except capex ~$220M, ~$2/fan ancillary spend and 80M fans; no EPS or total revenue numbers."
+  },
+  "uncertain": "Operating income (non-adjusted) items labeled gaap since contrasted with AOI; 'continue to expect' ancillary spend labeled maintained; 'record revenue/operating income/AOI' stated per business, labeled as company-level year items; vague 'strong growth in concerts results' included; ~50% revenue-generating capex share not split out as its own item."
+ },
+ "0000109380-12-000198": {
+  "ticker": "ZION",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "loan losses and other credit-related costs",
+     "period": "other",
+     "period_text": "unspecified (trend continuing)",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We are pleased with the continued improvement in underlying credit trends, as reflected in a significantly lower level of loan losses and other credit-related costs than in recent quarters \u2013 a trend we foresee continuing,"
+    },
+    {
+     "metric": "other",
+     "metric_text": "increase in interest expense from accelerated discount amortization on converted debt",
+     "period": "quarter",
+     "period_text": "second quarter of 2012",
+     "shape": "point",
+     "low": 16.2,
+     "high": 16.2,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This anticipated conversion is expected to increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax ($13.2 million after-tax)."
+    }
+   ],
+   "notes": "No EPS/revenue outlook. Also forward-looking but not labeled: expected repayment of remaining $700M TARP in 2H12 (capital action) and ~$0.19/share annualized benefit to future earnings from the TARP redemption (an effect estimate, no period)."
+  },
+  "uncertain": "Weak release: both items are borderline (CEO credit-cost trend with no period; Q2 noncash interest-expense estimate tied to a known debt conversion). TARP $0.19/share annualized earnings benefit could arguably be an EPS-impact item. Q2 item also has an after-tax figure ($13.2M) - only pretax recorded."
+ },
+ "0001383312-15-000049": {
+  "ticker": "BR",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "Recurring fee revenue growth",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "range",
+     "low": 10,
+     "high": 12,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Recurring fee revenue growth in the range of 10% to 12% and total revenue growth in the range of 8% to 10%"
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "total revenue growth",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "range",
+     "low": 8,
+     "high": 10,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Recurring fee revenue growth in the range of 10% to 12% and total revenue growth in the range of 8% to 10%"
+    },
+    {
+     "metric": "margin",
+     "metric_text": "Adjusted Operating income margin",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "point",
+     "low": 18.4,
+     "high": 18.4,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Adjusted Operating income margin of ~18.4%"
+    },
+    {
+     "metric": "margin",
+     "metric_text": "Operating income margin % (GAAP)",
+     "period": "year",
+     "period_text": "FY16",
+     "shape": "point",
+     "low": 17.3,
+     "high": 17.3,
+     "unit": "percent",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Operating income margin % (GAAP) | ~17.3%"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Effective tax rate",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "point",
+     "low": 34.8,
+     "high": 34.8,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Effective tax rate of ~34.8%"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Adjusted Diluted earnings per share growth",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "range",
+     "low": 8,
+     "high": 12,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Adjusted Diluted earnings per share growth in the range of 8% to 12%"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Diluted earnings per share (GAAP) growth",
+     "period": "year",
+     "period_text": "FY16",
+     "shape": "range",
+     "low": 7,
+     "high": 12,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Diluted earnings per share (GAAP) | 7% - 12% growth"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Free cash flows",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "range",
+     "low": 350,
+     "high": 400,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Free cash flows in the range of $350 million to $400 million"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Recurring revenue closed sales",
+     "period": "year",
+     "period_text": "Fiscal Year 2016",
+     "shape": "range",
+     "low": 120,
+     "high": 160,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Recurring revenue closed sales in the range of $120 million to $160 million"
+    },
+    {
+     "metric": "other",
+     "metric_text": "recurring fee revenue growth (three-year objective, CAGR)",
+     "period": "other",
+     "period_text": "three-year performance objectives",
+     "shape": "range",
+     "low": 7,
+     "high": 10,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "I remain confident in Broadridge's ability to continue to successfully execute our long term strategy and achieve our three-year performance objectives which, on a compounded annual growth rate basis, include recurring fee revenue growth of 7% to 10% and adjusted net earnings growth of 9% to 11%."
+    },
+    {
+     "metric": "other",
+     "metric_text": "adjusted net earnings growth (three-year objective, CAGR)",
+     "period": "other",
+     "period_text": "three-year performance objectives",
+     "shape": "range",
+     "low": 9,
+     "high": 11,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "I remain confident in Broadridge's ability to continue to successfully execute our long term strategy and achieve our three-year performance objectives which, on a compounded annual growth rate basis, include recurring fee revenue growth of 7% to 10% and adjusted net earnings growth of 9% to 11%."
+    }
+   ],
+   "notes": "Fiscal 2016 guidance section plus GAAP reconciliation table (GAAP EPS growth 7-12%, GAAP op margin ~17.3%); three-year objectives in CEO quote. Guidance excludes future acquisitions, debt, buybacks."
+  },
+  "uncertain": "FY16 guidance revision left not_stated (first FY16 outlook but release does not say 'initiated'); three-year objectives labeled maintained from 'remain confident ... achieve' (could be not_stated); excluded acquisition amortization projections ($0.18/share, $34M) not labeled as items; free cash flow labeled adjusted because the release calls it non-GAAP."
+ },
+ "0000950123-10-096124": {
+  "ticker": "ILMN",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "No outlook figures in the release; forward-looking statement boilerplate mentions 'financial outlook, earnings guidance' but none is given (likely on the call)."
+  },
+  "uncertain": ""
+ },
+ "0000908255-16-000133": {
+  "ticker": "BWA",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "net sales growth",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "range",
+     "low": 15.2,
+     "high": 16.0,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net sales growth is expected to be within a range of 15.2% to 16.0% compared with 2015."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "net sales growth excluding the impact of foreign currencies and the Remy acquisition",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "range",
+     "low": 4.3,
+     "high": 4.8,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of foreign currencies and the Remy acquisition, net sales growth is expected to be within a range of 4.3% to 4.8%."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "net earnings per diluted share",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "range",
+     "low": 3.24,
+     "high": 3.28,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net earnings are expected to be within a range of $3.24 to $3.28 per diluted share, of which approximately $0.12 per diluted share are expected to be contributed by the Remy acquisition."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net earnings per diluted share contributed by the Remy acquisition",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "point",
+     "low": 0.12,
+     "high": 0.12,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net earnings are expected to be within a range of $3.24 to $3.28 per diluted share, of which approximately $0.12 per diluted share are expected to be contributed by the Remy acquisition."
+    },
+    {
+     "metric": "margin",
+     "metric_text": "operating income as a percentage of net sales, excluding non-comparable items",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "floor",
+     "low": 12,
+     "high": null,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of non-comparable items, operating income, as a percentage of net sales, is expected to be above 12%."
+    },
+    {
+     "metric": "other",
+     "metric_text": "operating income as a percentage of net sales, excluding non-comparable items and the Remy acquisition",
+     "period": "year",
+     "period_text": "2016 full year",
+     "shape": "floor",
+     "low": 13,
+     "high": null,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of non-comparable items and the Remy acquisition, operating income, as a percentage of net sales, is expected to be above 13%."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "net sales growth",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "range",
+     "low": 14.3,
+     "high": 17.8,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Fourth quarter 2016 net sales growth is expected to be within a range of 14.3% to 17.8% compared with fourth quarter 2015."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "net sales growth excluding the impact of foreign currencies and the Remy acquisition",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "range",
+     "low": 3.0,
+     "high": 5.0,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of foreign currencies and the Remy acquisition, net sales growth is expected to be within a range of 3.0% to 5.0%."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "net earnings per diluted share",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "range",
+     "low": 0.82,
+     "high": 0.86,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net earnings are expected to be within a range of $0.82 to $0.86 per diluted share, of which approximately $0.02 per diluted share are expected to be contributed by the Remy acquisition."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net earnings per diluted share contributed by the Remy acquisition",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "point",
+     "low": 0.02,
+     "high": 0.02,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net earnings are expected to be within a range of $0.82 to $0.86 per diluted share, of which approximately $0.02 per diluted share are expected to be contributed by the Remy acquisition."
+    },
+    {
+     "metric": "margin",
+     "metric_text": "operating income as a percentage of net sales, excluding non-comparable items",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "floor",
+     "low": 12,
+     "high": null,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of non-comparable items, operating income, as a percentage of net sales, is expected to be above 12%."
+    },
+    {
+     "metric": "other",
+     "metric_text": "operating income as a percentage of net sales, excluding non-comparable items and the Remy acquisition",
+     "period": "quarter",
+     "period_text": "Fourth quarter 2016",
+     "shape": "floor",
+     "low": 13,
+     "high": null,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Excluding the impact of non-comparable items and the Remy acquisition, operating income, as a percentage of net sales, is expected to be above 13%."
+    }
+   ],
+   "notes": "Full-year net sales and net earnings guidance 'narrowed' but prior range not stated, so revision not_stated. EPS guidance basis not labeled in the release; arithmetic (9M non-GAAP $2.42 + Q4 $0.82-0.86 = $3.24-3.28) implies it excludes non-comparable items."
+  },
+  "uncertain": "EPS basis: release says just 'net earnings per diluted share' (labeled unstated) though it reconciles only to the non-GAAP figure; ex-Remy margin floors put under metric 'other' to keep one margin item per (period, basis); Remy EPS contribution included as 'other' items."
+ },
+ "0000950123-11-039376": {
+  "ticker": "NBR",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "International income (segment operating income)",
+     "period": "quarter",
+     "period_text": "the fourth quarter",
+     "shape": "point",
+     "low": 72,
+     "high": 72,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Various other projects are pending and we believe the fourth quarter could approximate the $72 million this unit achieved in the fourth quarter of 2010."
+    },
+    {
+     "metric": "other",
+     "metric_text": "decrease in International income from the repricing of three jackups and scheduled downtime",
+     "period": "other",
+     "period_text": "the first half",
+     "shape": "point",
+     "low": 90,
+     "high": 90,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The first half will be negatively affected by the previously disclosed $90 million decrease in International income from the repricing of three jackups and scheduled downtime for multiple rigs."
+    },
+    {
+     "metric": "other",
+     "metric_text": "incremental International rigs commencing operations",
+     "period": "other",
+     "period_text": "second half",
+     "shape": "point",
+     "low": 17,
+     "high": 17,
+     "unit": "rigs",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We anticipate a healthy increase in second half income as these rigs return to work and another 17 incremental rigs commence operations."
+    },
+    {
+     "metric": "other",
+     "metric_text": "US Lower 48 rig count",
+     "period": "year",
+     "period_text": "throughout the balance of the year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "rigs",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We expect both our rig count and average margins to increase meaningfully throughout the balance of the year, evidenced by today's rig count of 196."
+    },
+    {
+     "metric": "other",
+     "metric_text": "US Lower 48 average rig margins",
+     "period": "year",
+     "period_text": "throughout the balance of the year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD per rig day",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We expect both our rig count and average margins to increase meaningfully throughout the balance of the year, evidenced by today's rig count of 196."
+    }
+   ],
+   "notes": "No formal outlook section; all items come from the CEO's narrative quote. Other forward-looking remarks left out as not tied to a metric and period with a number of the company's own or as transaction/financing items: recovering 'approximately one-third' of $24M of Q1 costs over the balance of the year, Colombia asset-sale proceeds 'expected to exceed $250 million', pressure-pumping deployment of one spread per month, general second-half improvement."
+  },
+  "uncertain": "Highly judgment-dependent release: CEO narrative with many soft outlook remarks. Unsure whether the $90M first-half International income decrease (an impact estimate, 'previously disclosed') and the 17 incremental rigs should count; the one-third cost recovery and >$250M Colombia sale proceeds were excluded but are arguable."
+ },
+ "0001111711-21-000028": {
+  "ticker": "NI",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP diluted net operating earnings per share",
+     "period": "year",
+     "period_text": "2021",
+     "shape": "range",
+     "low": 1.32,
+     "high": 1.36,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "NiSource remains on track to achieve its 2021 non-GAAP diluted net operating earnings guidance of $1.32 to $1.36 per share."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital investments",
+     "period": "year",
+     "period_text": "2021",
+     "shape": "range",
+     "low": 1.9,
+     "high": 2.1,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company expects to make capital investments of $1.9 billion to $2.1 billion in 2021."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP diluted net operating earnings per share growth (compound annual growth rate)",
+     "period": "other",
+     "period_text": "from 2021 through 2024",
+     "shape": "range",
+     "low": 7,
+     "high": 9,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "As outlined at its October 2020 Investor Day, NiSource continues to expect to grow its non-GAAP diluted net operating earnings per share by 7 to 9% on a compound annual growth rate basis from 2021 through 2024, including near-term annual growth of 5 to 7% through 2023."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "near-term annual growth in non-GAAP diluted net operating earnings per share",
+     "period": "other",
+     "period_text": "through 2023",
+     "shape": "range",
+     "low": 5,
+     "high": 7,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "As outlined at its October 2020 Investor Day, NiSource continues to expect to grow its non-GAAP diluted net operating earnings per share by 7 to 9% on a compound annual growth rate basis from 2021 through 2024, including near-term annual growth of 5 to 7% through 2023."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital investments (total)",
+     "period": "other",
+     "period_text": "through 2024",
+     "shape": "point",
+     "low": 10,
+     "high": 10,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "NiSource expects to make capital investments totaling approximately $10 billion through 2024, comprised of annual investments of $1.9 to $2.2 billion for growth, safety and modernization, and an additional $2 billion in total for renewable generation."
+    },
+    {
+     "metric": "other",
+     "metric_text": "annual capital investments for growth, safety and modernization",
+     "period": "other",
+     "period_text": "annual, through 2024",
+     "shape": "range",
+     "low": 1.9,
+     "high": 2.2,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "NiSource expects to make capital investments totaling approximately $10 billion through 2024, comprised of annual investments of $1.9 to $2.2 billion for growth, safety and modernization, and an additional $2 billion in total for renewable generation."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital investments for renewable generation",
+     "period": "other",
+     "period_text": "through 2024",
+     "shape": "point",
+     "low": 2,
+     "high": 2,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "NiSource expects to make capital investments totaling approximately $10 billion through 2024, comprised of annual investments of $1.9 to $2.2 billion for growth, safety and modernization, and an additional $2 billion in total for renewable generation."
+    },
+    {
+     "metric": "other",
+     "metric_text": "compound annual rate base growth",
+     "period": "other",
+     "period_text": "through 2024",
+     "shape": "range",
+     "low": 10,
+     "high": 12,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "These investments are expected to drive compound annual rate base growth of 10 to 12% for each of our businesses through 2024."
+    },
+    {
+     "metric": "other",
+     "metric_text": "greenhouse gas emissions reduction from 2005 levels",
+     "period": "other",
+     "period_text": "by 2030",
+     "shape": "point",
+     "low": 90,
+     "high": 90,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "We expect to reduce greenhouse gas emissions 90% by 2030, from 2005 levels, including a 50% reduction in methane emissions from gas mains and services by 2025."
+    },
+    {
+     "metric": "other",
+     "metric_text": "methane emissions reduction from gas mains and services",
+     "period": "other",
+     "period_text": "by 2025",
+     "shape": "point",
+     "low": 50,
+     "high": 50,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "We expect to reduce greenhouse gas emissions 90% by 2030, from 2005 levels, including a 50% reduction in methane emissions from gas mains and services by 2025."
+    }
+   ],
+   "notes": "Company states it gives no GAAP EPS guidance. Excluded: subsidiary rate-case revenue requests, NIPSCO TDSIC investment plans ($1.64B 2021-2026; ~$950M through 2025), estimated $2B renewable JV investment in the headline (duplicates the renewable capex item)."
+  },
+  "uncertain": "Two EPS-growth items share (eps, other, adjusted) because the periods differ (2021-2024 CAGR vs annual through 2023). Emissions targets included as long-term 'other' targets with revision maintained ('continues on track') - may not count as financial guidance. 2021 capex revision left not_stated."
+ },
+ "0001558370-19-002725": {
+  "ticker": "LW",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "net sales growth",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "Net sales to grow high single digits. The Company's previous estimate was for net sales to grow mid-to-high single digits."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted EBITDA including unconsolidated joint ventures",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "range",
+     "low": 895,
+     "high": 905,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted EBITDA including unconsolidated joint ventures ( 1) in the range of $895 million to $905 million, an increase from the Company's previous estimate of $870 million to $880 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "rate of gross profit dollar growth (vs net sales growth)",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The rate of gross profit dollar growth to be more than net sales growth."
+    },
+    {
+     "metric": "other",
+     "metric_text": "SG&A",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "To incur significantly higher SG&A as it invests to upgrade its information systems and enterprise resource planning infrastructure, as well as sales, marketing, innovation, operations and other functional capabilities, designed to drive operating efficiencies and support future growth."
+    },
+    {
+     "metric": "other",
+     "metric_text": "equity method investment earnings",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Equity method investment earnings to decline versus the prior year, reflecting the effect of significantly higher raw potato prices in Europe due to a poor crop."
+    },
+    {
+     "metric": "other",
+     "metric_text": "benefit from the BSW Acquisition",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "range",
+     "low": 8,
+     "high": 10,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "An $8 million to $10 million benefit from the BSW Acquisition."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total interest expense",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "point",
+     "low": 110,
+     "high": 110,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Total interest expense to be approximately $110 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "effective tax rate excluding comparability items",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "range",
+     "low": 22,
+     "high": 23,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "An effective tax rate ( 2) of 22 percent to 23 percent, down from the Company's previous estimate of approximately 23 percent."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cash used for capital expenditures",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "point",
+     "low": 350,
+     "high": 350,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Cash used for capital expenditures of approximately $350 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total depreciation and amortization expense",
+     "period": "year",
+     "period_text": "fiscal 2019",
+     "shape": "point",
+     "low": 150,
+     "high": 150,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Total depreciation and amortization expense of approximately $150 million."
+    }
+   ],
+   "notes": "Outlook section plus summary table. Several 'other' items share (other, year, basis) because they are distinct metrics. Tax rate 'lowered' because midpoint 22.5% < prior ~23% (direction is favorable)."
+  },
+  "uncertain": "Tax-rate revision labeled 'lowered' by midpoint rule even though release says 'down from' (a favorable change). Net sales revision 'raised' taken from words (high vs mid-to-high single digits) with no numbers."
+ },
+ "0001564590-18-002710": {
+  "ticker": "HST",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "Total comparable hotel RevPAR - Constant US$",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 0.5,
+     "high": 2.5,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Total comparable hotel RevPAR - Constant US$ | 0.5% to 2.5%"
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "Total revenues under GAAP",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 0.6,
+     "high": 2.5,
+     "unit": "percent growth",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Total revenues under GAAP | 0.6% to 2.5%"
+    },
+    {
+     "metric": "margin",
+     "metric_text": "Operating profit margin under GAAP (change)",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": -50,
+     "high": 50,
+     "unit": "basis points change",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Operating profit margin under GAAP | (50 bps) to 50 bps"
+    },
+    {
+     "metric": "margin",
+     "metric_text": "Comparable hotel EBITDA margins (change)",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": -60,
+     "high": 20,
+     "unit": "basis points change",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Comparable hotel EBITDA margins | (60 bps) to 20 bps"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Net income",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 547,
+     "high": 616,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income (in millions) | $547 to $616"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted EBITDAre",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 1465,
+     "high": 1535,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Adjusted EBITDA re (in millions) | $1,465 to $1,535"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Earnings per diluted share",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 0.73,
+     "high": 0.82,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Earnings per diluted share | $.73 to $.82"
+    },
+    {
+     "metric": "other",
+     "metric_text": "NAREIT FFO per diluted share",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 1.6,
+     "high": 1.7,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "NAREIT FFO per diluted share | $1.60 to $1.70"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted FFO per diluted share",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 1.6,
+     "high": 1.7,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Adjusted FFO per diluted share | $1.60 to $1.70"
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 475,
+     "high": 550,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "For 2018, the Company expects capital expenditures of $475 million to $550 million, closer to its historical average spend."
+    },
+    {
+     "metric": "other",
+     "metric_text": "ROI capital expenditures",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 185,
+     "high": 220,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
+    },
+    {
+     "metric": "other",
+     "metric_text": "renewal and replacement capital expenditures",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 290,
+     "high": 330,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This total spend consists of $185 million to $220 million in ROI projects and $290 million to $330 million in renewal and replacement projects."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Comparable hotel EBITDA",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 1307,
+     "high": 1370,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Comparable hotel EBITDA | $ | 1,307 | $ | 1,370"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Interest expense",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "point",
+     "low": 192,
+     "high": 192,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Interest expense | 192 | 192"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Depreciation and amortization",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "point",
+     "low": 735,
+     "high": 735,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Depreciation and amortization | 735 | 735"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Income taxes",
+     "period": "year",
+     "period_text": "Full Year 2018",
+     "shape": "range",
+     "low": 43,
+     "high": 44,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Income taxes | 43 | 44"
+    }
+   ],
+   "notes": "Outlook in '2018 Outlook' tables plus 2018 Forecast Schedules. Schedules also give level forms of items labeled as changes: total revenues $5,417-$5,519M, GAAP operating profit margin 12.0%-13.0%, comparable hotel EBITDA margin 27.7%-28.5% (not separately itemised to keep one item per metric/period/basis). Excluded: pro-forma 2018 RevPAR (~$290), 17x EBITDA multiple and 5% cap rate for the Hyatt acquisition (deal metrics), deal closing timing, $114M transformative-repositioning share of ROI capex, other forecast schedule lines (gain on dispositions, EBITDA, NAREIT FFO $ totals)."
+  },
+  "uncertain": "Many forecast-schedule lines; chose headline guidance plus capex, comparable hotel EBITDA, interest, D&A and taxes. Margin items recorded as bps change (headline) rather than level (schedule). NAREIT FFO basis set to adjusted (non-GAAP measure) though arguably unstated."
+ },
+ "0001104659-14-057620": {
+  "ticker": "CF",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "total capital expenditures",
+     "period": "year",
+     "period_text": "2014",
+     "shape": "point",
+     "low": 2.2,
+     "high": 2.2,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "For 2014, the company expects total capital expenditures of approximately $2.2 billion."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures for the capacity expansion projects",
+     "period": "year",
+     "period_text": "2014",
+     "shape": "point",
+     "low": 1.7,
+     "high": 1.7,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This consists of approximately $1.7 billion for the capacity expansion projects and $0.5 billion of sustaining and other capital expenditures."
+    },
+    {
+     "metric": "other",
+     "metric_text": "sustaining and other capital expenditures",
+     "period": "year",
+     "period_text": "2014",
+     "shape": "point",
+     "low": 0.5,
+     "high": 0.5,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "This consists of approximately $1.7 billion for the capacity expansion projects and $0.5 billion of sustaining and other capital expenditures."
+    },
+    {
+     "metric": "other",
+     "metric_text": "nitrogen capacity increase from capacity expansion projects",
+     "period": "other",
+     "period_text": "by 2016",
+     "shape": "point",
+     "low": 25,
+     "high": 25,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Continue to execute capacity expansion projects which will increase nitrogen capacity 25 percent by 2016."
+    }
+   ],
+   "notes": "Capex 'reduction from the previously forecast total of $2.5 billion' -> lowered. Excluded: industry/macro views (fall ammonia season, North American urea imports and prices, China urea exports ~10M tons, >90M corn acres in 2015), natural gas hedge positions for Q3/October (existing contracts, not outlook), declared dividend increase and buyback authorization."
+  },
+  "uncertain": "Nitrogen capacity +25% by 2016 is a project/capacity target, included as long-term operating metric; arguable."
+ },
+ "0001260221-20-000095": {
+  "ticker": "TDG",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "Release explicitly says fiscal 2021 guidance will not be provided at this time due to COVID-19 uncertainty. Not labeled 'withdrawn': no existing fiscal 2021 outlook is being pulled, it is simply not issued."
+  },
+  "uncertain": "Could arguably be labeled as a 'withdrawn'/no-guidance qualitative item; chose no guidance since FY2021 guidance was never issued (the release does not say it pulls a prior outlook)."
+ },
+ "0001091667-13-000087": {
+  "ticker": "CHTR",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures, excluding the impact of acquisitions",
+     "period": "year",
+     "period_text": "2013",
+     "shape": "point",
+     "low": 1.7,
+     "high": 1.7,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "In 2013, capital expenditures are expected to be approximately $1.7 billion, excluding the impact of acquisitions."
+    }
+   ],
+   "notes": "Only numeric outlook is 2013 capex. Excluded: all-digital roll-out expected to be completed by year end 2014 (project milestone, no metric value)."
+  },
+  "uncertain": "All-digital roll-out completion by YE2014 left out as a project timeline rather than a metric outlook; could be argued as a qualitative operating item."
+ },
+ "0000091576-17-000003": {
+  "ticker": "KEY",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "No outlook figures in the release; it says Key is 'on track to realize financial targets' for the First Niagara merger without naming a metric or period (outlook/'anticipated earnings trends' only on the call). Fully phased-in CET1 figures are current-date estimates, not guidance."
+  },
+  "uncertain": "'on track to realize financial targets' / 'remain confident in reaching our financial targets' could be read as a maintained qualitative item, but no metric or period is given, so excluded."
+ },
+ "0001193125-12-435506": {
+  "ticker": "AAPL",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "quarter",
+     "period_text": "first fiscal quarter of 2013",
+     "shape": "point",
+     "low": 52,
+     "high": 52,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Looking ahead to the first fiscal quarter of 2013, we expect revenue of about $52 billion and diluted earnings per share of about $11.75."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "diluted earnings per share",
+     "period": "quarter",
+     "period_text": "first fiscal quarter of 2013",
+     "shape": "point",
+     "low": 11.75,
+     "high": 11.75,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Looking ahead to the first fiscal quarter of 2013, we expect revenue of about $52 billion and diluted earnings per share of about $11.75."
+    }
+   ],
+   "notes": "Outlook in the CFO quote only."
+  },
+  "uncertain": ""
+ },
+ "0000310764-15-000150": {
+  "ticker": "SYK",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "constant currency sales growth",
+     "period": "year",
+     "period_text": "2015",
+     "shape": "range",
+     "low": 6.5,
+     "high": 7.5,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We expect 2015 constant currency sales growth in the range of 6.5% to 7.5%, including organic sales growth in the range of 5.5% to 6.5%."
+    },
+    {
+     "metric": "other",
+     "metric_text": "organic sales growth",
+     "period": "year",
+     "period_text": "2015",
+     "shape": "range",
+     "low": 5.5,
+     "high": 6.5,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "We expect 2015 constant currency sales growth in the range of 6.5% to 7.5%, including organic sales growth in the range of 5.5% to 6.5%."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "adjusted diluted net earnings per share",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "range",
+     "low": 5.07,
+     "high": 5.12,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Based on current foreign currency exchange rates, we expect adjusted diluted net earnings per share to be in the range of $5.07-$5.12 for the full year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "foreign currency impact on sales",
+     "period": "year",
+     "period_text": "full year of 2015",
+     "shape": "point",
+     "low": -4.0,
+     "high": -4.0,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "If foreign currency exchange rates hold near current levels, we expect sales in the full year of 2015 to be negatively impacted by approximately 4.0% and adjusted diluted net earnings per share to be negatively impacted by approximately $0.25 in the full year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "foreign currency impact on adjusted diluted net earnings per share",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "point",
+     "low": -0.25,
+     "high": -0.25,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "If foreign currency exchange rates hold near current levels, we expect sales in the full year of 2015 to be negatively impacted by approximately 4.0% and adjusted diluted net earnings per share to be negatively impacted by approximately $0.25 in the full year."
+    }
+   ],
+   "notes": "CEO says the company is on pace to achieve its 2015 sales and adjusted EPS targets, but the outlook section does not say raised/maintained."
+  },
+  "uncertain": "Constant-currency sales growth labeled basis adjusted (non-GAAP measure) - could be unstated. FX-impact items included as 'other' with negative values; they may be judged assumptions rather than guidance."
+ },
+ "0001181431-10-040476": {
+  "ticker": "GAP",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "diluted earnings per share",
+     "period": "quarter",
+     "period_text": "second quarter of fiscal year 2010",
+     "shape": "range",
+     "low": 0.34,
+     "high": 0.35,
+     "unit": "USD per share",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company expects diluted earnings per share for the second quarter of fiscal year 2010 to be $0.34 to $0.35, up from $0.33 for the second quarter last year."
+    }
+   ],
+   "notes": "Monthly sales release, not an earnings release. The guided quarter (ended July 31, 2010) had already ended but its earnings were not yet reported."
+  },
+  "uncertain": "Quarter had ended before the release (pre-announcement of an unreported period); counted as guidance. 'up from $0.33' is vs last year's actual, not a prior outlook, so revision not_stated."
+ },
+ "0001157523-16-005287": {
+  "ticker": "EQT",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "production sales volume",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 710,
+     "high": 730,
+     "unit": "Bcfe",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "The Company increased its 2016 guidance for production sales volume to 710 \u2013 730 Bcfe, including liquids volume of 10,250 \u2013 10,750 MBBls."
+    },
+    {
+     "metric": "other",
+     "metric_text": "liquids volume",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 10250,
+     "high": 10750,
+     "unit": "MBbls",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The Company increased its 2016 guidance for production sales volume to 710 \u2013 730 Bcfe, including liquids volume of 10,250 \u2013 10,750 MBBls."
+    },
+    {
+     "metric": "other",
+     "metric_text": "production sales volume",
+     "period": "quarter",
+     "period_text": "second quarter of 2016",
+     "shape": "range",
+     "low": 175,
+     "high": 180,
+     "unit": "Bcfe",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Production sales volume for the second quarter of 2016 is projected to be 175 \u2013 180 Bcfe; and liquids volume is expected to be 2,700 \u2013 2,750 MBBls."
+    },
+    {
+     "metric": "other",
+     "metric_text": "liquids volume",
+     "period": "quarter",
+     "period_text": "second quarter of 2016",
+     "shape": "range",
+     "low": 2700,
+     "high": 2750,
+     "unit": "MBbls",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Production sales volume for the second quarter of 2016 is projected to be 175 \u2013 180 Bcfe; and liquids volume is expected to be 2,700 \u2013 2,750 MBBls."
+    },
+    {
+     "metric": "other",
+     "metric_text": "average differential to the NYMEX price",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": -0.7,
+     "high": -0.6,
+     "unit": "USD per Mcf",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Average differential to the NYMEX price forecast of negative $0.60 \u2013 negative $0.70 per Mcf for 2016; and negative $0.70 \u2013 negative $0.75 per Mcf for the second quarter of 2016."
+    },
+    {
+     "metric": "other",
+     "metric_text": "average differential to the NYMEX price",
+     "period": "quarter",
+     "period_text": "second quarter of 2016",
+     "shape": "range",
+     "low": -0.75,
+     "high": -0.7,
+     "unit": "USD per Mcf",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Average differential to the NYMEX price forecast of negative $0.60 \u2013 negative $0.70 per Mcf for 2016; and negative $0.70 \u2013 negative $0.75 per Mcf for the second quarter of 2016."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net marketing services",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": -5.0,
+     "high": 5.0,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net marketing services are expected to be positive $5.0 million \u2013 negative $5.0 million in 2016; and zero \u2013 negative $5.0 million in the second quarter of 2016."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net marketing services",
+     "period": "quarter",
+     "period_text": "second quarter of 2016",
+     "shape": "range",
+     "low": -5.0,
+     "high": 0,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net marketing services are expected to be positive $5.0 million \u2013 negative $5.0 million in 2016; and zero \u2013 negative $5.0 million in the second quarter of 2016."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net income attributable to noncontrolling interest",
+     "period": "quarter",
+     "period_text": "second quarter 2016",
+     "shape": "point",
+     "low": 77,
+     "high": 77,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net income attributable to noncontrolling interest is projected to be approximately $77 million for the second quarter 2016, and approximately $320 million for the full year 2016."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net income attributable to noncontrolling interest",
+     "period": "year",
+     "period_text": "full year 2016",
+     "shape": "point",
+     "low": 320,
+     "high": 320,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Net income attributable to noncontrolling interest is projected to be approximately $77 million for the second quarter 2016, and approximately $320 million for the full year 2016."
+    }
+   ],
+   "notes": "Two 'Guidance' subsections: production (under EQT Production) and noncontrolling interest. Hedge position table is not guidance."
+  },
+  "uncertain": "2016 liquids volume sits in the same 'increased its 2016 guidance' sentence as production; labeled not_stated since the increase is stated for production sales volume - could be raised."
+ },
+ "0001004980-11-000036": {
+  "ticker": "PCG",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "earnings from operations (non-GAAP) per share",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 3.45,
+     "high": 3.6,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "PG&E Corporation is reducing previously issued guidance for 2011 earnings from operations (non-GAAP) by approximately 5 percent, to $3.45 to $3.60 per share. The previous guidance was $3.65 to $3.80 per share."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "earnings per share on a GAAP basis",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 2.37,
+     "high": 3.08,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "PG&E Corporation\u2019s projected 2011 earnings per share on a GAAP basis, which includes the costs incurred in connection with gas pipeline safety-related work and third-party liabilities related to the San Bruno accident, has been updated to $2.37 to $3.08 per share."
+    },
+    {
+     "metric": "other",
+     "metric_text": "costs associated with gas pipeline safety-related work",
+     "period": "year",
+     "period_text": "the year",
+     "shape": "range",
+     "low": 350,
+     "high": 550,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "It is now estimated that the utility\u2019s costs associated with gas pipeline safety-related work could total between $350 million and $550 million for the year, compared with the prior estimated range of $200 million to $300 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "third-party liability (pre-tax)",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 0,
+     "high": 180,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "The estimated range for third-party liability remains unchanged at $0 to $180 million pre-tax."
+    }
+   ],
+   "notes": "GAAP EPS guidance 'updated' without its prior range stated, so not_stated. Release headline: 'adjusts outlook for full-year 2011 results'."
+  },
+  "uncertain": "Pipeline cost and third-party liability ranges are inputs to GAAP guidance (items impacting comparability) rather than core metrics; third-party liability period is not explicitly 2011 (tied to 2011 guidance in the reconciliation table)."
+ },
+ "0000007084-21-000028": {
+  "ticker": "ADM",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "Nutrition segment operating profit growth",
+     "period": "year",
+     "period_text": "full year",
+     "shape": "point",
+     "low": 20,
+     "high": 20,
+     "unit": "percent growth",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "And we\u2019re driving innovation, which helped support record top-line and bottom-line results in Nutrition; in fact, we are now raising our expectations of full-year profit growth for Nutrition to 20 percent."
+    },
+    {
+     "metric": "other",
+     "metric_text": "full-year earnings",
+     "period": "year",
+     "period_text": "full-year",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Given our great start to the year and our expectation of continued momentum in the second half, we are confident in delivering very strong full-year earnings, and we remain well-positioned for robust, sustained growth in the years to come."
+    }
+   ],
+   "notes": "No numeric company-wide guidance; outlook only in CEO quote and headline ('Very Strong Full-Year Outlook')."
+  },
+  "uncertain": "Qualitative 'very strong full-year earnings' item may be too vague to count; metric could be eps rather than other."
+ },
+ "0001020569-19-000194": {
+  "ticker": "IRM",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "Revenue",
+     "period": "year",
+     "period_text": "2019 full-year",
+     "shape": "range",
+     "low": 4250,
+     "high": 4325,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "Revenue | $4,250-$4,325 | $4,200-$4,400"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted EBITDA",
+     "period": "year",
+     "period_text": "2019 full-year",
+     "shape": "range",
+     "low": 1440,
+     "high": 1480,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "Adjusted EBITDA | $1,440-$1,480 | $1,420-$1,530"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Adjusted EPS",
+     "period": "year",
+     "period_text": "2019 full-year",
+     "shape": "range",
+     "low": 1.0,
+     "high": 1.1,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "Adjusted EPS | $1.00-$1.10 | $1.08-$1.18"
+    },
+    {
+     "metric": "other",
+     "metric_text": "AFFO",
+     "period": "year",
+     "period_text": "2019 full-year",
+     "shape": "range",
+     "low": 870,
+     "high": 900,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "lowered",
+     "evidence": "AFFO | $870-$900 | $870-$930"
+    }
+   ],
+   "notes": "Guidance table gives New and Previous ranges ('updated its 2019 full-year guidance ranges'); revision by midpoint comparison. Further guidance details in the supplemental (not in exhibit 99.1)."
+  },
+  "uncertain": "Revenue midpoint 4287.5 vs 4300 is only slightly lower (range narrowed); AFFO low end unchanged but midpoint down."
+ },
+ "0000764065-18-000123": {
+  "ticker": "CLF",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore revenues from product sales and services per long ton (realized revenue rate)",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 105,
+     "high": 110,
+     "unit": "USD per long ton",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "Based on the assumption that iron ore prices, steel prices, and pellet premiums will average for the remainder of 2018 their respective year-to-date averages, Cliffs would realize USIO revenue rates in the range of $105 to $110 per long ton."
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore cost of goods sold and operating expense rate",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 68,
+     "high": 73,
+     "unit": "USD per long ton",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Cost of goods sold and operating expense rate | $68 - $73"
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore freight expense rate",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "point",
+     "low": 7,
+     "high": 7,
+     "unit": "USD per long ton",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Freight expense rate (B) | $7"
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore depreciation, depletion & amortization rate",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "point",
+     "low": 3,
+     "high": 3,
+     "unit": "USD per long ton",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Depreciation, depletion & amortization rate | $3"
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore cash cost of goods sold and operating expense rate",
+     "period": "year",
+     "period_text": "full-year 2018",
+     "shape": "range",
+     "low": 58,
+     "high": 63,
+     "unit": "USD per long ton",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "Cliffs' full-year 2018 U.S. Iron Ore cash cost of goods sold and operating expense 2 expectation is being maintained at $58 - $63 per long ton."
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore pellet sales volume",
+     "period": "year",
+     "period_text": "full-year",
+     "shape": "point",
+     "low": 21,
+     "high": 21,
+     "unit": "million long tons",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "As a result of strong market demand for pellets in the Great Lakes, Cliffs has increased its full-year sales volume expectation by 500,000 long tons to 21 million long tons."
+    },
+    {
+     "metric": "other",
+     "metric_text": "U.S. Iron Ore production volume",
+     "period": "year",
+     "period_text": "full-year",
+     "shape": "point",
+     "low": 20,
+     "high": 20,
+     "unit": "million long tons",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Its production volume expectation of 20 million long tons is being maintained."
+    },
+    {
+     "metric": "other",
+     "metric_text": "SG&A expense",
+     "period": "year",
+     "period_text": "full-year 2018",
+     "shape": "point",
+     "low": 115,
+     "high": 115,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "Cliffs' full-year 2018 SG&A expense expectation of $115 million is being maintained."
+    },
+    {
+     "metric": "other",
+     "metric_text": "net interest expense",
+     "period": "year",
+     "period_text": "full-year 2018",
+     "shape": "point",
+     "low": 120,
+     "high": 120,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "The Company's full-year 2018 net interest expense expectation is being lowered by $10 million to $120 million, as income on short-term instruments has increased in the current rate environment."
+    },
+    {
+     "metric": "other",
+     "metric_text": "depreciation, depletion and amortization (U.S. Iron Ore and Corporate/Other)",
+     "period": "year",
+     "period_text": "full-year 2018",
+     "shape": "point",
+     "low": 80,
+     "high": 80,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Full-year 2018 depreciation, depletion and amortization associated with U.S. Iron Ore and Corporate/Other is expected to be approximately $80 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Toledo HBI Project capital spend",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "point",
+     "low": 200,
+     "high": 200,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "the Toledo HBI Project spend expectation was reduced by $25 million to $200 million due to further development and refined timing of the project spending plan;"
+    },
+    {
+     "metric": "other",
+     "metric_text": "sustaining capital",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "point",
+     "low": 75,
+     "high": 75,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "the sustaining capital expectation was reduced by $10 million to $75 million; and"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Northshore Mine upgrade spend",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "point",
+     "low": 50,
+     "high": 50,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "the Northshore Mine upgrade spend expectation of $50 million is being maintained."
+    },
+    {
+     "metric": "other",
+     "metric_text": "free cash flow",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "As a consequence, we expect to generate in 2018 a level of free cash flow that we have not seen in years."
+    }
+   ],
+   "notes": "2018 Outlook Summary table plus text. Omitted: '$20 million of the $115 million SG&A is non-cash' (a breakdown), and CEO's '2019 to be a continuation of a great 2018' (no metric)."
+  },
+  "uncertain": "Cash cost rate labeled basis adjusted (non-GAAP footnote 2); COGS/freight/DD&A per-ton rates from the table have no stated revision. Qualitative free cash flow item may be too vague to count."
+ },
+ "0000723254-14-000039": {
+  "ticker": "CTAS",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 4.45,
+     "high": 4.5,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We now expect fiscal 2015 revenue to be in the range of $4.45 billion to $4.50 billion, and fiscal 2015 EPS to be in the range of $3.49 to $3.54."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "EPS (Total Reported Cintas EPS)",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 3.49,
+     "high": 3.54,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "We now expect fiscal 2015 revenue to be in the range of $4.45 billion to $4.50 billion, and fiscal 2015 EPS to be in the range of $3.49 to $3.54."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "EPS, excluding Special Items",
+     "period": "year",
+     "period_text": "fiscal 2015",
+     "shape": "range",
+     "low": 3.2,
+     "high": 3.25,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "EPS, excluding Special Items | $ | 2.75 | $ | 3.20 | 16.4% | $ | 3.25 | 18.2%"
+    }
+   ],
+   "notes": "Guidance 'updated' without prior ranges stated, so revision not_stated. Tables also show implied growth vs fiscal 2014 (not separate items)."
+  },
+  "uncertain": "Reported EPS labeled gaap from the table row 'Total Reported Cintas EPS' (text just says 'EPS')."
+ },
+ "0001564708-20-000019": {
+  "ticker": "NWS",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures",
+     "period": "year",
+     "period_text": "fiscal 2021",
+     "shape": "point",
+     "low": 400,
+     "high": 400,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The Company\u2019s capital expenditures for fiscal 2021 are expected to be approximately $400 million, subject to foreign currency fluctuations."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Foxtel additional sports rights costs deferred from fiscal 2020",
+     "period": "year",
+     "period_text": "fiscal 2021",
+     "shape": "point",
+     "low": 55,
+     "high": 55,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Assuming no further disruption to live sporting events, Foxtel will recognize approximately $55 million (A$78 million) of additional sports rights costs in fiscal 2021, which were deferred from fiscal 2020 due to the suspension of live sports in the fourth quarter."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Foxtel overall costs reduction vs prior year, net of sports rights increase",
+     "period": "year",
+     "period_text": "fiscal 2021",
+     "shape": "floor",
+     "low": 100,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "However, Foxtel expects overall costs for fiscal 2021, net of the increase in sports rights costs, to be lower than the prior year by at least $100 million (A$160 million), benefiting from various cost saving initiatives."
+    },
+    {
+     "metric": "other",
+     "metric_text": "annualized cost savings from shared services program",
+     "period": "other",
+     "period_text": "beginning in fiscal 2022 (annualized)",
+     "shape": "floor",
+     "low": 100,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "While it is still evaluating the cost savings opportunity from this program, the Company expects to recognize annualized cost savings of at least $100 million beginning in fiscal 2022."
+    }
+   ],
+   "notes": "No revenue/EPS guidance. Segment COVID-19 commentary (e.g. REA residential revenue growth 'expected to be offset', continued adverse advertising effects) has no explicit period/number and was left out."
+  },
+  "uncertain": "Cost items (Foxtel sports rights, Foxtel cost reduction, shared-services savings) are segment/cost outlooks - check they should count. Shared-services savings period set to 'other' (run-rate from fiscal 2022); could be 'year'."
+ },
+ "0001157523-13-005156": {
+  "ticker": "MSCI",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "Q3 2013 results only; no company outlook for any metric in the release (ASR completion timing and Governance strategic review are not metric guidance)."
+  },
+  "uncertain": ""
+ },
+ "0001601046-17-000029": {
+  "ticker": "KEYS",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "GAAP revenue",
+     "period": "other",
+     "period_text": "first half of 2018",
+     "shape": "point",
+     "low": 1748,
+     "high": 1748,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Keysight\u2019s first half of 2018 GAAP revenue is expected to be approximately $1,748 million and non-GAAP revenue for the first half of 2018 is expected to be approximately $1,775 million."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "non-GAAP revenue",
+     "period": "other",
+     "period_text": "first half of 2018",
+     "shape": "point",
+     "low": 1775,
+     "high": 1775,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Keysight\u2019s first half of 2018 GAAP revenue is expected to be approximately $1,748 million and non-GAAP revenue for the first half of 2018 is expected to be approximately $1,775 million."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "GAAP revenue",
+     "period": "quarter",
+     "period_text": "first quarter 2018",
+     "shape": "range",
+     "low": 762,
+     "high": 802,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Keysight\u2019s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million"
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "non-GAAP revenue",
+     "period": "quarter",
+     "period_text": "first quarter 2018",
+     "shape": "range",
+     "low": 780,
+     "high": 820,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Keysight\u2019s first quarter 2018 GAAP revenue is expected to be in the range of $762 million to $802 million and non-GAAP revenue is expected to be in the range of $780 million to $820 million"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP earnings per share",
+     "period": "other",
+     "period_text": "first half of 2018",
+     "shape": "point",
+     "low": 1.29,
+     "high": 1.29,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Non-GAAP earnings per share for the first half of 2018 are expected to be approximately $1.29 and first quarter 2018 non-GAAP earnings per share are expected to be in the range of $0.29 to $0.43."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "non-GAAP earnings per share",
+     "period": "quarter",
+     "period_text": "first quarter 2018",
+     "shape": "range",
+     "low": 0.29,
+     "high": 0.43,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Non-GAAP earnings per share for the first half of 2018 are expected to be approximately $1.29 and first quarter 2018 non-GAAP earnings per share are expected to be in the range of $0.29 to $0.43."
+    }
+   ],
+   "notes": "Company guides only for first half and Q1 of fiscal 2018 (wildfire disruption); no full-year outlook."
+  },
+  "uncertain": ""
+ },
+ "0001193125-12-442457": {
+  "ticker": "TFX",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "constant currency revenue growth",
+     "period": "year",
+     "period_text": "full year 2012",
+     "shape": "range",
+     "low": 6,
+     "high": 7,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Constant currency revenue growth between 6% and 7% for full year 2012. This compares to the Company\u2019s prior expectation of constant currency revenue growth between 4% and 6% for full year 2012."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "adjusted diluted earnings per share",
+     "period": "year",
+     "period_text": "2012",
+     "shape": "range",
+     "low": 4.35,
+     "high": 4.4,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted diluted earnings per share in the range of $4.35 to $4.40. This compares to the Company\u2019s prior expectation of adjusted diluted earnings per share in the range of $4.25 to $4.45."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "loss per share attributable to common shareholders",
+     "period": "year",
+     "period_text": "2012 outlook",
+     "shape": "range",
+     "low": -4.58,
+     "high": -4.53,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Loss per share attributable to common shareholders | ($ | 4.58 | ) | ($ | 4.53 | )"
+    }
+   ],
+   "notes": "Release calls it 'updating' the 2012 ranges and states prior figures; revisions set by midpoint comparison (revenue growth 6.5 vs 5; adj EPS 4.375 vs 4.35). GAAP loss per share comes from the 2012 outlook EPS reconciliation table."
+  },
+  "uncertain": "Adjusted EPS midpoint rose only 2.5 cents while the range narrowed from both sides; 'raised' follows the midpoint rule. GAAP EPS item exists only in the reconciliation table."
+ },
+ "0001171843-15-001024": {
+  "ticker": "MELI",
+  "label": {
+   "guidance_present": false,
+   "items": [],
+   "notes": "Q4/FY2014 results only; CFO quote names strategic priorities for 2015 but gives no metric outlook; Venezuela section is accounting commentary."
+  },
+  "uncertain": ""
+ },
+ "0000950123-10-095919": {
+  "ticker": "VLO",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "capital spending",
+     "period": "year",
+     "period_text": "full-year 2010",
+     "shape": "point",
+     "low": 2.3,
+     "high": 2.3,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Capital spending is expected to be approximately $2.3 billion for the full-year 2010."
+    },
+    {
+     "metric": "other",
+     "metric_text": "preliminary capital spending estimate",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "point",
+     "low": 2.6,
+     "high": 2.6,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company has announced a preliminary capital spending estimate of $2.6 billion for 2011, which includes a decline in regulatory spending and an increase in spending for economic growth projects."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cost reductions",
+     "period": "year",
+     "period_text": "2010",
+     "shape": "point",
+     "low": 185,
+     "high": 185,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "We have achieved $140 million in year-to-date cost savings, and we are on pace to reduce costs by a total of $185 million in 2010."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cost reductions throughout our ongoing businesses",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "point",
+     "low": 100,
+     "high": 100,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "In 2011, we expect to reduce costs throughout our ongoing businesses by another $100 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "cumulative pre-tax costs savings",
+     "period": "other",
+     "period_text": "2009 through 2011",
+     "shape": "point",
+     "low": 500,
+     "high": 500,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "When achieved, our 2009 through 2011 cumulative pre-tax costs savings are estimated at $500 million."
+    }
+   ],
+   "notes": "CEO comments on Q4 margins and low planned maintenance are qualitative industry commentary without a metric, not labeled."
+  },
+  "uncertain": "2011 capex says 'has announced a preliminary' estimate (possibly previously announced) but gives no comparison, so not_stated. Cost-savings items are borderline guidance (operating targets); included as 'other'."
+ },
+ "0001013871-16-000036": {
+  "ticker": "NRG",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "other",
+     "metric_text": "Adjusted EBITDA",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 3250,
+     "high": 3350,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Adjusted EBITDA 1 | $3,000 - 3,200 | $3,250 - 3,350 | $2,700 - $2,900"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Cash From Operations",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 1975,
+     "high": 2075,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "lowered",
+     "evidence": "Cash From Operations | $2,055 - 2,255 | $1,975 - 2,075 | $1,355 - $1,555"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Free Cash Flow - before Growth Investments",
+     "period": "year",
+     "period_text": "2016",
+     "shape": "range",
+     "low": 1100,
+     "high": 1200,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "Free Cash Flow - before Growth Investments | $1,000 - 1,200 | $1,100 - 1,200 | $800 - $1,000"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Adjusted EBITDA",
+     "period": "year",
+     "period_text": "fiscal year 2017",
+     "shape": "range",
+     "low": 2700,
+     "high": 2900,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "initiated",
+     "evidence": "Adjusted EBITDA 1 | $3,000 - 3,200 | $3,250 - 3,350 | $2,700 - $2,900"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Cash From Operations",
+     "period": "year",
+     "period_text": "fiscal year 2017",
+     "shape": "range",
+     "low": 1355,
+     "high": 1555,
+     "unit": "USD millions",
+     "basis": "gaap",
+     "revision": "initiated",
+     "evidence": "Cash From Operations | $2,055 - 2,255 | $1,975 - 2,075 | $1,355 - $1,555"
+    },
+    {
+     "metric": "other",
+     "metric_text": "Free Cash Flow - before Growth Investments",
+     "period": "year",
+     "period_text": "fiscal year 2017",
+     "shape": "range",
+     "low": 800,
+     "high": 1000,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "initiated",
+     "evidence": "Free Cash Flow - before Growth Investments | $1,000 - 1,200 | $1,100 - 1,200 | $800 - $1,000"
+    }
+   ],
+   "notes": "Table 4: 2016 prior vs narrowed guidance and 2017 guidance; release says it 'increased and narrowed' 2016 Adjusted EBITDA, 'narrowed' FCFbG, and is 'initiating guidance for fiscal year 2017'. Revisions for 2016 set by midpoint (EBITDA 3300 vs 3100 raised; CFO 2025 vs 2155 lowered; FCFbG 1150 vs 1100 raised). Reconciliation-table components (GAAP net income, interest, maintenance/environmental capex, distributions etc.) not labeled as separate items; release says it is unable to provide Net Income guidance."
+  },
+  "uncertain": "2016 CFO 'lowered' comes from the midpoint rule; the release text itself doesn't mention CFO revision. Appendix A-11 shows GAAP net income ranges (2016 235-335, 2017 60-260) and A-12 shows capex ranges; excluded as reconciliation inputs (footnote says no Net Income guidance) - reviewer may want them."
+ },
+ "0001193125-11-015398": {
+  "ticker": "NWL",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "core sales",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 4,
+     "high": 5,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
+    },
+    {
+     "metric": "other",
+     "metric_text": "foreign currency impact on sales",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "qualitative",
+     "low": null,
+     "high": null,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company expects core sales to increase four to five percent in 2011 and estimates that foreign currency will have a negligible impact on sales."
+    },
+    {
+     "metric": "margin",
+     "metric_text": "gross margin",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 50,
+     "high": 75,
+     "unit": "basis points change",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Gross margin is expected to improve 50 to 75 basis points with the combination of productivity, mix and pricing more than offsetting input cost inflation."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "normalized earnings per diluted share growth",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 10,
+     "high": 12,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "The company expects normalized earnings per diluted share to increase 10 to 12 percent in 2011."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "\"Normalized\" EPS",
+     "period": "year",
+     "period_text": "FY 2011",
+     "shape": "range",
+     "low": 1.67,
+     "high": 1.7,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "\u201cNormalized\u201d EPS | $ | 1.67 to $1.70"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "Diluted earnings per share",
+     "period": "year",
+     "period_text": "FY 2011",
+     "shape": "range",
+     "low": 1.43,
+     "high": 1.46,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Diluted earnings per share | $ | 1.43 to $1.46"
+    },
+    {
+     "metric": "other",
+     "metric_text": "restructuring and other Plan-related costs excluded from normalized EPS",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 80,
+     "high": 85,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company\u2019s 2011 normalized EPS expectation excludes between $80 and $85 million of restructuring and other Plan-related costs associated with the company\u2019s European Transformation Plan."
+    },
+    {
+     "metric": "other",
+     "metric_text": "European Transformation Plan annualized net income improvement",
+     "period": "other",
+     "period_text": "upon completion of the European Transformation Plan",
+     "shape": "range",
+     "low": 55,
+     "high": 65,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "The company expects to realize annualized net income improvement of $55 to $65 million, upon completion of the European Transformation Plan"
+    },
+    {
+     "metric": "other",
+     "metric_text": "European Transformation Plan aggregate restructuring and other Plan-related costs",
+     "period": "other",
+     "period_text": "life of the European Transformation Plan",
+     "shape": "range",
+     "low": 110,
+     "high": 115,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "raised",
+     "evidence": "The Plan\u2019s benefit and cost guidance compares to the previously communicated annualized savings range of $50 to $60 million and a project cost range of $90 to $100 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "operating cash flow",
+     "period": "year",
+     "period_text": "full year 2011",
+     "shape": "floor",
+     "low": 550,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Operating cash flow is expected to exceed $550 million for the full year, including approximately $90 to $100 million in restructuring and restructuring related cash payments."
+    },
+    {
+     "metric": "other",
+     "metric_text": "restructuring and restructuring related cash payments",
+     "period": "year",
+     "period_text": "full year 2011",
+     "shape": "range",
+     "low": 90,
+     "high": 100,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Operating cash flow is expected to exceed $550 million for the full year, including approximately $90 to $100 million in restructuring and restructuring related cash payments."
+    },
+    {
+     "metric": "other",
+     "metric_text": "capital expenditures",
+     "period": "year",
+     "period_text": "2011",
+     "shape": "range",
+     "low": 180,
+     "high": 200,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "The company plans to fund capital expenditures of approximately $180 to $200 million during the year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "Project Acceleration annualized savings",
+     "period": "year",
+     "period_text": "by the end of 2011",
+     "shape": "floor",
+     "low": 220,
+     "high": null,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "By the end of 2011 we will have delivered in excess of $220 million in annualized savings."
+    }
+   ],
+   "notes": "2011 Full Year Outlook section plus EPS outlook reconciliation. Release headline says 'Provides 2011 Guidance' (not explicitly first outlook), so 2011 items not_stated. European Transformation Plan benefit and cost ranges stated against previously communicated ranges (50-60 and 90-100), midpoints up -> raised. Appended earnings-call slides (net sales growth 4-5% etc.) are outside the release and not labeled."
+  },
+  "uncertain": "Core sales growth written in words ('four to five percent') but is an explicit number range, labeled as range. Restructuring per-share reconciliation line ($0.22-0.26) not labeled separately. Whether FX 'negligible impact' qualitative item and Project Acceleration savings floor count as guidance is borderline. 'Raised' for the plan cost range is mechanical midpoint comparison."
+ },
+ "0001157523-21-000167": {
+  "ticker": "KIM",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "Net Income available to common shareholders (per diluted share)",
+     "period": "year",
+     "period_text": "2021 Full Year",
+     "shape": "range",
+     "low": 0.46,
+     "high": 0.52,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net Income available to common shareholders (per diluted share): | $0.46 to $0.52"
+    },
+    {
+     "metric": "eps",
+     "metric_text": "NAREIT FFO (per diluted share)",
+     "period": "year",
+     "period_text": "2021 Full Year",
+     "shape": "range",
+     "low": 1.18,
+     "high": 1.24,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "NAREIT FFO (per diluted share)*: | $1.18 to $1.24"
+    }
+   ],
+   "notes": "2021 Full Year Outlook section; reconciliation table also gives projected ranges for its components (depreciation, gains), not labeled separately. Dividend-level remark is not guidance."
+  },
+  "uncertain": "NAREIT FFO per share labeled as eps/adjusted (REIT earnings measure); could arguably be 'other'."
+ },
+ "0000037785-19-000087": {
+  "ticker": "FMC",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "year",
+     "period_text": "full-year 2019",
+     "shape": "range",
+     "low": 4.5,
+     "high": 4.6,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "maintained",
+     "evidence": "FMC is maintaining its guidance for full-year 2019 revenue in the range of $4.5 billion to $4.6 billion, an increase of 6 percent at the midpoint versus recast 2018."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total company adjusted EBITDA",
+     "period": "year",
+     "period_text": "full-year 2019",
+     "shape": "range",
+     "low": 1.18,
+     "high": 1.22,
+     "unit": "USD billions",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "Total company adjusted EBITDA is still expected to be in the range of $1.18 billion to $1.22 billion, an increase of 8 percent at the midpoint compared to recast 2018."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "adjusted earnings per diluted share",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": 5.68,
+     "high": 5.88,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "raised",
+     "evidence": "FMC is raising 2019 adjusted earnings guidance to a range of $5.68 to $5.88 per diluted share, an increase of 10 percent at the midpoint compared to recast 2018"
+    },
+    {
+     "metric": "other",
+     "metric_text": "weighted average diluted shares outstanding (WADSO)",
+     "period": "year",
+     "period_text": "full year 2019",
+     "shape": "range",
+     "low": 131.5,
+     "high": 132.0,
+     "unit": "million shares",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "assuming weighted average diluted shares outstanding (WADSO) of approximately 131.5 million to 132.0 million for the full year."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total share repurchases",
+     "period": "year",
+     "period_text": "2019",
+     "shape": "range",
+     "low": 400,
+     "high": 500,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "FMC expects total share repurchases of between $400 and $500 million in 2019 but is reflecting the lower end of this range in its guidance."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "quarter",
+     "period_text": "third quarter",
+     "shape": "range",
+     "low": 960,
+     "high": 990,
+     "unit": "USD millions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Third quarter revenue is expected to be in the range of $960 million to $990 million, representing 6 percent growth at the midpoint compared to recast third quarter 2018."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total company adjusted EBITDA",
+     "period": "quarter",
+     "period_text": "third quarter",
+     "shape": "range",
+     "low": 190,
+     "high": 210,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Total company adjusted EBITDA is forecasted to be in the range of $190 million to $210 million, representing a 7 percent increase at the midpoint versus recast Q3 2018."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "adjusted earnings per diluted share",
+     "period": "quarter",
+     "period_text": "third quarter",
+     "shape": "range",
+     "low": 0.75,
+     "high": 0.85,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "FMC expects adjusted earnings per diluted share to be in the range of $0.75 to $0.85 in the third quarter, which represents growth of 13 percent at the midpoint versus recast Q3 2018 and assumes WADSO of approximately 131.5 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "WADSO",
+     "period": "quarter",
+     "period_text": "third quarter",
+     "shape": "point",
+     "low": 131.5,
+     "high": 131.5,
+     "unit": "million shares",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "FMC expects adjusted earnings per diluted share to be in the range of $0.75 to $0.85 in the third quarter, which represents growth of 13 percent at the midpoint versus recast Q3 2018 and assumes WADSO of approximately 131.5 million."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "revenue",
+     "period": "quarter",
+     "period_text": "fourth quarter",
+     "shape": "range",
+     "low": 1.15,
+     "high": 1.2,
+     "unit": "USD billions",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "Fourth quarter revenue is expected to be in the range of $1.15 billion to $1.2 billion, representing 7 percent growth at the midpoint compared to recast fourth quarter 2018."
+    },
+    {
+     "metric": "other",
+     "metric_text": "total company adjusted EBITDA",
+     "period": "quarter",
+     "period_text": "fourth quarter",
+     "shape": "range",
+     "low": 310,
+     "high": 330,
+     "unit": "USD millions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Total company adjusted EBITDA is forecasted to be in the range of $310 million to $330 million, representing a 17 percent increase at the midpoint versus recast Q4 2018."
+    },
+    {
+     "metric": "eps",
+     "metric_text": "adjusted earnings per diluted share",
+     "period": "quarter",
+     "period_text": "fourth quarter",
+     "shape": "range",
+     "low": 1.55,
+     "high": 1.65,
+     "unit": "USD per share",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "FMC expects adjusted earnings per diluted share to be in the range of $1.55 to $1.65 in the fourth quarter, which represents growth of 10 percent at the midpoint versus recast Q4 2018 and assumes WADSO of approximately 130.5 million."
+    },
+    {
+     "metric": "other",
+     "metric_text": "WADSO",
+     "period": "quarter",
+     "period_text": "fourth quarter",
+     "shape": "point",
+     "low": 130.5,
+     "high": 130.5,
+     "unit": "million shares",
+     "basis": "unstated",
+     "revision": "not_stated",
+     "evidence": "FMC expects adjusted earnings per diluted share to be in the range of $1.55 to $1.65 in the fourth quarter, which represents growth of 10 percent at the midpoint versus recast Q4 2018 and assumes WADSO of approximately 130.5 million."
+    }
+   ],
+   "notes": "Full-year, Q3 and Q4 2019 outlook (prose + table). Growth-at-midpoint percentages are derived from the ranges and not labeled as separate items. No GAAP outlook provided (footnote 2)."
+  },
+  "uncertain": "Expected 2019 share repurchases ($400-500M) and WADSO share-count assumptions included as 'other'; buybacks may be considered not-guidance by reviewer. Raised FY adj EPS has no prior range stated, but release says 'raising'."
+ },
+ "0001104659-18-003876": {
+  "ticker": "MMM",
+  "label": {
+   "guidance_present": true,
+   "items": [
+    {
+     "metric": "eps",
+     "metric_text": "earnings per share (GAAP EPS)",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 10.2,
+     "high": 10.7,
+     "unit": "USD per share",
+     "basis": "gaap",
+     "revision": "raised",
+     "evidence": "The company now expects 2018 earnings to be in the range of $10.20 to $10.70 per share versus the prior expectation of $9.60 to $10.00."
+    },
+    {
+     "metric": "other",
+     "metric_text": "full-year tax rate",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 20.0,
+     "high": 22.0,
+     "unit": "percent",
+     "basis": "unstated",
+     "revision": "lowered",
+     "evidence": "The company also anticipates its full-year tax rate will be 20.0 to 22.0 percent, versus a prior range of 26.0 to 27.0 percent."
+    },
+    {
+     "metric": "revenue",
+     "metric_text": "organic local-currency sales growth",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 3,
+     "high": 5,
+     "unit": "percent growth",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "3M affirmed its organic local-currency sales growth expectations of 3 to 5 percent and free cash flow conversion of 90 to 100 percent"
+    },
+    {
+     "metric": "other",
+     "metric_text": "free cash flow conversion",
+     "period": "year",
+     "period_text": "2018",
+     "shape": "range",
+     "low": 90,
+     "high": 100,
+     "unit": "percent",
+     "basis": "adjusted",
+     "revision": "maintained",
+     "evidence": "3M affirmed its organic local-currency sales growth expectations of 3 to 5 percent and free cash flow conversion of 90 to 100 percent"
+    },
+    {
+     "metric": "other",
+     "metric_text": "net cash provided by operating activities",
+     "period": "year",
+     "period_text": "Full-Year 2018 Forecast",
+     "shape": "range",
+     "low": 6.9,
+     "high": 7.6,
+     "unit": "USD billions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net cash provided by operating activities | $ | 1,860 | $ | 2,209 | $ | 6,240 | $ | 6,662 | $6.9 to $7.6"
+    },
+    {
+     "metric": "other",
+     "metric_text": "purchases of property, plant and equipment",
+     "period": "year",
+     "period_text": "Full-Year 2018 Forecast",
+     "shape": "range",
+     "low": 1.5,
+     "high": 1.8,
+     "unit": "USD billions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Purchases of property, plant and equipment | (459 | ) | (436 | ) | (1,373 | ) | (1,420 | ) | $1.5 to $1.8"
+    },
+    {
+     "metric": "other",
+     "metric_text": "free cash flow",
+     "period": "year",
+     "period_text": "Full-Year 2018 Forecast",
+     "shape": "range",
+     "low": 5.1,
+     "high": 6.1,
+     "unit": "USD billions",
+     "basis": "adjusted",
+     "revision": "not_stated",
+     "evidence": "Free cash flow (a) | 1,401 | 1,773 | 4,867 | 5,242 | $5.1 to $6.1"
+    },
+    {
+     "metric": "other",
+     "metric_text": "net income attributable to 3M",
+     "period": "year",
+     "period_text": "Full-Year 2018 Forecast",
+     "shape": "range",
+     "low": 5.8,
+     "high": 6.1,
+     "unit": "USD billions",
+     "basis": "gaap",
+     "revision": "not_stated",
+     "evidence": "Net income attributable to 3M | $ | 523 | $ | 1,155 | $ | 4,858 | $ | 5,050 | $5.8 to $6.1"
+    }
+   ],
+   "notes": "2018 Updated Outlook section plus the free cash flow table's Full-Year 2018 Forecast column. Declared Q1 2018 dividend is not guidance."
+  },
+  "uncertain": "FCF table forecast lines (operating cash flow, capex, FCF, net income) included as separate 'other' items; they are reconciliation inputs for the FCF-conversion guide. Basis of 2018 EPS is not literally labeled GAAP in the outlook sentence, but the highlights say 'GAAP EPS of $10.20 to $10.70'."
+ }
+}

@@ -1,0 +1,30 @@
+{
+ "questions": 67,
+ "by_kind": {
+  "only": 23,
+  "other": 19,
+  "fields": 17,
+  "check": 8
+ },
+ "disagreements_won": {
+  "draft": 24,
+  "model": 14,
+  "split": 1,
+  "neither": 1
+ },
+ "spot_check": {
+  "asked": 8,
+  "right": 8
+ },
+ "overrides": [
+  "Q11",
+  "Q15",
+  "Q19",
+  "Q36",
+  "Q41",
+  "Q48",
+  "Q55",
+  "Q57"
+ ],
+ "unresolved_releases": []
+}

@@ -1,0 +1,45 @@
+{
+ "accession": "0001104659-18-026879",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "77e0496a2ee16dc1bcfd0d237417f29818b0be4cef196175f389d6af44c8e76d",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "adjusted earnings",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 2.3,
+    "high": 2.34,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "CMS Energy reaffirmed its guidance for 2018 adjusted earnings of $2.30 - $2.34 per share (*See below for important information about non-GAAP measures) or 6 to 8 percent annual adjusted earnings per share growth."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "annual adjusted earnings per share growth",
+    "period": "year",
+    "period_text": "2018",
+    "shape": "range",
+    "low": 6.0,
+    "high": 8.0,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "CMS Energy reaffirmed its guidance for 2018 adjusted earnings of $2.30 - $2.34 per share (*See below for important information about non-GAAP measures) or 6 to 8 percent annual adjusted earnings per share growth."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 3397,
+  "output_tokens": 350,
+  "thinking_tokens": 0,
+  "total_tokens": 3747
+ }
+}

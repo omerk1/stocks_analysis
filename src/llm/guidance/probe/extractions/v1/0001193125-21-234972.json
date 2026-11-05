@@ -1,0 +1,58 @@
+{
+ "accession": "0001193125-21-234972",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "8d098c0c32842d4f6273ff778156f30f980c8f52fc57ad966c7ad05fc0e51a2e",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "merger cost savings",
+    "period": "year",
+    "period_text": "by year-end 2021",
+    "shape": "point",
+    "low": 600.0,
+    "high": 600.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Devon expects its merger cost savings to drive $600 million in annual cash flow improvements by year-end 2021."
+   },
+   {
+    "metric": "other",
+    "metric_text": "capital budget",
+    "period": "year",
+    "period_text": "in 2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+   },
+   {
+    "metric": "other",
+    "metric_text": "oil production outlook",
+    "period": "year",
+    "period_text": "in 2021",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "The company remains committed to its maintenance capital program and has not made any modifications to its capital budget or oil production outlook in 2021."
+   }
+  ],
+  "notes": "Additional details of Devon\u2019s forward-looking guidance for the third-quarter and full-year 2021 are available on the company\u2019s website at www.devonenergy.com."
+ },
+ "usage": {
+  "prompt_tokens": 4075,
+  "output_tokens": 480,
+  "thinking_tokens": 0,
+  "total_tokens": 4555
+ }
+}

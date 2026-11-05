@@ -1,0 +1,58 @@
+{
+ "accession": "0000915389-13-000039",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "c348211a12e2993af2ed92798b59d91c8cc4734f836190c8dacb8783082fd986",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "eps",
+    "metric_text": "earnings per share",
+    "period": "year",
+    "period_text": "full year 2013",
+    "shape": "range",
+    "low": 6.4,
+    "high": 6.5,
+    "unit": "USD per share",
+    "basis": "adjusted",
+    "revision": "raised",
+    "evidence": "As a result, we are increasing our expectations for 2013 earnings per share to between $6.40 and $6.50."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "earnings",
+    "period": "other",
+    "period_text": "through 2015",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "percent growth",
+    "basis": "adjusted",
+    "revision": "maintained",
+    "evidence": "We continue to expect double-digit earnings growth through 2015 given our leading market positions, our end-market and geographic diversity, and the growth initiatives we are pursuing throughout the company."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "earnings",
+    "period": "other",
+    "period_text": "second half of the year",
+    "shape": "qualitative",
+    "low": null,
+    "high": null,
+    "unit": "unstated",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "We expect earnings in the second half of the year will be slightly lower than first half due to normal seasonality of sales volume."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 11818,
+  "output_tokens": 439,
+  "thinking_tokens": 0,
+  "total_tokens": 12257
+ }
+}

@@ -1,0 +1,58 @@
+{
+ "accession": "0000109380-12-000198",
+ "prompt_version": "v1",
+ "fingerprint": "d0dd8ef13dc9ad67681efc01e7dadbde3c82c200d7e8a3ea21328fad866ea6d5",
+ "model": "gemini-2.5-flash",
+ "text_sha256": "50a2cd0f92619c61a3316ff3764b57ed12166acc19621aad017ffb8575c7b77b",
+ "label": {
+  "guidance_present": true,
+  "items": [
+   {
+    "metric": "other",
+    "metric_text": "repay the remaining $700 million of TARP preferred stock",
+    "period": "other",
+    "period_text": "second half of the year",
+    "shape": "point",
+    "low": 700.0,
+    "high": 700.0,
+    "unit": "USD millions",
+    "basis": "unstated",
+    "revision": "maintained",
+    "evidence": "Pursuant to that plan, the Company repaid $700 million of TARP preferred stock on March 28, 2012, and currently expects to repay the remaining $700 million in the second half of the year."
+   },
+   {
+    "metric": "eps",
+    "metric_text": "benefit future net earnings applicable to common shareholders",
+    "period": "other",
+    "period_text": "annualized basis",
+    "shape": "point",
+    "low": 0.19,
+    "high": 0.19,
+    "unit": "USD per share",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "Net of the interest cost on the previously mentioned debt, the $700 million redemption of TARP preferred stock in the first quarter is expected to benefit future net earnings applicable to common shareholders by approximately $0.19 per share on an annualized basis."
+   },
+   {
+    "metric": "other",
+    "metric_text": "increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt",
+    "period": "quarter",
+    "period_text": "second quarter of 2012",
+    "shape": "point",
+    "low": 16.2,
+    "high": 16.2,
+    "unit": "USD millions pretax",
+    "basis": "unstated",
+    "revision": "not_stated",
+    "evidence": "This anticipated conversion is expected to increase interest expense in the second quarter of 2012 due to the accelerated discount amortization on the converted debt by an estimated noncash amount of $16.2 million pretax ($13.2 million after-tax)."
+   }
+  ],
+  "notes": ""
+ },
+ "usage": {
+  "prompt_tokens": 19268,
+  "output_tokens": 561,
+  "thinking_tokens": 0,
+  "total_tokens": 19829
+ }
+}
