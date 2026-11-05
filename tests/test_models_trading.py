@@ -102,6 +102,13 @@ def test_check_run_refuses_an_id_logged_from_another_environment(tmp_path):
     trading.check_run(s1, cache, trials)                             # same environment: more cells of one fit
 
 
+def test_a_numpy_that_cant_report_its_blas_logs_unknown(monkeypatch):
+    def old_numpy(mode=None):                                       # numpy < 1.26 has no mode="dicts"
+        raise TypeError("show_config() got an unexpected keyword argument 'mode'")
+    monkeypatch.setattr(np, "show_config", old_numpy)
+    assert trial_log._blas() == "unknown"
+
+
 def test_the_environment_names_python_and_the_fitting_libraries():
     env = trial_log.environment()
     assert set(env) == {"python", "machine", "blas", *trial_log.ENVIRONMENT_PACKAGES}
@@ -310,6 +317,9 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     rescored = trial_log.read_trials(tmp_path / "T2.csv").iloc[0]
     assert json.loads(rescored["feature_groups"])["source_tie_break"] == trading.NAME_TIES
     assert trial_log.logged_environment(rescored) is None
+    # ...but not into a rescore id already holding fits from a known environment
+    with pytest.raises(ValueError, match="another environment.*not recorded"):
+        trading.rescore(SMALL, old, features, tmp_path, trials_path=trials, artifacts_root=art)
     # the same predictions and ranking score the same
     assert again["by_k"][5]["model"]["costs"][10] == first["by_k"][5]["model"]["costs"][10]
     assert ev_atr["by_k"][5]["model"]["atr_pct"] <= first["by_k"][5]["model"]["atr_pct"]

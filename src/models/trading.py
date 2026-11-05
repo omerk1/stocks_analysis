@@ -360,11 +360,10 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
-    path = Path(trials_path)
-    if not path.exists() or path.stat().st_size == 0:     # a new log, as trial_log.append_row reads it
+    trials = trial_log.read_existing(trials_path)
+    if trials is None:
         return
-    trials = trial_log.read_trials(path)
-    ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
+    ours =(list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
     for g in trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]:
         g = json.loads(g)
         if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from")) != ours:
@@ -471,7 +470,9 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         frame = cell_frame(features, labels)
         spec["feature_groups"]["rescored_from"] = row["trial_id"]
         spec["feature_groups"]["source_tie_break"] = logged_tie_break(row)
-        spec["universe"]["environment"] = trial_log.logged_environment(row)   # the fit's, not this rescore's
+        # the fit's, not this rescore's; one rescore id holds one environment's fits
+        spec["universe"]["environment"] = trial_log.logged_environment(row)
+        trial_log.check_environment(trial_log.read_existing(trials_path), RESCORE_ID, spec["universe"]["environment"])
         with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
             model = preds[preds["model"] == "model"].drop(columns="model")
             ref = preds[preds["model"] == sc.reference].drop(columns="model")

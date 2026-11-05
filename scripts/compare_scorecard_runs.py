@@ -60,13 +60,16 @@ def check_environments(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series],
     """Refuses a pair of runs whose compared cells weren't all fitted in one
     known environment (cells only one run has aren't compared, so don't count)."""
     shared = sorted(set(new) & set(old))
-    rows = [(new_id, key, new[key]) for key in shared] + [(old_id, key, old[key]) for key in shared]
-    envs = [trial_log.logged_environment(row) for _, _, row in rows]
-    for (eid, key, _), env in zip(rows, envs):
-        if env is None or env != envs[0]:
-            raise SystemExit(f"the runs weren't fitted in one known environment: {eid} cell {key} has "
-                             f"{trial_log.environment_diff(env, envs[0])}; "
-                             "pass --across-environments to compare them anyway")
+    if not shared:
+        raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
+    first = trial_log.logged_environment(new[shared[0]])
+    for eid, rows in ((new_id, new), (old_id, old)):
+        for key in shared:
+            env = trial_log.logged_environment(rows[key])
+            if env is None or env != first:
+                raise SystemExit(f"the runs weren't fitted in one known environment: {eid} cell {key} has "
+                                 f"{trial_log.environment_diff(env, first)}; "
+                                 "pass --across-environments to compare them anyway")
 
 
 def predictions(row: pd.Series, artifacts_root: Path) -> pd.DataFrame:

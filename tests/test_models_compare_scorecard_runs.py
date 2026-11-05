@@ -38,3 +38,9 @@ def test_runs_from_one_environment_compare():
 def test_runs_not_from_one_known_environment_are_refused(new, old, says):
     with pytest.raises(SystemExit, match=f"{says}.*--across-environments"):
         compare_scorecard_runs.check_environments(_cells(*new), _cells(*old), "S3", "S1v")
+
+
+def test_runs_without_a_shared_cell_are_refused():
+    other = {(63, 2.0, 1.0): _cells(HERE)[(21, 2.0, 0.0)]}
+    with pytest.raises(SystemExit, match="share no cell"):
+        compare_scorecard_runs.check_environments(_cells(HERE), other, "S3", "S1v")

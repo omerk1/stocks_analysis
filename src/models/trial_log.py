@@ -60,13 +60,20 @@ COLUMNS = ["trial_id", "date", "experiment_id", "status", "git_sha", "git_dirty"
 ENVIRONMENT_PACKAGES = ("numpy", "pandas", "scipy", "scikit-learn")
 
 
+def _blas() -> str:
+    """numpy's BLAS build, or "unknown" where numpy can't say (before 1.26)."""
+    import numpy as np
+    try:
+        blas = np.show_config(mode="dicts")["Build Dependencies"]["blas"]
+    except (TypeError, KeyError):
+        return "unknown"
+    return f"{blas.get('name')} {blas.get('version')}"
+
+
 @functools.cache
 def _environment() -> tuple[tuple[str, str], ...]:
-    import numpy as np
-    blas = np.show_config(mode="dicts")["Build Dependencies"]["blas"]
     return (("python", platform.python_version()), ("machine", platform.machine()),
-            *((p, version(p)) for p in ENVIRONMENT_PACKAGES),
-            ("blas", f"{blas.get('name')} {blas.get('version')}"))
+            *((p, version(p)) for p in ENVIRONMENT_PACKAGES), ("blas", _blas()))
 
 
 def environment() -> dict[str, str]:
@@ -93,15 +100,22 @@ def environment_diff(a: dict | None, b: dict | None) -> str:
     return ", ".join(f"{k} {a.get(k)} vs {b.get(k)}" for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k))
 
 
-def check_environment(trials: pd.DataFrame, experiment_id: str) -> None:
-    """Refuses to add trials to an id whose `ok` rows were fitted in another
-    environment, or before environments were logged: its cells and the new
-    ones wouldn't be one fit's (Done #172). Failed and abandoned rows don't count."""
-    env = environment()
+_THIS_PROCESS = object()
+
+
+def check_environment(trials: pd.DataFrame | None, experiment_id: str, env=_THIS_PROCESS) -> None:
+    """Refuses to add trials fitted in `env` (default: this process's; None:
+    unknown, a rescore of an old fit) to an id whose `ok` rows were fitted in
+    another environment, or before environments were logged: its cells and the
+    new ones wouldn't be one fit's (Done #172). Unknown matches nothing. Failed
+    and abandoned rows don't count; `trials` None is a new log."""
+    if trials is None:
+        return
+    env = environment() if env is _THIS_PROCESS else env
     ok = trials[(trials["experiment_id"] == experiment_id) & (trials["status"] == OK)]
     for _, row in ok.iterrows():
         logged = logged_environment(row)
-        if logged != env:
+        if logged is None or logged != env:
             raise ValueError(f"{experiment_id} is already logged from another environment "
                              f"({environment_diff(logged, env)}); pick another experiment id")
 
@@ -191,3 +205,9 @@ def trial(experiment_id: str, spec: dict, trials_path: Path = TRIALS_PATH, artif
 
 def read_trials(trials_path: Path = TRIALS_PATH) -> pd.DataFrame:
     return pd.read_csv(trials_path)
+
+
+def read_existing(trials_path: Path = TRIALS_PATH) -> pd.DataFrame | None:
+    """The log's rows, or None for a new log (missing or empty, as `append_row` reads it)."""
+    path = Path(trials_path)
+    return read_trials(path) if path.exists() and path.stat().st_size else None
