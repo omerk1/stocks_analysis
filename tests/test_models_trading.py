@@ -317,9 +317,10 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     rescored = trial_log.read_trials(tmp_path / "T2.csv").iloc[0]
     assert json.loads(rescored["feature_groups"])["source_tie_break"] == trading.NAME_TIES
     assert trial_log.logged_environment(rescored) is None
-    # ...but not into a rescore id already holding fits from a known environment
-    with pytest.raises(ValueError, match="another environment.*not recorded"):
-        trading.rescore(SMALL, old, features, tmp_path, trials_path=trials, artifacts_root=art)
+    # into a log whose rescore rows came from another environment too (the real S1b
+    # rows predate the field): each row keeps its own fit's, so a rescore never refuses
+    [_] = trading.rescore(SMALL, old, features, tmp_path, trials_path=trials, artifacts_root=art)
+    assert trial_log.logged_environment(trial_log.read_trials(trials).iloc[-1]) is None
     # the same predictions and ranking score the same
     assert again["by_k"][5]["model"]["costs"][10] == first["by_k"][5]["model"]["costs"][10]
     assert ev_atr["by_k"][5]["model"]["atr_pct"] <= first["by_k"][5]["model"]["atr_pct"]

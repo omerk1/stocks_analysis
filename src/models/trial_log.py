@@ -100,22 +100,18 @@ def environment_diff(a: dict | None, b: dict | None) -> str:
     return ", ".join(f"{k} {a.get(k)} vs {b.get(k)}" for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k))
 
 
-_THIS_PROCESS = object()
-
-
-def check_environment(trials: pd.DataFrame | None, experiment_id: str, env=_THIS_PROCESS) -> None:
-    """Refuses to add trials fitted in `env` (default: this process's; None:
-    unknown, a rescore of an old fit) to an id whose `ok` rows were fitted in
+def check_environment(trials: pd.DataFrame | None, experiment_id: str) -> None:
+    """Refuses to fit more trials under an id whose `ok` rows were fitted in
     another environment, or before environments were logged: its cells and the
-    new ones wouldn't be one fit's (Done #172). Unknown matches nothing. Failed
-    and abandoned rows don't count; `trials` None is a new log."""
+    new ones wouldn't be one fit's (Done #172). Failed and abandoned rows don't
+    count; `trials` None is a new log. Called once, before a run logs anything."""
     if trials is None:
         return
-    env = environment() if env is _THIS_PROCESS else env
+    env = environment()
     ok = trials[(trials["experiment_id"] == experiment_id) & (trials["status"] == OK)]
     for _, row in ok.iterrows():
         logged = logged_environment(row)
-        if logged is None or logged != env:
+        if logged != env:
             raise ValueError(f"{experiment_id} is already logged from another environment "
                              f"({environment_diff(logged, env)}); pick another experiment id")
 

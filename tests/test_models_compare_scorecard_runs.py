@@ -40,7 +40,13 @@ def test_runs_not_from_one_known_environment_are_refused(new, old, says):
         compare_scorecard_runs.check_environments(_cells(*new), _cells(*old), "S3", "S1v")
 
 
-def test_runs_without_a_shared_cell_are_refused():
-    other = {(63, 2.0, 1.0): _cells(HERE)[(21, 2.0, 0.0)]}
+@pytest.mark.parametrize("across", [False, True])
+def test_runs_without_a_shared_cell_are_refused(monkeypatch, across):
+    """Refused before anything is read, with or without --across-environments."""
+    groups = json.dumps({"rank": "ev_atr"})
+    log = pd.DataFrame({"experiment_id": ["S3", "S1v"], "status": "ok", "feature_groups": groups,
+                        "cells": [json.dumps([{"horizon": h, "upper": 2.0, "lower": 1.0}]) for h in (21, 63)],
+                        "universe": json.dumps({"environment": HERE})})
+    monkeypatch.setattr(trial_log, "read_trials", lambda: log)
     with pytest.raises(SystemExit, match="share no cell"):
-        compare_scorecard_runs.check_environments(_cells(HERE), other, "S3", "S1v")
+        compare_scorecard_runs.compare("S3", "S1v", Path("unread"), Path("unread"), Path("unread"), across)

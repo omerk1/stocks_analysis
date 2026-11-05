@@ -60,8 +60,8 @@ def check_environments(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series],
     """Refuses a pair of runs whose compared cells weren't all fitted in one
     known environment (cells only one run has aren't compared, so don't count)."""
     shared = sorted(set(new) & set(old))
-    if not shared:
-        raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
+    if not shared:                                       # compare() refuses that first
+        return
     first = trial_log.logged_environment(new[shared[0]])
     for eid, rows in ((new_id, new), (old_id, old)):
         for key in shared:
@@ -102,6 +102,8 @@ def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, arti
             across_environments: bool = False) -> pd.DataFrame:
     trials = trial_log.read_trials()
     new, old = logged(trials, new_id), logged(trials, old_id)
+    if not set(new) & set(old):
+        raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
     if not across_environments:
         check_environments(new, old, new_id, old_id)
     features = cache.read_feature_cache(features_dir)
