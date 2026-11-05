@@ -51,7 +51,7 @@ from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, SpecField, StrategySpec, UnsupportedRequest, find_gaps, request_wording)
+    Gap, Signal, SpecField, StrategySpec, UnsupportedRequest, find_gaps, request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -71,7 +71,11 @@ section's field and a reason) and leave the value null. If the answer resolves o
 one of the question's listed unsupported requests, repeat that request's wording in \
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
-`unsupported` empty and `resolved_requests` empty.
+`unsupported` empty and `resolved_requests` empty. When the question is about one item \
+of a list section (one supporting signal), `value` is that one item, not the list. A \
+signal's `settings` hold what the answer gives, by the setting names the question lists, \
+each value in the trader's words; `defaults_ok` is true only when the trader says the \
+defaults are fine.
 
 The current spec, for context only — change nothing outside the asked section:
 """
@@ -82,6 +86,26 @@ class Question:
     field: str
     text: str
     gaps: tuple[Gap, ...]
+    item: str | None = None  # the list item asked about (a supporting signal's name)
+
+    @property
+    def key(self) -> str:
+        """What the loop skips when this question stalls: the field, or one item of it."""
+        return gap_key(self.field, self.item)
+
+
+def gap_key(field: str, item: str | None) -> str:
+    return field if item is None else f"{field}[{item}]"
+
+
+def _answer_model(name: str, value_type):
+    return create_model(
+        name,
+        __config__=ConfigDict(extra="forbid"),
+        value=(value_type | None, None),
+        unsupported=(list[UnsupportedRequest], Field(default_factory=list)),
+        resolved_requests=(list[str], Field(default_factory=list)),
+    )
 
 
 # One response schema per spec field: the field's own type as `value`, new unsupported
@@ -90,29 +114,28 @@ class Question:
 # model merely fails to repeat is kept by the code, so an unresolved request can't vanish
 # because the model forgot it. extra="forbid" like every spec section, so a stray key
 # from the model is an error, not silently dropped.
-_ANSWER_MODELS = {
-    f: create_model(
-        f"Answer_{f}",
-        __config__=ConfigDict(extra="forbid"),
-        value=(StrategySpec.model_fields[f].annotation | None, None),
-        unsupported=(list[UnsupportedRequest], Field(default_factory=list)),
-        resolved_requests=(list[str], Field(default_factory=list)),
-    )
-    for f in get_args(SpecField)
-}
+_ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
+                  for f in get_args(SpecField)}
+# A question about one item gets that item back alone and the code puts it in its place,
+# so the answer can't touch the other items.
+_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", Signal)}
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
     """The first open field's gaps as one question, or None when the spec is complete
     (fields in `skip` — ones the loop gave up on — don't count). One question per field
     per turn: a field's gaps (an unsupported request plus the field standing empty, say)
-    read better asked together than one at a time."""
-    gaps = [g for g in find_gaps(spec) if g.field in get_args(SpecField) and g.field not in skip]
+    read better asked together than one at a time. A list field's items are the
+    exception: each supporting signal is its own question."""
+    gaps = [g for g in find_gaps(spec) if g.field in get_args(SpecField)
+            and g.field not in skip and gap_key(g.field, g.item) not in skip]
     if not gaps:
         return None
-    field = gaps[0].field
-    own = tuple(g for g in gaps if g.field == field)
-    lines = [f"About `{field}`:"]
+    field, item = gaps[0].field, gaps[0].item
+    # Five signals' settings in one question is too much to answer; gaps about the field
+    # as a whole go with the first question asked about it.
+    own = tuple(g for g in gaps if g.field == field and g.item in (item, None))
+    lines = [f"About `{field}`" + (f", the signal {item!r}:" if item else ":")]
     for g in own:
         if g.kind == "unsupported":
             lines.append(f"- {g.reason} — this isn't supported (it's been noted for development)."
@@ -122,9 +145,11 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
         else:
             lines.append(f"- {g.reason}")
     current = getattr(spec, field)
+    if item is not None:
+        current = next((x for x in current if getattr(x, "name", None) == item), None)
     if current not in (None, []):
         lines.append(f"(currently: {json.dumps(_shown(current), default=str)})")
-    return Question(field, "\n".join(lines), own)
+    return Question(field, "\n".join(lines), own, item)
 
 
 def _shown(value):
@@ -149,7 +174,8 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     reply = client.generate(
         prompt, purpose=PURPOSE,
         system=extraction.build_system() + "\n" + ANSWER_RULES + context,
-        response_schema=_ANSWER_MODELS[question.field], temperature=0.0)
+        response_schema=(_ITEM_ANSWER_MODELS if question.item else _ANSWER_MODELS)[question.field],
+        temperature=0.0)
     parsed = reply.parsed
     wrong_field = [u for u in parsed.unsupported if u.field != question.field]
     if wrong_field:  # the model may only speak for the asked field
@@ -173,7 +199,12 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
            if u.key() not in {k.key() for k in kept}
            and not any(r in request_wording(u.requested) for r in resolved)]
     updates: dict = {"unsupported": others + kept + new}
-    if parsed.value is not None:
+    if parsed.value is not None and question.item:
+        items = list(getattr(spec, question.field))
+        at = next(i for i, x in enumerate(items) if x.name == question.item)
+        items[at] = parsed.value
+        updates[question.field] = items
+    elif parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)
 
@@ -225,25 +256,30 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
     answered = 0
     stopped = False
 
-    def stalled(field: str) -> None:
+    def stalled(key: str) -> None:
         # Twice in a row without movement (an identical re-parse, or a reply refused
         # both times) means asking again won't help — the first live session burned 75k
-        # tokens re-asking one size question before this guard existed.
-        stalls[field] = stalls.get(field, 0) + 1
-        if stalls[field] >= 2:
-            skip.add(field)
-            say(f"`{field}` isn't converging; skipping it — it stays an open gap.")
+        # tokens re-asking one size question before this guard existed. An item is
+        # skipped on its own, so one stuck signal doesn't skip the others.
+        stalls[key] = stalls.get(key, 0) + 1
+        if stalls[key] >= 2:
+            skip.add(key)
+            say(f"`{key}` isn't converging; skipping it — it stays an open gap.")
 
     try:
         session.note_unsupported()
         # `uses` came from the model, not the trader: an uncatalogued id in it is the
         # model's slip, dropped rather than asked about (a genuine ask lives in
         # `unsupported`).
-        bad_ids = [u for u in dict.fromkeys(session.spec.uses) if u not in catalogue.IDS]
+        all_uses = [*session.spec.uses, *(u for s in session.spec.supporting_signals for u in s.uses)]
+        bad_ids = [u for u in dict.fromkeys(all_uses) if u not in catalogue.IDS]
         if bad_ids:
             say(f"Dropped from `uses`, not in the catalogue: {', '.join(bad_ids)}")
+            signals = [s.model_copy(update={"uses": [u for u in s.uses if u in catalogue.IDS]})
+                       for s in session.spec.supporting_signals]
             session.spec = session.spec.model_copy(
-                update={"uses": [u for u in session.spec.uses if u in catalogue.IDS]})
+                update={"uses": [u for u in session.spec.uses if u in catalogue.IDS],
+                        "supporting_signals": signals})
         session.save(path)
         for _ in range(max_turns):
             question = next_question(session.spec, frozenset(skip))
@@ -261,17 +297,17 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 session.turns.append({"field": question.field, "question": question.text,
                                       "answer": answer, "error": str(e)})
                 session.save(path)
-                stalled(question.field)
+                stalled(question.key)
                 continue
             answered += 1
             session.note_unsupported()
             session.turns.append({"field": question.field, "question": question.text, "answer": answer})
             session.save(path)
             after = next_question(session.spec, frozenset(skip))
-            if after is not None and after.field == question.field and after.gaps == question.gaps:
-                stalled(question.field)
+            if after is not None and after.key == question.key and after.gaps == question.gaps:
+                stalled(question.key)
             else:
-                stalls.pop(question.field, None)
+                stalls.pop(question.key, None)
         remaining = find_gaps(session.spec)
         if not remaining:
             say("The spec is complete.")

@@ -1,6 +1,8 @@
 """The capability catalogue can't drift from the code: every entry's `impl` imports, and
 where the code has a fixed list, the catalogue matches it both ways."""
 
+import dataclasses
+import enum
 import importlib
 import inspect
 import subprocess
@@ -65,6 +67,31 @@ def test_every_public_indicator_function_is_listed_or_excluded():
     listed = {c.impl.split(":")[1] for c in CATALOGUE if c.impl.startswith(f"{module.__name__}:")}
     assert listed.isdisjoint(NOT_USER_FACING_INDICATORS)
     assert listed | set(NOT_USER_FACING_INDICATORS) == public
+
+
+SETTINGS = [(prefix, s) for prefix, settings in catalogue.SETTINGS.items() for s in settings]
+
+
+@pytest.mark.parametrize("prefix, setting", SETTINGS, ids=[f"{p}{s.name}" for p, s in SETTINGS])
+def test_every_setting_maps_to_its_config_field_and_default(prefix, setting):
+    assert any(c.id.startswith(prefix) for c in CATALOGUE), "a family with no catalogue entry"
+    module, _, attr = setting.impl.partition(":")
+    owner_name, _, field_name = attr.partition(".")
+    owner = _resolve(f"{module}:{owner_name}")
+    if not field_name:  # a choice among an enum's members: every one is the default
+        assert issubclass(owner, enum.Enum) and setting.default == "all of them"
+        return
+    fields = {f.name: f for f in dataclasses.fields(owner)}
+    assert field_name in fields
+    f = fields[field_name]
+    default = f.default_factory() if f.default is dataclasses.MISSING else f.default
+    assert setting.default == default
+
+
+def test_settings_for_merges_a_family_and_ignores_the_rest():
+    found = catalogue.settings_for(["detector:divergence.rsi", "detector:divergence.obv", "indicator:rsi"])
+    assert list(found) == [s.name for s in catalogue.SETTINGS["detector:divergence."]]
+    assert catalogue.settings_for(["detector:ma.first_touch"]) == {}
 
 
 def test_render_lists_the_schema_choices_and_every_entry():

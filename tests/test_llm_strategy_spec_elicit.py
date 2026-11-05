@@ -7,7 +7,7 @@ from src.llm.gemini import Reply, Usage
 from src.llm.strategy_spec import elicit as el
 from src.llm.strategy_spec.elicit import _ANSWER_MODELS, Question, apply_answer, elicit, next_question
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
+    Control, Duration, Rule, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
 
 
 def _spec(**overrides):
@@ -296,6 +296,55 @@ def test_a_field_that_stops_converging_is_skipped_not_relooped(tmp_path, monkeyp
     assert any(s.startswith("Done with the questions; still open: size") for s in said)
     assert spec.control is not None  # the loop moved on and finished the rest
     assert [g.field for g in find_gaps(spec)] == ["size"]  # kept as an open gap
+
+
+def _filters(*names):
+    return [Signal(name=n, description=n, role="filter", uses=["detector:fibonacci.retracement"]) for n in names]
+
+
+def test_each_signal_is_its_own_question_showing_only_itself():
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
+    q = next_question(spec)
+    assert (q.field, q.item, q.key) == ("supporting_signals", "fib", "supporting_signals[fib]")
+    assert "the signal 'fib'" in q.text and "min_swing_atr" in q.text
+    assert '"name": "fib"' in q.text and '"line"' not in q.text
+
+
+def test_an_answer_about_one_signal_replaces_only_that_signal():
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
+    q = next_question(spec)
+    # The model gets the single-signal schema; even a renamed reply lands in fib's place.
+    reply = {"value": {"name": "fib (major)", "description": "fib", "role": "filter",
+                       "uses": ["detector:fibonacci.retracement"],
+                       "settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
+    client = StubClient([reply])
+    out = apply_answer(spec, q, "only swings of 12 ATR or more", client)
+    assert client.calls[0][1]["response_schema"] is el._ITEM_ANSWER_MODELS["supporting_signals"]
+    assert [s.name for s in out.supporting_signals] == ["fib (major)", "line"]
+    assert out.supporting_signals[0].settings[0].value == "12 ATR"
+    assert out.supporting_signals[1] == spec.supporting_signals[1]
+    assert next_question(out).item == "line"
+
+
+def test_a_stuck_signal_is_skipped_alone(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
+    line_ok = {"value": {"name": "line", "description": "line", "role": "filter",
+                         "uses": ["detector:fibonacci.retracement"], "defaults_ok": True}}
+    client = StubClient([{"value": None}, {"value": None}, line_ok])
+    said = []
+    spec = elicit("idea", client, ask=lambda q: "dunno", say=said.append,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert any("`supporting_signals[fib]` isn't converging" in s for s in said)
+    assert spec.supporting_signals[1].defaults_ok  # the other signal was still asked
+    assert [(g.field, g.item) for g in find_gaps(spec)] == [("supporting_signals", "fib")]
+
+
+def test_uncatalogued_ids_are_dropped_from_a_signals_uses_too(tmp_path, monkeypatch):
+    signal = Signal(name="s", description="s", role="score", uses=["indicator:rsi", "indicator:stochastic"])
+    _extraction_stub(monkeypatch, _spec(supporting_signals=[signal]))
+    spec = elicit("idea", StubClient([]), ask=lambda q: None, say=lambda s: None,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert spec.supporting_signals[0].uses == ["indicator:rsi"]
 
 
 def test_next_question_skips_given_fields():
