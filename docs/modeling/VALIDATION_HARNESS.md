@@ -684,15 +684,37 @@ Build order, one PR each, each with its own tests:
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
      done (Done #125: `build-levels`), and so are the 57 level features (Done #156, as built:
      `LRP.md` "Addendum (2026-10-15)"; cache `data/models/features/sp500_levels`, every
-     `sp500_s2` column identical). Next: the scorecard run as `S3`, S1's columns plus the 57
-     levels against `S1r` (step 2b found S2's 14 columns make the picks worse, so they stay
-     out; its diagnostic points at the market-wide 6, so the 8 per-name ones can be tried
-     after S3). The levels fail the same-ticker vendor rule on history depth, a known limit
-     (`LRP.md` addendum). Before reading S3 − S1r: S3's archived B4 predictions must equal
-     S1r's exactly, as S1r's did S2's (S3 reads `sp500_levels`, S1r was fitted on
-     `sp500_s2`; if they differ, refit S1 on `sp500_levels` first). Against a negative
-     result: 57 columns join S1's 16 and each split samples 80% of them, so the S1 columns
-     are candidates less often; dilution alone can cost picks. **Step 3:**
+     `sp500_s2` column identical). The levels fail the same-ticker vendor rule on history
+     depth, a known limit (`LRP.md` addendum). S2's 14 columns stay out of S3 (step 2b).
+   - **Step 2 scorecard (Track A, Done #172): `S3` = S1's 16 columns + the 57 levels, 18 rows,
+     2026-10-31.** Same flags as S1r (`--rank ev_atr`, H21/63, one seed), cache `sp500_levels`.
+     - **The reference is a new refit, `S1v`, not S1r.** Since Done #168 the code runs in the
+       project venv (pandas 3.0.3, numpy 2.5.1, scikit-learn 1.9.0); S1r and every run before
+       it ran on Anaconda (pandas 2.2.3, scikit-learn 1.5.1). Refitted in the venv, one S1r
+       cell (H63 2/1) differs on every row (B4 mean |Δp| 0.002, S1 0.005, max ≈ 0.48). So S1
+       was refitted in the venv on `sp500_levels` as `S1v` (`--columns S1 --experiment-id
+       S1v`, 18 rows); S3's archived B4 predictions equal S1v's exactly in all 18 cells.
+       TRIALS.csv doesn't record library versions (backlog).
+     - **The environment change alone is refit-sized.** S1v − S1r: picks overlap 55–74%,
+       negative at 17 of 36, CI below zero at 1, above at none, mean size 0.05%, the same as
+       S1r vs S1b's refit noise above. Readouts vs market and B4 are unchanged in kind.
+     - **The levels change the picks but don't improve them.** Paired S3 − S1v
+       (`scripts/compare_scorecard_runs.py S3 S1v --features data/models/features/sp500_levels`):
+       picks overlap 25–46%, negative at 23 of 36, CI below zero at 2 (H63 4/1, top-5 and
+       top-20), above at none, median −0.03%, mean size 0.09%. The negatives gather at H63's
+       wide targets (4/1, 4/1.5, 4/2, 3/1, 3/1.5 all below zero at top-5); H21 is noise
+       around zero.
+     - **Model − market** positive at 36 (CI clears zero at 16, S1v 16); **model − B4** at 36
+       (clears at 13, S1v 16). Sharpe 0.38–0.92 (S1v 0.42–0.88), above random-k at 35 and the
+       market at 27 (S1v 22). Picks' ATR 2.23–2.50% (S1v 2.33–2.67%): slightly calmer names.
+       **Era:** model − market averages +0.29% in 2014–17 and +0.14% in 2018–21 (S1v +0.23%,
+       +0.29%): better early, worse late.
+     - **Against the result:** the 57 columns dilute S1's 16 (each split samples 80% of the
+       columns, so the S1 columns are candidates less often); the level values carry the
+       vendor history-depth limit; one seed. Exploration, not a finding: as added columns,
+       the levels don't help the picks here. Next candidates: the 8 per-name step-2b
+       columns on S1v (step 2b diagnostic), or a dilution check (fewer level columns, or
+       `max_features` 1.0) before dropping the levels. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
