@@ -68,7 +68,7 @@ def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path)
                                      json.dumps({**s2_groups, "model": list(trading.FULL_COLUMNS),
                                                  "rescored_from": "x"}),
                                      json.dumps({"step": "T1", "added": [], "reference": "B4"})],
-                  "universe": [here] * 3}
+                  "status": [trial_log.OK] * 3, "universe": [here] * 3}
                  ).to_csv(trials, index=False)
     trading.check_run(s2, s2_cache, trials)                          # same id, same design
     trading.check_run(replace(s2, experiment_id="S1r", model_columns=trading.FULL_COLUMNS), s2_cache, trials)
@@ -88,21 +88,28 @@ def test_check_run_refuses_an_id_logged_from_another_environment(tmp_path):
     groups = json.dumps({"model": list(s1.model_columns), "reference_columns": list(B4_COLUMNS), "rank": s1.rank})
     trials = tmp_path / "TRIALS.csv"
     here = trial_log.environment()
-    for universe in (json.dumps({"indices": ["sp500"]}),
-                     json.dumps({"environment": {**here, "scikit-learn": "1.5.1"}})):
-        pd.DataFrame({"experiment_id": ["S1v"], "feature_groups": [groups], "universe": [universe]}
-                     ).to_csv(trials, index=False)
-        with pytest.raises(ValueError, match="another environment"):
+    log = lambda status, universe: pd.DataFrame(  # noqa: E731
+        {"experiment_id": ["S1v"], "feature_groups": [groups], "status": [status], "universe": [universe]}
+    ).to_csv(trials, index=False)
+    for universe, says in ((json.dumps({"indices": ["sp500"]}), "not recorded"),
+                           (json.dumps({"environment": {**here, "scikit-learn": "1.5.1"}}), "scikit-learn 1.5.1")):
+        log(trial_log.OK, universe)
+        with pytest.raises(ValueError, match=f"another environment.*{says}"):
             trading.check_run(s1, cache, trials)
-    pd.DataFrame({"experiment_id": ["S1v"], "feature_groups": [groups],
-                  "universe": [json.dumps({"environment": here})]}).to_csv(trials, index=False)
+        log(trial_log.FAILED, universe)
+        trading.check_run(s1, cache, trials)                         # a failed row holds no fit to mix with
+    log(trial_log.OK, json.dumps({"environment": here}))
     trading.check_run(s1, cache, trials)                             # same environment: more cells of one fit
 
 
 def test_the_environment_names_python_and_the_fitting_libraries():
     env = trial_log.environment()
-    assert set(env) == {"python", *trial_log.ENVIRONMENT_PACKAGES}
-    assert all(isinstance(v, str) and v[0].isdigit() for v in env.values())
+    assert set(env) == {"python", "machine", "blas", *trial_log.ENVIRONMENT_PACKAGES}
+    assert all(env[k][0].isdigit() for k in ("python", *trial_log.ENVIRONMENT_PACKAGES))
+    assert env["machine"] and "None" not in env["blas"]
+    env["numpy"] = "0"                                              # a copy: the cached value can't be changed
+    assert trial_log.environment()["numpy"] != "0"
+    env = trial_log.environment()
     assert trial_log.logged_environment(pd.Series({"universe": json.dumps({"environment": env})})) == env
     for row in ({"universe": json.dumps({"indices": ["sp500"]})}, {"universe": json.dumps(["sp500"])},
                 {"universe": float("nan")}, {}):

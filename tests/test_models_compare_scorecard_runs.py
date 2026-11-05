@@ -24,15 +24,17 @@ def _cells(*envs) -> dict:
 
 
 def test_runs_from_one_environment_compare():
-    compare_scorecard_runs.check_environments(_cells(HERE, HERE), _cells(HERE), "S3", "S1v")
+    compare_scorecard_runs.check_environments(_cells(HERE, HERE), _cells(HERE, HERE), "S3", "S1v")
+    # a cell only one run has isn't compared, so its environment doesn't count
+    compare_scorecard_runs.check_environments(_cells(HERE, None), _cells(HERE), "S3", "S1v")
 
 
-@pytest.mark.parametrize("new, old", [
-    ((HERE,), ({**HERE, "scikit-learn": "1.5.1"},)),     # the reference fitted under other versions (S1r)
-    ((HERE, {**HERE, "numpy": "1.26.4"}), (HERE,)),      # one run's cells split across environments
-    ((HERE,), (None,)),                                  # a reference from before environments were logged
-    ((None,), (None,)),                                  # both unknown: not known to be one environment
+@pytest.mark.parametrize("new, old, says", [
+    ((HERE,), ({**HERE, "scikit-learn": "1.5.1"},), "scikit-learn"),   # the reference under other versions (S1r)
+    ((HERE, {**HERE, "numpy": "1.26.4"}), (HERE, HERE), "numpy"),       # one run's cells split across two
+    ((HERE,), (None,), "not recorded"),                                 # a reference from before the field
+    ((None,), (None,), "not recorded"),                                 # both unknown: not known to be one
 ])
-def test_runs_not_from_one_known_environment_are_refused(new, old):
-    with pytest.raises(SystemExit, match="--across-environments"):
+def test_runs_not_from_one_known_environment_are_refused(new, old, says):
+    with pytest.raises(SystemExit, match=f"{says}.*--across-environments"):
         compare_scorecard_runs.check_environments(_cells(*new), _cells(*old), "S3", "S1v")

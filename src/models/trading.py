@@ -356,8 +356,7 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
     already logged as something else: other model or reference columns,
     another rank, a rescore (S1b), or not a scorecard at all (an ablation's
     E1). S1's rows predate the rank field and count as ranked by EV. Also an
-    id logged from another environment (or before environments were logged):
-    its rows and this run's wouldn't be one fit's (Done #172)."""
+    id logged from another environment (`trial_log.check_environment`)."""
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
@@ -366,16 +365,12 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
         return
     trials = trial_log.read_trials(path)
     ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
-    env = trial_log.environment()
-    for _, row in trials[trials["experiment_id"] == sc.experiment_id].iterrows():
-        g = json.loads(row["feature_groups"])
+    for g in trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]:
+        g = json.loads(g)
         if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from")) != ours:
             raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank, or as "
                              "another kind of trial; pick another experiment id")
-        logged = trial_log.logged_environment(row)
-        if logged != env:
-            raise ValueError(f"{sc.experiment_id} is already logged from another environment "
-                             f"({logged or 'not recorded'}; now {env}); pick another experiment id")
+    trial_log.check_environment(trials, sc.experiment_id)
 
 
 def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir, n_boot: int | None = None,

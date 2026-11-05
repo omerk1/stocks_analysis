@@ -57,13 +57,16 @@ def logged(trials: pd.DataFrame, experiment_id: str) -> dict[tuple, pd.Series]:
 
 
 def check_environments(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series], new_id: str, old_id: str) -> None:
-    """Refuses a pair of runs whose cells weren't all fitted in one known environment."""
-    envs = [trial_log.logged_environment(row) for row in (*new.values(), *old.values())]
-    if envs[0] is None or any(e != envs[0] for e in envs):
-        seen = {eid: sorted({json.dumps(trial_log.logged_environment(r)) for r in rows.values()})
-                for eid, rows in ((new_id, new), (old_id, old))}
-        raise SystemExit(f"the runs weren't fitted in one known environment ({seen}); "
-                         "pass --across-environments to compare them anyway")
+    """Refuses a pair of runs whose compared cells weren't all fitted in one
+    known environment (cells only one run has aren't compared, so don't count)."""
+    shared = sorted(set(new) & set(old))
+    rows = [(new_id, key, new[key]) for key in shared] + [(old_id, key, old[key]) for key in shared]
+    envs = [trial_log.logged_environment(row) for _, _, row in rows]
+    for (eid, key, _), env in zip(rows, envs):
+        if env is None or env != envs[0]:
+            raise SystemExit(f"the runs weren't fitted in one known environment: {eid} cell {key} has "
+                             f"{trial_log.environment_diff(env, envs[0])}; "
+                             "pass --across-environments to compare them anyway")
 
 
 def predictions(row: pd.Series, artifacts_root: Path) -> pd.DataFrame:

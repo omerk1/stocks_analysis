@@ -355,6 +355,8 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
     than the registered one is for tests: `close_experiment` ignores its rows."""
     n_boot = exp.n_boot if n_boot is None else n_boot
     check_features(exp, features)
+    if Path(trials_path).exists() and Path(trials_path).stat().st_size:
+        trial_log.check_environment(trial_log.read_trials(trials_path), exp.experiment_id)
     labels = dataset.read_labels(labels_dir, horizon, cell=(exp.upper, exp.lower))
     frame = cell_frame(features, labels)
     unlabelled = check_labels(exp, features, frame)

@@ -25,6 +25,7 @@ to the venv, Done #172), so two fits are comparable only from one environment.
 from __future__ import annotations
 
 import csv
+import functools
 import json
 import platform
 import subprocess
@@ -59,9 +60,20 @@ COLUMNS = ["trial_id", "date", "experiment_id", "status", "git_sha", "git_dirty"
 ENVIRONMENT_PACKAGES = ("numpy", "pandas", "scipy", "scikit-learn")
 
 
+@functools.cache
+def _environment() -> tuple[tuple[str, str], ...]:
+    import numpy as np
+    blas = np.show_config(mode="dicts")["Build Dependencies"]["blas"]
+    return (("python", platform.python_version()), ("machine", platform.machine()),
+            *((p, version(p)) for p in ENVIRONMENT_PACKAGES),
+            ("blas", f"{blas.get('name')} {blas.get('version')}"))
+
+
 def environment() -> dict[str, str]:
-    """The Python and library versions this process fits with."""
-    return {"python": platform.python_version(), **{p: version(p) for p in ENVIRONMENT_PACKAGES}}
+    """The Python and library versions this process fits with, plus the CPU
+    architecture and numpy's BLAS: the same version strings can come from
+    builds that compute differently (Anaconda's and PyPI's numpy)."""
+    return dict(_environment())
 
 
 def logged_environment(row) -> dict | None:
@@ -72,6 +84,26 @@ def logged_environment(row) -> dict | None:
         return None
     parsed = json.loads(universe)
     return parsed.get("environment") if isinstance(parsed, dict) else None
+
+
+def environment_diff(a: dict | None, b: dict | None) -> str:
+    """What differs between two environments, for a refusal message."""
+    if a is None or b is None:
+        return "an environment not recorded"
+    return ", ".join(f"{k} {a.get(k)} vs {b.get(k)}" for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k))
+
+
+def check_environment(trials: pd.DataFrame, experiment_id: str) -> None:
+    """Refuses to add trials to an id whose `ok` rows were fitted in another
+    environment, or before environments were logged: its cells and the new
+    ones wouldn't be one fit's (Done #172). Failed and abandoned rows don't count."""
+    env = environment()
+    ok = trials[(trials["experiment_id"] == experiment_id) & (trials["status"] == OK)]
+    for _, row in ok.iterrows():
+        logged = logged_environment(row)
+        if logged != env:
+            raise ValueError(f"{experiment_id} is already logged from another environment "
+                             f"({environment_diff(logged, env)}); pick another experiment id")
 
 
 def _git(*args: str) -> str | None:
