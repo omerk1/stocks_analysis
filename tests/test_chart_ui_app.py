@@ -24,7 +24,7 @@ class FakeData(app_mod.ChartData):
 
     def _bars(self, ticker, timeframe):
         self.calls.append((ticker, timeframe))
-        return self._frame if ticker == "ABC" else self._frame.iloc[0:0]
+        return self._frame if ticker in ("ABC", "SPY") else self._frame.iloc[0:0]
 
     def strip(self, ticker, change_days):
         return self._strip
@@ -38,7 +38,7 @@ def _render(data, ticker, ma_keys=("sma_50",), view=None):
 def test_render_normalises_the_ticker_and_draws():
     data = FakeData()
     fig, message = _render(data, " abc ")
-    assert data.calls == [("ABC", Timeframe.DAILY)]
+    assert data.calls == [("ABC", Timeframe.DAILY), ("SPY", Timeframe.DAILY)]  # SPY: the holiday calendar
     assert [t.name for t in fig.data] == ["ABC", "SMA 50", "Volume"]
     assert message.startswith("ABC · daily · 260 bars")
 
@@ -47,8 +47,9 @@ def test_bars_and_moving_averages_are_cached():
     data = FakeData()
     _render(data, "ABC")
     _render(data, "ABC")
-    assert data.calls == [("ABC", Timeframe.DAILY)]
+    assert data.calls == [("ABC", Timeframe.DAILY), ("SPY", Timeframe.DAILY)]
     assert data.moving_averages.cache_info().hits == 1
+    assert data.holidays.cache_info().hits == 1
 
 
 def test_render_ignores_ma_keys_not_offered_for_the_timeframe():
@@ -74,16 +75,27 @@ def test_render_messages_for_empty_and_unknown_tickers():
 
 def test_strip_children_without_rs():
     assert app_mod.strip_children(FakeData(), ChartConfig(), "abc")[0] == "RS vs market: no RS run"
-    assert app_mod.strip_children(FakeData(strip=None), ChartConfig(), "abc") == ["RS: unavailable"]
+    assert app_mod.strip_children(FakeData(strip="RS: no derived database"), ChartConfig(), "abc") == [
+        "RS: no derived database"]
     assert app_mod.strip_children(FakeData(), ChartConfig(), " ") == []
 
 
-def test_strip_read_error_does_not_raise(tmp_path):
-    # A derived database without the RS tables: the strip is unavailable, nothing raises.
+def test_strip_tells_missing_database_unrun_rs_and_read_errors_apart(tmp_path):
     raw, derived = tmp_path / "raw.sqlite", tmp_path / "derived.sqlite"
     sqlite3.connect(raw).close()
-    sqlite3.connect(derived).close()
-    assert app_mod.ChartData(raw, derived).strip("ABC", 28) is None
+    assert app_mod.ChartData(raw, derived).strip("ABC", 28) == "RS: no derived database"
+    sqlite3.connect(derived).close()  # exists, but RS was never run there: no tables
+    strip = app_mod.ChartData(raw, derived).strip("ABC", 28)
+    assert rs.strip_parts(strip, 28) == ["RS vs market: no RS run", "RS vs sector: no RS run"]
+    derived.write_bytes(b"not a database" * 100)
+    assert app_mod.ChartData(raw, derived).strip("ABC", 28).startswith("RS: read error")
+
+
+def test_holidays_come_from_the_market_calendar_not_the_ticker():
+    data = FakeData()
+    data._frame = data._frame.drop(pd.Timestamp("2024-07-04"))
+    assert "2024-07-04" in data.holidays()
+    assert data.calls == [("SPY", Timeframe.DAILY)]
 
 
 def test_relayout_forms():

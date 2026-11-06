@@ -25,9 +25,10 @@ from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
 from src.ui.chart import rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec
-from src.ui.chart.figure import build_figure, default_x_range, y_fit
+from src.ui.chart.figure import build_figure, closed_weekdays, default_x_range, y_axis_ranges
 
 logger = logging.getLogger(__name__)
+MARKET_CALENDAR_TICKER = "SPY"
 _ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -50,6 +51,7 @@ class ChartData:
         self.raw_path, self.derived_path = raw_path, derived_path
         self.bars = lru_cache(maxsize=32)(self._bars)
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
+        self.holidays = lru_cache(maxsize=1)(self._holidays)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -67,19 +69,23 @@ class ChartData:
                          specs: tuple[MASpec, ...]) -> dict[str, pd.Series]:
         return bars_mod.moving_averages(self.bars(ticker, timeframe)["close"], specs)
 
-    def strip(self, ticker: str, change_days: int) -> rs.RSStrip | None:
-        """None when the derived database is missing or can't be read (e.g. RS
-        never run there), so the chart still draws."""
+    def _holidays(self) -> tuple[str, ...]:
+        """Market closures from SPY's trading days; empty if SPY has no bars."""
+        return closed_weekdays(self.bars(MARKET_CALENDAR_TICKER, Timeframe.DAILY).index)
+
+    def strip(self, ticker: str, change_days: int) -> rs.RSStrip | str:
+        """The strip, or a short message saying why there isn't one; never raises,
+        so the chart still draws."""
         if not self.derived_path.exists():
-            return None
+            return "RS: no derived database"
         conns: list[sqlite3.Connection] = []
         try:
             for path in (self.raw_path, self.derived_path):
                 conns.append(_read_only(path))
             return rs.rs_strip(*conns, ticker, change_days)
-        except (sqlite3.Error, pd.errors.DatabaseError, FileNotFoundError):
-            logger.exception("RS strip read failed for %s", ticker)
-            return None
+        except (sqlite3.Error, pd.errors.DatabaseError, FileNotFoundError) as e:
+            logger.warning("RS strip read failed for %s: %s", ticker, e)
+            return "RS: read error (see the app's log)"
         finally:
             for conn in conns:
                 conn.close()
@@ -114,8 +120,9 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
         x_range = tuple(view["range"])
     else:
         x_range = default_x_range(bars, timeframe, config.default_span_days[timeframe])
+    holidays = data.holidays() if timeframe == Timeframe.DAILY else ()
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
-                       show_volume=show_volume, x_range=x_range)
+                       show_volume=show_volume, x_range=x_range, holidays=holidays)
     return fig, f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
 
 
@@ -124,7 +131,7 @@ def strip_children(data: ChartData, config: ChartConfig, ticker: str) -> list[st
     if not ticker:
         return []
     strip = data.strip(ticker, config.rs_change_days)
-    return rs.strip_parts(strip, config.rs_change_days) if strip else ["RS: unavailable"]
+    return [strip] if isinstance(strip, str) else rs.strip_parts(strip, config.rs_change_days)
 
 
 def x_range_from_relayout(relayout: dict | None) -> tuple[str, str] | None:
@@ -206,26 +213,27 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                   prevent_initial_call=True)
     def _refit_y(relayout, ticker, timeframe, chart_type, ma_keys, volume):
         ticker, tf = _normalise(ticker), Timeframe(timeframe)
-        if is_autorange(relayout):
-            patch = Patch()
-            patch["layout"]["yaxis"]["autorange"] = True
-            if "on" in (volume or []):
-                patch["layout"]["yaxis2"]["autorange"] = True
-            return patch, None
-        x_range = x_range_from_relayout(relayout)
-        if x_range is None or not ticker:
+        if not ticker:
             return no_update, no_update
         bars = data.bars(ticker, tf)
+        if bars.empty:
+            return no_update, no_update
+        if is_autorange(relayout):
+            # A double-click reset shows the whole history; store that, so the next
+            # redraw keeps it instead of going back to the default span.
+            x_range = (str(bars.index.min()), str(bars.index.max()))
+        else:
+            x_range = x_range_from_relayout(relayout)
+            if x_range is None:
+                return no_update, no_update
         mas = data.moving_averages(ticker, tf, selected_specs(config, tf, ma_keys))
-        fit = y_fit(bars, mas, *x_range, closes_only=ChartType(chart_type) == ChartType.LINE)
         view = {"key": _view_key(ticker, tf), "range": list(x_range)}
-        if fit is None:
+        ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), "on" in (volume or []))
+        if not ranges:
             return no_update, view
-        price_range, volume_top = fit
         patch = Patch()
-        patch["layout"]["yaxis"]["range"] = price_range
-        if "on" in (volume or []) and volume_top is not None:
-            patch["layout"]["yaxis2"]["range"] = [0, volume_top]
+        for axis, axis_range in ranges.items():
+            patch["layout"][axis]["range"] = axis_range
         return patch, view
 
     return app

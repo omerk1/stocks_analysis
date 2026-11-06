@@ -4,7 +4,8 @@ computed here beyond a change and a rank.
 Ratings are `rs_rating` (1-99 percentile) from the relative-strength module's
 stored runs (`src/signals/relative_strength/`): the ticker against the market
 (SPY) and against its sector ETF, and the ticker's sector against the market.
-The sector's rank is its place among the sectors on the same date.
+The sector's rank is its place among the sectors rated on the same date; sectors
+with no rating that day are counted and shown, not mixed in from other dates.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from src.signals.relative_strength import store
 
 VS_MARKET = "vs_market"
 VS_SECTOR = "vs_sector"
-PEER_WINDOW_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,8 @@ class Rating:
 class SectorRank:
     rating: Rating
     rank: int
-    of: int
+    of: int  # sectors with a rating on the same date
+    missing: int = 0  # sectors in the table without a rating that day
 
 
 @dataclass(frozen=True)
@@ -62,29 +63,38 @@ def _sector_rank(derived: sqlite3.Connection, sector: str, change_days: int) -> 
     rating = _rating(store.read_sector_relative_strength(derived, sector), change_days)
     if rating is None:
         return None
-    # Each sector's latest rating on or before the ticker's sector's date, so a sector
-    # whose run ends a day or two earlier still counts; one with nothing in the last
-    # week is left out, and the "of N" shows it.
-    window_start = (pd.Timestamp(rating.as_of) - pd.Timedelta(days=PEER_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    rows = pd.read_sql_query(
-        "SELECT sector, date, rs_rating FROM sector_relative_strength "
-        "WHERE date <= ? AND date >= ? AND rs_rating IS NOT NULL ORDER BY date",
-        derived, params=(rating.as_of + " 23:59:59", window_start))
-    peers = rows.groupby("sector").tail(1).set_index("sector")["rs_rating"]
-    peers[sector] = rating.value
+    # Ranked against the ratings on the same date only, so every number compared is
+    # from one day. `missing` counts sectors with stored ratings but none that day.
+    peers = pd.read_sql_query(
+        "SELECT rs_rating FROM sector_relative_strength WHERE date = ? AND rs_rating IS NOT NULL",
+        derived, params=(rating.as_of,))["rs_rating"]
+    total = derived.execute("SELECT COUNT(DISTINCT sector) FROM sector_relative_strength").fetchone()[0]
     rank = int((peers > rating.value).sum()) + 1
-    return SectorRank(rating, rank, len(peers))
+    return SectorRank(rating, rank, len(peers), total - len(peers))
+
+
+def _has_tables(conn: sqlite3.Connection, *tables: str) -> bool:
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    return set(tables) <= names
 
 
 def rs_strip(raw: sqlite3.Connection, derived: sqlite3.Connection, ticker: str, change_days: int) -> RSStrip:
+    """Missing tables (RS never run in this database, no sector data) read as no rows."""
     ticker = ticker.upper()
-    rows = store.read_relative_strength(derived, ticker)
-    vs_market = _rating(rows[rows["comparison"] == VS_MARKET], change_days)
-    vs_sector = _rating(rows[rows["comparison"] == VS_SECTOR], change_days)
-    meta = db.read_ticker_sector(raw, ticker)
-    sector = meta["sector"].iloc[0] if not meta.empty and pd.notna(meta["sector"].iloc[0]) else None
-    industry = meta["industry"].iloc[0] if not meta.empty and pd.notna(meta["industry"].iloc[0]) else None
-    sector_rank = _sector_rank(derived, sector, change_days) if sector else None
+    vs_market = vs_sector = None
+    if _has_tables(derived, "relative_strength"):
+        rows = store.read_relative_strength(derived, ticker)
+        vs_market = _rating(rows[rows["comparison"] == VS_MARKET], change_days)
+        vs_sector = _rating(rows[rows["comparison"] == VS_SECTOR], change_days)
+    sector = industry = None
+    if _has_tables(raw, "ticker_sector"):
+        meta = db.read_ticker_sector(raw, ticker)
+        if not meta.empty:
+            sector = meta["sector"].iloc[0] if pd.notna(meta["sector"].iloc[0]) else None
+            industry = meta["industry"].iloc[0] if pd.notna(meta["industry"].iloc[0]) else None
+    sector_rank = None
+    if sector and _has_tables(derived, "sector_relative_strength"):
+        sector_rank = _sector_rank(derived, sector, change_days)
     return RSStrip(vs_market, vs_sector, sector, industry, sector_rank)
 
 
@@ -107,6 +117,8 @@ def strip_parts(strip: RSStrip, change_days: int) -> list[str]:
         if strip.sector_rank:
             r = strip.sector_rank
             sector += f" · RS {r.rating.value:.0f} · {_ordinal(r.rank)} of {r.of}"
+            if r.missing:
+                sector += f" ({r.missing} not rated that day)"
         parts.append(sector)
     if strip.industry:
         parts.append(strip.industry)

@@ -57,15 +57,14 @@ def test_ticker_without_rs_rows_says_so(conns):
     assert rs.strip_parts(strip, 28) == ["RS vs market: no RS run", "RS vs sector: no RS run"]
 
 
-def test_sector_rank_counts_peers_whose_run_ends_a_bit_earlier(conns):
+def test_sector_rank_uses_one_date_and_counts_sectors_missing_that_day(conns):
     _, derived = conns
     store.upsert_sector_relative_strength(derived, _rows(["2026-09-29"], [95.0], sector="Healthcare",
                                                          benchmark="SPY"), "r1")
-    store.upsert_sector_relative_strength(derived, _rows(["2026-08-01"], [99.0], sector="Stale",
-                                                         benchmark="SPY"), "r1")
-    rank = rs.rs_strip(*conns, "ABC", change_days=28).sector_rank
-    # Healthcare (a day earlier) counts and ranks above; "Stale" (two months old) doesn't count.
-    assert (rank.rank, rank.of) == (3, 4)
+    strip = rs.rs_strip(*conns, "ABC", change_days=28)
+    # Healthcare's older, higher rating isn't ranked against Technology's 2026-09-30 one.
+    assert (strip.sector_rank.rank, strip.sector_rank.of, strip.sector_rank.missing) == (2, 3, 1)
+    assert "Technology · RS 82 · 2nd of 3 (1 not rated that day)" in rs.strip_parts(strip, 28)
 
 
 @pytest.mark.parametrize("n, text", [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"),

@@ -31,12 +31,14 @@ def default_x_range(bars: pd.DataFrame, timeframe: Timeframe, span_days: int) ->
     return end - pd.Timedelta(days=span_days), end + pd.Timedelta(days=5 if timeframe == Timeframe.DAILY else 14)
 
 
-def _closed_weekdays(index: pd.DatetimeIndex) -> list[str]:
-    """Weekdays inside the bars' span with no bar (market holidays), for daily rangebreaks."""
-    if index.empty:
-        return []
-    missing = pd.bdate_range(index.min(), index.max()).difference(index.normalize())
-    return [d.strftime("%Y-%m-%d") for d in missing]
+def closed_weekdays(market_days: pd.DatetimeIndex) -> tuple[str, ...]:
+    """Weekdays the market was closed (holidays), from a market-wide calendar such as
+    SPY's trading days, for daily rangebreaks. Built from the market, not from the
+    ticker's own bars, so a ticker's halt or missing data still shows as a gap."""
+    if market_days.empty:
+        return ()
+    missing = pd.bdate_range(market_days.min(), market_days.max()).difference(market_days.normalize())
+    return tuple(d.strftime("%Y-%m-%d") for d in missing)
 
 
 def build_figure(
@@ -48,10 +50,12 @@ def build_figure(
     ma_specs: tuple[MASpec, ...],
     show_volume: bool = True,
     x_range: tuple | None = None,
+    holidays: tuple[str, ...] = (),
 ) -> go.Figure:
     """`mas` holds the series to draw, keyed by `MASpec.key`; `ma_specs` gives their
     labels and colour order. `x_range` sets the visible window, with the y-axes
-    fitted to it (None: everything, autoranged)."""
+    fitted to it (None: everything, autoranged). `holidays` (from `closed_weekdays`)
+    are hidden on a daily chart along with weekends."""
     rows = 2 if show_volume else 1
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02,
                         row_heights=[0.8, 0.2] if show_volume else [1.0])
@@ -74,15 +78,36 @@ def build_figure(
         template="plotly_white", margin=dict(l=10, r=60, t=10, b=10), hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0),
         xaxis_rangeslider_visible=False, dragmode="pan",
+        # Keeps the user's legend clicks and drag mode across redraws of the same chart;
+        # the axis ranges are set explicitly from the stored view, so they don't drift.
+        uirevision=f"{ticker}-{timeframe.value}",
     )
     fig.update_yaxes(side="right")
     if timeframe == Timeframe.DAILY:
-        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(values=_closed_weekdays(bars.index))])
+        breaks = [dict(bounds=["sat", "mon"])]
+        if holidays:
+            breaks.append(dict(values=list(holidays)))
+        fig.update_xaxes(rangebreaks=breaks)
 
     if x_range is not None and not bars.empty:
         fig.update_xaxes(range=list(x_range))
-        apply_y_fit(fig, bars, mas, *x_range, show_volume=show_volume, closes_only=chart_type == ChartType.LINE)
+        for axis, axis_range in y_axis_ranges(bars, mas, x_range, chart_type, show_volume).items():
+            fig.update_layout({axis: {"range": axis_range}})
     return fig
+
+
+def y_axis_ranges(bars: pd.DataFrame, mas: dict[str, pd.Series], x_range, chart_type: ChartType,
+                  show_volume: bool) -> dict[str, list]:
+    """Layout axis name -> range for the window `x_range`; the one place both the first
+    draw and the app's zoom refit get their y-ranges from. Empty when no bar is in range."""
+    fit = y_fit(bars, mas, *x_range, closes_only=chart_type == ChartType.LINE)
+    if fit is None:
+        return {}
+    price_range, volume_top = fit
+    ranges = {"yaxis": price_range}
+    if show_volume and volume_top is not None:
+        ranges["yaxis2"] = [0, volume_top]
+    return ranges
 
 
 def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
@@ -106,13 +131,3 @@ def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
     pad = (high - low) * 0.05 or abs(high) * 0.01 or 1.0
     volume_top = float(visible["volume"].max()) * 1.1 if visible["volume"].max() > 0 else None
     return [max(low - pad, 0.0), high + pad], volume_top
-
-
-def apply_y_fit(fig: go.Figure, bars, mas, start, end, show_volume: bool, closes_only: bool = False) -> None:
-    fit = y_fit(bars, mas, start, end, closes_only)
-    if fit is None:
-        return
-    price_range, volume_top = fit
-    fig.update_yaxes(range=price_range, row=1, col=1)
-    if show_volume and volume_top is not None:
-        fig.update_yaxes(range=[0, volume_top], row=2, col=1)

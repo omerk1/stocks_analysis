@@ -4,7 +4,7 @@ import pytest
 
 from src.foundation.market_common.models import Timeframe
 from src.ui.chart.config import ChartConfig, ChartType
-from src.ui.chart.figure import build_figure, default_x_range, y_fit
+from src.ui.chart.figure import build_figure, closed_weekdays, default_x_range, y_axis_ranges, y_fit
 
 SPECS = ChartConfig().ma_options[Timeframe.DAILY]
 
@@ -38,15 +38,28 @@ def test_volume_pane_is_optional(bars):
     assert "yaxis2" not in off.layout.to_plotly_json()
 
 
+def test_closed_weekdays_are_the_market_calendars_gaps(bars):
+    assert closed_weekdays(bars.index.drop(pd.Timestamp("2023-07-04"))) == ("2023-07-04",)
+    assert closed_weekdays(pd.DatetimeIndex([])) == ()
+
+
 def test_weekends_and_holidays_skipped_on_daily_only(bars):
-    holiday = pd.Timestamp("2023-07-04")
-    with_holiday = bars.drop(holiday)
-    daily = build_figure(with_holiday, "ABC", Timeframe.DAILY, ChartType.LINE, {}, SPECS)
-    weekly = build_figure(with_holiday, "ABC", Timeframe.WEEKLY, ChartType.LINE, {}, SPECS)
+    holidays = ("2023-07-04",)
+    daily = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.LINE, {}, SPECS, holidays=holidays)
+    weekly = build_figure(bars, "ABC", Timeframe.WEEKLY, ChartType.LINE, {}, SPECS, holidays=holidays)
     weekend, closed = daily.layout.xaxis.rangebreaks
     assert tuple(weekend.bounds) == ("sat", "mon")
     assert list(closed.values) == ["2023-07-04"]
     assert not weekly.layout.xaxis.rangebreaks
+
+
+def test_y_axis_ranges_follow_chart_type_and_volume(bars):
+    window = (bars.index[-20], bars.index[-1])
+    with_volume = y_axis_ranges(bars, {}, window, ChartType.CANDLES, show_volume=True)
+    line = y_axis_ranges(bars, {}, window, ChartType.LINE, show_volume=False)
+    assert set(with_volume) == {"yaxis", "yaxis2"} and set(line) == {"yaxis"}
+    assert line["yaxis"][1] < with_volume["yaxis"][1]  # closes only, below the highs
+    assert y_axis_ranges(bars, {}, ("2030-01-01", "2030-02-01"), ChartType.LINE, True) == {}
 
 
 def test_x_range_sets_the_window_and_fits_y_to_it(bars):
