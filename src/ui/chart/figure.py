@@ -3,6 +3,7 @@ can be tested directly and exported to HTML without the app."""
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -24,6 +25,20 @@ def _price_trace(bars: pd.DataFrame, chart_type: ChartType, ticker: str) -> go.B
                name=ticker, increasing_line_color=_UP, decreasing_line_color=_DOWN)
 
 
+def default_x_range(bars: pd.DataFrame, timeframe: Timeframe, span_days: int) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The last `span_days` calendar days, plus a little room after the last bar."""
+    end = bars.index.max()
+    return end - pd.Timedelta(days=span_days), end + pd.Timedelta(days=5 if timeframe == Timeframe.DAILY else 14)
+
+
+def _closed_weekdays(index: pd.DatetimeIndex) -> list[str]:
+    """Weekdays inside the bars' span with no bar (market holidays), for daily rangebreaks."""
+    if index.empty:
+        return []
+    missing = pd.bdate_range(index.min(), index.max()).difference(index.normalize())
+    return [d.strftime("%Y-%m-%d") for d in missing]
+
+
 def build_figure(
     bars: pd.DataFrame,
     ticker: str,
@@ -32,11 +47,11 @@ def build_figure(
     mas: dict[str, pd.Series],
     ma_specs: tuple[MASpec, ...],
     show_volume: bool = True,
-    span_days: int | None = None,
+    x_range: tuple | None = None,
 ) -> go.Figure:
     """`mas` holds the series to draw, keyed by `MASpec.key`; `ma_specs` gives their
-    labels and colour order. `span_days` sets the initial x-range to the last that
-    many calendar days (None: everything)."""
+    labels and colour order. `x_range` sets the visible window, with the y-axes
+    fitted to it (None: everything, autoranged)."""
     rows = 2 if show_volume else 1
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02,
                         row_heights=[0.8, 0.2] if show_volume else [1.0])
@@ -51,49 +66,50 @@ def build_figure(
                       row=1, col=1)
 
     if show_volume:
-        colours = [_UP if c >= o else _DOWN for o, c in zip(bars["open"], bars["close"])]
+        colours = np.where(bars["close"] >= bars["open"], _UP, _DOWN)
         fig.add_trace(go.Bar(x=bars.index, y=bars["volume"], name="Volume", marker_color=colours,
                              opacity=0.5, showlegend=False), row=2, col=1)
 
     fig.update_layout(
         template="plotly_white", margin=dict(l=10, r=60, t=10, b=10), hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="left", x=0),
-        xaxis_rangeslider_visible=False, dragmode="pan", uirevision=f"{ticker}-{timeframe.value}",
+        xaxis_rangeslider_visible=False, dragmode="pan",
     )
     fig.update_yaxes(side="right")
     if timeframe == Timeframe.DAILY:
-        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+        fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"]), dict(values=_closed_weekdays(bars.index))])
 
-    if span_days is not None and not bars.empty:
-        end = bars.index.max()
-        start = end - pd.Timedelta(days=span_days)
-        fig.update_xaxes(range=[start, end + pd.Timedelta(days=5 if timeframe == Timeframe.DAILY else 14)])
-        apply_y_fit(fig, bars, mas, start, end, show_volume)
+    if x_range is not None and not bars.empty:
+        fig.update_xaxes(range=list(x_range))
+        apply_y_fit(fig, bars, mas, *x_range, show_volume=show_volume, closes_only=chart_type == ChartType.LINE)
     return fig
 
 
-def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end) -> tuple[list, float | None] | None:
-    """Price-axis range covering the bars and moving averages between `start` and
-    `end` (5% padding), and the volume axis's top. None when no bar is in range.
+def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
+          closes_only: bool = False) -> tuple[list, float | None] | None:
+    """Price-axis range covering what's drawn between `start` and `end` (the bars'
+    highs/lows, or only closes for a line chart, and the moving averages; 5%
+    padding, never below 0), and the volume axis's top. None when no bar is in range.
     Plotly doesn't refit y when x is zoomed or panned, so the app calls this."""
     start, end = pd.Timestamp(start), pd.Timestamp(end)
     visible = bars.loc[(bars.index >= start) & (bars.index <= end)]
     if visible.empty:
         return None
-    lows, highs = [visible["low"].min()], [visible["high"].max()]
+    low_col, high_col = ("close", "close") if closes_only else ("low", "high")
+    lows, highs = [visible[low_col].min()], [visible[high_col].max()]
     for series in mas.values():
         window = series.loc[(series.index >= start) & (series.index <= end)]
         lows.append(window.min())
         highs.append(window.max())
     low = min(v for v in lows if pd.notna(v))
     high = max(v for v in highs if pd.notna(v))
-    pad = (high - low) * 0.05 or high * 0.01
+    pad = (high - low) * 0.05 or abs(high) * 0.01 or 1.0
     volume_top = float(visible["volume"].max()) * 1.1 if visible["volume"].max() > 0 else None
     return [max(low - pad, 0.0), high + pad], volume_top
 
 
-def apply_y_fit(fig: go.Figure, bars, mas, start, end, show_volume: bool) -> None:
-    fit = y_fit(bars, mas, start, end)
+def apply_y_fit(fig: go.Figure, bars, mas, start, end, show_volume: bool, closes_only: bool = False) -> None:
+    fit = y_fit(bars, mas, start, end, closes_only)
     if fit is None:
         return
     price_range, volume_top = fit

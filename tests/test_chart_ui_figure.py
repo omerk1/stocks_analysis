@@ -4,7 +4,7 @@ import pytest
 
 from src.foundation.market_common.models import Timeframe
 from src.ui.chart.config import ChartConfig, ChartType
-from src.ui.chart.figure import build_figure, y_fit
+from src.ui.chart.figure import build_figure, default_x_range, y_fit
 
 SPECS = ChartConfig().ma_options[Timeframe.DAILY]
 
@@ -38,21 +38,39 @@ def test_volume_pane_is_optional(bars):
     assert "yaxis2" not in off.layout.to_plotly_json()
 
 
-def test_weekends_skipped_on_daily_only(bars):
-    daily = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.LINE, {}, SPECS)
-    weekly = build_figure(bars, "ABC", Timeframe.WEEKLY, ChartType.LINE, {}, SPECS)
-    assert daily.layout.xaxis.rangebreaks
+def test_weekends_and_holidays_skipped_on_daily_only(bars):
+    holiday = pd.Timestamp("2023-07-04")
+    with_holiday = bars.drop(holiday)
+    daily = build_figure(with_holiday, "ABC", Timeframe.DAILY, ChartType.LINE, {}, SPECS)
+    weekly = build_figure(with_holiday, "ABC", Timeframe.WEEKLY, ChartType.LINE, {}, SPECS)
+    weekend, closed = daily.layout.xaxis.rangebreaks
+    assert tuple(weekend.bounds) == ("sat", "mon")
+    assert list(closed.values) == ["2023-07-04"]
     assert not weekly.layout.xaxis.rangebreaks
 
 
-def test_span_sets_initial_range_and_fits_y_to_it(bars):
-    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, SPECS, span_days=30)
-    start = pd.Timestamp(fig.layout.xaxis.range[0])
+def test_x_range_sets_the_window_and_fits_y_to_it(bars):
+    start, end = default_x_range(bars, Timeframe.DAILY, 30)
     assert start == bars.index.max() - pd.Timedelta(days=30)
+    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, SPECS, x_range=(start, end))
+    assert pd.Timestamp(fig.layout.xaxis.range[0]) == start
     visible = bars.loc[bars.index >= start]
     low, high = fig.layout.yaxis.range
     assert low < visible["low"].min() and high > visible["high"].max()
     assert low > bars["low"].min()  # fitted to the window, not the whole history
+
+
+def test_line_chart_fits_y_to_closes_only(bars):
+    start, end = bars.index[-20], bars.index[-1]
+    (line_low, line_high), _ = y_fit(bars, {}, start, end, closes_only=True)
+    (bar_low, bar_high), _ = y_fit(bars, {}, start, end)
+    assert bar_low < line_low and line_high < bar_high
+
+
+def test_y_fit_flat_zero_prices_still_has_height(bars):
+    flat = bars.assign(open=0.0, high=0.0, low=0.0, close=0.0)
+    (low, high), _ = y_fit(flat, {}, bars.index[0], bars.index[-1])
+    assert low == 0.0 and high > 0.0
 
 
 def test_y_fit_includes_moving_averages_and_skips_their_warmup(bars):

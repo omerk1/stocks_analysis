@@ -60,6 +60,8 @@ here first.
 
 - **The PRAGMA-table_info + ALTER-ADD-COLUMN migration idiom is hand-copied in at least five stores** (gaps, avwap, relative_strength, divergences, db.ticker_renames) — flagged on PRs #158 and #163: the divergences backfill once failed on every ticker precisely because one copy's column map had fallen behind. A shared `derived_db.add_missing_columns(conn, table, columns, backfill)` would fix the mechanism once; worth doing when the next schema addition appears rather than as a drive-by (touches five modules).
 
+- **Weekly bars drop the last complete week when the data ends on a Friday** (found 2026-11-06 in code review of the chart UI, Done #174). `market_common.data.load_bars` passes `as_of = raw.index.max()` to `resample.to_weekly`, which counts a week as closed only when `as_of` is after its last weekday. Partial daily rows are already filtered out by then, so a week whose Friday is present is complete. Every weekly consumer (sr_lines, patterns, market structure weekly presets, the chart UI) ends a week early. Possible fix: count a week closed when its last weekday's bar is present (or `as_of` + 1 day). It's in the shared loader, so it changes stored weekly results: check which weekly runs exist and rerun them, in its own PR.
+
 ## sr_lines
 
 - **sr_lines, still open** (grouped since they're all part of the same ongoing review — full detail in `docs/features/sr_lines_design_notes.md`):

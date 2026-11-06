@@ -19,6 +19,7 @@ from src.signals.relative_strength import store
 
 VS_MARKET = "vs_market"
 VS_SECTOR = "vs_sector"
+PEER_WINDOW_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,17 @@ def _sector_rank(derived: sqlite3.Connection, sector: str, change_days: int) -> 
     rating = _rating(store.read_sector_relative_strength(derived, sector), change_days)
     if rating is None:
         return None
-    peers = pd.read_sql_query(
-        "SELECT sector, rs_rating FROM sector_relative_strength WHERE date = ? AND rs_rating IS NOT NULL",
-        derived, params=(rating.as_of,))
-    rank = int((peers["rs_rating"] > rating.value).sum()) + 1
+    # Each sector's latest rating on or before the ticker's sector's date, so a sector
+    # whose run ends a day or two earlier still counts; one with nothing in the last
+    # week is left out, and the "of N" shows it.
+    window_start = (pd.Timestamp(rating.as_of) - pd.Timedelta(days=PEER_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    rows = pd.read_sql_query(
+        "SELECT sector, date, rs_rating FROM sector_relative_strength "
+        "WHERE date <= ? AND date >= ? AND rs_rating IS NOT NULL ORDER BY date",
+        derived, params=(rating.as_of + " 23:59:59", window_start))
+    peers = rows.groupby("sector").tail(1).set_index("sector")["rs_rating"]
+    peers[sector] = rating.value
+    rank = int((peers > rating.value).sum()) + 1
     return SectorRank(rating, rank, len(peers))
 
 
