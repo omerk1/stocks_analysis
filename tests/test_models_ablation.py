@@ -107,6 +107,20 @@ def test_a_cache_for_another_universe_is_refused():
         ablation.check_features(_small(PREREGISTERED["E1"]), features)
 
 
+def test_an_id_logged_from_another_environment_is_refused_before_fitting(tmp_path, monkeypatch):
+    """E1's rows came from Anaconda (no environment logged): extending E1 from
+    another environment would mix two fits under one id in close_experiment."""
+    features, labels = _synthetic(n_tickers=5)
+    monkeypatch.setattr(ablation.dataset, "read_labels", lambda d, h, cell: labels)
+    monkeypatch.setattr(ablation, "oos_predictions", lambda *a, **k: pytest.fail("refused before fitting"))
+    trials = tmp_path / "TRIALS.csv"
+    pd.DataFrame({"experiment_id": ["E1"], "status": [trial_log.OK],
+                  "universe": [json.dumps({"indices": ["sp500"]})]}).to_csv(trials, index=False)
+    with pytest.raises(ValueError, match="another environment"):
+        ablation.run_horizon(_small(PREREGISTERED["E1"]), 21, features, tmp_path, trials_path=trials,
+                             artifacts_root=tmp_path)
+
+
 def _trial_row(step, horizon, p, ci_low, band=1e-4, folds=6, eras=(-1e-4, -1e-4), point=None, n_boot=1000,
                date="2026-10-07T00:00:00", dirty=False, **design_changes):
     exp = PREREGISTERED["E1"]
