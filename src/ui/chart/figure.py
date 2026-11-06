@@ -31,14 +31,29 @@ def default_x_range(bars: pd.DataFrame, timeframe: Timeframe, span_days: int) ->
     return end - pd.Timedelta(days=span_days), end + pd.Timedelta(days=5 if timeframe == Timeframe.DAILY else 14)
 
 
-def closed_weekdays(market_days: pd.DatetimeIndex) -> tuple[str, ...]:
-    """Weekdays the market was closed (holidays), from a market-wide calendar such as
-    SPY's trading days, for daily rangebreaks. Built from the market, not from the
-    ticker's own bars, so a ticker's halt or missing data still shows as a gap."""
+def closed_weekdays(market_days: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """Weekdays inside a market-wide calendar's span (e.g. SPY's trading days) with no
+    bar: the market's holidays, plus any hole in that calendar's own data."""
     if market_days.empty:
-        return ()
-    missing = pd.bdate_range(market_days.min(), market_days.max()).difference(market_days.normalize())
-    return tuple(d.strftime("%Y-%m-%d") for d in missing)
+        return pd.DatetimeIndex([])
+    return pd.bdate_range(market_days.min(), market_days.max()).difference(market_days.normalize())
+
+
+def hidden_weekdays(closed: pd.DatetimeIndex, ticker_days: pd.DatetimeIndex) -> tuple[str, ...]:
+    """Weekdays to hide on a ticker's daily chart: closed for the market *and* no bar for
+    the ticker. A bar the ticker has is never hidden (a hole in the calendar's data
+    can't swallow it), and a ticker's own halt or data gap still shows as a gap.
+    Outside the calendar's span nothing is hidden, so holidays there show as gaps."""
+    return tuple(d.strftime("%Y-%m-%d") for d in closed.difference(ticker_days.normalize()))
+
+
+def padded_full_range(bars: pd.DataFrame, timeframe: Timeframe) -> tuple[str, str]:
+    """The whole history with a little room on both sides (1% of the span before the
+    first bar, the default view's few days after the last), as plain date strings."""
+    start, end = bars.index.min(), bars.index.max()
+    before = max((end - start) * 0.01, pd.Timedelta(days=1))
+    after = pd.Timedelta(days=5 if timeframe == Timeframe.DAILY else 14)
+    return (start - before).strftime("%Y-%m-%d"), (end + after).strftime("%Y-%m-%d")
 
 
 def build_figure(
@@ -82,7 +97,9 @@ def build_figure(
         # the axis ranges are set explicitly from the stored view, so they don't drift.
         uirevision=f"{ticker}-{timeframe.value}",
     )
-    fig.update_yaxes(side="right")
+    # y is always fitted by the server (here and on every zoom/pan), so panning moves
+    # time only and a GUI-set y-range can never outlive a redraw that refits it.
+    fig.update_yaxes(side="right", fixedrange=True)
     if timeframe == Timeframe.DAILY:
         breaks = [dict(bounds=["sat", "mon"])]
         if holidays:

@@ -67,6 +67,20 @@ def test_sector_rank_uses_one_date_and_counts_sectors_missing_that_day(conns):
     assert "Technology · RS 82 · 2nd of 3 (1 not rated that day)" in rs.strip_parts(strip, 28)
 
 
+def test_sector_one_day_ahead_of_the_others_ranks_on_the_shared_date(conns):
+    raw, _ = conns
+    derived = sqlite3.connect(":memory:")
+    store.create_relative_strength_tables(derived)
+    store.upsert_sector_relative_strength(derived, _rows(["2026-09-29", "2026-09-30"], [70.0, 82.0],
+                                                         sector="Technology", benchmark="SPY"), "r1")
+    for sector, rating in [("Energy", 90.0), ("Utilities", 10.0)]:
+        store.upsert_sector_relative_strength(derived, _rows(["2026-09-29"], [rating], sector=sector,
+                                                             benchmark="SPY"), "r1")
+    r = rs.rs_strip(raw, derived, "ABC", change_days=28).sector_rank
+    assert (r.rank, r.of, r.missing, r.rank_date) == (2, 3, 0, "2026-09-29")
+    assert r.rating.value == 82.0  # the shown rating is still the latest
+
+
 @pytest.mark.parametrize("n, text", [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"),
                                      (12, "12th"), (21, "21st")])
 def test_ordinal(n, text):

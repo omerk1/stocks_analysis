@@ -4,7 +4,8 @@ import pytest
 
 from src.foundation.market_common.models import Timeframe
 from src.ui.chart.config import ChartConfig, ChartType
-from src.ui.chart.figure import build_figure, closed_weekdays, default_x_range, y_axis_ranges, y_fit
+from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, hidden_weekdays,
+                                 padded_full_range, y_axis_ranges, y_fit)
 
 SPECS = ChartConfig().ma_options[Timeframe.DAILY]
 
@@ -39,8 +40,17 @@ def test_volume_pane_is_optional(bars):
 
 
 def test_closed_weekdays_are_the_market_calendars_gaps(bars):
-    assert closed_weekdays(bars.index.drop(pd.Timestamp("2023-07-04"))) == ("2023-07-04",)
-    assert closed_weekdays(pd.DatetimeIndex([])) == ()
+    closed = closed_weekdays(bars.index.drop(pd.Timestamp("2023-07-04")))
+    assert list(closed) == [pd.Timestamp("2023-07-04")]
+    assert closed_weekdays(pd.DatetimeIndex([])).empty
+    assert hidden_weekdays(closed, bars.index) == ()  # the ticker traded that day: not hidden
+    assert hidden_weekdays(closed, bars.index.drop(pd.Timestamp("2023-07-04"))) == ("2023-07-04",)
+
+
+def test_padded_full_range_covers_all_bars_with_room(bars):
+    start, end = padded_full_range(bars, Timeframe.DAILY)
+    assert pd.Timestamp(start) < bars.index.min() and pd.Timestamp(end) > bars.index.max()
+    assert len(start) == 10  # a plain date string, as plotly sends
 
 
 def test_weekends_and_holidays_skipped_on_daily_only(bars):

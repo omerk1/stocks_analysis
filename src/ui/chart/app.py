@@ -25,7 +25,8 @@ from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
 from src.ui.chart import rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec
-from src.ui.chart.figure import build_figure, closed_weekdays, default_x_range, y_axis_ranges
+from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, hidden_weekdays,
+                                 padded_full_range, y_axis_ranges)
 
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
@@ -51,7 +52,8 @@ class ChartData:
         self.raw_path, self.derived_path = raw_path, derived_path
         self.bars = lru_cache(maxsize=32)(self._bars)
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
-        self.holidays = lru_cache(maxsize=1)(self._holidays)
+        self.market_closed = lru_cache(maxsize=1)(self._market_closed)
+        self.holidays = lru_cache(maxsize=32)(self._holidays)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -69,9 +71,12 @@ class ChartData:
                          specs: tuple[MASpec, ...]) -> dict[str, pd.Series]:
         return bars_mod.moving_averages(self.bars(ticker, timeframe)["close"], specs)
 
-    def _holidays(self) -> tuple[str, ...]:
-        """Market closures from SPY's trading days; empty if SPY has no bars."""
+    def _market_closed(self) -> pd.DatetimeIndex:
+        """Weekdays SPY has no bar for (holidays); empty if SPY has no bars."""
         return closed_weekdays(self.bars(MARKET_CALENDAR_TICKER, Timeframe.DAILY).index)
+
+    def _holidays(self, ticker: str) -> tuple[str, ...]:
+        return hidden_weekdays(self.market_closed(), self.bars(ticker, Timeframe.DAILY).index)
 
     def strip(self, ticker: str, change_days: int) -> rs.RSStrip | str:
         """The strip, or a short message saying why there isn't one; never raises,
@@ -120,7 +125,7 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
         x_range = tuple(view["range"])
     else:
         x_range = default_x_range(bars, timeframe, config.default_span_days[timeframe])
-    holidays = data.holidays() if timeframe == Timeframe.DAILY else ()
+    holidays = data.holidays(ticker) if timeframe == Timeframe.DAILY else ()
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
                        show_volume=show_volume, x_range=x_range, holidays=holidays)
     return fig, f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
@@ -218,10 +223,11 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
         bars = data.bars(ticker, tf)
         if bars.empty:
             return no_update, no_update
-        if is_autorange(relayout):
-            # A double-click reset shows the whole history; store that, so the next
-            # redraw keeps it instead of going back to the default span.
-            x_range = (str(bars.index.min()), str(bars.index.max()))
+        reset = is_autorange(relayout)
+        if reset:
+            # A double-click reset shows the whole history; set and store it explicitly,
+            # so the figure and the next redraw agree instead of going back to the default span.
+            x_range = padded_full_range(bars, tf)
         else:
             x_range = x_range_from_relayout(relayout)
             if x_range is None:
@@ -229,11 +235,14 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
         mas = data.moving_averages(ticker, tf, selected_specs(config, tf, ma_keys))
         view = {"key": _view_key(ticker, tf), "range": list(x_range)}
         ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), "on" in (volume or []))
+        if reset:
+            ranges["xaxis"] = list(x_range)
         if not ranges:
             return no_update, view
         patch = Patch()
         for axis, axis_range in ranges.items():
             patch["layout"][axis]["range"] = axis_range
+            patch["layout"][axis]["autorange"] = False  # an explicit range is ignored while autorange is on
         return patch, view
 
     return app

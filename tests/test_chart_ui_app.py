@@ -1,4 +1,5 @@
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -91,11 +92,14 @@ def test_strip_tells_missing_database_unrun_rs_and_read_errors_apart(tmp_path):
     assert app_mod.ChartData(raw, derived).strip("ABC", 28).startswith("RS: read error")
 
 
-def test_holidays_come_from_the_market_calendar_not_the_ticker():
+def test_hidden_days_are_market_closures_the_ticker_also_lacks():
     data = FakeData()
-    data._frame = data._frame.drop(pd.Timestamp("2024-07-04"))
-    assert "2024-07-04" in data.holidays()
-    assert data.calls == [("SPY", Timeframe.DAILY)]
+    full = data._frame
+    spy = full.drop(pd.Timestamp("2024-07-04")).drop(pd.Timestamp("2024-03-12"))  # holiday + a SPY data hole
+    abc = full.drop(pd.Timestamp("2024-07-04")).drop(pd.Timestamp("2024-05-15"))  # holiday + ABC's own gap
+    data.bars = lru_cache(maxsize=32)(lambda ticker, timeframe: {"SPY": spy, "ABC": abc}[ticker])
+    hidden = data.holidays("ABC")
+    assert hidden == ("2024-07-04",)  # not ABC's real 2024-03-12 bar, not ABC's own 2024-05-15 gap
 
 
 def test_relayout_forms():
