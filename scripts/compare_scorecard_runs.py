@@ -16,7 +16,11 @@ Run from the repo root (it imports src.models); writes the per-readout table
 to --out and prints the counts. Two runs fitted in different environments
 (or before environments were logged) are refused: library versions alone
 move the picks (Done #172). --across-environments compares them anyway, to
-measure exactly that.
+measure exactly that. Two runs fitted on different seeds are refused too:
+each side's B4 is refitted on its own seeds. Each cell's largest |Δp|
+between the two runs' B4 predictions goes to --out as `b4_gap`; if any is
+above 0 the pair differs in more than the model's columns, and the script
+says so and exits 1 (after writing --out).
 """
 
 import argparse
@@ -72,11 +76,37 @@ def check_environments(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series],
                                  "pass --across-environments to compare them anyway")
 
 
-def predictions(row: pd.Series, artifacts_root: Path) -> pd.DataFrame:
-    """The model's archived predictions; a rescore row points at the trial it rescored."""
+def check_seeds(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series], shared: list[tuple],
+                new_id: str, old_id: str) -> None:
+    """Refuses a pair whose `shared` cells weren't all fitted on one seed set:
+    each side's B4 is refitted on its own seeds, so the pair would mix seed
+    noise into the difference."""
+    first = json.loads(new[shared[0]]["seeds"])
+    for eid, rows in ((new_id, new), (old_id, old)):
+        for key in shared:
+            if json.loads(rows[key]["seeds"]) != first:
+                raise SystemExit(f"the runs weren't fitted on one seed set: {eid} cell {key} has seeds "
+                                 f"{rows[key]['seeds']}, not {first}; pair runs of the same seed")
+
+
+def predictions(row: pd.Series, artifacts_root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The model's and the reference's (B4's) archived predictions; a rescore
+    row points at the trial it rescored."""
     source = json.loads(row["feature_groups"]).get("rescored_from") or row["trial_id"]
     p = pd.read_parquet(artifacts_root / source / "predictions.parquet")
-    return p[p["model"] == "model"].drop(columns="model")
+    return p[p["model"] == "model"].drop(columns="model"), p[p["model"] == "B4"].drop(columns="model")
+
+
+def reference_gap(a: pd.DataFrame, b: pd.DataFrame) -> float:
+    """The largest |Δp| between two runs' reference predictions, matched on
+    ticker and date (inf if they don't cover the same rows). 0 means the pair
+    differs in the model's columns alone."""
+    m = a.merge(b, on=["ticker", "date", "fold"], how="outer", suffixes=("_a", "_b"), indicator=True)
+    if len(m) != len(a) or len(m) != len(b) or (m["_merge"] != "both").any():
+        return float("inf")
+    if any((m[f"{c}_a"].isna() != m[f"{c}_b"].isna()).any() for c in trading.P_COLS):
+        return float("inf")                                  # NaN on one side only
+    return float(max((m[f"{c}_a"] - m[f"{c}_b"]).abs().max() for c in trading.P_COLS))
 
 
 def readouts(metrics: dict, k: int, tag: str, eras: tuple[str, str]) -> dict:
@@ -107,6 +137,7 @@ def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, arti
         raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
     if not across_environments:
         check_environments(new, old, shared, new_id, old_id)
+    check_seeds(new, old, shared, new_id, old_id)
     features = cache.read_feature_cache(features_dir)
     sc = trading.Scorecard()
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
@@ -117,18 +148,19 @@ def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, arti
         cell = BarrierCell(h, upper, lower, REFERENCE_HORIZON)
         frame = cell_frame(features, dataset.read_labels(labels_dir, h, cell=(upper, lower)))
         neither, neither_atr = neither_returns(frame, folds), trading.neither_atr_returns(frame, folds)
-        pn, po = predictions(new[key], artifacts_root), predictions(old[key], artifacts_root)
+        (pn, rn), (po, ro) = predictions(new[key], artifacts_root), predictions(old[key], artifacts_root)
         mn, mo = json.loads(new[key]["metrics"]), json.loads(old[key]["metrics"])
+        b4_gap = reference_gap(rn, ro)
         for k in sc.ks:
             a = trading.picks(pn, frame, cell, neither, k, RANK, neither_atr)
             b = trading.picks(po, frame, cell, neither, k, RANK, neither_atr)
             ba, bb = trading.basket(a).dropna(), trading.basket(b).dropna()
             dates = ba.index.intersection(bb.index)          # runs from different caches can differ on a few
             diff = per_date_diff(ba[dates], bb[dates], h, True, N_BOOT, CI, 0).summary()
-            shared = len(a.merge(b, on=["date", "ticker"]))
+            both = len(a.merge(b, on=["date", "ticker"]))
             row = {"H": h, "cell": f"{upper:g}/{lower:g}", "k": k, "new_minus_old": diff["point_estimate"],
                    "lo": diff["ci_low"], "hi": diff["ci_high"], "dates_dropped": len(ba) + len(bb) - 2 * len(dates),
-                   "pick_overlap": shared / max(len(a), len(b), 1)}
+                   "pick_overlap": both / max(len(a), len(b), 1), "b4_gap": b4_gap}
             row.update(readouts(mn, k, "new", eras))
             row.update(readouts(mo, k, "old", eras))
             out.append(row)
@@ -150,7 +182,12 @@ def summary(d: pd.DataFrame, new_id: str, old_id: str) -> None:
               f"above market at {(d[f'{tag}_sharpe'] > d.mkt_sharpe).sum()}; "
               f"ATR {100 * d[f'{tag}_atr'].min():.2f}-{100 * d[f'{tag}_atr'].max():.2f}%; "
               f"eras {pct(d[f'{tag}_era1'].mean())} / {pct(d[f'{tag}_era2'].mean())}")
-    print(f"B4 expectancy gap, largest: {pct(np.abs(d.new_b4_exp - d.old_b4_exp).max())}")
+    cells = d.drop_duplicates(["H", "cell"])
+    equal = (cells.b4_gap == 0).sum()
+    print(f"B4 expectancy gap, largest: {pct(np.abs(d.new_b4_exp - d.old_b4_exp).max())}; "
+          f"B4 predictions equal at {equal} of {len(cells)} cells (largest |dp| {cells.b4_gap.max():.3g})")
+    if equal < len(cells):
+        print("WARNING: the B4 predictions differ, so the pair differs in more than the model's columns")
 
 
 def main() -> int:
@@ -168,7 +205,7 @@ def main() -> int:
     if args.out:
         d.to_csv(args.out, index=False)
     summary(d, args.new, args.old)
-    return 0
+    return 0 if (d.b4_gap == 0).all() else 1
 
 
 if __name__ == "__main__":

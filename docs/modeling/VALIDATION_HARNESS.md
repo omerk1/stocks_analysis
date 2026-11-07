@@ -732,7 +732,30 @@ Build order, one PR each, each with its own tests:
        vendor history-depth limit; one seed. Exploration, not a finding: as added columns,
        the levels don't help the picks here. Next candidates: the 8 per-name step-2b
        columns on S1v (step 2b diagnostic; run, Done #174: the picks look better), or a dilution check (fewer level columns, or
-       `max_features` 1.0) before dropping the levels. **Step 3:**
+       `max_features` 1.0) before dropping the levels.
+   - **Freeze checks (Track A, decided 2026-11-07, before the runs).** Exploration stops
+     here: the model for the pre-registered trading test is S1 + the 8 per-name step-2b
+     columns, unless these two checks say otherwise. Levels and step 3 stay out (a later
+     version, tested against the frozen one). Same flags as S1v (cache `sp500_levels`,
+     `--rank ev_atr`, H21/63).
+     - **Seeds.** `--seed 1` and `--seed 2` refits of both S1 (`S1v_seed1`, `S1v_seed2`)
+       and the 8 (`S2_no_market_v_seed1`, `S2_no_market_v_seed2`), paired per seed with
+       `compare_scorecard_runs.py`. The 8 stay only if, at both seeds, the paired median
+       is above zero and the CI is below zero at no more than 2 of 36 readouts (the
+       refit-noise level, S1r vs S1b). Otherwise the frozen model is S1.
+     - **Volatility.** `S1_vol` = S1 + the 3 volatility columns alone (seed 0), paired
+       against `S2_no_market_v`. The 8 beat it only if the paired median is above zero and
+       the CI is above zero at more than 2 of 36 (past the same refit-noise level);
+       otherwise the other 5 add nothing past the volatility columns and the frozen model
+       is `S1_vol`. Either way the trading test gets a low-volatility baseline as a
+       control, since part of the gain may be a tilt toward calmer names, which is
+       a known effect on its own.
+     - Every pair's B4 predictions must be equal, which `compare_scorecard_runs.py` now
+       reports per cell; it also refuses a pair fitted on different seeds. `S1_vol` is
+       compared with S1v too, for its B4 alone: the `traded` bars were refreshed
+       2026-11-07, and a drift in the inputs would show there. That pair needs
+       `--across-environments` (S1v predates the field); the others don't.
+   - **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /

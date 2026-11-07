@@ -21,8 +21,10 @@ Commands:
   run-scorecard   The trading scorecard (`trading.py`, Track A): the combined
                   model's top picks vs B4's and the market at every barrier
                   cell of the chosen horizons, one TRIALS.csv row per cell;
-                  `--columns` picks the model's column set (S1, S2, S2_no_market, S3);
-                  `--experiment-id` logs it under another id.
+                  `--columns` picks the model's column set (S1, S2, S2_no_market, S3, S1_vol);
+                  `--experiment-id` logs it under another id; `--seed` fits
+                  on another seed than 0 (an id holds one seed set; the
+                  default id becomes e.g. `S1_vol_seed1`).
                   `--preregistered F2` runs a Track B one (`trading.PREREGISTERED`).
   close-scorecard  The three-way verdict of a pre-registered scorecard from
                   its logged trials' archived predictions. Read-only.
@@ -297,7 +299,8 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
 
 
 def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str | None = None,
-                  columns: str = "S1", experiment_id: str | None = None, preregistered: str | None = None) -> int:
+                  columns: str = "S1", experiment_id: str | None = None, preregistered: str | None = None,
+                  seed: int | None = None) -> int:
     from dataclasses import replace
 
     from src.models import trading, trial_log
@@ -306,8 +309,9 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
     if preregistered:
-        if columns != "S1" or experiment_id is not None:
-            raise SystemExit(f"{preregistered} has its own columns and id; leave --columns and --experiment-id out")
+        if columns != "S1" or experiment_id is not None or seed is not None:
+            raise SystemExit(f"{preregistered} has its own columns, id and seeds; "
+                             "leave --columns, --experiment-id and --seed out")
         sc = _preregistered_scorecard(preregistered)
         unknown = set(horizons) - set(sc.horizons)
         if unknown:
@@ -316,8 +320,13 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
             raise SystemExit(f"{preregistered} is registered with rank {sc.rank!r}; leave --rank out")
         sc = replace(sc, horizons=horizons)
     else:
-        sc = trading.Scorecard(experiment_id=experiment_id or columns, model_columns=trading.COLUMN_SETS[columns],
-                               horizons=horizons, rank=rank or "ev")
+        if seed is not None and seed < 0:
+            raise SystemExit("--seed must be 0 or more")
+        # an id holds one seed set (trading.check_run refuses another), so a
+        # seeded run defaults to its own id
+        experiment_id = experiment_id or (columns if seed in (None, 0) else f"{columns}_seed{seed}")
+        sc = trading.Scorecard(experiment_id=experiment_id, model_columns=trading.COLUMN_SETS[columns],
+                               horizons=horizons, rank=rank or "ev", seeds=(0 if seed is None else seed,))
     features = cache.read_feature_cache(features_dir)
     results = []
     for h in horizons:
@@ -466,10 +475,12 @@ def main(argv: list[str] | None = None) -> int:
     score.add_argument("--rank", choices=["ev", "ev_atr"], default=None, help="ev unless --preregistered")
     score.add_argument("--preregistered", default=None,
                        help="a pre-registered Track B scorecard (trading.PREREGISTERED, e.g. F2), with its own rank")
-    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market", "S3"], default="S1",
+    score.add_argument("--columns", choices=["S1", "S2", "S2_no_market", "S3", "S1_vol"], default="S1",
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")
+    score.add_argument("--seed", type=int, default=None,
+                       help="the fit's seed, both models (default 0); an id is logged on one seed set")
     closesc = sub.add_parser("close-scorecard", help="the verdict of a pre-registered scorecard. Read-only")
     closesc.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. F2")
     closesc.add_argument("--n-boot", type=int, default=None,
@@ -493,7 +504,7 @@ def main(argv: list[str] | None = None) -> int:
                               tuple(args.horizons) if args.horizons else None)
     if args.command == "run-scorecard":
         return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.columns,
-                             args.experiment_id, args.preregistered)
+                             args.experiment_id, args.preregistered, args.seed)
     if args.command == "close-scorecard":
         return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot)
     if args.command == "rescore-scorecard":

@@ -33,6 +33,9 @@ def test_the_model_is_the_s1_columns_and_the_reference_is_b4():
     levels = [s for s in model_specs() if s.source == "levels"]
     assert len(trading.LEVEL_COLUMNS) == 57 and set(trading.LEVEL_COLUMNS) == {model_input(s) for s in levels}
     assert trading.COLUMN_SETS["S3"] == trading.FULL_COLUMNS + trading.LEVEL_COLUMNS   # S1 + levels, not S2
+    volatility = {model_input(s) for s in model_specs() if s.group == "volatility"}
+    assert set(trading.VOLATILITY_COLUMNS) == volatility
+    assert trading.COLUMN_SETS["S1_vol"] == trading.FULL_COLUMNS + trading.VOLATILITY_COLUMNS
     assert trading.Scorecard().reference_columns == B4_COLUMNS
     assert len(trading.Scorecard().cells(63)) == 9
     assert [(c.upper, c.lower) for c in trading.Scorecard(grid=((2.0, 1.5),)).cells(21)] == [(2.0, 1.5)]
@@ -46,6 +49,31 @@ def test_run_scorecard_accepts_every_column_set():
         with pytest.raises(SystemExit) as stop:
             cli.main(["run-scorecard", "--columns", name, "--help"])
         assert stop.value.code == (0 if name in trading.COLUMN_SETS else 2)
+
+
+def test_run_scorecard_fits_on_the_given_seed(monkeypatch):
+    """--seed sets both models' one seed (default 0); a pre-registered
+    scorecard runs as registered. Refused: --seed with a pre-registered one
+    (it keeps its own seeds), and below 0. (An id logged on other seeds is
+    check_run's refusal.)"""
+    from src.models import cli
+    from src.models.features import cache
+    seen = []
+    monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
+    monkeypatch.setattr(cache, "read_feature_cache", lambda path: None)
+    monkeypatch.setattr(trading, "run_horizon", lambda sc, h, features, labels: seen.append(sc) or [])
+    monkeypatch.setattr(cli, "_print_grid", lambda results, sc: None)
+    assert cli.main(["run-scorecard", "--horizons", "21", "--seed", "2", "--experiment-id", "S1_s2"]) == 0
+    assert cli.main(["run-scorecard", "--horizons", "21"]) == 0
+    assert cli.main(["run-scorecard", "--horizons", "21", "--preregistered", "F2"]) == 0
+    assert cli.main(["run-scorecard", "--horizons", "21", "--columns", "S1_vol", "--seed", "1"]) == 0
+    assert [sc.seeds for sc in seen] == [(2,), (0,), trading.PREREGISTERED["F2"].seeds, (1,)]
+    assert [sc.experiment_id for sc in seen] == ["S1_s2", "S1", "F2", "S1_vol_seed1"]   # not the seed-0 id
+    assert seen[2] == replace(trading.PREREGISTERED["F2"], horizons=(21,))
+    for argv in (["--preregistered", "F2", "--seed", "1"], ["--seed", "-1", "--experiment-id", "x"]):
+        with pytest.raises(SystemExit, match="--seed"):
+            cli.main(["run-scorecard", *argv])
+    assert len(seen) == 4
 
 
 def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path):
@@ -68,11 +96,12 @@ def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path)
                                      json.dumps({**s2_groups, "model": list(trading.FULL_COLUMNS),
                                                  "rescored_from": "x"}),
                                      json.dumps({"step": "T1", "added": [], "reference": "B4"})],
-                  "status": [trial_log.OK] * 3, "universe": [here] * 3}
+                  "status": [trial_log.OK] * 3, "universe": [here] * 3, "seeds": ["[0]"] * 3}
                  ).to_csv(trials, index=False)
     trading.check_run(s2, s2_cache, trials)                          # same id, same design
     trading.check_run(replace(s2, experiment_id="S1r", model_columns=trading.FULL_COLUMNS), s2_cache, trials)
     for clash in (replace(s2, model_columns=trading.FULL_COLUMNS), replace(s2, rank="ev_atr"),
+                  replace(s2, seeds=(1,)),                           # seed-1 rows under a seed-0 id
                   replace(s2, experiment_id="S1b", model_columns=trading.FULL_COLUMNS),
                   replace(s2, experiment_id="E1")):
         with pytest.raises(ValueError, match="already logged"):
@@ -89,7 +118,8 @@ def test_check_run_refuses_an_id_logged_from_another_environment(tmp_path):
     trials = tmp_path / "TRIALS.csv"
     here = trial_log.environment()
     log = lambda status, universe: pd.DataFrame(  # noqa: E731
-        {"experiment_id": ["S1v"], "feature_groups": [groups], "status": [status], "universe": [universe]}
+        {"experiment_id": ["S1v"], "feature_groups": [groups], "status": [status], "universe": [universe],
+         "seeds": ["[0]"]}
     ).to_csv(trials, index=False)
     for universe, says in ((json.dumps({"indices": ["sp500"]}), "not recorded"),
                            (json.dumps({"environment": {**here, "scikit-learn": "1.5.1"}}), "scikit-learn 1.5.1")):
