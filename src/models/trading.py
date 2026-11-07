@@ -163,6 +163,8 @@ class Scorecard:
         if self.open_holdout and not past:
             raise ValueError(f"open_holdout with test years {list(self.test_years)}: none is past the boundary")
         # an era outside the test years has no dates: its mean is NaN and the entry rule could never pass
+        if self.track != TRACK and not self.eras:
+            raise ValueError("a Track B scorecard needs eras: with none, 'positive in every era' passes untested")
         if not all(y in self.test_years for e in self.eras for y in e):
             raise ValueError(f"eras {[list(e) for e in self.eras]} aren't inside test years {list(self.test_years)}")
 
@@ -209,10 +211,9 @@ def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: 
 
 
 def pickable(frame: pd.DataFrame, preds: pd.DataFrame) -> pd.DataFrame:
-    """The rows a model can pick: scored (a probability in `preds`), resolved,
-    and with a decision-time ATR. The market basket is all of them."""
-    scored = preds.dropna(subset=P_COLS)[["ticker", "date"]]
-    every = frame.merge(scored, on=["ticker", "date"]).dropna(subset=["ret", "atr", "close_t"])
+    """The rows a model can pick: scored (a row in `preds`), resolved, and
+    with a decision-time ATR. The market basket is all of them."""
+    every = frame.merge(preds[["ticker", "date"]], on=["ticker", "date"]).dropna(subset=["ret", "atr", "close_t"])
     return every.assign(atr_pct=every["atr"] / every["close_t"])
 
 
@@ -389,18 +390,15 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     }
 
 
-def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH,
-              horizon: int | None = None) -> None:
+def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH) -> None:
     """Refuses, before any trial is logged, a cache without the model's or the
     reference's columns (an S2 run on the S1 cache), and an experiment id
     already logged as something else: other model or reference columns,
     another rank or verdict settings, a rescore (S1b), or not a scorecard at
     all (an ablation's E1). S1's rows predate the rank field and count as
     ranked by EV. Also an id logged from another environment
-    (`trial_log.check_environment`), and for a scorecard that opens the
-    holdout, a `horizon` whose every cell already has a row: the holdout is
-    looked at once (`run_horizon` skips the cells already run, so a run that
-    stopped partway finishes without a second look; `cells_to_run`)."""
+    (`trial_log.check_environment`). A scorecard that opens the holdout looks
+    at each cell once: `cells_to_run` skips the ones already started."""
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
@@ -416,9 +414,6 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
             raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank or verdict, "
                              "or as another kind of trial; pick another experiment id")
     trial_log.check_environment(trials, sc.experiment_id)
-    if sc.open_holdout and horizon is not None and not cells_to_run(sc, horizon, trials):
-        raise ValueError(f"{sc.experiment_id} already ran every H{horizon} cell on the holdout; it is looked at "
-                         "once (a rerun is a dated addendum's decision, under a new id)")
 
 
 def verdict_settings(sc: Scorecard) -> tuple:
@@ -432,17 +427,37 @@ def logged_verdict(groups: dict) -> tuple:
             groups.get("min_positive_years", 0))
 
 
-def cells_to_run(sc: Scorecard, horizon: int, trials: pd.DataFrame | None) -> list[BarrierCell]:
+def started_path(sc: Scorecard, artifacts_root=trial_log.ARTIFACTS_ROOT) -> Path:
+    """Where an open-holdout scorecard notes each cell before fitting it."""
+    return Path(artifacts_root) / f"{sc.experiment_id}.holdout_started.jsonl"
+
+
+def mark_started(sc: Scorecard, cell: BarrierCell, artifacts_root=trial_log.ARTIFACTS_ROOT) -> None:
+    path = started_path(sc, artifacts_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps({"horizon": cell.horizon, "upper": cell.upper, "lower": cell.lower}) + "\n")
+        f.flush()
+
+
+def cells_to_run(sc: Scorecard, horizon: int, trials: pd.DataFrame | None,
+                 artifacts_root=trial_log.ARTIFACTS_ROOT) -> list[BarrierCell]:
     """The horizon's cells to fit: all of them, except for a scorecard that
-    opens the holdout, which never refits a cell it already has a row for.
-    A failed row counts too: it may have failed after scoring the holdout
-    (while archiving), and the log can't tell; such a cell is an addendum's
-    decision, not a silent rerun."""
+    opens the holdout, which never refits a cell it has started. That is a
+    cell with a row, failed ones too (it may have failed after scoring, while
+    archiving), or with a `mark_started` note (the process died before
+    logging any row). Such a cell is an addendum's decision, not a silent
+    rerun."""
     cells = sc.cells(horizon)
-    if not sc.open_holdout or trials is None:
+    if not sc.open_holdout:
         return cells
-    logged = trials[trials["experiment_id"] == sc.experiment_id]
-    done = {(c["horizon"], c["upper"], c["lower"]) for c in (json.loads(x)[0] for x in logged["cells"])}
+    rows = []
+    if trials is not None:
+        rows = [json.loads(x)[0] for x in trials.loc[trials["experiment_id"] == sc.experiment_id, "cells"]]
+    path = started_path(sc, artifacts_root)
+    if path.exists():
+        rows += [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    done = {(c["horizon"], c["upper"], c["lower"]) for c in rows}
     return [c for c in cells if (c.horizon, c.upper, c.lower) not in done]
 
 
@@ -452,13 +467,15 @@ def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir,
     trial per cell, predictions and bootstrap draws archived."""
     n_boot = sc.n_boot if n_boot is None else n_boot
     check_features(sc, features)
-    check_run(sc, features, trials_path, horizon)
+    check_run(sc, features, trials_path)
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     results = []
-    for cell in cells_to_run(sc, horizon, trial_log.read_existing(trials_path)):
+    for cell in cells_to_run(sc, horizon, trial_log.read_existing(trials_path), artifacts_root):
         labels = dataset.read_labels(labels_dir, horizon, cell=(cell.upper, cell.lower), open_holdout=sc.open_holdout)
         frame = cell_frame(features, labels)
         unlabelled = check_labels(sc, features, frame)
+        if sc.open_holdout:
+            mark_started(sc, cell, artifacts_root)
         with trial_log.trial(sc.experiment_id, trial_spec(sc, cell, features, labels),
                              trials_path, artifacts_root) as t:
             model = seed_mean(oos_predictions(frame, sc.model_columns, folds, sc.seeds, sc.config))
@@ -803,7 +820,9 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()
         horizons[h] = {
             **readout, "p": one_sided_p(result),
-            "controls": {side: pooled_readout(baskets, "model", side, h, sc, n_boot)[1]
+            # descriptive: no verdict string, so a control can't be read as one
+            "controls": {side: {k: v for k, v in pooled_readout(baskets, "model", side, h, sc, n_boot)[1].items()
+                                if k != "verdict"}
                          for side in VERDICT_SIDES if side != sc.verdict_against},
             "diagnostics": {"mean_over_cells": mean_diag, "by_cell": diagnostics},
             "trial_ids": {f"{c.upper:g}/{c.lower:g}": t for c, t in ids.items()},

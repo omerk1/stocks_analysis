@@ -489,6 +489,8 @@ def test_the_holdout_opens_only_for_a_registered_scorecard():
     years = (2022, 2023, 2024, 2025, 2026)
     with pytest.raises(ValueError, match="eras"):
         trading.Scorecard(track="B", open_holdout=True, test_years=years)        # the dev eras have no dates here
+    with pytest.raises(ValueError, match="needs eras"):
+        trading.Scorecard(track="B", open_holdout=True, test_years=years, eras=())  # the era rule would pass untested
     ht = trading.Scorecard(experiment_id="HT", track="B", open_holdout=True, test_years=years,
                            eras=((2022, 2023), (2024, 2025, 2026)))
     features, labels = _synthetic(shuffled=False)
@@ -508,10 +510,12 @@ def test_the_holdout_opens_only_for_a_registered_scorecard():
 
 
 def test_check_run_looks_at_the_holdout_once_and_holds_the_verdict_settings(tmp_path):
-    """A scorecard that opens the holdout never refits a cell it has a row for
-    (a failed one too: it may have failed after scoring): a run that stopped
-    partway finishes the rest, and a horizon with every cell done is refused.
-    An id logged with other verdict settings is refused outright."""
+    """A scorecard that opens the holdout never refits a cell it has started:
+    a row (a failed one too: it may have failed after scoring) or a started
+    note with no row (the process died mid-fit). A run that stopped partway
+    finishes the rest, and a done horizon runs nothing, so a resume can pass
+    every registered horizon. An id logged with other verdict settings is
+    refused outright."""
     ht = trading.Scorecard(experiment_id="HT", track="B", open_holdout=True, test_years=(2022, 2023),
                            eras=((2022,), (2023,)), verdict_against="market", verdict_cost_bps=10)
     cache = pd.DataFrame(columns=list(ht.model_columns))
@@ -523,18 +527,22 @@ def test_check_run_looks_at_the_holdout_once_and_holds_the_verdict_settings(tmp_
                       "cells": [json.dumps([{"horizon": c.horizon, "upper": c.upper, "lower": c.lower}])
                                 for c in cells]}).to_csv(trials, index=False)
         return trial_log.read_existing(trials)
-    first, *rest = ht.cells(21)
-    assert trading.cells_to_run(ht, 21, log(trial_log.OK, [first])) == rest                # resumes the rest
-    assert trading.cells_to_run(ht, 21, log(trial_log.FAILED, [first])) == rest            # may have scored
-    trading.check_run(ht, cache, trials, horizon=21)
-    assert trading.cells_to_run(ht, 63, trial_log.read_existing(trials)) == ht.cells(63)   # the other horizon
-    assert trading.cells_to_run(replace(ht, open_holdout=False, test_years=(2020, 2021), eras=((2020,), (2021,))),
-                                21, trial_log.read_existing(trials)) == ht.cells(21)        # dev runs refit
+    first, second, *rest = ht.cells(21)
+    run = lambda h, sc=ht: trading.cells_to_run(sc, h, trial_log.read_existing(trials), tmp_path)
+    log(trial_log.OK, [first])
+    assert run(21) == [second, *rest]                                                      # resumes the rest
+    log(trial_log.FAILED, [first])
+    assert run(21) == [second, *rest]                                                      # may have scored
+    trading.mark_started(ht, second, tmp_path)
+    assert run(21) == rest                                                                 # died before its row
+    trading.check_run(ht, cache, trials)
+    assert run(63) == ht.cells(63)                                                         # the other horizon
+    assert run(21, replace(ht, open_holdout=False, test_years=(2020, 2021),
+                           eras=((2020,), (2021,)))) == ht.cells(21)                       # dev runs refit
     log(trial_log.OK, ht.cells(21))
-    with pytest.raises(ValueError, match="looked at once"):
-        trading.check_run(ht, cache, trials, horizon=21)
+    assert run(21) == [] and run(63) == ht.cells(63)                                       # a resume runs only H63
     with pytest.raises(ValueError, match="verdict"):
-        trading.check_run(replace(ht, verdict_against="reference"), cache, trials, horizon=63)
+        trading.check_run(replace(ht, verdict_against="reference"), cache, trials)
 
 
 def test_the_cli_opens_the_holdout_only_with_both_keys(monkeypatch):

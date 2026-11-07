@@ -326,7 +326,11 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
     features = cache.read_feature_cache(features_dir, open_holdout=sc.open_holdout)
     results = []
     for h in horizons:
-        for r in trading.run_horizon(sc, h, features, labels_dir):
+        ran = trading.run_horizon(sc, h, features, labels_dir)
+        if sc.open_holdout and not ran:
+            print(f"{sc.experiment_id} H{h}: every cell already started on the holdout; it is looked at once, "
+                  "so none is refit", flush=True)
+        for r in ran:
             print(f"{r['trial_id']}: {trading.outcome(r, r['cell'], trading.headline_k(sc))}", flush=True)
             results.append(r)
     _print_grid(results, sc)
