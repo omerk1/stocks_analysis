@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–2 built (Done #175, #176, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3 built (Done #175–#177, 2026-11-07). Lean first version, wider later.
 
 ## One-liner
 
@@ -234,6 +234,31 @@ class Overlay:
      picks. Names at an all-time high get the fewest, since nothing sits above them.
 3. **Earnings cards:** markers, collapsed flags, cards without guidance. Tests: marker lands
    on `reaction_date`, year-ago change, gap %.
+
+   As built (`src/ui/chart/earnings.py`, Done #177):
+   - The period label ("Q2 FY2027") comes from the announcements themselves: quarters
+     reported in a 10-K end the fiscal years, and a fiscal year is named by the calendar
+     year it ends in. Without a 10-K within a year, the card shows only the quarter's end.
+   - "Filing date" is the announcement's acceptance (the 8-K, else the 10-Q/10-K), in ET,
+     with the timing and the form.
+   - EPS is as filed, so it's put on today's share basis (divided by the splits executed
+     after its filing) before the year-ago comparison, like the split-adjusted bars.
+     Without that, NVDA's 2024 10:1 split reads as −87%. A fourth quarter has no EPS: the
+     10-K reports the year, and EPS doesn't add up across quarters.
+   - Revenue is compared only when both quarters use the same measure (the
+     revenue-growth feature's `REVENUE_FAMILY`). The % is shown only against a positive
+     year-ago value; against a loss, the card gives both numbers.
+   - The reaction is measured on daily bars, also on the weekly chart: gap and day move vs
+     the previous close, in ATR(14) as of the bar before. No gap for news out during the
+     session: that day's open came before it. On the weekly chart the flag sits on the bar
+     of the reaction week; the week still in progress has no bar and no flag, and the
+     latest card with a bar is the one open by default.
+   - Revenue and EPS match the announcement's quarter within 7 days (the two tables'
+     quarter ends can differ on 52/53-week years; 42 announcements).
+   - Clicking a flag opens its card and clicking a card closes it, remembered per ticker.
+     "Expand all" opens every card (plotly hides the ones out of view) and ignores clicks. On a weekly chart
+     over several years they overlap: zoom in. A checkbox hides the flags altogether.
+   - Cards are built for every announcement in about 0.6 s per ticker and cached.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,
    market structure, RSI/MACD and relative-strength panes.
 5. **Guidance on the cards,** once the extraction exists.

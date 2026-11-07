@@ -128,7 +128,7 @@ def test_app_builds_with_injected_data():
     dash_app = app_mod.create_app(FakeData(), ChartConfig())
     ids = {c.id for c in dash_app.layout._traverse() if isinstance(getattr(c, "id", None), str)}
     assert {"ticker", "timeframe", "chart-type", "volume", "mas", "chart", "rs-strip", "view",
-            "weight", "reset", "menu", "menu-key", "overlay-count"} <= ids
+            "weight", "reset", "menu", "menu-key", "overlay-count", "earnings", "earnings-open"} <= ids
 
 
 def _by_type(children):
