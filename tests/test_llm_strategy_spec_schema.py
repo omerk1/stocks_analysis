@@ -248,7 +248,9 @@ def test_a_setting_or_id_the_catalogue_doesnt_list_is_invalid():
     assert gap.item == "fib" and "'anchors'" in gap.reason and "min_swing_atr" in gap.reason
     bad_id = _filter("fib", uses=("detector:fibonacci.retracement", "detector:elliott"), defaults_ok=True)
     gaps = find_gaps(_complete(supporting_signals=[bad_id]))
-    assert [(g.kind, g.item) for g in gaps] == [("invalid", "fib")] and "'detector:elliott'" in gaps[0].reason
+    # About the whole list: a per-signal (settings) answer can't change the detector.
+    assert [(g.kind, g.item) for g in gaps] == [("invalid", None)]
+    assert "'fib' uses 'detector:elliott'" in gaps[0].reason
 
 
 def test_the_count_is_asked_before_the_signals_settings():

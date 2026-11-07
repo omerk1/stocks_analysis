@@ -314,28 +314,39 @@ def test_each_signal_is_its_own_question_showing_only_itself():
 def test_an_answer_about_one_signal_changes_only_what_it_was_asked():
     spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
     q = next_question(spec)
-    reply = {"value": {"description": "major fib", "settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
+    reply = {"value": {"settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
     client = StubClient([reply])
     out = apply_answer(spec, q, "only swings of 12 ATR or more", client)
     assert client.calls[0][1]["response_schema"] is el._ITEM_ANSWER_MODELS["supporting_signals"]
     fib = out.supporting_signals[0]
-    assert (fib.name, fib.role, fib.uses) == ("fib", "filter", ["detector:fibonacci.retracement"])
-    assert (fib.description, fib.settings[0].value) == ("major fib", "12 ATR")
+    assert fib == spec.supporting_signals[0].model_copy(update={"settings": fib.settings})
+    assert fib.settings[0].value == "12 ATR"
     assert out.supporting_signals[1] == spec.supporting_signals[1]
     assert next_question(out).item == "line"
 
 
-def test_a_signal_answer_cant_rename_it_and_whats_left_out_is_kept():
-    with pytest.raises(ValidationError):  # questions find a signal by name
-        el._ITEM_ANSWER_MODELS["supporting_signals"].model_validate({"value": {"name": "fib (major)"}})
-    fib = Signal(name="fib", description="the trader's words", role="filter",
-                 uses=["detector:fibonacci.retracement"], defaults_ok=True)
-    spec = _spec(supporting_signals=[fib, *_filters("line")], filters_needed=2)
-    q = Question("supporting_signals", "q", (), "fib")
-    # Only a role change: the description, detector and defaults stay. An empty `uses`
-    # would make the settings question vanish unanswered, so it counts as not given.
-    out = apply_answer(spec, q, "only a confidence boost", StubClient([{"value": {"role": "score", "uses": []}}]))
-    assert out.supporting_signals[0] == fib.model_copy(update={"role": "score"})
+def test_a_signal_answer_holds_only_settings_and_defaults():
+    model = el._ITEM_ANSWER_MODELS["supporting_signals"]
+    for extra in ({"name": "fib (major)"}, {"uses": []}, {"role": "score"}, {"description": "x"}):
+        with pytest.raises(ValidationError):
+            model.model_validate({"value": extra})
+
+
+def test_the_merge_ignores_empty_parts_and_a_new_detector_starts_afresh():
+    fib = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"],
+                 settings=[Setting(name="min_swing_atr", value="12")], defaults_ok=True)
+    # A structured reply's [] and false aren't the trader undoing what they settled.
+    assert el._merged(fib, {"settings": [], "defaults_ok": False, "uses": []}) == fib
+    moved = el._merged(fib, {"uses": ["detector:avwap"]})
+    assert (moved.uses, moved.settings, moved.defaults_ok) == (["detector:avwap"], [], False)
+    assert el._merged(fib, {"uses": list(fib.uses), "description": "major fib"}).settings == fib.settings
+
+
+def test_repeated_signal_names_are_numbered_at_the_start(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "fib", "line")))
+    spec = elicit("idea", StubClient([]), ask=lambda q: None, say=lambda s: None,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert [s.name for s in spec.supporting_signals] == ["fib", "fib 2", "line"]
 
 
 def test_a_whole_list_answer_keeps_each_kept_signals_detector_and_settings():
@@ -373,7 +384,7 @@ def test_a_gap_about_all_signals_is_asked_alone_before_any_one_signal():
 
 def test_the_transcript_says_which_signal_a_turn_was_about(tmp_path, monkeypatch):
     _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
-    ok = {"value": {"description": "x", "defaults_ok": True}}
+    ok = {"value": {"defaults_ok": True}}
     answers = iter(["defaults", None])
     elicit("idea", StubClient([ok]), ask=lambda q: next(answers), say=lambda s: None,
            session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
@@ -384,7 +395,7 @@ def test_the_transcript_says_which_signal_a_turn_was_about(tmp_path, monkeypatch
 
 def test_a_stuck_signal_is_skipped_alone(tmp_path, monkeypatch):
     _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
-    line_ok = {"value": {"description": "line", "defaults_ok": True}}
+    line_ok = {"value": {"defaults_ok": True}}
     client = StubClient([{"value": None}, {"value": None}, line_ok])
     said = []
     spec = elicit("idea", client, ask=lambda q: "dunno", say=said.append,

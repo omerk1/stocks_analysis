@@ -72,8 +72,8 @@ one of the question's listed unsupported requests, repeat that request's wording
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
 `unsupported` empty and `resolved_requests` empty. When the question is about one item \
-of a list section (one supporting signal), `value` is that one signal, not the list, \
-with only the parts the answer changes and the rest null. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
+of a list section (one supporting signal), `value` is that one signal's settings and \
+defaults_ok, not the list. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
 each value in the trader's words; `defaults_ok` is true only when the trader says the \
 defaults are fine.
 
@@ -116,34 +116,48 @@ def _answer_model(name: str, value_type):
 # from the model is an error, not silently dropped.
 _ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
                   for f in get_args(SpecField)}
-# A question about one signal gets back only what the answer changes, every part optional
-# (null = keep), and the code merges it into that signal in place: the answer can't touch
-# the other signals or this one's name (questions find it by name), and a part left out
-# isn't reset (a reply dropping `uses` would make the settings question vanish unanswered).
+# A question about one signal asks only what makes it count, so its answer holds only
+# `settings` and `defaults_ok`, and the code merges it into that signal in place: it can't
+# touch the other signals, nor this one's name, role, detector or wording.
+_ASKED_OF_SIGNAL = ("settings", "defaults_ok")
 _SignalAnswer = create_model(
     "SignalAnswer", __base__=_Section,
-    **{n: (f.annotation | None, None) for n, f in Signal.model_fields.items() if n != "name"})
+    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n in _ASKED_OF_SIGNAL})
 _ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", _SignalAnswer)}
 
 
-def _merged(old: Signal, given: BaseModel) -> Signal:
-    """`old` with what `given` sets; an empty `uses` counts as not given, never as 'no detector'."""
-    changes = {k: v for k, v in given if v is not None and not (k == "uses" and not v)}
+def _merged(old: Signal, given: dict) -> Signal:
+    """`old` with the parts `given` sets — the one merge rule for both kinds of answer. An
+    empty or false part counts as not given (a structured reply fills what it wasn't told
+    with [] or false, which must not undo what the trader settled), so an answer can add
+    settings or accept the defaults but not clear them; a stuck setting stalls and is
+    skipped. A new detector starts its settings afresh, so the new family is asked about."""
+    changes = {k: v for k, v in given.items() if v}
+    if changes.get("uses", old.uses) != old.uses:
+        old = old.model_copy(update={"settings": [], "defaults_ok": False})
     return old.model_copy(update=changes)
 
 
-def _keep_unasked(old: list[Signal], new: list[Signal]) -> list[Signal]:
-    """A whole-list answer (an unsupported ask, two signals sharing a name) re-sends every
-    signal: one it kept by name gets back the detector and settings the reply left out."""
+def _unique_names(signals: list[Signal]) -> list[Signal]:
+    """Questions find a signal by name, so a repeated name gets a number ("fib 2")."""
+    seen: set[str] = set()
+    out = []
+    for s in signals:
+        name, k = s.name, 1
+        while name in seen:
+            k += 1
+            name = f"{s.name} {k}"
+        seen.add(name)
+        out.append(s if name == s.name else s.model_copy(update={"name": name}))
+    return out
+
+
+def _signals_answered(old: list[Signal], new: list[Signal]) -> list[Signal]:
+    """A whole-list answer (an unsupported ask, an uncatalogued detector) re-sends every
+    signal; one it kept by name is merged into the old one, so the detector and settings
+    the reply left out aren't lost."""
     by_name = {s.name: s for s in old}
-    kept = []
-    for s in new:
-        was = by_name.get(s.name)
-        if was is not None:
-            s = s.model_copy(update={"uses": s.uses or was.uses, "settings": s.settings or was.settings,
-                                     "defaults_ok": s.defaults_ok or was.defaults_ok})
-        kept.append(s)
-    return kept
+    return _unique_names([_merged(by_name[s.name], dict(s)) if s.name in by_name else s for s in new])
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
@@ -229,10 +243,10 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     if parsed.value is not None and question.item:
         items = list(getattr(spec, question.field))
         at = next(i for i, x in enumerate(items) if x.name == question.item)
-        items[at] = _merged(items[at], parsed.value)
+        items[at] = _merged(items[at], dict(parsed.value))
         updates[question.field] = items
     elif parsed.value is not None and question.field == "supporting_signals":
-        updates[question.field] = _keep_unasked(spec.supporting_signals, parsed.value)
+        updates[question.field] = _signals_answered(spec.supporting_signals, parsed.value)
     elif parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)
@@ -309,6 +323,8 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
             session.spec = session.spec.model_copy(
                 update={"uses": [u for u in session.spec.uses if u in catalogue.IDS],
                         "supporting_signals": signals})
+        session.spec = session.spec.model_copy(
+            update={"supporting_signals": _unique_names(session.spec.supporting_signals)})
         session.save(path)
         for _ in range(max_turns):
             question = next_question(session.spec, frozenset(skip))

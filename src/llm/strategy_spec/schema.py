@@ -350,16 +350,20 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     elif not 1 <= n <= len(filters):
         add("filters_needed", "invalid", f"{n} filters needed, but there are {len(filters)}")
 
-    # A signal is asked about, and its answer put back, by name, so names must be unique.
+    # A signal is asked about, and its answer put back, by name, so names must be unique
+    # (the elicitation loop makes them so; this catches a spec built any other way).
     names = [sig.name for sig in spec.supporting_signals]
     shared = [name for name in dict.fromkeys(names) if names.count(name) > 1]
     if shared:
         add("supporting_signals", "invalid", f"two signals share a name ({'; '.join(shared)}); "
             "each needs its own")
     for sig in spec.supporting_signals:
+        # About the whole list, not this signal: a per-signal question only asks settings,
+        # so its answer can't change the detector.
         for cap_id in dict.fromkeys(sig.uses):
             if cap_id not in catalogue.IDS:
-                add("supporting_signals", "invalid", f"{cap_id!r} isn't in the capability catalogue", sig.name)
+                add("supporting_signals", "invalid",
+                    f"{sig.name!r} uses {cap_id!r}, which isn't in the capability catalogue")
         known = catalogue.settings_for(sig.uses)
         for setting in sig.settings:
             if setting.name not in known:
