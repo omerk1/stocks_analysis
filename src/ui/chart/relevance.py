@@ -10,7 +10,7 @@
 4. The best `per_family` of each family, then the best `total` of those.
 
 Events (divergences) aren't at a price: in reach means confirmed at most `reach_bars`
-bars ago, and proximity is recency, 1 - age / reach_bars. Events with the same
+bars ago (per timeframe), and proximity is recency, 1 - age / reach_bars. Events with the same
 `same_key` (one pivot, several indicators) take one slot.
 
 Display rules only: none of these numbers is tuned against anything, and none may be
@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from src.foundation.market_common import indicators
+from src.foundation.market_common.models import Timeframe
 from src.ui.chart.config import RelevanceConfig
 from src.ui.chart.overlays import Overlay
 
@@ -58,10 +59,12 @@ def _mid_rank_pct(values: list[float]) -> list[float]:
 
 
 def rank(overlays: list[Overlay], close: float, atr: float, config: RelevanceConfig,
-         weight: float | None = None) -> list[Ranked]:
+         weight: float | None = None, timeframe: Timeframe = Timeframe.DAILY) -> list[Ranked]:
     """Every overlay with its distance, reach and score, best first: scored items by
-    score, then the rest alive before dead, nearest first."""
+    score, then the rest alive before dead, nearest (or most recent) first. An event's
+    `distance_atr` is inf: it isn't at a price."""
     w = config.weight if weight is None else min(max(float(weight), 0.0), 1.0)
+    reach_bars = config.reach_bars[timeframe]
     strength_pct: dict[int, float] = {}
     by_family: dict[str, list[Overlay]] = {}
     for o in overlays:
@@ -73,11 +76,12 @@ def rank(overlays: list[Overlay], close: float, atr: float, config: RelevanceCon
 
     ranked = []
     for o in overlays:
-        d = distance_atr(o.lo, o.hi, close, atr)
         if o.age_bars is None:
+            d = distance_atr(o.lo, o.hi, close, atr)
             reach, proximity = d <= config.reach_atr, 1.0 - d / config.reach_atr
         else:  # an event: how recent it is takes the place of how close
-            reach, proximity = o.age_bars <= config.reach_bars, 1.0 - o.age_bars / config.reach_bars
+            d = float("inf")
+            reach, proximity = o.age_bars <= reach_bars, 1.0 - o.age_bars / reach_bars
         pct = strength_pct.get(id(o))
         score = None
         if o.alive and reach:
@@ -88,8 +92,24 @@ def rank(overlays: list[Overlay], close: float, atr: float, config: RelevanceCon
 
 
 def _nearness(r: Ranked) -> float:
-    """Unscored items' order: nearest level, or most recent event, first."""
+    """Unscored items' order within a family: nearest level, or most recent event,
+    first. (A family is all levels or all events, so the units never meet in a list.)"""
     return r.distance_atr if r.overlay.age_bars is None else float(r.overlay.age_bars)
+
+
+def nearest_alive(ranked: list[Ranked], family: str, config: RelevanceConfig,
+                  atr: float = float("nan")) -> list[str]:
+    """What ticking a family picks when nothing of it is in reach: its `per_family`
+    nearest (or most recent) alive items, one per level or event, as `family_defaults`."""
+    tolerance = config.same_level_atr * atr if np.isfinite(atr) and atr > 0 else 0.0
+    alive = sorted((r for r in ranked if r.overlay.family == family and r.overlay.alive), key=_nearness)
+    kept: list[Overlay] = []
+    for r in alive:
+        if len(kept) == config.per_family:
+            break
+        if not any(_same(r.overlay, k, tolerance) for k in kept):
+            kept.append(r.overlay)
+    return [o.item_id for o in kept]
 
 
 def family_defaults(ranked: list[Ranked], config: RelevanceConfig, atr: float = float("nan")) -> dict[str, list[str]]:

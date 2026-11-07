@@ -53,8 +53,7 @@ def _overlay_trace(o: Overlay, x_end: pd.Timestamp) -> go.Scatter:
     right edge, a series as a curve. Its short tag sits at the right end; the full
     label is the trace name (and the hover, for a curve)."""
     line, fill = _OVERLAY_STYLE.get(o.family, ("#64748b", "rgba(100,116,139,0.15)"))
-    if o.bullish is not None:
-        line = _UP if o.bullish else _DOWN
+    line = _event_colour(o) if o.bullish is not None else line
     common = dict(name=o.label, uid=f"{o.family}:{o.item_id}", showlegend=False, legendgroup=o.family, textfont=dict(size=10, color=line))
     if o.kind == "segment":
         return _segment_trace(o.points, o, line, common)
@@ -125,12 +124,24 @@ def _segment_trace(points, o: Overlay, colour: str, common: dict) -> go.Scatter:
                       hovertemplate=f"{o.label}<extra></extra>", **common)
 
 
+def _event_colour(o: Overlay) -> str:
+    if o.bullish is None:
+        return _OVERLAY_STYLE.get(o.family, ("#64748b", None))[0]
+    return _UP if o.bullish else _DOWN
+
+
 def pane_segment_trace(o: Overlay) -> go.Scatter:
-    """An event's segment on its indicator pane (`Overlay.pane_points`)."""
-    colour = _UP if o.bullish else _DOWN
-    common = dict(name=o.label, uid=f"{o.family}:{o.item_id}:pane", showlegend=False,
+    """An event's segment on its indicator pane (`Overlay.pane_points`), in the same
+    colour and legend group as its price segment."""
+    colour = _event_colour(o)
+    common = dict(name=o.label, uid=f"{o.family}:{o.item_id}:pane", showlegend=False, legendgroup=o.family,
                   textfont=dict(size=10, color=colour))
     return _segment_trace(o.pane_points, o, colour, common)
+
+
+def _drawable(o: Overlay) -> bool:
+    """A segment needs its two points; anything else is always drawable."""
+    return o.kind != "segment" or len(o.points) == 2
 
 
 def closed_weekdays(market_days: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -189,7 +200,8 @@ def build_figure(
     if not bars.empty:
         x_end = bars.index.max() + _right_pad(timeframe)
         for o in overlays:
-            fig.add_trace(_overlay_trace(o, x_end), row=1, col=1)
+            if _drawable(o):
+                fig.add_trace(_overlay_trace(o, x_end), row=1, col=1)
     fig.add_trace(_price_trace(bars, chart_type, ticker), row=1, col=1)
 
     for i, spec in enumerate(ma_specs):
@@ -213,7 +225,7 @@ def build_figure(
         else:
             fig.add_hline(y=0, line=dict(color="#94a3b8", width=0.8), row=row, col=1)
         for o in overlays:
-            if o.kind == "segment" and o.pane == pane.key and o.pane_points:
+            if o.kind == "segment" and o.pane == pane.key and len(o.pane_points) == 2:
                 fig.add_trace(pane_segment_trace(o), row=row, col=1)
 
     fig.update_layout(
@@ -331,7 +343,7 @@ def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
         highs.append(window.max())
     for o in overlays:
         if o.kind == "segment":  # ends at its second point: counts only while it's in the window
-            if o.x0 <= end and o.points[-1][0] >= start:
+            if _drawable(o) and o.x0 <= end and o.points[-1][0] >= start:
                 lows.append(o.lo)
                 highs.append(o.hi)
         elif o.kind != "series" and o.x0 <= end:

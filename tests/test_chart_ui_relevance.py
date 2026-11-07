@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.foundation.market_common.models import Timeframe
 from src.ui.chart import relevance
 from src.ui.chart.config import RelevanceConfig
 from src.ui.chart.overlays import Overlay
@@ -112,7 +113,9 @@ def test_events_rank_by_recency_not_distance_from_price():
     ranked = relevance.rank([ev("old", 39), ev("new", 2), ev("too old", 41), ev("dead", 0, alive=False)],
                             CLOSE, ATR, cfg, weight=1.0)
     assert [r.overlay.item_id for r in ranked] == ["new", "old", "too old", "dead"]  # unscored: alive first
-    assert ranked[0].score == pytest.approx(1 - 2 / cfg.reach_bars)
+    assert ranked[0].score == pytest.approx(1 - 2 / 40)  # daily reach: 40 bars
+    weekly = relevance.rank([ev("13 weeks", 13)], CLOSE, ATR, cfg, timeframe=Timeframe.WEEKLY)
+    assert weekly[0].score is None  # weekly reach: 12 bars
     assert all(r.score is None for r in ranked[2:])  # confirmed more than reach_bars ago, or dead
     # unscored: alive first, then most recent first
     ranked = relevance.rank([ev("a", 60), ev("b", 45)], CLOSE, ATR, cfg)

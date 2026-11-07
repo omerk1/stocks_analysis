@@ -49,6 +49,7 @@ SR, GAPS, AVWAP, FIB, DIV = "sr_lines", "gaps", "avwap", "fibonacci", "divergenc
 FAMILIES = (SR, GAPS, AVWAP, FIB, DIV)
 FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci",
                 DIV: "Divergences"}
+EVENT_FAMILIES = frozenset({DIV})  # ranked by recency (`Overlay.age_bars`), not distance from price
 
 # Short and long lookback, as the S/R module's own presets define them.
 SR_PRESETS = {Timeframe.DAILY: ("medium_term", "long_term"),
@@ -217,17 +218,25 @@ def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timefr
 
     The module stores the indicator pivots' values, not their dates (they pair with
     the price pivots within `pairing_window` bars), so the pane segment is drawn on
-    the price pivots' dates."""
-    divergences, _, skip = div_detect.detect(conn, ticker, timeframe.value, DivergenceConfig())
-    if skip:
+    the price pivots' dates.
+
+    Runs the module's own pipeline (`detect`'s steps) on the chart's `bars`, which are
+    on the module's basis (traded), instead of loading them again: one load, and each
+    divergence's age is counted on the same bars it was found on."""
+    config = DivergenceConfig()
+    if len(bars) < config.min_bars:
         return []
+    divergences = div_detect.detect_divergences(bars, ticker, timeframe, config)
+    if divergences:
+        div_detect._apply_confluence(divergences, bars, config.pairing_window)
     out = []
     for d in divergences:
         p1, p2, confirmed = pd.Timestamp(d.p1_date), pd.Timestamp(d.p2_date), pd.Timestamp(d.confirmed_at)
         name = _DIV_NAMES.get(d.indicator.value, d.indicator.value)
         bull = d.direction == Direction.BULLISH
         hidden = d.form == DivergenceForm.HIDDEN
-        age = int(len(bars) - 1 - bars.index.searchsorted(confirmed)) if confirmed <= bars.index[-1] else 0
+        # confirmed on a pivot's confirming bar, one of these bars
+        age = len(bars) - 1 - min(int(bars.index.searchsorted(confirmed)), len(bars) - 1)
         out.append(Overlay(
             family=DIV, item_id=f"{d.indicator.value}:{d.direction.value}:{d.form.value}:{_day(p1)}:{_day(p2)}",
             label=f"{name} {'bullish' if bull else 'bearish'}{' hidden' if hidden else ''} {_day(p2)}",
@@ -237,7 +246,7 @@ def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timefr
             points=((p1, float(d.p1_price)), (p2, float(d.p2_price))),
             pane=_DIV_PANES.get(d.indicator.value), pane_points=((p1, float(d.i1_value)), (p2, float(d.i2_value))),
             age_bars=age, same_key=f"{d.direction.value}:{_day(p2)}", bullish=bull, dashed=hidden,
-            hover={"strength": round(float(d.strength), 2), "confirmed": _day(confirmed),
+            hover={"strength": round(float(d.strength), 2), "confirmed on": _day(confirmed),
                    "indicator": f"{d.i1_value:.2f} → {d.i2_value:.2f}", "form": d.form.value,
                    "indicators agreeing": d.confluence_count,
                    "invalidated": _day(d.invalidated_at) if d.invalidated else "no"},

@@ -34,7 +34,7 @@ from src.ui.chart import panes as panes_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
-from src.ui.chart.overlays import FAMILIES, FAMILY_NAMES, Overlay
+from src.ui.chart.overlays import EVENT_FAMILIES, FAMILIES, FAMILY_NAMES, Overlay
 from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, figure_annotations,
                                  hidden_weekdays, padded_full_range, y_axis_ranges)
 
@@ -287,7 +287,7 @@ def _nearness_text(r: relevance.Ranked) -> str:
 
 def _hover_text(r: relevance.Ranked) -> str:
     parts = [f"{k}: {v}" for k, v in r.overlay.hover.items() if v is not None]
-    parts.append(f"{'distance' if r.overlay.age_bars is None else 'confirmed'}: {_nearness_text(r)}")
+    parts.append(f"{'distance' if r.overlay.age_bars is None else 'age'}: {_nearness_text(r)}")
     if r.strength_pct is not None:
         parts.append(f"strength percentile: {r.strength_pct:.2f}")
     parts.append("score: " + ("not in reach" if r.score is None else f"{r.score:.2f}"))
@@ -296,8 +296,11 @@ def _hover_text(r: relevance.Ranked) -> str:
 
 def family_count_text(shown: int, of: int, events: bool = False) -> str:
     """"3 of 41 shown" (of the family's alive items), or for events "1 of 2 recent"
-    (of the alive ones confirmed within reach: old divergences stay alive for ever)."""
-    return f"{shown} of {of} {'recent' if events else 'shown'}"
+    (of the alive ones confirmed within reach: old divergences stay alive for ever);
+    "3 shown, 0 recent" when older ones were picked by hand or by ticking the family."""
+    if events:
+        return f"{shown} shown, {of} recent" if shown > of else f"{shown} of {of} recent"
+    return f"{shown} of {of} shown"
 
 
 def family_sync(changed: str, family: str, ticked, values, defaults, count) -> tuple[list, list, str]:
@@ -332,18 +335,19 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
     cfg = config.relevance
     found = data.overlays(ticker, timeframe)
     atr = relevance.last_atr(bars, cfg.atr_period)
-    ranked = relevance.rank(list(found.items), float(bars["close"].iloc[-1]), atr, cfg, weight)
+    ranked = relevance.rank(list(found.items), float(bars["close"].iloc[-1]), atr, cfg, weight, timeframe)
     per_family = relevance.family_defaults(ranked, cfg, atr)
     defaults = relevance.default_selection(ranked, cfg, atr, per_family)
     children = [html.Div(f"As of {bars.index.max():%Y-%m-%d} · ATR {atr:.2f} · found in {found.seconds:.1f}s",
                          style={"color": "#64748b", "fontSize": "12px", "marginBottom": "6px"})]
     for family in FAMILIES:
         alive = [r for r in ranked if r.overlay.family == family and r.overlay.alive]
-        events = any(r.overlay.age_bars is not None for r in alive)
+        events = family in EVENT_FAMILIES
         count = {"of": sum(r.in_reach for r in alive) if events else len(alive), "events": events}
         picked = defaults.get(family, [])
-        # Ticking the family box picks its defaults; with nothing in reach, its nearest alive items.
-        on_tick = per_family.get(family) or [r.overlay.item_id for r in alive[: cfg.per_family]]
+        # Ticking the family box picks its defaults; with nothing in reach, its nearest
+        # (or most recent) alive items, one per level or event.
+        on_tick = per_family.get(family) or relevance.nearest_alive(ranked, family, cfg, atr)
         listed = alive[: cfg.menu_items_per_family]
         must_list = set(picked) | set(on_tick)
         listed += [r for r in alive[cfg.menu_items_per_family:] if r.overlay.item_id in must_list]
