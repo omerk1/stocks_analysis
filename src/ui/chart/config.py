@@ -78,6 +78,7 @@ class RelevanceConfig:
     (1 - weight) x strength."""
     atr_period: int = 14
     reach_atr: float = 3.0  # farther than this from the last close: not picked by default
+    reach_bars: int = 40  # an event (divergence) confirmed longer ago than this: not picked by default
     weight: float = 0.7
     per_family: int = 3
     total: int = 10

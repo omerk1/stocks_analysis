@@ -185,16 +185,19 @@ def _render_with(data, overlays):
 
 def test_family_box_and_items_stay_in_step():
     sync = app_mod.family_sync
-    assert sync("family", "gaps", ["gaps"], [], ["a", "b"], 5) == (["gaps"], ["a", "b"], "2 of 5 shown")
-    assert sync("family", "gaps", [], ["a", "b"], ["a", "b"], 5) == ([], [], "0 of 5 shown")
+    five = {"of": 5, "events": False}
+    assert sync("family", "gaps", ["gaps"], [], ["a", "b"], five) == (["gaps"], ["a", "b"], "2 of 5 shown")
+    assert sync("family", "gaps", [], ["a", "b"], ["a", "b"], five) == ([], [], "0 of 5 shown")
     # unticking the last item by hand unticks the box, so the next tick restores the defaults
-    assert sync("items", "gaps", ["gaps"], [], ["a", "b"], 5) == ([], [], "0 of 5 shown")
-    assert sync("items", "gaps", [], ["c"], ["a", "b"], 5) == (["gaps"], ["c"], "1 of 5 shown")
+    assert sync("items", "gaps", ["gaps"], [], ["a", "b"], five) == ([], [], "0 of 5 shown")
+    assert sync("items", "gaps", [], ["c"], ["a", "b"], five) == (["gaps"], ["c"], "1 of 5 shown")
     # a family with nothing to pick can't stay ticked
-    assert sync("family", "gaps", ["gaps"], [], [], 0) == ([], [], "0 of 0 shown")
+    assert sync("family", "gaps", ["gaps"], [], [], {"of": 0}) == ([], [], "0 of 0 shown")
+    assert sync("items", "divergences", [], ["d"], [], {"of": 2, "events": True})[2] == "1 of 2 recent"
 
 
 def test_count_texts():
     assert app_mod.family_count_text(3, 41) == "3 of 41 shown"
+    assert app_mod.family_count_text(0, 2, events=True) == "0 of 2 recent"
     assert app_mod.total_count_text(10, 10) == "10 / 10 on the chart"
     assert app_mod.total_count_text(12, 10) == "12 / 10 on the chart — busy"

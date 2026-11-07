@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–3 and 4a built (Done #175–#178, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3, 4a and 4b built (Done #175–#179, 2026-11-07). Lean first version, wider later.
 
 ## One-liner
 
@@ -284,6 +284,30 @@ class Overlay:
      axis, re-decided on every zoom and pan: so it isn't cut off at the top of the
      figure or pushed into the panes below (step 3's review finding, worse with the
      shorter price pane).
+
+   As built, 4b (divergences in the level menu, Done #179):
+   - The divergence module's detector runs live like the other families (RSI, MACD
+     histogram and OBV; regular and hidden). Each divergence is a line from its first
+     price pivot to its second, green bullish / red bearish, dashed when hidden, with a
+     short tag ("RSI↑", "MACD↓h"). With the RSI or MACD pane shown, the same divergence
+     is also drawn there between the paired indicator values. OBV has no pane, so only
+     its price line is drawn. The module stores the indicator pivots' values but not
+     their dates (they pair within 3 bars of the price pivots), so the pane line uses
+     the price pivots' dates.
+   - Alive is the module's own rule: not invalidated (price went past the pair's
+     extreme within its 20-bar outcome window). Old divergences stay alive for good, so
+     a divergence isn't ranked by distance from price but by recency: in reach when
+     confirmed at most 40 bars ago (`reach_bars`), proximity = 1 − age / 40, mixed with
+     the module's strength like the other families. The menu shows "12 bars ago" for
+     each, and the family count reads "1 of 2 recent".
+   - Divergences on the same second pivot and direction (RSI and MACD on one low) are
+     one event and take one default slot.
+   - On 10 large caps, 0–3 divergences per chart are in reach, so they're picked only
+     when there's a recent one (none on AAPL, daily or weekly).
+   - The detector adds about 2–3 s per chart. The menu now takes about 5–9 s daily and
+     12–13 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
+     detectors on threads doesn't help (they're CPU-bound Python); separate processes
+     would, a later change if the wait gets in the way.
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 

@@ -8,6 +8,7 @@ from src.ui.chart import panes
 from src.ui.chart.config import ChartConfig, ChartType, PaneConfig
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.figure import build_figure, earnings_annotations, figure_annotations, pane_axes, y_axis_ranges
+from src.ui.chart.overlays import Overlay
 
 CFG = PaneConfig()
 
@@ -153,3 +154,32 @@ def test_an_open_card_near_the_top_hangs_below_the_bar(bars):
     assert near_bottom["ay"] < 0 and near_bottom["y"] == high  # room above: not down into the panes
     (fell_flag,) = earnings_annotations(bars, [fell], set(), [high - 1, high * 3])
     assert fell_flag["ay"] > 0  # a flag still follows the reaction
+
+
+def _divergence(bars, pane="rsi", hidden=False):
+    p1, p2 = bars.index[-40], bars.index[-20]
+    return Overlay(family="divergences", item_id=f"d-{pane}", label="RSI bullish", kind="segment", x0=p1,
+                   lo=90.0, hi=95.0, strength=0.5, alive=True, tag="RSI↑", points=((p1, 95.0), (p2, 90.0)),
+                   pane=pane, pane_points=((p1, 30.0), (p2, 35.0)), age_bars=15, same_key="k", bullish=True,
+                   dashed=hidden)
+
+
+def test_a_divergence_is_drawn_on_price_and_on_its_pane_when_shown(bars):
+    div = _divergence(bars, hidden=True)
+    with_pane = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
+                             overlays=(div,), panes=(_pane(panes.RSI, bars),))
+    price, pane = (t for t in with_pane.data if t.uid.startswith("divergences:"))
+    assert (price.uid, list(price.y), price.yaxis) == ("divergences:d-rsi", [95.0, 90.0], "y")
+    assert (pane.uid, list(pane.y), pane.yaxis) == ("divergences:d-rsi:pane", [30.0, 35.0], "y2")
+    assert price.line.dash == "dash" and price.line.color == "#16a34a"
+    without = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
+                           overlays=(div,))
+    assert [t.uid for t in without.data if t.uid.startswith("divergences:")] == ["divergences:d-rsi"]
+
+
+def test_a_divergence_counts_in_the_y_fit_only_while_in_the_window(bars):
+    div = _divergence(bars)
+    low_div = Overlay(**{**div.__dict__, "lo": 1.0, "hi": 2.0})
+    in_view = y_axis_ranges(bars, {}, (bars.index[-30], bars.index[-1]), ChartType.CANDLES, False, (low_div,))
+    after = y_axis_ranges(bars, {}, (bars.index[-10], bars.index[-1]), ChartType.CANDLES, False, (low_div,))
+    assert in_view["yaxis"][0] < 2.0 < after["yaxis"][0]
