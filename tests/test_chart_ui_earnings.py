@@ -93,6 +93,26 @@ def test_revenue_measured_differently_a_year_earlier_is_not_compared(daily):
     assert card.revenue == 120.0 and card.revenue_year_ago is None
 
 
+def test_quarter_ends_a_few_days_apart_still_match_and_session_news_has_no_gap(daily):
+    ann = _announcements([("2025-03-31", "10-Q", "2025-05-01")]).assign(timing="during_session")
+    fund = _fundamentals([("revenue", "2025-03-29", 120.0, "Revenues", "2025-04-30")])  # a 52/53-week quarter end
+    (card,) = earnings.build_cards(ann, fund, NO_SPLITS, daily)
+    assert card.revenue == 120.0
+    assert card.gap_pct is None and card.move_pct is not None  # the open came before the news
+    assert "gap n/a (announced during the session)" in earnings.card_text(card)
+
+
+def test_a_transition_report_is_not_a_fiscal_year_end():
+    ann = _announcements([("2025-03-31", "10-Q", None), ("2025-05-31", "10-KT", None)])
+    assert earnings.fiscal_labels(ann) == {}
+
+
+def test_card_text_survives_an_odd_acceptance_time(daily):
+    card = _card(daily.index[10])
+    odd = earnings.EarningsCard(**{**card.__dict__, "accepted_at": "not a time"})
+    assert "not a time" in earnings.card_text(odd) and "not a time" in earnings.hover_text(odd)
+
+
 def test_change_text():
     assert earnings.change_text(None, 1.0, str) == "n/a"
     assert earnings.change_text(-0.5, -1.0, lambda v: f"{v:.2f}") == "-0.50, vs -1.00 year-ago"  # no % off a loss
@@ -165,3 +185,18 @@ def test_render_draws_earnings_only_when_shown(daily):
     assert not hidden.layout.annotations
     _, message = app_mod.render(_Data(daily, (), "earnings failed: ValueError: x"), *args[1:], ["show"], None)
     assert message.endswith("earnings failed: ValueError: x")
+
+
+def test_the_latest_card_with_a_bar_on_the_chart_starts_open(daily):
+    weekly = daily[daily.index.dayofweek == 0].iloc[:-1]  # the last week is still in progress
+    placed, in_progress = _card(weekly.index[-2], key="2024-06-30"), _card(daily.index[-1], key="2024-09-30")
+
+    class _Weekly(_Data):
+        def _bars(self, ticker, timeframe):
+            return weekly if timeframe == Timeframe.WEEKLY else daily
+
+    data = _Weekly(daily, (placed, in_progress))
+    fig, _ = app_mod.render(data, ChartConfig(), "ABC", Timeframe.WEEKLY, ChartType.CANDLES, [], True, None, (),
+                            ["show"], None)
+    assert [a.name for a in fig.layout.annotations] == ["2024-06-30"]
+    assert fig.layout.annotations[0].text.startswith("<b>")

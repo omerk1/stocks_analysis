@@ -249,10 +249,14 @@ class Overlay:
      revenue-growth feature's `REVENUE_FAMILY`). The % is shown only against a positive
      year-ago value; against a loss, the card gives both numbers.
    - The reaction is measured on daily bars, also on the weekly chart: gap and day move vs
-     the previous close, in ATR(14) as of the bar before. On the weekly chart the flag sits
-     on the bar of the reaction week; the week still in progress has no bar and no flag.
+     the previous close, in ATR(14) as of the bar before. No gap for news out during the
+     session: that day's open came before it. On the weekly chart the flag sits on the bar
+     of the reaction week; the week still in progress has no bar and no flag, and the
+     latest card with a bar is the one open by default.
+   - Revenue and EPS match the announcement's quarter within 7 days (the two tables'
+     quarter ends can differ on 52/53-week years; 42 announcements).
    - Clicking a flag opens its card and clicking a card closes it, remembered per ticker.
-     "Expand all" opens every card; plotly hides the ones out of view. On a weekly chart
+     "Expand all" opens every card (plotly hides the ones out of view) and ignores clicks. On a weekly chart
      over several years they overlap: zoom in. A checkbox hides the flags altogether.
    - Cards are built for every announcement in about 0.6 s per ticker and cached.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,

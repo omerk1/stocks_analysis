@@ -18,7 +18,8 @@ session whose bar can reflect it). It shows:
   no EPS: the 10-K reports the year, and EPS doesn't add up across quarters.
 - the reaction on daily bars: the gap at the open and the day's close-to-close
   move vs the previous close, in % and in ATR (the ATR as of the previous bar,
-  known before the news).
+  known before the news). No gap for news out during the session: that day's
+  open came before it.
 
 Guidance isn't extracted yet (`docs/fundamentals/plan.md` step 5); the card says so.
 """
@@ -28,7 +29,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
 from src.foundation.data_processing import db, market_cap
@@ -37,6 +37,9 @@ from src.models.features.fundamentals import REVENUE_FAMILY, YEAR_AGO_DAYS, YEAR
 
 QUARTER_DAYS = 91.31  # 365.25 / 4
 FISCAL_YEAR_MAX_DAYS = 380  # a quarter's fiscal year ends within this many days after it
+# The announcement's quarter end and the XBRL fact's can be a few days apart (52/53-week years).
+SAME_QUARTER_DAYS = 7
+ANNUAL_FORMS = ("10-K", "10-K/A")  # not a 10-KT: a transition period isn't a fiscal year
 TIMING_TEXT = {"before_open": "before the open", "after_close": "after the close",
                "during_session": "during the session", "non_session_day": "on a non-trading day"}
 
@@ -71,7 +74,7 @@ def fiscal_labels(announcements: pd.DataFrame) -> dict[pd.Timestamp, str]:
     """period_end -> "Q<n> FY<year>". A quarter's fiscal year ends at the next
     quarter reported in a 10-K; past the last 10-K, a year after it."""
     ends = pd.to_datetime(announcements["period_end"])
-    year_ends = pd.DatetimeIndex(sorted(ends[announcements["report_form"].str.startswith("10-K")]))
+    year_ends = pd.DatetimeIndex(sorted(ends[announcements["report_form"].isin(ANNUAL_FORMS)]))
     labels = {}
     for p in ends:
         later = year_ends[(year_ends >= p) & (year_ends <= p + pd.Timedelta(days=FISCAL_YEAR_MAX_DAYS))]
@@ -87,13 +90,17 @@ def fiscal_labels(announcements: pd.DataFrame) -> dict[pd.Timestamp, str]:
     return labels
 
 
+def _nearest(values: pd.DataFrame, target: pd.Timestamp, tolerance_days: int) -> pd.Series | None:
+    """The row whose quarter ended nearest `target`, within the tolerance, or None."""
+    off = (values["period_end"] - target).abs()
+    near = off[off <= pd.Timedelta(days=tolerance_days)]
+    return None if near.empty else values.loc[near.idxmin()]
+
+
 def _year_ago(values: pd.DataFrame, period_end: pd.Timestamp) -> pd.Series | None:
-    """The row whose quarter ended about a year before `period_end`, or None."""
-    target = period_end - pd.Timedelta(days=YEAR_AGO_DAYS)
-    near = values[(values["period_end"] - target).abs() <= pd.Timedelta(days=YEAR_AGO_TOLERANCE)]
-    if near.empty:
-        return None
-    return near.loc[(near["period_end"] - target).abs().idxmin()]
+    """The row whose quarter ended about a year before `period_end`, or None
+    (the revenue-growth feature's rule: 365 days, within 15)."""
+    return _nearest(values, period_end - pd.Timedelta(days=YEAR_AGO_DAYS), YEAR_AGO_TOLERANCE)
 
 
 def _value(row: pd.Series | None, column: str = "value") -> float | None:
@@ -142,14 +149,14 @@ def build_cards(announcements: pd.DataFrame, fundamentals: pd.DataFrame, splits:
         if measured is None:
             continue
         p = pd.Timestamp(row.period_end)
-        rev_now = revenue[revenue["period_end"] == p]
-        rev_now = rev_now.iloc[0] if len(rev_now) else None
+        rev_now = _nearest(revenue, p, SAME_QUARTER_DAYS)
         rev_prev = _year_ago(revenue, p) if rev_now is not None else None
         if rev_prev is not None and rev_prev["family"] != rev_now["family"]:
             rev_prev = None  # a different measure a year earlier: not comparable
-        eps_now = eps[eps["period_end"] == p]
-        eps_now = eps_now.iloc[0] if len(eps_now) else None
+        eps_now = _nearest(eps, p, SAME_QUARTER_DAYS)
         bar_date, gap_pct, gap_atr, move_pct, move_atr = measured
+        if row.timing == "during_session":
+            gap_pct = gap_atr = None  # the open came before the news
         cards.append(EarningsCard(
             period_end=p, label=labels.get(p, f"quarter ended {p:%Y-%m-%d}"), report_form=row.report_form,
             accepted_at=row.accepted_at, timing=row.timing, reaction_date=bar_date,
@@ -163,8 +170,8 @@ def load_cards(conn: sqlite3.Connection, ticker: str, daily: pd.DataFrame, atr_p
     announcements = db.read_earnings_announcements(conn, ticker)
     if announcements.empty:
         return []
-    fundamentals = db.read_fundamentals(conn, ticker)
-    fundamentals = fundamentals[fundamentals["concept"].isin(["revenue", "eps_diluted"])]
+    fundamentals = pd.concat([db.read_fundamentals(conn, ticker, c) for c in ("revenue", "eps_diluted")],
+                             ignore_index=True)
     splits = market_cap.load_splits(conn, [ticker])
     return build_cards(announcements, fundamentals, splits, daily, atr_period)
 
@@ -192,29 +199,42 @@ def change_text(now: float | None, year_ago: float | None, fmt) -> str:
 def _move_text(pct: float | None, atr: float | None) -> str:
     if pct is None:
         return "n/a"
-    return f"{pct:+.1f}%" + ("" if atr is None or np.isnan(atr) else f" ({atr:+.1f} ATR)")
+    return f"{pct:+.1f}%" + ("" if atr is None else f" ({atr:+.1f} ATR)")
+
+
+def _gap_text(card: EarningsCard) -> str:
+    if card.timing == "during_session":
+        return "n/a (announced during the session)"
+    return _move_text(card.gap_pct, card.gap_atr)
 
 
 def eps_text(card: EarningsCard) -> str:
-    if card.eps is None and card.report_form.startswith("10-K"):
+    if card.eps is None and card.report_form in ANNUAL_FORMS:
         return "n/a (the 10-K reports the year only)"
     return change_text(card.eps, card.eps_year_ago, lambda v: f"{v:.2f}")
 
 
+def _eastern(accepted_at: str, fmt: str) -> str:
+    """`accepted_at` (UTC) in New York time; as stored if it doesn't parse as a UTC time."""
+    try:
+        return f"{pd.Timestamp(accepted_at).tz_convert('America/New_York'):{fmt}}"
+    except (TypeError, ValueError):
+        return str(accepted_at)
+
+
 def card_text(card: EarningsCard) -> str:
     """The card, as plotly annotation HTML."""
-    filed = pd.Timestamp(card.accepted_at).tz_convert("America/New_York")
     return "<br>".join([
         f"<b>{card.label}</b> · quarter ended {card.period_end:%Y-%m-%d}",
-        f"announced {filed:%Y-%m-%d} {TIMING_TEXT.get(card.timing, card.timing)} ({card.report_form})",
+        f"announced {_eastern(card.accepted_at, '%Y-%m-%d')} {TIMING_TEXT.get(card.timing, card.timing)}"
+        f" ({card.report_form})",
         f"Revenue: {change_text(card.revenue, card.revenue_year_ago, money)}",
         f"EPS (diluted): {eps_text(card)}",
-        f"Reaction: gap {_move_text(card.gap_pct, card.gap_atr)} · day {_move_text(card.move_pct, card.move_atr)}",
+        f"Reaction: gap {_gap_text(card)} · day {_move_text(card.move_pct, card.move_atr)}",
         "<i>guidance: not yet extracted</i>",
     ])
 
 
 def hover_text(card: EarningsCard) -> str:
-    filed = pd.Timestamp(card.accepted_at).tz_convert("America/New_York")
-    return (f"{card.label}: accepted {filed:%Y-%m-%d %H:%M} ET ({TIMING_TEXT.get(card.timing, card.timing)})"
-            f"<br>reaction bar {card.reaction_date:%Y-%m-%d}")
+    return (f"{card.label}: accepted {_eastern(card.accepted_at, '%Y-%m-%d %H:%M')} ET"
+            f" ({TIMING_TEXT.get(card.timing, card.timing)})<br>reaction bar {card.reaction_date:%Y-%m-%d}")

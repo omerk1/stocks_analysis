@@ -33,7 +33,7 @@ from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import FAMILIES, FAMILY_NAMES, Overlay
-from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, hidden_weekdays,
+from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, hidden_weekdays,
                                  padded_full_range, y_axis_ranges)
 
 logger = logging.getLogger(__name__)
@@ -179,6 +179,14 @@ def selected_overlays(data: ChartData, ticker: str, timeframe: Timeframe, menu_k
     return tuple(sorted(items, key=lambda o: _KIND_ORDER.get(o.kind, 9)))
 
 
+def chart_cards(data: ChartData, ticker: str, timeframe: Timeframe) -> tuple[tuple[EarningsCard, ...], str | None]:
+    """(the cards that have a bar on this chart, the error note or None). The latest
+    of these is the one open by default, e.g. not one in the weekly chart's week in progress."""
+    cards, note = data.earnings(ticker)
+    bars = data.bars(ticker, timeframe)
+    return tuple(c for c in cards if earnings_bar(bars, c) is not None), note
+
+
 def open_cards(cards: tuple[EarningsCard, ...], ticker: str, opened: dict | None,
                expand_all: bool = False) -> frozenset[str]:
     """The cards drawn expanded: all with "expand all" (plotly hides the ones out of
@@ -224,7 +232,7 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
     holidays = data.holidays(ticker) if timeframe == Timeframe.DAILY else ()
     cards, note = (), None
     if "show" in (earnings_options or ()):
-        cards, note = data.earnings(ticker)
+        cards, note = chart_cards(data, ticker, timeframe)
     expanded = open_cards(cards, ticker, opened, "all" in (earnings_options or ()))
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
                        show_volume=show_volume, x_range=x_range, holidays=holidays, overlays=overlays,
@@ -451,14 +459,17 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                               ma_keys, "on" in (volume or []), view, picked, earnings_options, opened)
         return (fig if fig is not None else {}), message
 
-    # A click on a flag opens its card; a click on a card closes it.
+    # A click on a flag opens its card; a click on a card closes it. With "Expand all"
+    # on, clicks are ignored: every card is forced open, so a toggle wouldn't show and
+    # would surface later, when "Expand all" is unticked.
     @app.callback(Output("earnings-open", "data"), Input("chart", "clickAnnotationData"),
-                  State("earnings-open", "data"), State("ticker", "value"), prevent_initial_call=True)
-    def _toggle_card(click, opened, ticker):
+                  State("earnings-open", "data"), State("ticker", "value"), State("timeframe", "value"),
+                  State("earnings", "value"), prevent_initial_call=True)
+    def _toggle_card(click, opened, ticker, timeframe, earnings_options):
         key, ticker = clicked_card(click), _normalise(ticker)
-        if key is None or not ticker:
+        if key is None or not ticker or "all" in (earnings_options or ()):
             return no_update
-        return toggle_card(data.earnings(ticker)[0], ticker, opened, key)
+        return toggle_card(chart_cards(data, ticker, Timeframe(timeframe))[0], ticker, opened, key)
 
     @app.callback(Output("rs-strip", "children"), Input("ticker", "value"))
     def _strip(ticker):
