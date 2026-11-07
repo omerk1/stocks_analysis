@@ -679,6 +679,23 @@ Build order, one PR each, each with its own tests:
        volatility tilt (the picks' ATR fell): not tested. **Read:** the market-wide group
        looks like what hurt S2, not the 14 as a block; the 8 per-name columns are a
        candidate to add back after S3. Exploration, not a finding.
+     - **Rerun in the venv against S1v (`S2_no_market_v`, 18 rows, 2026-11-06, Done #174).**
+       The same 8 columns on S1, cache `sp500_levels`, same flags and seed; its B4 equals
+       S1v's exactly in all 18 cells (`compare_scorecard_runs.py S2_no_market_v S1v
+       --features data/models/features/sp500_levels --across-environments`, needed because
+       S1v predates the environment field). Paired `S2_no_market_v` − S1v: negative at 11 of
+       36, CI above zero at 6 (H21 2/1.5 and 2/2 top-20; H63 2/1.5 top-5, 3/1 top-20, 3/2
+       both k) and never below; median +0.05% per trade, mean size 0.12%; picks overlap
+       25–49%. H63 again carries it (median +0.13%, H21 +0.01%). Model − market positive at
+       36 (CI clears zero at 25, S1v 16); model − B4 at 36 (clears at 24, S1v 16). Sharpe
+       0.42–0.99, above random-k at 36 and the market at 31 (S1v 22). Picks' ATR 2.24–2.51%
+       (S1v 2.33–2.67%). Era: +0.31% / +0.38% (S1v +0.23% / +0.29%), better in both.
+     - **Against it:** the same one seed and the same data as the Anaconda look, so this
+       shows the result survives the environment change, not that it's real; 4 of the 6
+       cells past zero were among the earlier 9 (H21 2/2 top-20, H63 3/1 top-20 and 3/2 both
+       k). The calmer picks (ATR down again) leave the single-volatility-tilt reading
+       untested. **Read:** the 8 per-name columns are the best step-2b candidate so far and
+       the one to carry into step 3's set. Exploration, not a finding.
    - **Step 2:** point-in-time zones and levels as registered features. Source list, timing and
      build plan: `LRP.md` §4 addendum (2026-10-11); the scorecard, not a Brier ablation,
      judges them (`LRP.md` §3 addendum). The point-in-time snapshot builder and cache are
@@ -714,7 +731,7 @@ Build order, one PR each, each with its own tests:
        columns, so the S1 columns are candidates less often); the level values carry the
        vendor history-depth limit; one seed. Exploration, not a finding: as added columns,
        the levels don't help the picks here. Next candidates: the 8 per-name step-2b
-       columns on S1v (step 2b diagnostic), or a dilution check (fewer level columns, or
+       columns on S1v (step 2b diagnostic; run, Done #174: the picks look better), or a dilution check (fewer level columns, or
        `max_features` 1.0) before dropping the levels. **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
