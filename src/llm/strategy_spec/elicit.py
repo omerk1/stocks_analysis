@@ -171,9 +171,9 @@ def _signals_answered(old: list[Signal], new: list[Signal]) -> list[Signal]:
         uses = [u for u in s.uses if u in catalogue.IDS]
         was = by_name.get(s.name)
         if was is None or (uses and set(uses) != set(was.uses)):
-            base = was or s
-            out.append(base.model_copy(update={"role": s.role, "uses": uses or base.uses,
-                                               "settings": [], "defaults_ok": False}))
+            # New, or a new detector: the reply's wording goes with it, settings are asked.
+            out.append((was or s).model_copy(update={"description": s.description, "role": s.role,
+                                                     "uses": uses, "settings": [], "defaults_ok": False}))
         else:
             out.append(was.model_copy(update={"role": s.role}))
     return out
@@ -264,8 +264,9 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
         at = next(i for i, x in enumerate(items) if x.name == question.item)
         items[at] = _settings_answered(items[at], parsed.value)
         updates[question.field] = items
-    elif parsed.value is not None and question.field == "supporting_signals":
-        updates[question.field] = _signals_answered(spec.supporting_signals, parsed.value)
+    elif question.field == "supporting_signals":
+        if parsed.value:  # [] is a structured reply's empty default, not "delete every signal"
+            updates[question.field] = _signals_answered(spec.supporting_signals, parsed.value)
     elif parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)

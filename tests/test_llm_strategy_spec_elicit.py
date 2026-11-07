@@ -358,9 +358,19 @@ def test_a_whole_list_answer_never_touches_settings():
     assert kept == fib  # a partial or restated reply can't drop or set what fib's question settled
     assert (new.settings, new.defaults_ok) == ([], False)  # a new signal is asked about
     # A new detector is asked afresh; the same ids in another order, or an uncatalogued one, aren't new.
-    moved = el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:avwap"]})])[0]
-    assert (moved.uses, moved.settings, moved.defaults_ok) == (["detector:avwap"], [], False)
+    moved = el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:avwap"], "description": "avwap"})])[0]
+    assert (moved.description, moved.uses, moved.settings, moved.defaults_ok) == ("avwap", ["detector:avwap"], [], False)
     assert el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:elliott"]})]) == [fib]
+    wave = Signal(name="wave", description="wave", role="filter", uses=["detector:elliott"])
+    assert el._signals_answered([fib], [fib, wave])[1].uses == []  # dropped for a new signal too
+
+
+def test_an_empty_whole_list_reply_deletes_nothing():
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    spec = _spec(supporting_signals=_filters("fib"), unsupported=[news])
+    out = apply_answer(spec, next_question(spec), "drop news",
+                       StubClient([{"value": [], "resolved_requests": ["news sentiment"]}]))
+    assert out.supporting_signals == spec.supporting_signals and out.unsupported == []
 
 
 def test_a_whole_list_reply_repeating_a_name_lines_up_with_the_numbered_signals():
