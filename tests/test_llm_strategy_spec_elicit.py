@@ -8,7 +8,7 @@ from src.llm.gemini import Reply, Usage
 from src.llm.strategy_spec import elicit as el
 from src.llm.strategy_spec.elicit import _ANSWER_MODELS, Question, apply_answer, elicit, next_question
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
+    Control, Duration, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
 
 
 def _spec(**overrides):
@@ -325,12 +325,39 @@ def test_an_answer_about_one_signal_changes_only_what_it_was_asked():
     assert next_question(out).item == "line"
 
 
-def test_a_signal_answer_cant_rename_it_or_drop_its_detector():
-    # Losing `uses` would make its settings question vanish with nothing answered.
-    model = el._ITEM_ANSWER_MODELS["supporting_signals"]
-    for extra in ({"name": "fib (major)"}, {"uses": []}, {"role": "score"}):
-        with pytest.raises(ValidationError):
-            model.model_validate({"value": {"description": "fib", **extra}})
+def test_a_signal_answer_cant_rename_it_and_whats_left_out_is_kept():
+    with pytest.raises(ValidationError):  # questions find a signal by name
+        el._ITEM_ANSWER_MODELS["supporting_signals"].model_validate({"value": {"name": "fib (major)"}})
+    fib = Signal(name="fib", description="the trader's words", role="filter",
+                 uses=["detector:fibonacci.retracement"], defaults_ok=True)
+    spec = _spec(supporting_signals=[fib, *_filters("line")], filters_needed=2)
+    q = Question("supporting_signals", "q", (), "fib")
+    # Only a role change: the description, detector and defaults stay. An empty `uses`
+    # would make the settings question vanish unanswered, so it counts as not given.
+    out = apply_answer(spec, q, "only a confidence boost", StubClient([{"value": {"role": "score", "uses": []}}]))
+    assert out.supporting_signals[0] == fib.model_copy(update={"role": "score"})
+
+
+def test_a_whole_list_answer_keeps_each_kept_signals_detector_and_settings():
+    fib = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"],
+                 settings=[Setting(name="min_swing_atr", value="12")])
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    spec = _spec(supporting_signals=[fib, *_filters("line")], filters_needed=2, unsupported=[news])
+    q = next_question(spec)
+    reply = {"value": [{"name": "fib", "description": "fib", "role": "filter"}],  # line dropped, fib re-sent bare
+             "resolved_requests": ["news sentiment"]}
+    out = apply_answer(spec, q, "drop news and the line", StubClient([reply]))
+    assert out.supporting_signals == [fib] and out.unsupported == []
+
+
+def test_a_stalled_question_about_all_signals_doesnt_skip_each_signals_own(tmp_path, monkeypatch):
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib"), unsupported=[news]))
+    fib_ok = {"value": {"defaults_ok": True}}
+    spec = elicit("idea", StubClient([{"value": None}, {"value": None}, fib_ok]), ask=lambda q: "keep it",
+                  say=lambda s: None, session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert spec.supporting_signals[0].defaults_ok  # fib was still asked after the skip
+    assert [(g.field, g.item, g.kind) for g in find_gaps(spec)] == [("supporting_signals", None, "unsupported")]
 
 
 def test_a_gap_about_all_signals_is_asked_alone_before_any_one_signal():

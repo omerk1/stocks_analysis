@@ -352,7 +352,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     # A signal is asked about, and its answer put back, by name, so names must be unique.
     names = [sig.name for sig in spec.supporting_signals]
-    shared = [n for n in dict.fromkeys(names) if names.count(n) > 1]
+    shared = [name for name in dict.fromkeys(names) if names.count(name) > 1]
     if shared:
         add("supporting_signals", "invalid", f"two signals share a name ({'; '.join(shared)}); "
             "each needs its own")

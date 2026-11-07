@@ -72,8 +72,8 @@ one of the question's listed unsupported requests, repeat that request's wording
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
 `unsupported` empty and `resolved_requests` empty. When the question is about one item \
-of a list section (one supporting signal), `value` is that one signal's description, \
-settings and defaults_ok, not the list. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
+of a list section (one supporting signal), `value` is that one signal, not the list, \
+with only the parts the answer changes and the rest null. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
 each value in the trader's words; `defaults_ok` is true only when the trader says the \
 defaults are fine.
 
@@ -116,15 +116,34 @@ def _answer_model(name: str, value_type):
 # from the model is an error, not silently dropped.
 _ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
                   for f in get_args(SpecField)}
-# A question about one signal gets back only what it asks (the description, settings and
-# defaults_ok) and the code merges that into the signal in place: the answer can't touch
-# the other signals, nor this one's name, role or `uses`, which the trader wasn't asked
-# about (a reply dropping `uses` would make the settings question vanish unanswered).
-_ASKED_OF_SIGNAL = ("description", "settings", "defaults_ok")
+# A question about one signal gets back only what the answer changes, every part optional
+# (null = keep), and the code merges it into that signal in place: the answer can't touch
+# the other signals or this one's name (questions find it by name), and a part left out
+# isn't reset (a reply dropping `uses` would make the settings question vanish unanswered).
 _SignalAnswer = create_model(
     "SignalAnswer", __base__=_Section,
-    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n in _ASKED_OF_SIGNAL})
+    **{n: (f.annotation | None, None) for n, f in Signal.model_fields.items() if n != "name"})
 _ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", _SignalAnswer)}
+
+
+def _merged(old: Signal, given: BaseModel) -> Signal:
+    """`old` with what `given` sets; an empty `uses` counts as not given, never as 'no detector'."""
+    changes = {k: v for k, v in given if v is not None and not (k == "uses" and not v)}
+    return old.model_copy(update=changes)
+
+
+def _keep_unasked(old: list[Signal], new: list[Signal]) -> list[Signal]:
+    """A whole-list answer (an unsupported ask, two signals sharing a name) re-sends every
+    signal: one it kept by name gets back the detector and settings the reply left out."""
+    by_name = {s.name: s for s in old}
+    kept = []
+    for s in new:
+        was = by_name.get(s.name)
+        if was is not None:
+            s = s.model_copy(update={"uses": s.uses or was.uses, "settings": s.settings or was.settings,
+                                     "defaults_ok": s.defaults_ok or was.defaults_ok})
+        kept.append(s)
+    return kept
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
@@ -133,8 +152,9 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
     per turn: a field's gaps (an unsupported request plus the field standing empty, say)
     read better asked together than one at a time. A list field's items are the
     exception: each supporting signal is its own question."""
+    # By key, so a stalled question about all signals at once doesn't skip each signal's own.
     gaps = [g for g in find_gaps(spec) if g.field in get_args(SpecField)
-            and g.field not in skip and gap_key(g.field, g.item) not in skip]
+            and gap_key(g.field, g.item) not in skip]
     if not gaps:
         return None
     field, item = gaps[0].field, gaps[0].item
@@ -209,8 +229,10 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     if parsed.value is not None and question.item:
         items = list(getattr(spec, question.field))
         at = next(i for i, x in enumerate(items) if x.name == question.item)
-        items[at] = items[at].model_copy(update=dict(parsed.value))
+        items[at] = _merged(items[at], parsed.value)
         updates[question.field] = items
+    elif parsed.value is not None and question.field == "supporting_signals":
+        updates[question.field] = _keep_unasked(spec.supporting_signals, parsed.value)
     elif parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)

@@ -182,8 +182,9 @@ SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
     ),
     "detector:avwap": (
         # A choice among the AVWAP rows by anchor type, not a config field: a finder
-        # filters on it. The test checks every AnchorType member is named here.
-        DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or cycle highs and lows",
+        # filters on it. The test checks every AnchorType member is named here; "swing"
+        # is the capability description's word for the cycle anchors, so both are named.
+        DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or swing (cycle) highs and lows",
                         "src.foundation.market_common.anchors:AnchorType", "all of them"),
         DetectorSetting("distance_tolerance_atr", "how close price must come to count as a touch, in ATR",
                         f"{_AVWAP}.distance_tolerance_atr", 0.3),
