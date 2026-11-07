@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.foundation.market_common.models import Timeframe
+from src.ui.chart.panes import PaneConfig
 
 
 class ChartType(str, Enum):
@@ -57,6 +58,7 @@ class ChartConfig:
     # before this many calendar days earlier.
     rs_change_days: int = 28
     relevance: "RelevanceConfig" = field(default_factory=lambda: RelevanceConfig())
+    panes: PaneConfig = field(default_factory=PaneConfig)
 
 
 @dataclass(frozen=True)

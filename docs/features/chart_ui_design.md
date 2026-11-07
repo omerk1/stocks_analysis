@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–3 built (Done #175–#177, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3 and 4a built (Done #175–#178, 2026-11-07). Lean first version, wider later.
 
 ## One-liner
 
@@ -261,6 +261,24 @@ class Overlay:
    - Cards are built for every announcement in about 0.6 s per ticker and cached.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,
    market structure, RSI/MACD and relative-strength panes.
+
+   Split into four PRs, each a usable app: 4a the panes, 4b divergences on them, 4c volume
+   profile and market structure, 4d chart patterns.
+
+   As built, 4a (`src/ui/chart/panes.py`, Done #178):
+   - RSI 14 (30/70 bands), MACD 12/26/9 (line, signal, histogram) and RS vs SPY, as
+     panes under the volume pane in that order. Off by default, not ranked.
+   - All three are computed on the chart's own bars, so they end on its last bar. The RS
+     pane recomputes the Mansfield oscillator instead of reading the stored
+     `rs_mansfield`, which is only as fresh as the last RS run (5 weeks behind at the
+     time). It uses the module's definition: the ticker/SPY close ratio vs its own
+     52-week average, in % (252 days on the daily chart).
+   - Every pane's y-axis refits on zoom and pan like the price pane (RSI stays 0–100;
+     MACD and RS keep 0 in view). Dragging any pane pans them all. With every pane on,
+     the price pane keeps at least half the height.
+   - An open earnings card over a bar in the top half of the price axis now hangs below
+     the bar, so it isn't cut off at the top of the figure (step 3's review finding,
+     worse with the shorter price pane).
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 

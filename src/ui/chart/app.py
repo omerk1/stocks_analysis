@@ -1,7 +1,7 @@
-"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-3): one ticker,
+"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-4a): one ticker,
 daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the level
-menu (S/R, gaps, AVWAP, Fibonacci) with its default "relevant now" picks, and the
-earnings flags and cards.
+menu (S/R, gaps, AVWAP, Fibonacci) with its default "relevant now" picks, the
+earnings flags and cards, and the RSI / MACD / RS panes.
 
     python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--debug]
 
@@ -29,6 +29,7 @@ from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
 from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import overlays as overlays_mod
+from src.ui.chart import panes as panes_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec
 from src.ui.chart.earnings import EarningsCard
@@ -71,6 +72,7 @@ class ChartData:
         self.holidays = lru_cache(maxsize=32)(self._holidays)
         self.overlays = lru_cache(maxsize=16)(self._overlays)
         self.earnings = lru_cache(maxsize=32)(self._earnings)
+        self.pane = lru_cache(maxsize=64)(self._pane)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -109,6 +111,12 @@ class ChartData:
         for family, error in errors.items():
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
         return OverlaySet(tuple(items), errors, time.perf_counter() - started)
+
+    def _pane(self, ticker: str, timeframe: Timeframe, key: str, config: panes_mod.PaneConfig) -> panes_mod.Pane:
+        bars = self.bars(ticker, timeframe)
+        market = self.bars(config.market, timeframe) if key == panes_mod.RS else None
+        return panes_mod.Pane(key, panes_mod.pane_label(key, config),
+                              panes_mod.pane_frame(key, bars, timeframe, config, market))
 
     def _earnings(self, ticker: str) -> tuple[tuple[EarningsCard, ...], str | None]:
         """(the ticker's earnings cards, oldest first; an error message or None).
@@ -211,13 +219,20 @@ def clicked_card(click: dict | None) -> str | None:
     return ((click or {}).get("annotation") or {}).get("name") or None
 
 
+def selected_panes(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe,
+                   pane_keys) -> tuple[panes_mod.Pane, ...]:
+    """The ticked panes, in menu order (unknown keys ignored)."""
+    ticked = set(pane_keys or ())
+    return tuple(data.pane(ticker, timeframe, key, config.panes) for key in panes_mod.PANES if key in ticked)
+
+
 def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe, chart_type: ChartType,
            ma_keys, show_volume: bool, view: dict | None = None, overlays: tuple[Overlay, ...] = (),
-           earnings_options=(), opened: dict | None = None):
+           earnings_options=(), opened: dict | None = None, pane_keys=()):
     """(figure or None, message). `view` is the stored zoom ({"key", "range"}); it's
     kept when it belongs to this ticker and timeframe, else the default span is shown.
     `earnings_options` holds "show" and/or "all" (expand all); `opened` the cards
-    clicked open (`open_cards`)."""
+    clicked open (`open_cards`). `pane_keys`: the indicator panes ticked."""
     ticker = _normalise(ticker)
     if not ticker:
         return None, "Type a ticker."
@@ -236,7 +251,8 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
     expanded = open_cards(cards, ticker, opened, "all" in (earnings_options or ()))
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
                        show_volume=show_volume, x_range=x_range, holidays=holidays, overlays=overlays,
-                       earnings=cards, expanded=expanded)
+                       earnings=cards, expanded=expanded,
+                       panes=selected_panes(data, config, ticker, timeframe, pane_keys), pane_config=config.panes)
     message = f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
     return fig, message + (f" · {note}" if note else "")
 
@@ -333,10 +349,11 @@ def strip_children(data: ChartData, config: ChartConfig, ticker: str) -> list[st
 
 
 def x_range_from_relayout(relayout: dict | None) -> tuple[str, str] | None:
-    """The new x-range from a zoom/pan event, from either shared x-axis."""
+    """The new x-range from a zoom/pan event, from any of the shared x-axes (one per
+    pane: the event names the pane that was dragged)."""
     if not relayout:
         return None
-    for axis in ("xaxis", "xaxis2"):
+    for axis in _x_axes(relayout):
         if f"{axis}.range[0]" in relayout and f"{axis}.range[1]" in relayout:
             return relayout[f"{axis}.range[0]"], relayout[f"{axis}.range[1]"]
         if f"{axis}.range" in relayout:
@@ -345,9 +362,15 @@ def x_range_from_relayout(relayout: dict | None) -> tuple[str, str] | None:
     return None
 
 
+def _x_axes(relayout: dict) -> list[str]:
+    """The x-axis names an event mentions ("xaxis", "xaxis2", ...), in order."""
+    names = (key.split(".", 1)[0] for key in relayout)
+    return list(dict.fromkeys(n for n in names if n == "xaxis" or (n.startswith("xaxis") and n[5:].isdigit())))
+
+
 def is_autorange(relayout: dict | None) -> bool:
     """A double-click reset: plotly reports autorange instead of a range."""
-    return bool(relayout) and any(relayout.get(f"{a}.autorange") for a in ("xaxis", "xaxis2"))
+    return bool(relayout) and any(relayout.get(f"{a}.autorange") for a in _x_axes(relayout))
 
 
 def create_app(data: ChartData | None = None, config: ChartConfig | None = None) -> Dash:
@@ -385,6 +408,10 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                               options=[{"label": "Flags (click one for its card)", "value": "show"},
                                        {"label": "Expand all", "value": "all"}]),
                 dcc.Store(id="earnings-open"),
+                html.Div("Panes", style={"fontWeight": 600, "margin": "8px 0 4px"}),
+                dcc.Checklist(id="panes", value=[], inputStyle={"marginRight": "6px"},
+                              options=[{"label": panes_mod.pane_label(k, config.panes), "value": k}
+                                       for k in panes_mod.PANES]),
                 html.Hr(style={"margin": "10px 0"}),
                 html.Div(style={"fontSize": "12px", "color": "#475569"}, children=[
                     html.Div("Default picks rank by", style={"fontWeight": 600}),
@@ -449,14 +476,14 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
     @app.callback(Output("chart", "figure"), Output("message", "children"),
                   Input("ticker", "value"), Input("chart-type", "value"), Input("mas", "value"),
                   Input("volume", "value"), Input(items, "value"), Input("earnings", "value"),
-                  Input("earnings-open", "data"), State(items, "id"),
+                  Input("earnings-open", "data"), Input("panes", "value"), State(items, "id"),
                   State("menu-key", "data"), State("timeframe", "value"), State("view", "data"))
-    def _draw(ticker, chart_type, ma_keys, volume, item_values, earnings_options, opened, item_ids, menu_key,
-              timeframe, view):
+    def _draw(ticker, chart_type, ma_keys, volume, item_values, earnings_options, opened, pane_keys, item_ids,
+              menu_key, timeframe, view):
         tf = Timeframe(timeframe)
         picked = selected_overlays(data, ticker, tf, menu_key, chosen_items(item_ids, item_values))
         fig, message = render(data, config, ticker, tf, ChartType(chart_type),
-                              ma_keys, "on" in (volume or []), view, picked, earnings_options, opened)
+                              ma_keys, "on" in (volume or []), view, picked, earnings_options, opened, pane_keys)
         return (fig if fig is not None else {}), message
 
     # A click on a flag opens its card; a click on a card closes it. With "Expand all"
@@ -478,9 +505,10 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
     @app.callback(Output("chart", "figure", allow_duplicate=True), Output("view", "data"),
                   Input("chart", "relayoutData"), State("ticker", "value"), State("timeframe", "value"),
                   State("chart-type", "value"), State("mas", "value"), State("volume", "value"),
-                  State(items, "value"), State(items, "id"), State("menu-key", "data"),
+                  State(items, "value"), State(items, "id"), State("menu-key", "data"), State("panes", "value"),
                   prevent_initial_call=True)
-    def _refit_y(relayout, ticker, timeframe, chart_type, ma_keys, volume, item_values, item_ids, menu_key):
+    def _refit_y(relayout, ticker, timeframe, chart_type, ma_keys, volume, item_values, item_ids, menu_key,
+                 pane_keys):
         ticker, tf = _normalise(ticker), Timeframe(timeframe)
         if not ticker:
             return no_update, no_update
@@ -499,7 +527,8 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
         mas = data.moving_averages(ticker, tf, selected_specs(config, tf, ma_keys))
         view = {"key": _view_key(ticker, tf), "range": list(x_range)}
         picked = selected_overlays(data, ticker, tf, menu_key, chosen_items(item_ids, item_values))
-        ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), "on" in (volume or []), picked)
+        ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), "on" in (volume or []), picked,
+                               selected_panes(data, config, ticker, tf, pane_keys))
         if reset:
             ranges["xaxis"] = list(x_range)
         if not ranges:
