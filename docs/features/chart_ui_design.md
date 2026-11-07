@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: design only, nothing built (2026-11-06). Lean first version, wider later.
+Status: step 1 built (Done #175, 2026-11-06). Lean first version, wider later.
 
 ## One-liner
 
@@ -197,6 +197,13 @@ class Overlay:
    line/bars/candles toggles, volume, the moving averages, and the RS strip (stored numbers
    only, no new computation). Tests: weekly resample values on a fixture, the figure has the
    expected trace types per chart type, the strip shows "no RS run" when there are no rows.
+   **As built (Done #175):**
+   - Prices are traded (split-only), the basis the price-level modules use.
+   - Weekly bars reuse the shared loader's resample, so there's no `bars.py` copy of it.
+   - Moving averages are computed on the displayed closes.
+   - A zoom/pan callback refits the y-axes to the visible window.
+   - The weekly chart leaves out the last week when the data ends on its Friday (the shared
+     resample counts that week as still in progress).
 2. **Menu and defaults:** the `Overlay` adapters for S/R, gaps, AVWAP and Fibonacci (the
    families `levels.py` already covers), `relevance.py`, the menu with caps and reset, and the
    proximity ↔ strength slider. Tests: ranking and caps on hand-built overlays, dead items
