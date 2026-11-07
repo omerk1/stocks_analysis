@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–2 built (Done #175, #176, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3 and 4a built (Done #175–#178, 2026-11-07). Lean first version, wider later.
 
 ## One-liner
 
@@ -234,8 +234,56 @@ class Overlay:
      picks. Names at an all-time high get the fewest, since nothing sits above them.
 3. **Earnings cards:** markers, collapsed flags, cards without guidance. Tests: marker lands
    on `reaction_date`, year-ago change, gap %.
+
+   As built (`src/ui/chart/earnings.py`, Done #177):
+   - The period label ("Q2 FY2027") comes from the announcements themselves: quarters
+     reported in a 10-K end the fiscal years, and a fiscal year is named by the calendar
+     year it ends in. Without a 10-K within a year, the card shows only the quarter's end.
+   - "Filing date" is the announcement's acceptance (the 8-K, else the 10-Q/10-K), in ET,
+     with the timing and the form.
+   - EPS is as filed, so it's put on today's share basis (divided by the splits executed
+     after its filing) before the year-ago comparison, like the split-adjusted bars.
+     Without that, NVDA's 2024 10:1 split reads as −87%. A fourth quarter has no EPS: the
+     10-K reports the year, and EPS doesn't add up across quarters.
+   - Revenue is compared only when both quarters use the same measure (the
+     revenue-growth feature's `REVENUE_FAMILY`). The % is shown only against a positive
+     year-ago value; against a loss, the card gives both numbers.
+   - The reaction is measured on daily bars, also on the weekly chart: gap and day move vs
+     the previous close, in ATR(14) as of the bar before. No gap for news out during the
+     session: that day's open came before it. On the weekly chart the flag sits on the bar
+     of the reaction week; the week still in progress has no bar and no flag, and the
+     latest card with a bar is the one open by default.
+   - Revenue and EPS match the announcement's quarter within 7 days (the two tables'
+     quarter ends can differ on 52/53-week years; 42 announcements).
+   - Clicking a flag opens its card and clicking a card closes it, remembered per ticker.
+     "Expand all" opens every card (plotly hides the ones out of view) and ignores clicks. On a weekly chart
+     over several years they overlap: zoom in. A checkbox hides the flags altogether.
+   - Cards are built for every announcement in about 0.6 s per ticker and cached.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,
    market structure, RSI/MACD and relative-strength panes.
+
+   Split into four PRs, each a usable app: 4a the panes, 4b divergences on them, 4c volume
+   profile and market structure, 4d chart patterns.
+
+   As built, 4a (`src/ui/chart/panes.py`, Done #178):
+   - RSI 14 (30/70 bands), MACD 12/26/9 (line, signal, histogram) and RS vs SPY, as
+     panes under the volume pane in that order. Off by default, not ranked.
+   - RSI and MACD are computed on the chart's own bars, so they end on its last bar.
+   - The RS pane is recomputed with the relative-strength module's own functions instead
+     of read from the stored `rs_mansfield`, which is only as fresh as the last RS run (5
+     weeks behind at the time). That's the weekly total-return ratio to SPY vs its
+     52-week average, in %, on completed weeks; a daily chart carries the last week
+     completed before each day, so it steps weekly. It matches the stored values
+     exactly (KO, NVDA, AAPL checked). It needs no RS run, only SPY's bars; without
+     them the header says so.
+   - Every pane's y-axis refits on zoom and pan like the price pane (RSI stays 0–100;
+     MACD and RS keep 0 in view; an empty window, e.g. a warmup, gets a neutral range).
+     Dragging any pane pans them all. With every pane on, the price pane keeps at least
+     half the height.
+   - An open earnings card now goes on the side of its bar with more room in the price
+     axis, re-decided on every zoom and pan: so it isn't cut off at the top of the
+     figure or pushed into the panes below (step 3's review finding, worse with the
+     shorter price pane).
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 

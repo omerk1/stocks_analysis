@@ -26,10 +26,12 @@ from src.ui.chart.config import MAKind, MASpec
 CHART_BASIS = PriceBasis.TRADED
 
 
-def load_chart_bars(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
+def load_chart_bars(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                    basis: PriceBasis = CHART_BASIS) -> pd.DataFrame:
     """All stored history for `ticker`, validated (impossible bars dropped).
-    Empty when the ticker has no bars."""
-    bars, _ = load_and_validate(conn, ticker.upper(), timeframe, basis=CHART_BASIS)
+    Empty when the ticker has no bars. `basis`: another price basis, for a pane
+    that must match a module computed on it (the RS pane: total return)."""
+    bars, _ = load_and_validate(conn, ticker.upper(), timeframe, basis=basis)
     return bars
 
 
