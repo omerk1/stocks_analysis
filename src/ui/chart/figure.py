@@ -10,7 +10,8 @@ from plotly.subplots import make_subplots
 
 from src.foundation.market_common.models import Timeframe
 from src.ui.chart import earnings as earnings_mod
-from src.ui.chart.config import ChartType, MASpec
+from src.ui.chart import panes as panes_mod
+from src.ui.chart.config import ChartType, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import Overlay
 
@@ -79,19 +80,26 @@ def earnings_bar(bars: pd.DataFrame, card: EarningsCard) -> pd.Timestamp | None:
     return bars.index[at]
 
 
-def earnings_annotations(bars: pd.DataFrame, cards, expanded) -> list[dict]:
+def earnings_annotations(bars: pd.DataFrame, cards, expanded, price_range: list | None = None) -> list[dict]:
     """A small "E" flag per card on its bar, or the whole card for those in
     `expanded` (keys). The arrow points at the bar's high, or its low when the
-    reaction day fell; clicking it (`captureevents`) toggles the card in the app."""
+    reaction day fell; clicking it (`captureevents`) toggles the card in the app.
+    An open card is tall, so it goes on the side of the bar with more room in
+    `price_range` (the price axis as drawn): above the high when the bar is in the
+    lower half, below the low when it's in the upper half, so it never runs off the
+    top of the figure or down into the panes below."""
     out = []
+    middle = sum(price_range) / 2 if price_range else None
     for card in cards:
         x = earnings_bar(bars, card)
         if x is None:
             continue
         bar = bars.loc[x]
-        down = card.fell
-        colour = _DOWN if down else _UP
+        colour = _DOWN if card.fell else _UP
         is_open = card.key in expanded
+        down = card.fell
+        if is_open and middle is not None:
+            down = (float(bar["high"]) + float(bar["low"])) / 2 > middle
         text = earnings_mod.card_text(card) if is_open else "E"
         out.append(dict(
             x=x, y=float(bar["low"] if down else bar["high"]), xref="x", yref="y", name=card.key, text=text,
@@ -140,16 +148,22 @@ def build_figure(
     overlays: tuple[Overlay, ...] = (),
     earnings: tuple[EarningsCard, ...] = (),
     expanded: frozenset[str] = frozenset(),
+    panes: tuple[panes_mod.Pane, ...] = (),
+    pane_config: PaneConfig = PaneConfig(),
 ) -> go.Figure:
     """`mas` holds the series to draw, keyed by `MASpec.key`; `ma_specs` gives their
     labels and colour order. `x_range` sets the visible window, with the y-axes
     fitted to it (None: everything, autoranged). `holidays` (from `closed_weekdays`)
     are hidden on a daily chart along with weekends. `overlays` are drawn under the
     moving averages, in the order given. `earnings` get a flag each, or their card
-    when their key is in `expanded`."""
-    rows = 2 if show_volume else 1
-    fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02,
-                        row_heights=[0.8, 0.2] if show_volume else [1.0])
+    when their key is in `expanded`. `panes` (RSI, MACD, RS) go below the volume pane,
+    in order, each labelled in its top-left corner."""
+    axes = pane_axes(show_volume, panes)
+    heights = [_PANE_HEIGHT["volume" if key == "volume" else "pane"] for key in axes]
+    if sum(heights) > _PANES_MAX_SHARE:  # keep the price pane the biggest
+        heights = [h * _PANES_MAX_SHARE / sum(heights) for h in heights]
+    fig = make_subplots(rows=1 + len(axes), cols=1, shared_xaxes=True, vertical_spacing=0.02,
+                        row_heights=[1.0 - sum(heights), *heights])
     if not bars.empty:
         x_end = bars.index.max() + _right_pad(timeframe)
         for o in overlays:
@@ -168,6 +182,14 @@ def build_figure(
         colours = np.where(bars["close"] >= bars["open"], _UP, _DOWN)
         fig.add_trace(go.Bar(x=bars.index, y=bars["volume"], name="Volume", uid="volume", marker_color=colours,
                              opacity=0.5, showlegend=False), row=2, col=1)
+    for row, pane in enumerate(panes, start=2 + show_volume):
+        for trace in _pane_traces(pane):
+            fig.add_trace(trace, row=row, col=1)
+        if pane.key == panes_mod.RSI:
+            for level in pane_config.rsi_bands:
+                fig.add_hline(y=level, line=dict(color="#94a3b8", width=0.8, dash="dash"), row=row, col=1)
+        else:
+            fig.add_hline(y=0, line=dict(color="#94a3b8", width=0.8), row=row, col=1)
 
     fig.update_layout(
         template="plotly_white", margin=dict(l=10, r=60, t=10, b=10), hovermode="x unified",
@@ -188,17 +210,66 @@ def build_figure(
             breaks.append(dict(values=list(holidays)))
         fig.update_xaxes(rangebreaks=breaks)
 
-    if earnings and not bars.empty:
-        fig.update_layout(annotations=earnings_annotations(bars, earnings, expanded))
+    ranges = {}
     if x_range is not None and not bars.empty:
         fig.update_xaxes(range=list(x_range))
-        for axis, axis_range in y_axis_ranges(bars, mas, x_range, chart_type, show_volume, overlays).items():
+        ranges = y_axis_ranges(bars, mas, x_range, chart_type, show_volume, overlays, panes)
+        for axis, axis_range in ranges.items():
             fig.update_layout({axis: {"range": axis_range}})
+    annotations = figure_annotations(bars, show_volume, panes, earnings, expanded, ranges.get("yaxis"))
+    if annotations:
+        fig.update_layout(annotations=annotations)
     return fig
 
 
+def figure_annotations(bars: pd.DataFrame, show_volume: bool, panes: tuple[panes_mod.Pane, ...],
+                       earnings=(), expanded=frozenset(), price_range: list | None = None) -> list[dict]:
+    """Every annotation on the figure: each pane's label (top-left of its own
+    subplot), then the earnings flags and cards. The app's zoom refit rebuilds these
+    with the new price range, so an open card's side keeps up with the view."""
+    out = []
+    for key, axis in pane_axes(show_volume, panes).items():
+        if key == "volume":
+            continue
+        n = axis[len("yaxis"):]
+        label = next(p.label for p in panes if p.key == key)
+        out.append(dict(text=label, xref=f"x{n} domain", yref=f"y{n} domain", x=0.0, y=1.0, xanchor="left",
+                        yanchor="top", showarrow=False, font=dict(size=11, color="#475569"),
+                        bgcolor="rgba(255,255,255,0.7)"))
+    if earnings and not bars.empty:
+        out += earnings_annotations(bars, earnings, expanded, price_range)
+    return out
+
+
+_PANE_HEIGHT = {"volume": 0.2, "pane": 0.17}  # shares of the figure's height
+_PANES_MAX_SHARE = 0.5
+
+
+def pane_axes(show_volume: bool, panes: tuple[panes_mod.Pane, ...] = ()) -> dict[str, str]:
+    """{"volume" or pane key: its layout y-axis name}, top to bottom below the price
+    pane (yaxis): the volume pane first when shown, then the indicator panes in order."""
+    keys = (["volume"] if show_volume else []) + [p.key for p in panes]
+    return {key: f"yaxis{row}" for row, key in enumerate(keys, start=2)}
+
+
+def _pane_traces(pane: panes_mod.Pane) -> list[go.BaseTraceType]:
+    f = pane.frame
+    if pane.key == panes_mod.MACD:
+        colours = np.where(f["hist"] >= 0, _UP, _DOWN)
+        return [go.Bar(x=f.index, y=f["hist"], name="MACD hist", uid="macd-hist", marker_color=colours,
+                       opacity=0.5, showlegend=False),
+                go.Scatter(x=f.index, y=f["macd"], mode="lines", name="MACD", uid="macd", showlegend=False,
+                           line=dict(color="#2563eb", width=1.2)),
+                go.Scatter(x=f.index, y=f["signal"], mode="lines", name="Signal", uid="macd-signal",
+                           showlegend=False, line=dict(color="#f59e0b", width=1.2))]
+    column = {panes_mod.RSI: "rsi", panes_mod.RS: "mansfield"}[pane.key]
+    return [go.Scatter(x=f.index, y=f[column], mode="lines", name=pane.label, uid=pane.key, showlegend=False,
+                       line=dict(color="#7c3aed", width=1.2), hovertemplate=f"{pane.label} %{{y:.1f}}<extra></extra>")]
+
+
 def y_axis_ranges(bars: pd.DataFrame, mas: dict[str, pd.Series], x_range, chart_type: ChartType,
-                  show_volume: bool, overlays: tuple[Overlay, ...] = ()) -> dict[str, list]:
+                  show_volume: bool, overlays: tuple[Overlay, ...] = (),
+                  panes: tuple[panes_mod.Pane, ...] = ()) -> dict[str, list]:
     """Layout axis name -> range for the window `x_range`; the one place both the first
     draw and the app's zoom refit get their y-ranges from. Empty when no bar is in range."""
     fit = y_fit(bars, mas, *x_range, closes_only=chart_type == ChartType.LINE, overlays=overlays)
@@ -206,8 +277,11 @@ def y_axis_ranges(bars: pd.DataFrame, mas: dict[str, pd.Series], x_range, chart_
         return {}
     price_range, volume_top = fit
     ranges = {"yaxis": price_range}
+    axes = pane_axes(show_volume, panes)
     if show_volume and volume_top is not None:
-        ranges["yaxis2"] = [0, volume_top]
+        ranges[axes["volume"]] = [0, volume_top]
+    for pane in panes:
+        ranges[axes[pane.key]] = panes_mod.pane_range(pane.key, pane.frame, *x_range)
     return ranges
 
 
