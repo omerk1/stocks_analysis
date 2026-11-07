@@ -56,3 +56,19 @@ class ChartConfig:
     # The RS strip's "change" compares the latest rating with the last one on or
     # before this many calendar days earlier.
     rs_change_days: int = 28
+    relevance: "RelevanceConfig" = field(default_factory=lambda: RelevanceConfig())
+
+
+@dataclass(frozen=True)
+class RelevanceConfig:
+    """The default selection ("relevant now", design doc). `weight` is the starting
+    point of the menu's proximity <-> strength slider: score = weight x proximity +
+    (1 - weight) x strength."""
+    atr_period: int = 14
+    reach_atr: float = 3.0  # farther than this from the last close: not picked by default
+    weight: float = 0.7
+    per_family: int = 3
+    total: int = 10
+    # Within a family, an item this close to one already picked is the same level.
+    same_level_atr: float = 0.1
+    menu_items_per_family: int = 12  # the menu lists this many alive items per family, best first
