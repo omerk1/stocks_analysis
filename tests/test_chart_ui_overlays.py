@@ -129,7 +129,8 @@ def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
                  hidden=True, invalidated=True)]
     monkeypatch.setattr(overlays.div_detect, "detect_divergences", lambda *a, **k: divs)
     monkeypatch.setattr(overlays.div_detect, "_apply_confluence", lambda *a, **k: None)
-    monkeypatch.setattr(overlays.DivergenceConfig, "min_bars", 10)
+    config = overlays.DivergenceConfig
+    monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=10))
     rsi, macd, obv = overlays.divergence_overlays(None, "ABC", DAILY, bars)
     assert rsi.kind == "segment" and rsi.points == ((pd.Timestamp("2024-01-15"), 100.0),
                                                      (pd.Timestamp("2024-02-01"), 95.0))
@@ -140,5 +141,5 @@ def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
     assert rsi.same_key == macd.same_key != obv.same_key  # same pivot, two indicators: one event
     assert (rsi.alive, obv.alive, obv.dashed, obv.bullish) == (True, False, True, False)
     assert rsi.tag == "RSI↑" and obv.tag == "OBV↓h"
-    monkeypatch.setattr(overlays.DivergenceConfig, "min_bars", 150)  # too few bars: none, like the module
+    monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=150))  # too few bars: none
     assert overlays.divergence_overlays(None, "ABC", DAILY, bars) == []

@@ -128,3 +128,12 @@ def test_events_on_one_pivot_take_one_slot_whatever_their_price():
              ev("other", 5, same_key="bull:2024-03-01", price=500.01)]
     picks = relevance.family_defaults(relevance.rank(items, CLOSE, ATR, cfg), cfg, ATR)
     assert picks == {"divergences": ["rsi", "other"]}  # same price as "rsi", but another event
+
+
+def test_ticking_with_nothing_recent_picks_the_latest_events_one_per_pivot():
+    cfg = RelevanceConfig()
+    items = [ev("rsi", 100, same_key="p1"), ev("macd", 100, same_key="p1"), ev("b", 200, same_key="p2"),
+             ev("c", 150, same_key="p3"), ev("d", 300, same_key="p4"), ev("dead", 50, alive=False)]
+    ranked = relevance.rank(items, CLOSE, ATR, cfg)
+    assert relevance.family_defaults(ranked, cfg, ATR) == {}
+    assert relevance.nearest_alive(ranked, "divergences", cfg, ATR) == ["rsi", "c", "b"]

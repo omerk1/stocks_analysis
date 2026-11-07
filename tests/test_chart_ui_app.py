@@ -199,5 +199,6 @@ def test_family_box_and_items_stay_in_step():
 def test_count_texts():
     assert app_mod.family_count_text(3, 41) == "3 of 41 shown"
     assert app_mod.family_count_text(0, 2, events=True) == "0 of 2 recent"
+    assert app_mod.family_count_text(3, 0, events=True) == "3 shown, 0 recent"  # older ones ticked
     assert app_mod.total_count_text(10, 10) == "10 / 10 on the chart"
     assert app_mod.total_count_text(12, 10) == "12 / 10 on the chart — busy"

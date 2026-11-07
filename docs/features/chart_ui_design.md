@@ -297,15 +297,19 @@ class Overlay:
    - Alive is the module's own rule: not invalidated (price went past the pair's
      extreme within its 20-bar outcome window). Old divergences stay alive for good, so
      a divergence isn't ranked by distance from price but by recency: in reach when
-     confirmed at most 40 bars ago (`reach_bars`), proximity = 1 − age / 40, mixed with
-     the module's strength like the other families. The menu shows "12 bars ago" for
-     each, and the family count reads "1 of 2 recent".
+     confirmed at most `reach_bars` ago (40 daily, about two months; 12 weekly, about a
+     quarter), proximity = 1 − age / reach, mixed with the module's strength like the
+     other families. The menu shows "12 bars ago" for each, and the family count reads
+     "1 of 2 recent" ("3 shown, 0 recent" when older ones are ticked).
    - Divergences on the same second pivot and direction (RSI and MACD on one low) are
-     one event and take one default slot.
-   - On 10 large caps, 0–3 divergences per chart are in reach, so they're picked only
-     when there's a recent one (none on AAPL, daily or weekly).
-   - The detector adds about 2–3 s per chart. The menu now takes about 5–9 s daily and
-     12–13 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
+     one event and take one default slot. Ticking the family with nothing recent picks
+     the 3 latest alive ones, also one per event.
+   - The adapter runs the module's own pipeline on the chart's bars (same basis) rather
+     than loading them again, so each divergence's age counts the bars it was found on.
+   - On 10 large caps, 0–2 divergences per chart are in reach daily and 0–1 weekly, so
+     they're picked only when there's a recent one (none on AAPL).
+   - The detector adds about 2–3 s per chart. The menu now takes about 3–8 s daily and
+     4–17 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
      detectors on threads doesn't help (they're CPU-bound Python); separate processes
      would, a later change if the wait gets in the way.
 5. **Guidance on the cards,** once the extraction exists.
