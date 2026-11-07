@@ -25,17 +25,18 @@ from dash import ALL, MATCH, Dash, Input, Output, Patch, State, ctx, dcc, html, 
 from src.foundation.data_processing import db
 from src.foundation.market_common.derived_db import default_derived_db_path
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
 from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import overlays as overlays_mod
 from src.ui.chart import panes as panes_mod
 from src.ui.chart import relevance, rs
-from src.ui.chart.config import ChartConfig, ChartType, MASpec
+from src.ui.chart.config import ChartConfig, ChartType, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import FAMILIES, FAMILY_NAMES, Overlay
-from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, hidden_weekdays,
-                                 padded_full_range, y_axis_ranges)
+from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, figure_annotations,
+                                 hidden_weekdays, padded_full_range, y_axis_ranges)
 
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
@@ -73,6 +74,7 @@ class ChartData:
         self.overlays = lru_cache(maxsize=16)(self._overlays)
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
+        self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -112,11 +114,24 @@ class ChartData:
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
         return OverlaySet(tuple(items), errors, time.perf_counter() - started)
 
-    def _pane(self, ticker: str, timeframe: Timeframe, key: str, config: panes_mod.PaneConfig) -> panes_mod.Pane:
+    def _pane(self, ticker: str, timeframe: Timeframe, key: str, config: PaneConfig) -> panes_mod.Pane:
         bars = self.bars(ticker, timeframe)
-        market = self.bars(config.market, timeframe) if key == panes_mod.RS else None
-        return panes_mod.Pane(key, panes_mod.pane_label(key, config),
-                              panes_mod.pane_frame(key, bars, timeframe, config, market))
+        label = panes_mod.pane_label(key, config)
+        if key != panes_mod.RS:
+            return panes_mod.Pane(key, label, panes_mod.pane_frame(key, bars, config))
+        weekly = {t: self.rs_closes(t) for t in (ticker, config.market)}
+        note = None if not weekly[config.market].empty else f"RS pane: no {config.market} bars"
+        frame = panes_mod.rs_frame(bars.index, timeframe, weekly[ticker], weekly[config.market], config)
+        return panes_mod.Pane(key, label, frame, note)
+
+    def _rs_closes(self, ticker: str) -> pd.Series:
+        """Weekly closes on the relative-strength module's own basis (total return)."""
+        conn = _read_only(self.raw_path)
+        try:
+            weekly = bars_mod.load_chart_bars(conn, ticker, Timeframe.WEEKLY, MODULE_PRICE_BASIS["relative_strength"])
+        finally:
+            conn.close()
+        return weekly["close"] if not weekly.empty else pd.Series(dtype=float)
 
     def _earnings(self, ticker: str) -> tuple[tuple[EarningsCard, ...], str | None]:
         """(the ticker's earnings cards, oldest first; an error message or None).
@@ -249,12 +264,13 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
     if "show" in (earnings_options or ()):
         cards, note = chart_cards(data, ticker, timeframe)
     expanded = open_cards(cards, ticker, opened, "all" in (earnings_options or ()))
+    panes = selected_panes(data, config, ticker, timeframe, pane_keys)
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
                        show_volume=show_volume, x_range=x_range, holidays=holidays, overlays=overlays,
-                       earnings=cards, expanded=expanded,
-                       panes=selected_panes(data, config, ticker, timeframe, pane_keys), pane_config=config.panes)
+                       earnings=cards, expanded=expanded, panes=panes, pane_config=config.panes)
+    notes = [n for n in (note, *(p.note for p in panes)) if n]
     message = f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
-    return fig, message + (f" · {note}" if note else "")
+    return fig, " · ".join([message, *notes])
 
 
 def _distance_text(d: float) -> str:
@@ -506,9 +522,9 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                   Input("chart", "relayoutData"), State("ticker", "value"), State("timeframe", "value"),
                   State("chart-type", "value"), State("mas", "value"), State("volume", "value"),
                   State(items, "value"), State(items, "id"), State("menu-key", "data"), State("panes", "value"),
-                  prevent_initial_call=True)
+                  State("earnings", "value"), State("earnings-open", "data"), prevent_initial_call=True)
     def _refit_y(relayout, ticker, timeframe, chart_type, ma_keys, volume, item_values, item_ids, menu_key,
-                 pane_keys):
+                 pane_keys, earnings_options, opened):
         ticker, tf = _normalise(ticker), Timeframe(timeframe)
         if not ticker:
             return no_update, no_update
@@ -527,16 +543,22 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
         mas = data.moving_averages(ticker, tf, selected_specs(config, tf, ma_keys))
         view = {"key": _view_key(ticker, tf), "range": list(x_range)}
         picked = selected_overlays(data, ticker, tf, menu_key, chosen_items(item_ids, item_values))
-        ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), "on" in (volume or []), picked,
-                               selected_panes(data, config, ticker, tf, pane_keys))
-        if reset:
-            ranges["xaxis"] = list(x_range)
+        show_volume, panes = "on" in (volume or []), selected_panes(data, config, ticker, tf, pane_keys)
+        ranges = y_axis_ranges(bars, mas, x_range, ChartType(chart_type), show_volume, picked, panes)
         if not ranges:
             return no_update, view
         patch = Patch()
         for axis, axis_range in ranges.items():
             patch["layout"][axis]["range"] = axis_range
             patch["layout"][axis]["autorange"] = False  # an explicit range is ignored while autorange is on
+        if reset:
+            patch["layout"]["xaxis"]["range"] = list(x_range)
+            patch["layout"]["xaxis"]["autorange"] = False
+        # an open card's side (above or below its bar) follows the new price range
+        cards, _ = chart_cards(data, ticker, tf) if "show" in (earnings_options or ()) else ((), None)
+        expanded = open_cards(cards, ticker, opened, "all" in (earnings_options or ()))
+        patch["layout"]["annotations"] = figure_annotations(bars, show_volume, panes, cards, expanded,
+                                                            ranges["yaxis"])
         return patch, view
 
     return app

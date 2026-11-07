@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.foundation.market_common.models import Timeframe
-from src.ui.chart.panes import PaneConfig
 
 
 class ChartType(str, Enum):
@@ -58,7 +57,18 @@ class ChartConfig:
     # before this many calendar days earlier.
     rs_change_days: int = 28
     relevance: "RelevanceConfig" = field(default_factory=lambda: RelevanceConfig())
-    panes: PaneConfig = field(default_factory=PaneConfig)
+    panes: "PaneConfig" = field(default_factory=lambda: PaneConfig())
+
+
+@dataclass(frozen=True)
+class PaneConfig:
+    """The indicator panes (`panes.py`). The RS pane's market and period are the
+    relative-strength module's own (`RelativeStrengthConfig`)."""
+    rsi_period: int = 14
+    rsi_bands: tuple[float, float] = (30.0, 70.0)
+    macd: tuple[int, int, int] = (12, 26, 9)  # fast, slow, signal
+    market: str = "SPY"
+    mansfield_weeks: int = 52
 
 
 @dataclass(frozen=True)
