@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: step 1 built (Done #175, 2026-11-06). Lean first version, wider later.
+Status: steps 1–2 built (Done #175, #176, 2026-11-07). Lean first version, wider later.
 
 ## One-liner
 
@@ -208,6 +208,30 @@ class Overlay:
    families `levels.py` already covers), `relevance.py`, the menu with caps and reset, and the
    proximity ↔ strength slider. Tests: ranking and caps on hand-built overlays, dead items
    never selected by default. Then look at a handful of tickers and set the weight and reach.
+   **As built (Done #176):**
+   - Every family runs its own detector live on the ticker's bars as of the last bar, cached
+     per ticker and timeframe, instead of reading stored rows. `sr_lines` and `fib_sets` are
+     empty in the derived database, and the stored gaps and AVWAP rows are only as fresh as
+     their last batch run. A daily chart takes 1–3 s, a weekly one 3–8 s (Fibonacci on
+     the whole weekly history is most of it). The chart draws first and the menu fills
+     in after.
+   - S/R uses both of the module's presets (short and long lookback). Gaps are drawn as
+     their unfilled part. AVWAP curves are recomputed from the anchor. Each Fibonacci level
+     of the module's selected swings is its own item.
+   - Alive: S/R not broken (flipped counts), gaps open or partial, AVWAP active, Fibonacci
+     swing not invalidated.
+   - Within a family, an item that overlaps one already picked, or is within 0.1 ATR of it,
+     is the same level and doesn't take a second slot. Examples: a classic gap and an FVG
+     over one zone, one S/R level found by both presets, AVWAPs anchored days apart.
+   - Ticking a family picks its best 3. With nothing in reach, it picks its 3 nearest alive
+     items instead. Each menu item shows its distance in ATR; hover shows the source numbers,
+     the strength percentile and the score.
+   - Moving the slider re-picks the defaults at the new weight, replacing hand picks. Reset
+     also puts the slider back to 0.7.
+   - Moving averages stay a fixed default set (step 1), outside the ranking and the cap of
+     10. The "two closest" rule in "Default selection" isn't built.
+   - Weight and reach stay at 0.7 and 3 ATR. On 10 large caps (daily), 3 ATR gives 3–10
+     picks. Names at an all-time high get the fewest, since nothing sits above them.
 3. **Earnings cards:** markers, collapsed flags, cards without guidance. Tests: marker lands
    on `reaction_date`, year-ago change, gap %.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,

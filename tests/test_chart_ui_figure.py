@@ -6,6 +6,7 @@ from src.foundation.market_common.models import Timeframe
 from src.ui.chart.config import ChartConfig, ChartType
 from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, hidden_weekdays,
                                  padded_full_range, y_axis_ranges, y_fit)
+from src.ui.chart.overlays import Overlay
 
 SPECS = ChartConfig().ma_options[Timeframe.DAILY]
 
@@ -116,3 +117,36 @@ def test_y_fit_never_goes_below_zero(bars):
 
 def test_y_fit_none_outside_the_data(bars):
     assert y_fit(bars, {}, "2030-01-01", "2030-02-01") is None
+
+
+def _ov(kind, x0, lo, hi=None, series=None, family="sr_lines"):
+    return Overlay(family=family, item_id=f"{kind}{lo}", label=f"{kind} {lo}", kind=kind, x0=pd.Timestamp(x0),
+                   lo=lo, hi=lo if hi is None else hi, strength=None, alive=True, series=series, tag="T")
+
+
+def test_overlays_drawn_under_the_bars_to_the_right_edge(bars):
+    zone, line = _ov("zone", "2023-03-01", 150.0, 155.0), _ov("hline", "2023-06-01", 300.0, family="fibonacci")
+    curve = _ov("series", "2023-02-01", 200.0, series=bars["close"].where(bars.index >= "2023-02-01"))
+    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, SPECS, overlays=(zone, line, curve))
+    names = [t.name for t in fig.data]
+    assert names[:4] == ["zone 150.0", "hline 300.0", "series 200.0", "ABC"]  # overlays first: underneath
+    box = fig.data[0]
+    assert box.fill == "toself" and list(box.y) == [150.0, 150.0, 155.0, 155.0, 150.0]
+    assert pd.Timestamp(box.x[1]) == bars.index.max() + pd.Timedelta(days=5)
+    assert pd.Timestamp(fig.data[1].x[1]) == pd.Timestamp(box.x[1])
+    assert len(fig.data[2].x) == (bars.index >= "2023-02-01").sum()  # the curve's warmup isn't drawn
+    # stable uids keep legend clicks on the right trace when overlays come and go in front
+    mas = {"sma_50": bars["close"].rolling(50).mean()}
+    fewer = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, mas, SPECS, overlays=(zone,))
+    assert [t.uid for t in fewer.data] == ["sr_lines:zone150.0", "price", "sma_50", "volume"]
+
+
+def test_y_fit_counts_overlays_that_have_started(bars):
+    start, end = bars.index[10], bars.index[20]
+    started = _ov("hline", bars.index[0], 500.0)
+    later = _ov("zone", bars.index[100], 1.0, 2.0)  # begins after the window: not on screen
+    (low, high), _ = y_fit(bars, {}, start, end, overlays=(started, later))
+    assert high > 500.0 and low > 2.0
+    curve = _ov("series", bars.index[0], 0.0, series=pd.Series(1000.0, index=bars.index[15:16]))
+    (_, high_curve), _ = y_fit(bars, {}, start, end, overlays=(curve,))
+    assert high_curve > 1000.0
