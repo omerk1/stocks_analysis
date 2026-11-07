@@ -51,7 +51,7 @@ from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, Setting, Signal, SpecField, StrategySpec, UnsupportedRequest, _Section, find_gaps, request_wording)
+    Gap, Signal, SpecField, StrategySpec, UnsupportedRequest, _Section, find_gaps, request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -119,30 +119,25 @@ _ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].a
 # A question about one signal asks only what makes it count, so its answer holds only
 # `settings` and `defaults_ok`, and the code merges it into that signal in place: it can't
 # touch the other signals, nor this one's name, role, detector or wording.
-class _SignalAnswer(_Section):
-    settings: list[Setting] = Field(default_factory=list)
-    defaults_ok: bool = False
-
-
+_ASKED_OF_SIGNAL = ("settings", "defaults_ok")
+_SignalAnswer = create_model(
+    "SignalAnswer", __base__=_Section,
+    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n in _ASKED_OF_SIGNAL})
 _ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", _SignalAnswer)}
 
 
 def _merged(old: Signal, given: dict) -> Signal:
     """`old` with the parts `given` sets — the one merge rule for both kinds of answer. An
     empty or false part counts as not given (a structured reply fills what it wasn't told
-    with [] or false, which must not undo what the trader settled). A new detector (a
-    different set of ids) starts its settings afresh, so the new family is asked about.
-    Settings merge by name, and an answer about them drops any its detector doesn't have:
-    the question it answers showed those as not its settings, with the valid names."""
+    with [] or false, which must not undo what the trader settled); a non-empty settings
+    list replaces the old one, so a correction or a retraction takes. Nothing is filtered
+    here: a misnamed setting or uncatalogued id stays for find_gaps to ask about, never
+    silently lost. A new detector (a different set of ids) starts its settings afresh, so
+    the new family is asked about."""
     changes = {k: v for k, v in given.items() if v}
     if set(changes.get("uses", old.uses)) != set(old.uses):
         old = old.model_copy(update={"settings": [], "defaults_ok": False})
-    merged = old.model_copy(update={k: v for k, v in changes.items() if k != "settings"})
-    if "settings" in changes or "defaults_ok" in changes:
-        known = catalogue.settings_for(merged.uses)
-        by_name = {s.name: s for s in merged.settings} | {s.name: s for s in changes.get("settings", [])}
-        merged = merged.model_copy(update={"settings": [s for s in by_name.values() if s.name in known]})
-    return merged
+    return old.model_copy(update=changes)
 
 
 def _unique_names(signals: list[Signal]) -> list[Signal]:
@@ -163,13 +158,11 @@ def _signals_answered(old: list[Signal], new: list[Signal]) -> list[Signal]:
     """A whole-list answer (an unsupported ask filed under the signals) re-sends every
     signal; one it kept by name is merged into the old one, so the detector and settings
     the reply left out aren't lost. Names are numbered first, so a reply repeating a name
-    lines up with the old "fib 2", and uncatalogued ids are dropped as at the start."""
+    lines up with the old "fib 2" (by position, so a reply reordering same-named signals
+    mismatches them; their settings are then asked again). A signal the reply leaves out
+    or renames is the answer's call: the whole-list question is the one that may do that."""
     by_name = {s.name: s for s in old}
-    out = []
-    for s in _unique_names(new):
-        s = s.model_copy(update={"uses": [u for u in s.uses if u in catalogue.IDS]})
-        out.append(_merged(by_name[s.name], dict(s)) if s.name in by_name else s)
-    return out
+    return [_merged(by_name[s.name], dict(s)) if s.name in by_name else s for s in _unique_names(new)]
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:

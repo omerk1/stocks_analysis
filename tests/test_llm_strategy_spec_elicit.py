@@ -342,13 +342,13 @@ def test_the_merge_ignores_empty_parts_and_a_new_detector_starts_afresh():
     assert el._merged(fib, {"uses": list(fib.uses), "description": "major fib"}).settings == fib.settings
 
 
-def test_settings_merge_by_name_and_an_answer_drops_ones_its_detector_lacks():
+def test_given_settings_replace_the_old_and_nothing_is_filtered_away():
     div = Signal(name="div", description="div", role="filter",
                  uses=["detector:divergence.rsi", "detector:divergence.obv"],
-                 settings=[Setting(name="forms", value="regular"), Setting(name="anchors", value="x")])
-    out = el._merged(div, {"settings": [Setting(name="min_pivot_span_bars", value="20")]})
-    assert [(s.name, s.value) for s in out.settings] == [("forms", "regular"), ("min_pivot_span_bars", "20")]
-    assert el._merged(div, {"defaults_ok": True}).settings == div.settings[:1]  # "drop that, defaults fine"
+                 settings=[Setting(name="forms", value="regular"), Setting(name="min_pivot_span_bars", value="9")])
+    # A correction or retraction takes; a misnamed one is kept for find_gaps to flag, not lost.
+    given = [Setting(name="forms", value="regular"), Setting(name="levels", value="0.618")]
+    assert el._merged(div, {"settings": given, "defaults_ok": True}).settings == given
     # The same ids in another order are the same detector: nothing settled is reset.
     assert el._merged(div, {"uses": ["detector:divergence.obv", "detector:divergence.rsi"]}).settings == div.settings
 
@@ -357,9 +357,8 @@ def test_a_whole_list_reply_repeating_a_name_lines_up_with_the_numbered_signals(
     one = Signal(name="fib", description="a", role="filter", uses=["detector:fibonacci.retracement"],
                  settings=[Setting(name="min_swing_atr", value="12")])
     two = one.model_copy(update={"name": "fib 2", "settings": [Setting(name="min_swing_atr", value="20")]})
-    bare = Signal(name="fib", description="a", role="filter", uses=["detector:elliott"])
-    out = el._signals_answered([one, two], [bare, bare])
-    assert out == [one, two]  # the uncatalogued id is dropped, so each keeps its own detector
+    bare = Signal(name="fib", description="a", role="filter")
+    assert el._signals_answered([one, two], [bare, bare]) == [one, two]
 
 
 def test_repeated_signal_names_are_numbered_at_the_start(tmp_path, monkeypatch):
