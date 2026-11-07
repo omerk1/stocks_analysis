@@ -350,6 +350,12 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     elif not 1 <= n <= len(filters):
         add("filters_needed", "invalid", f"{n} filters needed, but there are {len(filters)}")
 
+    # A signal is asked about, and its answer put back, by name, so names must be unique.
+    names = [sig.name for sig in spec.supporting_signals]
+    shared = [n for n in dict.fromkeys(names) if names.count(n) > 1]
+    if shared:
+        add("supporting_signals", "invalid", f"two signals share a name ({'; '.join(shared)}); "
+            "each needs its own")
     for sig in spec.supporting_signals:
         for cap_id in dict.fromkeys(sig.uses):
             if cap_id not in catalogue.IDS:
@@ -385,9 +391,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             detail = f" ({'; '.join(details)})" if details else ""
             add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
-    # Field order across every kind of gap (a stable sort keeps each field's own order).
+    # Field order across every kind of gap, and within a field the gaps about the field as
+    # a whole before those about one item (a stable sort keeps the rest in order).
     order = {name: n for n, name in enumerate(StrategySpec.model_fields)}
-    return sorted(gaps, key=lambda g: order.get(g.field, len(order)))
+    return sorted(gaps, key=lambda g: (order.get(g.field, len(order)), g.item is not None))
 
 
 GOLDEN_SPECS_PATH = Path(__file__).with_name("golden_specs.json")

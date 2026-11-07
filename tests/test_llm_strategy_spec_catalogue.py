@@ -88,6 +88,22 @@ def test_every_setting_maps_to_its_config_field_and_default(prefix, setting):
     assert setting.default == default
 
 
+def test_sr_line_questions_name_the_long_term_preset():
+    from src.signals.sr_lines.config import PRESETS
+    asked = {s.name: s.question for s in catalogue.SETTINGS["detector:sr_line."]}
+    assert f"uses {PRESETS['long_term'].window_years:g}" in asked["window_years"]
+    assert f"uses {PRESETS['long_term'].pivot_atr_mult:g}" in asked["pivot_atr_mult"]
+
+
+def test_avwap_anchor_question_names_every_anchor_type():
+    from src.foundation.market_common.anchors import AnchorType
+    words = {"ath": "all-time", "atl": "all-time", "52w_high": "52-week", "52w_low": "52-week",
+             "cycle_high": "cycle", "cycle_low": "cycle", "regime_high": "regime", "regime_low": "regime"}
+    anchors = next(s for s in catalogue.SETTINGS["detector:avwap"] if s.name == "anchors")
+    for member in AnchorType:  # a new member fails here until the question names it
+        assert words[member.value] in anchors.question
+
+
 def test_settings_for_merges_a_family_and_ignores_the_rest():
     found = catalogue.settings_for(["detector:divergence.rsi", "detector:divergence.obv", "indicator:rsi"])
     assert list(found) == [s.name for s in catalogue.SETTINGS["detector:divergence."]]

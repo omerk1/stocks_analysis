@@ -160,10 +160,11 @@ _SR = "src.signals.sr_lines.config:SRConfig"
 # done.md #164): the gap check puts a signal's own settings in the question about it.
 SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
     "detector:sr_line.": (
-        DetectorSetting("window_years", "how many years of history the lines are drawn from",
-                        f"{_SR}.window_years", 3.0),
-        DetectorSetting("pivot_atr_mult", "how big a swing must be to anchor a line, in ATR",
-                        f"{_SR}.pivot_atr_mult", 2.0),
+        # The defaults are the medium-term preset; "major" lines may mean the long-term one.
+        DetectorSetting("window_years", "how many years of history the lines are drawn from; "
+                        "the long-term preset uses 8", f"{_SR}.window_years", 3.0),
+        DetectorSetting("pivot_atr_mult", "how big a swing must be to anchor a line, in ATR; "
+                        "the long-term preset uses 3", f"{_SR}.pivot_atr_mult", 2.0),
     ),
     "detector:fibonacci.": (
         DetectorSetting("min_swing_atr", "the smallest swing the levels are drawn from, in ATR",
@@ -180,7 +181,9 @@ SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
                         f"{_DIV}.price_pivot_atr_mult", 2.0),
     ),
     "detector:avwap": (
-        DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or swing highs and lows",
+        # A choice among the AVWAP rows by anchor type, not a config field: a finder
+        # filters on it. The test checks every AnchorType member is named here.
+        DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or cycle highs and lows",
                         "src.foundation.market_common.anchors:AnchorType", "all of them"),
         DetectorSetting("distance_tolerance_atr", "how close price must come to count as a touch, in ATR",
                         f"{_AVWAP}.distance_tolerance_atr", 0.3),

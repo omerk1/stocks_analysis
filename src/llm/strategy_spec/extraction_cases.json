@@ -10,7 +10,7 @@
       "trigger": "described",
       "horizons_bars": "blank",
       "invalidation": "described",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"blank",
       "secondary_metrics": "either",
       "control": "blank"
@@ -29,7 +29,7 @@
       "trigger": "described",
       "horizons_bars": "blank",
       "invalidation": "blank",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"described",
       "secondary_metrics": "blank",
       "control": "blank"
@@ -48,7 +48,7 @@
       "trigger": "described",
       "horizons_bars": "blank",
       "invalidation": "blank",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"blank",
       "secondary_metrics": "blank",
       "control": "blank"
@@ -67,7 +67,7 @@
       "trigger": {"values": {"execution": "next_open"}},
       "horizons_bars": {"values": [5, 20]},
       "invalidation": "either",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"blank",
       "secondary_metrics": "blank",
       "control": "blank"
@@ -89,7 +89,7 @@
       "trigger": "either",
       "horizons_bars": "blank",
       "invalidation": "either",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"blank",
       "secondary_metrics": "blank",
       "control": "blank"
@@ -109,7 +109,7 @@
       "trigger": "blank",
       "horizons_bars": {"values": [5]},
       "invalidation": "blank",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"blank",
       "secondary_metrics": "blank",
       "control": "blank"
@@ -131,7 +131,7 @@
       "trigger": "either",
       "horizons_bars": {"values": [10]},
       "invalidation": "blank",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"either",
       "secondary_metrics": "blank",
       "control": "either"
@@ -150,7 +150,7 @@
       "trigger": "either",
       "horizons_bars": {"values": [10, 20]},
       "invalidation": "blank",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"described",
       "secondary_metrics": "blank",
       "control": "described"
@@ -169,7 +169,7 @@
       "trigger": {"values": {"execution": "next_open"}},
       "horizons_bars": {"values": [5, 20]},
       "invalidation": "described",
-      "filters_needed": "blank",
+      "filters_needed": "either",
       "supporting_signals":"described",
       "secondary_metrics": "blank",
       "control": "described"

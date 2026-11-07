@@ -51,7 +51,7 @@ from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, Signal, SpecField, StrategySpec, UnsupportedRequest, find_gaps, request_wording)
+    Gap, Signal, SpecField, StrategySpec, UnsupportedRequest, _Section, find_gaps, request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -72,8 +72,8 @@ one of the question's listed unsupported requests, repeat that request's wording
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
 `unsupported` empty and `resolved_requests` empty. When the question is about one item \
-of a list section (one supporting signal), `value` is that one item, not the list. A \
-signal's `settings` hold what the answer gives, by the setting names the question lists, \
+of a list section (one supporting signal), `value` is that one signal's description, \
+settings and defaults_ok, not the list. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
 each value in the trader's words; `defaults_ok` is true only when the trader says the \
 defaults are fine.
 
@@ -116,9 +116,15 @@ def _answer_model(name: str, value_type):
 # from the model is an error, not silently dropped.
 _ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
                   for f in get_args(SpecField)}
-# A question about one item gets that item back alone and the code puts it in its place,
-# so the answer can't touch the other items.
-_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", Signal)}
+# A question about one signal gets back only what it asks (the description, settings and
+# defaults_ok) and the code merges that into the signal in place: the answer can't touch
+# the other signals, nor this one's name, role or `uses`, which the trader wasn't asked
+# about (a reply dropping `uses` would make the settings question vanish unanswered).
+_ASKED_OF_SIGNAL = ("description", "settings", "defaults_ok")
+_SignalAnswer = create_model(
+    "SignalAnswer", __base__=_Section,
+    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n in _ASKED_OF_SIGNAL})
+_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", _SignalAnswer)}
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
@@ -132,9 +138,10 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
     if not gaps:
         return None
     field, item = gaps[0].field, gaps[0].item
-    # Five signals' settings in one question is too much to answer; gaps about the field
-    # as a whole go with the first question asked about it.
-    own = tuple(g for g in gaps if g.field == field and g.item in (item, None))
+    # Five signals' settings in one question is too much to answer. Gaps about the field
+    # as a whole are their own question: an item question's answer holds one signal, so it
+    # can't settle them (find_gaps lists those first, so they're asked first).
+    own = tuple(g for g in gaps if g.field == field and g.item == item)
     lines = [f"About `{field}`" + (f", the signal {item!r}:" if item else ":")]
     for g in own:
         if g.kind == "unsupported":
@@ -202,7 +209,7 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     if parsed.value is not None and question.item:
         items = list(getattr(spec, question.field))
         at = next(i for i, x in enumerate(items) if x.name == question.item)
-        items[at] = parsed.value
+        items[at] = items[at].model_copy(update=dict(parsed.value))
         updates[question.field] = items
     elif parsed.value is not None:
         updates[question.field] = parsed.value
@@ -234,7 +241,7 @@ class Session:
             "idea": self.idea,
             "turns": self.turns,
             "spec": json.loads(self.spec.model_dump_json(exclude_none=True)),
-            "gaps_remaining": [f"{g.field}: {g.reason}" for g in gaps],
+            "gaps_remaining": [f"{gap_key(g.field, g.item)}: {g.reason}" for g in gaps],
             "complete": not gaps,
         }, indent=1) + "\n")
 
@@ -294,14 +301,14 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 session.spec = apply_answer(session.spec, question, answer, client)
             except ReplyError as e:
                 say(f"That answer couldn't be read into the spec ({e}); asking again.")
-                session.turns.append({"field": question.field, "question": question.text,
+                session.turns.append({"field": question.key, "question": question.text,
                                       "answer": answer, "error": str(e)})
                 session.save(path)
                 stalled(question.key)
                 continue
             answered += 1
             session.note_unsupported()
-            session.turns.append({"field": question.field, "question": question.text, "answer": answer})
+            session.turns.append({"field": question.key, "question": question.text, "answer": answer})
             session.save(path)
             after = next_question(session.spec, frozenset(skip))
             if after is not None and after.key == question.key and after.gaps == question.gaps:
@@ -318,7 +325,7 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 "the open questions are kept in the transcript.")
         else:
             say("Done with the questions; still open: "
-                + "; ".join(f"{g.field}: {g.reason}" for g in remaining))
+                + "; ".join(f"{gap_key(g.field, g.item)}: {g.reason}" for g in remaining))
     finally:
         try:
             session.save(path)

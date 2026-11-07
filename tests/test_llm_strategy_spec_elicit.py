@@ -2,6 +2,7 @@ import json
 from typing import get_args
 
 import pytest
+from pydantic import ValidationError
 
 from src.llm.gemini import Reply, Usage
 from src.llm.strategy_spec import elicit as el
@@ -310,26 +311,53 @@ def test_each_signal_is_its_own_question_showing_only_itself():
     assert '"name": "fib"' in q.text and '"line"' not in q.text
 
 
-def test_an_answer_about_one_signal_replaces_only_that_signal():
+def test_an_answer_about_one_signal_changes_only_what_it_was_asked():
     spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
     q = next_question(spec)
-    # The model gets the single-signal schema; even a renamed reply lands in fib's place.
-    reply = {"value": {"name": "fib (major)", "description": "fib", "role": "filter",
-                       "uses": ["detector:fibonacci.retracement"],
-                       "settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
+    reply = {"value": {"description": "major fib", "settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
     client = StubClient([reply])
     out = apply_answer(spec, q, "only swings of 12 ATR or more", client)
     assert client.calls[0][1]["response_schema"] is el._ITEM_ANSWER_MODELS["supporting_signals"]
-    assert [s.name for s in out.supporting_signals] == ["fib (major)", "line"]
-    assert out.supporting_signals[0].settings[0].value == "12 ATR"
+    fib = out.supporting_signals[0]
+    assert (fib.name, fib.role, fib.uses) == ("fib", "filter", ["detector:fibonacci.retracement"])
+    assert (fib.description, fib.settings[0].value) == ("major fib", "12 ATR")
     assert out.supporting_signals[1] == spec.supporting_signals[1]
     assert next_question(out).item == "line"
 
 
+def test_a_signal_answer_cant_rename_it_or_drop_its_detector():
+    # Losing `uses` would make its settings question vanish with nothing answered.
+    model = el._ITEM_ANSWER_MODELS["supporting_signals"]
+    for extra in ({"name": "fib (major)"}, {"uses": []}, {"role": "score"}):
+        with pytest.raises(ValidationError):
+            model.model_validate({"value": {"description": "fib", **extra}})
+
+
+def test_a_gap_about_all_signals_is_asked_alone_before_any_one_signal():
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment",
+                              reason="unsupported_data")
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2, unsupported=[news])
+    q = next_question(spec)
+    assert (q.item, [g.kind for g in q.gaps]) == (None, ["unsupported"])
+    assert "min_swing_atr" not in q.text  # fib's settings wait for their own question
+    shared = next_question(_spec(supporting_signals=_filters("fib", "fib", "line"), filters_needed=2))
+    assert shared.item is None and "two signals share a name (fib)" in shared.text
+
+
+def test_the_transcript_says_which_signal_a_turn_was_about(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
+    ok = {"value": {"description": "x", "defaults_ok": True}}
+    answers = iter(["defaults", None])
+    elicit("idea", StubClient([ok]), ask=lambda q: next(answers), say=lambda s: None,
+           session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    saved = json.loads((tmp_path / "s.json").read_text())
+    assert [t["field"] for t in saved["turns"]] == ["supporting_signals[fib]"]
+    assert saved["gaps_remaining"][0].startswith("supporting_signals[line]: ")
+
+
 def test_a_stuck_signal_is_skipped_alone(tmp_path, monkeypatch):
     _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
-    line_ok = {"value": {"name": "line", "description": "line", "role": "filter",
-                         "uses": ["detector:fibonacci.retracement"], "defaults_ok": True}}
+    line_ok = {"value": {"description": "line", "defaults_ok": True}}
     client = StubClient([{"value": None}, {"value": None}, line_ok])
     said = []
     spec = elicit("idea", client, ask=lambda q: "dunno", say=said.append,
