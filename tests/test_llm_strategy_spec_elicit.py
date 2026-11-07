@@ -325,32 +325,42 @@ def test_an_answer_about_one_signal_changes_only_what_it_was_asked():
     assert next_question(out).item == "line"
 
 
-def test_a_signal_answer_holds_only_settings_and_defaults():
+def test_a_signal_answer_holds_only_settings_changes_and_defaults():
     model = el._ITEM_ANSWER_MODELS["supporting_signals"]
     for extra in ({"name": "fib (major)"}, {"uses": []}, {"role": "score"}, {"description": "x"}):
         with pytest.raises(ValidationError):
             model.model_validate({"value": extra})
 
 
-def test_the_merge_ignores_empty_parts_and_a_new_detector_starts_afresh():
-    fib = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"],
-                 settings=[Setting(name="min_swing_atr", value="12")], defaults_ok=True)
-    # A structured reply's [] and false aren't the trader undoing what they settled.
-    assert el._merged(fib, {"settings": [], "defaults_ok": False, "uses": []}) == fib
-    moved = el._merged(fib, {"uses": ["detector:avwap"]})
+DIV = Signal(name="div", description="div", role="filter", uses=["detector:divergence.rsi"],
+             settings=[Setting(name="forms", value="regular"), Setting(name="levels", value="0.618")])
+
+
+def test_settings_merge_by_name_and_only_an_explicit_drop_removes_one():
+    # "I meant pivot span 20": the misnamed one is dropped, the form choice stays.
+    out = el._settings_answered(DIV, el.SignalAnswer(
+        settings=[Setting(name="min_pivot_span_bars", value="20")], dropped=["levels"]))
+    assert [(s.name, s.value) for s in out.settings] == [("forms", "regular"), ("min_pivot_span_bars", "20")]
+    # A reply's empty parts and false change nothing; a misnamed setting stays to be flagged.
+    assert el._settings_answered(DIV, el.SignalAnswer()) == DIV
+    # "Drop that, the defaults are fine" leaves the signal complete.
+    done = el._settings_answered(DIV, el.SignalAnswer(dropped=["levels", "forms"], defaults_ok=True))
+    assert (done.settings, done.defaults_ok) == ([], True)
+
+
+def test_a_whole_list_answer_never_touches_settings():
+    fib = Signal(name="fib", description="the trader's words", role="filter",
+                 uses=["detector:fibonacci.retracement"], settings=[Setting(name="min_swing_atr", value="12")])
+    restated = [fib.model_copy(update={"description": "restated", "settings": [], "defaults_ok": True}),
+                Signal(name="new", description="new", role="filter", uses=["detector:avwap"],
+                       settings=[Setting(name="anchors", value="ath")], defaults_ok=True)]
+    kept, new = el._signals_answered([fib], restated)
+    assert kept == fib  # a partial or restated reply can't drop or set what fib's question settled
+    assert (new.settings, new.defaults_ok) == ([], False)  # a new signal is asked about
+    # A new detector is asked afresh; the same ids in another order, or an uncatalogued one, aren't new.
+    moved = el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:avwap"]})])[0]
     assert (moved.uses, moved.settings, moved.defaults_ok) == (["detector:avwap"], [], False)
-    assert el._merged(fib, {"uses": list(fib.uses), "description": "major fib"}).settings == fib.settings
-
-
-def test_given_settings_replace_the_old_and_nothing_is_filtered_away():
-    div = Signal(name="div", description="div", role="filter",
-                 uses=["detector:divergence.rsi", "detector:divergence.obv"],
-                 settings=[Setting(name="forms", value="regular"), Setting(name="min_pivot_span_bars", value="9")])
-    # A correction or retraction takes; a misnamed one is kept for find_gaps to flag, not lost.
-    given = [Setting(name="forms", value="regular"), Setting(name="levels", value="0.618")]
-    assert el._merged(div, {"settings": given, "defaults_ok": True}).settings == given
-    # The same ids in another order are the same detector: nothing settled is reset.
-    assert el._merged(div, {"uses": ["detector:divergence.obv", "detector:divergence.rsi"]}).settings == div.settings
+    assert el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:elliott"]})]) == [fib]
 
 
 def test_a_whole_list_reply_repeating_a_name_lines_up_with_the_numbered_signals():

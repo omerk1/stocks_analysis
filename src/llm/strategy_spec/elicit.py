@@ -51,7 +51,8 @@ from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, Signal, SpecField, StrategySpec, UnsupportedRequest, _Section, find_gaps, request_wording)
+    Gap, Setting, Signal, SpecField, StrategySpec, Text, UnsupportedRequest, _Section, find_gaps,
+    request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -72,10 +73,11 @@ one of the question's listed unsupported requests, repeat that request's wording
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
 `unsupported` empty and `resolved_requests` empty. When the question is about one item \
-of a list section (one supporting signal), `value` is that one signal's settings and \
-defaults_ok, not the list. A signal's `settings` hold what the answer gives, by the setting names the question lists, \
-each value in the trader's words; `defaults_ok` is true only when the trader says the \
-defaults are fine.
+of a list section (one supporting signal), `value` is that one signal's changes, not the \
+list: `settings` holds only the settings this answer gives or corrects, by the setting \
+names the question lists, each value in the trader's words; `dropped` names settings the \
+trader takes back or that the question flagged as not its settings; `defaults_ok` is \
+true only when the trader says the defaults are fine.
 
 The current spec, for context only — change nothing outside the asked section:
 """
@@ -116,28 +118,29 @@ def _answer_model(name: str, value_type):
 # from the model is an error, not silently dropped.
 _ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
                   for f in get_args(SpecField)}
-# A question about one signal asks only what makes it count, so its answer holds only
-# `settings` and `defaults_ok`, and the code merges it into that signal in place: it can't
-# touch the other signals, nor this one's name, role, detector or wording.
-_ASKED_OF_SIGNAL = ("settings", "defaults_ok")
-_SignalAnswer = create_model(
-    "SignalAnswer", __base__=_Section,
-    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n in _ASKED_OF_SIGNAL})
-_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", _SignalAnswer)}
+class SignalAnswer(_Section):
+    """What an answer to one signal's settings question does to that signal, as explicit
+    changes rather than its whole new state: guessing intent from a restated signal lost
+    settled values one way or another (a partial list read as a retraction, or a
+    retraction read as a partial list). It can't touch the other signals, nor this one's
+    name, role, detector or wording."""
+
+    settings: list[Setting] = Field(default_factory=list)  # given or corrected, by name
+    dropped: list[Text] = Field(default_factory=list)  # setting names the trader takes back
+    defaults_ok: bool = False  # true only when the trader says so; false changes nothing
 
 
-def _merged(old: Signal, given: dict) -> Signal:
-    """`old` with the parts `given` sets — the one merge rule for both kinds of answer. An
-    empty or false part counts as not given (a structured reply fills what it wasn't told
-    with [] or false, which must not undo what the trader settled); a non-empty settings
-    list replaces the old one, so a correction or a retraction takes. Nothing is filtered
-    here: a misnamed setting or uncatalogued id stays for find_gaps to ask about, never
-    silently lost. A new detector (a different set of ids) starts its settings afresh, so
-    the new family is asked about."""
-    changes = {k: v for k, v in given.items() if v}
-    if set(changes.get("uses", old.uses)) != set(old.uses):
-        old = old.model_copy(update={"settings": [], "defaults_ok": False})
-    return old.model_copy(update=changes)
+_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", SignalAnswer)}
+
+
+def _settings_answered(old: Signal, answer: SignalAnswer) -> Signal:
+    """Settings merge by name: one the answer doesn't mention stays, one it gives replaces
+    the same name, and only an explicit drop removes one. A misnamed setting stays until
+    dropped, for find_gaps to flag, so nothing the trader said is filtered away unseen."""
+    by_name = {s.name: s for s in old.settings if s.name not in answer.dropped}
+    by_name.update((s.name, s) for s in answer.settings)
+    return old.model_copy(update={"settings": list(by_name.values()),
+                                  "defaults_ok": old.defaults_ok or answer.defaults_ok})
 
 
 def _unique_names(signals: list[Signal]) -> list[Signal]:
@@ -155,14 +158,25 @@ def _unique_names(signals: list[Signal]) -> list[Signal]:
 
 
 def _signals_answered(old: list[Signal], new: list[Signal]) -> list[Signal]:
-    """A whole-list answer (an unsupported ask filed under the signals) re-sends every
-    signal; one it kept by name is merged into the old one, so the detector and settings
-    the reply left out aren't lost. Names are numbered first, so a reply repeating a name
-    lines up with the old "fib 2" (by position, so a reply reordering same-named signals
-    mismatches them; their settings are then asked again). A signal the reply leaves out
-    or renames is the answer's call: the whole-list question is the one that may do that."""
+    """A whole-list answer (an unsupported ask filed under the signals) may add, drop or
+    rename signals and change a role or a detector, but never settings: those belong to
+    each signal's own question. A signal kept by name stays as it was but for its role and
+    a changed detector; a new signal or a new detector starts with no settings, so it's
+    asked about rather than taking settings the reply restated. Uncatalogued ids are the
+    model's slip, dropped as at the session start (an empty list then means unchanged).
+    Names are numbered first, so a reply repeating a name lines up with the old "fib 2"."""
     by_name = {s.name: s for s in old}
-    return [_merged(by_name[s.name], dict(s)) if s.name in by_name else s for s in _unique_names(new)]
+    out = []
+    for s in _unique_names(new):
+        uses = [u for u in s.uses if u in catalogue.IDS]
+        was = by_name.get(s.name)
+        if was is None or (uses and set(uses) != set(was.uses)):
+            base = was or s
+            out.append(base.model_copy(update={"role": s.role, "uses": uses or base.uses,
+                                               "settings": [], "defaults_ok": False}))
+        else:
+            out.append(was.model_copy(update={"role": s.role}))
+    return out
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
@@ -248,7 +262,7 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     if parsed.value is not None and question.item:
         items = list(getattr(spec, question.field))
         at = next(i for i, x in enumerate(items) if x.name == question.item)
-        items[at] = _merged(items[at], dict(parsed.value))
+        items[at] = _settings_answered(items[at], parsed.value)
         updates[question.field] = items
     elif parsed.value is not None and question.field == "supporting_signals":
         updates[question.field] = _signals_answered(spec.supporting_signals, parsed.value)
