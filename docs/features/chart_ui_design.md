@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: step 1 built (Done #174, 2026-11-06). Lean first version, wider later.
+Status: step 1 built (Done #175, 2026-11-06). Lean first version, wider later.
 
 ## One-liner
 
@@ -197,7 +197,7 @@ class Overlay:
    line/bars/candles toggles, volume, the moving averages, and the RS strip (stored numbers
    only, no new computation). Tests: weekly resample values on a fixture, the figure has the
    expected trace types per chart type, the strip shows "no RS run" when there are no rows.
-   **As built (Done #174):**
+   **As built (Done #175):**
    - Prices are traded (split-only), the basis the price-level modules use.
    - Weekly bars reuse the shared loader's resample, so there's no `bars.py` copy of it.
    - Moving averages are computed on the displayed closes.
