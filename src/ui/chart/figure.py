@@ -9,7 +9,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from src.foundation.market_common.models import Timeframe
+from src.ui.chart import earnings as earnings_mod
 from src.ui.chart.config import ChartType, MASpec
+from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import Overlay
 
 # Line colours for the moving averages, in menu order; shorter periods first.
@@ -67,6 +69,40 @@ def _overlay_trace(o: Overlay, x_end: pd.Timestamp) -> go.Scatter:
                       line=dict(color=line, width=1, dash="dash"), hoverinfo="skip", **common)
 
 
+def earnings_bar(bars: pd.DataFrame, card: EarningsCard) -> pd.Timestamp | None:
+    """The chart bar a card points at: its reaction day's bar (a weekly chart's bar is
+    labelled by its week's Monday, so the last one on or before the day, if it's that
+    week). None off the chart, e.g. in the weekly chart's week still in progress."""
+    at = bars.index.searchsorted(card.reaction_date, side="right") - 1
+    if at < 0 or card.reaction_date - bars.index[at] >= pd.Timedelta(days=7):
+        return None
+    return bars.index[at]
+
+
+def earnings_annotations(bars: pd.DataFrame, cards, expanded) -> list[dict]:
+    """A small "E" flag per card on its bar, or the whole card for those in
+    `expanded` (keys). The arrow points at the bar's high, or its low when the
+    reaction day fell; clicking it (`captureevents`) toggles the card in the app."""
+    out = []
+    for card in cards:
+        x = earnings_bar(bars, card)
+        if x is None:
+            continue
+        bar = bars.loc[x]
+        down = card.fell
+        colour = _DOWN if down else _UP
+        is_open = card.key in expanded
+        text = earnings_mod.card_text(card) if is_open else "E"
+        out.append(dict(
+            x=x, y=float(bar["low"] if down else bar["high"]), xref="x", yref="y", name=card.key, text=text,
+            showarrow=True, arrowhead=0, arrowwidth=1, arrowcolor=colour, ax=0,
+            ay=(1 if down else -1) * (110 if is_open else 22), align="left",
+            bordercolor=colour, borderwidth=1, borderpad=4 if is_open else 2, bgcolor="rgba(255,255,255,0.94)",
+            font=dict(size=11 if is_open else 10, color="#0f172a" if is_open else colour),
+            hovertext=earnings_mod.hover_text(card), captureevents=True))
+    return out
+
+
 def closed_weekdays(market_days: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """Weekdays inside a market-wide calendar's span (e.g. SPY's trading days) with no
     bar: the market's holidays, plus any hole in that calendar's own data."""
@@ -102,12 +138,15 @@ def build_figure(
     x_range: tuple | None = None,
     holidays: tuple[str, ...] = (),
     overlays: tuple[Overlay, ...] = (),
+    earnings: tuple[EarningsCard, ...] = (),
+    expanded: frozenset[str] = frozenset(),
 ) -> go.Figure:
     """`mas` holds the series to draw, keyed by `MASpec.key`; `ma_specs` gives their
     labels and colour order. `x_range` sets the visible window, with the y-axes
     fitted to it (None: everything, autoranged). `holidays` (from `closed_weekdays`)
     are hidden on a daily chart along with weekends. `overlays` are drawn under the
-    moving averages, in the order given."""
+    moving averages, in the order given. `earnings` get a flag each, or their card
+    when their key is in `expanded`."""
     rows = 2 if show_volume else 1
     fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0.02,
                         row_heights=[0.8, 0.2] if show_volume else [1.0])
@@ -149,6 +188,8 @@ def build_figure(
             breaks.append(dict(values=list(holidays)))
         fig.update_xaxes(rangebreaks=breaks)
 
+    if earnings and not bars.empty:
+        fig.update_layout(annotations=earnings_annotations(bars, earnings, expanded))
     if x_range is not None and not bars.empty:
         fig.update_xaxes(range=list(x_range))
         for axis, axis_range in y_axis_ranges(bars, mas, x_range, chart_type, show_volume, overlays).items():

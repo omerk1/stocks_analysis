@@ -1,6 +1,7 @@
-"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-2): one ticker,
-daily/weekly, line/bars/candles, volume, moving averages, the RS strip, and the level
-menu (S/R, gaps, AVWAP, Fibonacci) with its default "relevant now" picks.
+"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-3): one ticker,
+daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the level
+menu (S/R, gaps, AVWAP, Fibonacci) with its default "relevant now" picks, and the
+earnings flags and cards.
 
     python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--debug]
 
@@ -26,9 +27,11 @@ from src.foundation.market_common.derived_db import default_derived_db_path
 from src.foundation.market_common.models import Timeframe
 from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
+from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import overlays as overlays_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec
+from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import FAMILIES, FAMILY_NAMES, Overlay
 from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, hidden_weekdays,
                                  padded_full_range, y_axis_ranges)
@@ -67,6 +70,7 @@ class ChartData:
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
         self.overlays = lru_cache(maxsize=16)(self._overlays)
+        self.earnings = lru_cache(maxsize=32)(self._earnings)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -105,6 +109,22 @@ class ChartData:
         for family, error in errors.items():
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
         return OverlaySet(tuple(items), errors, time.perf_counter() - started)
+
+    def _earnings(self, ticker: str) -> tuple[tuple[EarningsCard, ...], str | None]:
+        """(the ticker's earnings cards, oldest first; an error message or None).
+        Never raises, so the chart still draws."""
+        daily = self.bars(ticker, Timeframe.DAILY)
+        if daily.empty:
+            return (), None
+        try:
+            conn = _read_only(self.raw_path)
+            try:
+                return tuple(earnings_mod.load_cards(conn, ticker, daily)), None
+            finally:
+                conn.close()
+        except Exception as e:  # noqa: BLE001 -- a card bug mustn't take the chart down
+            logger.warning("earnings for %s failed: %s", ticker, e, exc_info=True)
+            return (), f"earnings failed: {type(e).__name__}: {e}"
 
     def strip(self, ticker: str, change_days: int) -> rs.RSStrip | str:
         """The strip, or a short message saying why there isn't one; never raises,
@@ -159,10 +179,37 @@ def selected_overlays(data: ChartData, ticker: str, timeframe: Timeframe, menu_k
     return tuple(sorted(items, key=lambda o: _KIND_ORDER.get(o.kind, 9)))
 
 
+def open_cards(cards: tuple[EarningsCard, ...], ticker: str, opened: dict | None,
+               expand_all: bool = False) -> frozenset[str]:
+    """The cards drawn expanded: all with "expand all" (plotly hides the ones out of
+    view), else the ones clicked open for this ticker (`opened` = {"ticker", "open"}),
+    else only the latest."""
+    if expand_all:
+        return frozenset(c.key for c in cards)
+    if opened and opened.get("ticker") == ticker:
+        return frozenset(opened.get("open") or [])
+    return frozenset([cards[-1].key]) if cards else frozenset()
+
+
+def toggle_card(cards: tuple[EarningsCard, ...], ticker: str, opened: dict | None, key: str) -> dict:
+    """The new `opened` store after a click on the card or flag `key`."""
+    now = set(open_cards(cards, ticker, opened))
+    now ^= {key}
+    return {"ticker": ticker, "open": sorted(now)}
+
+
+def clicked_card(click: dict | None) -> str | None:
+    """The card key from plotly's annotation click (`clickAnnotationData`)."""
+    return ((click or {}).get("annotation") or {}).get("name") or None
+
+
 def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe, chart_type: ChartType,
-           ma_keys, show_volume: bool, view: dict | None = None, overlays: tuple[Overlay, ...] = ()):
+           ma_keys, show_volume: bool, view: dict | None = None, overlays: tuple[Overlay, ...] = (),
+           earnings_options=(), opened: dict | None = None):
     """(figure or None, message). `view` is the stored zoom ({"key", "range"}); it's
-    kept when it belongs to this ticker and timeframe, else the default span is shown."""
+    kept when it belongs to this ticker and timeframe, else the default span is shown.
+    `earnings_options` holds "show" and/or "all" (expand all); `opened` the cards
+    clicked open (`open_cards`)."""
     ticker = _normalise(ticker)
     if not ticker:
         return None, "Type a ticker."
@@ -175,9 +222,15 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
     else:
         x_range = default_x_range(bars, timeframe, config.default_span_days[timeframe])
     holidays = data.holidays(ticker) if timeframe == Timeframe.DAILY else ()
+    cards, note = (), None
+    if "show" in (earnings_options or ()):
+        cards, note = data.earnings(ticker)
+    expanded = open_cards(cards, ticker, opened, "all" in (earnings_options or ()))
     fig = build_figure(bars, ticker, timeframe, chart_type, mas, config.ma_options[timeframe],
-                       show_volume=show_volume, x_range=x_range, holidays=holidays, overlays=overlays)
-    return fig, f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
+                       show_volume=show_volume, x_range=x_range, holidays=holidays, overlays=overlays,
+                       earnings=cards, expanded=expanded)
+    message = f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
+    return fig, message + (f" · {note}" if note else "")
 
 
 def _distance_text(d: float) -> str:
@@ -319,6 +372,11 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                 html.Div("Moving averages", style={"fontWeight": 600, "marginBottom": "4px"}),
                 dcc.Checklist(id="mas", inputStyle={"marginRight": "6px"},
                               options=_ma_options(config, daily), value=list(config.ma_defaults[daily])),
+                html.Div("Earnings", style={"fontWeight": 600, "margin": "8px 0 4px"}),
+                dcc.Checklist(id="earnings", value=["show"], inputStyle={"marginRight": "6px"},
+                              options=[{"label": "Flags (click one for its card)", "value": "show"},
+                                       {"label": "Expand all", "value": "all"}]),
+                dcc.Store(id="earnings-open"),
                 html.Hr(style={"margin": "10px 0"}),
                 html.Div(style={"fontSize": "12px", "color": "#475569"}, children=[
                     html.Div("Default picks rank by", style={"fontWeight": 600}),
@@ -382,14 +440,25 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
 
     @app.callback(Output("chart", "figure"), Output("message", "children"),
                   Input("ticker", "value"), Input("chart-type", "value"), Input("mas", "value"),
-                  Input("volume", "value"), Input(items, "value"), State(items, "id"),
+                  Input("volume", "value"), Input(items, "value"), Input("earnings", "value"),
+                  Input("earnings-open", "data"), State(items, "id"),
                   State("menu-key", "data"), State("timeframe", "value"), State("view", "data"))
-    def _draw(ticker, chart_type, ma_keys, volume, item_values, item_ids, menu_key, timeframe, view):
+    def _draw(ticker, chart_type, ma_keys, volume, item_values, earnings_options, opened, item_ids, menu_key,
+              timeframe, view):
         tf = Timeframe(timeframe)
         picked = selected_overlays(data, ticker, tf, menu_key, chosen_items(item_ids, item_values))
         fig, message = render(data, config, ticker, tf, ChartType(chart_type),
-                              ma_keys, "on" in (volume or []), view, picked)
+                              ma_keys, "on" in (volume or []), view, picked, earnings_options, opened)
         return (fig if fig is not None else {}), message
+
+    # A click on a flag opens its card; a click on a card closes it.
+    @app.callback(Output("earnings-open", "data"), Input("chart", "clickAnnotationData"),
+                  State("earnings-open", "data"), State("ticker", "value"), prevent_initial_call=True)
+    def _toggle_card(click, opened, ticker):
+        key, ticker = clicked_card(click), _normalise(ticker)
+        if key is None or not ticker:
+            return no_update
+        return toggle_card(data.earnings(ticker)[0], ticker, opened, key)
 
     @app.callback(Output("rs-strip", "children"), Input("ticker", "value"))
     def _strip(ticker):
