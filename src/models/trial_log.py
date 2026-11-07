@@ -15,15 +15,23 @@ re-raised after logging. Draws and per-fold tables go to
 
 `spec` must state every setting the design asks a trial to log (`SPEC_FIELDS`),
 `open_holdout` included; a trial missing one is refused before it runs.
+
+The scorecard's and the ablation's specs record `environment()` under
+`universe`, next to the caches the fit read: the same code and caches fit
+differently under other library versions (S1r didn't reproduce after the move
+to the venv, Done #172), so two fits are comparable only from one environment.
 """
 
 from __future__ import annotations
 
 import csv
+import functools
 import json
+import platform
 import subprocess
 import uuid
 from contextlib import contextmanager
+from importlib.metadata import version
 from pathlib import Path
 
 import pandas as pd
@@ -47,6 +55,65 @@ SPEC_FIELDS = (
 )
 COLUMNS = ["trial_id", "date", "experiment_id", "status", "git_sha", "git_dirty", *SPEC_FIELDS,
            "metrics", "n_dates", "outcome"]
+
+# The libraries a fit's numbers depend on (scipy: scikit-learn's numerics).
+ENVIRONMENT_PACKAGES = ("numpy", "pandas", "scipy", "scikit-learn")
+
+
+def _blas() -> str:
+    """numpy's BLAS build, or "unknown" where numpy can't say (before 1.26)."""
+    import numpy as np
+    try:
+        blas = np.show_config(mode="dicts")["Build Dependencies"]["blas"]
+    except (TypeError, KeyError):
+        return "unknown"
+    return f"{blas.get('name')} {blas.get('version')}"
+
+
+@functools.cache
+def _environment() -> tuple[tuple[str, str], ...]:
+    return (("python", platform.python_version()), ("machine", platform.machine()),
+            *((p, version(p)) for p in ENVIRONMENT_PACKAGES), ("blas", _blas()))
+
+
+def environment() -> dict[str, str]:
+    """The Python and library versions this process fits with, plus the CPU
+    architecture and numpy's BLAS: the same version strings can come from
+    builds that compute differently (Anaconda's and PyPI's numpy)."""
+    return dict(_environment())
+
+
+def logged_environment(row) -> dict | None:
+    """The environment a logged trial row was fitted in; None when the row
+    predates the field (or has no `universe`): unknown, so it matches nothing."""
+    universe = row.get("universe")
+    if not isinstance(universe, str):
+        return None
+    parsed = json.loads(universe)
+    return parsed.get("environment") if isinstance(parsed, dict) else None
+
+
+def environment_diff(a: dict | None, b: dict | None) -> str:
+    """What differs between two environments, for a refusal message."""
+    if a is None or b is None:
+        return "an environment not recorded"
+    return ", ".join(f"{k} {a.get(k)} vs {b.get(k)}" for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k))
+
+
+def check_environment(trials: pd.DataFrame | None, experiment_id: str) -> None:
+    """Refuses to fit more trials under an id whose `ok` rows were fitted in
+    another environment, or before environments were logged: its cells and the
+    new ones wouldn't be one fit's (Done #172). Failed and abandoned rows don't
+    count; `trials` None is a new log. Callers check before each horizon's fits."""
+    if trials is None:
+        return
+    env = environment()
+    ok = trials[(trials["experiment_id"] == experiment_id) & (trials["status"] == OK)]
+    for _, row in ok.iterrows():
+        logged = logged_environment(row)
+        if logged != env:
+            raise ValueError(f"{experiment_id} is already logged from another environment "
+                             f"({environment_diff(logged, env)}); pick another experiment id")
 
 
 def _git(*args: str) -> str | None:
@@ -134,3 +201,9 @@ def trial(experiment_id: str, spec: dict, trials_path: Path = TRIALS_PATH, artif
 
 def read_trials(trials_path: Path = TRIALS_PATH) -> pd.DataFrame:
     return pd.read_csv(trials_path)
+
+
+def read_existing(trials_path: Path = TRIALS_PATH) -> pd.DataFrame | None:
+    """The log's rows, or None for a new log (missing or empty, as `append_row` reads it)."""
+    path = Path(trials_path)
+    return read_trials(path) if path.exists() and path.stat().st_size else None

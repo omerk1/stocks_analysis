@@ -343,7 +343,8 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
         "hyperparameters": asdict(sc.config),
         "universe": {"indices": list(sc.indices), "features_built": fm.get("created"),
                      "labels_built": lm.get("created"), "disputes": lm.get("disputes"),
-                     "n_disputed_dropped": lm.get("n_disputed_dropped")},
+                     "n_disputed_dropped": lm.get("n_disputed_dropped"),
+                     "environment": trial_log.environment()},
         "liquidity_floors": fm.get("universe", {}).get("floors"),
         "open_holdout": False,
     }
@@ -354,20 +355,21 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
     reference's columns (an S2 run on the S1 cache), and an experiment id
     already logged as something else: other model or reference columns,
     another rank, a rescore (S1b), or not a scorecard at all (an ablation's
-    E1). S1's rows predate the rank field and count as ranked by EV."""
+    E1). S1's rows predate the rank field and count as ranked by EV. Also an
+    id logged from another environment (`trial_log.check_environment`)."""
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks {missing}: rebuild it, or pass the cache built for them")
-    path = Path(trials_path)
-    if not path.exists() or path.stat().st_size == 0:     # a new log, as trial_log.append_row reads it
+    trials = trial_log.read_existing(trials_path)
+    if trials is None:
         return
-    trials = trial_log.read_trials(path)
     ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None)
     for g in trials.loc[trials["experiment_id"] == sc.experiment_id, "feature_groups"]:
         g = json.loads(g)
         if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from")) != ours:
             raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank, or as "
                              "another kind of trial; pick another experiment id")
+    trial_log.check_environment(trials, sc.experiment_id)
 
 
 def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir, n_boot: int | None = None,
@@ -468,6 +470,9 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         frame = cell_frame(features, labels)
         spec["feature_groups"]["rescored_from"] = row["trial_id"]
         spec["feature_groups"]["source_tie_break"] = logged_tie_break(row)
+        # The fit's environment, not this rescore's. The rescore id isn't held to one
+        # environment: each row names its source fit, and pairing checks rows' own.
+        spec["universe"]["environment"] = trial_log.logged_environment(row)
         with trial_log.trial(RESCORE_ID, spec, trials_path, artifacts_root) as t:
             model = preds[preds["model"] == "model"].drop(columns="model")
             ref = preds[preds["model"] == sc.reference].drop(columns="model")

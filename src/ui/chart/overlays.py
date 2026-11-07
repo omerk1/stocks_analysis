@@ -1,0 +1,203 @@
+"""One adapter per indicator family: a module's own detector -> `Overlay`s, the one
+shape the menu, the ranking (`relevance.py`) and the drawing (`figure.py`) share.
+
+Every family runs its own detector live on the ticker's bars, as of the last bar,
+instead of reading the derived database:
+
+- `sr_lines` and `fib_sets` have no stored rows (both tables are empty), and
+- the stored `gaps` / `avwap_anchors` rows are only as fresh as their last batch
+  run, which can be behind the bars on the chart (a gap made since would be missing,
+  and one filled since would still look open).
+
+Each detector loads its bars through the shared loader on the traded basis, the
+same bars the chart draws (`bars.CHART_BASIS`). A run takes from a fraction of a
+second (S/R) to several (gaps over the whole daily history, Fibonacci on weekly), so
+the app caches the result per ticker and timeframe.
+
+This is current state as of the last bar, which is all the first version shows (no
+as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
+"""
+
+from __future__ import annotations
+
+import math
+import sqlite3
+from dataclasses import dataclass, field
+
+import pandas as pd
+
+from src.foundation.market_common.models import Timeframe
+from src.signals.avwap import anchors as avwap_anchors
+from src.signals.avwap import compute as avwap_compute
+from src.signals.avwap.config import AvwapConfig
+from src.signals.avwap.models import AnchorStatus
+from src.signals.fibonacci import engine as fib_engine
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.models import FibSetStatus
+from src.signals.gaps import detect as gap_detect
+from src.signals.gaps.config import GapConfig
+from src.signals.gaps.models import Direction, GapKind, GapStatus
+from src.signals.sr_lines import engine as sr_engine
+from src.signals.sr_lines.config import get_preset
+from src.signals.sr_lines.models import LineKind, LineState
+
+# Menu order. Display names live with the menu (app.py); these are the stable keys.
+SR, GAPS, AVWAP, FIB = "sr_lines", "gaps", "avwap", "fibonacci"
+FAMILIES = (SR, GAPS, AVWAP, FIB)
+FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci"}
+
+# Short and long lookback, as the S/R module's own presets define them.
+SR_PRESETS = {Timeframe.DAILY: ("medium_term", "long_term"),
+              Timeframe.WEEKLY: ("medium_term_weekly", "long_term_weekly")}
+
+
+@dataclass(frozen=True, eq=False)
+class Overlay:
+    """One drawable item. `lo`/`hi` are its price at the last bar (equal for a line,
+    a zone's edges otherwise): what proximity is measured to. `strength` is the
+    module's own score, unscaled (None: the family has none). `hover` holds the
+    source numbers shown next to the item, so it's clear why it was picked."""
+    family: str
+    item_id: str
+    label: str
+    kind: str  # "zone" | "hline" | "series"
+    x0: pd.Timestamp  # where the drawing starts; it runs to the right edge
+    lo: float
+    hi: float
+    strength: float | None
+    alive: bool
+    hover: dict = field(default_factory=dict)
+    series: pd.Series | None = None  # kind "series" only
+    tag: str = ""  # a few characters drawn on the chart next to the item; `label` is for the menu
+
+
+def _day(ts) -> str:
+    return str(ts)[:10]
+
+
+def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float) -> list[Overlay]:
+    """Horizontal S/R zones from both presets. Broken lines are dead; a flipped line is
+    alive (it has swapped sides). Support or resistance is by side of the last close;
+    a zone around the close is "at price"."""
+    out = []
+    for preset in SR_PRESETS[timeframe]:
+        for line in sr_engine.detect(conn, ticker, get_preset(preset)).lines:
+            if line.kind != LineKind.HORIZONTAL or line.center is None:
+                continue  # diagonals are off in every preset; drawing them waits until they aren't
+            lo, hi = line.center - line.half_width, line.center + line.half_width
+            side, tag = (("At price", "S/R") if lo <= close <= hi
+                         else ("Support", "S") if hi < close else ("Resistance", "R"))
+            flipped = " (flipped)" if line.state == LineState.FLIPPED else ""
+            touches = line.touch_counts.total
+            out.append(Overlay(
+                family=SR, item_id=f"{preset}:{_day(line.first_touch)}:{line.center:.4f}",
+                label=f"{side} {line.center:.2f}{flipped}", tag=tag, kind="zone",
+                x0=pd.Timestamp(line.first_touch),
+                lo=lo, hi=hi, strength=float(line.strength), alive=line.state != LineState.BROKEN,
+                hover={"strength": round(float(line.strength), 3), "touches": touches,
+                       "state": line.state.value, "first touch": _day(line.first_touch),
+                       "last event": _day(line.last_event), "preset": preset},
+            ))
+    return out
+
+
+def remaining_zone(bottom: float, top: float, direction: Direction, fill_pct: float) -> tuple[float, float]:
+    """The part of a gap not yet filled. A bullish gap sits below price and fills from
+    its top down; a bearish one sits above and fills from its bottom up."""
+    filled = (top - bottom) * min(max(fill_pct, 0.0), 100.0) / 100.0
+    return (bottom, top - filled) if direction == Direction.BULLISH else (bottom + filled, top)
+
+
+def gap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+    """Open and partly filled gaps are alive (soft-closed and closed ones aren't), drawn
+    as their unfilled part from the bar that made them."""
+    gaps, _, _ = gap_detect.detect(conn, ticker, timeframe, GapConfig())
+    out = []
+    for g in gaps:
+        lo, hi = remaining_zone(g.zone_bottom, g.zone_top, g.direction, g.max_fill_pct or 0.0)
+        kind = "FVG" if g.kind == GapKind.FVG else "Gap"
+        out.append(Overlay(
+            family=GAPS, item_id=f"{g.kind.value}:{g.direction.value}:{_day(g.created_at)}",
+            label=f"{kind} {'up' if g.direction == Direction.BULLISH else 'down'} {lo:.2f}–{hi:.2f}", tag=kind,
+            kind="zone", x0=pd.Timestamp(g.created_at), lo=lo, hi=hi, strength=float(g.size_atr),
+            alive=g.status in (GapStatus.OPEN, GapStatus.PARTIAL),
+            hover={"size (ATR)": round(float(g.size_atr), 2), "filled %": round(float(g.max_fill_pct or 0.0)),
+                   "status": g.status.value, "created": _day(g.created_at), "approaches": g.n_approaches},
+        ))
+    return out
+
+
+def _avwap_value(current_value, series: pd.Series | None) -> float:
+    """The AVWAP at the last bar: the module's own value, else the curve's last point,
+    else NaN (the module leaves it None when no volume has traded since the anchor),
+    which reads as out of reach instead of failing the family."""
+    if current_value is not None and math.isfinite(float(current_value)):
+        return float(current_value)
+    if series is not None and series.notna().any():
+        return float(series.dropna().iloc[-1])
+    return float("nan")
+
+
+def avwap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                   bars: pd.DataFrame) -> list[Overlay]:
+    """Active anchors are alive, stale ones aren't. The curve is recomputed on `bars`
+    from its anchor, the way the module's own plots do."""
+    config = AvwapConfig()
+    anchors, _, _ = avwap_anchors.detect(conn, ticker, timeframe, config)
+    out = []
+    for a in anchors:
+        alive = a.status == AnchorStatus.ACTIVE
+        # Only alive anchors are listed, so only they need the curve (one series per anchor
+        # over the whole history otherwise, held in the app's cache).
+        series = avwap_compute.anchored_vwap(bars, a.anchor_date, config.price_source) if alive else None
+        value = _avwap_value(a.current_value, series)
+        types = ", ".join(sorted(t.value.replace("_", " ") for t in a.anchor_types))
+        out.append(Overlay(
+            family=AVWAP, item_id=_day(a.anchor_date), label=f"AVWAP {_day(a.anchor_date)} ({types})", tag="AVWAP",
+            kind="series", x0=pd.Timestamp(a.anchor_date), lo=value, hi=value, strength=None,
+            alive=alive, series=series,
+            hover={"value": None if math.isnan(value) else round(value, 2), "crosses": a.n_crosses,
+                   "avg reaction on touch (ATR)": None if a.avg_reaction_atr_on_touch is None
+                   else round(float(a.avg_reaction_atr_on_touch), 2),
+                   "status": a.status.value},
+        ))
+    return out
+
+
+def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+    """Each level of the module's selected swings is an item, drawn from the swing's
+    end. A level is alive while its swing isn't invalidated."""
+    result = fib_engine.detect(conn, ticker, timeframe, FibConfig())
+    out = []
+    for s in result.selected_sets:
+        sw = s.swing
+        swing = f"{_day(sw.origin_date)}→{_day(sw.end_date)}"
+        for lvl in s.levels:
+            out.append(Overlay(
+                family=FIB, item_id=f"{swing}x{sw.scale_mult:g}:{lvl.kind.value}:{lvl.ratio:g}",
+                label=f"Fib {lvl.ratio:g} {lvl.price:.2f} ({swing})", tag=f"{lvl.ratio:g}", kind="hline",
+                x0=pd.Timestamp(sw.end_date), lo=float(lvl.price), hi=float(lvl.price), strength=None,
+                alive=s.status == FibSetStatus.ACTIVE,
+                hover={"kind": lvl.kind.value, "swing": f"{swing} {sw.direction.value}",
+                       "set weight": round(float(s.weight), 3), "touches": lvl.n_touches,
+                       "violations": lvl.n_violations},
+            ))
+    return out
+
+
+def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
+    """Every family's overlays, plus {family: message} for families that failed. One
+    family's error doesn't lose the others."""
+    close = float(bars["close"].iloc[-1])
+    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close),
+            GAPS: lambda: gap_overlays(conn, ticker, timeframe),
+            AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
+            FIB: lambda: fib_overlays(conn, ticker, timeframe)}
+    overlays, errors = [], {}
+    for family, run in runs.items():
+        try:
+            overlays.extend(run())
+        except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
+            errors[family] = f"{type(e).__name__}: {e}"
+    return overlays, errors

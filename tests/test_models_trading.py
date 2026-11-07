@@ -62,11 +62,13 @@ def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path)
     trials.touch()
     trading.check_run(s2, s2_cache, trials)                          # an empty log is a new log
     s2_groups = {"model": list(s2.model_columns), "reference_columns": list(B4_COLUMNS), "rank": s2.rank}
+    here = json.dumps({"environment": trial_log.environment()})
     pd.DataFrame({"experiment_id": ["S2", "S1b", "E1"],
                   "feature_groups": [json.dumps(s2_groups),
                                      json.dumps({**s2_groups, "model": list(trading.FULL_COLUMNS),
                                                  "rescored_from": "x"}),
-                                     json.dumps({"step": "T1", "added": [], "reference": "B4"})]}
+                                     json.dumps({"step": "T1", "added": [], "reference": "B4"})],
+                  "status": [trial_log.OK] * 3, "universe": [here] * 3}
                  ).to_csv(trials, index=False)
     trading.check_run(s2, s2_cache, trials)                          # same id, same design
     trading.check_run(replace(s2, experiment_id="S1r", model_columns=trading.FULL_COLUMNS), s2_cache, trials)
@@ -75,6 +77,50 @@ def test_check_run_refuses_a_cache_without_the_columns_and_a_reused_id(tmp_path)
                   replace(s2, experiment_id="E1")):
         with pytest.raises(ValueError, match="already logged"):
             trading.check_run(clash, s2_cache, trials)
+
+
+def test_check_run_refuses_an_id_logged_from_another_environment(tmp_path):
+    """Same id and design, but fitted under other library versions, or before
+    environments were logged (S1r on Anaconda): this run's cells and those
+    wouldn't be one fit's, so the id is refused (Done #172)."""
+    s1 = trading.Scorecard(experiment_id="S1v", model_columns=trading.FULL_COLUMNS, rank="ev_atr")
+    cache = pd.DataFrame(columns=list(trading.FULL_COLUMNS))
+    groups = json.dumps({"model": list(s1.model_columns), "reference_columns": list(B4_COLUMNS), "rank": s1.rank})
+    trials = tmp_path / "TRIALS.csv"
+    here = trial_log.environment()
+    log = lambda status, universe: pd.DataFrame(  # noqa: E731
+        {"experiment_id": ["S1v"], "feature_groups": [groups], "status": [status], "universe": [universe]}
+    ).to_csv(trials, index=False)
+    for universe, says in ((json.dumps({"indices": ["sp500"]}), "not recorded"),
+                           (json.dumps({"environment": {**here, "scikit-learn": "1.5.1"}}), "scikit-learn 1.5.1")):
+        log(trial_log.OK, universe)
+        with pytest.raises(ValueError, match=f"another environment.*{says}"):
+            trading.check_run(s1, cache, trials)
+        log(trial_log.FAILED, universe)
+        trading.check_run(s1, cache, trials)                         # a failed row holds no fit to mix with
+    log(trial_log.OK, json.dumps({"environment": here}))
+    trading.check_run(s1, cache, trials)                             # same environment: more cells of one fit
+
+
+def test_a_numpy_that_cant_report_its_blas_logs_unknown(monkeypatch):
+    def old_numpy(mode=None):                                       # numpy < 1.26 has no mode="dicts"
+        raise TypeError("show_config() got an unexpected keyword argument 'mode'")
+    monkeypatch.setattr(np, "show_config", old_numpy)
+    assert trial_log._blas() == "unknown"
+
+
+def test_the_environment_names_python_and_the_fitting_libraries():
+    env = trial_log.environment()
+    assert set(env) == {"python", "machine", "blas", *trial_log.ENVIRONMENT_PACKAGES}
+    assert all(env[k][0].isdigit() for k in ("python", *trial_log.ENVIRONMENT_PACKAGES))
+    assert env["machine"] and "None" not in env["blas"]
+    env["numpy"] = "0"                                              # a copy: the cached value can't be changed
+    assert trial_log.environment()["numpy"] != "0"
+    env = trial_log.environment()
+    assert trial_log.logged_environment(pd.Series({"universe": json.dumps({"environment": env})})) == env
+    for row in ({"universe": json.dumps({"indices": ["sp500"]})}, {"universe": json.dumps(["sp500"])},
+                {"universe": float("nan")}, {}):
+        assert trial_log.logged_environment(pd.Series(row, dtype=object)) is None
 
 
 def test_run_scorecard_logs_the_column_set_under_its_id(monkeypatch):
@@ -257,14 +303,24 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     assert json.loads(logged.loc[2, "feature_groups"])["rescored_from"] == first["trial_id"]
     assert json.loads(logged.loc[2, "feature_groups"])["rank"] == "ev_atr"
     assert json.loads(logged.loc[2, "feature_groups"])["source_tie_break"] == trading.TIE_BREAK
-    # a row from before the tie fix (no tie_break: name ties) is rescored, and says so
+    assert [trial_log.logged_environment(r) for _, r in logged.iterrows()] == [trial_log.environment()] * 3
+    # a row from before the tie fix (no tie_break: name ties) and before environments
+    # were logged is rescored, and says so: the predictions' environment stays unknown
     old = logged.iloc[:1].copy()
     groups = json.loads(old.loc[0, "feature_groups"])
     del groups["tie_break"]
     old.loc[0, "feature_groups"] = json.dumps(groups)
+    universe = json.loads(old.loc[0, "universe"])
+    del universe["environment"]
+    old.loc[0, "universe"] = json.dumps(universe)
     [_] = trading.rescore(SMALL, old, features, tmp_path, trials_path=tmp_path / "T2.csv", artifacts_root=art)
-    assert json.loads(trial_log.read_trials(tmp_path / "T2.csv").loc[0, "feature_groups"])["source_tie_break"] \
-        == trading.NAME_TIES
+    rescored = trial_log.read_trials(tmp_path / "T2.csv").iloc[0]
+    assert json.loads(rescored["feature_groups"])["source_tie_break"] == trading.NAME_TIES
+    assert trial_log.logged_environment(rescored) is None
+    # into a log whose rescore rows came from another environment too (the real S1b
+    # rows predate the field): each row keeps its own fit's, so a rescore never refuses
+    [_] = trading.rescore(SMALL, old, features, tmp_path, trials_path=trials, artifacts_root=art)
+    assert trial_log.logged_environment(trial_log.read_trials(trials).iloc[-1]) is None
     # the same predictions and ranking score the same
     assert again["by_k"][5]["model"]["costs"][10] == first["by_k"][5]["model"]["costs"][10]
     assert ev_atr["by_k"][5]["model"]["atr_pct"] <= first["by_k"][5]["model"]["atr_pct"]

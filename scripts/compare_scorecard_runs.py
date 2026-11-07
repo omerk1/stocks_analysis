@@ -7,11 +7,16 @@ frame, puts a date-block CI on the per-date difference of their baskets
 readouts (vs market, vs B4, Sharpe, drawdown, ATR, eras, random-k). The
 numbers behind docs/modeling/VALIDATION_HARNESS.md §9 step 2b:
 
-    python3 scripts/compare_scorecard_runs.py S2 S1r --features data/models/features/sp500_s2
-    python3 scripts/compare_scorecard_runs.py S1r S1b --features data/models/features/sp500_s2
+    python3 scripts/compare_scorecard_runs.py S2 S1r --features data/models/features/sp500_s2 --across-environments
+    python3 scripts/compare_scorecard_runs.py S1r S1b --features data/models/features/sp500_s2 --across-environments
+
+(those runs predate the environment field, one Anaconda environment in fact).
 
 Run from the repo root (it imports src.models); writes the per-readout table
-to --out and prints the counts.
+to --out and prints the counts. Two runs fitted in different environments
+(or before environments were logged) are refused: library versions alone
+move the picks (Done #172). --across-environments compares them anyway, to
+measure exactly that.
 """
 
 import argparse
@@ -51,6 +56,22 @@ def logged(trials: pd.DataFrame, experiment_id: str) -> dict[tuple, pd.Series]:
     return out
 
 
+def check_environments(new: dict[tuple, pd.Series], old: dict[tuple, pd.Series], shared: list[tuple],
+                       new_id: str, old_id: str) -> None:
+    """Refuses a pair of runs whose `shared` cells (the compared ones; cells
+    only one run has don't count) weren't all fitted in one known environment."""
+    if not shared:
+        raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
+    first = trial_log.logged_environment(new[shared[0]])
+    for eid, rows in ((new_id, new), (old_id, old)):
+        for key in shared:
+            env = trial_log.logged_environment(rows[key])
+            if env is None or env != first:
+                raise SystemExit(f"the runs weren't fitted in one known environment: {eid} cell {key} has "
+                                 f"{trial_log.environment_diff(env, first)}; "
+                                 "pass --across-environments to compare them anyway")
+
+
 def predictions(row: pd.Series, artifacts_root: Path) -> pd.DataFrame:
     """The model's archived predictions; a rescore row points at the trial it rescored."""
     source = json.loads(row["feature_groups"]).get("rescored_from") or row["trial_id"]
@@ -77,15 +98,21 @@ def readouts(metrics: dict, k: int, tag: str, eras: tuple[str, str]) -> dict:
     }
 
 
-def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, artifacts_root: Path) -> pd.DataFrame:
+def compare(new_id: str, old_id: str, features_dir: Path, labels_dir: Path, artifacts_root: Path,
+            across_environments: bool = False) -> pd.DataFrame:
     trials = trial_log.read_trials()
     new, old = logged(trials, new_id), logged(trials, old_id)
+    shared = sorted(set(new) & set(old))
+    if not shared:                                       # refused with --across-environments too
+        raise SystemExit(f"{new_id} and {old_id} share no cell: nothing to compare")
+    if not across_environments:
+        check_environments(new, old, shared, new_id, old_id)
     features = cache.read_feature_cache(features_dir)
     sc = trading.Scorecard()
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     eras = tuple(f"{e[0]}-{e[-1]}" for e in sc.eras)     # trading.score_cell's by_era keys
     out = []
-    for key in sorted(set(new) & set(old)):
+    for key in shared:
         h, upper, lower = key
         cell = BarrierCell(h, upper, lower, REFERENCE_HORIZON)
         frame = cell_frame(features, dataset.read_labels(labels_dir, h, cell=(upper, lower)))
@@ -134,8 +161,10 @@ def main() -> int:
     parser.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     parser.add_argument("--artifacts", type=Path, default=trial_log.ARTIFACTS_ROOT)
     parser.add_argument("--out", type=Path, default=None, help="CSV of every readout (default: none)")
+    parser.add_argument("--across-environments", action="store_true",
+                        help="compare runs fitted under other library versions (or unlogged ones) anyway")
     args = parser.parse_args()
-    d = compare(args.new, args.old, args.features, args.labels, args.artifacts)
+    d = compare(args.new, args.old, args.features, args.labels, args.artifacts, args.across_environments)
     if args.out:
         d.to_csv(args.out, index=False)
     summary(d, args.new, args.old)

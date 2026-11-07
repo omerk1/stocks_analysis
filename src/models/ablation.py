@@ -295,7 +295,8 @@ def trial_spec(exp: Experiment, i: int, horizon: int, features: pd.DataFrame, la
         **design(exp, i, horizon),
         "universe": {"indices": list(exp.indices), "features_built": fm.get("created"),
                      "labels_built": lm.get("created"), "disputes": lm.get("disputes"),
-                     "n_disputed_dropped": lm.get("n_disputed_dropped")},
+                     "n_disputed_dropped": lm.get("n_disputed_dropped"),
+                     "environment": trial_log.environment()},
         "liquidity_floors": fm.get("universe", {}).get("floors"),
         "open_holdout": False,
     }
@@ -354,6 +355,7 @@ def run_horizon(exp: Experiment, horizon: int, features: pd.DataFrame, labels_di
     than the registered one is for tests: `close_experiment` ignores its rows."""
     n_boot = exp.n_boot if n_boot is None else n_boot
     check_features(exp, features)
+    trial_log.check_environment(trial_log.read_existing(trials_path), exp.experiment_id)
     labels = dataset.read_labels(labels_dir, horizon, cell=(exp.upper, exp.lower))
     frame = cell_frame(features, labels)
     unlabelled = check_labels(exp, features, frame)

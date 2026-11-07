@@ -29,6 +29,7 @@ pygad>=3.5.0
 matplotlib>=3.9.0
 seaborn>=0.13.0
 plotly>=5.24.0
+dash>=4.0  # local chart UI (src/ui/chart/, docs/features/chart_ui_design.md)
 
 # Config / utilities
 pyyaml>=6.0
