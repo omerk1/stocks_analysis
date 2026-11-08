@@ -277,7 +277,9 @@ def test_a_proximity_follow_up_keeps_the_way_out_once():
         reasons = [g.reason for g in find_gaps(_complete(trigger=_unsettled(proximity=p)))]
         assert sum("trade through it" in r and "isn't about reaching a level" in r for r in reasons) == 1
     # It goes on the open question, not on an error next to it.
-    gaps = find_gaps(_complete(trigger=_unsettled(proximity=Proximity(max=-1.0))))
+    gaps = [g for g in find_gaps(_complete(trigger=_unsettled(proximity=Proximity(max=-1.0))))
+            if "proximity" in g.reason or "how close price" in g.reason]
+    assert len(gaps) == 2  # the units question and the negative distance
     assert ["trade through it" in g.reason for g in gaps] == [g.kind == "unquantified" for g in gaps]
 
 

@@ -372,9 +372,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             if p.normalisation is None:
                 asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
             elif p.normalisation == "raw_price":
-                asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, log or %"))
+                asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, "
+                             "percent or log"))
             elif p.normalisation == "percentile":
-                asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, log or %"))
+                asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
             # Not with rejected units: the question would ask for a number in them.
             if p.max is None:
                 if p.normalisation not in ("raw_price", "percentile"):
