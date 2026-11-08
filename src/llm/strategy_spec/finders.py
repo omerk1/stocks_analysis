@@ -52,7 +52,7 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from src.llm.strategy_spec.schema import Proximity, StrategySpec
+from src.llm.strategy_spec.schema import StrategySpec, proximity_gaps
 from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
 from src.signals.moving_averages.features import panel as panel_features
@@ -128,8 +128,7 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
-# A proximity's units, as written after a number ("0.3 ATR", "2%"): only these pass the
-# gap check, so any other proximity is reported as unfinished rather than worded.
+# A settled proximity's units, as written after a number ("0.3 ATR", "2%").
 _UNITS_AFTER_NUMBER = {"atr": " ATR", "pct": "%", "log": " (log)"}
 
 
@@ -138,15 +137,19 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
     applied: these finders' detectors define their own touch, and the trader must not
     judge charts thinking theirs is."""
     p = spec.trigger.proximity if spec.trigger is not None else None
-    # Nothing stated, or "doesn't apply": nothing to disclose.
-    if p is None or p == Proximity() or (p.not_applicable and not p.through):
+    if p is None:
         return
-    if p.through:
+    # The gap check's own rules decide what's settled: an unsettled proximity isn't worded
+    # as if it were a rule, it's reported with what's open.
+    open_ = proximity_gaps(p)
+    if open_:
+        stated = f"not finished ({open_[0][1]}; finish elicitation)"
+    elif p.not_applicable:
+        return  # "doesn't apply": nothing to disclose
+    elif p.through:
         stated = "price must trade through the level"
-    elif p.max is not None and p.max >= 0 and p.normalisation in _UNITS_AFTER_NUMBER:
+    else:
         stated = f"at most {p.max:g}{_UNITS_AFTER_NUMBER[p.normalisation]}"
-    else:  # a state the gap check rejects: don't word it as if it were a rule
-        stated = "a proximity that isn't finished (finish elicitation)"
     rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
                              f"this detector uses its own touch rule; your spec says: {stated}"))
 

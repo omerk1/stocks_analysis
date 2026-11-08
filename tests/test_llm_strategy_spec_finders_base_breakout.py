@@ -17,7 +17,7 @@ from src.foundation.market_common import indicators
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
-from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger
+from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger, proximity_gaps
 
 
 @pytest.fixture(autouse=True)
@@ -190,19 +190,20 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     # "Must trade through it" is a stated requirement too, so it's disclosed as well.
     line = rubric_with(Proximity(through=True))["how close price must come"]
     assert line.value == "NOT APPLIED" and "trade through" in line.detail
-    # Units without a distance doesn't crash the disclosure; "doesn't apply" has nothing to disclose.
     for units, after in (("atr", "0.3 ATR"), ("pct", "0.3%"), ("log", "0.3 (log)")):
         detail = rubric_with(Proximity(normalisation=units, max=0.3))["how close price must come"].detail
         assert f"at most {after}" in detail
-    # A state the gap check rejects is reported as unfinished, not worded as a rule.
-    for p in (Proximity(normalisation="atr"), Proximity(max=0.3), Proximity(normalisation="raw_price", max=1.0),
-              Proximity(normalisation="atr", max=-1.0)):
-        assert "isn't finished" in rubric_with(p)["how close price must come"].detail
-    # Nothing stated, or "doesn't apply": nothing to disclose.
+    # Whatever the gap check doesn't call settled is reported as unfinished, with what's
+    # open, never worded as a rule: the finder and the gap check share one set of rules.
+    for p in (Proximity(), Proximity(normalisation="atr"), Proximity(max=0.3),
+              Proximity(normalisation="raw_price", max=1.0), Proximity(normalisation="atr", max=-1.0),
+              Proximity(normalisation="atr", max=float("inf")), Proximity(through=True, max=0.5),
+              Proximity(through=True, not_applicable=True), Proximity(not_applicable=True, normalisation="atr")):
+        detail = rubric_with(p)["how close price must come"].detail
+        assert detail.startswith("this detector uses its own touch rule; your spec says: not finished (")
+        assert proximity_gaps(p)[0][1] in detail
+    # "Doesn't apply" has nothing to disclose.
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
-    assert "how close price must come" not in rubric_with(Proximity())
-    # A contradictory through + doesn't-apply (an invalid gap) still shows the through.
-    assert "trade through" in rubric_with(Proximity(through=True, not_applicable=True))["how close price must come"].detail
 
 
 def test_unstated_direction_grounds_long_with_a_disclosed_default():

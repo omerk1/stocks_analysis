@@ -45,6 +45,7 @@ ungrounded spec is complete but unconfirmed, not gapped.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -285,6 +286,37 @@ class Gap:
 _PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't about reaching a level"
 
 
+def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
+    """What's still open or wrong in a stated proximity, as (kind, reason); empty means
+    it's settled. The one place its rules live: `find_gaps` asks these, and a finder
+    words a proximity only when there are none."""
+    if p.through and p.not_applicable:
+        return [("invalid", "proximity says both that price must trade through the level and that the "
+                 "trigger isn't about reaching one")]
+    if p.through or p.not_applicable:
+        if p.normalisation is None and p.max is None:
+            return []
+        said = "price must trade through the level" if p.through else "proximity doesn't apply"
+        return [("invalid", f"{said}, but a distance is given too")]
+    asks: list[tuple[GapKind, str]] = []
+    if p.normalisation is None:
+        asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
+    elif p.normalisation == "raw_price":
+        asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, percent or log"))
+    elif p.normalisation == "percentile":
+        asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
+    # Not with rejected units: the question would ask for a number in them.
+    if p.max is None:
+        if p.normalisation not in ("raw_price", "percentile"):
+            asks.append(("unquantified", "how close price must come: at most how far?"))
+    elif not math.isfinite(p.max) or p.max < 0:
+        asks.append(("invalid", "a proximity is a distance: a finite number, not negative"))
+    # The follow-ups keep the first question's way out, once, on the last open question
+    # (an invalid one only if nothing is open): a vague first answer mustn't force a distance.
+    at = max((n for n, (kind, _) in enumerate(asks) if kind == "unquantified"), default=len(asks) - 1)
+    return [(kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if n == at else "")) for n, (kind, reason) in enumerate(asks)]
+
+
 def find_gaps(spec: StrategySpec) -> list[Gap]:
     """Every decision still open in `spec`, in field order. Empty means complete.
 
@@ -360,34 +392,9 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             if catalogue.uses_levels(spec.uses + [i for sig in spec.supporting_signals for i in sig.uses]):
                 add("trigger", "unquantified", "how close must price come to a level for it to count as reached? "
                     f"At most how far, in ATR, percent or log; {_PROXIMITY_WAY_OUT}")
-        elif p.through and p.not_applicable:
-            add("trigger", "invalid", "proximity says both that price must trade through the level and that "
-                "the trigger isn't about reaching one")
-        elif p.through or p.not_applicable:
-            if p.normalisation is not None or p.max is not None:
-                said = "price must trade through the level" if p.through else "proximity doesn't apply"
-                add("trigger", "invalid", f"{said}, but a distance is given too")
         else:
-            asks: list[tuple[GapKind, str]] = []
-            if p.normalisation is None:
-                asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
-            elif p.normalisation == "raw_price":
-                asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, "
-                             "percent or log"))
-            elif p.normalisation == "percentile":
-                asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
-            # Not with rejected units: the question would ask for a number in them.
-            if p.max is None:
-                if p.normalisation not in ("raw_price", "percentile"):
-                    asks.append(("unquantified", "how close price must come: at most how far?"))
-            elif p.max < 0:
-                asks.append(("invalid", "a proximity is a distance and can't be negative"))
-            # The follow-ups keep the first question's way out, once, on the last open
-            # question (an invalid one only if nothing is open): a vague first answer
-            # mustn't force a distance.
-            at = max((n for n, (kind, _) in enumerate(asks) if kind == "unquantified"), default=len(asks) - 1)
-            for n, (kind, reason) in enumerate(asks):
-                add("trigger", kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if n == at else ""))
+            for kind, reason in proximity_gaps(p):
+                add("trigger", kind, reason)
 
     if not spec.horizons_bars:
         add("horizons_bars", "missing", "how many bars after entry is the outcome measured? One or more")

@@ -258,7 +258,8 @@ def test_an_idea_built_on_levels_is_asked_how_close_price_must_come():
     (Proximity(max=0.3), "unquantified", "in ATR, percent or log"),
     (Proximity(normalisation="atr"), "unquantified", "at most how far"),
     (Proximity(normalisation="raw_price", max=0.5), "invalid", "raw price"),
-    (Proximity(normalisation="atr", max=-1.0), "invalid", "can't be negative"),
+    (Proximity(normalisation="atr", max=-1.0), "invalid", "not negative"),
+    (Proximity(normalisation="atr", max=float("nan")), "invalid", "a finite number"),
     (Proximity(normalisation="percentile", max=20.0), "invalid", "isn't a distance"),
     # Rejected units aren't followed by a request for a number in them.
     (Proximity(normalisation="percentile"), "invalid", "isn't a distance"),
@@ -277,8 +278,7 @@ def test_a_proximity_follow_up_keeps_the_way_out_once():
         reasons = [g.reason for g in find_gaps(_complete(trigger=_unsettled(proximity=p)))]
         assert sum("trade through it" in r and "isn't about reaching a level" in r for r in reasons) == 1
     # It goes on the open question, not on an error next to it.
-    gaps = [g for g in find_gaps(_complete(trigger=_unsettled(proximity=Proximity(max=-1.0))))
-            if "proximity" in g.reason or "how close price" in g.reason]
+    gaps = [g for g in find_gaps(_complete(trigger=_unsettled(proximity=Proximity(max=-1.0)))) if g.field == "trigger"]
     assert len(gaps) == 2  # the units question and the negative distance
     assert ["trade through it" in g.reason for g in gaps] == [g.kind == "unquantified" for g in gaps]
 
