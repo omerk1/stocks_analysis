@@ -60,7 +60,7 @@ def test_run_scorecard_fits_on_the_given_seed(monkeypatch):
     from src.models.features import cache
     seen = []
     monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
-    monkeypatch.setattr(cache, "read_feature_cache", lambda path: None)
+    monkeypatch.setattr(cache, "read_feature_cache", lambda path, open_holdout=False: None)
     monkeypatch.setattr(trading, "run_horizon", lambda sc, h, features, labels: seen.append(sc) or [])
     monkeypatch.setattr(cli, "_print_grid", lambda results, sc: None)
     assert cli.main(["run-scorecard", "--horizons", "21", "--seed", "2", "--experiment-id", "S1_s2"]) == 0
@@ -553,6 +553,7 @@ def test_check_run_looks_at_the_holdout_once_and_holds_the_verdict_settings(tmp_
     trials = tmp_path / "TRIALS.csv"
     def log(status, cells):
         pd.DataFrame({"experiment_id": "HT", "feature_groups": groups, "status": status,
+                      "seeds": json.dumps(list(ht.seeds)),
                       "universe": json.dumps({"environment": trial_log.environment()}),
                       "cells": [json.dumps([{"horizon": c.horizon, "upper": c.upper, "lower": c.lower}])
                                 for c in cells]}).to_csv(trials, index=False)
