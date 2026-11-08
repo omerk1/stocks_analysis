@@ -129,14 +129,14 @@ def _segment_trace(points, o: Overlay, colour: str, common: dict) -> go.Scatter:
 
 def guide_traces(o: Overlay, x_end: pd.Timestamp) -> list[go.Scatter]:
     """A segment's extra lines (`Overlay.guides`: a pattern's trigger and target), thin,
-    in its colour and legend group, no hover of their own. One ending at None runs to
+    in its colour and legend group, no hover of their own. One with `to_edge` runs to
     `x_end`, the right edge."""
     colour = _event_colour(o)
-    return [go.Scatter(x=[a[0], x_end if b[0] is None else b[0]], y=[a[1], b[1]], mode="lines+text",
-                       text=["", text], textposition="top left", textfont=dict(size=10, color=colour),
-                       line=dict(color=colour, width=1, dash=dash), uid=f"{o.family}:{o.item_id}:guide{i}",
+    return [go.Scatter(x=[g.x0, x_end if g.to_edge else g.x1], y=[g.y0, g.y1], mode="lines+text",
+                       text=["", g.text], textposition="top left", textfont=dict(size=10, color=colour),
+                       line=dict(color=colour, width=1, dash=g.dash), uid=f"{o.family}:{o.item_id}:guide{i}",
                        name=o.label, showlegend=False, legendgroup=o.family, hoverinfo="skip")
-            for i, (a, b, dash, text) in enumerate(o.guides)]
+            for i, g in enumerate(o.guides)]
 
 
 def _event_colour(o: Overlay) -> str:
@@ -359,7 +359,7 @@ def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
         lows.append(window.min())
         highs.append(window.max())
     for o in overlays:
-        if o.kind == "segment":  # ends at its last point or guide: counts only while it's in the window
+        if o.kind == "segment":  # counts only while what lo/hi cover (`Overlay.x_end`) is in the window
             if _drawable(o) and o.x0 <= end and o.x_end >= start:
                 lows.append(o.lo)
                 highs.append(o.hi)

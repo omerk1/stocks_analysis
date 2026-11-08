@@ -155,6 +155,31 @@ def test_every_pattern_status_has_a_plotting_opacity():
     assert set(_STATUS_OPACITY) == set(PatternStatus)
 
 
+def test_trigger_lines_start_where_each_pattern_defines_them():
+    from types import SimpleNamespace as NS
+
+    from src.signals.patterns.models import PatternType
+    from src.signals.patterns.plotting import trigger_lines
+
+    def match(kind, bars, **kw):
+        pivots = [NS(bar_index=i, price=float(100 + i)) for i in bars]
+        return NS(pattern_type=kind, pivots=pivots, trendlines=kw.get("trendlines", {}),
+                  key_levels=kw.get("key_levels", {}))
+
+    flag = match(PatternType.BULL_FLAG, [0, 10, 12, 15, 18], trendlines={"upper": (-1.0, 120.0), "lower": (-1.0, 115.0)})
+    assert trigger_lines(flag, 20, 30)["upper"] == (12, 108.0, 20, 100.0)  # the channel, not the pole
+    triangle = match(PatternType.SYMMETRIC_TRIANGLE, [3, 8, 13], trendlines={"upper": (0.0, 110.0)})
+    assert trigger_lines(triangle, 20, 30)["upper"][0] == 3  # fitted over the whole window
+    hs = match(PatternType.HEAD_AND_SHOULDERS, [3, 8, 13, 18, 23], trendlines={"neckline": (0.0, 99.0)})
+    assert trigger_lines(hs, 25, 30)["neckline"][0] == 8  # from its first trough
+    reversal = match(PatternType.REVERSAL_123, [2, 6, 9], key_levels={"point2": 106.0, "point2_bar": 6.0})
+    assert trigger_lines(reversal, 12, 30) == {"point2": (6, 106.0, 12, 106.0)}
+    old = match(PatternType.DOUBLE_TOP, [2, 6, 9], key_levels={"neckline": 106.0})  # no stored bar: by price
+    assert trigger_lines(old, 12, 30)["neckline"][0] == 6
+    vcp = match(PatternType.VCP, [2, 6, 9], key_levels={"pivot_price": 50.0})  # no pivot at it: the second-last
+    assert trigger_lines(vcp, 12, 30)["pivot_price"][0] == 6
+
+
 def test_every_direction_has_a_plotting_colour():
     from src.signals.patterns.plotting import _DIRECTION_RGB
 

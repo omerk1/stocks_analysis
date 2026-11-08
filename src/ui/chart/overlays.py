@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 import pandas as pd
 
@@ -49,6 +50,7 @@ from src.signals.market_structure import config as ms_config
 from src.signals.market_structure import detect as ms_detect
 from src.signals.market_structure.models import StructureEvent
 from src.signals.patterns import config as pattern_config
+from src.signals.patterns import plotting as pattern_plotting
 from src.signals.patterns import scanner as pattern_scanner
 from src.signals.patterns.models import PatternStatus, PatternType
 from src.signals.sr_lines.models import LineKind, LineState
@@ -100,16 +102,29 @@ class Overlay:
     same_key: str | None = None
     bullish: bool | None = None  # an event's direction, for its colour; None: the family's colour
     dashed: bool = False  # a segment drawn dashed (a hidden divergence)
-    # Extra straight lines drawn with a segment, each ((x0, y0), (x1, y1), dash, text), e.g.
-    # a chart pattern's trigger line and target; x1 None runs it to the right edge, and
-    # `text` (may be "") is written at its right end.
+    # Extra straight lines drawn with a segment (`Guide`s), e.g. a chart pattern's trigger
+    # line and target.
     guides: tuple = ()
 
     @property
     def x_end(self):
-        """Where a segment's drawing ends: its last point or guide (None: the right edge)."""
-        ends = [p[0] for p in self.points] + [x for g in self.guides for x in (g[0][0], g[1][0])]
-        return pd.Timestamp.max if None in ends else max(ends)
+        """Where the part of a segment that `lo`/`hi` cover ends: its last point or a
+        guide that ends on a bar. A guide running to the right edge (a pattern's
+        target) isn't in `lo`/`hi`, so it doesn't count."""
+        return max([p[0] for p in self.points] + [g.x1 for g in self.guides if not g.to_edge])
+
+
+class Guide(NamedTuple):
+    """A straight line drawn with a segment, from (x0, y0) to (x1, y1), or with
+    `to_edge` from x0 to the chart's right edge (x1 unused). `text` is written at its
+    right end."""
+    x0: pd.Timestamp
+    y0: float
+    x1: pd.Timestamp | None
+    y1: float
+    dash: str = "dot"
+    text: str = ""
+    to_edge: bool = False
 
 
 def _day(ts) -> str:
@@ -366,8 +381,6 @@ _PATTERN_NAMES = {
     PatternType.VCP: ("VCP", "VCP"), PatternType.BULL_FLAG: ("Bull flag", "Flag"),
     PatternType.BEAR_FLAG: ("Bear flag", "Flag"), PatternType.PENNANT: ("Pennant", "Pennant"),
 }
-# The flat trigger level per pattern type, and the key of the bar it starts from.
-_FLAT_TRIGGERS = (("neckline", "neckline_bar"), ("point2", "point2_bar"), ("pivot_price", None))
 # A live pattern's age is its formation, plus up to twice that waiting for a breakout
 # (the module's expiry), plus at most 252 bars after it: 3 x formation + 252. The
 # longest typical formation is 400 bars (rounding; the module scores length, it doesn't
@@ -375,37 +388,52 @@ _FLAT_TRIGGERS = (("neckline", "neckline_bar"), ("point2", "point2_bar"), ("pivo
 # patterns as the whole history on 10 large caps, daily and weekly, in about 0.7 s
 # instead of 2-9 s daily (the scan's cost grows faster than the bar count).
 PATTERN_SCAN_BARS = 2000
+# A live pattern starting this close to the window's first bar may have been cut short
+# by it (an earlier left rim, the ATR warmup, the prior-trend check): rescan everything.
+PATTERN_EDGE_BARS = 250
+_TRIGGER_NAMES = {"neckline": "trigger", "upper": "upper side", "lower": "lower side", "point2": "trigger",
+                  "pivot_price": "trigger"}
+_SAME_PATTERN_OVERLAP = 0.5  # the module's own pivot-overlap rule for one structure (scanner._PIVOT_JACCARD_MIN)
 
 
-_TRIGGER_NAMES = {"neckline": "trigger", "upper": "upper side", "lower": "lower side"}
+def _live_patterns(ticker: str, timeframe: Timeframe, bars: pd.DataFrame, config) -> tuple[pd.DataFrame, list]:
+    """The module's live matches and the frame they were found on: the last
+    `PATTERN_SCAN_BARS` bars, or every bar when a live match starts near that window's
+    edge."""
+    window = bars.iloc[-PATTERN_SCAN_BARS:]
+    while True:
+        live = [m for m in pattern_scanner.scan_bars(window, ticker, timeframe, config)
+                if m.status in _LIVE_PATTERNS and len(m.pivots) >= 2]
+        if len(window) == len(bars) or all(m.pivots[0].bar_index >= PATTERN_EDGE_BARS for m in live):
+            return window, live
+        window = bars
 
 
-def _trigger_lines(m, bars: pd.DataFrame, end: int) -> dict[str, tuple]:
-    """The pattern's trigger as {hover name: guide}, from where it's defined to `end`
-    (its breakout bar, or the last bar): its sloped lines (a neckline, a triangle's two
-    sides) when it has them, else its flat level."""
-    def point(i: int, y: float) -> tuple:
-        return bars.index[i], float(y)
+def _event_keys(matches: list) -> list[str]:
+    """One key per structure: matches ending on the same pivot in the same direction
+    (a double and a triple top on one peak), or of the same type and direction whose
+    pivots mostly overlap (one pending triangle found from windows a pivot apart: the
+    module merges those only once they share a breakout bar), share a key."""
+    parent = list(range(len(matches)))
 
-    if m.trendlines:
-        lines = {}
-        for name, (slope, intercept) in m.trendlines.items():
-            # A neckline is defined from its first trough/peak (pivot 1); a triangle's
-            # sides are fitted over the whole window.
-            start = m.pivots[1].bar_index if name == "neckline" else m.pivots[0].bar_index
-            lines[_TRIGGER_NAMES.get(name, name)] = (point(start, slope * start + intercept),
-                                                     point(end, slope * end + intercept), "dot", "")
-        return lines
-    for level_key, bar_key in _FLAT_TRIGGERS:
-        level = m.key_levels.get(level_key)
-        if level is None:
-            continue
-        start = m.key_levels.get(bar_key) if bar_key else None
-        if start is None:  # the pivot at that level, else the second-last pivot
-            start = next((p.bar_index for p in reversed(m.pivots) if p.price == level), m.pivots[-2].bar_index)
-        start = min(max(int(start), 0), end)
-        return {"trigger": (point(start, level), point(end, level), "dot", "")}
-    return {}
+    def root(i: int) -> int:
+        while parent[i] != i:
+            i = parent[i]
+        return i
+
+    for i, a in enumerate(matches):
+        pa = {p.bar_index for p in a.pivots}
+        for j in range(i):
+            b = matches[j]
+            if a.direction != b.direction:
+                continue
+            pb = {p.bar_index for p in b.pivots}
+            same_end = a.pivots[-1].bar_index == b.pivots[-1].bar_index
+            overlap = a.pattern_type == b.pattern_type and len(pa & pb) / len(pa | pb) >= _SAME_PATTERN_OVERLAP
+            if same_end or overlap:
+                parent[root(i)] = root(j)
+    return [f"{matches[root(i)].direction.value}:{matches[root(i)].pivots[-1].timestamp[:10]}"
+            for i in range(len(matches))]
 
 
 def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> list[Overlay]:
@@ -413,49 +441,48 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
     an event: its pivots joined as an outline, its trigger line up to the breakout,
     and from the breakout its target to the right edge. Ranked by recency (bars since the
     breakout, or since the last pivot while pending) and the module's confidence.
-    Patterns of different types on the same swing (a double and a triple top ending on
-    one peak) are one event.
+    Patterns that are one structure (`_event_keys`) take one default slot.
 
     Runs the module's `scan_bars` on the chart's bars (traded basis), the last
     `PATTERN_SCAN_BARS` of them, with the module's preset for the timeframe."""
     config = pattern_config.get_preset(timeframe.value)
     if len(bars) < config.min_bars:
         return []
-    window = bars.iloc[-PATTERN_SCAN_BARS:]
+    window, matches = _live_patterns(ticker, timeframe, bars, config)
     out = []
-    for m in pattern_scanner.scan_bars(window, ticker, timeframe, config):
-        if m.status not in _LIVE_PATTERNS or len(m.pivots) < 2:
-            continue
+    for m, key in zip(matches, _event_keys(matches)):
         name, tag = _PATTERN_NAMES.get(m.pattern_type, (m.pattern_type.value, m.pattern_type.value))
         bull = None if m.direction == Direction.NEUTRAL else m.direction == Direction.BULLISH
         broke = m.breakout_bar is not None
         end = m.breakout_bar if broke else len(window) - 1
         points = tuple((pd.Timestamp(p.timestamp), float(p.price)) for p in m.pivots)
-        triggers = _trigger_lines(m, window, end)
+        triggers = {_TRIGGER_NAMES.get(k, k): Guide(window.index[s], y0, window.index[e], y1)
+                    for k, (s, y0, e, y1) in pattern_plotting.trigger_lines(m, end, len(window)).items()}
         guides = list(triggers.values())
         # lo/hi (what the y-axis fits) cover the outline and trigger, not the target: a
         # measured move can sit far from price (NVDA weekly: 100 with price at 200).
-        prices = [p[1] for p in points] + [y for g in guides for y in (g[0][1], g[1][1])]
+        prices = [p[1] for p in points] + [y for g in guides for y in (g.y0, g.y1)]
         arrow = {True: "↑", False: "↓", None: ""}[bull]
         if broke and m.target_price is not None:
-            guides.append(((window.index[end], float(m.target_price)), (None, float(m.target_price)), "dash",
-                           f"{tag}{arrow} target"))
+            target = float(m.target_price)
+            guides.append(Guide(window.index[end], target, None, target, "dash", f"{tag}{arrow} target", True))
         moment = window.index[end] if broke else points[-1][0]
         state = f"broke out {_day(moment)}" if broke else f"pending since {_day(points[-1][0])}"
         hover = {"confidence": round(m.confidence, 2), "status": m.status.value.replace("_", " "),
                  "formed": f"{_day(m.formation_start)} – {_day(m.formation_end)}"}
-        hover.update({k: round(g[1][1], 2) for k, g in triggers.items()})  # each line's value at its end
+        hover.update({k: round(g.y1, 2) for k, g in triggers.items()})  # each line's value at its end
         hover.update({"target": round(m.target_price, 2) if m.target_price is not None else "none",
                       "stop": round(m.stop_price, 2) if m.stop_price is not None else "none"})
         if broke:
             hover["breakout volume"] = "confirmed" if m.volume_confirmed else "not confirmed"
         out.append(Overlay(
-            family=PAT, item_id=f"{m.pattern_type.value}:{m.direction.value}:{_day(m.formation_start)}:"
-                                f"{_day(m.formation_end)}",
+            # No direction in the id: a triangle's is only decided at its breakout, and a
+            # ticked pattern must stay ticked when it breaks out.
+            family=PAT, item_id=f"{m.pattern_type.value}:{_day(m.formation_start)}:{_day(m.formation_end)}",
             label=f"{name}{' ' + arrow if arrow else ''} {state}", tag=f"{tag}{arrow}", kind="segment",
             x0=points[0][0], lo=min(prices), hi=max(prices), strength=float(m.confidence), alive=True,
-            points=points, guides=tuple(guides), age_bars=_age(bars, moment),
-            same_key=f"{m.direction.value}:{_day(points[-1][0])}", bullish=bull, hover=hover))
+            points=points, guides=tuple(guides), age_bars=_age(bars, moment), same_key=key, bullish=bull,
+            hover=hover))
     return out
 
 
@@ -469,11 +496,12 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
             AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
             FIB: lambda: fib_overlays(conn, ticker, timeframe),
             VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
-            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
             PAT: lambda: pattern_overlays(ticker, timeframe, bars),
+            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
             MS: lambda: structure_overlays(ticker, timeframe, bars)}
     overlays, errors = [], {}
-    for family, run in runs.items():
+    for family in FAMILIES:  # menu order
+        run = runs[family]
         try:
             overlays.extend(run())
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw

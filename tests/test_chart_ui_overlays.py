@@ -111,7 +111,7 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     monkeypatch.setattr(overlays, "structure_overlays", lambda *a: ["ms item"])
     monkeypatch.setattr(overlays, "pattern_overlays", lambda *a: ["pattern item"])
     items, errors = overlays.all_overlays(None, "ABC", DAILY, bars)
-    assert items == ["avwap item", "fib item", "vp item", "div item", "pattern item", "ms item"]
+    assert items == ["avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]  # menu order
     assert errors == {"gaps": "ValueError: boom"}
 
 
@@ -226,20 +226,35 @@ def test_live_chart_patterns_are_outlines_with_trigger_and_target(monkeypatch, b
     assert d.age_bars == len(bars) - 1 - 40  # since the breakout
     assert t.age_bars == len(bars) - 1 - 35 and t.bullish is None  # pending: since its last pivot
     trigger, target = d.guides
-    assert trigger[:3] == ((bars.index[20], 99.0), (bars.index[40], 99.0), "dot")  # neckline up to the breakout
-    assert target == ((bars.index[40], 120.0), (None, 120.0), "dash", "2Bot↑ target")  # to the right edge
-    assert d.hi < 120.0 and d.x_end == pd.Timestamp.max  # the target doesn't stretch the y-axis
+    assert trigger == overlays.Guide(bars.index[20], 99.0, bars.index[40], 99.0)  # neckline up to the breakout
+    assert (target.x0, target.y0, target.to_edge, target.text) == (bars.index[40], 120.0, True, "2Bot↑ target")
+    assert d.hi < 120.0 and d.x_end == bars.index[40]  # the target isn't in lo/hi, nor in how long they count
     upper, lower = t.guides  # a triangle's two sides, from its first pivot to the last bar
-    assert upper[0] == (bars.index[5], 109.5) and upper[1][0] == bars.index[-1]
+    assert (upper.x0, upper.y0, upper.x1) == (bars.index[5], 109.5, bars.index[-1])
     assert set(t.hover) >= {"upper side", "lower side"} and "trigger" in d.hover
     assert d.same_key == tr.same_key != t.same_key  # double and triple bottom on one swing: one event
+    assert d.item_id == f"double_bottom:{bars.index[10]:%Y-%m-%d}:{bars.index[30]:%Y-%m-%d}"  # no direction
     assert overlays.PAT in overlays.EVENT_FAMILIES and scanned == [len(bars)]
 
 
-def test_chart_patterns_scan_only_the_recent_bars(monkeypatch):
+def test_one_pending_pattern_found_from_two_windows_is_one_event(bars):
+    a = _match(bars, "ascending_triangle", "bullish", "pending", [5, 15, 25, 35])
+    b = _match(bars, "ascending_triangle", "bullish", "pending", [15, 25, 35, 45])  # 3 of 5 pivots shared
+    other = _match(bars, "rising_wedge", "bullish", "pending", [15, 25, 35, 44])  # another type: its own
+    flipped = _match(bars, "ascending_triangle", "bearish", "pending", [15, 25, 35, 46])
+    ka, kb, ko, kf = overlays._event_keys([a, b, other, flipped])
+    assert ka == kb and len({ka, ko, kf}) == 3
+
+
+def test_chart_patterns_scan_the_recent_bars_and_everything_near_the_edge(monkeypatch):
     idx = pd.bdate_range("2000-01-03", periods=overlays.PATTERN_SCAN_BARS + 500)
     long = pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0}, index=idx)
-    windows = []
-    monkeypatch.setattr(overlays.pattern_scanner, "scan_bars", lambda window, *a: windows.append(window) or [])
+    windows, found = [], []
+    monkeypatch.setattr(overlays.pattern_scanner, "scan_bars", lambda window, *a: windows.append(window) or found)
     overlays.pattern_overlays("ABC", DAILY, long)
-    assert len(windows[0]) == overlays.PATTERN_SCAN_BARS and windows[0].index[-1] == idx[-1]
+    assert len(windows) == 1 and len(windows[0]) == overlays.PATTERN_SCAN_BARS and windows[0].index[-1] == idx[-1]
+    window = long.iloc[-overlays.PATTERN_SCAN_BARS:]
+    found.append(_match(window, "rounding_bottom", "bullish", "pending", [10, 400, 900]))  # starts at the edge
+    windows.clear()
+    overlays.pattern_overlays("ABC", DAILY, long)
+    assert [len(w) for w in windows] == [overlays.PATTERN_SCAN_BARS, len(long)]  # rescanned whole
