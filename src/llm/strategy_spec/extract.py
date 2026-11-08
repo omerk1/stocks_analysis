@@ -128,7 +128,7 @@ def build_system() -> str:
 # The schema extraction answers in: the spec without what only the elicitation loop
 # fills (how many filters must hold, each signal's detector settings). With those in the
 # extraction schema, the eval lost 3–5 correct fields and gained 4–5 invented ones (done.md
-# #179), and the first pass never captured a filter count anyway; left out, they are
+# #180), and the first pass never captured a filter count anyway; left out, they are
 # always asked. A signal keeps its own `uses`, which the gap check needs to know what to ask.
 _ELICITED = {"filters_needed"}
 _ELICITED_SIGNAL = {"settings", "defaults_ok"}

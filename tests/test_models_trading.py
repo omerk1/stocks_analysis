@@ -130,7 +130,7 @@ def test_run_scorecard_logs_the_column_set_under_its_id(monkeypatch):
     from src.models.features import cache
     seen = []
     monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
-    monkeypatch.setattr(cache, "read_feature_cache", lambda path: pd.DataFrame())
+    monkeypatch.setattr(cache, "read_feature_cache", lambda path, open_holdout=False: pd.DataFrame())
     monkeypatch.setattr(trading, "run_horizon", lambda sc, h, features, labels: seen.append(sc) or [])
     monkeypatch.setattr(cli, "_print_grid", lambda results, sc: None)
     cli.main(["run-scorecard", "--columns", "S2", "--horizons", "21"])
@@ -222,7 +222,7 @@ SMALL = trading.Scorecard(horizons=(21,), grid=((2.0, 1.5),), n_boot=200, test_y
 @pytest.mark.parametrize("shuffled", [False, True])
 def test_the_scorecard_finds_a_planted_edge_and_nothing_in_noise(tmp_path, monkeypatch, shuffled):
     features, labels = _synthetic(shuffled)
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: labels)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: labels)
     trials = tmp_path / "TRIALS.csv"
 
     [r] = trading.run_horizon(SMALL, 21, features, tmp_path, trials_path=trials, artifacts_root=tmp_path / "art")
@@ -288,7 +288,7 @@ def test_random_picks_take_k_names_a_day_without_looking():
 
 def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
     features, labels = _synthetic(shuffled=False)
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: labels)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: labels)
     trials, art = tmp_path / "TRIALS.csv", tmp_path / "art"
     [first] = trading.run_horizon(SMALL, 21, features, tmp_path, trials_path=trials, artifacts_root=art)
     monkeypatch.setattr(trading, "oos_predictions", lambda *a, **k: pytest.fail("rescore must not refit"))
@@ -330,7 +330,7 @@ def test_rescore_reuses_the_archived_predictions(tmp_path, monkeypatch):
                         trial_log.read_trials(trials), features, tmp_path, trials_path=trials, artifacts_root=art)
     rebuilt = labels.copy()
     rebuilt.attrs["manifest"] = {**labels.attrs["manifest"], "created": "later"}
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: rebuilt)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: rebuilt)
     with pytest.raises(ValueError, match="labels_built"):
         trading.rescore(SMALL, trial_log.read_trials(trials), features, tmp_path, trials_path=trials,
                         artifacts_root=art)
@@ -367,7 +367,7 @@ def test_three_verdicts():
 
 def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, monkeypatch):
     features, labels = _synthetic(shuffled=False)
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: labels)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: labels)
     trials, art = tmp_path / "TRIALS.csv", tmp_path / "art"
     sc = replace(SMALL, experiment_id="F2", track="B", band=0.001, verdict_k=5, ci=0.95)
     [r] = trading.run_horizon(sc, 21, features, tmp_path, trials_path=trials, artifacts_root=art)
@@ -412,9 +412,162 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     # a cache rebuilt since the fit is refused, not scored silently
     rebuilt = labels.copy()
     rebuilt.attrs["manifest"] = {**labels.attrs["manifest"], "created": "later"}
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: rebuilt)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: rebuilt)
     with pytest.raises(ValueError, match="labels_built"):
         trading.close_scorecard(sc, logged, features, tmp_path, artifacts_root=art, require_clean=False)
+
+
+def test_close_scorecard_judges_against_the_market_net_of_cost(tmp_path, monkeypatch):
+    """A verdict against the market charges the model its round trip and the
+    market none, so D_H is the gross difference less the cost; against the
+    reference both sides pay it and it cancels. The other sides are reported
+    as controls, and min_positive_years joins the entry rule."""
+    features, labels = _synthetic(shuffled=False)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: labels)
+    trials, art = tmp_path / "TRIALS.csv", tmp_path / "art"
+    sc = replace(SMALL, experiment_id="HT", track="B", band=0.001, verdict_k=5, ci=0.95,
+                 verdict_against="market", verdict_cost_bps=10, min_positive_years=3)
+    trading.run_horizon(sc, 21, features, tmp_path, trials_path=trials, artifacts_root=art)
+    logged = trial_log.read_trials(trials)
+    groups = json.loads(logged.loc[0, "feature_groups"])
+    assert (groups["verdict_against"], groups["verdict_cost_bps"], groups["min_positive_years"]) == ("market", 10, 3)
+    def close(s):
+        """`s` closed on the same fits, logged as if registered with `s`'s verdict settings."""
+        fields = {"verdict_against": s.verdict_against, "verdict_cost_bps": s.verdict_cost_bps,
+                  "min_positive_years": s.min_positive_years}
+        as_s = logged.assign(feature_groups=logged["feature_groups"].map(lambda g: json.dumps({**json.loads(g),
+                                                                                              **fields})))
+        return trading.close_scorecard(s, as_s, features, tmp_path, artifacts_root=art,
+                                       require_clean=False)["horizons"][21]
+    net, gross = close(sc), close(replace(sc, verdict_cost_bps=0))
+    assert net["point_estimate"] == pytest.approx(gross["point_estimate"] - 0.001)
+    assert set(net["controls"]) == {"reference", "low_vol"}
+    vs_ref = close(replace(sc, verdict_against="reference", verdict_cost_bps=0))
+    assert net["controls"]["reference"]["point_estimate"] == pytest.approx(vs_ref["point_estimate"])  # cost cancels
+    assert net["controls"]["low_vol"]["point_estimate"] == pytest.approx(
+        gross["controls"]["low_vol"]["point_estimate"])
+    assert set(net["by_year_n_dates"]) == {2019, 2020, 2021}
+    assert not close(replace(sc, min_positive_years=4))["entry_rule_met"]   # only 3 test years
+    # the logged verdict settings must be the registered ones: other settings find no trial
+    other = trading.close_scorecard(replace(sc, verdict_against="low_vol"), logged, features, tmp_path,
+                                    artifacts_root=art, require_clean=False)["horizons"][21]
+    assert other["verdict"] == trading.INCONCLUSIVE and other["missing_cells"]
+
+
+def test_years_positive_counts_only_years_with_enough_dates():
+    r = {"by_year": {2022: 0.002, 2023: -0.001, 2024: 0.003, 2026: 0.004},
+         "by_year_n_dates": {2022: 250, 2023: 250, 2024: 252, 2026: trading.MIN_YEAR_DATES - 1}}
+    assert trading.years_positive(r) == 2          # 2026 is positive but too short; 2023 is negative
+    r["by_year_n_dates"][2026] = trading.MIN_YEAR_DATES
+    assert trading.years_positive(r) == 3
+
+
+def test_low_vol_picks_take_the_calmest_names_and_the_market_pays_no_cost():
+    d = pd.to_datetime(["2020-01-02"] * 3 + ["2020-01-03"] * 3)
+    every = pd.DataFrame({"date": d, "ticker": list("ABCABC"), "hit": 0.0, "ret": 0.01,
+                          "atr_pct": [0.03, 0.01, 0.02, 0.01, 0.05, 0.02]})
+    got = trading.low_vol_picks(every, 2)
+    assert got.groupby("date")["ticker"].apply(sorted).tolist() == [["B", "C"], ["A", "C"]]
+    stale = every.assign(atr_pct=[0.0, 0.01, 0.02, 0.01, 0.05, 0.02])           # A's price is flat on day 1
+    assert trading.low_vol_picks(stale, 2).groupby("date")["ticker"].apply(sorted).tolist() == [["B", "C"], ["A", "C"]]
+    sc = replace(SMALL, track="B", verdict_k=5, verdict_cost_bps=10)
+    assert [trading.side_cost(sc, s) for s in ("model", "reference", "low_vol", "market")] == [10, 10, 10, 0]
+
+
+def test_the_holdout_opens_only_for_a_registered_scorecard():
+    """Test years past 2021 need open_holdout, which only a Track B scorecard
+    may set; its feature cache must be built open and reach into its last
+    (possibly partial) test year, and a closed experiment refuses an open cache."""
+    with pytest.raises(dataset.HoldoutError):
+        trading.Scorecard(test_years=(2021, 2022))
+    with pytest.raises(ValueError, match="Track A"):
+        trading.Scorecard(test_years=(2022,), open_holdout=True)
+    with pytest.raises(ValueError, match="verdict_against"):
+        trading.Scorecard(verdict_against="sp500")
+    with pytest.raises(ValueError, match="none is past"):
+        trading.Scorecard(track="B", open_holdout=True)                          # the dev years: nothing to open
+    years = (2022, 2023, 2024, 2025, 2026)
+    with pytest.raises(ValueError, match="eras"):
+        trading.Scorecard(track="B", open_holdout=True, test_years=years)        # the dev eras have no dates here
+    with pytest.raises(ValueError, match="needs eras"):
+        trading.Scorecard(track="B", open_holdout=True, test_years=years, eras=())  # the era rule would pass untested
+    ht = trading.Scorecard(experiment_id="HT", track="B", open_holdout=True, test_years=years,
+                           eras=((2022, 2023), (2024, 2025, 2026)))
+    features, labels = _synthetic(shuffled=False)
+    features.attrs["manifest"] = {**features.attrs["manifest"], "start": "2010-01-04", "end": "2026-09-30",
+                                  "open_holdout": True}
+    trading.check_features(ht, features)                                         # partial 2026 is fine
+    with pytest.raises(ValueError, match="holdout open"):
+        trading.check_features(trading.Scorecard(), features)
+    for end in ("2025-12-31", "2026-03-31"):                                     # no 2026, or under half of it
+        short = features.copy()
+        short.attrs["manifest"] = {**features.attrs["manifest"], "end": end}
+        with pytest.raises(ValueError, match="before the last test year"):
+            trading.check_features(ht, short)
+    [cell] = SMALL.cells(21)
+    assert trading.trial_spec(ht, cell, features, labels)["open_holdout"] is True
+    assert trading.trial_spec(SMALL, cell, features, labels)["open_holdout"] is False
+
+
+def test_check_run_looks_at_the_holdout_once_and_holds_the_verdict_settings(tmp_path):
+    """A scorecard that opens the holdout never refits a cell it has started:
+    a row (a failed one too: it may have failed after scoring) or a started
+    note with no row (the process died mid-fit). A run that stopped partway
+    finishes the rest, and a done horizon runs nothing, so a resume can pass
+    every registered horizon. An id logged with other verdict settings is
+    refused outright."""
+    ht = trading.Scorecard(experiment_id="HT", track="B", open_holdout=True, test_years=(2022, 2023),
+                           eras=((2022,), (2023,)), verdict_against="market", verdict_cost_bps=10)
+    cache = pd.DataFrame(columns=list(ht.model_columns))
+    groups = json.dumps(trading.trial_spec(ht, ht.cells(21)[0], cache, cache)["feature_groups"])
+    trials = tmp_path / "TRIALS.csv"
+    def log(status, cells):
+        pd.DataFrame({"experiment_id": "HT", "feature_groups": groups, "status": status,
+                      "universe": json.dumps({"environment": trial_log.environment()}),
+                      "cells": [json.dumps([{"horizon": c.horizon, "upper": c.upper, "lower": c.lower}])
+                                for c in cells]}).to_csv(trials, index=False)
+        return trial_log.read_existing(trials)
+    first, second, *rest = ht.cells(21)
+    run = lambda h, sc=ht: trading.cells_to_run(sc, h, trial_log.read_existing(trials), tmp_path)
+    log(trial_log.OK, [first])
+    assert run(21) == [second, *rest]                                                      # resumes the rest
+    log(trial_log.FAILED, [first])
+    assert run(21) == [second, *rest]                                                      # may have scored
+    trading.mark_started(ht, second, tmp_path)
+    assert run(21) == rest                                                                 # died before its row
+    trading.check_run(ht, cache, trials)
+    assert run(63) == ht.cells(63)                                                         # the other horizon
+    assert run(21, replace(ht, open_holdout=False, test_years=(2020, 2021),
+                           eras=((2020,), (2021,)))) == ht.cells(21)                       # dev runs refit
+    log(trial_log.OK, ht.cells(21))
+    assert run(21) == [] and run(63) == ht.cells(63)                                       # a resume runs only H63
+    with pytest.raises(ValueError, match="verdict"):
+        trading.check_run(replace(ht, verdict_against="reference"), cache, trials)
+
+
+def test_the_cli_opens_the_holdout_only_with_both_keys(monkeypatch):
+    """The registration says so *and* the operator types --open-holdout;
+    either alone is refused, and the cache is then read open."""
+    from src.models import cli
+    from src.models.features import cache
+    ht = trading.Scorecard(experiment_id="HT", track="B", open_holdout=True, test_years=(2022, 2023),
+                           eras=((2022,), (2023,)), horizons=(21,))
+    monkeypatch.setitem(trading.PREREGISTERED, "HT", ht)
+    monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
+    reads = []
+    monkeypatch.setattr(cache, "read_feature_cache", lambda path, open_holdout=False: reads.append(open_holdout))
+    monkeypatch.setattr(trading, "run_horizon", lambda sc, h, features, labels: [])
+    monkeypatch.setattr(cli, "_print_grid", lambda results, sc: None)
+    for argv, says in ((["--preregistered", "HT"], "pass --open-holdout"),
+                       (["--preregistered", "F2", "--open-holdout"], "isn't registered"),
+                       (["--open-holdout"], "--preregistered")):
+        with pytest.raises(SystemExit, match=says):
+            cli.main(["run-scorecard", "--horizons", "21", *argv])
+    assert reads == []
+    assert cli.main(["run-scorecard", "--horizons", "21", "--preregistered", "HT", "--open-holdout"]) == 0
+    assert reads == [True]
+    with pytest.raises(SystemExit, match="pass --open-holdout"):
+        cli.main(["close-scorecard", "HT"])
 
 
 def test_pick_diagnostics_by_hand():
