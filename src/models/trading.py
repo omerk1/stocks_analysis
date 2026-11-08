@@ -102,6 +102,10 @@ STEP_2B_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252", "r
 # S2_no_market are logged).
 MARKET_WIDE_COLUMNS = ("spy_dist_sma_200", "spy_slope_log_63", "spy_rvol_21", "breadth_above_sma50",
                        "breadth_above_sma200", "adv_dec_10")
+# The step-2b volatility columns (registry group "volatility"), tied to the
+# registry by a test like MARKET_WIDE_COLUMNS: S1_vol asks whether they alone
+# carry S2_no_market's gain over S1 (a volatility tilt), not the other 5.
+VOLATILITY_COLUMNS = ("bb_width_pctile", "atr_ratio_5_63", "rvol_21_pctile_252")
 # Company financials (docs/fundamentals/plan.md step 3, registry group `fundamentals`).
 FUNDAMENTALS_COLUMNS = ("days_since_earnings", "days_to_earnings_expected", "sue_net_income_rank",
                         "rev_growth_yoy_rank", "rev_growth_accel", "net_margin_ttm", "debt_to_equity",
@@ -118,6 +122,7 @@ COLUMN_SETS = {
     "S2": FULL_COLUMNS + STEP_2B_COLUMNS,
     "S2_no_market": FULL_COLUMNS + tuple(c for c in STEP_2B_COLUMNS if c not in MARKET_WIDE_COLUMNS),
     "S3": FULL_COLUMNS + LEVEL_COLUMNS,
+    "S1_vol": FULL_COLUMNS + VOLATILITY_COLUMNS,
 }
 S2_COLUMNS = COLUMN_SETS["S2"]
 
@@ -394,9 +399,9 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
     """Refuses, before any trial is logged, a cache without the model's or the
     reference's columns (an S2 run on the S1 cache), and an experiment id
     already logged as something else: other model or reference columns,
-    another rank or verdict settings, a rescore (S1b), or not a scorecard at
-    all (an ablation's E1). S1's rows predate the rank field and count as
-    ranked by EV. Also an id logged from another environment
+    another rank, other seeds or verdict settings, a rescore (S1b), or not a
+    scorecard at all (an ablation's E1). S1's rows predate the rank field and
+    count as ranked by EV. Also an id logged from another environment
     (`trial_log.check_environment`). A scorecard that opens the holdout looks
     at each cell once: `cells_to_run` skips the ones already started."""
     missing = [c for c in sc.model_columns + sc.reference_columns if c not in features.columns]
@@ -405,14 +410,14 @@ def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIAL
     trials = trial_log.read_existing(trials_path)
     if trials is None:
         return
-    ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None, verdict_settings(sc))
-    mine = trials[trials["experiment_id"] == sc.experiment_id]
-    for g in mine["feature_groups"]:
-        g = json.loads(g)
-        if (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from"),
-                logged_verdict(g)) != ours:
-            raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank or verdict, "
-                             "or as another kind of trial; pick another experiment id")
+    ours = (list(sc.model_columns), list(sc.reference_columns), sc.rank, None, list(sc.seeds), verdict_settings(sc))
+    for _, row in trials[trials["experiment_id"] == sc.experiment_id].iterrows():
+        g = json.loads(row["feature_groups"])
+        logged = (g.get("model"), g.get("reference_columns"), g.get("rank") or "ev", g.get("rescored_from"),
+                  json.loads(row["seeds"]), logged_verdict(g))
+        if logged != ours:
+            raise ValueError(f"{sc.experiment_id} is already logged with other columns, another rank, other "
+                             "seeds or verdict, or as another kind of trial; pick another experiment id")
     trial_log.check_environment(trials, sc.experiment_id)
 
 

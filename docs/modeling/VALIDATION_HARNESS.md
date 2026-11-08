@@ -732,7 +732,47 @@ Build order, one PR each, each with its own tests:
        vendor history-depth limit; one seed. Exploration, not a finding: as added columns,
        the levels don't help the picks here. Next candidates: the 8 per-name step-2b
        columns on S1v (step 2b diagnostic; run, Done #174: the picks look better), or a dilution check (fewer level columns, or
-       `max_features` 1.0) before dropping the levels. **Step 3:**
+       `max_features` 1.0) before dropping the levels.
+   - **Freeze checks (Track A, decided 2026-11-07, before the runs).** Exploration stops
+     here: the model for the pre-registered trading test is S1 + the 8 per-name step-2b
+     columns, unless these two checks say otherwise. Levels and step 3 stay out (a later
+     version, tested against the frozen one). Same flags as S1v (cache `sp500_levels`,
+     `--rank ev_atr`, H21/63).
+     - **Seeds.** `--seed 1` and `--seed 2` refits of both S1 (`S1v_seed1`, `S1v_seed2`)
+       and the 8 (`S2_no_market_v_seed1`, `S2_no_market_v_seed2`), paired per seed with
+       `compare_scorecard_runs.py`. The 8 stay only if, at both seeds, the paired median
+       is above zero and the CI is below zero at no more than 2 of 36 readouts (the
+       refit-noise level, S1r vs S1b). Otherwise the frozen model is S1.
+     - **Volatility.** `S1_vol` = S1 + the 3 volatility columns alone (seed 0), paired
+       against `S2_no_market_v`. The 8 beat it only if the paired median is above zero and
+       the CI is above zero at more than 2 of 36 (past the same refit-noise level);
+       otherwise the other 5 add nothing past the volatility columns and the frozen model
+       is `S1_vol`. Either way the trading test gets a low-volatility baseline as a
+       control, since part of the gain may be a tilt toward calmer names, which is
+       a known effect on its own.
+     - Every pair's B4 predictions must be equal, which `compare_scorecard_runs.py` now
+       reports per cell; it also refuses a pair fitted on different seeds. `S1_vol` is
+       compared with S1v too, for its B4 alone: the `traded` bars were refreshed
+       2026-11-07, and a drift in the inputs would show there. That pair needs
+       `--across-environments` (S1v predates the field); the others don't.
+     - **Result (2026-11-08, Track A, no claim): frozen model = S1 + the 8 per-name
+       columns** (`COLUMN_SETS["S2_no_market"]`). B4 predictions equal at 18 of 18 cells
+       in every pair.
+
+       | Pair | Median | CI below zero | CI above zero | Rule |
+       |---|---|---|---|---|
+       | the 8 − S1, seed 1 | +0.08% | 0 of 36 | 9 | holds |
+       | the 8 − S1, seed 2 | +0.07% | 0 of 36 | 11 | holds |
+       | the 8 − `S1_vol` (seed 0) | +0.03% | 0 of 36 | 6 | the 8 beat the 3 |
+       | `S1_vol` − S1v (B4 check only) | +0.02% | 1 | 2 | — |
+
+       The gain over S1 repeats at every seed (seed 0, #269: +0.05%, 6 above), mostly at
+       H63, and the 3 volatility columns alone take about half of it: `S1_vol` − S1v is
+       inside refit noise, and the 8 still clear `S1_vol` at 6 readouts. The picks are a
+       little calmer (ATR 2.2–2.5% vs S1's 2.3–2.7%), so the trading test keeps the
+       low-volatility control. Comparison logs: `data/models/{seed1,seed2,vol}_compare.log`,
+       `s1vol_vs_s1v.log`.
+   - **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
      here. Two would fail silently: the stored `confluence_count` /
