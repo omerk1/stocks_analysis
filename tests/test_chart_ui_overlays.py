@@ -106,6 +106,40 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     monkeypatch.setattr(overlays, "gap_overlays", lambda *a: (_ for _ in ()).throw(ValueError("boom")))
     monkeypatch.setattr(overlays, "avwap_overlays", lambda *a: ["avwap item"])
     monkeypatch.setattr(overlays, "fib_overlays", lambda *a: ["fib item"])
+    monkeypatch.setattr(overlays, "divergence_overlays", lambda *a: ["div item"])
     items, errors = overlays.all_overlays(None, "ABC", DAILY, bars)
-    assert items == ["avwap item", "fib item"]
+    assert items == ["avwap item", "fib item", "div item"]
     assert errors == {"gaps": "ValueError: boom"}
+
+
+def _div(p1, p2, confirmed, indicator="rsi", direction=Direction.BULLISH, hidden=False, invalidated=False):
+    from src.signals.divergences.models import DivergenceForm, IndicatorKind
+    return NS(p1_date=f"{p1}T00:00:00", p2_date=f"{p2}T00:00:00", confirmed_at=f"{confirmed}T00:00:00",
+              p1_price=100.0, p2_price=95.0, i1_value=30.0, i2_value=35.0, strength=0.6,
+              indicator=IndicatorKind(indicator), direction=direction,
+              form=DivergenceForm.HIDDEN if hidden else DivergenceForm.REGULAR,
+              invalidated=invalidated, invalidated_at="2024-03-05T00:00:00" if invalidated else None,
+              confluence_count=2)
+
+
+def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
+    divs = [_div("2024-01-15", "2024-02-01", "2024-02-06"),
+            _div("2024-01-15", "2024-02-01", "2024-02-07", indicator="macd_hist"),
+            _div("2024-01-20", "2024-02-20", "2024-02-26", indicator="obv", direction=Direction.BEARISH,
+                 hidden=True, invalidated=True)]
+    monkeypatch.setattr(overlays.div_detect, "detect_divergences", lambda *a, **k: divs)
+    monkeypatch.setattr(overlays.div_detect, "_apply_confluence", lambda *a, **k: None)
+    config = overlays.DivergenceConfig
+    monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=10))
+    rsi, macd, obv = overlays.divergence_overlays(None, "ABC", DAILY, bars)
+    assert rsi.kind == "segment" and rsi.points == ((pd.Timestamp("2024-01-15"), 100.0),
+                                                     (pd.Timestamp("2024-02-01"), 95.0))
+    assert (rsi.pane, rsi.pane_points[1]) == ("rsi", (pd.Timestamp("2024-02-01"), 35.0))
+    assert macd.pane == "macd" and obv.pane is None  # OBV has no pane: drawn on price only
+    last = bars.index[-1]
+    assert rsi.age_bars == len(bars.loc[pd.Timestamp("2024-02-06"):last]) - 1
+    assert rsi.same_key == macd.same_key != obv.same_key  # same pivot, two indicators: one event
+    assert (rsi.alive, obv.alive, obv.dashed, obv.bullish) == (True, False, True, False)
+    assert rsi.tag == "RSI↑" and obv.tag == "OBV↓h"
+    monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=150))  # too few bars: none
+    assert overlays.divergence_overlays(None, "ABC", DAILY, bars) == []

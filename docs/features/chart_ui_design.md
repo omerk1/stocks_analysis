@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–3 and 4a built (Done #175–#178, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3, 4a and 4b built (Done #175–#178, #181, 2026-11-08). Lean first version, wider later.
 
 ## One-liner
 
@@ -284,6 +284,34 @@ class Overlay:
      axis, re-decided on every zoom and pan: so it isn't cut off at the top of the
      figure or pushed into the panes below (step 3's review finding, worse with the
      shorter price pane).
+
+   As built, 4b (divergences in the level menu, Done #181):
+   - The divergence module's detector runs live like the other families (RSI, MACD
+     histogram and OBV; regular and hidden). Each divergence is a line from its first
+     price pivot to its second, green bullish / red bearish, dashed when hidden, with a
+     short tag ("RSI↑", "MACD↓h"). With the RSI or MACD pane shown, the same divergence
+     is also drawn there between the paired indicator values. OBV has no pane, so only
+     its price line is drawn. The module stores the indicator pivots' values but not
+     their dates (they pair within 3 bars of the price pivots), so the pane line uses
+     the price pivots' dates.
+   - Alive is the module's own rule: not invalidated (price went past the pair's
+     extreme within its 20-bar outcome window). Old divergences stay alive for good, so
+     a divergence isn't ranked by distance from price but by recency: in reach when
+     confirmed at most `reach_bars` ago (40 daily, about two months; 12 weekly, about a
+     quarter), proximity = 1 − age / reach, mixed with the module's strength like the
+     other families. The menu shows "12 bars ago" for each, and the family count reads
+     "1 of 2 recent" ("3 shown, 0 recent" when older ones are ticked).
+   - Divergences on the same second pivot and direction (RSI and MACD on one low) are
+     one event and take one default slot. Ticking the family with nothing recent picks
+     the 3 latest alive ones, also one per event.
+   - The adapter runs the module's own pipeline on the chart's bars (same basis) rather
+     than loading them again, so each divergence's age counts the bars it was found on.
+   - On 10 large caps, 0–2 divergences per chart are in reach daily and 0–1 weekly, so
+     they're picked only when there's a recent one (none on AAPL).
+   - The detector adds about 2–3 s per chart. The menu now takes about 3–8 s daily and
+     4–17 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
+     detectors on threads doesn't help (they're CPU-bound Python); separate processes
+     would, a later change if the wait gets in the way.
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 

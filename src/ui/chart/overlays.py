@@ -31,6 +31,9 @@ from src.signals.avwap import anchors as avwap_anchors
 from src.signals.avwap import compute as avwap_compute
 from src.signals.avwap.config import AvwapConfig
 from src.signals.avwap.models import AnchorStatus
+from src.signals.divergences import detect as div_detect
+from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.models import DivergenceForm
 from src.signals.fibonacci import engine as fib_engine
 from src.signals.fibonacci.config import FibConfig
 from src.signals.fibonacci.models import FibSetStatus
@@ -42,9 +45,11 @@ from src.signals.sr_lines.config import get_preset
 from src.signals.sr_lines.models import LineKind, LineState
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
-SR, GAPS, AVWAP, FIB = "sr_lines", "gaps", "avwap", "fibonacci"
-FAMILIES = (SR, GAPS, AVWAP, FIB)
-FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci"}
+SR, GAPS, AVWAP, FIB, DIV = "sr_lines", "gaps", "avwap", "fibonacci", "divergences"
+FAMILIES = (SR, GAPS, AVWAP, FIB, DIV)
+FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci",
+                DIV: "Divergences"}
+EVENT_FAMILIES = frozenset({DIV})  # ranked by recency (`Overlay.age_bars`), not distance from price
 
 # Short and long lookback, as the S/R module's own presets define them.
 SR_PRESETS = {Timeframe.DAILY: ("medium_term", "long_term"),
@@ -69,6 +74,20 @@ class Overlay:
     hover: dict = field(default_factory=dict)
     series: pd.Series | None = None  # kind "series" only
     tag: str = ""  # a few characters drawn on the chart next to the item; `label` is for the menu
+    # Kind "segment" (an event drawn between two points, e.g. a divergence's two pivots):
+    # its points on the price pane, and optionally on an indicator pane (`pane` = its key
+    # in `panes.PANES`), drawn there only while that pane is shown.
+    points: tuple = ()  # ((x, y), (x, y))
+    pane: str | None = None
+    pane_points: tuple = ()
+    # An event is ranked by how recent it is, not by distance from price: bars from its
+    # confirmation to the last bar (None for levels).
+    age_bars: int | None = None
+    # Items with the same key in a family are one event (e.g. RSI and MACD divergences on
+    # the same pivot) and take one default slot; None: compared by price instead.
+    same_key: str | None = None
+    bullish: bool | None = None  # an event's direction, for its colour; None: the family's colour
+    dashed: bool = False  # a segment drawn dashed (a hidden divergence)
 
 
 def _day(ts) -> str:
@@ -185,6 +204,56 @@ def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) ->
     return out
 
 
+_DIV_NAMES = {"rsi": "RSI", "macd_hist": "MACD", "obv": "OBV", "volume": "Volume"}
+_DIV_PANES = {"rsi": "rsi", "macd_hist": "macd"}  # indicator -> the pane it's drawn on (OBV has none)
+
+
+def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                        bars: pd.DataFrame) -> list[Overlay]:
+    """Each divergence is an item, drawn from its first price pivot to its second, and
+    on its indicator's pane between the paired indicator pivots' values. Alive unless
+    invalidated (price went past the pair's extreme within the module's outcome
+    window); ranked by recency (bars since confirmation) and the module's strength.
+    Divergences sharing their second pivot (RSI and MACD on the same low) are one event.
+
+    The module stores the indicator pivots' values, not their dates (they pair with
+    the price pivots within `pairing_window` bars), so the pane segment is drawn on
+    the price pivots' dates.
+
+    Runs the module's own pipeline (`detect`'s steps) on the chart's `bars`, which are
+    on the module's basis (traded), instead of loading them again: one load, and each
+    divergence's age is counted on the same bars it was found on."""
+    config = DivergenceConfig()
+    if len(bars) < config.min_bars:
+        return []
+    divergences = div_detect.detect_divergences(bars, ticker, timeframe, config)
+    if divergences:
+        div_detect._apply_confluence(divergences, bars, config.pairing_window)
+    out = []
+    for d in divergences:
+        p1, p2, confirmed = pd.Timestamp(d.p1_date), pd.Timestamp(d.p2_date), pd.Timestamp(d.confirmed_at)
+        name = _DIV_NAMES.get(d.indicator.value, d.indicator.value)
+        bull = d.direction == Direction.BULLISH
+        hidden = d.form == DivergenceForm.HIDDEN
+        # confirmed on a pivot's confirming bar, one of these bars
+        age = len(bars) - 1 - min(int(bars.index.searchsorted(confirmed)), len(bars) - 1)
+        out.append(Overlay(
+            family=DIV, item_id=f"{d.indicator.value}:{d.direction.value}:{d.form.value}:{_day(p1)}:{_day(p2)}",
+            label=f"{name} {'bullish' if bull else 'bearish'}{' hidden' if hidden else ''} {_day(p2)}",
+            tag=f"{name}{'↑' if bull else '↓'}{'h' if hidden else ''}", kind="segment",
+            x0=p1, lo=min(d.p1_price, d.p2_price), hi=max(d.p1_price, d.p2_price),
+            strength=float(d.strength), alive=not d.invalidated,
+            points=((p1, float(d.p1_price)), (p2, float(d.p2_price))),
+            pane=_DIV_PANES.get(d.indicator.value), pane_points=((p1, float(d.i1_value)), (p2, float(d.i2_value))),
+            age_bars=age, same_key=f"{d.direction.value}:{_day(p2)}", bullish=bull, dashed=hidden,
+            hover={"strength": round(float(d.strength), 2), "confirmed on": _day(confirmed),
+                   "indicator": f"{d.i1_value:.2f} → {d.i2_value:.2f}", "form": d.form.value,
+                   "indicators agreeing": d.confluence_count,
+                   "invalidated": _day(d.invalidated_at) if d.invalidated else "no"},
+        ))
+    return out
+
+
 def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                  bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
     """Every family's overlays, plus {family: message} for families that failed. One
@@ -193,7 +262,8 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
     runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close),
             GAPS: lambda: gap_overlays(conn, ticker, timeframe),
             AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
-            FIB: lambda: fib_overlays(conn, ticker, timeframe)}
+            FIB: lambda: fib_overlays(conn, ticker, timeframe),
+            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars)}
     overlays, errors = [], {}
     for family, run in runs.items():
         try:

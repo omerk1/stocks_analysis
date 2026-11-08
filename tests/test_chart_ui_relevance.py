@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.foundation.market_common.models import Timeframe
 from src.ui.chart import relevance
 from src.ui.chart.config import RelevanceConfig
 from src.ui.chart.overlays import Overlay
@@ -98,3 +99,41 @@ def test_last_atr_is_nan_on_too_few_bars():
     bars = pd.DataFrame({"open": 10.0, "high": 11.0, "low": 9.0, "close": 10.0}, index=idx)
     assert relevance.last_atr(bars, 14) == pytest.approx(2.0)
     assert np.isnan(relevance.last_atr(bars.iloc[:14], 14))
+
+
+def ev(item_id, age, strength=0.5, alive=True, same_key=None, price=500.0):
+    """An event far from price (distance never matters for events)."""
+    return Overlay(family="divergences", item_id=item_id, label=item_id, kind="segment",
+                   x0=pd.Timestamp("2024-01-01"), lo=price, hi=price, strength=strength, alive=alive,
+                   age_bars=age, same_key=same_key or item_id)
+
+
+def test_events_rank_by_recency_not_distance_from_price():
+    cfg = RelevanceConfig()
+    ranked = relevance.rank([ev("old", 39), ev("new", 2), ev("too old", 41), ev("dead", 0, alive=False)],
+                            CLOSE, ATR, cfg, weight=1.0)
+    assert [r.overlay.item_id for r in ranked] == ["new", "old", "too old", "dead"]  # unscored: alive first
+    assert ranked[0].score == pytest.approx(1 - 2 / 40)  # daily reach: 40 bars
+    weekly = relevance.rank([ev("13 weeks", 13)], CLOSE, ATR, cfg, timeframe=Timeframe.WEEKLY)
+    assert weekly[0].score is None  # weekly reach: 12 bars
+    assert all(r.score is None for r in ranked[2:])  # confirmed more than reach_bars ago, or dead
+    # unscored: alive first, then most recent first
+    ranked = relevance.rank([ev("a", 60), ev("b", 45)], CLOSE, ATR, cfg)
+    assert [r.overlay.item_id for r in ranked] == ["b", "a"]
+
+
+def test_events_on_one_pivot_take_one_slot_whatever_their_price():
+    cfg = RelevanceConfig()
+    items = [ev("rsi", 1, same_key="bull:2024-02-01"), ev("macd", 1, strength=0.4, same_key="bull:2024-02-01"),
+             ev("other", 5, same_key="bull:2024-03-01", price=500.01)]
+    picks = relevance.family_defaults(relevance.rank(items, CLOSE, ATR, cfg), cfg, ATR)
+    assert picks == {"divergences": ["rsi", "other"]}  # same price as "rsi", but another event
+
+
+def test_ticking_with_nothing_recent_picks_the_latest_events_one_per_pivot():
+    cfg = RelevanceConfig()
+    items = [ev("rsi", 100, same_key="p1"), ev("macd", 100, same_key="p1"), ev("b", 200, same_key="p2"),
+             ev("c", 150, same_key="p3"), ev("d", 300, same_key="p4"), ev("dead", 50, alive=False)]
+    ranked = relevance.rank(items, CLOSE, ATR, cfg)
+    assert relevance.family_defaults(ranked, cfg, ATR) == {}
+    assert relevance.nearest_alive(ranked, "divergences", cfg, ATR) == ["rsi", "c", "b"]

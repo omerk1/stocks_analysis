@@ -34,7 +34,7 @@ from src.ui.chart import panes as panes_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
-from src.ui.chart.overlays import FAMILIES, FAMILY_NAMES, Overlay
+from src.ui.chart.overlays import EVENT_FAMILIES, FAMILIES, FAMILY_NAMES, Overlay
 from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, figure_annotations,
                                  hidden_weekdays, padded_full_range, y_axis_ranges)
 
@@ -181,7 +181,7 @@ def selected_specs(config: ChartConfig, timeframe: Timeframe, ma_keys) -> tuple[
     return tuple(s for s in config.ma_options[timeframe] if s.key in keys)
 
 
-_KIND_ORDER = {"zone": 0, "hline": 1, "series": 2}  # zones underneath, curves on top
+_KIND_ORDER = {"zone": 0, "hline": 1, "series": 2, "segment": 3}  # zones underneath, events on top
 
 
 def chosen_items(ids: list[dict] | None, values: list[list] | None) -> dict[str, list[str]]:
@@ -277,28 +277,44 @@ def _distance_text(d: float) -> str:
     return "—" if d == float("inf") else f"{d:.1f} ATR"
 
 
+def _nearness_text(r: relevance.Ranked) -> str:
+    """How far a level is from price, or how long ago an event was confirmed."""
+    age = r.overlay.age_bars
+    if age is None:
+        return _distance_text(r.distance_atr)
+    return "this bar" if age == 0 else f"{age} bar{'s' if age > 1 else ''} ago"
+
+
 def _hover_text(r: relevance.Ranked) -> str:
     parts = [f"{k}: {v}" for k, v in r.overlay.hover.items() if v is not None]
-    parts.append(f"distance: {_distance_text(r.distance_atr)}")
+    parts.append(f"{'distance' if r.overlay.age_bars is None else 'age'}: {_nearness_text(r)}")
     if r.strength_pct is not None:
         parts.append(f"strength percentile: {r.strength_pct:.2f}")
     parts.append("score: " + ("not in reach" if r.score is None else f"{r.score:.2f}"))
     return "\n".join(parts)
 
 
-def family_count_text(shown: int, alive: int) -> str:
-    return f"{shown} of {alive} shown"
+def family_count_text(shown: int, of: int, events: bool = False) -> str:
+    """"3 of 41 shown" (of the family's alive items), or for events "1 of 2 recent"
+    (of the alive ones confirmed within reach: old divergences stay alive for ever);
+    "3 shown, 0 recent" when older ones were picked by hand or by ticking the family."""
+    if events:
+        return f"{shown} shown, {of} recent" if shown > of else f"{shown} of {of} recent"
+    return f"{shown} of {of} shown"
 
 
-def family_sync(changed: str, family: str, ticked, values, defaults, alive) -> tuple[list, list, str]:
+def family_sync(changed: str, family: str, ticked, values, defaults, count) -> tuple[list, list, str]:
     """(family box value, item values, count text) after the family box (`changed` =
     "family") or one of its items ("items") was clicked. Ticking the box picks its
     defaults and unticking clears them; the box is ticked exactly when an item is, so
-    unticking the last item by hand unticks the box and the next tick restores the defaults."""
+    unticking the last item by hand unticks the box and the next tick restores the defaults.
+    `count`: the family's {"of", "events"} for the count text."""
     if changed == "family":
         values = list(defaults or []) if ticked else []
     values = list(values or [])
-    return ([family] if values else []), values, family_count_text(len(values), alive or 0)
+    count = count or {}
+    return ([family] if values else []), values, family_count_text(len(values), count.get("of", 0),
+                                                                    count.get("events", False))
 
 
 def total_count_text(shown: int, cap: int) -> str:
@@ -319,20 +335,23 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
     cfg = config.relevance
     found = data.overlays(ticker, timeframe)
     atr = relevance.last_atr(bars, cfg.atr_period)
-    ranked = relevance.rank(list(found.items), float(bars["close"].iloc[-1]), atr, cfg, weight)
+    ranked = relevance.rank(list(found.items), float(bars["close"].iloc[-1]), atr, cfg, weight, timeframe)
     per_family = relevance.family_defaults(ranked, cfg, atr)
     defaults = relevance.default_selection(ranked, cfg, atr, per_family)
     children = [html.Div(f"As of {bars.index.max():%Y-%m-%d} · ATR {atr:.2f} · found in {found.seconds:.1f}s",
                          style={"color": "#64748b", "fontSize": "12px", "marginBottom": "6px"})]
     for family in FAMILIES:
         alive = [r for r in ranked if r.overlay.family == family and r.overlay.alive]
+        events = family in EVENT_FAMILIES
+        count = {"of": sum(r.in_reach for r in alive) if events else len(alive), "events": events}
         picked = defaults.get(family, [])
-        # Ticking the family box picks its defaults; with nothing in reach, its nearest alive items.
-        on_tick = per_family.get(family) or [r.overlay.item_id for r in alive[: cfg.per_family]]
+        # Ticking the family box picks its defaults; with nothing in reach, its nearest
+        # (or most recent) alive items, one per level or event.
+        on_tick = per_family.get(family) or relevance.nearest_alive(ranked, family, cfg, atr)
         listed = alive[: cfg.menu_items_per_family]
         must_list = set(picked) | set(on_tick)
         listed += [r for r in alive[cfg.menu_items_per_family:] if r.overlay.item_id in must_list]
-        options = [{"label": html.Span(f"{r.overlay.label} · {_distance_text(r.distance_atr)}",
+        options = [{"label": html.Span(f"{r.overlay.label} · {_nearness_text(r)}",
                                        title=_hover_text(r),
                                        style={"color": "#94a3b8"} if r.score is None else {}),
                     "value": r.overlay.item_id}
@@ -343,11 +362,12 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
                 dcc.Checklist(id={"type": "family", "family": family}, value=[family] if picked else [],
                               options=[{"label": FAMILY_NAMES[family], "value": family}],
                               inputStyle={"marginRight": "6px"}, labelStyle={"fontWeight": 600}),
-                html.Span(family_count_text(len(picked), len(alive)), id={"type": "family-count", "family": family},
+                html.Span(family_count_text(len(picked), count["of"], events),
+                          id={"type": "family-count", "family": family},
                           style={"color": "#64748b", "fontSize": "12px"}),
             ]),
             dcc.Store(id={"type": "family-defaults", "family": family}, data=on_tick),
-            dcc.Store(id={"type": "family-alive", "family": family}, data=len(alive)),
+            dcc.Store(id={"type": "family-alive", "family": family}, data=count),
             html.Div(f"failed: {error}", style={"color": "#dc2626", "fontSize": "12px"}) if error else None,
             dcc.Checklist(id={"type": "items", "family": family}, options=options, value=picked,
                           inputStyle={"marginRight": "6px"},
