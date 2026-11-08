@@ -317,15 +317,21 @@ class Overlay:
    - **Volume profile:** each anchored profile (the same anchors as AVWAP) gives three
      lines from its anchor: POC, VAH and VAL. Lines, not a value-area zone: the zone is
      usually wide (NVDA daily: 166–233) with price inside it, so it always ranked first
-     and pushed the POC out. Alive while the anchor is active. No strength in the
-     module, so ranked on proximity alone. The side histogram is still for later.
+     and pushed the POC out. The tag names the anchor's month ("POC Jan 25"). No
+     strength in the module, so ranked on proximity alone. Alive follows the anchor's
+     status, but without the module's stored previous run only anchors that still
+     qualify are found, so every line is alive in practice (AVWAP is the same). The
+     side histogram is still for later.
    - **Market structure:** each BOS (the trend continuing) or CHoCH (the trend flipping)
      is an event, drawn as a line at the broken pivot's price from the pivot to the bar
      whose close broke it ("CHoCH↓", BOS dashed). No lifecycle, so all are alive and
      ranked by recency alone (the same 40 / 12-bar reach as divergences). The latest
      event's hover says the trend now.
-   - Both run the module's own steps on the chart's bars (traded basis), with no second
-     load.
+   - Both run on the chart's bars (traded basis), with no second load, through a new
+     `detect_on_bars` in each module that its own `detect` now calls too (as AVWAP
+     already had), so the chart can't drift from the module. Divergences got the same.
+     Market structure uses the module's preset for the timeframe (weekly needs 20
+     bars, not 60).
    - On 10 large caps, volume profile has 3–15 lines in reach and gets its 3 picks on
      every chart; market structure 0–2. With them, most charts reach the cap of 10
      (before: 3–10). If the defaults look crowded, volume profile is the first

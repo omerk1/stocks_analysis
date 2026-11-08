@@ -129,8 +129,7 @@ def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
             _div("2024-01-15", "2024-02-01", "2024-02-07", indicator="macd_hist"),
             _div("2024-01-20", "2024-02-20", "2024-02-26", indicator="obv", direction=Direction.BEARISH,
                  hidden=True, invalidated=True)]
-    monkeypatch.setattr(overlays.div_detect, "detect_divergences", lambda *a, **k: divs)
-    monkeypatch.setattr(overlays.div_detect, "_apply_confluence", lambda *a, **k: None)
+    monkeypatch.setattr(overlays.div_detect, "detect_on_bars", lambda *a, **k: divs)
     config = overlays.DivergenceConfig
     monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=10))
     rsi, macd, obv = overlays.divergence_overlays(None, "ABC", DAILY, bars)
@@ -148,26 +147,23 @@ def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
 
 
 def test_volume_profile_gives_poc_and_value_area_edges_per_anchor(monkeypatch, bars):
-    profiles = [NS(anchor_date="2024-01-10T00:00:00", anchor_types={AnchorType.ATH}, status=AnchorStatus.ACTIVE,
-                   poc=None, vah=None, val=None, n_bars=0, value_area_position=None),
-                NS(anchor_date="2024-02-01T00:00:00", anchor_types={AnchorType.ATL}, status=AnchorStatus.STALE,
-                   poc=None, vah=None, val=None, n_bars=0, value_area_position=None)]
+    def profile(day, status, poc=100.0):
+        return NS(anchor_date=f"{day}T00:00:00", anchor_types={AnchorType.ATH}, status=status, poc=poc,
+                  vah=104.0, val=97.0, n_bars=30, value_area_position="inside")
 
-    def snapshot(bars, atr, p, config):
-        p.poc, p.vah, p.val, p.n_bars, p.value_area_position = 100.0, 104.0, 97.0, 30, "inside"
-        return p
-
+    profiles = [profile("2024-01-10", AnchorStatus.ACTIVE), profile("2024-02-01", AnchorStatus.STALE),
+                profile("2024-02-15", AnchorStatus.ACTIVE, poc=None)]  # no profile built: skipped
     config = overlays.VolumeProfileConfig
     monkeypatch.setattr(overlays, "VolumeProfileConfig", lambda: config(min_bars=10))
     monkeypatch.setattr(overlays.history_breaks, "anchor_start_for", lambda *a: None)
-    monkeypatch.setattr(overlays.vp_detect, "discover_profiles", lambda *a, **k: profiles)
-    monkeypatch.setattr(overlays.vp_detect, "apply_snapshot", snapshot)
+    monkeypatch.setattr(overlays.vp_detect, "detect_on_bars", lambda *a, **k: profiles)
     out = overlays.volume_profile_overlays(None, "ABC", DAILY, bars)
-    assert [(o.tag, o.lo, o.kind) for o in out[:3]] == [("POC", 100.0, "hline"), ("VAH", 104.0, "hline"),
-                                                        ("VAL", 97.0, "hline")]
-    assert [o.alive for o in out] == [True] * 3 + [False] * 3  # a stale anchor's lines are dead, like AVWAP
+    assert [(o.tag, o.lo, o.kind) for o in out[:3]] == [("POC Jan 24", 100.0, "hline"), ("VAH Jan 24", 104.0, "hline"),
+                                                        ("VAL Jan 24", 97.0, "hline")]
+    assert [o.alive for o in out] == [True] * 3 + [False] * 3  # alive follows the anchor's status
     assert out[0].x0 == pd.Timestamp("2024-01-10") and out[0].strength is None
     assert len({o.item_id for o in out}) == 6
+    assert out[0].hover is not out[1].hover  # one dict per line
 
 
 def test_market_structure_events_are_segments_at_the_broken_pivot(monkeypatch, bars):
@@ -181,11 +177,14 @@ def test_market_structure_events_are_segments_at_the_broken_pivot(monkeypatch, b
 
     events = [event(StructureEvent.CHOCH, Direction.BULLISH, "2024-01-10", "2024-02-01", 95.0),
               event(StructureEvent.BOS, Direction.BULLISH, "2024-02-15", "2024-03-01", 105.0)]
-    config = overlays.MarketStructureConfig
-    monkeypatch.setattr(overlays, "MarketStructureConfig", lambda: config(min_bars=10))
-    monkeypatch.setattr(overlays, "detect_pivots", lambda *a, **k: [])
-    monkeypatch.setattr(overlays.ms_detect, "track_market_structure", lambda *a: events)
+    presets = []
+    real = overlays.ms_config.get_preset
+    monkeypatch.setattr(overlays.ms_config, "get_preset",
+                        lambda name: presets.append(name) or NS(**{**real(name).to_dict(), "min_bars": 10}))
+    monkeypatch.setattr(overlays.ms_detect, "detect_on_bars", lambda *a: events)
     choch, bos = overlays.structure_overlays("ABC", DAILY, bars)
+    assert presets == ["daily"]  # the module's own preset per timeframe
+    assert real("weekly").min_bars < real("daily").min_bars
     assert choch.points == ((pd.Timestamp("2024-01-10"), 95.0), (pd.Timestamp("2024-02-01"), 95.0))
     assert (choch.tag, choch.dashed, bos.tag, bos.dashed) == ("CHoCH↑", False, "BOS↑", True)
     assert choch.alive and bos.alive and choch.strength is None  # facts: no lifecycle, recency only

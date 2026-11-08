@@ -28,9 +28,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from src.foundation.market_common import history_breaks, indicators
+from src.foundation.market_common import history_breaks
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.pivots import detect_pivots
 from src.signals.avwap import anchors as avwap_anchors
 from src.signals.avwap import compute as avwap_compute
 from src.signals.avwap.config import AvwapConfig
@@ -46,8 +45,8 @@ from src.signals.gaps.config import GapConfig
 from src.signals.gaps.models import Direction, GapKind, GapStatus
 from src.signals.sr_lines import engine as sr_engine
 from src.signals.sr_lines.config import get_preset
+from src.signals.market_structure import config as ms_config
 from src.signals.market_structure import detect as ms_detect
-from src.signals.market_structure.config import MarketStructureConfig
 from src.signals.market_structure.models import StructureEvent
 from src.signals.sr_lines.models import LineKind, LineState
 from src.signals.volume_profile import detect as vp_detect
@@ -230,15 +229,13 @@ def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timefr
     the price pivots within `pairing_window` bars), so the pane segment is drawn on
     the price pivots' dates.
 
-    Runs the module's own pipeline (`detect`'s steps) on the chart's `bars`, which are
-    on the module's basis (traded), instead of loading them again: one load, and each
-    divergence's age is counted on the same bars it was found on."""
+    Runs the module's `detect_on_bars` on the chart's `bars`, which are on the module's
+    basis (traded), instead of loading them again: one load, and each divergence's age
+    is counted on the same bars it was found on."""
     config = DivergenceConfig()
     if len(bars) < config.min_bars:
         return []
-    divergences = div_detect.detect_divergences(bars, ticker, timeframe, config)
-    if divergences:
-        div_detect._apply_confluence(divergences, bars, config.pairing_window)
+    divergences = div_detect.detect_on_bars(bars, ticker, timeframe, config)
     out = []
     for d in divergences:
         p1, p2, confirmed = pd.Timestamp(d.p1_date), pd.Timestamp(d.p2_date), pd.Timestamp(d.confirmed_at)
@@ -273,31 +270,34 @@ def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Ti
     """Each anchored profile (the same anchors AVWAP uses) gives three lines from its
     anchor: the point of control (POC) and the value area's edges (VAH, VAL). Lines,
     not a value-area zone: the zone is usually wide (NVDA daily: 166-233) with price
-    inside it, so it would always rank first and push the POC out. Alive while the
-    anchor is active, like AVWAP. No strength: ranked on proximity.
+    inside it, so it would always rank first and push the POC out. No strength: ranked
+    on proximity. The tag on the chart names the anchor's month ("POC Jan 25"), so
+    lines from different profiles can be told apart.
 
-    Runs the module's own steps (`detect`'s) on the chart's `bars`, on the module's
-    basis (traded), instead of loading them again."""
+    Alive is the anchor's status, but without the module's stored previous run
+    (`previous_anchor_types`) the discovery returns only anchors that still qualify,
+    all active, so in practice every line is alive (AVWAP is the same).
+
+    Runs the module's `detect_on_bars` on the chart's `bars`, on the module's basis
+    (traded), instead of loading them again."""
     config = VolumeProfileConfig()
     if len(bars) < config.min_bars:
         return []
     start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
-    profiles = vp_detect.discover_profiles(bars, ticker, timeframe, config, history_start=start)
-    atr = indicators.atr(bars, config.atr_period)
     out = []
-    for p in profiles:
-        vp_detect.apply_snapshot(bars, atr, p, config)
+    for p in vp_detect.detect_on_bars(bars, ticker, timeframe, config, history_start=start):
         if p.poc is None:
             continue
         anchor = pd.Timestamp(p.anchor_date)
         types = ", ".join(sorted(t.value.replace("_", " ") for t in p.anchor_types))
-        alive = p.status == AnchorStatus.ACTIVE
-        hover = {"POC": round(p.poc, 2), "value area": f"{p.val:.2f}–{p.vah:.2f}", "anchor": f"{_day(anchor)} ({types})",
-                 "bars": p.n_bars, "close vs value area": p.value_area_position, "status": p.status.value}
         for name, price in (("POC", p.poc), ("VAH", p.vah), ("VAL", p.val)):
-            out.append(Overlay(family=VP, item_id=f"{_day(anchor)}:{name.lower()}",
-                               label=f"{name} {price:.2f} (from {_day(anchor)})", tag=name, kind="hline", x0=anchor,
-                               lo=float(price), hi=float(price), strength=None, alive=alive, hover=hover))
+            out.append(Overlay(
+                family=VP, item_id=f"{_day(anchor)}:{name.lower()}", label=f"{name} {price:.2f} (from {_day(anchor)})",
+                tag=f"{name} {anchor:%b %y}", kind="hline", x0=anchor, lo=float(price), hi=float(price),
+                strength=None, alive=p.status == AnchorStatus.ACTIVE,
+                hover={"POC": round(p.poc, 2), "value area": f"{p.val:.2f}–{p.vah:.2f}",
+                       "anchor": f"{_day(anchor)} ({types})", "bars": p.n_bars,
+                       "close vs value area": p.value_area_position, "status": p.status.value}))
     return out
 
 
@@ -308,13 +308,12 @@ def structure_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) ->
     all alive and ranked by recency alone. The latest event's direction is the
     current trend, said in its hover.
 
-    Runs the module's own steps (`detect`'s) on the chart's `bars` (traded basis)."""
-    config = MarketStructureConfig()
+    Runs the module's `detect_on_bars` on the chart's `bars` (traded basis), with the
+    module's own preset for the timeframe (weekly needs fewer bars)."""
+    config = ms_config.get_preset(timeframe.value)
     if len(bars) < config.min_bars:
         return []
-    atr = indicators.atr(bars, config.atr_period).to_numpy()
-    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr[i])
-    events = ms_detect.track_market_structure(bars, pivots, config, ticker, timeframe)
+    events = ms_detect.detect_on_bars(bars, ticker, timeframe, config)
     out = []
     for n, e in enumerate(events):
         pivot_at, broken_at = pd.Timestamp(e.broken_pivot.timestamp), pd.Timestamp(e.broken_at)
