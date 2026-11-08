@@ -63,7 +63,18 @@ def test_contradictions_are_invalid():
     assert ("horizons_bars", "invalid") in _gaps(_complete(horizons_bars=[20, 20]))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="atr", max=-1.0)))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="percentile", min=150)))
-    assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="pct", max=float("nan"))))
+
+
+
+@pytest.mark.parametrize("size, reasons", [
+    (Size(normalisation="pct", max=float("nan")), ["finite"]),
+    (Size(normalisation="atr", min=float("inf"), max=1.0), ["finite"]),  # not also "min inf > max 1.0"
+    (Size(normalisation="percentile", max=float("inf")), ["finite"]),  # not also "0-100"
+    (Size(normalisation="atr", min=-1.0, max=float("nan")), ["finite", "negative"]),  # two defects, both said
+])
+def test_a_non_finite_size_bound_is_one_gap(size, reasons):
+    gaps = [g.reason for g in find_gaps(_complete(size=size)) if g.field == "size"]
+    assert len(gaps) == len(reasons) and all(w in r for w, r in zip(reasons, gaps))
 
 
 def test_not_applicable_is_an_answer():

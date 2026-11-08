@@ -52,7 +52,7 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from src.llm.strategy_spec.schema import StrategySpec, proximity_gaps
+from src.llm.strategy_spec.schema import PROXIMITY_UNITS, StrategySpec, proximity_gaps
 from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
 from src.signals.moving_averages.features import panel as panel_features
@@ -128,11 +128,6 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
-# A settled proximity's units, as written after a number ("0.3 ATR", "2%"); a test
-# checks the keys are `schema.PROXIMITY_UNITS`.
-_UNITS_AFTER_NUMBER = {"atr": " ATR", "pct": "%", "log": " (log)"}
-
-
 def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
     """A stated proximity, a distance or "must trade through it", is said out loud as not
     applied: these finders' detectors define their own touch, and the trader must not
@@ -149,7 +144,7 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
     elif p.through:
         stated = "price must trade through the level"
     else:  # settled: units are one of PROXIMITY_UNITS, the distance finite and not negative
-        stated = f"at most {abs(p.max):g}{_UNITS_AFTER_NUMBER[p.normalisation]}"  # abs: -0.0 reads as 0
+        stated = f"at most {abs(p.max):g}{PROXIMITY_UNITS[p.normalisation]}"  # abs: -0.0 reads as 0
     rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
                              f"this detector uses its own touch rule; your spec says: {stated}"))
 

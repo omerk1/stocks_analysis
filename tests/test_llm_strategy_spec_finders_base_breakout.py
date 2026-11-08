@@ -17,8 +17,7 @@ from src.foundation.market_common import indicators
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
-from src.llm.strategy_spec.schema import (
-    PROXIMITY_UNITS, Duration, Proximity, Rule, Size, StrategySpec, Trigger, proximity_gaps)
+from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger, proximity_gaps
 
 
 @pytest.fixture(autouse=True)
@@ -206,7 +205,6 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
         assert detail == "this detector uses its own touch rule; your spec says: a proximity that isn't finished " \
                          "(elicitation asks what's open)"
     assert "at most 0 ATR" in rubric_with(Proximity(normalisation="atr", max=-0.0))["how close price must come"].detail
-    assert set(finders._UNITS_AFTER_NUMBER) == set(PROXIMITY_UNITS)  # every settled unit can be worded
     # "Doesn't apply" has nothing to disclose.
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
 

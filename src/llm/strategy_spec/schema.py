@@ -286,7 +286,8 @@ class Gap:
 _PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't about reaching a level"
 
 
-PROXIMITY_UNITS = ("atr", "pct", "log")  # the only distances to a level
+# The only distances to a level, each as written after a number ("0.3 ATR", "2%").
+PROXIMITY_UNITS = {"atr": " ATR", "pct": "%", "log": " (log)"}
 
 
 def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
@@ -307,7 +308,8 @@ def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
     elif p.normalisation == "raw_price":
         asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, percent or log"))
     elif p.normalisation not in PROXIMITY_UNITS:  # a percentile, or any unit added later
-        asks.append(("invalid", "that unit isn't a distance to a level; use ATR, percent or log"))
+        unit = "a percentile" if p.normalisation == "percentile" else "that unit"
+        asks.append(("invalid", f"{unit} isn't a distance to a level; use ATR, percent or log"))
     # Not with rejected units: the question would ask for a number in them.
     if p.max is None:
         if p.normalisation is None or p.normalisation in PROXIMITY_UNITS:
@@ -369,12 +371,14 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             add("size", "invalid", "raw price isn't comparable across tickers; use ATR, log, % or percentile")
         if s.min is None and s.max is None:
             add("size", "unquantified", "how big must the pattern be: at least, at most, or both?")
-        if s.min is not None and s.max is not None and s.min > s.max:
-            add("size", "invalid", f"min {s.min} > max {s.max}")
-        bounds = [b for b in (s.min, s.max) if b is not None]
-        if not all(math.isfinite(b) for b in bounds):
+        given = [b for b in (s.min, s.max) if b is not None]
+        if not all(math.isfinite(b) for b in given):
             add("size", "invalid", "bounds must be finite numbers")
-            bounds = []  # one gap for the defect, not a second about its sign or scale
+        # The other checks see only the finite bounds: a NaN or infinite one is one defect,
+        # reported once above, and a negative bound beside it is still a second.
+        bounds = [b for b in given if math.isfinite(b)]
+        if len(bounds) == 2 and s.min > s.max:
+            add("size", "invalid", f"min {s.min} > max {s.max}")
         if any(b < 0 for b in bounds):
             add("size", "invalid", "bounds are magnitudes and can't be negative")
         if s.normalisation == "percentile" and any(b > 100 for b in bounds):
