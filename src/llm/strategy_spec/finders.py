@@ -128,7 +128,8 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
-# A settled proximity's units, as written after a number ("0.3 ATR", "2%").
+# A settled proximity's units, as written after a number ("0.3 ATR", "2%"); a test
+# checks the keys are `schema.PROXIMITY_UNITS`.
 _UNITS_AFTER_NUMBER = {"atr": " ATR", "pct": "%", "log": " (log)"}
 
 
@@ -141,9 +142,8 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
         return
     # The gap check's own rules decide what's settled: an unsettled proximity isn't worded
     # as if it were a rule, it's reported with what's open.
-    open_ = proximity_gaps(p, way_out=False)
-    if open_:
-        stated = f"not finished, finish elicitation: {'; '.join(reason for _, reason in open_)}"
+    if proximity_gaps(p):
+        stated = "a proximity that isn't finished (elicitation asks what's open)"
     elif p.not_applicable:
         return  # "doesn't apply": nothing to disclose
     elif p.through:
