@@ -191,8 +191,11 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     line = rubric_with(Proximity(through=True))["how close price must come"]
     assert line.value == "NOT APPLIED" and "trade through" in line.detail
     # Units without a distance doesn't crash the disclosure; "doesn't apply" has nothing to disclose.
-    assert "in ATR, no distance given" in rubric_with(Proximity(normalisation="atr"))["how close price must come"].detail
+    assert "units ATR, no distance given" in rubric_with(Proximity(normalisation="atr"))["how close price must come"].detail
+    assert "at most 2%" in rubric_with(Proximity(normalisation="pct", max=2.0))["how close price must come"].detail
+    # Nothing stated, or "doesn't apply": nothing to disclose.
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
+    assert "how close price must come" not in rubric_with(Proximity())
     # A contradictory through + doesn't-apply (an invalid gap) still shows the through.
     assert "trade through" in rubric_with(Proximity(through=True, not_applicable=True))["how close price must come"].detail
 

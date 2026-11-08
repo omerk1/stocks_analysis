@@ -365,21 +365,24 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
                 said = "price must trade through the level" if p.through else "proximity doesn't apply"
                 add("trigger", "invalid", f"{said}, but a distance is given too")
         else:
-            # The follow-ups keep the way out: a vague first answer mustn't force a distance.
-            out = " (or say it must trade through it, or that the trigger isn't about reaching a level)"
+            asks: list[tuple[GapKind, str]] = []
             if p.normalisation is None:
-                add("trigger", "unquantified", f"how close price must come: in ATR, percent or log?{out}")
+                asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
             elif p.normalisation == "raw_price":
-                add("trigger", "invalid", "a proximity in raw price isn't comparable across tickers; "
-                    "use ATR, log or %")
+                asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, log or %"))
             elif p.normalisation == "percentile":
-                add("trigger", "invalid", "a percentile isn't a distance to a level; use ATR, log or %")
+                asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, log or %"))
             # Not with rejected units: the question would ask for a number in them.
             if p.max is None:
                 if p.normalisation not in ("raw_price", "percentile"):
-                    add("trigger", "unquantified", f"how close price must come: at most how far?{out}")
+                    asks.append(("unquantified", "how close price must come: at most how far?"))
             elif p.max < 0:
-                add("trigger", "invalid", "a proximity is a distance and can't be negative")
+                asks.append(("invalid", "a proximity is a distance and can't be negative"))
+            # The follow-ups keep the first question's way out, once: a vague first answer
+            # mustn't force a distance.
+            for n, (kind, reason) in enumerate(asks, 1):
+                way_out = " (or say it must trade through it, or that the trigger isn't about reaching a level)"
+                add("trigger", kind, reason + (way_out if n == len(asks) else ""))
 
     if not spec.horizons_bars:
         add("horizons_bars", "missing", "how many bars after entry is the outcome measured? One or more")

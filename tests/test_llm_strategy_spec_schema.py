@@ -271,6 +271,13 @@ def test_a_proximity_needs_units_and_a_distance(proximity, kind, words):
     assert (gap.field, gap.kind) == ("trigger", kind) and words in gap.reason
 
 
+def test_a_proximity_follow_up_keeps_the_way_out_once():
+    # A vague first answer must not force a distance: the follow-up still offers both outs.
+    for p in (Proximity(), Proximity(normalisation="atr"), Proximity(normalisation="raw_price", max=1.0)):
+        reasons = [g.reason for g in find_gaps(_complete(trigger=_unsettled(proximity=p)))]
+        assert sum("trade through it" in r and "isn't about reaching a level" in r for r in reasons) == 1
+
+
 def test_a_filter_mapped_to_a_level_feature_is_asked_its_detectors_settings():
     # The level-stack run's support line was mapped to this feature and never asked about.
     [gap] = find_gaps(_complete(supporting_signals=[_filter("support", uses=("feature:near_dn_w_sr_line",))]))
