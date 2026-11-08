@@ -441,6 +441,17 @@ def _apply_confluence(divergences: list[Divergence], bars: pd.DataFrame, pairing
         _flush_confluence_cluster(cluster)
 
 
+def detect_on_bars(bars: pd.DataFrame, ticker: str, timeframe: Timeframe, config: DivergenceConfig) -> list[Divergence]:
+    """`detect`'s work on an already loaded, validated frame (no as_of: the bars
+    end where the caller wants) with at least `config.min_bars` bars --
+    divergences plus confluence. For callers holding the bars themselves (the
+    chart UI, `src/ui/chart/overlays.py`), same as `avwap.anchors.detect_on_bars`."""
+    divergences = detect_divergences(bars, ticker, timeframe, config)
+    if divergences:
+        _apply_confluence(divergences, bars, config.pairing_window)
+    return divergences
+
+
 def detect(
     conn: sqlite3.Connection,
     ticker: str,

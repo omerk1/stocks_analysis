@@ -120,8 +120,24 @@ def detect(
         return [], report, reason
 
     history_start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    profiles = detect_on_bars(bars, ticker, timeframe, config, previous_anchor_types, history_start)
+    return profiles, report, None
+
+
+def detect_on_bars(
+    bars: pd.DataFrame,
+    ticker: str,
+    timeframe: Timeframe,
+    config: VolumeProfileConfig,
+    previous_anchor_types: dict[str, frozenset[AnchorType]] | None = None,
+    history_start: pd.Timestamp | None = None,
+) -> list[AnchoredVolumeProfile]:
+    """`detect`'s work on an already loaded, validated frame with at least
+    `config.min_bars` bars -- for callers holding the bars themselves (the
+    chart UI, `src/ui/chart/overlays.py`), which pass `history_start`
+    themselves; same as `avwap.anchors.detect_on_bars`."""
     profiles = discover_profiles(bars, ticker, timeframe, config, previous_anchor_types, history_start=history_start)
     atr = indicators.atr(bars, config.atr_period)
     for profile in profiles:
         apply_snapshot(bars, atr, profile, config)
-    return profiles, report, None
+    return profiles

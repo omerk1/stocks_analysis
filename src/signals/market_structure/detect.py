@@ -168,6 +168,19 @@ def track_market_structure(
     return events
 
 
+def detect_on_bars(
+    bars: pd.DataFrame, ticker: str, timeframe: Timeframe, config: MarketStructureConfig
+) -> list[TrendState]:
+    """`detect`'s work on an already loaded, validated frame with at least
+    `config.min_bars` bars -- for callers holding the bars themselves (the
+    chart UI, `src/ui/chart/overlays.py`), same as
+    `avwap.anchors.detect_on_bars`."""
+    atr = indicators.atr(bars, config.atr_period)
+    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
+    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr_values[i])
+    return track_market_structure(bars, pivots, config, ticker, timeframe)
+
+
 def detect(
     conn: sqlite3.Connection,
     ticker: str,
@@ -189,10 +202,7 @@ def detect(
         logger.warning("%s/%s: skipping market-structure tracking -- %s", ticker, timeframe.value, reason)
         return [], report, reason
 
-    atr = indicators.atr(bars, config.atr_period)
-    atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
-    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr_values[i])
-    events = track_market_structure(bars, pivots, config, ticker, timeframe)
+    events = detect_on_bars(bars, ticker, timeframe, config)
 
     if as_of is not None:
         as_of_ts = pd.Timestamp(as_of)
