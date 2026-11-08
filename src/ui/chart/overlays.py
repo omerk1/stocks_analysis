@@ -9,10 +9,12 @@ instead of reading the derived database:
   run, which can be behind the bars on the chart (a gap made since would be missing,
   and one filled since would still look open).
 
-Each detector loads its bars through the shared loader on the traded basis, the
-same bars the chart draws (`bars.CHART_BASIS`). A run takes from a fraction of a
-second (S/R) to several (gaps over the whole daily history, Fibonacci on weekly), so
-the app caches the result per ticker and timeframe.
+Every module here works on the traded basis, the same bars the chart draws
+(`bars.CHART_BASIS`). S/R, gaps, AVWAP and Fibonacci load them through their own
+`detect`; divergences, volume profile and market structure run their module's steps
+on the chart's bars, so they aren't loaded twice. A run takes from a fraction of a
+second (S/R, volume profile) to several (gaps over the whole daily history, Fibonacci
+on weekly), so the app caches the result per ticker and timeframe.
 
 This is current state as of the last bar, which is all the first version shows (no
 as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
