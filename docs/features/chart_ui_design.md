@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–3, 4a and 4b built (Done #175–#179, 2026-11-07). Lean first version, wider later.
+Status: steps 1–3, 4a and 4b built (Done #175–#178, #181, 2026-11-08). Lean first version, wider later.
 
 ## One-liner
 
@@ -285,7 +285,7 @@ class Overlay:
      figure or pushed into the panes below (step 3's review finding, worse with the
      shorter price pane).
 
-   As built, 4b (divergences in the level menu, Done #179):
+   As built, 4b (divergences in the level menu, Done #181):
    - The divergence module's detector runs live like the other families (RSI, MACD
      histogram and OBV; regular and hidden). Each divergence is a line from its first
      price pivot to its second, green bullish / red bearish, dashed when hidden, with a

@@ -35,7 +35,7 @@ def test_realized_inside_is_the_next_reaction_within_the_holding_window():
 @pytest.fixture
 def logged(tmp_path, monkeypatch):
     features, labels = _synthetic(shuffled=False)
-    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell: labels)
+    monkeypatch.setattr(trading.dataset, "read_labels", lambda d, h, cell, open_holdout=False: labels)
     sc = replace(SMALL, experiment_id="F2", track="B", band=0.001, verdict_k=5, ci=0.95)
     trials, art = tmp_path / "TRIALS.csv", tmp_path / "art"
     trading.run_horizon(sc, 21, features, tmp_path, trials_path=trials, artifacts_root=art)
