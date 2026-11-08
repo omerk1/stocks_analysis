@@ -40,6 +40,7 @@ test ideas aren't user demand.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import json
 from dataclasses import asdict, dataclass
@@ -47,13 +48,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import get_args
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError, create_model
 
 from src.llm.gemini import GeminiClient, Reply
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    SpecField, StrategySpec, UnsupportedReason, group_unsupported, load_golden_specs, request_wording)
+    Signal, SpecField, StrategySpec, UnsupportedReason, _Section, group_unsupported, load_golden_specs,
+    request_wording)
 
 PURPOSE = "strategy_spec.extract"
 RUNS_DIR_NAME = "extraction_runs"
@@ -101,7 +103,8 @@ resort. But vague is not unsupported: something the platform can compute that th
 just hasn't quantified ("over the long run", "a decent-sized move") is a blank field \
 to ask about, not an `unsupported` entry.
 - `uses` lists the catalogue ids the spec is built from — ids that appear in the \
-catalogue below, nothing else.
+catalogue below, nothing else. Each supporting signal also lists, in its own `uses`, the \
+ids that one signal is built from.
 - `name` is a short name for the idea.
 
 """
@@ -112,7 +115,7 @@ QUANT_ATTRS = {
     "size": ("normalisation", "min", "max", "not_applicable"),
     "trigger": ("price_basis", "execution"),
 }
-_SCALARS = ("direction", "timeframe")
+_SCALARS = ("direction", "timeframe", "filters_needed")
 OUTCOMES = ("correct", "left_blank", "invented", "wrong", "unscored")
 
 
@@ -122,11 +125,29 @@ def build_system() -> str:
     return RULES + catalogue.render()
 
 
+# The schema extraction answers in: the spec without what only the elicitation loop
+# fills (how many filters must hold, each signal's detector settings). With those in the
+# extraction schema, the eval lost 3–5 correct fields and gained 4–5 invented ones (done.md
+# #180), and the first pass never captured a filter count anyway; left out, they are
+# always asked. A signal keeps its own `uses`, which the gap check needs to know what to ask.
+_ELICITED = {"filters_needed"}
+_ELICITED_SIGNAL = {"settings", "defaults_ok"}
+_ExtractedSignal = create_model(
+    "ExtractedSignal", __base__=_Section,
+    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n not in _ELICITED_SIGNAL})
+ExtractedSpec = create_model(
+    "ExtractedSpec", __base__=_Section,
+    **{n: (list[_ExtractedSignal], Field(default_factory=list)) if n == "supporting_signals" else (f.annotation, f)
+       for n, f in StrategySpec.model_fields.items() if n not in _ELICITED})
+
+
 def extract(idea: str, client: GeminiClient) -> Reply:
-    """One budgeted call; `Reply.parsed` is the StrategySpec. Logging the spec's
-    unsupported requests is the caller's choice: evals never log, real use does."""
-    return client.generate(idea, purpose=PURPOSE, system=build_system(),
-                           response_schema=StrategySpec, temperature=0.0)
+    """One budgeted call; `Reply.parsed` is the StrategySpec (answered in `ExtractedSpec`,
+    the elicited fields left at their defaults). Logging the spec's unsupported requests
+    is the caller's choice: evals never log, real use does."""
+    reply = client.generate(idea, purpose=PURPOSE, system=build_system(),
+                            response_schema=ExtractedSpec, temperature=0.0)
+    return dataclasses.replace(reply, parsed=StrategySpec.model_validate(reply.parsed.model_dump()))
 
 
 @dataclass(frozen=True)
@@ -270,6 +291,8 @@ def score_field(field: str, spec: StrategySpec, exp: Expectation) -> str:
     if exp.form == "described":
         # Words were given, numbers and choices weren't: any set here was invented. What
         # remains is words alone (an all-default section already counted as empty).
+        if field == "supporting_signals":
+            return "invented" if any(s.settings or s.defaults_ok for s in got) else "correct"
         if any(_set(getattr(got, a)) for a in QUANT_ATTRS.get(field, ())):
             return "invented"
         return "correct"

@@ -1,6 +1,8 @@
 """The capability catalogue can't drift from the code: every entry's `impl` imports, and
 where the code has a fixed list, the catalogue matches it both ways."""
 
+import dataclasses
+import enum
 import importlib
 import inspect
 import subprocess
@@ -65,6 +67,47 @@ def test_every_public_indicator_function_is_listed_or_excluded():
     listed = {c.impl.split(":")[1] for c in CATALOGUE if c.impl.startswith(f"{module.__name__}:")}
     assert listed.isdisjoint(NOT_USER_FACING_INDICATORS)
     assert listed | set(NOT_USER_FACING_INDICATORS) == public
+
+
+SETTINGS = [(prefix, s) for prefix, settings in catalogue.SETTINGS.items() for s in settings]
+
+
+@pytest.mark.parametrize("prefix, setting", SETTINGS, ids=[f"{p}{s.name}" for p, s in SETTINGS])
+def test_every_setting_maps_to_its_config_field_and_default(prefix, setting):
+    assert any(c.id.startswith(prefix) for c in CATALOGUE), "a family with no catalogue entry"
+    module, _, attr = setting.impl.partition(":")
+    owner_name, _, field_name = attr.partition(".")
+    owner = _resolve(f"{module}:{owner_name}")
+    if not field_name:  # a choice among an enum's members: every one is the default
+        assert issubclass(owner, enum.Enum) and setting.default == "all of them"
+        return
+    fields = {f.name: f for f in dataclasses.fields(owner)}
+    assert field_name in fields
+    f = fields[field_name]
+    default = f.default_factory() if f.default is dataclasses.MISSING else f.default
+    assert setting.default == default
+
+
+def test_sr_line_questions_name_the_long_term_preset():
+    from src.signals.sr_lines.config import PRESETS
+    asked = {s.name: s.question for s in catalogue.SETTINGS["detector:sr_line."]}
+    assert f"uses {PRESETS['long_term'].window_years:g}" in asked["window_years"]
+    assert f"uses {PRESETS['long_term'].pivot_atr_mult:g}" in asked["pivot_atr_mult"]
+
+
+def test_avwap_anchor_question_names_every_anchor_type():
+    from src.foundation.market_common.anchors import AnchorType
+    words = {"ath": "all-time", "atl": "all-time", "52w_high": "52-week", "52w_low": "52-week",
+             "cycle_high": "cycle", "cycle_low": "cycle", "regime_high": "regime", "regime_low": "regime"}
+    anchors = next(s for s in catalogue.SETTINGS["detector:avwap"] if s.name == "anchors")
+    for member in AnchorType:  # a new member fails here until the question names it
+        assert words[member.value] in anchors.question
+
+
+def test_settings_for_merges_a_family_and_ignores_the_rest():
+    found = catalogue.settings_for(["detector:divergence.rsi", "detector:divergence.obv", "indicator:rsi"])
+    assert list(found) == [s.name for s in catalogue.SETTINGS["detector:divergence."]]
+    assert catalogue.settings_for(["detector:ma.first_touch"]) == {}
 
 
 def test_render_lists_the_schema_choices_and_every_entry():

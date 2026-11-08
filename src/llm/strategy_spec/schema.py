@@ -65,7 +65,7 @@ Execution = Literal["next_open", "same_close"]
 GapKind = Literal["missing", "unquantified", "invalid", "unsupported"]
 # The spec fields an unsupported request can belong to.
 SpecField = Literal["direction", "timeframe", "duration", "size", "trigger", "horizons_bars",
-                    "invalidation", "supporting_signals", "secondary_metrics", "control"]
+                    "invalidation", "filters_needed", "supporting_signals", "secondary_metrics", "control"]
 UnsupportedReason = Literal[
     "unknown_detector",       # a pattern or event the platform doesn't detect
     "unknown_indicator",      # an indicator or feature that isn't computed
@@ -123,12 +123,30 @@ class Rule(_Section):
     phase: Literal["before_entry", "after_entry"]
 
 
+class Setting(_Section):
+    """One of a detector's settings (`catalogue.SETTINGS`), as the trader gave it. The
+    value stays in the trader's words ("0.5 and 0.618", "8 ATR"): the finder that
+    applies it parses it, and the grounding rubric shows what was applied."""
+
+    name: Text
+    value: Text
+
+
 class Signal(_Section):
-    """A supporting signal: a hard filter, or an input that only raises confidence."""
+    """A supporting signal: a hard filter, or an input that only raises confidence.
+
+    `uses` names the catalogue ids this one signal is built from (the spec's own `uses`
+    covers the whole idea, so it can't say which detector belongs to which signal).
+    A filter whose detector has settings in the catalogue is asked about them until
+    `settings` holds at least one, or the trader accepts the defaults (`defaults_ok`).
+    """
 
     name: Text
     description: Text
     role: Literal["filter", "score"]
+    uses: list[Text] = Field(default_factory=list)
+    settings: list[Setting] = Field(default_factory=list)
+    defaults_ok: bool = False
 
 
 class Control(_Section):
@@ -221,6 +239,12 @@ class StrategySpec(_Section):
     trigger: Trigger | None = None
     horizons_bars: list[int] = Field(default_factory=list)
     invalidation: list[Rule] = Field(default_factory=list)
+    # How many of the filter signals must hold at once ("any 2 of these"; all of them is
+    # their count). Not stated is None: with two or more filters the gap check asks,
+    # since a plain list reads as "all required" whatever the trader meant. Before
+    # `supporting_signals` so it's asked first: it's the idea's shape, the signals'
+    # settings are details.
+    filters_needed: int | None = None
     supporting_signals: list[Signal] = Field(default_factory=list)
     secondary_metrics: list[Text] = Field(default_factory=list)
     control: Control | None = None
@@ -236,6 +260,9 @@ class Gap:
     field: str
     kind: GapKind
     reason: str
+    # The list item the gap is about (a supporting signal's name), so each item can be
+    # asked about on its own; None for a gap about the field as a whole.
+    item: str | None = None
 
 
 def find_gaps(spec: StrategySpec) -> list[Gap]:
@@ -246,8 +273,8 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     """
     gaps: list[Gap] = []
 
-    def add(field: str, kind: GapKind, reason: str) -> None:
-        gaps.append(Gap(field, kind, reason))
+    def add(field: str, kind: GapKind, reason: str, item: str | None = None) -> None:
+        gaps.append(Gap(field, kind, reason, item))
 
     if spec.direction is None:
         add("direction", "missing", "long, short, or both?")
@@ -312,6 +339,44 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     if not spec.invalidation:
         add("invalidation", "missing", "what kills the setup, before or after entry?")
 
+    filters = [sig.name for sig in spec.supporting_signals if sig.role == "filter"]
+    n = spec.filters_needed
+    if n is None:
+        if len(filters) >= 2:
+            add("filters_needed", "missing", f"must all {len(filters)} filters hold at once, or at least "
+                f"how many of them? ({'; '.join(filters)})")
+    elif not filters:
+        add("filters_needed", "invalid", "a count of filters needed, but no supporting signal is a filter")
+    elif not 1 <= n <= len(filters):
+        add("filters_needed", "invalid", f"{n} filters needed, but there are {len(filters)}")
+
+    # A signal is asked about, and its answer put back, by name, so names must be unique
+    # (the elicitation loop makes them so; this catches a spec built any other way).
+    names = [sig.name for sig in spec.supporting_signals]
+    shared = [name for name in dict.fromkeys(names) if names.count(name) > 1]
+    if shared:
+        add("supporting_signals", "invalid", f"two signals share a name ({'; '.join(shared)}); "
+            "each needs its own")
+    for sig in spec.supporting_signals:
+        # About the whole list, not this signal: a per-signal question only asks settings,
+        # so its answer can't change the detector.
+        for cap_id in dict.fromkeys(sig.uses):
+            if cap_id not in catalogue.IDS:
+                add("supporting_signals", "invalid",
+                    f"{sig.name!r} uses {cap_id!r}, which isn't in the capability catalogue")
+        known = catalogue.settings_for(sig.uses)
+        for setting in sig.settings:
+            if setting.name not in known:
+                listed = ", ".join(known) or "its detector has none listed"
+                add("supporting_signals", "invalid",
+                    f"{setting.name!r} isn't one of its settings ({listed})", sig.name)
+        # Only a filter decides which events exist, so only a filter is asked; a filter
+        # with no detector mapped has nothing to ask about (an unmet one is `unsupported`).
+        if sig.role == "filter" and known and not sig.settings and not sig.defaults_ok:
+            asked = "; ".join(s.shown() for s in known.values())
+            add("supporting_signals", "unquantified",
+                f"what makes it count? {asked} (or say the detector's defaults are fine)", sig.name)
+
     if spec.control is None:
         add("control", "missing", "what is the setup compared against?")
 
@@ -330,9 +395,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             detail = f" ({'; '.join(details)})" if details else ""
             add(field, "unsupported", f"{group.requested!r}: {group.reason.replace('_', ' ')}{detail}")
 
-    # Field order across every kind of gap (a stable sort keeps each field's own order).
+    # Field order across every kind of gap, and within a field the gaps about the field as
+    # a whole before those about one item (a stable sort keeps the rest in order).
     order = {name: n for n, name in enumerate(StrategySpec.model_fields)}
-    return sorted(gaps, key=lambda g: order.get(g.field, len(order)))
+    return sorted(gaps, key=lambda g: (order.get(g.field, len(order)), g.item is not None))
 
 
 GOLDEN_SPECS_PATH = Path(__file__).with_name("golden_specs.json")

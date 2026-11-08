@@ -9,6 +9,7 @@ from src.foundation.market_common.models import Timeframe
 from src.ui.chart import app as app_mod
 from src.ui.chart import rs
 from src.ui.chart.config import ChartConfig, ChartType
+from src.ui.chart.overlays import Overlay
 
 
 class FakeData(app_mod.ChartData):
@@ -29,6 +30,18 @@ class FakeData(app_mod.ChartData):
 
     def strip(self, ticker, change_days):
         return self._strip
+
+    def _overlays(self, ticker, timeframe):
+        self.calls.append(("overlays", ticker))
+        return app_mod.OverlaySet(tuple(self.items), {"fibonacci": "ValueError: boom"}, 0.1)
+
+    # last close 359, ATR 2 (high - low): reach 3 ATR = 353..365
+    items = (
+        Overlay("sr_lines", "near", "Support 358", "zone", pd.Timestamp("2024-06-03"), 357.5, 358.5, 1.0, True),
+        Overlay("sr_lines", "dead", "Support 359", "zone", pd.Timestamp("2024-06-03"), 358.5, 359.5, 9.0, False),
+        Overlay("sr_lines", "far", "Support 300", "zone", pd.Timestamp("2024-06-03"), 299.5, 300.5, 5.0, True),
+        Overlay("gaps", "gap", "FVG up 356–357", "zone", pd.Timestamp("2024-09-02"), 356.0, 357.0, 1.0, True),
+    )
 
 
 def _render(data, ticker, ma_keys=("sma_50",), view=None):
@@ -113,5 +126,79 @@ def test_relayout_forms():
 
 def test_app_builds_with_injected_data():
     dash_app = app_mod.create_app(FakeData(), ChartConfig())
-    ids = {c.id for c in dash_app.layout._traverse() if getattr(c, "id", None)}
-    assert {"ticker", "timeframe", "chart-type", "volume", "mas", "chart", "rs-strip", "view"} <= ids
+    ids = {c.id for c in dash_app.layout._traverse() if isinstance(getattr(c, "id", None), str)}
+    assert {"ticker", "timeframe", "chart-type", "volume", "mas", "chart", "rs-strip", "view",
+            "weight", "reset", "menu", "menu-key", "overlay-count", "earnings", "earnings-open", "panes"} <= ids
+
+
+def _by_type(children):
+    """{(type, family): component} for the menu's pattern-matched components."""
+    out = {}
+    for block in children:
+        for c in [block, *block._traverse()]:
+            if isinstance(getattr(c, "id", None), dict):
+                out[(c.id["type"], c.id["family"])] = c
+    return out
+
+
+def test_menu_lists_alive_items_and_ticks_the_defaults():
+    data = FakeData()
+    children, key = app_mod.menu(data, ChartConfig(), " abc ", Timeframe.DAILY)
+    assert key == "ABC-daily"
+    parts = _by_type(children[1:])
+    sr = parts[("items", "sr_lines")]
+    assert [o["value"] for o in sr.options] == ["near", "far"]  # the dead line isn't listed
+    assert sr.value == ["near"]  # far is out of reach: listed, not ticked
+    assert parts[("family", "sr_lines")].value == ["sr_lines"]
+    assert parts[("family-count", "sr_lines")].children == "1 of 2 shown"
+    assert parts[("family-defaults", "sr_lines")].data == ["near"]
+    assert parts[("items", "gaps")].value == ["gap"]
+    # a family with nothing alive is unticked, and its failure is shown
+    assert parts[("family", "fibonacci")].value == []
+    assert "failed: ValueError: boom" in str(children)
+
+
+def test_ticking_a_family_with_nothing_in_reach_picks_its_nearest():
+    data = FakeData()
+    data.items = data.items[2:3]  # only "far"
+    parts = _by_type(app_mod.menu(data, ChartConfig(), "ABC", Timeframe.DAILY)[0][1:])
+    assert parts[("items", "sr_lines")].value == []
+    assert parts[("family-defaults", "sr_lines")].data == ["far"]
+
+
+def test_selected_overlays_only_for_the_menus_own_chart():
+    data = FakeData()
+    chosen = app_mod.chosen_items([{"type": "items", "family": "sr_lines"}, {"type": "items", "family": "gaps"}],
+                                  [["near", "far"], None])
+    assert chosen == {"sr_lines": ["near", "far"], "gaps": []}
+    assert app_mod.selected_overlays(data, "ABC", Timeframe.DAILY, "XYZ-daily", chosen) == ()
+    assert data.overlays.cache_info().misses == 0  # a stale menu never runs the detectors
+    picked = app_mod.selected_overlays(data, "abc", Timeframe.DAILY, "ABC-daily", chosen)
+    assert [o.item_id for o in picked] == ["near", "far"]
+    fig, _ = _render_with(data, picked)
+    assert [t.name for t in fig.data][:3] == ["Support 358", "Support 300", "ABC"]
+
+
+def _render_with(data, overlays):
+    return app_mod.render(data, ChartConfig(), "ABC", Timeframe.DAILY, ChartType.CANDLES, [], True, None, overlays)
+
+
+def test_family_box_and_items_stay_in_step():
+    sync = app_mod.family_sync
+    five = {"of": 5, "events": False}
+    assert sync("family", "gaps", ["gaps"], [], ["a", "b"], five) == (["gaps"], ["a", "b"], "2 of 5 shown")
+    assert sync("family", "gaps", [], ["a", "b"], ["a", "b"], five) == ([], [], "0 of 5 shown")
+    # unticking the last item by hand unticks the box, so the next tick restores the defaults
+    assert sync("items", "gaps", ["gaps"], [], ["a", "b"], five) == ([], [], "0 of 5 shown")
+    assert sync("items", "gaps", [], ["c"], ["a", "b"], five) == (["gaps"], ["c"], "1 of 5 shown")
+    # a family with nothing to pick can't stay ticked
+    assert sync("family", "gaps", ["gaps"], [], [], {"of": 0}) == ([], [], "0 of 0 shown")
+    assert sync("items", "divergences", [], ["d"], [], {"of": 2, "events": True})[2] == "1 of 2 recent"
+
+
+def test_count_texts():
+    assert app_mod.family_count_text(3, 41) == "3 of 41 shown"
+    assert app_mod.family_count_text(0, 2, events=True) == "0 of 2 recent"
+    assert app_mod.family_count_text(3, 0, events=True) == "3 shown, 0 recent"  # older ones ticked
+    assert app_mod.total_count_text(10, 10) == "10 / 10 on the chart"
+    assert app_mod.total_count_text(12, 10) == "12 / 10 on the chart — busy"

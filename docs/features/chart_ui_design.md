@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: step 1 built (Done #175, 2026-11-06). Lean first version, wider later.
+Status: steps 1–3 and 4a–4c built (Done #175–#178, #181, #182, 2026-11-08). Lean first version, wider later.
 
 ## One-liner
 
@@ -208,10 +208,136 @@ class Overlay:
    families `levels.py` already covers), `relevance.py`, the menu with caps and reset, and the
    proximity ↔ strength slider. Tests: ranking and caps on hand-built overlays, dead items
    never selected by default. Then look at a handful of tickers and set the weight and reach.
+   **As built (Done #176):**
+   - Every family runs its own detector live on the ticker's bars as of the last bar, cached
+     per ticker and timeframe, instead of reading stored rows. `sr_lines` and `fib_sets` are
+     empty in the derived database, and the stored gaps and AVWAP rows are only as fresh as
+     their last batch run. A daily chart takes 1–3 s, a weekly one 3–8 s (Fibonacci on
+     the whole weekly history is most of it). The chart draws first and the menu fills
+     in after.
+   - S/R uses both of the module's presets (short and long lookback). Gaps are drawn as
+     their unfilled part. AVWAP curves are recomputed from the anchor. Each Fibonacci level
+     of the module's selected swings is its own item.
+   - Alive: S/R not broken (flipped counts), gaps open or partial, AVWAP active, Fibonacci
+     swing not invalidated.
+   - Within a family, an item that overlaps one already picked, or is within 0.1 ATR of it,
+     is the same level and doesn't take a second slot. Examples: a classic gap and an FVG
+     over one zone, one S/R level found by both presets, AVWAPs anchored days apart.
+   - Ticking a family picks its best 3. With nothing in reach, it picks its 3 nearest alive
+     items instead. Each menu item shows its distance in ATR; hover shows the source numbers,
+     the strength percentile and the score.
+   - Moving the slider re-picks the defaults at the new weight, replacing hand picks. Reset
+     also puts the slider back to 0.7.
+   - Moving averages stay a fixed default set (step 1), outside the ranking and the cap of
+     10. The "two closest" rule in "Default selection" isn't built.
+   - Weight and reach stay at 0.7 and 3 ATR. On 10 large caps (daily), 3 ATR gives 3–10
+     picks. Names at an all-time high get the fewest, since nothing sits above them.
 3. **Earnings cards:** markers, collapsed flags, cards without guidance. Tests: marker lands
    on `reaction_date`, year-ago change, gap %.
+
+   As built (`src/ui/chart/earnings.py`, Done #177):
+   - The period label ("Q2 FY2027") comes from the announcements themselves: quarters
+     reported in a 10-K end the fiscal years, and a fiscal year is named by the calendar
+     year it ends in. Without a 10-K within a year, the card shows only the quarter's end.
+   - "Filing date" is the announcement's acceptance (the 8-K, else the 10-Q/10-K), in ET,
+     with the timing and the form.
+   - EPS is as filed, so it's put on today's share basis (divided by the splits executed
+     after its filing) before the year-ago comparison, like the split-adjusted bars.
+     Without that, NVDA's 2024 10:1 split reads as −87%. A fourth quarter has no EPS: the
+     10-K reports the year, and EPS doesn't add up across quarters.
+   - Revenue is compared only when both quarters use the same measure (the
+     revenue-growth feature's `REVENUE_FAMILY`). The % is shown only against a positive
+     year-ago value; against a loss, the card gives both numbers.
+   - The reaction is measured on daily bars, also on the weekly chart: gap and day move vs
+     the previous close, in ATR(14) as of the bar before. No gap for news out during the
+     session: that day's open came before it. On the weekly chart the flag sits on the bar
+     of the reaction week; the week still in progress has no bar and no flag, and the
+     latest card with a bar is the one open by default.
+   - Revenue and EPS match the announcement's quarter within 7 days (the two tables'
+     quarter ends can differ on 52/53-week years; 42 announcements).
+   - Clicking a flag opens its card and clicking a card closes it, remembered per ticker.
+     "Expand all" opens every card (plotly hides the ones out of view) and ignores clicks. On a weekly chart
+     over several years they overlap: zoom in. A checkbox hides the flags altogether.
+   - Cards are built for every announcement in about 0.6 s per ticker and cached.
 4. **The other families:** patterns, divergences (with the oscillator pane), volume profile,
    market structure, RSI/MACD and relative-strength panes.
+
+   Split into four PRs, each a usable app: 4a the panes, 4b divergences on them, 4c volume
+   profile and market structure, 4d chart patterns.
+
+   As built, 4a (`src/ui/chart/panes.py`, Done #178):
+   - RSI 14 (30/70 bands), MACD 12/26/9 (line, signal, histogram) and RS vs SPY, as
+     panes under the volume pane in that order. Off by default, not ranked.
+   - RSI and MACD are computed on the chart's own bars, so they end on its last bar.
+   - The RS pane is recomputed with the relative-strength module's own functions instead
+     of read from the stored `rs_mansfield`, which is only as fresh as the last RS run (5
+     weeks behind at the time). That's the weekly total-return ratio to SPY vs its
+     52-week average, in %, on completed weeks; a daily chart carries the last week
+     completed before each day, so it steps weekly. It matches the stored values
+     exactly (KO, NVDA, AAPL checked). It needs no RS run, only SPY's bars; without
+     them the header says so.
+   - Every pane's y-axis refits on zoom and pan like the price pane (RSI stays 0–100;
+     MACD and RS keep 0 in view; an empty window, e.g. a warmup, gets a neutral range).
+     Dragging any pane pans them all. With every pane on, the price pane keeps at least
+     half the height.
+   - An open earnings card now goes on the side of its bar with more room in the price
+     axis, re-decided on every zoom and pan: so it isn't cut off at the top of the
+     figure or pushed into the panes below (step 3's review finding, worse with the
+     shorter price pane).
+
+   As built, 4b (divergences in the level menu, Done #181):
+   - The divergence module's detector runs live like the other families (RSI, MACD
+     histogram and OBV; regular and hidden). Each divergence is a line from its first
+     price pivot to its second, green bullish / red bearish, dashed when hidden, with a
+     short tag ("RSI↑", "MACD↓h"). With the RSI or MACD pane shown, the same divergence
+     is also drawn there between the paired indicator values. OBV has no pane, so only
+     its price line is drawn. The module stores the indicator pivots' values but not
+     their dates (they pair within 3 bars of the price pivots), so the pane line uses
+     the price pivots' dates.
+   - Alive is the module's own rule: not invalidated (price went past the pair's
+     extreme within its 20-bar outcome window). Old divergences stay alive for good, so
+     a divergence isn't ranked by distance from price but by recency: in reach when
+     confirmed at most `reach_bars` ago (40 daily, about two months; 12 weekly, about a
+     quarter), proximity = 1 − age / reach, mixed with the module's strength like the
+     other families. The menu shows "12 bars ago" for each, and the family count reads
+     "1 of 2 recent" ("3 shown, 0 recent" when older ones are ticked).
+   - Divergences on the same second pivot and direction (RSI and MACD on one low) are
+     one event and take one default slot. Ticking the family with nothing recent picks
+     the 3 latest alive ones, also one per event.
+   - The adapter runs the module's own pipeline on the chart's bars (same basis) rather
+     than loading them again, so each divergence's age counts the bars it was found on.
+   - On 10 large caps, 0–2 divergences per chart are in reach daily and 0–1 weekly, so
+     they're picked only when there's a recent one (none on AAPL).
+   - The detector adds about 2–3 s per chart. The menu now takes about 3–8 s daily and
+     4–17 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
+     detectors on threads doesn't help (they're CPU-bound Python); separate processes
+     would, a later change if the wait gets in the way.
+
+   As built, 4c (volume profile and market structure in the level menu, Done #182):
+   - **Volume profile:** each anchored profile (the same anchors as AVWAP) gives three
+     lines from its anchor: POC, VAH and VAL. Lines, not a value-area zone: the zone is
+     usually wide (NVDA daily: 166–233) with price inside it, so it always ranked first
+     and pushed the POC out. The tag names the anchor's month ("POC Jan 25"). No
+     strength in the module, so ranked on proximity alone. Alive follows the anchor's
+     status, but without the module's stored previous run only anchors that still
+     qualify are found, so every line is alive in practice (AVWAP is the same). The
+     side histogram is still for later.
+   - **Market structure:** each BOS (the trend continuing) or CHoCH (the trend flipping)
+     is an event, drawn as a line at the broken pivot's price from the pivot to the bar
+     whose close broke it ("CHoCH↓", BOS dashed). No lifecycle, so all are alive and
+     ranked by recency alone (the same 40 / 12-bar reach as divergences). The latest
+     event's hover says the trend now.
+   - Both run on the chart's bars (traded basis), with no second load, through a new
+     `detect_on_bars` in each module that its own `detect` now calls too (as AVWAP
+     already had), so the chart can't drift from the module. Divergences got the same.
+     Market structure uses the module's preset for the timeframe (weekly needs 20
+     bars, not 60).
+   - On 10 large caps, volume profile has 3–15 lines in reach and gets its 3 picks on
+     every chart; market structure 0–2. With them, most charts reach the cap of 10
+     (before: 3–10). If the defaults look crowded, volume profile is the first
+     candidate to start unticked.
+   - Market structure adds 0.5–4 s to the menu, volume profile under 0.3 s: menus now
+     take about 2.5–13 s daily and 4–12 s weekly (the spread is mostly machine load).
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 
