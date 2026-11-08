@@ -26,7 +26,9 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
+from src.foundation.market_common import history_breaks, indicators
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.pivots import detect_pivots
 from src.signals.avwap import anchors as avwap_anchors
 from src.signals.avwap import compute as avwap_compute
 from src.signals.avwap.config import AvwapConfig
@@ -42,14 +44,20 @@ from src.signals.gaps.config import GapConfig
 from src.signals.gaps.models import Direction, GapKind, GapStatus
 from src.signals.sr_lines import engine as sr_engine
 from src.signals.sr_lines.config import get_preset
+from src.signals.market_structure import detect as ms_detect
+from src.signals.market_structure.config import MarketStructureConfig
+from src.signals.market_structure.models import StructureEvent
 from src.signals.sr_lines.models import LineKind, LineState
+from src.signals.volume_profile import detect as vp_detect
+from src.signals.volume_profile.config import VolumeProfileConfig
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
-SR, GAPS, AVWAP, FIB, DIV = "sr_lines", "gaps", "avwap", "fibonacci", "divergences"
-FAMILIES = (SR, GAPS, AVWAP, FIB, DIV)
+SR, GAPS, AVWAP, FIB, VP, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "divergences",
+                                     "market_structure")
+FAMILIES = (SR, GAPS, AVWAP, FIB, VP, DIV, MS)
 FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci",
-                DIV: "Divergences"}
-EVENT_FAMILIES = frozenset({DIV})  # ranked by recency (`Overlay.age_bars`), not distance from price
+                VP: "Volume profile", DIV: "Divergences", MS: "Market structure"}
+EVENT_FAMILIES = frozenset({DIV, MS})  # ranked by recency (`Overlay.age_bars`), not distance from price
 
 # Short and long lookback, as the S/R module's own presets define them.
 SR_PRESETS = {Timeframe.DAILY: ("medium_term", "long_term"),
@@ -235,8 +243,7 @@ def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timefr
         name = _DIV_NAMES.get(d.indicator.value, d.indicator.value)
         bull = d.direction == Direction.BULLISH
         hidden = d.form == DivergenceForm.HIDDEN
-        # confirmed on a pivot's confirming bar, one of these bars
-        age = len(bars) - 1 - min(int(bars.index.searchsorted(confirmed)), len(bars) - 1)
+        age = _age(bars, confirmed)  # confirmed on a pivot's confirming bar, one of these bars
         out.append(Overlay(
             family=DIV, item_id=f"{d.indicator.value}:{d.direction.value}:{d.form.value}:{_day(p1)}:{_day(p2)}",
             label=f"{name} {'bullish' if bull else 'bearish'}{' hidden' if hidden else ''} {_day(p2)}",
@@ -254,6 +261,78 @@ def divergence_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timefr
     return out
 
 
+def _age(bars: pd.DataFrame, when) -> int:
+    """Bars from `when` (one of `bars`' dates, or the first after it) to the last bar."""
+    return len(bars) - 1 - min(int(bars.index.searchsorted(pd.Timestamp(when))), len(bars) - 1)
+
+
+def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                            bars: pd.DataFrame) -> list[Overlay]:
+    """Each anchored profile (the same anchors AVWAP uses) gives three lines from its
+    anchor: the point of control (POC) and the value area's edges (VAH, VAL). Lines,
+    not a value-area zone: the zone is usually wide (NVDA daily: 166-233) with price
+    inside it, so it would always rank first and push the POC out. Alive while the
+    anchor is active, like AVWAP. No strength: ranked on proximity.
+
+    Runs the module's own steps (`detect`'s) on the chart's `bars`, on the module's
+    basis (traded), instead of loading them again."""
+    config = VolumeProfileConfig()
+    if len(bars) < config.min_bars:
+        return []
+    start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    profiles = vp_detect.discover_profiles(bars, ticker, timeframe, config, history_start=start)
+    atr = indicators.atr(bars, config.atr_period)
+    out = []
+    for p in profiles:
+        vp_detect.apply_snapshot(bars, atr, p, config)
+        if p.poc is None:
+            continue
+        anchor = pd.Timestamp(p.anchor_date)
+        types = ", ".join(sorted(t.value.replace("_", " ") for t in p.anchor_types))
+        alive = p.status == AnchorStatus.ACTIVE
+        hover = {"POC": round(p.poc, 2), "value area": f"{p.val:.2f}–{p.vah:.2f}", "anchor": f"{_day(anchor)} ({types})",
+                 "bars": p.n_bars, "close vs value area": p.value_area_position, "status": p.status.value}
+        for name, price in (("POC", p.poc), ("VAH", p.vah), ("VAL", p.val)):
+            out.append(Overlay(family=VP, item_id=f"{_day(anchor)}:{name.lower()}",
+                               label=f"{name} {price:.2f} (from {_day(anchor)})", tag=name, kind="hline", x0=anchor,
+                               lo=float(price), hi=float(price), strength=None, alive=alive, hover=hover))
+    return out
+
+
+def structure_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> list[Overlay]:
+    """Each break of structure (BOS, the trend continuing) or change of character
+    (CHoCH, the trend flipping) is an event drawn as a line at the broken pivot's
+    price, from the pivot to the bar whose close broke it. Facts with no lifecycle, so
+    all alive and ranked by recency alone. The latest event's direction is the
+    current trend, said in its hover.
+
+    Runs the module's own steps (`detect`'s) on the chart's `bars` (traded basis)."""
+    config = MarketStructureConfig()
+    if len(bars) < config.min_bars:
+        return []
+    atr = indicators.atr(bars, config.atr_period).to_numpy()
+    pivots = detect_pivots(bars["high"], bars["low"], threshold_fn=lambda i: config.pivot_atr_mult * atr[i])
+    events = ms_detect.track_market_structure(bars, pivots, config, ticker, timeframe)
+    out = []
+    for n, e in enumerate(events):
+        pivot_at, broken_at = pd.Timestamp(e.broken_pivot.timestamp), pd.Timestamp(e.broken_at)
+        level = float(e.broken_pivot.value)
+        up = e.direction == Direction.BULLISH
+        name = "CHoCH" if e.event == StructureEvent.CHOCH else "BOS"
+        hover = {"broke": f"{level:.2f} ({e.broken_pivot.kind.value} of {_day(pivot_at)})", "close": round(e.close, 2),
+                 "volume confirmed": "yes" if e.volume_confirmed else "no"}
+        if n == len(events) - 1:
+            hover["trend now"] = "up" if up else "down"
+        out.append(Overlay(
+            family=MS, item_id=f"{e.event.value}:{e.direction.value}:{_day(broken_at)}",
+            label=f"{name} {'up' if up else 'down'} {_day(broken_at)} at {level:.2f}", tag=f"{name}{'↑' if up else '↓'}",
+            kind="segment", x0=pivot_at, lo=level, hi=level, strength=None, alive=True,
+            points=((pivot_at, level), (broken_at, level)), age_bars=_age(bars, broken_at),
+            same_key=f"{e.event.value}:{_day(broken_at)}", bullish=up, dashed=e.event == StructureEvent.BOS,
+            hover=hover))
+    return out
+
+
 def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                  bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
     """Every family's overlays, plus {family: message} for families that failed. One
@@ -263,7 +342,9 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
             GAPS: lambda: gap_overlays(conn, ticker, timeframe),
             AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
             FIB: lambda: fib_overlays(conn, ticker, timeframe),
-            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars)}
+            VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
+            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
+            MS: lambda: structure_overlays(ticker, timeframe, bars)}
     overlays, errors = [], {}
     for family, run in runs.items():
         try:

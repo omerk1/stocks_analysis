@@ -107,8 +107,10 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     monkeypatch.setattr(overlays, "avwap_overlays", lambda *a: ["avwap item"])
     monkeypatch.setattr(overlays, "fib_overlays", lambda *a: ["fib item"])
     monkeypatch.setattr(overlays, "divergence_overlays", lambda *a: ["div item"])
+    monkeypatch.setattr(overlays, "volume_profile_overlays", lambda *a: ["vp item"])
+    monkeypatch.setattr(overlays, "structure_overlays", lambda *a: ["ms item"])
     items, errors = overlays.all_overlays(None, "ABC", DAILY, bars)
-    assert items == ["avwap item", "fib item", "div item"]
+    assert items == ["avwap item", "fib item", "vp item", "div item", "ms item"]
     assert errors == {"gaps": "ValueError: boom"}
 
 
@@ -143,3 +145,50 @@ def test_divergences_are_segments_aged_by_confirmation(monkeypatch, bars):
     assert rsi.tag == "RSI↑" and obv.tag == "OBV↓h"
     monkeypatch.setattr(overlays, "DivergenceConfig", lambda: config(min_bars=150))  # too few bars: none
     assert overlays.divergence_overlays(None, "ABC", DAILY, bars) == []
+
+
+def test_volume_profile_gives_poc_and_value_area_edges_per_anchor(monkeypatch, bars):
+    profiles = [NS(anchor_date="2024-01-10T00:00:00", anchor_types={AnchorType.ATH}, status=AnchorStatus.ACTIVE,
+                   poc=None, vah=None, val=None, n_bars=0, value_area_position=None),
+                NS(anchor_date="2024-02-01T00:00:00", anchor_types={AnchorType.ATL}, status=AnchorStatus.STALE,
+                   poc=None, vah=None, val=None, n_bars=0, value_area_position=None)]
+
+    def snapshot(bars, atr, p, config):
+        p.poc, p.vah, p.val, p.n_bars, p.value_area_position = 100.0, 104.0, 97.0, 30, "inside"
+        return p
+
+    config = overlays.VolumeProfileConfig
+    monkeypatch.setattr(overlays, "VolumeProfileConfig", lambda: config(min_bars=10))
+    monkeypatch.setattr(overlays.history_breaks, "anchor_start_for", lambda *a: None)
+    monkeypatch.setattr(overlays.vp_detect, "discover_profiles", lambda *a, **k: profiles)
+    monkeypatch.setattr(overlays.vp_detect, "apply_snapshot", snapshot)
+    out = overlays.volume_profile_overlays(None, "ABC", DAILY, bars)
+    assert [(o.tag, o.lo, o.kind) for o in out[:3]] == [("POC", 100.0, "hline"), ("VAH", 104.0, "hline"),
+                                                        ("VAL", 97.0, "hline")]
+    assert [o.alive for o in out] == [True] * 3 + [False] * 3  # a stale anchor's lines are dead, like AVWAP
+    assert out[0].x0 == pd.Timestamp("2024-01-10") and out[0].strength is None
+    assert len({o.item_id for o in out}) == 6
+
+
+def test_market_structure_events_are_segments_at_the_broken_pivot(monkeypatch, bars):
+    from src.foundation.market_common.models import PivotKind
+    from src.signals.market_structure.models import StructureEvent
+
+    def event(kind, direction, pivot_day, broken_day, level):
+        return NS(event=kind, direction=direction, broken_at=f"{broken_day}T00:00:00", close=level + 1,
+                  volume_confirmed=False,
+                  broken_pivot=NS(timestamp=f"{pivot_day}T00:00:00", value=level, kind=PivotKind.HIGH))
+
+    events = [event(StructureEvent.CHOCH, Direction.BULLISH, "2024-01-10", "2024-02-01", 95.0),
+              event(StructureEvent.BOS, Direction.BULLISH, "2024-02-15", "2024-03-01", 105.0)]
+    config = overlays.MarketStructureConfig
+    monkeypatch.setattr(overlays, "MarketStructureConfig", lambda: config(min_bars=10))
+    monkeypatch.setattr(overlays, "detect_pivots", lambda *a, **k: [])
+    monkeypatch.setattr(overlays.ms_detect, "track_market_structure", lambda *a: events)
+    choch, bos = overlays.structure_overlays("ABC", DAILY, bars)
+    assert choch.points == ((pd.Timestamp("2024-01-10"), 95.0), (pd.Timestamp("2024-02-01"), 95.0))
+    assert (choch.tag, choch.dashed, bos.tag, bos.dashed) == ("CHoCH↑", False, "BOS↑", True)
+    assert choch.alive and bos.alive and choch.strength is None  # facts: no lifecycle, recency only
+    assert bos.age_bars == len(bars.loc["2024-03-01":]) - 1
+    assert "trend now" in bos.hover and "trend now" not in choch.hover  # only the latest says the trend
+    assert overlays.MS in overlays.EVENT_FAMILIES and overlays.VP not in overlays.EVENT_FAMILIES

@@ -45,6 +45,7 @@ _OVERLAY_STYLE = {
     "gaps": ("#ca8a04", "rgba(234,179,8,0.20)"),
     "avwap": ("#0d9488", None),
     "fibonacci": ("#c026d3", None),
+    "volume_profile": ("#ea580c", "rgba(234,88,12,0.10)"),
 }
 
 
