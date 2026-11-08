@@ -11,8 +11,8 @@ instead of reading the derived database:
 
 Every module here works on the traded basis, the same bars the chart draws
 (`bars.CHART_BASIS`). S/R, gaps, AVWAP and Fibonacci load them through their own
-`detect`; divergences, volume profile and market structure run their module's steps
-on the chart's bars, so they aren't loaded twice. A run takes from a fraction of a
+`detect`; volume profile, chart patterns, divergences and market structure run their
+module's steps on the chart's bars, so they aren't loaded twice. A run takes from a fraction of a
 second (S/R, volume profile) to several (gaps over the whole daily history, Fibonacci
 on weekly), so the app caches the result per ticker and timeframe.
 
@@ -48,17 +48,20 @@ from src.signals.sr_lines.config import get_preset
 from src.signals.market_structure import config as ms_config
 from src.signals.market_structure import detect as ms_detect
 from src.signals.market_structure.models import StructureEvent
+from src.signals.patterns import config as pattern_config
+from src.signals.patterns import scanner as pattern_scanner
+from src.signals.patterns.models import PatternStatus, PatternType
 from src.signals.sr_lines.models import LineKind, LineState
 from src.signals.volume_profile import detect as vp_detect
 from src.signals.volume_profile.config import VolumeProfileConfig
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
-SR, GAPS, AVWAP, FIB, VP, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "divergences",
-                                     "market_structure")
-FAMILIES = (SR, GAPS, AVWAP, FIB, VP, DIV, MS)
+SR, GAPS, AVWAP, FIB, VP, PAT, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "patterns",
+                                          "divergences", "market_structure")
+FAMILIES = (SR, GAPS, AVWAP, FIB, VP, PAT, DIV, MS)
 FAMILY_NAMES = {SR: "Support / resistance", GAPS: "Gaps / FVG", AVWAP: "Anchored VWAP", FIB: "Fibonacci",
-                VP: "Volume profile", DIV: "Divergences", MS: "Market structure"}
-EVENT_FAMILIES = frozenset({DIV, MS})  # ranked by recency (`Overlay.age_bars`), not distance from price
+                VP: "Volume profile", PAT: "Chart patterns", DIV: "Divergences", MS: "Market structure"}
+EVENT_FAMILIES = frozenset({PAT, DIV, MS})  # ranked by recency (`Overlay.age_bars`), not distance from price
 
 # Short and long lookback, as the S/R module's own presets define them.
 SR_PRESETS = {Timeframe.DAILY: ("medium_term", "long_term"),
@@ -97,6 +100,16 @@ class Overlay:
     same_key: str | None = None
     bullish: bool | None = None  # an event's direction, for its colour; None: the family's colour
     dashed: bool = False  # a segment drawn dashed (a hidden divergence)
+    # Extra straight lines drawn with a segment, each ((x0, y0), (x1, y1), dash, text), e.g.
+    # a chart pattern's trigger line and target; x1 None runs it to the right edge, and
+    # `text` (may be "") is written at its right end.
+    guides: tuple = ()
+
+    @property
+    def x_end(self):
+        """Where a segment's drawing ends: its last point or guide (None: the right edge)."""
+        ends = [p[0] for p in self.points] + [x for g in self.guides for x in (g[0][0], g[1][0])]
+        return pd.Timestamp.max if None in ends else max(ends)
 
 
 def _day(ts) -> str:
@@ -334,6 +347,118 @@ def structure_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) ->
     return out
 
 
+# Statuses still in play at the last bar: not yet broken out (pending), or broken out
+# with the target neither hit nor given up within the module's horizon.
+_LIVE_PATTERNS = frozenset({PatternStatus.PENDING, PatternStatus.CONFIRMED, PatternStatus.ACTIVE})
+_PATTERN_NAMES = {
+    PatternType.DOUBLE_TOP: ("Double top", "2Top"), PatternType.DOUBLE_BOTTOM: ("Double bottom", "2Bot"),
+    PatternType.TRIPLE_TOP: ("Triple top", "3Top"), PatternType.TRIPLE_BOTTOM: ("Triple bottom", "3Bot"),
+    PatternType.REVERSAL_123: ("1-2-3 reversal", "123"),
+    PatternType.HEAD_AND_SHOULDERS: ("Head and shoulders", "H&S"),
+    PatternType.INVERSE_HEAD_AND_SHOULDERS: ("Inverse head and shoulders", "iH&S"),
+    PatternType.ASCENDING_TRIANGLE: ("Ascending triangle", "AscTri"),
+    PatternType.DESCENDING_TRIANGLE: ("Descending triangle", "DescTri"),
+    PatternType.SYMMETRIC_TRIANGLE: ("Symmetric triangle", "SymTri"),
+    PatternType.RISING_WEDGE: ("Rising wedge", "RWedge"), PatternType.FALLING_WEDGE: ("Falling wedge", "FWedge"),
+    PatternType.CUP_AND_HANDLE: ("Cup and handle", "C&H"),
+    PatternType.INVERSE_CUP_AND_HANDLE: ("Inverse cup and handle", "iC&H"),
+    PatternType.ROUNDING_BOTTOM: ("Rounding bottom", "RBot"), PatternType.ROUNDING_TOP: ("Rounding top", "RTop"),
+    PatternType.VCP: ("VCP", "VCP"), PatternType.BULL_FLAG: ("Bull flag", "Flag"),
+    PatternType.BEAR_FLAG: ("Bear flag", "Flag"), PatternType.PENNANT: ("Pennant", "Pennant"),
+}
+# The flat trigger level per pattern type, and the key of the bar it starts from.
+_FLAT_TRIGGERS = (("neckline", "neckline_bar"), ("point2", "point2_bar"), ("pivot_price", None))
+# A live pattern's age is its formation, plus up to twice that waiting for a breakout
+# (the module's expiry), plus at most 252 bars after it: 3 x formation + 252. The
+# longest typical formation is 400 bars (rounding; the module scores length, it doesn't
+# cap it), so 8 years leaves room for formations up to ~580 bars. It found the same live
+# patterns as the whole history on 10 large caps, daily and weekly, in about 0.7 s
+# instead of 2-9 s daily (the scan's cost grows faster than the bar count).
+PATTERN_SCAN_BARS = 2000
+
+
+_TRIGGER_NAMES = {"neckline": "trigger", "upper": "upper side", "lower": "lower side"}
+
+
+def _trigger_lines(m, bars: pd.DataFrame, end: int) -> dict[str, tuple]:
+    """The pattern's trigger as {hover name: guide}, from where it's defined to `end`
+    (its breakout bar, or the last bar): its sloped lines (a neckline, a triangle's two
+    sides) when it has them, else its flat level."""
+    def point(i: int, y: float) -> tuple:
+        return bars.index[i], float(y)
+
+    if m.trendlines:
+        lines = {}
+        for name, (slope, intercept) in m.trendlines.items():
+            # A neckline is defined from its first trough/peak (pivot 1); a triangle's
+            # sides are fitted over the whole window.
+            start = m.pivots[1].bar_index if name == "neckline" else m.pivots[0].bar_index
+            lines[_TRIGGER_NAMES.get(name, name)] = (point(start, slope * start + intercept),
+                                                     point(end, slope * end + intercept), "dot", "")
+        return lines
+    for level_key, bar_key in _FLAT_TRIGGERS:
+        level = m.key_levels.get(level_key)
+        if level is None:
+            continue
+        start = m.key_levels.get(bar_key) if bar_key else None
+        if start is None:  # the pivot at that level, else the second-last pivot
+            start = next((p.bar_index for p in reversed(m.pivots) if p.price == level), m.pivots[-2].bar_index)
+        start = min(max(int(start), 0), end)
+        return {"trigger": (point(start, level), point(end, level), "dot", "")}
+    return {}
+
+
+def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> list[Overlay]:
+    """Each live chart pattern (pending, or broken out with its target still open) is
+    an event: its pivots joined as an outline, its trigger line up to the breakout,
+    and from the breakout its target to the right edge. Ranked by recency (bars since the
+    breakout, or since the last pivot while pending) and the module's confidence.
+    Patterns of different types on the same swing (a double and a triple top ending on
+    one peak) are one event.
+
+    Runs the module's `scan_bars` on the chart's bars (traded basis), the last
+    `PATTERN_SCAN_BARS` of them, with the module's preset for the timeframe."""
+    config = pattern_config.get_preset(timeframe.value)
+    if len(bars) < config.min_bars:
+        return []
+    window = bars.iloc[-PATTERN_SCAN_BARS:]
+    out = []
+    for m in pattern_scanner.scan_bars(window, ticker, timeframe, config):
+        if m.status not in _LIVE_PATTERNS or len(m.pivots) < 2:
+            continue
+        name, tag = _PATTERN_NAMES.get(m.pattern_type, (m.pattern_type.value, m.pattern_type.value))
+        bull = None if m.direction == Direction.NEUTRAL else m.direction == Direction.BULLISH
+        broke = m.breakout_bar is not None
+        end = m.breakout_bar if broke else len(window) - 1
+        points = tuple((pd.Timestamp(p.timestamp), float(p.price)) for p in m.pivots)
+        triggers = _trigger_lines(m, window, end)
+        guides = list(triggers.values())
+        # lo/hi (what the y-axis fits) cover the outline and trigger, not the target: a
+        # measured move can sit far from price (NVDA weekly: 100 with price at 200).
+        prices = [p[1] for p in points] + [y for g in guides for y in (g[0][1], g[1][1])]
+        arrow = {True: "↑", False: "↓", None: ""}[bull]
+        if broke and m.target_price is not None:
+            guides.append(((window.index[end], float(m.target_price)), (None, float(m.target_price)), "dash",
+                           f"{tag}{arrow} target"))
+        moment = window.index[end] if broke else points[-1][0]
+        state = f"broke out {_day(moment)}" if broke else f"pending since {_day(points[-1][0])}"
+        hover = {"confidence": round(m.confidence, 2), "status": m.status.value.replace("_", " "),
+                 "formed": f"{_day(m.formation_start)} – {_day(m.formation_end)}"}
+        hover.update({k: round(g[1][1], 2) for k, g in triggers.items()})  # each line's value at its end
+        hover.update({"target": round(m.target_price, 2) if m.target_price is not None else "none",
+                      "stop": round(m.stop_price, 2) if m.stop_price is not None else "none"})
+        if broke:
+            hover["breakout volume"] = "confirmed" if m.volume_confirmed else "not confirmed"
+        out.append(Overlay(
+            family=PAT, item_id=f"{m.pattern_type.value}:{m.direction.value}:{_day(m.formation_start)}:"
+                                f"{_day(m.formation_end)}",
+            label=f"{name}{' ' + arrow if arrow else ''} {state}", tag=f"{tag}{arrow}", kind="segment",
+            x0=points[0][0], lo=min(prices), hi=max(prices), strength=float(m.confidence), alive=True,
+            points=points, guides=tuple(guides), age_bars=_age(bars, moment),
+            same_key=f"{m.direction.value}:{_day(points[-1][0])}", bullish=bull, hover=hover))
+    return out
+
+
 def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                  bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
     """Every family's overlays, plus {family: message} for families that failed. One
@@ -345,6 +470,7 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
             FIB: lambda: fib_overlays(conn, ticker, timeframe),
             VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
             DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
+            PAT: lambda: pattern_overlays(ticker, timeframe, bars),
             MS: lambda: structure_overlays(ticker, timeframe, bars)}
     overlays, errors = [], {}
     for family, run in runs.items():

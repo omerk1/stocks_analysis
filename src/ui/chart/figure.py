@@ -46,6 +46,7 @@ _OVERLAY_STYLE = {
     "avwap": ("#0d9488", None),
     "fibonacci": ("#c026d3", None),
     "volume_profile": ("#ea580c", None),
+    "patterns": ("#64748b", None),  # a pattern with no direction yet (a pending symmetric triangle)
 }
 
 
@@ -116,13 +117,26 @@ def earnings_annotations(bars: pd.DataFrame, cards, expanded, price_range: list 
 
 
 def _segment_trace(points, o: Overlay, colour: str, common: dict) -> go.Scatter:
-    """An event between two points (a divergence's pivots), its tag at the second."""
-    (x0, y0), (x1, y1) = points
-    return go.Scatter(x=[x0, x1], y=[y0, y1], mode="lines+markers+text", text=["", o.tag],
-                      textposition="top center" if y1 >= y0 else "bottom center",
+    """An event through its points (a divergence's two pivots, a chart pattern's
+    outline), its tag at the last."""
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    return go.Scatter(x=xs, y=ys, mode="lines+markers+text", text=[""] * (len(xs) - 1) + [o.tag],
+                      textposition="top center" if ys[-1] >= ys[0] else "bottom center",
                       marker=dict(size=5, color=colour),
                       line=dict(color=colour, width=1.6, dash="dash" if o.dashed else "solid"),
                       hovertemplate=f"{o.label}<extra></extra>", **common)
+
+
+def guide_traces(o: Overlay, x_end: pd.Timestamp) -> list[go.Scatter]:
+    """A segment's extra lines (`Overlay.guides`: a pattern's trigger and target), thin,
+    in its colour and legend group, no hover of their own. One ending at None runs to
+    `x_end`, the right edge."""
+    colour = _event_colour(o)
+    return [go.Scatter(x=[a[0], x_end if b[0] is None else b[0]], y=[a[1], b[1]], mode="lines+text",
+                       text=["", text], textposition="top left", textfont=dict(size=10, color=colour),
+                       line=dict(color=colour, width=1, dash=dash), uid=f"{o.family}:{o.item_id}:guide{i}",
+                       name=o.label, showlegend=False, legendgroup=o.family, hoverinfo="skip")
+            for i, (a, b, dash, text) in enumerate(o.guides)]
 
 
 def _event_colour(o: Overlay) -> str:
@@ -141,8 +155,8 @@ def pane_segment_trace(o: Overlay) -> go.Scatter:
 
 
 def _drawable(o: Overlay) -> bool:
-    """A segment needs its two points; anything else is always drawable."""
-    return o.kind != "segment" or len(o.points) == 2
+    """A segment needs at least two points; anything else is always drawable."""
+    return o.kind != "segment" or len(o.points) >= 2
 
 
 def closed_weekdays(market_days: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -203,6 +217,8 @@ def build_figure(
         for o in overlays:
             if _drawable(o):
                 fig.add_trace(_overlay_trace(o, x_end), row=1, col=1)
+                for trace in guide_traces(o, x_end):
+                    fig.add_trace(trace, row=1, col=1)
     fig.add_trace(_price_trace(bars, chart_type, ticker), row=1, col=1)
 
     for i, spec in enumerate(ma_specs):
@@ -343,8 +359,8 @@ def y_fit(bars: pd.DataFrame, mas: dict[str, pd.Series], start, end,
         lows.append(window.min())
         highs.append(window.max())
     for o in overlays:
-        if o.kind == "segment":  # ends at its second point: counts only while it's in the window
-            if _drawable(o) and o.x0 <= end and o.points[-1][0] >= start:
+        if o.kind == "segment":  # ends at its last point or guide: counts only while it's in the window
+            if _drawable(o) and o.x0 <= end and o.x_end >= start:
                 lows.append(o.lo)
                 highs.append(o.hi)
         elif o.kind != "series" and o.x0 <= end:

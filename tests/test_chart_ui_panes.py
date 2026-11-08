@@ -177,6 +177,23 @@ def test_a_divergence_is_drawn_on_price_and_on_its_pane_when_shown(bars):
     assert [t.uid for t in without.data if t.uid.startswith("divergences:")] == ["divergences:d-rsi"]
 
 
+def test_a_pattern_draws_its_outline_and_guides_to_the_right_edge(bars):
+    pivots = tuple((bars.index[i], 90.0 + i % 2 * 5) for i in (-60, -50, -40))
+    pattern = Overlay(family="patterns", item_id="p", label="Double bottom ↑", kind="segment", x0=pivots[0][0],
+                      lo=90.0, hi=95.0, strength=0.6, alive=True, tag="2Bot↑", points=pivots, bullish=True,
+                      guides=(((bars.index[-50], 95.0), (bars.index[-30], 95.0), "dot", ""),
+                              ((bars.index[-30], 300.0), (None, 300.0), "dash", "2Bot↑ target")))
+    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
+                       overlays=(pattern,))
+    outline, trigger, target = (t for t in fig.data if t.uid.startswith("patterns:"))
+    assert len(outline.x) == 3 and list(outline.text) == ["", "", "2Bot↑"]
+    assert trigger.line.dash == "dot" and target.x[1] > bars.index[-1]  # None: runs to the right edge
+    assert target.text[1] == "2Bot↑ target"
+    later = y_axis_ranges(bars, {}, (bars.index[-10], bars.index[-1]), ChartType.CANDLES, False,
+                          (Overlay(**{**pattern.__dict__, "lo": 1.0}),))
+    assert later["yaxis"][0] < 1.0  # still drawn (its target runs on), so still fitted
+
+
 def test_a_divergence_counts_in_the_y_fit_only_while_in_the_window(bars):
     div = _divergence(bars)
     low_div = Overlay(**{**div.__dict__, "lo": 1.0, "hi": 2.0})
