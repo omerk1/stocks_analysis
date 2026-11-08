@@ -129,6 +129,83 @@ DETECTORS = [
                "src.signals.moving_averages.features.crossover:crossover_events"),
 ]
 
+@dataclass(frozen=True)
+class DetectorSetting:
+    """A detector setting the trader is asked about when a supporting signal uses it.
+    `impl` is the config field it maps to ("module:Class.field"), and `default` that
+    field's default as shown to the trader; the drift test checks both against the code."""
+
+    name: str
+    question: str
+    impl: str
+    default: object
+
+    def shown(self) -> str:
+        """"name: question (default ...)", as the gap check asks it."""
+        values = self.default if isinstance(self.default, list) else [self.default]
+        default = ", ".join(f"{v:g}" if isinstance(v, float) else str(v) for v in values)
+        return f"{self.name}: {self.question} (default {default})"
+
+
+_FIB = "src.signals.fibonacci.config:FibConfig"
+_AVWAP = "src.signals.avwap.config:AvwapConfig"
+_DIV = "src.signals.divergences.config:DivergenceConfig"
+_GAP = "src.signals.gaps.config:GapConfig"
+_SR = "src.signals.sr_lines.config:SRConfig"
+
+# Per detector family (an id prefix), the few settings that change which levels or
+# events exist. Not every config field: only what a trader would mean by "major",
+# "long-term" or "which one", in their words. They aren't in the extraction prompt (it
+# sits near the per-call input cap, and number-heavy text there raised invented values,
+# done.md #164): the gap check puts a signal's own settings in the question about it.
+SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
+    "detector:sr_line.": (
+        # The defaults are the medium-term preset; "major" lines may mean the long-term one.
+        DetectorSetting("window_years", "how many years of history the lines are drawn from; "
+                        "the long-term preset uses 8", f"{_SR}.window_years", 3.0),
+        DetectorSetting("pivot_atr_mult", "how big a swing must be to anchor a line, in ATR; "
+                        "the long-term preset uses 3", f"{_SR}.pivot_atr_mult", 2.0),
+    ),
+    "detector:fibonacci.": (
+        DetectorSetting("min_swing_atr", "the smallest swing the levels are drawn from, in ATR",
+                        f"{_FIB}.min_swing_atr", 8.0),
+        DetectorSetting("retracement_ratios", "which retracement ratios count",
+                        f"{_FIB}.retracement_ratios", [0.236, 0.382, 0.5, 0.618, 0.786]),
+    ),
+    "detector:divergence.": (
+        DetectorSetting("forms", "regular (a reversal reading) or hidden (a continuation reading)",
+                        f"{_DIV}.forms", ["regular", "hidden"]),
+        DetectorSetting("min_pivot_span_bars", "the fewest bars between the two swing pivots",
+                        f"{_DIV}.min_pivot_span_bars", 5),
+        DetectorSetting("price_pivot_atr_mult", "how big a swing must be to count as a pivot, in ATR",
+                        f"{_DIV}.price_pivot_atr_mult", 2.0),
+    ),
+    "detector:avwap": (
+        # A choice among the AVWAP rows by anchor type, not a config field: a finder
+        # filters on it. The test checks every AnchorType member is named here; "swing"
+        # is the capability description's word for the cycle anchors, so both are named.
+        DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or swing (cycle) highs and lows",
+                        "src.foundation.market_common.anchors:AnchorType", "all of them"),
+        DetectorSetting("distance_tolerance_atr", "how close price must come to count as a touch, in ATR",
+                        f"{_AVWAP}.distance_tolerance_atr", 0.3),
+    ),
+    "detector:gap.": (
+        DetectorSetting("min_gap_atr", "the smallest gap that counts, in ATR", f"{_GAP}.min_gap_atr", 0.3),
+        DetectorSetting("fill_by", "whether a wick or only a close fills the gap", f"{_GAP}.fill_by", "wick"),
+    ),
+}
+
+
+def settings_for(ids) -> dict[str, DetectorSetting]:
+    """The settings of every family among `ids`, by name, in catalogue order (a signal
+    built from two kinds of divergence asks about divergence settings once)."""
+    found: dict[str, DetectorSetting] = {}
+    for prefix, settings in SETTINGS.items():
+        if any(i.startswith(prefix) for i in ids):
+            found.update((s.name, s) for s in settings)
+    return found
+
+
 _IND = "src.foundation.market_common.indicators"
 INDICATORS = [
     Capability("indicator:sma", "indicator", "simple moving average, any length", f"{_IND}:sma"),

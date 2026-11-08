@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Gap, Rule, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps,
-    load_golden_specs)
+    Control, Duration, Gap, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest,
+    find_gaps, load_golden_specs)
 
 
 def _complete(**overrides):
@@ -195,3 +195,65 @@ def test_uses_must_name_catalogue_entries():
     gaps = find_gaps(_complete(uses=["indicator:stochastic", "indicator:stochastic", "indicator:rsi"]))
     assert [(g.field, g.kind) for g in gaps] == [("uses", "invalid")]
     assert "'indicator:stochastic'" in gaps[0].reason
+
+
+# --- supporting signals: how many must hold, and each filter's settings -------------
+
+
+def _filter(name, uses=("detector:fibonacci.retracement",), **kw):
+    return Signal(name=name, description=name, role="filter", uses=list(uses), **kw)
+
+
+def test_two_or_more_filters_ask_how_many_must_hold():
+    spec = _complete(supporting_signals=[_filter("fib", defaults_ok=True), _filter("line", defaults_ok=True)])
+    [gap] = find_gaps(spec)
+    assert (gap.field, gap.kind, gap.item) == ("filters_needed", "missing", None)
+    assert "all 2 filters" in gap.reason and "fib; line" in gap.reason
+    assert find_gaps(spec.model_copy(update={"filters_needed": 2})) == []
+    # One filter, or filters plus a score input, has nothing to count.
+    one = [_filter("fib", defaults_ok=True), Signal(name="rsi", description="rsi", role="score")]
+    assert find_gaps(_complete(supporting_signals=one)) == []
+
+
+def test_an_impossible_count_is_invalid():
+    two = [_filter("fib", defaults_ok=True), _filter("line", defaults_ok=True)]
+    for n in (0, 3):
+        assert _gaps(_complete(supporting_signals=two, filters_needed=n)) == {("filters_needed", "invalid")}
+    assert _gaps(_complete(filters_needed=1)) == {("filters_needed", "invalid")}  # no filters at all
+
+
+def test_a_filter_is_asked_its_detectors_settings_until_given_or_defaulted():
+    spec = _complete(supporting_signals=[_filter("fib level")])
+    [gap] = find_gaps(spec)
+    assert (gap.field, gap.kind, gap.item) == ("supporting_signals", "unquantified", "fib level")
+    # The question names the settings, what they mean and their defaults.
+    assert "min_swing_atr: the smallest swing" in gap.reason and "(default 8)" in gap.reason
+    assert "retracement_ratios" in gap.reason and "defaults are fine" in gap.reason
+    given = _filter("fib level", settings=[Setting(name="min_swing_atr", value="10 ATR")])
+    assert find_gaps(_complete(supporting_signals=[given])) == []
+    assert find_gaps(_complete(supporting_signals=[_filter("fib level", defaults_ok=True)])) == []
+
+
+def test_only_filters_with_a_known_detector_are_asked():
+    score = Signal(name="fib", description="fib", role="score", uses=["detector:fibonacci.retracement"])
+    unmapped = _filter("news", uses=())
+    no_settings = _filter("first touch", uses=("detector:ma.first_touch",))
+    assert find_gaps(_complete(supporting_signals=[score])) == []
+    assert find_gaps(_complete(supporting_signals=[unmapped, no_settings], filters_needed=2)) == []
+
+
+def test_a_setting_or_id_the_catalogue_doesnt_list_is_invalid():
+    wrong = _filter("fib", settings=[Setting(name="anchors", value="ath")])
+    [gap] = [g for g in find_gaps(_complete(supporting_signals=[wrong])) if g.kind == "invalid"]
+    assert gap.item == "fib" and "'anchors'" in gap.reason and "min_swing_atr" in gap.reason
+    bad_id = _filter("fib", uses=("detector:fibonacci.retracement", "detector:elliott"), defaults_ok=True)
+    gaps = find_gaps(_complete(supporting_signals=[bad_id]))
+    # About the whole list: a per-signal (settings) answer can't change the detector.
+    assert [(g.kind, g.item) for g in gaps] == [("invalid", None)]
+    assert "'fib' uses 'detector:elliott'" in gaps[0].reason
+
+
+def test_the_count_is_asked_before_the_signals_settings():
+    spec = _complete(supporting_signals=[_filter("fib"), _filter("line")])
+    assert [(g.field, g.item) for g in find_gaps(spec)] == [
+        ("filters_needed", None), ("supporting_signals", "fib"), ("supporting_signals", "line")]

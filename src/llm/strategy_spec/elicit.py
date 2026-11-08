@@ -51,7 +51,8 @@ from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import extract as extraction
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Gap, SpecField, StrategySpec, UnsupportedRequest, find_gaps, request_wording)
+    Gap, Setting, Signal, SpecField, StrategySpec, Text, UnsupportedRequest, _Section, find_gaps,
+    request_wording)
 from src.llm.strategy_spec.unsupported import log_unsupported
 
 PURPOSE = "strategy_spec.elicit"
@@ -71,7 +72,12 @@ section's field and a reason) and leave the value null. If the answer resolves o
 one of the question's listed unsupported requests, repeat that request's wording in \
 `resolved_requests`; a request not named there is kept as it was. If the answer settles \
 nothing (the trader is unsure, or answered something else), return value null, \
-`unsupported` empty and `resolved_requests` empty.
+`unsupported` empty and `resolved_requests` empty. When the question is about one item \
+of a list section (one supporting signal), `value` is that one signal's changes, not the \
+list: `settings` holds only the settings this answer gives or corrects, by the setting \
+names the question lists, each value in the trader's words; `dropped` names settings the \
+trader takes back or that the question flagged as not its settings; `defaults_ok` is \
+true only when the trader says the defaults are fine.
 
 The current spec, for context only — change nothing outside the asked section:
 """
@@ -82,6 +88,26 @@ class Question:
     field: str
     text: str
     gaps: tuple[Gap, ...]
+    item: str | None = None  # the list item asked about (a supporting signal's name)
+
+    @property
+    def key(self) -> str:
+        """What the loop skips when this question stalls: the field, or one item of it."""
+        return gap_key(self.field, self.item)
+
+
+def gap_key(field: str, item: str | None) -> str:
+    return field if item is None else f"{field}[{item}]"
+
+
+def _answer_model(name: str, value_type):
+    return create_model(
+        name,
+        __config__=ConfigDict(extra="forbid"),
+        value=(value_type | None, None),
+        unsupported=(list[UnsupportedRequest], Field(default_factory=list)),
+        resolved_requests=(list[str], Field(default_factory=list)),
+    )
 
 
 # One response schema per spec field: the field's own type as `value`, new unsupported
@@ -90,29 +116,86 @@ class Question:
 # model merely fails to repeat is kept by the code, so an unresolved request can't vanish
 # because the model forgot it. extra="forbid" like every spec section, so a stray key
 # from the model is an error, not silently dropped.
-_ANSWER_MODELS = {
-    f: create_model(
-        f"Answer_{f}",
-        __config__=ConfigDict(extra="forbid"),
-        value=(StrategySpec.model_fields[f].annotation | None, None),
-        unsupported=(list[UnsupportedRequest], Field(default_factory=list)),
-        resolved_requests=(list[str], Field(default_factory=list)),
-    )
-    for f in get_args(SpecField)
-}
+_ANSWER_MODELS = {f: _answer_model(f"Answer_{f}", StrategySpec.model_fields[f].annotation)
+                  for f in get_args(SpecField)}
+class SignalAnswer(_Section):
+    """What an answer to one signal's settings question does to that signal, as explicit
+    changes rather than its whole new state: guessing intent from a restated signal lost
+    settled values one way or another (a partial list read as a retraction, or a
+    retraction read as a partial list). It can't touch the other signals, nor this one's
+    name, role, detector or wording."""
+
+    settings: list[Setting] = Field(default_factory=list)  # given or corrected, by name
+    dropped: list[Text] = Field(default_factory=list)  # setting names the trader takes back
+    defaults_ok: bool = False  # true only when the trader says so; false changes nothing
+
+
+_ITEM_ANSWER_MODELS = {"supporting_signals": _answer_model("Answer_supporting_signal", SignalAnswer)}
+
+
+def _settings_answered(old: Signal, answer: SignalAnswer) -> Signal:
+    """Settings merge by name: one the answer doesn't mention stays, one it gives replaces
+    the same name, and only an explicit drop removes one. A misnamed setting stays until
+    dropped, for find_gaps to flag, so nothing the trader said is filtered away unseen."""
+    by_name = {s.name: s for s in old.settings if s.name not in answer.dropped}
+    by_name.update((s.name, s) for s in answer.settings)
+    return old.model_copy(update={"settings": list(by_name.values()),
+                                  "defaults_ok": old.defaults_ok or answer.defaults_ok})
+
+
+def _unique_names(signals: list[Signal]) -> list[Signal]:
+    """Questions find a signal by name, so a repeated name gets a number ("fib 2")."""
+    seen: set[str] = set()
+    out = []
+    for s in signals:
+        name, k = s.name, 1
+        while name in seen:
+            k += 1
+            name = f"{s.name} {k}"
+        seen.add(name)
+        out.append(s if name == s.name else s.model_copy(update={"name": name}))
+    return out
+
+
+def _signals_answered(old: list[Signal], new: list[Signal]) -> list[Signal]:
+    """A whole-list answer (an unsupported ask filed under the signals) may add, drop or
+    rename signals and change a role or a detector, but never settings: those belong to
+    each signal's own question. A signal kept by name stays as it was but for its role and
+    a changed detector; a new signal or a new detector starts with no settings, so it's
+    asked about rather than taking settings the reply restated. Uncatalogued ids are the
+    model's slip, dropped as at the session start (an empty list then means unchanged).
+    Names are numbered first, so a reply repeating a name lines up with the old "fib 2"."""
+    by_name = {s.name: s for s in old}
+    out = []
+    for s in _unique_names(new):
+        uses = [u for u in s.uses if u in catalogue.IDS]
+        was = by_name.get(s.name)
+        if was is None or (uses and set(uses) != set(was.uses)):
+            # New, or a new detector: the reply's wording goes with it, settings are asked.
+            out.append((was or s).model_copy(update={"description": s.description, "role": s.role,
+                                                     "uses": uses, "settings": [], "defaults_ok": False}))
+        else:
+            out.append(was.model_copy(update={"role": s.role}))
+    return out
 
 
 def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Question | None:
     """The first open field's gaps as one question, or None when the spec is complete
     (fields in `skip` — ones the loop gave up on — don't count). One question per field
     per turn: a field's gaps (an unsupported request plus the field standing empty, say)
-    read better asked together than one at a time."""
-    gaps = [g for g in find_gaps(spec) if g.field in get_args(SpecField) and g.field not in skip]
+    read better asked together than one at a time. A list field's items are the
+    exception: each supporting signal is its own question."""
+    # By key, so a stalled question about all signals at once doesn't skip each signal's own.
+    gaps = [g for g in find_gaps(spec) if g.field in get_args(SpecField)
+            and gap_key(g.field, g.item) not in skip]
     if not gaps:
         return None
-    field = gaps[0].field
-    own = tuple(g for g in gaps if g.field == field)
-    lines = [f"About `{field}`:"]
+    field, item = gaps[0].field, gaps[0].item
+    # Five signals' settings in one question is too much to answer. Gaps about the field
+    # as a whole are their own question: an item question's answer holds one signal, so it
+    # can't settle them (find_gaps lists those first, so they're asked first).
+    own = tuple(g for g in gaps if g.field == field and g.item == item)
+    lines = [f"About `{field}`" + (f", the signal {item!r}:" if item else ":")]
     for g in own:
         if g.kind == "unsupported":
             lines.append(f"- {g.reason} — this isn't supported (it's been noted for development)."
@@ -122,9 +205,11 @@ def next_question(spec: StrategySpec, skip: frozenset[str] = frozenset()) -> Que
         else:
             lines.append(f"- {g.reason}")
     current = getattr(spec, field)
+    if item is not None:
+        current = next((x for x in current if getattr(x, "name", None) == item), None)
     if current not in (None, []):
         lines.append(f"(currently: {json.dumps(_shown(current), default=str)})")
-    return Question(field, "\n".join(lines), own)
+    return Question(field, "\n".join(lines), own, item)
 
 
 def _shown(value):
@@ -149,7 +234,8 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
     reply = client.generate(
         prompt, purpose=PURPOSE,
         system=extraction.build_system() + "\n" + ANSWER_RULES + context,
-        response_schema=_ANSWER_MODELS[question.field], temperature=0.0)
+        response_schema=(_ITEM_ANSWER_MODELS if question.item else _ANSWER_MODELS)[question.field],
+        temperature=0.0)
     parsed = reply.parsed
     wrong_field = [u for u in parsed.unsupported if u.field != question.field]
     if wrong_field:  # the model may only speak for the asked field
@@ -173,7 +259,15 @@ def apply_answer(spec: StrategySpec, question: Question, answer: str,
            if u.key() not in {k.key() for k in kept}
            and not any(r in request_wording(u.requested) for r in resolved)]
     updates: dict = {"unsupported": others + kept + new}
-    if parsed.value is not None:
+    if parsed.value is not None and question.item:
+        items = list(getattr(spec, question.field))
+        at = next(i for i, x in enumerate(items) if x.name == question.item)
+        items[at] = _settings_answered(items[at], parsed.value)
+        updates[question.field] = items
+    elif question.field == "supporting_signals":
+        if parsed.value:  # [] is a structured reply's empty default, not "delete every signal"
+            updates[question.field] = _signals_answered(spec.supporting_signals, parsed.value)
+    elif parsed.value is not None:
         updates[question.field] = parsed.value
     return spec.model_copy(update=updates)
 
@@ -203,7 +297,7 @@ class Session:
             "idea": self.idea,
             "turns": self.turns,
             "spec": json.loads(self.spec.model_dump_json(exclude_none=True)),
-            "gaps_remaining": [f"{g.field}: {g.reason}" for g in gaps],
+            "gaps_remaining": [f"{gap_key(g.field, g.item)}: {g.reason}" for g in gaps],
             "complete": not gaps,
         }, indent=1) + "\n")
 
@@ -225,25 +319,32 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
     answered = 0
     stopped = False
 
-    def stalled(field: str) -> None:
+    def stalled(key: str) -> None:
         # Twice in a row without movement (an identical re-parse, or a reply refused
         # both times) means asking again won't help — the first live session burned 75k
-        # tokens re-asking one size question before this guard existed.
-        stalls[field] = stalls.get(field, 0) + 1
-        if stalls[field] >= 2:
-            skip.add(field)
-            say(f"`{field}` isn't converging; skipping it — it stays an open gap.")
+        # tokens re-asking one size question before this guard existed. An item is
+        # skipped on its own, so one stuck signal doesn't skip the others.
+        stalls[key] = stalls.get(key, 0) + 1
+        if stalls[key] >= 2:
+            skip.add(key)
+            say(f"`{key}` isn't converging; skipping it — it stays an open gap.")
 
     try:
         session.note_unsupported()
         # `uses` came from the model, not the trader: an uncatalogued id in it is the
         # model's slip, dropped rather than asked about (a genuine ask lives in
         # `unsupported`).
-        bad_ids = [u for u in dict.fromkeys(session.spec.uses) if u not in catalogue.IDS]
+        all_uses = [*session.spec.uses, *(u for s in session.spec.supporting_signals for u in s.uses)]
+        bad_ids = [u for u in dict.fromkeys(all_uses) if u not in catalogue.IDS]
         if bad_ids:
             say(f"Dropped from `uses`, not in the catalogue: {', '.join(bad_ids)}")
+            signals = [s.model_copy(update={"uses": [u for u in s.uses if u in catalogue.IDS]})
+                       for s in session.spec.supporting_signals]
             session.spec = session.spec.model_copy(
-                update={"uses": [u for u in session.spec.uses if u in catalogue.IDS]})
+                update={"uses": [u for u in session.spec.uses if u in catalogue.IDS],
+                        "supporting_signals": signals})
+        session.spec = session.spec.model_copy(
+            update={"supporting_signals": _unique_names(session.spec.supporting_signals)})
         session.save(path)
         for _ in range(max_turns):
             question = next_question(session.spec, frozenset(skip))
@@ -258,20 +359,20 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 session.spec = apply_answer(session.spec, question, answer, client)
             except ReplyError as e:
                 say(f"That answer couldn't be read into the spec ({e}); asking again.")
-                session.turns.append({"field": question.field, "question": question.text,
+                session.turns.append({"field": question.key, "question": question.text,
                                       "answer": answer, "error": str(e)})
                 session.save(path)
-                stalled(question.field)
+                stalled(question.key)
                 continue
             answered += 1
             session.note_unsupported()
-            session.turns.append({"field": question.field, "question": question.text, "answer": answer})
+            session.turns.append({"field": question.key, "question": question.text, "answer": answer})
             session.save(path)
             after = next_question(session.spec, frozenset(skip))
-            if after is not None and after.field == question.field and after.gaps == question.gaps:
-                stalled(question.field)
+            if after is not None and after.key == question.key and after.gaps == question.gaps:
+                stalled(question.key)
             else:
-                stalls.pop(question.field, None)
+                stalls.pop(question.key, None)
         remaining = find_gaps(session.spec)
         if not remaining:
             say("The spec is complete.")
@@ -282,7 +383,7 @@ def elicit(idea: str, client: GeminiClient | None = None, *,
                 "the open questions are kept in the transcript.")
         else:
             say("Done with the questions; still open: "
-                + "; ".join(f"{g.field}: {g.reason}" for g in remaining))
+                + "; ".join(f"{gap_key(g.field, g.item)}: {g.reason}" for g in remaining))
     finally:
         try:
             session.save(path)

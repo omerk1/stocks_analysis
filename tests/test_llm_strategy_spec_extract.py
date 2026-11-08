@@ -9,7 +9,7 @@ from src.llm.strategy_spec import extract
 from src.llm.strategy_spec.extract import (
     Case, Expectation, ExpectedFlag, load_cases, run_eval, score_case, score_dir, score_field, summarise)
 from src.llm.strategy_spec.schema import (
-    Duration, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, load_golden_specs)
+    Duration, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, load_golden_specs)
 
 
 # --- the answer key ---------------------------------------------------------------
@@ -115,6 +115,17 @@ def test_described_expected():
                        exp) == "invented"
 
 
+def test_a_described_signal_with_settings_was_invented():
+    exp = Expectation("described")
+    signal = dict(name="volume", description="volume dries up", role="filter")
+    assert score_field("supporting_signals", _spec(supporting_signals=[Signal(**signal)]), exp) == "correct"
+    with_setting = Signal(**signal, settings=[Setting(name="min_gap_atr", value="1")])
+    assert score_field("supporting_signals", _spec(supporting_signals=[with_setting]), exp) == "invented"
+    assert score_field("supporting_signals", _spec(supporting_signals=[Signal(**signal, defaults_ok=True)]),
+                       exp) == "invented"
+    assert score_field("filters_needed", _spec(filters_needed=2), Expectation("blank")) == "invented"
+
+
 def test_exact_values_expected():
     assert score_field("direction", _spec(direction="long"), Expectation("values", "long")) == "correct"
     assert score_field("direction", _spec(direction="short"), Expectation("values", "long")) == "wrong"
@@ -216,20 +227,34 @@ class FakeClient:
     def generate(self, prompt, **kwargs):
         self.calls.append((prompt, kwargs))
         spec = self.replies[len(self.calls) - 1]
-        return Reply(text=spec.model_dump_json(), parsed=spec,
+        # Parsed into the schema asked for, as the real client does.
+        parsed = kwargs["response_schema"].model_validate(spec.model_dump(exclude_unset=True))
+        return Reply(text=spec.model_dump_json(), parsed=parsed,
                      usage=Usage(10, 5, 0, 15), finish_reason="STOP")
 
 
 def test_extract_sends_the_idea_with_schema_and_temperature_zero():
-    client = FakeClient([_spec(direction="long")])
+    signal = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"])
+    client = FakeClient([_spec(direction="long", supporting_signals=[signal])])
     reply = extract.extract("buy the dip", client)
-    assert reply.parsed.direction == "long"
+    assert isinstance(reply.parsed, StrategySpec) and reply.parsed.direction == "long"
+    assert reply.parsed.supporting_signals == [signal]
     [(prompt, kwargs)] = client.calls
     assert prompt == "buy the dip"
-    assert kwargs["response_schema"] is StrategySpec
+    assert kwargs["response_schema"] is extract.ExtractedSpec
     assert kwargs["temperature"] == 0.0
     assert kwargs["purpose"] == "strategy_spec.extract"
     assert "indicator:rsi" in kwargs["system"]
+
+
+def test_extraction_cant_fill_what_only_elicitation_asks():
+    schema = extract.ExtractedSpec.model_json_schema()
+    signal = schema["$defs"]["ExtractedSignal"]["properties"]
+    assert "filters_needed" not in schema["properties"]
+    assert "settings" not in signal and "defaults_ok" not in signal
+    assert "uses" in signal  # a signal still names its detector
+    # Every other spec field is still there, as it was.
+    assert set(extract.ExtractedSpec.model_fields) == set(StrategySpec.model_fields) - {"filters_needed"}
 
 
 # --- the runner -------------------------------------------------------------------
@@ -251,7 +276,7 @@ def test_eval_saves_replies_and_score_rereads_them(tmp_path):
                            now=datetime(2026, 10, 14, 12, tzinfo=timezone.utc))
     assert out == tmp_path / "20261014T120000Z"
     assert [s.case_id for s in scores] == ["a", "b"]
-    assert scores[0].count("correct") == 10 and scores[1].caught == 1
+    assert scores[0].count("correct") == len(get_args(SpecField)) and scores[1].caught == 1
     saved = json.loads((out / "a.json").read_text())
     assert saved["idea"] == "idea a" and saved["usage"]["total_tokens"] == 15
     # Re-scoring the saved run gives the same result, with no client at all.
@@ -294,8 +319,8 @@ def test_summary_table_counts_and_spells_out_misses():
               score_case(_spec(), cases[1])]
     lines = summarise(scores, cases)
     assert lines[0].split()[:2] == ["case", "correct"]
-    assert lines[1].split() == ["a", "8", "0", "1", "1", "0", "0/0"]
-    assert lines[2].split() == ["b", "10", "0", "0", "0", "0", "0/1"]
+    assert lines[1].split() == ["a", "9", "0", "1", "1", "0", "0/0"]
+    assert lines[2].split() == ["b", "11", "0", "0", "0", "0", "0/1"]
     assert lines[3].split()[0] == "totals"
     body = "\n".join(lines)
     assert "a direction: wrong (expected 'long')" in body

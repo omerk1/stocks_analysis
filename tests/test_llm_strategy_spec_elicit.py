@@ -2,12 +2,13 @@ import json
 from typing import get_args
 
 import pytest
+from pydantic import ValidationError
 
 from src.llm.gemini import Reply, Usage
 from src.llm.strategy_spec import elicit as el
 from src.llm.strategy_spec.elicit import _ANSWER_MODELS, Question, apply_answer, elicit, next_question
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
+    Control, Duration, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
 
 
 def _spec(**overrides):
@@ -296,6 +297,159 @@ def test_a_field_that_stops_converging_is_skipped_not_relooped(tmp_path, monkeyp
     assert any(s.startswith("Done with the questions; still open: size") for s in said)
     assert spec.control is not None  # the loop moved on and finished the rest
     assert [g.field for g in find_gaps(spec)] == ["size"]  # kept as an open gap
+
+
+def _filters(*names):
+    return [Signal(name=n, description=n, role="filter", uses=["detector:fibonacci.retracement"]) for n in names]
+
+
+def test_each_signal_is_its_own_question_showing_only_itself():
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
+    q = next_question(spec)
+    assert (q.field, q.item, q.key) == ("supporting_signals", "fib", "supporting_signals[fib]")
+    assert "the signal 'fib'" in q.text and "min_swing_atr" in q.text
+    assert '"name": "fib"' in q.text and '"line"' not in q.text
+
+
+def test_an_answer_about_one_signal_changes_only_what_it_was_asked():
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2)
+    q = next_question(spec)
+    reply = {"value": {"settings": [{"name": "min_swing_atr", "value": "12 ATR"}]}}
+    client = StubClient([reply])
+    out = apply_answer(spec, q, "only swings of 12 ATR or more", client)
+    assert client.calls[0][1]["response_schema"] is el._ITEM_ANSWER_MODELS["supporting_signals"]
+    fib = out.supporting_signals[0]
+    assert fib == spec.supporting_signals[0].model_copy(update={"settings": fib.settings})
+    assert fib.settings[0].value == "12 ATR"
+    assert out.supporting_signals[1] == spec.supporting_signals[1]
+    assert next_question(out).item == "line"
+
+
+def test_a_signal_answer_holds_only_settings_changes_and_defaults():
+    model = el._ITEM_ANSWER_MODELS["supporting_signals"]
+    for extra in ({"name": "fib (major)"}, {"uses": []}, {"role": "score"}, {"description": "x"}):
+        with pytest.raises(ValidationError):
+            model.model_validate({"value": extra})
+
+
+DIV = Signal(name="div", description="div", role="filter", uses=["detector:divergence.rsi"],
+             settings=[Setting(name="forms", value="regular"), Setting(name="levels", value="0.618")])
+
+
+def test_settings_merge_by_name_and_only_an_explicit_drop_removes_one():
+    # "I meant pivot span 20": the misnamed one is dropped, the form choice stays.
+    out = el._settings_answered(DIV, el.SignalAnswer(
+        settings=[Setting(name="min_pivot_span_bars", value="20")], dropped=["levels"]))
+    assert [(s.name, s.value) for s in out.settings] == [("forms", "regular"), ("min_pivot_span_bars", "20")]
+    # A reply's empty parts and false change nothing; a misnamed setting stays to be flagged.
+    assert el._settings_answered(DIV, el.SignalAnswer()) == DIV
+    # "Drop that, the defaults are fine" leaves the signal complete.
+    done = el._settings_answered(DIV, el.SignalAnswer(dropped=["levels", "forms"], defaults_ok=True))
+    assert (done.settings, done.defaults_ok) == ([], True)
+
+
+def test_a_whole_list_answer_never_touches_settings():
+    fib = Signal(name="fib", description="the trader's words", role="filter",
+                 uses=["detector:fibonacci.retracement"], settings=[Setting(name="min_swing_atr", value="12")])
+    restated = [fib.model_copy(update={"description": "restated", "settings": [], "defaults_ok": True}),
+                Signal(name="new", description="new", role="filter", uses=["detector:avwap"],
+                       settings=[Setting(name="anchors", value="ath")], defaults_ok=True)]
+    kept, new = el._signals_answered([fib], restated)
+    assert kept == fib  # a partial or restated reply can't drop or set what fib's question settled
+    assert (new.settings, new.defaults_ok) == ([], False)  # a new signal is asked about
+    # A new detector is asked afresh; the same ids in another order, or an uncatalogued one, aren't new.
+    moved = el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:avwap"], "description": "avwap"})])[0]
+    assert (moved.description, moved.uses, moved.settings, moved.defaults_ok) == ("avwap", ["detector:avwap"], [], False)
+    assert el._signals_answered([fib], [fib.model_copy(update={"uses": ["detector:elliott"]})]) == [fib]
+    wave = Signal(name="wave", description="wave", role="filter", uses=["detector:elliott"])
+    assert el._signals_answered([fib], [fib, wave])[1].uses == []  # dropped for a new signal too
+
+
+def test_an_empty_whole_list_reply_deletes_nothing():
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    spec = _spec(supporting_signals=_filters("fib"), unsupported=[news])
+    out = apply_answer(spec, next_question(spec), "drop news",
+                       StubClient([{"value": [], "resolved_requests": ["news sentiment"]}]))
+    assert out.supporting_signals == spec.supporting_signals and out.unsupported == []
+
+
+def test_a_whole_list_reply_repeating_a_name_lines_up_with_the_numbered_signals():
+    one = Signal(name="fib", description="a", role="filter", uses=["detector:fibonacci.retracement"],
+                 settings=[Setting(name="min_swing_atr", value="12")])
+    two = one.model_copy(update={"name": "fib 2", "settings": [Setting(name="min_swing_atr", value="20")]})
+    bare = Signal(name="fib", description="a", role="filter")
+    assert el._signals_answered([one, two], [bare, bare]) == [one, two]
+
+
+def test_repeated_signal_names_are_numbered_at_the_start(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "fib", "line")))
+    spec = elicit("idea", StubClient([]), ask=lambda q: None, say=lambda s: None,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert [s.name for s in spec.supporting_signals] == ["fib", "fib 2", "line"]
+
+
+def test_a_whole_list_answer_keeps_each_kept_signals_detector_and_settings():
+    fib = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"],
+                 settings=[Setting(name="min_swing_atr", value="12")])
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    spec = _spec(supporting_signals=[fib, *_filters("line")], filters_needed=2, unsupported=[news])
+    q = next_question(spec)
+    reply = {"value": [{"name": "fib", "description": "fib", "role": "filter"}],  # line dropped, fib re-sent bare
+             "resolved_requests": ["news sentiment"]}
+    out = apply_answer(spec, q, "drop news and the line", StubClient([reply]))
+    assert out.supporting_signals == [fib] and out.unsupported == []
+
+
+def test_a_stalled_question_about_all_signals_doesnt_skip_each_signals_own(tmp_path, monkeypatch):
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment", reason="unsupported_data")
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib"), unsupported=[news]))
+    fib_ok = {"value": {"defaults_ok": True}}
+    spec = elicit("idea", StubClient([{"value": None}, {"value": None}, fib_ok]), ask=lambda q: "keep it",
+                  say=lambda s: None, session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert spec.supporting_signals[0].defaults_ok  # fib was still asked after the skip
+    assert [(g.field, g.item, g.kind) for g in find_gaps(spec)] == [("supporting_signals", None, "unsupported")]
+
+
+def test_a_gap_about_all_signals_is_asked_alone_before_any_one_signal():
+    news = UnsupportedRequest(field="supporting_signals", requested="news sentiment",
+                              reason="unsupported_data")
+    spec = _spec(supporting_signals=_filters("fib", "line"), filters_needed=2, unsupported=[news])
+    q = next_question(spec)
+    assert (q.item, [g.kind for g in q.gaps]) == (None, ["unsupported"])
+    assert "min_swing_atr" not in q.text  # fib's settings wait for their own question
+    shared = next_question(_spec(supporting_signals=_filters("fib", "fib", "line"), filters_needed=2))
+    assert shared.item is None and "two signals share a name (fib)" in shared.text
+
+
+def test_the_transcript_says_which_signal_a_turn_was_about(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
+    ok = {"value": {"defaults_ok": True}}
+    answers = iter(["defaults", None])
+    elicit("idea", StubClient([ok]), ask=lambda q: next(answers), say=lambda s: None,
+           session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    saved = json.loads((tmp_path / "s.json").read_text())
+    assert [t["field"] for t in saved["turns"]] == ["supporting_signals[fib]"]
+    assert saved["gaps_remaining"][0].startswith("supporting_signals[line]: ")
+
+
+def test_a_stuck_signal_is_skipped_alone(tmp_path, monkeypatch):
+    _extraction_stub(monkeypatch, _spec(supporting_signals=_filters("fib", "line"), filters_needed=2))
+    line_ok = {"value": {"defaults_ok": True}}
+    client = StubClient([{"value": None}, {"value": None}, line_ok])
+    said = []
+    spec = elicit("idea", client, ask=lambda q: "dunno", say=said.append,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert any("`supporting_signals[fib]` isn't converging" in s for s in said)
+    assert spec.supporting_signals[1].defaults_ok  # the other signal was still asked
+    assert [(g.field, g.item) for g in find_gaps(spec)] == [("supporting_signals", "fib")]
+
+
+def test_uncatalogued_ids_are_dropped_from_a_signals_uses_too(tmp_path, monkeypatch):
+    signal = Signal(name="s", description="s", role="score", uses=["indicator:rsi", "indicator:stochastic"])
+    _extraction_stub(monkeypatch, _spec(supporting_signals=[signal]))
+    spec = elicit("idea", StubClient([]), ask=lambda q: None, say=lambda s: None,
+                  session_path=tmp_path / "s.json", log_path=tmp_path / "log.jsonl")
+    assert spec.supporting_signals[0].uses == ["indicator:rsi"]
 
 
 def test_next_question_skips_given_fields():
