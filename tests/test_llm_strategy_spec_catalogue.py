@@ -110,6 +110,26 @@ def test_settings_for_merges_a_family_and_ignores_the_rest():
     assert catalogue.settings_for(["detector:ma.first_touch"]) == {}
 
 
+def test_a_level_feature_asks_its_detectors_settings():
+    assert set(catalogue.FEATURE_FAMILY) <= catalogue.IDS
+    sr = [s.name for s in catalogue.SETTINGS["detector:sr_line."]]
+    assert list(catalogue.settings_for(["feature:near_dn_w_sr_line"])) == sr
+    assert list(catalogue.settings_for(["feature:near_up_gap"])) == [s.name for s in catalogue.SETTINGS["detector:gap."]]
+    # Mixed-source features and sources with no settings ask none.
+    for feature in ("feature:density_dn_2", "feature:near_dn_vp", "feature:near_dn_ma"):
+        assert catalogue.settings_for([feature]) == {}
+
+
+def test_levels_are_detector_families_and_level_features():
+    assert catalogue.LEVEL_FEATURES <= catalogue.IDS and "feature:near_dn_w_sr_line" in catalogue.LEVEL_FEATURES
+    for prefix in catalogue.LEVEL_PREFIXES:  # each prefix still names a real detector
+        assert any(i.startswith(prefix) for i in catalogue.IDS)
+    assert catalogue.uses_levels(["detector:avwap"]) and catalogue.uses_levels(["feature:confluence_dn"])
+    # Detectors that define their own touch, and level context that isn't a level, aren't.
+    assert not catalogue.uses_levels(["detector:ma.first_touch", "detector:base_breakout.retest",
+                                      "feature:density_dn_2", "indicator:rsi"])
+
+
 def test_render_lists_the_schema_choices_and_every_entry():
     text = catalogue.render()
     for literal in (schema.Timeframe, schema.Normalisation, schema.PriceBasis, schema.Execution):

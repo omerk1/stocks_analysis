@@ -148,7 +148,6 @@ class DetectorSetting:
 
 
 _FIB = "src.signals.fibonacci.config:FibConfig"
-_AVWAP = "src.signals.avwap.config:AvwapConfig"
 _DIV = "src.signals.divergences.config:DivergenceConfig"
 _GAP = "src.signals.gaps.config:GapConfig"
 _SR = "src.signals.sr_lines.config:SRConfig"
@@ -184,10 +183,11 @@ SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
         # A choice among the AVWAP rows by anchor type, not a config field: a finder
         # filters on it. The test checks every AnchorType member is named here; "swing"
         # is the capability description's word for the cycle anchors, so both are named.
+        # How close price must come isn't asked here: an AVWAP is a level, so the trigger's
+        # proximity asks it once for every level in the idea (`AvwapConfig.distance_tolerance_atr`
+        # is where a finder applies it).
         DetectorSetting("anchors", "which anchors: all-time, regime, 52-week or swing (cycle) highs and lows",
                         "src.foundation.market_common.anchors:AnchorType", "all of them"),
-        DetectorSetting("distance_tolerance_atr", "how close price must come to count as a touch, in ATR",
-                        f"{_AVWAP}.distance_tolerance_atr", 0.3),
     ),
     "detector:gap.": (
         DetectorSetting("min_gap_atr", "the smallest gap that counts, in ATR", f"{_GAP}.min_gap_atr", 0.3),
@@ -198,10 +198,12 @@ SETTINGS: dict[str, tuple[DetectorSetting, ...]] = {
 
 def settings_for(ids) -> dict[str, DetectorSetting]:
     """The settings of every family among `ids`, by name, in catalogue order (a signal
-    built from two kinds of divergence asks about divergence settings once)."""
+    built from two kinds of divergence asks about divergence settings once). A level
+    feature built from one detector's levels asks that detector's settings."""
+    families = [FEATURE_FAMILY.get(i, i) for i in ids]
     found: dict[str, DetectorSetting] = {}
     for prefix, settings in SETTINGS.items():
-        if any(i.startswith(prefix) for i in ids):
+        if any(f.startswith(prefix) for f in families):
             found.update((s.name, s) for s in settings)
     return found
 
@@ -323,6 +325,29 @@ FEATURES = _entries("feature", "", _REG, {
                         "dilution, negative is buybacks",
     **_level_features(),
 })
+
+# The level features read off one detector's levels, by that detector's settings family
+# (`SETTINGS`): the level builder takes each detector's config as an input
+# (`src.models.features.levels.default_configs`), so a finder can build the levels with
+# the trader's settings. The mixed-source features (clearance, density, confluence) and
+# the sources with no settings listed (volume profile, moving averages, round numbers,
+# 52-week) ask none.
+FEATURE_FAMILY: dict[str, str] = {
+    f"feature:near_{side}_{weight}{source}": prefix
+    for source, prefix in (("sr_line", "detector:sr_line."), ("avwap", "detector:avwap"), ("gap", "detector:gap."))
+    for side in ("up", "dn") for weight in ("", "w_")}
+
+# What price can reach: a detector family whose events are price levels, or a level
+# feature measuring the distance to one. An idea built on them is asked how close price
+# must come (`Trigger.proximity`). The moving-average touch and the base-breakout retest
+# aren't here: their detectors define the touch themselves.
+LEVEL_PREFIXES = ("detector:sr_line.", "detector:fibonacci.", "detector:avwap", "detector:gap.")
+LEVEL_FEATURES = frozenset(f"feature:{name}" for name in _level_features()
+                           if name.startswith(("near_", "confluence_")))
+
+
+def uses_levels(ids) -> bool:
+    return any(i in LEVEL_FEATURES or i.startswith(LEVEL_PREFIXES) for i in ids)
 
 _CTL = "src.signals.moving_averages.stats.controls"
 CONTROLS = [

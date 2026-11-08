@@ -253,6 +253,8 @@ def test_extraction_cant_fill_what_only_elicitation_asks():
     assert "filters_needed" not in schema["properties"]
     assert "settings" not in signal and "defaults_ok" not in signal
     assert "uses" in signal  # a signal still names its detector
+    trigger = schema["$defs"]["ExtractedTrigger"]["properties"]
+    assert set(trigger) == set(Trigger.model_fields) - {"proximity"}
     # Every other spec field is still there, as it was.
     assert set(extract.ExtractedSpec.model_fields) == set(StrategySpec.model_fields) - {"filters_needed"}
 

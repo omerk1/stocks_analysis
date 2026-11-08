@@ -17,7 +17,7 @@ from src.foundation.market_common import indicators
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
-from src.llm.strategy_spec.schema import Duration, Rule, Size, StrategySpec, Trigger
+from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger
 
 
 @pytest.fixture(autouse=True)
@@ -172,6 +172,18 @@ def test_rubric_discloses_every_default_and_the_invalidation_convention():
     before = by_parameter["invalidation (before entry): retest closes decisively back below"]
     assert before.value == "NOT READ"
     assert not any("after_entry" in r.parameter or "within 3 bars" in r.parameter for r in result.rubric)
+
+
+def test_a_stated_proximity_is_disclosed_as_not_applied():
+    s = spec()
+    near = s.trigger.model_copy(update={"proximity": Proximity(normalisation="atr", max=0.3)})
+    rubric = {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": near}),
+                                                                panel({"AAA": MATCH})).rubric}
+    assert rubric["how close price must come"].value == "NOT APPLIED"
+    through = s.trigger.model_copy(update={"proximity": Proximity(not_applicable=True)})
+    rubric = {r.parameter for r in find_base_breakout_retest(s.model_copy(update={"trigger": through}),
+                                                             panel({"AAA": MATCH})).rubric}
+    assert "how close price must come" not in rubric
 
 
 def test_unstated_direction_grounds_long_with_a_disclosed_default():

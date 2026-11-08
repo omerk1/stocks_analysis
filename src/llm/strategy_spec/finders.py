@@ -128,6 +128,15 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
+def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
+    """A stated proximity is said out loud as not applied: these finders' detectors
+    define their own touch, and the trader must not judge charts thinking theirs is."""
+    p = spec.trigger.proximity if spec.trigger is not None else None
+    if p is not None and not p.not_applicable:
+        rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
+                                 "this detector defines its own touch — the spec's distance isn't used"))
+
+
 def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA,
                      near_misses: bool = True) -> FinderResult:
     """Instances of "first touch of a moving average after being away" in `panel`
@@ -229,6 +238,7 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         if signal.role == "filter":
             rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
                                      "no structured mapping yet — instances ignore this filter"))
+    _disclose_proximity(spec, rubric)
     for rule in spec.invalidation:
         # An after-entry rule is about the trade, not the setup; a before-entry rule
         # excludes setups, so not acting on it must be said out loud or rejections get
@@ -509,6 +519,7 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
         if signal.role == "filter":
             rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
                                      "no structured mapping yet — instances ignore this filter"))
+    _disclose_proximity(spec, rubric)
     for rule in spec.invalidation:
         if rule.phase == "before_entry":
             rubric.append(RubricLine(f"invalidation (before entry): {rule.description}",
