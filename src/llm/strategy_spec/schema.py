@@ -365,8 +365,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
                 said = "price must trade through the level" if p.through else "proximity doesn't apply"
                 add("trigger", "invalid", f"{said}, but a distance is given too")
         else:
+            # The follow-ups keep the way out: a vague first answer mustn't force a distance.
+            out = " (or say it must trade through it, or that the trigger isn't about reaching a level)"
             if p.normalisation is None:
-                add("trigger", "unquantified", "how close price must come: in ATR, percent or log?")
+                add("trigger", "unquantified", f"how close price must come: in ATR, percent or log?{out}")
             elif p.normalisation == "raw_price":
                 add("trigger", "invalid", "a proximity in raw price isn't comparable across tickers; "
                     "use ATR, log or %")
@@ -375,7 +377,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             # Not with rejected units: the question would ask for a number in them.
             if p.max is None:
                 if p.normalisation not in ("raw_price", "percentile"):
-                    add("trigger", "unquantified", "how close price must come: at most how far?")
+                    add("trigger", "unquantified", f"how close price must come: at most how far?{out}")
             elif p.max < 0:
                 add("trigger", "invalid", "a proximity is a distance and can't be negative")
 

@@ -19,7 +19,7 @@ def _spec(**overrides):
         size=Size(normalisation="atr", max=1.5),
         # Proximity is settled so a spec given level signals is asked only about them.
         trigger=Trigger(description="close above range high", price_basis="close", execution="next_open",
-                        proximity=Proximity(not_applicable=True)),
+                        proximity=Proximity(through=True)),
         horizons_bars=[5, 20],
         invalidation=[Rule(description="close back inside the range", phase="after_entry")],
         control=Control(description="same dates, no pattern"),
@@ -107,6 +107,12 @@ def test_the_trigger_answer_sets_how_close_price_must_come():
     reply = {"value": {**unsettled.model_dump(), "proximity": {"normalisation": "atr", "max": 0.3}}}
     out = apply_answer(spec, q, "within 0.3 ATR", StubClient([reply]))
     assert out.trigger.proximity.max == 0.3 and find_gaps(out) == []
+    # "Must trade through it" comes back as `through`, the answer rules saying so.
+    reply = {"value": {**unsettled.model_dump(), "proximity": {"through": True}}}
+    client = StubClient([reply])
+    out = apply_answer(spec, q, "it has to trade through it", client)
+    assert out.trigger.proximity.through and find_gaps(out) == []
+    assert "`through` is true when the trader says price must trade through" in client.calls[0][1]["system"]
 
 
 def test_a_null_value_leaves_the_field_and_the_gap():

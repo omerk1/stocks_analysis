@@ -180,7 +180,7 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     rubric = {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": near}),
                                                                 panel({"AAA": MATCH})).rubric}
     assert rubric["how close price must come"].value == "NOT APPLIED"
-    assert '"at most 0.3 atr"' in rubric["how close price must come"].detail
+    assert "your spec says: at most 0.3 ATR" in rubric["how close price must come"].detail
 
     def rubric_with(p):
         trigger = s.trigger.model_copy(update={"proximity": p})
@@ -191,8 +191,10 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     line = rubric_with(Proximity(through=True))["how close price must come"]
     assert line.value == "NOT APPLIED" and "trade through" in line.detail
     # Units without a distance doesn't crash the disclosure; "doesn't apply" has nothing to disclose.
-    assert rubric_with(Proximity(normalisation="atr"))["how close price must come"].value == "NOT APPLIED"
+    assert "in ATR, no distance given" in rubric_with(Proximity(normalisation="atr"))["how close price must come"].detail
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
+    # A contradictory through + doesn't-apply (an invalid gap) still shows the through.
+    assert "trade through" in rubric_with(Proximity(through=True, not_applicable=True))["how close price must come"].detail
 
 
 def test_unstated_direction_grounds_long_with_a_disclosed_default():

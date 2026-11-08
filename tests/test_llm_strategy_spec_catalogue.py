@@ -121,7 +121,9 @@ def test_a_level_feature_asks_its_detectors_settings():
         assert catalogue.settings_for([feature]) == {}
 
 
-def test_levels_are_detector_families_and_distance_to_a_level():
+def test_levels_are_detector_families_and_features_about_the_nearest_level():
+    # Weights count too, on purpose: the proximity question has a way out, so asking
+    # too often costs one answer, where not asking would leave the touch undefined.
     assert catalogue.LEVEL_FEATURES <= catalogue.IDS
     for prefix in catalogue.LEVEL_PREFIXES:  # each prefix still names a real detector
         assert any(i.startswith(prefix) for i in catalogue.IDS)

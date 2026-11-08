@@ -15,7 +15,7 @@ def _complete(**overrides):
         size=Size(normalisation="atr", max=1.5),
         # Proximity is settled so a spec given level signals is asked only about them.
         trigger=Trigger(description="close above range high", price_basis="close", execution="next_open",
-                        proximity=Proximity(not_applicable=True)),
+                        proximity=Proximity(through=True)),
         horizons_bars=[5, 20],
         invalidation=[Rule(description="close back inside the range", phase="after_entry")],
         control=Control(description="same dates, no pattern"),
