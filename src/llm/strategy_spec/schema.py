@@ -110,7 +110,8 @@ class Size(_Section):
 
 class Proximity(_Section):
     """How close price must come to a level for the trigger to count it as reached: at
-    most `max`, a magnitude in `normalisation`'s units (as in `Size`). Its own slot, not
+    most `max`, a distance in ATR, percent or log (a percentile isn't a distance).
+    `not_applicable` means price must trade through the level. Its own slot, not
     `Size`'s: an idea built on levels often has a size too (a stack of levels at most
     1 ATR wide), and one slot made the two numbers fight."""
 
@@ -362,12 +363,12 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             elif p.normalisation == "raw_price":
                 add("trigger", "invalid", "a proximity in raw price isn't comparable across tickers; "
                     "use ATR, log or %")
+            elif p.normalisation == "percentile":
+                add("trigger", "invalid", "a percentile isn't a distance to a level; use ATR, log or %")
             if p.max is None:
                 add("trigger", "unquantified", "how close price must come: at most how far?")
             elif p.max < 0:
                 add("trigger", "invalid", "a proximity is a distance and can't be negative")
-            elif p.normalisation == "percentile" and p.max > 100:
-                add("trigger", "invalid", "a percentile is on a 0-100 scale")
 
     if not spec.horizons_bars:
         add("horizons_bars", "missing", "how many bars after entry is the outcome measured? One or more")

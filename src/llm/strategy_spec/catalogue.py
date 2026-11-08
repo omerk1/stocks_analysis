@@ -329,25 +329,31 @@ FEATURES = _entries("feature", "", _REG, {
 # The level features read off one detector's levels, by that detector's settings family
 # (`SETTINGS`): the level builder takes each detector's config as an input
 # (`src.models.features.levels.default_configs`), so a finder can build the levels with
-# the trader's settings. The mixed-source features (clearance, density, confluence) and
-# the sources with no settings listed (volume profile, moving averages, round numbers,
+# the trader's settings. Not AVWAP: its one setting picks anchor types, which the level
+# rows don't record. The mixed-source features (clearance, density, confluence) and the
+# sources with no settings listed (volume profile, moving averages, round numbers,
 # 52-week) ask none.
 FEATURE_FAMILY: dict[str, str] = {
     f"feature:near_{side}_{weight}{source}": prefix
-    for source, prefix in (("sr_line", "detector:sr_line."), ("avwap", "detector:avwap"), ("gap", "detector:gap."))
+    for source, prefix in (("sr_line", "detector:sr_line."), ("gap", "detector:gap."))
     for side in ("up", "dn") for weight in ("", "w_")}
 
-# What price can reach: a detector family whose events are price levels, or a level
-# feature measuring the distance to one. An idea built on them is asked how close price
-# must come (`Trigger.proximity`). The moving-average touch and the base-breakout retest
-# aren't here: their detectors define the touch themselves.
+# What price can reach: a detector family whose events are price levels, or a feature
+# measuring the distance to one (the nearest level of a source, the nearest cluster).
+# An idea built on them is asked how close price must come (`Trigger.proximity`). Not
+# the weight features (how heavy the nearest level is says nothing about reaching it),
+# and not the moving-average touch or the base-breakout retest: their detectors define
+# the touch themselves, where a feature has none of its own.
 LEVEL_PREFIXES = ("detector:sr_line.", "detector:fibonacci.", "detector:avwap", "detector:gap.")
-LEVEL_FEATURES = frozenset(f"feature:{name}" for name in _level_features()
-                           if name.startswith(("near_", "confluence_")))
+LEVEL_FEATURES = frozenset(
+    f"feature:{name}" for name in _level_features()
+    if (name.startswith("near_") and not name.startswith(("near_up_w_", "near_dn_w_")))
+    or (name.startswith("confluence_") and name.endswith("_dist")))
 
 
 def uses_levels(ids) -> bool:
     return any(i in LEVEL_FEATURES or i.startswith(LEVEL_PREFIXES) for i in ids)
+
 
 _CTL = "src.signals.moving_averages.stats.controls"
 CONTROLS = [

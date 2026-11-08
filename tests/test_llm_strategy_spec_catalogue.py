@@ -115,18 +115,21 @@ def test_a_level_feature_asks_its_detectors_settings():
     sr = [s.name for s in catalogue.SETTINGS["detector:sr_line."]]
     assert list(catalogue.settings_for(["feature:near_dn_w_sr_line"])) == sr
     assert list(catalogue.settings_for(["feature:near_up_gap"])) == [s.name for s in catalogue.SETTINGS["detector:gap."]]
-    # Mixed-source features and sources with no settings ask none.
-    for feature in ("feature:density_dn_2", "feature:near_dn_vp", "feature:near_dn_ma"):
+    # Mixed-source features, sources with no settings, and AVWAP (its anchor choice isn't
+    # in the level rows) ask none.
+    for feature in ("feature:density_dn_2", "feature:near_dn_vp", "feature:near_dn_ma", "feature:near_dn_avwap"):
         assert catalogue.settings_for([feature]) == {}
 
 
-def test_levels_are_detector_families_and_level_features():
-    assert catalogue.LEVEL_FEATURES <= catalogue.IDS and "feature:near_dn_w_sr_line" in catalogue.LEVEL_FEATURES
+def test_levels_are_detector_families_and_distance_to_a_level():
+    assert catalogue.LEVEL_FEATURES <= catalogue.IDS
     for prefix in catalogue.LEVEL_PREFIXES:  # each prefix still names a real detector
         assert any(i.startswith(prefix) for i in catalogue.IDS)
-    assert catalogue.uses_levels(["detector:avwap"]) and catalogue.uses_levels(["feature:confluence_dn"])
-    # Detectors that define their own touch, and level context that isn't a level, aren't.
+    for ids in (["detector:avwap"], ["feature:near_dn_sr_line"], ["feature:confluence_dn_dist"]):
+        assert catalogue.uses_levels(ids)
+    # Detectors that define their own touch, a level's weight, and level context aren't.
     assert not catalogue.uses_levels(["detector:ma.first_touch", "detector:base_breakout.retest",
+                                      "feature:near_dn_w_sr_line", "feature:confluence_dn",
                                       "feature:density_dn_2", "indicator:rsi"])
 
 

@@ -129,12 +129,14 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
 
 
 def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
-    """A stated proximity is said out loud as not applied: these finders' detectors
-    define their own touch, and the trader must not judge charts thinking theirs is."""
+    """A stated proximity, a distance or "must trade through it", is said out loud as not
+    applied: these finders' detectors define their own touch, and the trader must not
+    judge charts thinking theirs is."""
     p = spec.trigger.proximity if spec.trigger is not None else None
-    if p is not None and not p.not_applicable:
+    if p is not None:
+        stated = "price must trade through the level" if p.not_applicable else "the spec's distance"
         rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
-                                 "this detector defines its own touch — the spec's distance isn't used"))
+                                 f"this detector defines its own touch — {stated} isn't used"))
 
 
 def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA,

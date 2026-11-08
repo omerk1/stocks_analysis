@@ -180,10 +180,12 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     rubric = {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": near}),
                                                                 panel({"AAA": MATCH})).rubric}
     assert rubric["how close price must come"].value == "NOT APPLIED"
+    # "Must trade through it" is a stated requirement too, so it's disclosed as well.
     through = s.trigger.model_copy(update={"proximity": Proximity(not_applicable=True)})
-    rubric = {r.parameter for r in find_base_breakout_retest(s.model_copy(update={"trigger": through}),
-                                                             panel({"AAA": MATCH})).rubric}
-    assert "how close price must come" not in rubric
+    rubric = {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": through}),
+                                                                panel({"AAA": MATCH})).rubric}
+    line = rubric["how close price must come"]
+    assert line.value == "NOT APPLIED" and "trade through" in line.detail
 
 
 def test_unstated_direction_grounds_long_with_a_disclosed_default():
