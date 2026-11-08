@@ -88,6 +88,7 @@ def trigger_lines(match: PatternMatch, end_bar: int, n_bars: int) -> dict[str, t
                 start = match.pivots[2].bar_index
             else:
                 start = match.pivots[0].bar_index
+            start = min(start, end_bar)  # never drawn backwards
             lines[name] = (start, slope * start + intercept, end_bar, slope * end_bar + intercept)
         return lines
     for level_key, bar_key in _FLAT_TRIGGERS:

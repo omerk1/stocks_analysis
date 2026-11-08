@@ -351,12 +351,14 @@ class Overlay:
      last pivot while pending; the same 40 / 12-bar reach) mixed with the module's
      confidence. Patterns that are one structure take one default slot: those ending on
      the same pivot in the same direction (a double top, a head and shoulders and a
-     1-2-3 on one peak), and those of one type whose pivots mostly overlap (the same
-     pending triangle found from windows a pivot apart, which the module only merges
-     once they share a breakout). On 10 large caps that's 2–10 events from 4–11
-     patterns daily.
+     1-2-3 on one peak), and pending ones of one type whose pivots mostly overlap (the
+     same pending triangle found from windows a pivot apart, which the module only
+     merges once they share a breakout; the module's own overlap rule). The two rules
+     don't chain, so unrelated patterns can't be joined through a third. On 10 large
+     caps that's 2–10 events from 4–11 patterns daily.
    - The id leaves out the direction, which a triangle only gets at its breakout, so a
-     ticked pattern stays ticked when it breaks out.
+     ticked pattern stays ticked when it breaks out (added back only if two matches
+     would share an id).
    - The y-axis fits the outline and trigger, while they're in view, but not the
      target: a measured move can sit far from price (NVDA weekly: 100 with price at
      200). The hover gives it.
@@ -372,8 +374,9 @@ class Overlay:
      scores length, it doesn't cap it). It found the same live patterns as the whole
      history on 10 large caps, daily and weekly, in about 0.7 s instead of 2–9 s daily.
      A live pattern starting within 250 bars of the window's first bar may have been
-     cut short by it, so then the whole history is scanned (none of the 20 charts
-     needed it).
+     cut short by it, so then the window is doubled until none does (none of the 20
+     charts needed it). That can't catch a pattern the window cut short and the
+     scanner found again from a later start; none showed up in the check above.
    - On 10 large caps, 4–11 patterns per chart are live and 0–9 in reach; they get 0–3
      of the 10 default picks. Menu times are unchanged (about 2–12 s).
 5. **Guidance on the cards,** once the extraction exists.

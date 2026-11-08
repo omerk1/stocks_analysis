@@ -115,16 +115,18 @@ class Overlay:
 
 
 class Guide(NamedTuple):
-    """A straight line drawn with a segment, from (x0, y0) to (x1, y1), or with
-    `to_edge` from x0 to the chart's right edge (x1 unused). `text` is written at its
-    right end."""
+    """A straight line drawn with a segment, from (x0, y0) to (x1, y1); x1 None runs it
+    to the chart's right edge. `text` is written at its right end."""
     x0: pd.Timestamp
     y0: float
     x1: pd.Timestamp | None
     y1: float
     dash: str = "dot"
     text: str = ""
-    to_edge: bool = False
+
+    @property
+    def to_edge(self) -> bool:
+        return self.x1 is None
 
 
 def _day(ts) -> str:
@@ -389,51 +391,49 @@ _PATTERN_NAMES = {
 # instead of 2-9 s daily (the scan's cost grows faster than the bar count).
 PATTERN_SCAN_BARS = 2000
 # A live pattern starting this close to the window's first bar may have been cut short
-# by it (an earlier left rim, the ATR warmup, the prior-trend check): rescan everything.
+# by it (an earlier left rim, the ATR warmup, the prior-trend check), so the window is
+# doubled until none does. That can't catch a pattern the window cut short that was
+# found again from a later start; on 10 large caps none was (same live patterns as the
+# whole history).
 PATTERN_EDGE_BARS = 250
 _TRIGGER_NAMES = {"neckline": "trigger", "upper": "upper side", "lower": "lower side", "point2": "trigger",
                   "pivot_price": "trigger"}
-_SAME_PATTERN_OVERLAP = 0.5  # the module's own pivot-overlap rule for one structure (scanner._PIVOT_JACCARD_MIN)
 
 
 def _live_patterns(ticker: str, timeframe: Timeframe, bars: pd.DataFrame, config) -> tuple[pd.DataFrame, list]:
     """The module's live matches and the frame they were found on: the last
-    `PATTERN_SCAN_BARS` bars, or every bar when a live match starts near that window's
-    edge."""
-    window = bars.iloc[-PATTERN_SCAN_BARS:]
+    `PATTERN_SCAN_BARS` bars, doubled while a live match starts near the window's edge."""
+    size = PATTERN_SCAN_BARS
     while True:
+        window = bars.iloc[-size:]
         live = [m for m in pattern_scanner.scan_bars(window, ticker, timeframe, config)
                 if m.status in _LIVE_PATTERNS and len(m.pivots) >= 2]
         if len(window) == len(bars) or all(m.pivots[0].bar_index >= PATTERN_EDGE_BARS for m in live):
             return window, live
-        window = bars
+        size *= 2
 
 
 def _event_keys(matches: list) -> list[str]:
-    """One key per structure: matches ending on the same pivot in the same direction
-    (a double and a triple top on one peak), or of the same type and direction whose
-    pivots mostly overlap (one pending triangle found from windows a pivot apart: the
-    module merges those only once they share a breakout bar), share a key."""
-    parent = list(range(len(matches)))
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            i = parent[i]
-        return i
-
+    """One key per structure, from two rules that don't chain: matches ending on the
+    same pivot in the same direction (a double and a triple top on one peak) share
+    that pivot's key; and a pending match takes the key of an earlier pending match of
+    the same type and direction whose pivots mostly overlap (one pending triangle found
+    from windows a pivot apart: the module merges those only once they share a
+    breakout bar, by the same overlap rule). Unbroken on both sides, so two different
+    outcomes are never merged."""
+    keys = [f"{m.direction.value}:{_day(m.pivots[-1].timestamp)}" for m in matches]
+    pending = [m.breakout_bar is None for m in matches]
+    out = list(keys)
     for i, a in enumerate(matches):
-        pa = {p.bar_index for p in a.pivots}
+        if not pending[i]:
+            continue
         for j in range(i):
             b = matches[j]
-            if a.direction != b.direction:
-                continue
-            pb = {p.bar_index for p in b.pivots}
-            same_end = a.pivots[-1].bar_index == b.pivots[-1].bar_index
-            overlap = a.pattern_type == b.pattern_type and len(pa & pb) / len(pa | pb) >= _SAME_PATTERN_OVERLAP
-            if same_end or overlap:
-                parent[root(i)] = root(j)
-    return [f"{matches[root(i)].direction.value}:{matches[root(i)].pivots[-1].timestamp[:10]}"
-            for i in range(len(matches))]
+            if (pending[j] and a.pattern_type == b.pattern_type and a.direction == b.direction
+                    and pattern_scanner._pivot_jaccard(a, b) >= pattern_scanner._PIVOT_JACCARD_MIN):
+                out[i] = keys[j]  # b's own key, not what b took: one hop, no chains
+                break
+    return out
 
 
 def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> list[Overlay]:
@@ -449,7 +449,7 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
     if len(bars) < config.min_bars:
         return []
     window, matches = _live_patterns(ticker, timeframe, bars, config)
-    out = []
+    out, ids = [], set()
     for m, key in zip(matches, _event_keys(matches)):
         name, tag = _PATTERN_NAMES.get(m.pattern_type, (m.pattern_type.value, m.pattern_type.value))
         bull = None if m.direction == Direction.NEUTRAL else m.direction == Direction.BULLISH
@@ -465,7 +465,7 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
         arrow = {True: "↑", False: "↓", None: ""}[bull]
         if broke and m.target_price is not None:
             target = float(m.target_price)
-            guides.append(Guide(window.index[end], target, None, target, "dash", f"{tag}{arrow} target", True))
+            guides.append(Guide(window.index[end], target, None, target, "dash", f"{tag}{arrow} target"))
         moment = window.index[end] if broke else points[-1][0]
         state = f"broke out {_day(moment)}" if broke else f"pending since {_day(points[-1][0])}"
         hover = {"confidence": round(m.confidence, 2), "status": m.status.value.replace("_", " "),
@@ -475,10 +475,15 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
                       "stop": round(m.stop_price, 2) if m.stop_price is not None else "none"})
         if broke:
             hover["breakout volume"] = "confirmed" if m.volume_confirmed else "not confirmed"
+        # No direction in the id: a triangle's is only decided at its breakout, and a
+        # ticked pattern must stay ticked when it breaks out. It's added only if two
+        # matches would share an id (both directions on the same dates).
+        item_id = f"{m.pattern_type.value}:{_day(m.formation_start)}:{_day(m.formation_end)}"
+        if item_id in ids:
+            item_id += f":{m.direction.value}"
+        ids.add(item_id)
         out.append(Overlay(
-            # No direction in the id: a triangle's is only decided at its breakout, and a
-            # ticked pattern must stay ticked when it breaks out.
-            family=PAT, item_id=f"{m.pattern_type.value}:{_day(m.formation_start)}:{_day(m.formation_end)}",
+            family=PAT, item_id=item_id,
             label=f"{name}{' ' + arrow if arrow else ''} {state}", tag=f"{tag}{arrow}", kind="segment",
             x0=points[0][0], lo=min(prices), hi=max(prices), strength=float(m.confidence), alive=True,
             points=points, guides=tuple(guides), age_bars=_age(bars, moment), same_key=key, bullish=bull,
@@ -501,9 +506,8 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
             MS: lambda: structure_overlays(ticker, timeframe, bars)}
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
-        run = runs[family]
         try:
-            overlays.extend(run())
+            overlays.extend(runs[family]())
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
     return overlays, errors

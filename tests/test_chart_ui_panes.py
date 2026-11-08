@@ -182,7 +182,7 @@ def test_a_pattern_draws_its_outline_and_guides_to_the_right_edge(bars):
     pattern = Overlay(family="patterns", item_id="p", label="Double bottom ↑", kind="segment", x0=pivots[0][0],
                       lo=90.0, hi=95.0, strength=0.6, alive=True, tag="2Bot↑", points=pivots, bullish=True,
                       guides=(Guide(bars.index[-50], 95.0, bars.index[-30], 95.0),
-                              Guide(bars.index[-30], 300.0, None, 300.0, "dash", "2Bot↑ target", True)))
+                              Guide(bars.index[-30], 300.0, None, 300.0, "dash", "2Bot↑ target")))
     fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
                        overlays=(pattern,))
     outline, trigger, target = (t for t in fig.data if t.uid.startswith("patterns:"))

@@ -244,6 +244,28 @@ def test_one_pending_pattern_found_from_two_windows_is_one_event(bars):
     flipped = _match(bars, "ascending_triangle", "bearish", "pending", [15, 25, 35, 46])
     ka, kb, ko, kf = overlays._event_keys([a, b, other, flipped])
     assert ka == kb and len({ka, ko, kf}) == 3
+    broke = _match(bars, "ascending_triangle", "bullish", "active", [15, 25, 35, 45], breakout=47)
+    assert len(set(overlays._event_keys([a, broke]))) == 2  # a different outcome: not merged
+    # No chains: a double top ending where triangle c ends shares c's key, but triangle
+    # d, overlapping c, takes c's own key only through the overlap, not the double top's.
+    top = _match(bars, "double_top", "bearish", "pending", [20, 30, 35])
+    c = _match(bars, "descending_triangle", "bearish", "pending", [5, 15, 25, 35])
+    d = _match(bars, "descending_triangle", "bearish", "pending", [15, 25, 35, 45])
+    e = _match(bars, "descending_triangle", "bearish", "pending", [25, 35, 45, 48])  # overlaps d, not c
+    kt, kc, kd, ke = overlays._event_keys([top, c, d, e])
+    assert kt == kc == kd and ke != kd  # e would join d's group only by chaining through d
+
+
+def test_pattern_ids_drop_the_direction_unless_two_would_clash(monkeypatch, bars):
+    up = _match(bars, "pennant", "bullish", "pending", [10, 20, 30])
+    down = _match(bars, "pennant", "bearish", "pending", [10, 25, 30])
+    real = overlays.pattern_config.get_preset
+    monkeypatch.setattr(overlays.pattern_config, "get_preset",
+                        lambda name: NS(**{**real(name).to_dict(), "min_bars": 10}))
+    monkeypatch.setattr(overlays.pattern_scanner, "scan_bars", lambda *a: [up, down])
+    first, second = overlays.pattern_overlays("ABC", DAILY, bars)
+    assert first.item_id == f"pennant:{bars.index[10]:%Y-%m-%d}:{bars.index[30]:%Y-%m-%d}"
+    assert second.item_id == first.item_id + ":bearish"
 
 
 def test_chart_patterns_scan_the_recent_bars_and_everything_near_the_edge(monkeypatch):
@@ -257,4 +279,4 @@ def test_chart_patterns_scan_the_recent_bars_and_everything_near_the_edge(monkey
     found.append(_match(window, "rounding_bottom", "bullish", "pending", [10, 400, 900]))  # starts at the edge
     windows.clear()
     overlays.pattern_overlays("ABC", DAILY, long)
-    assert [len(w) for w in windows] == [overlays.PATTERN_SCAN_BARS, len(long)]  # rescanned whole
+    assert [len(w) for w in windows] == [overlays.PATTERN_SCAN_BARS, len(long)]  # doubled: here, everything
