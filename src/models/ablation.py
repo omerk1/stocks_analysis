@@ -318,20 +318,28 @@ def check_labels(exp: Experiment, features: pd.DataFrame, frame: pd.DataFrame) -
 
 def check_features(exp: Experiment, features: pd.DataFrame) -> None:
     """Refuses a feature cache built for another universe, another disputes
-    list, or a window that doesn't cover the experiment's folds."""
+    list, or a window that doesn't cover the experiment's folds. A cache
+    built with the holdout open is refused unless the experiment opens it
+    (`open_holdout`, a pre-registered scorecard's); its last test year is
+    then the holdout's current one and may be partial, but the cache must
+    reach at least half way into it (to July 1)."""
     m = features.attrs.get("manifest", {})
     universe = m.get("universe", {})
+    opens = getattr(exp, "open_holdout", False)
     problems = []
     if list(universe.get("indices", [])) != list(exp.indices):
         problems.append(f"indices {universe.get('indices')} != registered {list(exp.indices)}")
-    if m.get("open_holdout", True):
+    if m.get("open_holdout", True) and not opens:
         problems.append("built with the holdout open")
     if m.get("disputes") != dataset.disputes_fingerprint():
         problems.append("built with another price_disputes list (rebuild it: disputes change the universe)")
     if pd.Timestamp(m.get("start", "2100-01-01")) > pd.Timestamp(exp.first_train_start):
         problems.append(f"starts {m.get('start')}, after the first training day {exp.first_train_start}")
-    if pd.Timestamp(m.get("end", "1900-01-01")) < pd.Timestamp(year=max(exp.test_years), month=12, day=28):
-        problems.append(f"ends {m.get('end')}, before the last test year {max(exp.test_years)}")
+    last = max(exp.test_years)
+    # (a scorecard that opens the holdout always has a test year past it: Scorecard.__post_init__)
+    needed = pd.Timestamp(year=last, month=7, day=1) if opens else pd.Timestamp(year=last, month=12, day=28)
+    if pd.Timestamp(m.get("end", "1900-01-01")) < needed:
+        problems.append(f"ends {m.get('end')}, before the last test year {last}")
     if problems:
         raise ValueError(f"feature cache doesn't match {exp.experiment_id}: " + "; ".join(problems))
 

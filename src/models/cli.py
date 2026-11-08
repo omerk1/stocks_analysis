@@ -297,7 +297,8 @@ def run_experiment(experiment_id: str, features_dir: Path, labels_dir: Path, hor
 
 
 def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...], rank: str | None = None,
-                  columns: str = "S1", experiment_id: str | None = None, preregistered: str | None = None) -> int:
+                  columns: str = "S1", experiment_id: str | None = None, preregistered: str | None = None,
+                  open_holdout: bool = False) -> int:
     from dataclasses import replace
 
     from src.models import trading, trial_log
@@ -305,6 +306,9 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
     warnings.filterwarnings("ignore")
     if trial_log.git_dirty() is not False:
         raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
+    if open_holdout and not preregistered:
+        raise SystemExit("--open-holdout is for a pre-registered scorecard that opens the holdout (--preregistered)")
+    horizons = tuple(dict.fromkeys(horizons))   # a repeated horizon would run (and look) twice
     if preregistered:
         if columns != "S1" or experiment_id is not None:
             raise SystemExit(f"{preregistered} has its own columns and id; leave --columns and --experiment-id out")
@@ -314,14 +318,19 @@ def run_scorecard(features_dir: Path, labels_dir: Path, horizons: tuple[int, ...
             raise SystemExit(f"{preregistered} has no horizon {sorted(unknown)}; registered: {sc.horizons}")
         if rank is not None and rank != sc.rank:
             raise SystemExit(f"{preregistered} is registered with rank {sc.rank!r}; leave --rank out")
+        _check_open_holdout(sc, open_holdout)
         sc = replace(sc, horizons=horizons)
     else:
         sc = trading.Scorecard(experiment_id=experiment_id or columns, model_columns=trading.COLUMN_SETS[columns],
                                horizons=horizons, rank=rank or "ev")
-    features = cache.read_feature_cache(features_dir)
+    features = cache.read_feature_cache(features_dir, open_holdout=sc.open_holdout)
     results = []
     for h in horizons:
-        for r in trading.run_horizon(sc, h, features, labels_dir):
+        ran = trading.run_horizon(sc, h, features, labels_dir)
+        if sc.open_holdout and not ran:
+            print(f"{sc.experiment_id} H{h}: every cell already started on the holdout; it is looked at once, "
+                  "so none is refit", flush=True)
+        for r in ran:
             print(f"{r['trial_id']}: {trading.outcome(r, r['cell'], trading.headline_k(sc))}", flush=True)
             results.append(r)
     _print_grid(results, sc)
@@ -363,18 +372,32 @@ def _preregistered_scorecard(experiment_id: str):
     return trading.PREREGISTERED[experiment_id]
 
 
+def _check_open_holdout(sc, open_holdout: bool) -> None:
+    """The holdout opens only when the registration says so *and* the
+    operator typed --open-holdout: neither alone is enough."""
+    if sc.open_holdout and not open_holdout:
+        raise SystemExit(f"{sc.experiment_id} opens the holdout (test years {list(sc.test_years)}); "
+                         "pass --open-holdout to confirm, once, per its pre-registration")
+    if open_holdout and not sc.open_holdout:
+        raise SystemExit(f"{sc.experiment_id} isn't registered to open the holdout; leave --open-holdout out")
+
+
 def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, exclude_tickers: tuple[str, ...],
-                    n_boot: int | None = None) -> int:
+                    n_boot: int | None = None, open_holdout: bool = False) -> int:
     from src.models import trading, trial_log
     from src.models.features import cache
     warnings.filterwarnings("ignore")
     sc = _preregistered_scorecard(experiment_id)
-    r = trading.close_scorecard(sc, trial_log.read_trials(), cache.read_feature_cache(features_dir), labels_dir,
+    _check_open_holdout(sc, open_holdout)
+    r = trading.close_scorecard(sc, trial_log.read_trials(),
+                                cache.read_feature_cache(features_dir, open_holdout=sc.open_holdout), labels_dir,
                                 exclude_tickers, n_boot=n_boot)
     check = "" if r["n_boot"] == r["registered_n_boot"] else \
         f", {r['n_boot']} draws (a precision check; registered: {r['registered_n_boot']})"
-    print(f"{experiment_id}: top-{r['k']} model - {sc.reference}, pooled over each horizon's cells, "
-          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade" + check
+    against = sc.reference if sc.verdict_against == "reference" else sc.verdict_against
+    cost = f", each trading side net of {sc.verdict_cost_bps:g} bps" if sc.verdict_cost_bps else ""
+    print(f"{experiment_id}: top-{r['k']} model - {against}, pooled over each horizon's cells, "
+          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade" + cost + check
           + (f", without {', '.join(exclude_tickers)}" if exclude_tickers else ""))
     for h, x in r["horizons"].items():
         if "missing_cells" in x:
@@ -385,7 +408,15 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
               f"Holm-positive {x['holm_positive']}, entry rule met {x['entry_rule_met']}"
               + ("" if r["n_boot"] == r["registered_n_boot"] else " [precision check]"))
         print("    by era: " + ", ".join(f"{e} {v:+.4%}" for e, v in x["by_era"].items()))
-        print("    by year: " + ", ".join(f"{y} {v:+.4%}" for y, v in x["by_year"].items()))
+        print("    by year: " + ", ".join(f"{y} {v:+.4%} ({x['by_year_n_dates'][y]} dates)"
+                                         for y, v in x["by_year"].items())
+              + (f"; positive in {x['years_positive']} years of {trading.MIN_YEAR_DATES}+ dates "
+                 f"(needs {sc.min_positive_years})"
+                 if sc.min_positive_years else ""))
+        for side, c in x["controls"].items():
+            name = sc.reference if side == "reference" else side
+            print(f"    control, never the verdict: model - {name} {c['point_estimate']:+.4%} "
+                  f"[{c['ci_low']:+.4%}, {c['ci_high']:+.4%}]")
         print(f"    by cell ({x['cells_positive']}/{len(x['by_cell'])} positive): "
               + ", ".join(f"{c} {v:+.4%}" for c, v in x["by_cell"].items()))
         d = x["diagnostics"]["mean_over_cells"]
@@ -470,7 +501,11 @@ def main(argv: list[str] | None = None) -> int:
                        help="the model's column set, also the experiment id unless --experiment-id (trading.COLUMN_SETS)")
     score.add_argument("--experiment-id", default=None,
                        help="log under another id than --columns (e.g. a same-environment refit of S1)")
+    score.add_argument("--open-holdout", action="store_true",
+                       help="confirm a --preregistered scorecard registered to open the holdout; refused otherwise")
     closesc = sub.add_parser("close-scorecard", help="the verdict of a pre-registered scorecard. Read-only")
+    closesc.add_argument("--open-holdout", action="store_true",
+                         help="confirm closing a scorecard registered to open the holdout; refused otherwise")
     closesc.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. F2")
     closesc.add_argument("--n-boot", type=int, default=None,
                          help="bootstrap draws other than the registered ones: a precision check, not the verdict")
@@ -493,9 +528,10 @@ def main(argv: list[str] | None = None) -> int:
                               tuple(args.horizons) if args.horizons else None)
     if args.command == "run-scorecard":
         return run_scorecard(args.features, args.labels, tuple(args.horizons), args.rank, args.columns,
-                             args.experiment_id, args.preregistered)
+                             args.experiment_id, args.preregistered, args.open_holdout)
     if args.command == "close-scorecard":
-        return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot)
+        return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot,
+                               args.open_holdout)
     if args.command == "rescore-scorecard":
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":
