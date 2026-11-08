@@ -65,7 +65,6 @@ def test_contradictions_are_invalid():
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="percentile", min=150)))
 
 
-
 @pytest.mark.parametrize("size, reasons", [
     (Size(normalisation="pct", max=float("nan")), ["finite"]),
     (Size(normalisation="atr", min=float("inf"), max=1.0), ["finite"]),  # not also "min inf > max 1.0"

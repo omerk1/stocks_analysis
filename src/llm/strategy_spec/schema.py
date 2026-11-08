@@ -49,6 +49,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -287,7 +288,7 @@ _PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't
 
 
 # The only distances to a level, each as written after a number ("0.3 ATR", "2%").
-PROXIMITY_UNITS = {"atr": " ATR", "pct": "%", "log": " (log)"}
+PROXIMITY_UNITS = MappingProxyType({"atr": " ATR", "pct": "%", "log": " (log)"})
 
 
 def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
@@ -307,9 +308,8 @@ def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
         asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
     elif p.normalisation == "raw_price":
         asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, percent or log"))
-    elif p.normalisation not in PROXIMITY_UNITS:  # a percentile, or any unit added later
-        unit = "a percentile" if p.normalisation == "percentile" else "that unit"
-        asks.append(("invalid", f"{unit} isn't a distance to a level; use ATR, percent or log"))
+    elif p.normalisation == "percentile":
+        asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
     # Not with rejected units: the question would ask for a number in them.
     if p.max is None:
         if p.normalisation is None or p.normalisation in PROXIMITY_UNITS:
