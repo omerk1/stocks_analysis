@@ -125,11 +125,11 @@ def test_levels_are_detector_families_and_distance_to_a_level():
     assert catalogue.LEVEL_FEATURES <= catalogue.IDS
     for prefix in catalogue.LEVEL_PREFIXES:  # each prefix still names a real detector
         assert any(i.startswith(prefix) for i in catalogue.IDS)
-    for ids in (["detector:avwap"], ["feature:near_dn_sr_line"], ["feature:confluence_dn_dist"]):
+    for ids in (["detector:avwap"], ["feature:near_dn_sr_line"], ["feature:near_dn_w_sr_line"],
+                ["feature:confluence_dn"], ["feature:confluence_dn_dist"]):
         assert catalogue.uses_levels(ids)
-    # Detectors that define their own touch, a level's weight, and level context aren't.
+    # Detectors that define their own touch, and level context that isn't one level, aren't.
     assert not catalogue.uses_levels(["detector:ma.first_touch", "detector:base_breakout.retest",
-                                      "feature:near_dn_w_sr_line", "feature:confluence_dn",
                                       "feature:density_dn_2", "indicator:rsi"])
 
 

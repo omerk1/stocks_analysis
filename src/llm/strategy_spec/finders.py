@@ -133,10 +133,16 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
     applied: these finders' detectors define their own touch, and the trader must not
     judge charts thinking theirs is."""
     p = spec.trigger.proximity if spec.trigger is not None else None
-    if p is not None:
-        stated = "price must trade through the level" if p.not_applicable else "the spec's distance"
-        rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
-                                 f"this detector defines its own touch — {stated} isn't used"))
+    if p is None or p.not_applicable:
+        return
+    if p.through:
+        stated = "price must trade through the level"
+    elif p.max is not None:
+        stated = f"at most {p.max:g} {p.normalisation or '(no units)'}"
+    else:
+        stated = "distance"
+    rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
+                             f'this detector uses its own touch rule, not your "{stated}"'))
 
 
 def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA,

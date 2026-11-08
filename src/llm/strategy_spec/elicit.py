@@ -79,8 +79,9 @@ names the question lists, each value in the trader's words; `dropped` names sett
 trader takes back or that the question flagged as not its settings; `defaults_ok` is \
 true only when the trader says the defaults are fine. A trigger's `proximity` is how \
 close price must come to a level, not the pattern's size: `max` is the at-most distance \
-in the units given, and `not_applicable` is true when the trader says price must trade \
-through the level.
+in the units given; `through` is true when the trader says price must trade through the \
+level, and `not_applicable` when they say the trigger isn't about reaching a level; with \
+either, `normalisation` and `max` are null.
 
 The current spec, for context only — change nothing outside the asked section:
 """

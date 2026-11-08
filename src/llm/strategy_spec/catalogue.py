@@ -338,17 +338,15 @@ FEATURE_FAMILY: dict[str, str] = {
     for source, prefix in (("sr_line", "detector:sr_line."), ("gap", "detector:gap."))
     for side in ("up", "dn") for weight in ("", "w_")}
 
-# What price can reach: a detector family whose events are price levels, or a feature
-# measuring the distance to one (the nearest level of a source, the nearest cluster).
-# An idea built on them is asked how close price must come (`Trigger.proximity`). Not
-# the weight features (how heavy the nearest level is says nothing about reaching it),
-# and not the moving-average touch or the base-breakout retest: their detectors define
-# the touch themselves, where a feature has none of its own.
+# Price levels: a detector family whose events are levels, or a feature about the nearest
+# level of a source or the nearest cluster (its distance or its weight). An idea built
+# on them is asked how close price must come (`Trigger.proximity`); one whose trigger
+# isn't about reaching a level says so, so asking too often costs one answer, where not
+# asking would leave the touch undefined. Not the moving-average touch or the
+# base-breakout retest: their detectors define the touch themselves.
 LEVEL_PREFIXES = ("detector:sr_line.", "detector:fibonacci.", "detector:avwap", "detector:gap.")
-LEVEL_FEATURES = frozenset(
-    f"feature:{name}" for name in _level_features()
-    if (name.startswith("near_") and not name.startswith(("near_up_w_", "near_dn_w_")))
-    or (name.startswith("confluence_") and name.endswith("_dist")))
+LEVEL_FEATURES = frozenset(f"feature:{name}" for name in _level_features()
+                           if name.startswith(("near_", "confluence_")))
 
 
 def uses_levels(ids) -> bool:

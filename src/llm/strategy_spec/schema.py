@@ -110,13 +110,15 @@ class Size(_Section):
 
 class Proximity(_Section):
     """How close price must come to a level for the trigger to count it as reached: at
-    most `max`, a distance in ATR, percent or log (a percentile isn't a distance).
-    `not_applicable` means price must trade through the level. Its own slot, not
+    most `max`, a distance in ATR, percent or log (a percentile isn't a distance), or
+    `through`: price must trade through the level. `not_applicable`, as everywhere, means
+    it doesn't apply: the trigger isn't about price reaching a level. Its own slot, not
     `Size`'s: an idea built on levels often has a size too (a stack of levels at most
     1 ATR wide), and one slot made the two numbers fight."""
 
     normalisation: Normalisation | None = None
     max: float | None = None
+    through: bool = False
     not_applicable: bool = False
 
 
@@ -353,10 +355,15 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
         if p is None:
             if catalogue.uses_levels(spec.uses + [i for sig in spec.supporting_signals for i in sig.uses]):
                 add("trigger", "unquantified", "how close must price come to a level for it to count as reached? "
-                    "At most how far, in ATR, percent or log; or say it must trade through it")
-        elif p.not_applicable:
+                    "At most how far, in ATR, percent or log; or say it must trade through it, or that the "
+                    "trigger isn't about reaching a level")
+        elif p.through and p.not_applicable:
+            add("trigger", "invalid", "proximity says both that price must trade through the level and that "
+                "the trigger isn't about reaching one")
+        elif p.through or p.not_applicable:
             if p.normalisation is not None or p.max is not None:
-                add("trigger", "invalid", "proximity marked not applicable but has a normalisation or distance")
+                said = "price must trade through the level" if p.through else "proximity doesn't apply"
+                add("trigger", "invalid", f"{said}, but a distance is given too")
         else:
             if p.normalisation is None:
                 add("trigger", "unquantified", "how close price must come: in ATR, percent or log?")
@@ -365,8 +372,10 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
                     "use ATR, log or %")
             elif p.normalisation == "percentile":
                 add("trigger", "invalid", "a percentile isn't a distance to a level; use ATR, log or %")
+            # Not with rejected units: the question would ask for a number in them.
             if p.max is None:
-                add("trigger", "unquantified", "how close price must come: at most how far?")
+                if p.normalisation not in ("raw_price", "percentile"):
+                    add("trigger", "unquantified", "how close price must come: at most how far?")
             elif p.max < 0:
                 add("trigger", "invalid", "a proximity is a distance and can't be negative")
 
