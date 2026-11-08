@@ -17,7 +17,7 @@ from src.foundation.market_common import indicators
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
-from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger, proximity_gaps
+from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger
 
 
 @pytest.fixture(autouse=True)
@@ -197,11 +197,16 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     # open, never worded as a rule: the finder and the gap check share one set of rules.
     for p in (Proximity(), Proximity(normalisation="atr"), Proximity(max=0.3),
               Proximity(normalisation="raw_price", max=1.0), Proximity(normalisation="atr", max=-1.0),
-              Proximity(normalisation="atr", max=float("inf")), Proximity(through=True, max=0.5),
-              Proximity(through=True, not_applicable=True), Proximity(not_applicable=True, normalisation="atr")):
+              Proximity(normalisation="atr", max=float("inf")), Proximity(normalisation="atr", max=float("nan")),
+              Proximity(through=True, max=0.5), Proximity(through=True, not_applicable=True),
+              Proximity(not_applicable=True, normalisation="atr")):
         detail = rubric_with(p)["how close price must come"].detail
-        assert detail.startswith("this detector uses its own touch rule; your spec says: not finished (")
-        assert proximity_gaps(p)[0][1] in detail
+        assert detail.startswith("this detector uses its own touch rule; your spec says: not finished")
+        assert "nan" not in detail and "inf" not in detail and "or say" not in detail  # no question text
+    # Every open item is listed, not just the first.
+    detail = rubric_with(Proximity(normalisation="raw_price", max=-1.0))["how close price must come"].detail
+    assert "raw price" in detail and "not negative" in detail
+    assert "at most 0 ATR" in rubric_with(Proximity(normalisation="atr", max=-0.0))["how close price must come"].detail
     # "Doesn't apply" has nothing to disclose.
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
 

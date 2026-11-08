@@ -141,15 +141,15 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
         return
     # The gap check's own rules decide what's settled: an unsettled proximity isn't worded
     # as if it were a rule, it's reported with what's open.
-    open_ = proximity_gaps(p)
+    open_ = proximity_gaps(p, way_out=False)
     if open_:
-        stated = f"not finished ({open_[0][1]}; finish elicitation)"
+        stated = f"not finished, finish elicitation: {'; '.join(reason for _, reason in open_)}"
     elif p.not_applicable:
         return  # "doesn't apply": nothing to disclose
     elif p.through:
         stated = "price must trade through the level"
-    else:
-        stated = f"at most {p.max:g}{_UNITS_AFTER_NUMBER[p.normalisation]}"
+    else:  # settled: units are one of PROXIMITY_UNITS, the distance finite and not negative
+        stated = f"at most {abs(p.max):g}{_UNITS_AFTER_NUMBER[p.normalisation]}"  # abs: -0.0 reads as 0
     rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
                              f"this detector uses its own touch rule; your spec says: {stated}"))
 

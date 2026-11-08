@@ -286,10 +286,14 @@ class Gap:
 _PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't about reaching a level"
 
 
-def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
+PROXIMITY_UNITS = ("atr", "pct", "log")  # the only distances to a level
+
+
+def proximity_gaps(p: Proximity, way_out: bool = True) -> list[tuple[GapKind, str]]:
     """What's still open or wrong in a stated proximity, as (kind, reason); empty means
     it's settled. The one place its rules live: `find_gaps` asks these, and a finder
-    words a proximity only when there are none."""
+    words a proximity only when there are none (and lists these, without the question's
+    way out, when there are)."""
     if p.through and p.not_applicable:
         return [("invalid", "proximity says both that price must trade through the level and that the "
                  "trigger isn't about reaching one")]
@@ -303,18 +307,19 @@ def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
         asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
     elif p.normalisation == "raw_price":
         asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, percent or log"))
-    elif p.normalisation == "percentile":
-        asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
+    elif p.normalisation not in PROXIMITY_UNITS:
+        asks.append(("invalid", f"{p.normalisation} isn't a distance to a level; use ATR, percent or log"))
     # Not with rejected units: the question would ask for a number in them.
     if p.max is None:
-        if p.normalisation not in ("raw_price", "percentile"):
+        if p.normalisation is None or p.normalisation in PROXIMITY_UNITS:
             asks.append(("unquantified", "how close price must come: at most how far?"))
     elif not math.isfinite(p.max) or p.max < 0:
         asks.append(("invalid", "a proximity is a distance: a finite number, not negative"))
     # The follow-ups keep the first question's way out, once, on the last open question
     # (an invalid one only if nothing is open): a vague first answer mustn't force a distance.
     at = max((n for n, (kind, _) in enumerate(asks) if kind == "unquantified"), default=len(asks) - 1)
-    return [(kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if n == at else "")) for n, (kind, reason) in enumerate(asks)]
+    return [(kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if way_out and n == at else ""))
+            for n, (kind, reason) in enumerate(asks)]
 
 
 def find_gaps(spec: StrategySpec) -> list[Gap]:
@@ -371,6 +376,8 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
         bounds = [b for b in (s.min, s.max) if b is not None]
         if any(b < 0 for b in bounds):
             add("size", "invalid", "bounds are magnitudes and can't be negative")
+        if not all(math.isfinite(b) for b in bounds):
+            add("size", "invalid", "bounds must be finite numbers")
         if s.normalisation == "percentile" and any(b > 100 for b in bounds):
             add("size", "invalid", "a percentile is on a 0-100 scale")
 

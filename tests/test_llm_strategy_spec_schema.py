@@ -63,6 +63,7 @@ def test_contradictions_are_invalid():
     assert ("horizons_bars", "invalid") in _gaps(_complete(horizons_bars=[20, 20]))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="atr", max=-1.0)))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="percentile", min=150)))
+    assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="pct", max=float("nan"))))
 
 
 def test_not_applicable_is_an_answer():
