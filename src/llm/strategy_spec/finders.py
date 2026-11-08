@@ -52,7 +52,7 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from src.llm.strategy_spec.schema import Proximity, StrategySpec
+from src.llm.strategy_spec.schema import StrategySpec
 from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
 from src.signals.moving_averages.features import panel as panel_features
@@ -128,9 +128,10 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     return panel.groupby("ticker", sort=False)[column].shift(-1)
 
 
-# A normalisation as written after a number in the rubric ("0.3 ATR", "2%").
-_UNITS_AFTER_NUMBER = {"atr": " ATR", "pct": "%", "log": " (log)", "percentile": " (percentile)",
-                       "raw_price": " (raw price)"}
+# A proximity's units (only these pass the gap check), after a number ("0.3 ATR", "2%")
+# and on their own ("in percent").
+_UNITS_AFTER_NUMBER = {"atr": " ATR", "pct": "%", "log": " (log)"}
+_UNITS_NAMED = {"atr": "ATR", "pct": "percent", "log": "log"}
 
 
 def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
@@ -138,15 +139,17 @@ def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
     applied: these finders' detectors define their own touch, and the trader must not
     judge charts thinking theirs is."""
     p = spec.trigger.proximity if spec.trigger is not None else None
-    # Nothing stated (None or an empty answer) or "doesn't apply": nothing to disclose.
-    if p is None or p == Proximity() or (p.not_applicable and not p.through):
+    # Nothing stated (None, or no units, distance or through) or "doesn't apply": nothing to disclose.
+    if p is None or (p.not_applicable and not p.through):
         return
     if p.through:
         stated = "price must trade through the level"
     elif p.max is not None:
-        stated = f"at most {p.max:g}{_UNITS_AFTER_NUMBER.get(p.normalisation, ' (no units given)')}"
+        stated = f"at most {p.max:g}{_UNITS_AFTER_NUMBER.get(p.normalisation, ' (no usable units given)')}"
+    elif p.normalisation is not None:
+        stated = f"in {_UNITS_NAMED.get(p.normalisation, p.normalisation)}, no distance given"
     else:
-        stated = f"units{_UNITS_AFTER_NUMBER.get(p.normalisation, '')}, no distance given"
+        return
     rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
                              f"this detector uses its own touch rule; your spec says: {stated}"))
 

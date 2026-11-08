@@ -191,8 +191,11 @@ def test_a_stated_proximity_is_disclosed_as_not_applied():
     line = rubric_with(Proximity(through=True))["how close price must come"]
     assert line.value == "NOT APPLIED" and "trade through" in line.detail
     # Units without a distance doesn't crash the disclosure; "doesn't apply" has nothing to disclose.
-    assert "units ATR, no distance given" in rubric_with(Proximity(normalisation="atr"))["how close price must come"].detail
-    assert "at most 2%" in rubric_with(Proximity(normalisation="pct", max=2.0))["how close price must come"].detail
+    for units, named, after in (("atr", "ATR", "0.3 ATR"), ("pct", "percent", "0.3%"), ("log", "log", "0.3 (log)")):
+        detail = rubric_with(Proximity(normalisation=units))["how close price must come"].detail
+        assert f"in {named}, no distance given" in detail
+        detail = rubric_with(Proximity(normalisation=units, max=0.3))["how close price must come"].detail
+        assert f"at most {after}" in detail
     # Nothing stated, or "doesn't apply": nothing to disclose.
     assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
     assert "how close price must come" not in rubric_with(Proximity())

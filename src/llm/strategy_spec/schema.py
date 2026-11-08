@@ -281,6 +281,10 @@ class Gap:
     item: str | None = None
 
 
+# What the trader can say instead of a distance, in every proximity question.
+_PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't about reaching a level"
+
+
 def find_gaps(spec: StrategySpec) -> list[Gap]:
     """Every decision still open in `spec`, in field order. Empty means complete.
 
@@ -355,8 +359,7 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
         if p is None:
             if catalogue.uses_levels(spec.uses + [i for sig in spec.supporting_signals for i in sig.uses]):
                 add("trigger", "unquantified", "how close must price come to a level for it to count as reached? "
-                    "At most how far, in ATR, percent or log; or say it must trade through it, or that the "
-                    "trigger isn't about reaching a level")
+                    f"At most how far, in ATR, percent or log; {_PROXIMITY_WAY_OUT}")
         elif p.through and p.not_applicable:
             add("trigger", "invalid", "proximity says both that price must trade through the level and that "
                 "the trigger isn't about reaching one")
@@ -378,11 +381,12 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
                     asks.append(("unquantified", "how close price must come: at most how far?"))
             elif p.max < 0:
                 asks.append(("invalid", "a proximity is a distance and can't be negative"))
-            # The follow-ups keep the first question's way out, once: a vague first answer
+            # The follow-ups keep the first question's way out, once, on the last open
+            # question (an invalid one only if nothing is open): a vague first answer
             # mustn't force a distance.
-            for n, (kind, reason) in enumerate(asks, 1):
-                way_out = " (or say it must trade through it, or that the trigger isn't about reaching a level)"
-                add("trigger", kind, reason + (way_out if n == len(asks) else ""))
+            at = max((n for n, (kind, _) in enumerate(asks) if kind == "unquantified"), default=len(asks) - 1)
+            for n, (kind, reason) in enumerate(asks):
+                add("trigger", kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if n == at else ""))
 
     if not spec.horizons_bars:
         add("horizons_bars", "missing", "how many bars after entry is the outcome measured? One or more")

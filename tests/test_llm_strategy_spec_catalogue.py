@@ -130,7 +130,8 @@ def test_levels_are_detector_families_and_features_about_the_nearest_level():
     for ids in (["detector:avwap"], ["feature:near_dn_sr_line"], ["feature:confluence_dn_dist"]):
         assert catalogue.uses_levels(ids)
     weights = [i for i in catalogue.IDS if i.startswith(("feature:near_up_w_", "feature:near_dn_w_"))]
-    assert weights and all(catalogue.uses_levels([w]) for w in weights + ["feature:confluence_up"])
+    assert weights and all(catalogue.uses_levels([w]) for w in weights + ["feature:confluence_up",
+                                                                          "feature:confluence_dn"])
     # Detectors that define their own touch, and level context that isn't one level, aren't.
     assert not catalogue.uses_levels(["detector:ma.first_touch", "detector:base_breakout.retest",
                                       "feature:density_dn_2", "indicator:rsi"])
