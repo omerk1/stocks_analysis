@@ -158,6 +158,9 @@ def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str,
     conn = _read_only(db_path)
     try:
         m = level_cache.restamp(conn, out, from_code, sources, progress=lambda s: print(s, flush=True))
+    except ValueError as e:  # no cache there, a foreign manifest, or one past the holdout
+        print(f"not re-stamped: {e}")
+        return 2
     finally:
         conn.close()
     counts = m["restamped"][-1]["counts"]

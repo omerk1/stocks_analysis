@@ -5,6 +5,7 @@ speed copy of the same function."""
 
 import ast
 import dataclasses
+import json
 import os
 import subprocess
 import sys
@@ -532,6 +533,7 @@ def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypat
     level_cache.build_level_cache(c, ["AAA", "BBB"], tmp_path, "2021-12-31", workers=1, progress=None,
                                   sources=("sr_line",))
     before = {t: pq.read_table(level_cache.snapshot_path(tmp_path, "sr_line", t)).to_pandas() for t in ("AAA", "BBB")}
+    schema_before = pq.read_schema(level_cache.snapshot_path(tmp_path, "sr_line", "AAA"))
     # BBB's bars change after the build: its file is a real miss, never re-keyed.
     raw_db.upsert_bars(c, "bars_1d", "BBB", raw_db.YFINANCE_SPLIT_ONLY,
                        _bars(n=260, seed=99, start="2020-01-01").assign(is_partial=0))
@@ -547,9 +549,37 @@ def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypat
     hit = level_cache.read_cached(tmp_path, "sr_line", "AAA", key)
     assert hit is not None  # the re-keyed file now hits under today's code ...
     pd.testing.assert_frame_equal(hit, level_cache._ns_dates(before["AAA"]))  # ... with the same rows
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    assert pq.read_schema(path).remove_metadata() == schema_before.remove_metadata()  # ... and schema
+    assert "BBB" not in m["tickers"] and m["n_tickers"] == 1  # a file left as a miss isn't claimed cached
+    assert m["rows"]["sr_line"] == m["tickers"]["AAA"]["sr_line"]
     again = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     c.close()
-    assert again["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 1, "left": 1}
+    assert again["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 1, "left": 0}
+
+
+def test_restamp_refuses_a_missing_cache_and_one_past_the_holdout(tmp_path):
+    with pytest.raises(ValueError, match="no level cache"):
+        level_cache.restamp(None, tmp_path / "typo", "old", ("sr_line",), progress=None)
+    assert not (tmp_path / "typo").exists()
+    (tmp_path / level_cache.MANIFEST).write_text(json.dumps({"end": "2023-06-30", "tickers": {}}))
+    with pytest.raises(dataset.HoldoutError):
+        level_cache.restamp(None, tmp_path, "old", ("sr_line",), progress=None)
+
+
+def test_a_build_of_one_source_drops_another_sources_stale_records(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                  sources=("sr_line", "avwap"))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "avwap" else real(s))
+    m = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                      sources=("sr_line",))
+    c.close()
+    assert set(m["tickers"]["AAA"]) == {"sr_line"} and "avwap" not in m["code_hashes"]
 
 
 def test_sr_snapshot_matches_the_detector_on_a_young_ticker(configs):
