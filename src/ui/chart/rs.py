@@ -71,19 +71,43 @@ def _sector_rank(derived: sqlite3.Connection, sector: str, change_days: int) -> 
     # the most sectors were rated (and this one was), so one sector's run ending a day
     # early or late doesn't shrink the field to a handful. `missing` counts sectors rated
     # in that week but not on that date.
-    window_start = (pd.Timestamp(rating.as_of) - pd.Timedelta(days=RANK_WINDOW_DAYS)).strftime("%Y-%m-%d")
-    rows = pd.read_sql_query(
-        "SELECT sector, date, rs_rating FROM sector_relative_strength "
-        "WHERE date BETWEEN ? AND ? AND rs_rating IS NOT NULL", derived, params=(window_start, rating.as_of))
     rated_dates = set(history.dropna(subset=["rs_rating"])["date"].astype(str).str[:10])
-    rows["date"] = rows["date"].astype(str).str[:10]
-    counts = rows[rows["date"].isin(rated_dates)].groupby("date").size()
-    rank_date = max(counts[counts == counts.max()].index)
-    on_date = rows[rows["date"] == rank_date].set_index("sector")["rs_rating"]
+    day = rank_date(derived, rating.as_of, rated_dates)
+    rows = _window_rows(derived, rating.as_of)
+    on_date = rows[rows["date"] == day].set_index("sector")["rs_rating"]
     own = float(on_date[sector])
     rank = int((on_date > own).sum()) + 1
     missing = rows["sector"].nunique() - len(on_date)
-    return SectorRank(rating, rank, len(on_date), missing, None if rank_date == rating.as_of else rank_date)
+    return SectorRank(rating, rank, len(on_date), missing, None if day == rating.as_of else day)
+
+
+def _window_rows(derived: sqlite3.Connection, end: str) -> pd.DataFrame:
+    """sector, date (YYYY-MM-DD), rs_rating: the rated rows from `end` - RANK_WINDOW_DAYS
+    through `end`, both included."""
+    start = (pd.Timestamp(end) - pd.Timedelta(days=RANK_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    rows = pd.read_sql_query(
+        "SELECT sector, substr(date, 1, 10) AS date, rs_rating FROM sector_relative_strength "
+        "WHERE substr(date, 1, 10) BETWEEN ? AND ? AND rs_rating IS NOT NULL", derived, params=(start, end))
+    return rows
+
+
+def window_sectors(derived: sqlite3.Connection, end: str) -> set[str]:
+    """The sectors rated in the rank window ending at `end`."""
+    return set(_window_rows(derived, end)["sector"])
+
+
+def rank_date(derived: sqlite3.Connection, end: str, allowed_dates: set[str] | None = None) -> str | None:
+    """The date sectors are ranked on, for a ranking as of `end`: the latest date in
+    [`end` - RANK_WINDOW_DAYS, `end`] on which the most sectors were rated, among
+    `allowed_dates` when given (the strip: the dates its own sector was rated).
+    None when no sector was rated in the window. Shared by the strip and the groups page."""
+    rows = _window_rows(derived, end)
+    if allowed_dates is not None:
+        rows = rows[rows["date"].isin(allowed_dates)]
+    if rows.empty:
+        return None
+    counts = rows.groupby("date").size()
+    return max(counts[counts == counts.max()].index)
 
 
 def table_names(conn: sqlite3.Connection) -> set[str]:

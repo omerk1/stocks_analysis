@@ -9,7 +9,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common.derived_db import create_runs_table, record_run
 from src.signals.relative_strength import store
 from src.ui.chart import app as app_mod
-from src.ui.chart import groups
+from src.ui.chart import groups, rs
 from src.ui.chart.config import GroupsConfig
 
 AS_OF = "2026-09-30"
@@ -26,6 +26,19 @@ def _bars(raw, ticker, end, n, step, source=db.YFINANCE_SPLIT_ONLY):
     frame = pd.DataFrame({"open": close, "high": close + 1, "low": close - 1, "close": close, "volume": 1.0,
                           "is_partial": 0}, index=idx)
     db.upsert_bars(raw, "bars_1d", ticker, source, frame)
+
+
+def _tickers(raw, active: dict[str, bool]):
+    db.upsert_tickers(raw, pd.DataFrame({"ticker": list(active), "name": "x", "type": "CS",
+                                         "active": list(active.values()), "delisted_utc": None}))
+
+
+def _gone(raw, tickers: dict[str, str], sector="Technology"):
+    """Add tickers that left the S&P 500 on the given dates (keeping the fixture's rows)."""
+    rows = db.read_index_membership(raw, "sp500")[["ticker", "start_date", "end_date"]]
+    new = pd.DataFrame({"ticker": list(tickers), "start_date": "2020-01-01", "end_date": list(tickers.values())})
+    db.replace_index_membership(raw, "sp500", pd.concat([rows, new], ignore_index=True))
+    db.upsert_ticker_sector(raw, pd.DataFrame({"ticker": list(tickers), "sector": sector, "industry": "x"}))
 
 
 @pytest.fixture
@@ -48,6 +61,7 @@ def conns():
     _bars(raw, "LEFT", AS_OF, 300, 1.0)  # left the index, still trading
     _bars(raw, "GONE", "2026-08-19", 300, 1.0, source=db.TIINGO_SPLIT_ONLY)  # delisted: Tiingo bars only
     _bars(raw, "SPY", "2026-11-06", 10, 1.0)
+    _tickers(raw, {"GONE": False})
 
     store.create_relative_strength_tables(derived)
     create_runs_table(derived)
@@ -126,8 +140,65 @@ def test_member_without_a_bar_on_the_page_date_says_so(conns):
         "ticker": ["AAA", "CCC", "GONE"], "start_date": ["2020-01-01"] * 3, "end_date": [None, None, None]}))
     page = groups.build_page(raw, derived, GroupsConfig())
     gone = next(m for m in page.members["Technology"] if m.ticker == "GONE")
-    assert gone.member and gone.status == f"no bar on {AS_OF}, last 2026-08-19"
+    assert gone.member and gone.status == f"no bar on {AS_OF}, last 2026-08-19, rating from 2026-08-19"
     assert page.sectors[0].members == 4 and page.sectors[0].n_counted == (3, 2)  # no bar that day: not counted
+
+
+def test_member_with_an_older_rating_says_from_when(conns):
+    raw, derived = conns
+    store.upsert_relative_strength(derived, "vs_market", _rs_rows(["2026-09-15"], [40.0], ticker="CCC",
+                                                                  benchmark="SPY"), "r1")
+    ccc = groups.build_page(raw, derived, GroupsConfig()).members["Energy"][0]
+    assert (ccc.ticker, ccc.rating, ccc.status) == ("CCC", 40.0, "rating from 2026-09-15")
+
+
+def test_gone_ticker_is_delisted_only_when_marked_inactive(conns):
+    raw, derived = conns
+    _gone(raw, {"NOBARS": "2026-09-01", "STALE": "2026-09-05", "ENDED": "2026-09-06"})
+    _bars(raw, "STALE", "2026-09-04", 300, 1.0)  # bars stop, but nothing says it's delisted
+    _bars(raw, "ENDED", "2026-09-04", 300, 1.0)
+    _tickers(raw, {"STALE": True, "ENDED": False})
+    status = {m.ticker: m.status for m in groups.build_page(raw, derived, GroupsConfig()).members["Technology"]}
+    assert status["NOBARS"] == "left the index 2026-09-01, no bars"
+    assert status["STALE"] == "left the index 2026-09-05, bars end 2026-09-04"
+    assert status["ENDED"] == "delisted, left the index 2026-09-06, last bar 2026-09-04"
+    assert status["GONE"] == "delisted, left the index 2026-08-20, last bar 2026-08-19"
+    assert status["LEFT"] == "left the index 2026-09-10"  # not in `tickers`, still trading
+
+
+def test_sector_with_members_but_no_rating_is_listed_unranked(conns):
+    raw, derived = conns
+    db.replace_index_membership(raw, "nasdaq100", pd.DataFrame({
+        "ticker": ["AAA", "CCC", "RRR"], "start_date": ["2020-01-01"] * 3, "end_date": [None, None, None]}))
+    db.upsert_ticker_sector(raw, pd.DataFrame({"ticker": ["RRR"], "sector": ["Real Estate"], "industry": ["x"]}))
+    _bars(raw, "RRR", AS_OF, 300, 1.0)
+    page = groups.build_page(raw, derived, GroupsConfig())
+    last = page.sectors[-1]
+    assert [s.sector for s in page.sectors] == ["Technology", "Energy", "Utilities", "Real Estate"]
+    assert (last.rating, last.rank, last.rank_changes, last.etf) == (None, None, (None, None), "XLRE")
+    assert (last.members, last.pct_above) == (1, (1.0, 1.0))
+    assert [m.ticker for m in page.members["Real Estate"]] == ["RRR"]
+
+
+def test_rank_date_window_is_inclusive_and_honours_allowed_dates(conns):
+    _, derived = conns
+    # 2026-09-23 is exactly 7 days before AS_OF: inside the window, as in the strip
+    store.upsert_sector_relative_strength(derived, _rs_rows(["2026-09-23"] * 1, [1.0], sector="Energy",
+                                                            benchmark="SPY"), "r1")
+    assert rs.rank_date(derived, AS_OF) == AS_OF  # 3 sectors that day, the most
+    assert rs.rank_date(derived, AS_OF, {"2026-09-23", "2026-09-29"}) == "2026-09-29"  # both 1: the latest
+    assert rs.rank_date(derived, AS_OF, {"2026-09-23"}) == "2026-09-23"
+    assert rs.rank_date(derived, "2026-09-22", {"2026-09-23"}) is None
+    assert rs.window_sectors(derived, AS_OF) == {"Technology", "Energy", "Utilities", "Healthcare"}
+
+
+def test_groups_and_strip_rank_a_sector_on_the_same_date(conns):
+    raw, derived = conns
+    page = groups.build_page(raw, derived, GroupsConfig())
+    strip = rs.rs_strip(raw, derived, "AAA", change_days=28)  # AAA: Technology
+    tech = next(s for s in page.sectors if s.sector == "Technology")
+    # Technology's own latest rating is 2026-10-01, but both rank it on the page date
+    assert strip.sector_rank.rank_date == page.as_of and strip.sector_rank.rank == tech.rank
 
 
 def test_missing_tables_give_a_message():
@@ -166,7 +237,7 @@ def test_table_rows_header_and_clicks(page):
 
 def test_column_names_follow_the_config():
     names = [c["name"] for c in app_mod.sector_columns(GroupsConfig())]
-    assert names == ["Rank", "Sector", "ETF", "RS", "Rank Δ 4w", "Rank Δ 13w", "> 50d MA", "> 200d MA", "Members"]
+    assert names == ["#", "Sector", "ETF", "RS", "Rank Δ 4w", "Rank Δ 13w", "> 50d MA", "> 200d MA", "Members"]
     assert [c["name"] for c in app_mod.member_columns(GroupsConfig())][2] == "RS Δ 4w"
 
 
@@ -175,3 +246,52 @@ def test_app_opens_on_the_groups_tab_and_says_why_without_a_database():
     app = app_mod.create_app(data=data, page="groups")
     assert app.layout["page"].value == "groups"
     assert data.groups(GroupsConfig()) == "Groups: no derived database"
+
+
+def test_unknown_start_page_is_refused():
+    data = app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"))
+    with pytest.raises(ValueError, match="page must be one of"):
+        app_mod.create_app(data=data, page="group")
+
+
+class CountingData(app_mod.ChartData):
+    def __init__(self, results):
+        super().__init__(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"))
+        self.results, self.calls = list(results), 0
+
+    def _groups(self, config):
+        self.calls += 1
+        return self.results.pop(0)
+
+
+def test_a_failed_page_is_not_cached_and_reload_rebuilds(page):
+    data = CountingData(["Groups failed: locked", page, page])
+    assert data.groups(GroupsConfig()) == "Groups failed: locked"
+    assert data.groups(GroupsConfig()) is page  # the failure was retried
+    assert data.groups(GroupsConfig()) is page and data.calls == 2  # the page is cached
+    assert data.groups(GroupsConfig(), reload=True) is page and data.calls == 3
+
+
+def test_sector_styles_bars_signs_and_selection(page):
+    rows, _ = app_mod.sector_rows(page)
+    styles = app_mod.sector_styles(rows, "Energy", 2)
+    bars = [s for s in styles if "background" in s]
+    # one bar per row and share that has a value
+    assert len(bars) == sum(r[f"above_{i}"] is not None for r in rows for i in range(2))
+    assert {s["if"]["column_id"] for s in styles if s.get("color") in ("#15803d", "#b91c1c")} == {
+        "rank_change_0", "rank_change_1"}
+    selected = [s for s in styles if s.get("backgroundColor") == "#e0f2fe"]
+    assert selected == [{"if": {"filter_query": '{id} = "Energy"'}, "backgroundColor": "#e0f2fe", "fontWeight": 600}]
+    assert app_mod.sector_styles([], None, 2) == app_mod._rs_shading("rating")
+
+
+def test_breadth_bar_is_clamped():
+    assert "60%" in app_mod.breadth_bar(0.6)
+    assert "100%, transparent 100%" in app_mod.breadth_bar(1.4)
+    assert "#bfdbfe 0%, transparent 0%" in app_mod.breadth_bar(-0.1)
+
+
+def test_members_title_counts_the_ones_that_left(page):
+    rows = app_mod.member_rows(page, "Technology")
+    assert app_mod.members_title("Technology", rows, GroupsConfig()) == (
+        "Technology · 3 members (+2 left in the last 91 days) · click a ticker for its chart")

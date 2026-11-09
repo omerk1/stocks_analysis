@@ -78,7 +78,7 @@ class ChartData:
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
-        self.groups = lru_cache(maxsize=1)(self._groups)
+        self._groups_cached = lru_cache(maxsize=1)(self._groups)
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -152,6 +152,16 @@ class ChartData:
         except Exception as e:  # noqa: BLE001 -- a card bug mustn't take the chart down
             logger.warning("earnings for %s failed: %s", ticker, e, exc_info=True)
             return (), f"earnings failed: {type(e).__name__}: {e}"
+
+    def groups(self, config: GroupsConfig, reload: bool = False) -> groups_mod.GroupsPage | str:
+        """The groups page, cached until `reload` (the page's Reload button, e.g. after
+        relative strength is rerun). A failure isn't cached, so the next open tries again."""
+        if reload:
+            self._groups_cached.cache_clear()
+        page = self._groups_cached(config)
+        if isinstance(page, str):
+            self._groups_cached.cache_clear()
+        return page
 
     def _groups(self, config: GroupsConfig) -> groups_mod.GroupsPage | str:
         """The groups page, or a message saying why there isn't one; never raises."""
@@ -441,9 +451,70 @@ def _weeks(days: int) -> str:
     return f"{days // 7}w" if days % 7 == 0 else f"{days}d"
 
 
+_GREEN, _RED, _MUTED = "#15803d", "#b91c1c", "#64748b"
+_SELECTED = "#e0f2fe"
+_BAR = "#bfdbfe"
+# RS rating shading, [low, high): strong leaders to strong laggards
+_RS_SHADES = ((80, 101, "#bbf7d0"), (60, 80, "#ecfdf5"), (20, 40, "#fef2f2"), (0, 20, "#fecaca"))
+_TEXT_COLUMNS = ("sector", "etf", "ticker", "rated_in", "status")
+_SMALL_COLUMNS = ("etf", "rated_in", "status")
+
+
+def _rs_shading(column: str) -> list[dict]:
+    return [{"if": {"filter_query": f"{{{column}}} >= {lo} && {{{column}}} < {hi}", "column_id": column},
+             "backgroundColor": colour} for lo, hi, colour in _RS_SHADES]
+
+
+def _sign_colours(columns) -> list[dict]:
+    return [style for c in columns for style in (
+        {"if": {"filter_query": f"{{{c}}} > 0", "column_id": c}, "color": _GREEN},
+        {"if": {"filter_query": f"{{{c}}} < 0", "column_id": c}, "color": _RED})]
+
+
+def _base_styles(text_columns=_TEXT_COLUMNS, small_columns=_SMALL_COLUMNS) -> tuple[list[dict], list[dict]]:
+    """(style_cell_conditional, style_header_conditional): text left, notes small and grey."""
+    cells = [{"if": {"column_id": c}, "textAlign": "left"} for c in text_columns]
+    cells += [{"if": {"column_id": c}, "color": _MUTED, "fontSize": "12px"} for c in small_columns]
+    headers = [{"if": {"column_id": c}, "textAlign": "left"} for c in text_columns]
+    return cells, headers
+
+
+def breadth_bar(share: float) -> str:
+    """A cell background filled to `share` (0-1) from the left: a bar under the number."""
+    p = max(0.0, min(1.0, share)) * 100
+    return f"linear-gradient(90deg, {_BAR} 0%, {_BAR} {p:.0f}%, transparent {p:.0f}%, transparent 100%)"
+
+
+def sector_styles(rows: list[dict], selected: str | None, n_shares: int) -> list[dict]:
+    """The sector table's data styles: RS shading, rank changes by sign, the breadth
+    bars (one per row and column, since each fills to its own value) and the selected row."""
+    styles = _rs_shading("rating") + _sign_colours([c for c in rows[0] if c.startswith("rank_change_")] if rows
+                                                    else [])
+    for row in rows:
+        for i in range(n_shares):
+            share = row.get(f"above_{i}")
+            if share is not None:
+                styles.append({"if": {"filter_query": f'{{id}} = "{_quote(row["id"])}"', "column_id": f"above_{i}"},
+                               "background": breadth_bar(share)})
+    if selected:
+        styles.append({"if": {"filter_query": f'{{id}} = "{_quote(selected)}"'}, "backgroundColor": _SELECTED,
+                       "fontWeight": 600})
+    return styles
+
+
+def member_styles(config: GroupsConfig) -> list[dict]:
+    """The members table's data styles: RS shading, changes and MA distances by sign,
+    near the 52-week high in green, and tickers that left the index greyed out."""
+    near_high = {"if": {"filter_query": "{from_high} >= -0.05", "column_id": "from_high"}, "color": _GREEN,
+                 "fontWeight": 600}
+    gone = {"if": {"filter_query": '{gone} = "yes"'}, "color": "#94a3b8", "backgroundColor": "#f8fafc"}
+    return (_rs_shading("rating") + _sign_colours(["change", *(f"vs_ma_{i}" for i in range(len(config.ma_periods)))])
+            + [near_high, gone, {"if": {"column_id": "ticker"}, "fontWeight": 600}])
+
+
 def sector_columns(config: GroupsConfig) -> list[dict]:
     num = {"type": "numeric"}
-    return [{"name": "Rank", "id": "rank", **num},
+    return [{"name": "#", "id": "rank", **num},
             {"name": "Sector", "id": "sector"},
             {"name": "ETF", "id": "etf"},
             {"name": "RS", "id": "rating", **num, "format": _WHOLE},
@@ -477,7 +548,7 @@ def member_columns(config: GroupsConfig) -> list[dict]:
             {"name": "RS", "id": "rating", **num, "format": _WHOLE},
             {"name": f"RS Δ {_weeks(config.member_change_days)}", "id": "change", **num, "format": _SIGNED},
             {"name": "Rated in", "id": "rated_in"},
-            {"name": "From 52w high", "id": "from_high", **num, "format": _SIGNED_PCT},
+            {"name": "52w high", "id": "from_high", **num, "format": _SIGNED_PCT},
             *({"name": f"vs {n}d MA", "id": f"vs_ma_{i}", **num, "format": _SIGNED_PCT}
               for i, n in enumerate(config.ma_periods)),
             {"name": "Status", "id": "status"}]
@@ -505,6 +576,13 @@ def groups_header(page: groups_mod.GroupsPage) -> str:
     return " · ".join(parts)
 
 
+def members_title(sector: str, rows: list[dict], config: GroupsConfig) -> str:
+    listed = sum(r["gone"] == "no" for r in rows)
+    gone = len(rows) - listed
+    return (f"{sector} · {listed} members" + (f" (+{gone} left in the last {config.left_window_days} days)"
+                                               if gone else "") + " · click a ticker for its chart")
+
+
 def selected_sector(page: groups_mod.GroupsPage, current: str | None) -> str | None:
     """The sector whose members are listed: the one picked, else the top-ranked."""
     names = [s.sector for s in page.sectors]
@@ -526,6 +604,8 @@ PAGES = ("chart", "groups")
 
 
 def create_app(data: ChartData | None = None, config: ChartConfig | None = None, page: str = "chart") -> Dash:
+    if page not in PAGES:
+        raise ValueError(f"page must be one of {PAGES}, not {page!r}")
     data = data or ChartData.from_config()
     config = config or ChartConfig()
     app = Dash(__name__, title="Chart")
@@ -584,23 +664,39 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         ]),
     ]
     gc = config.groups
-    table_style = dict(sort_action="native", cell_selectable=True,
-                       style_cell={"fontFamily": "system-ui, sans-serif", "fontSize": "13px", "padding": "3px 8px"},
-                       style_header={"fontWeight": 600, "backgroundColor": "#f1f5f9"},
-                       style_as_list_view=True,
-                       # text columns read left to right; numbers stay right-aligned
-                       style_cell_conditional=[{"if": {"column_id": c}, "textAlign": "left"}
-                                               for c in ("sector", "etf", "ticker", "rated_in", "status")])
-    groups_page = dcc.Loading(type="dot", children=html.Div(style={"paddingTop": "8px"}, children=[
-        html.Div(id="groups-head", style={"color": "#64748b", "fontSize": "13px", "marginBottom": "8px"}),
-        html.Div("Sectors · click one for its members", style={"fontWeight": 600, "marginBottom": "4px"}),
-        dash_table.DataTable(id="sectors", columns=sector_columns(gc), data=[], tooltip_delay=0,
-                             tooltip_duration=None, **table_style),
-        html.Div(id="members-title", style={"fontWeight": 600, "margin": "14px 0 4px"}),
-        dash_table.DataTable(id="members", columns=member_columns(gc), data=[], page_size=100,
-                             style_data_conditional=[{"if": {"filter_query": '{gone} = "yes"'},
-                                                      "color": "#94a3b8"}], **table_style),
-    ]))
+    cell_styles, header_styles = _base_styles()
+    table_style = dict(
+        sort_action="native", cell_selectable=True, style_as_list_view=True,
+        style_cell={"fontFamily": "system-ui, sans-serif", "fontSize": "13px", "padding": "4px 10px",
+                    "border": "none", "borderBottom": "1px solid #f1f5f9", "whiteSpace": "nowrap"},
+        style_header={"fontWeight": 600, "fontSize": "12px", "color": _MUTED, "backgroundColor": "white",
+                      "borderBottom": "2px solid #e2e8f0"},
+        style_cell_conditional=cell_styles, style_header_conditional=header_styles,
+        css=[{"selector": "tr:hover td", "rule": "background-color: #f8fafc !important; cursor: pointer;"},
+             {"selector": "td.focused", "rule": "background-color: inherit !important; border: none !important;"}])
+    title = {"fontWeight": 600, "fontSize": "15px", "marginBottom": "6px"}
+    groups_page = html.Div(style={"paddingTop": "8px"}, children=[
+        html.Div(style={"display": "flex", "gap": "12px", "alignItems": "center", "marginBottom": "10px"}, children=[
+            html.Span(id="groups-head", style={"color": _MUTED, "fontSize": "13px"}),
+            html.Button("Reload", id="groups-reload", n_clicks=0, style={"fontSize": "12px"}),
+        ]),
+        dcc.Loading(type="dot", children=html.Div(
+            style={"display": "flex", "gap": "28px", "alignItems": "flex-start", "flexWrap": "wrap"}, children=[
+                html.Div(style={"flex": "0 0 auto"}, children=[
+                    html.Div("Sectors", style=title),
+                    dash_table.DataTable(id="sectors", columns=sector_columns(gc), data=[], tooltip_delay=0,
+                                         tooltip_duration=None, **table_style),
+                    html.Div("Click a sector for its members. Bars: share of members above the average.",
+                             style={"color": _MUTED, "fontSize": "12px", "marginTop": "6px"}),
+                ]),
+                html.Div(style={"flex": "1 1 560px", "maxWidth": "900px"}, children=[
+                    html.Div(id="members-title", style=title),
+                    dash_table.DataTable(id="members", columns=member_columns(gc), data=[], page_action="none",
+                                         fixed_rows={"headers": True}, style_data_conditional=member_styles(gc),
+                                         style_table={"maxHeight": "76vh", "overflowY": "auto"}, **table_style),
+                ]),
+            ])),
+    ])
     app.layout = html.Div(style={"fontFamily": "system-ui, sans-serif", "padding": "8px"}, children=[
         dcc.Store(id="view"),
         dcc.Store(id="group-sector"),
@@ -723,13 +819,15 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                                                             ranges["yaxis"])
         return patch, view
 
-    # The groups page is built the first time its tab opens (a few seconds), then cached.
+    # The groups page is built the first time its tab opens (a few seconds), then cached
+    # until "Reload".
     @app.callback(Output("groups-head", "children"), Output("sectors", "data"), Output("sectors", "tooltip_data"),
-                  Output("group-sector", "data"), Input("page", "value"), State("group-sector", "data"))
-    def _groups(page_value, current):
+                  Output("group-sector", "data"), Input("page", "value"), Input("groups-reload", "n_clicks"),
+                  State("group-sector", "data"))
+    def _groups(page_value, _reload, current):
         if page_value != "groups":
             return no_update, no_update, no_update, no_update
-        page = data.groups(gc)
+        page = data.groups(gc, reload=ctx.triggered_id == "groups-reload")
         if isinstance(page, str):
             return page, [], [], None
         rows, tips = sector_rows(page)
@@ -740,19 +838,16 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
     def _pick_sector(cell):
         return clicked_row(cell) or no_update
 
+    # Also on the sector table's data, so a Reload refreshes the members of the same sector.
     @app.callback(Output("members", "data"), Output("members-title", "children"),
-                  Output("sectors", "style_data_conditional"), Input("group-sector", "data"))
-    def _members(sector):
+                  Output("sectors", "style_data_conditional"), Input("group-sector", "data"),
+                  Input("sectors", "data"))
+    def _members(sector, sector_data):
         page = data.groups(gc) if sector else None
         if not isinstance(page, groups_mod.GroupsPage):
             return [], "", []
         rows = member_rows(page, sector)
-        listed = sum(r["gone"] == "no" for r in rows)
-        gone = len(rows) - listed
-        title = f"{sector} · {listed} members" + (f", {gone} gone in the last {gc.left_window_days} days"
-                                                  if gone else "") + " · click a ticker for its chart"
-        highlight = [{"if": {"filter_query": f'{{id}} = "{_quote(sector)}"'}, "backgroundColor": "#e0f2fe"}]
-        return rows, title, highlight
+        return rows, members_title(sector, rows, gc), sector_styles(sector_data or [], sector, len(gc.ma_periods))
 
     # A click on a member opens its chart; the cell is cleared so a second click on it works too.
     @app.callback(Output("ticker", "value"), Output("page", "value"), Output("members", "active_cell"),

@@ -3,20 +3,26 @@ sector (`docs/features/chart_ui_design.md`, "Groups and rankings"). Stored
 numbers and the price data only; nothing is written.
 
 Everything on the page is on one date, the page date: the latest date in the
-last week on which the most sectors have a stored rating (the same rule as the
-RS strip's sector rank, `rs.py`). Membership, member ratings and the price
-columns are all as of that date, so the page is behind the bars when the
+last week on which the most sectors have a stored rating (`rs.rank_date`, the
+rule the RS strip's sector rank uses too). Membership, member ratings and the
+price columns are all as of that date, so the page is behind the bars when the
 relative-strength module hasn't been rerun since they were ingested.
 
 - Ratings are `rs_rating` (1-99) from the relative-strength module's stored runs:
   a sector's ETF against the market, a member against the market. A member's
   rating is ranked within one index's members (the S&P 500 run or the
-  Nasdaq-100 run, whichever wrote the row last), shown as "rated in".
+  Nasdaq-100 run, whichever wrote the row last), shown as "rated in". A
+  member whose last rating is older than the page date keeps it, with its
+  status saying from when.
+- A sector with members but no rating on the page date (its run ended early, or
+  a `ticker_sector` name with no sector ETF) is listed after the ranked ones,
+  unranked, so its members don't drop off the page.
 - Membership is point-in-time (`db.read_index_membership`, the RS module's
   indices together); sectors are `ticker_sector`'s. A ticker that left all of
   them in the `left_window_days` before the page date stays listed, after the
-  members, marked delisted (no bar on the page date) or left the index, with
-  its last values. It isn't counted in the sector's members or breadth.
+  members, with its last values: "delisted" only when `tickers` marks it
+  inactive, else "left the index", saying when its bars end or that it has
+  none. It isn't counted in the sector's members or breadth.
 - Price columns are on the chart's basis (traded, split-adjusted only), read in
   bulk (Tiingo for tickers yfinance has no bars for, as `load_prices` says) and
   not validated bar by bar like the chart's own bars. A moving
@@ -30,7 +36,6 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 
 from src.foundation.data_processing import db
@@ -48,8 +53,8 @@ INDEX_NAMES = {"sp500": "S&P 500", "nasdaq100": "Nasdaq-100"}
 class SectorRow:
     sector: str
     etf: str | None
-    rating: float
-    rank: int
+    rating: float | None  # None: not rated on the page date (listed after the ranked ones)
+    rank: int | None
     rank_changes: tuple[int | None, ...]  # per `rank_change_days`: places climbed (+) or lost (-)
     pct_above: tuple[float | None, ...]  # per `ma_periods`: share of members above, 0-1
     n_counted: tuple[int, ...]  # members counted in each share
@@ -72,7 +77,7 @@ class MemberRow:
 @dataclass(frozen=True)
 class GroupsPage:
     as_of: str
-    sectors: tuple[SectorRow, ...]  # best first
+    sectors: tuple[SectorRow, ...]  # best first, then the unrated ones with members
     members: dict[str, tuple[MemberRow, ...]]  # sector -> members by rating, gone ones last
     not_rated: tuple[str, ...]  # sectors rated in the week before but not on the page date
     no_sector: tuple[str, ...]  # members without a `ticker_sector` row
@@ -81,17 +86,6 @@ class GroupsPage:
 
 def _day(ts: pd.Timestamp | str, days: int = 0) -> str:
     return (pd.Timestamp(ts) + pd.Timedelta(days=days)).strftime("%Y-%m-%d")
-
-
-def rank_date(derived: sqlite3.Connection, end: str, window_days: int = rs.RANK_WINDOW_DAYS) -> str | None:
-    """The latest date in (end - window, end] on which the most sectors were rated."""
-    counts = pd.read_sql_query(
-        "SELECT substr(date, 1, 10) AS day, COUNT(*) AS n FROM sector_relative_strength "
-        "WHERE substr(date, 1, 10) > ? AND substr(date, 1, 10) <= ? AND rs_rating IS NOT NULL GROUP BY 1",
-        derived, params=(_day(end, -window_days), end))
-    if counts.empty:
-        return None
-    return max(counts.loc[counts["n"] == counts["n"].max(), "day"])
 
 
 def sector_ratings(derived: sqlite3.Connection, date: str) -> pd.Series:
@@ -110,7 +104,7 @@ def ranks(ratings: pd.Series) -> pd.Series:
 def rank_changes(derived: sqlite3.Connection, as_of: str, now: pd.Series, days: int) -> pd.Series:
     """Places each sector climbed (+) or lost (-) since its rank `days` earlier,
     on that earlier date's own rank date; NaN for a sector not ranked then."""
-    then_date = rank_date(derived, _day(as_of, -days))
+    then_date = rs.rank_date(derived, _day(as_of, -days))
     then = ranks(sector_ratings(derived, then_date)) if then_date else pd.Series(dtype=float)
     return (then.reindex(now.index) - now).astype(float)
 
@@ -157,16 +151,20 @@ def price_stats(prices: pd.DataFrame, ma_periods: tuple[int, ...], high_bars: in
     """Per ticker, on its own last bar: last_bar, pct_from_high, vs_ma_<n>.
     NaN where the ticker has fewer bars than the window."""
     columns = ["last_bar", "pct_from_high", *(f"vs_ma_{n}" for n in ma_periods)]
-    out = {}
-    for ticker, g in prices.dropna(subset=["close"]).sort_values("date").groupby("ticker"):
-        close, high = g["close"].to_numpy(float), g["high"].to_numpy(float)
-        last = close[-1]
-        row = {"last_bar": g["date"].iloc[-1],
-               "pct_from_high": last / np.nanmax(high[-high_bars:]) - 1 if len(g) >= high_bars else np.nan}
-        for n in ma_periods:
-            row[f"vs_ma_{n}"] = last / close[-n:].mean() - 1 if len(g) >= n else np.nan
-        out[ticker] = row
-    return pd.DataFrame.from_dict(out, orient="index", columns=columns)
+    bars = prices.dropna(subset=["close"]).sort_values(["ticker", "date"])
+    if bars.empty:
+        return pd.DataFrame(columns=columns)
+    by_ticker = bars.groupby("ticker")
+    last = by_ticker["close"].last()
+    count = by_ticker.size()
+    out = pd.DataFrame({"last_bar": by_ticker["date"].last()})
+    # the max over a window skips missing highs, as a close-only bar has none
+    high = bars.groupby("ticker").tail(high_bars).groupby("ticker")["high"].max()
+    out["pct_from_high"] = (last / high - 1).where(count >= high_bars)
+    for n in ma_periods:
+        ma = bars.groupby("ticker").tail(n).groupby("ticker")["close"].mean()
+        out[f"vs_ma_{n}"] = (last / ma - 1).where(count >= n)
+    return out[columns]
 
 
 def member_ratings(derived: sqlite3.Connection, tickers: list[str], start: str, as_of: str,
@@ -183,7 +181,9 @@ def member_ratings(derived: sqlite3.Connection, tickers: list[str], start: str, 
         f"SELECT r.ticker, substr(r.date, 1, 10) AS date, r.rs_rating, r.benchmark, {run_index} AS run_index "
         f"FROM relative_strength r {join}"
         f"WHERE r.comparison = ? AND r.ticker IN ({placeholders}) "
-        f"AND substr(r.date, 1, 10) >= ? AND substr(r.date, 1, 10) <= ? ORDER BY r.ticker, r.date",
+        # plain comparisons on `date` (the store writes YYYY-MM-DD) so the primary key's
+        # (ticker, date) range is used: substr() here read every date of every ticker (~10 s)
+        f"AND r.date >= ? AND r.date <= ? ORDER BY r.ticker, r.date",
         derived, params=[rs.VS_MARKET, *tickers, start, as_of])
     out = {}
     for ticker, group in rows.groupby("ticker"):
@@ -198,18 +198,32 @@ def _none_if_nan(v) -> float | None:
     return None if v is None or pd.isna(v) else float(v)
 
 
+def _status(member: bool, left: str | None, last_bar: str | None, active: bool | None,
+            rating: rs.Rating | None, as_of: str) -> str:
+    if member:
+        notes = [] if last_bar == as_of else [f"no bar on {as_of}" + (f", last {last_bar}" if last_bar else "")]
+        if rating is not None and rating.as_of != as_of:
+            notes.append(f"rating from {rating.as_of}")
+        return ", ".join(notes)
+    if active is False:
+        return f"delisted, left the index {left}" + (f", last bar {last_bar}" if last_bar else "")
+    if last_bar is None:
+        return f"left the index {left}, no bars"
+    if last_bar < as_of:
+        return f"left the index {left}, bars end {last_bar}"
+    return f"left the index {left}"
+
+
 def member_row(ticker: str, member: bool, left: str | None, stats: pd.Series | None,
-               rated: tuple[rs.Rating, str | None] | None, as_of: str, ma_periods: tuple[int, ...]) -> MemberRow:
+               rated: tuple[rs.Rating, str | None] | None, as_of: str, ma_periods: tuple[int, ...],
+               active: bool | None = None) -> MemberRow:
+    """`active`: the `tickers` table's flag (None: not known); only an inactive
+    ticker that left is called delisted."""
     stats = stats if stats is not None else pd.Series(dtype=object)
     last_bar = stats.get("last_bar")
     last_bar = last_bar if isinstance(last_bar, str) else None
-    if member:
-        status = "" if last_bar == as_of else f"no bar on {as_of}" + (f", last {last_bar}" if last_bar else "")
-    elif last_bar is None or last_bar < as_of:
-        status = f"delisted, left the index {left}" + (f", last bar {last_bar}" if last_bar else "")
-    else:
-        status = f"left the index {left}"
     rating, rated_in = rated if rated else (None, None)
+    status = _status(member, left, last_bar, active, rating, as_of)
     return MemberRow(ticker, member, rating.value if rating else None, rating.change if rating else None, rated_in,
                      _none_if_nan(stats.get("pct_from_high")),
                      tuple(_none_if_nan(stats.get(f"vs_ma_{n}")) for n in ma_periods), last_bar, status)
@@ -219,7 +233,7 @@ def _sort_key(m: MemberRow):
     return (not m.member, m.rating is None, -(m.rating or 0.0), m.ticker)
 
 
-def sector_row(sector: str, rating: float, rank: int, changes: tuple[int | None, ...],
+def sector_row(sector: str, rating: float | None, rank: int | None, changes: tuple[int | None, ...],
                members: tuple[MemberRow, ...], as_of: str, ma_periods: tuple[int, ...]) -> SectorRow:
     current = [m for m in members if m.member]
     shares, counted = [], []
@@ -238,16 +252,13 @@ def build_page(raw: sqlite3.Connection, derived: sqlite3.Connection, config: Gro
         return "Groups: no sector RS run in the derived database."
     latest = derived.execute("SELECT MAX(substr(date, 1, 10)) FROM sector_relative_strength "
                              "WHERE rs_rating IS NOT NULL").fetchone()[0]
-    as_of = rank_date(derived, latest) if latest else None
+    as_of = rs.rank_date(derived, latest) if latest else None
     if as_of is None:
         return "Groups: no sector RS ratings stored."
     ratings = sector_ratings(derived, as_of)
     now = ranks(ratings)
     changes = [rank_changes(derived, as_of, now, d) for d in config.rank_change_days]
-    week = derived.execute("SELECT DISTINCT sector FROM sector_relative_strength WHERE substr(date, 1, 10) > ? "
-                           "AND substr(date, 1, 10) <= ? AND rs_rating IS NOT NULL",
-                           (_day(as_of, -rs.RANK_WINDOW_DAYS), as_of)).fetchall()
-    not_rated = tuple(sorted({r[0] for r in week} - set(ratings.index)))
+    not_rated = tuple(sorted(rs.window_sectors(derived, as_of) - set(ratings.index)))
 
     members = (membership(raw, config.indices, as_of, config.left_window_days)
                if "index_membership" in raw_tables else pd.DataFrame({"ticker": [], "member": [], "left": []}))
@@ -269,15 +280,31 @@ def build_page(raw: sqlite3.Connection, derived: sqlite3.Connection, config: Gro
     bars_end = (raw.execute("SELECT MAX(substr(timestamp, 1, 10)) FROM bars_1d WHERE ticker = ? AND source = ?",
                             ("SPY", source_for(CHART_BASIS))).fetchone()[0] if "bars_1d" in raw_tables else None)
 
+    gone = sorted(set(members.loc[~members["member"].astype(bool), "ticker"]))
+    active = _active_flags(raw, gone) if "tickers" in raw_tables else {}
+
     by_sector: dict[str, tuple[MemberRow, ...]] = {}
     for sector, group in members.groupby("sector"):
         rows = [member_row(r.ticker, bool(r.member), r.left, stats.loc[r.ticker] if r.ticker in stats.index else None,
-                           rated.get(r.ticker), as_of, config.ma_periods) for r in group.itertuples()]
+                           rated.get(r.ticker), as_of, config.ma_periods, active.get(r.ticker))
+                for r in group.itertuples()]
         by_sector[sector] = tuple(sorted(rows, key=_sort_key))
 
-    table = tuple(
+    ranked = [
         sector_row(sector, float(rating), int(now[sector]),
                    tuple(None if pd.isna(c[sector]) else int(c[sector]) for c in changes),
                    by_sector.get(sector, ()), as_of, config.ma_periods)
-        for sector, rating in ratings.items())
-    return GroupsPage(as_of, table, by_sector, not_rated, no_sector, bars_end)
+        for sector, rating in ratings.items()]
+    # sectors with members but no rating that day: unranked, after the ranked ones
+    unrated = [sector_row(sector, None, None, (None,) * len(changes), by_sector[sector], as_of, config.ma_periods)
+               for sector in sorted(set(by_sector) - set(ratings.index))]
+    return GroupsPage(as_of, tuple(ranked + unrated), by_sector, not_rated, no_sector, bars_end)
+
+
+def _active_flags(raw: sqlite3.Connection, tickers: list[str]) -> dict[str, bool]:
+    """ticker -> the `tickers` table's active flag, for those it lists."""
+    if not tickers:
+        return {}
+    placeholders = ",".join("?" for _ in tickers)
+    rows = raw.execute(f"SELECT ticker, active FROM tickers WHERE ticker IN ({placeholders})", tickers).fetchall()
+    return {t: bool(a) for t, a in rows if a is not None}
