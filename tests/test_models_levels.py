@@ -234,9 +234,9 @@ def test_fib_dedup_uses_only_the_swings_known_that_day(conn, bars):
         assert _fib_rows(out, t) == _fib_as_of(conn, t, cfg), t
     # ... and on some eve the swing deduped away in hindsight is really there (a full-history
     # dedup would have dropped it, which agreeing with the as-of run alone can't rule out).
-    price = {s.origin_date: compute_levels(s, cfg)[0].price for _, s in eves}
+    # `any`: each eve's correctness is the equality above; this only shows the fixture covers the case.
     assert any(((out["date"] == t) & (out["formed"] == pd.Timestamp(s.origin_date))
-                & np.isclose(out["lo"], price[s.origin_date])).any() for t, s in eves)
+                & np.isclose(out["lo"], compute_levels(s, cfg)[0].price)).any() for t, s in eves)
 
 
 def test_no_fib_level_on_or_before_the_cut_depends_on_a_later_bar(bars):

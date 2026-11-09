@@ -111,14 +111,17 @@ def fib_levels(bars: pd.DataFrame, days, config: FibConfig) -> pd.DataFrame:
         raise ValueError("every day must be one of the bars' dates")
     rows = []
     close = bars["close"]
-    atr = atr_indicator(bars, config.atr_period)
-    swings = candidate_swings(close.iloc[warmup:], atr.iloc[warmup:], config) if len(bars) >= config.min_bars else []
+    no_row = len(bars) < config.min_bars or not len(days)
+    atr = None if no_row else atr_indicator(bars, config.atr_period)
+    swings = [] if no_row else candidate_swings(close.iloc[warmup:], atr.iloc[warmup:], config)
     confirmed = index.get_indexer(pd.DatetimeIndex([s.confirmed_at for s in swings]))
-    if (confirmed < 0).any():
-        raise ValueError("a swing's confirmation date isn't one of the bars' dates")  # it would count as known always
     # The module's own invalidation rule, judged on the whole history: invalidated from that date on.
-    broken = np.array([index.get_loc(pd.Timestamp(at)) if at is not None else len(index)
-                       for at in (evaluate_lifecycle(s, close)[1] for s in swings)], dtype=int)
+    invalidated = [evaluate_lifecycle(s, close)[1] for s in swings]
+    broken = np.array([index.get_indexer([pd.Timestamp(at)])[0] if at is not None else len(index)
+                       for at in invalidated], dtype=int)
+    if (confirmed < 0).any() or (broken < 0).any():
+        # A confirmation date off the bars would count as known always.
+        raise ValueError("a swing's confirmation or invalidation date isn't one of the bars' dates")
     prices = [compute_levels(s, config) for s in swings]
     # The known swings only grow: day p knows the first n of `by_confirmation`, in the as-of run's order.
     by_confirmation = np.argsort(confirmed, kind="stable")
@@ -144,7 +147,7 @@ def fib_levels(bars: pd.DataFrame, days, config: FibConfig) -> pd.DataFrame:
     out = pd.DataFrame(rows, columns=DAILY_COLUMNS)
     # Dtypes don't depend on whether any row was found (pandas infers an empty column's resolution).
     out["date"] = out["date"].astype(index.dtype)
-    out["formed"] = pd.to_datetime(out["formed"]).astype("datetime64[ns]")
+    out["formed"] = pd.to_datetime(out["formed"]).astype(index.dtype)
     return out.astype({"source": "str", "kind": "str", "state": "str",
                        "lo": "float64", "hi": "float64", "strength_raw": "float64", "touches": "float64"})
 
