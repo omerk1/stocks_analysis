@@ -620,6 +620,25 @@ def test_restamp_refuses_another_code_hash_or_a_changed_config(tmp_path, monkeyp
     assert ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes()) == before  # refused before any change
 
 
+def test_restamp_prunes_a_source_left_with_no_records_and_refuses_one_with_none(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    # AAA's bars change after the build: its one file is a real miss, so sr_line is emptied.
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=99, start="2020-01-01").assign(is_partial=0))
+    m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 0, "left": 1}
+    assert m["tickers"] == {} and all("sr_line" not in m[k] for k in ("sources", "configs", "code_hashes"))
+    path = tmp_path / level_cache.MANIFEST
+    path.write_text(json.dumps({**m, "configs": {"sr_line": level_cache.config_record(
+        levels.default_configs()["sr_line"])}, "code_hashes": {"sr_line": "old"}}))
+    with pytest.raises(level_cache.RestampRefused, match="nothing to re-stamp"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+
+
 def test_restamp_refuses_a_db_missing_recorded_tickers_bars(tmp_path, monkeypatch):
     real = level_cache.code_hash
     monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")

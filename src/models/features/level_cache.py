@@ -405,9 +405,9 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
     for every source, before the per-source hash) or a source's old `code_hashes` entry.
     Refused unless the manifest records `from_code` and today's config for every one of
     `sources`, and every ticker with their files recorded still has bars, so what's left
-    as a miss is only a file whose bars or splits changed; it loses its record. Don't run it alongside a build of
-    the same root (a build writes files outside the manifest lock). Returns the
-    manifest, with a `restamped` record of what was done."""
+    as a miss is only a file whose bars or splits changed; it loses its record. Don't
+    run it alongside a build of the same root (a build writes files outside the
+    manifest lock). Returns the manifest, with a `restamped` record of what was done."""
     root = Path(root)
     if not (root / MANIFEST).is_file():
         raise RestampRefused(f"no level cache at {root} (no {MANIFEST})")

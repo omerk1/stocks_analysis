@@ -62,6 +62,8 @@ here first.
 
 - **Weekly bars drop the last complete week when the data ends on a Friday** (found 2026-11-06 in code review of the chart UI, Done #175). `market_common.data.load_bars` passes `as_of = raw.index.max()` to `resample.to_weekly`, which counts a week as closed only when `as_of` is after its last weekday. Partial daily rows are already filtered out by then, so a week whose Friday is present is complete. Every weekly consumer (sr_lines, patterns, market structure weekly presets, the chart UI) ends a week early. Possible fix: count a week closed when its last weekday's bar is present (or `as_of` + 1 day). It's in the shared loader, so it changes stored weekly results: check which weekly runs exist and rerun them, in its own PR.
 
+- **The level-snapshot cache's build keeps manifest records for tickers it couldn't load bars for** (found 2026-11-10 in review of Done #188). `level_cache._merge_manifest` lists such a ticker under `no_bars` but keeps its old records, so the manifest claims files no one can check against today's inputs. `restamp` refuses a DB like that rather than guess (a partial DB mustn't wipe records), which also means one delisted-and-purged ticker blocks every re-stamp until it's rebuilt. Fix in the build: drop a `missing` ticker's records. The cache has none today (`no_bars` is empty).
+
 ## sr_lines
 
 - **sr_lines, still open** (grouped since they're all part of the same ongoing review — full detail in `docs/features/sr_lines_design_notes.md`):
