@@ -289,8 +289,9 @@ def test_sector_styles_bars_signs_and_selection(page):
     assert len(bars) == sum(r[f"above_{i}"] is not None for r in rows for i in range(2))
     assert {s["if"]["column_id"] for s in styles if s.get("color") in ("#15803d", "#b91c1c")} == {
         "rank_change_0", "rank_change_1"}
-    selected = [s for s in styles if s.get("backgroundColor") == "#e0f2fe"]
-    assert selected == [{"if": {"filter_query": '{id} = "Energy"'}, "backgroundColor": "#e0f2fe", "fontWeight": 600}]
+    selected = [s for s in styles if s.get("backgroundColor") == app_mod._SELECTED]
+    assert selected == [{"if": {"filter_query": '{id} = "Energy"'}, "backgroundColor": app_mod._SELECTED,
+                         "fontWeight": 600}]
     assert styles[0] == selected[0]  # first, so the RS shading after it still shows on the selected row
     assert app_mod.sector_styles([], None, 2) == app_mod._rs_shading("rating")
 
@@ -298,7 +299,13 @@ def test_sector_styles_bars_signs_and_selection(page):
 def test_breadth_bar_is_clamped():
     assert "60%" in app_mod.breadth_bar(0.6)
     assert "100%, transparent 100%" in app_mod.breadth_bar(1.4)
-    assert "#bfdbfe 0%, transparent 0%" in app_mod.breadth_bar(-0.1)
+    assert f"{app_mod._BAR} 0%, transparent 0%" in app_mod.breadth_bar(-0.1)
+
+
+def test_rs_shading_is_one_hue_and_signs_keep_green_and_red():
+    colours = {s["backgroundColor"] for s in app_mod._rs_shading("rating")}
+    assert not colours & {"#15803d", "#b91c1c"} and all(c.startswith("#") for c in colours)
+    assert [lo for lo, _, _ in app_mod._RS_SHADES] == sorted((lo for lo, _, _ in app_mod._RS_SHADES), reverse=True)
 
 
 def test_members_title_counts_the_ones_that_left(page):

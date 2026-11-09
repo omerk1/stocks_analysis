@@ -387,8 +387,9 @@ class Overlay:
    - A second tab next to the chart (`--page groups` opens on it): the sectors table on
      the left, the selected sector's members on the right. Click a sector for its
      members, and a member to open its chart on the Chart tab. Both tables sort by any
-     column. RS is shaded green to red, changes and distances from the averages are
-     green or red, the breadth shares are drawn as bars, and a stock within 5% of its
+     column. RS is shaded in one blue, darker for higher (a rating is a rank, not a
+     gain or a loss); green and red are kept for signs: changes and distances from the
+     averages, the breadth shares are drawn as bars, and a stock within 5% of its
      52-week high is green.
    - **One date for the whole page:** the latest date in the 7 days (both ends
      included) before the last rated date on which the most sectors are rated. It's

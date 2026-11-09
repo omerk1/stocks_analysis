@@ -462,10 +462,11 @@ def _weeks(days: int) -> str:
 
 
 _GREEN, _RED, _MUTED = "#15803d", "#b91c1c", "#64748b"
-_SELECTED = "#e0f2fe"
-_BAR = "#bfdbfe"
-# RS rating shading, [low, high): strong leaders to strong laggards
-_RS_SHADES = ((80, 101, "#bbf7d0"), (60, 80, "#ecfdf5"), (20, 40, "#fef2f2"), (0, 20, "#fecaca"))
+_SELECTED = "#f1f5f9"
+_BAR = "#e2e8f0"
+# RS rating shading, [low, high): one hue, darker for higher. A rating is a rank, not a
+# gain or a loss, so green/red stays for signs (changes, distances from the averages).
+_RS_SHADES = ((80, 101, "#93c5fd"), (60, 80, "#bfdbfe"), (40, 60, "#dbeafe"), (20, 40, "#eff6ff"))
 _TEXT_COLUMNS = ("sector", "etf", "ticker", "rated_in", "status")
 _SMALL_COLUMNS = ("etf", "rated_in", "status")
 
