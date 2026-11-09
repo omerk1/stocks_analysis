@@ -52,7 +52,7 @@ from typing import Callable, Literal
 import numpy as np
 import pandas as pd
 
-from src.llm.strategy_spec.schema import StrategySpec
+from src.llm.strategy_spec.schema import PROXIMITY_UNITS, StrategySpec, proximity_gaps
 from src.signals.base_breakout import detect as base_breakout
 from src.signals.moving_averages.features import ma as ma_features
 from src.signals.moving_averages.features import panel as panel_features
@@ -126,6 +126,27 @@ def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
     silent failure the repo's central one-bar lag (`features/panel.py::apply_lag`,
     CLAUDE.md invariant #2) exists to prevent."""
     return panel.groupby("ticker", sort=False)[column].shift(-1)
+
+
+def _disclose_proximity(spec: StrategySpec, rubric: list[RubricLine]) -> None:
+    """A stated proximity, a distance or "must trade through it", is said out loud as not
+    applied: these finders' detectors define their own touch, and the trader must not
+    judge charts thinking theirs is."""
+    p = spec.trigger.proximity if spec.trigger is not None else None
+    if p is None:
+        return
+    # The gap check's own rules decide what's settled: an unsettled proximity isn't worded
+    # as if it were a rule, it's reported with what's open.
+    if proximity_gaps(p):
+        stated = "a proximity that isn't finished (elicitation asks what's open)"
+    elif p.not_applicable:
+        return  # "doesn't apply": nothing to disclose
+    elif p.through:
+        stated = "price must trade through the level"
+    else:  # settled: units are one of PROXIMITY_UNITS, the distance finite and not negative
+        stated = f"at most {abs(p.max):g}{PROXIMITY_UNITS[p.normalisation]}"  # abs: -0.0 reads as 0
+    rubric.append(RubricLine("how close price must come", "NOT APPLIED", "default",
+                             f"this detector uses its own touch rule; your spec says: {stated}"))
 
 
 def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_MA,
@@ -229,6 +250,7 @@ def find_first_touch(spec: StrategySpec, panel: pd.DataFrame, ma: str = DEFAULT_
         if signal.role == "filter":
             rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
                                      "no structured mapping yet — instances ignore this filter"))
+    _disclose_proximity(spec, rubric)
     for rule in spec.invalidation:
         # An after-entry rule is about the trade, not the setup; a before-entry rule
         # excludes setups, so not acting on it must be said out loud or rejections get
@@ -509,6 +531,7 @@ def find_base_breakout_retest(spec: StrategySpec, panel: pd.DataFrame,
         if signal.role == "filter":
             rubric.append(RubricLine(f"filter: {signal.name}", "NOT APPLIED", "default",
                                      "no structured mapping yet — instances ignore this filter"))
+    _disclose_proximity(spec, rubric)
     for rule in spec.invalidation:
         if rule.phase == "before_entry":
             rubric.append(RubricLine(f"invalidation (before entry): {rule.description}",

@@ -4,8 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Gap, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest,
-    find_gaps, load_golden_specs)
+    Control, Duration, Gap, Proximity, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger,
+    UnsupportedRequest, find_gaps, load_golden_specs)
 
 
 def _complete(**overrides):
@@ -13,7 +13,9 @@ def _complete(**overrides):
         name="x", direction="long", timeframe="daily",
         duration=Duration(min_bars=10, max_bars=40),
         size=Size(normalisation="atr", max=1.5),
-        trigger=Trigger(description="close above range high", price_basis="close", execution="next_open"),
+        # Proximity is settled so a spec given level signals is asked only about them.
+        trigger=Trigger(description="close above range high", price_basis="close", execution="next_open",
+                        proximity=Proximity(through=True)),
         horizons_bars=[5, 20],
         invalidation=[Rule(description="close back inside the range", phase="after_entry")],
         control=Control(description="same dates, no pattern"),
@@ -40,7 +42,7 @@ def test_described_but_unquantified():
                      trigger=Trigger(description="breaks out"))
     assert _gaps(spec) == {("duration", "unquantified"), ("size", "unquantified"), ("trigger", "unquantified")}
     reasons = {g.reason for g in find_gaps(spec) if g.field == "trigger"}
-    assert "executed at the next bar's open?" in reasons  # execution left open is a gap
+    assert any("next bar's open" in r for r in reasons)  # execution left open is a gap
 
 
 def test_trigger_without_a_condition_is_one_gap():
@@ -61,6 +63,17 @@ def test_contradictions_are_invalid():
     assert ("horizons_bars", "invalid") in _gaps(_complete(horizons_bars=[20, 20]))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="atr", max=-1.0)))
     assert ("size", "invalid") in _gaps(_complete(size=Size(normalisation="percentile", min=150)))
+
+
+@pytest.mark.parametrize("size, reasons", [
+    (Size(normalisation="pct", max=float("nan")), ["finite"]),
+    (Size(normalisation="atr", min=float("inf"), max=1.0), ["finite"]),  # not also "min inf > max 1.0"
+    (Size(normalisation="percentile", max=float("inf")), ["finite"]),  # not also "0-100"
+    (Size(normalisation="atr", min=-1.0, max=float("nan")), ["finite", "negative"]),  # two defects, both said
+])
+def test_a_non_finite_size_bound_is_one_gap(size, reasons):
+    gaps = [g.reason for g in find_gaps(_complete(size=size)) if g.field == "size"]
+    assert len(gaps) == len(reasons) and all(w in r for w, r in zip(reasons, gaps))
 
 
 def test_not_applicable_is_an_answer():
@@ -232,6 +245,59 @@ def test_a_filter_is_asked_its_detectors_settings_until_given_or_defaulted():
     given = _filter("fib level", settings=[Setting(name="min_swing_atr", value="10 ATR")])
     assert find_gaps(_complete(supporting_signals=[given])) == []
     assert find_gaps(_complete(supporting_signals=[_filter("fib level", defaults_ok=True)])) == []
+
+
+def _unsettled(**trigger):
+    return Trigger(description="low tags the zone", price_basis="intraday", execution="next_open", **trigger)
+
+
+def test_an_idea_built_on_levels_is_asked_how_close_price_must_come():
+    fib = _filter("fib", defaults_ok=True)
+    [gap] = find_gaps(_complete(trigger=_unsettled(), supporting_signals=[fib]))
+    assert (gap.field, gap.kind, gap.item) == ("trigger", "unquantified", None)
+    assert "how close must price come" in gap.reason and "trade through it" in gap.reason
+    assert "isn't about reaching a level" in gap.reason  # the way out for an idea it doesn't fit
+    # A level in the spec's own `uses`, or a level feature, asks too; a non-level idea doesn't.
+    assert find_gaps(_complete(trigger=_unsettled(), uses=["feature:near_dn_w_sr_line"]))
+    assert find_gaps(_complete(trigger=_unsettled(), uses=["detector:ma.first_touch"])) == []
+    # Settled any of three ways: a distance, "must trade through it", or "doesn't apply".
+    for p in (Proximity(normalisation="atr", max=0.3), Proximity(through=True), Proximity(not_applicable=True)):
+        assert find_gaps(_complete(trigger=_unsettled(proximity=p), supporting_signals=[fib])) == []
+
+
+@pytest.mark.parametrize("proximity, kind, words", [
+    (Proximity(max=0.3), "unquantified", "in ATR, percent or log"),
+    (Proximity(normalisation="atr"), "unquantified", "at most how far"),
+    (Proximity(normalisation="raw_price", max=0.5), "invalid", "raw price"),
+    (Proximity(normalisation="atr", max=-1.0), "invalid", "not negative"),
+    (Proximity(normalisation="atr", max=float("nan")), "invalid", "a finite number"),
+    (Proximity(normalisation="percentile", max=20.0), "invalid", "isn't a distance"),
+    # Rejected units aren't followed by a request for a number in them.
+    (Proximity(normalisation="percentile"), "invalid", "isn't a distance"),
+    (Proximity(normalisation="atr", max=0.3, not_applicable=True), "invalid", "doesn't apply"),
+    (Proximity(normalisation="atr", max=0.3, through=True), "invalid", "trade through"),
+    (Proximity(through=True, not_applicable=True), "invalid", "both"),
+])
+def test_a_proximity_needs_units_and_a_distance(proximity, kind, words):
+    [gap] = find_gaps(_complete(trigger=_unsettled(proximity=proximity)))
+    assert (gap.field, gap.kind) == ("trigger", kind) and words in gap.reason
+
+
+def test_a_proximity_follow_up_keeps_the_way_out_once():
+    # A vague first answer must not force a distance: the follow-up still offers both outs.
+    for p in (Proximity(), Proximity(normalisation="atr"), Proximity(normalisation="raw_price", max=1.0)):
+        reasons = [g.reason for g in find_gaps(_complete(trigger=_unsettled(proximity=p)))]
+        assert sum("trade through it" in r and "isn't about reaching a level" in r for r in reasons) == 1
+    # It goes on the open question, not on an error next to it.
+    gaps = [g for g in find_gaps(_complete(trigger=_unsettled(proximity=Proximity(max=-1.0)))) if g.field == "trigger"]
+    assert len(gaps) == 2  # the units question and the negative distance
+    assert ["trade through it" in g.reason for g in gaps] == [g.kind == "unquantified" for g in gaps]
+
+
+def test_a_filter_mapped_to_a_level_feature_is_asked_its_detectors_settings():
+    # The level-stack run's support line was mapped to this feature and never asked about.
+    [gap] = find_gaps(_complete(supporting_signals=[_filter("support", uses=("feature:near_dn_w_sr_line",))]))
+    assert (gap.field, gap.item) == ("supporting_signals", "support") and "window_years" in gap.reason
 
 
 def test_only_filters_with_a_known_detector_are_asked():

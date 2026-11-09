@@ -54,8 +54,8 @@ from src.llm.gemini import GeminiClient, Reply
 from src.llm.paths import llm_data_dir
 from src.llm.strategy_spec import catalogue
 from src.llm.strategy_spec.schema import (
-    Signal, SpecField, StrategySpec, UnsupportedReason, _Section, group_unsupported, load_golden_specs,
-    request_wording)
+    Signal, SpecField, StrategySpec, Trigger, UnsupportedReason, _Section, group_unsupported,
+    load_golden_specs, request_wording)
 
 PURPOSE = "strategy_spec.extract"
 RUNS_DIR_NAME = "extraction_runs"
@@ -130,15 +130,24 @@ def build_system() -> str:
 # extraction schema, the eval lost 3–5 correct fields and gained 4–5 invented ones (done.md
 # #180), and the first pass never captured a filter count anyway; left out, they are
 # always asked. A signal keeps its own `uses`, which the gap check needs to know what to ask.
+# The trigger's proximity is left out for the same reason, so the schema stays the one the
+# eval measured: in an idea's text, "within 1 ATR" is as often the stack's width as the touch.
 _ELICITED = {"filters_needed"}
-_ELICITED_SIGNAL = {"settings", "defaults_ok"}
-_ExtractedSignal = create_model(
-    "ExtractedSignal", __base__=_Section,
-    **{n: (f.annotation, f) for n, f in Signal.model_fields.items() if n not in _ELICITED_SIGNAL})
+
+
+def _without(model: type[BaseModel], name: str, dropped: set[str]) -> type[BaseModel]:
+    return create_model(name, __base__=_Section,
+                        **{n: (f.annotation, f) for n, f in model.model_fields.items() if n not in dropped})
+
+
+_REDUCED = {
+    "supporting_signals": (list[_without(Signal, "ExtractedSignal", {"settings", "defaults_ok"})],
+                           Field(default_factory=list)),
+    "trigger": (_without(Trigger, "ExtractedTrigger", {"proximity"}) | None, None),
+}
 ExtractedSpec = create_model(
     "ExtractedSpec", __base__=_Section,
-    **{n: (list[_ExtractedSignal], Field(default_factory=list)) if n == "supporting_signals" else (f.annotation, f)
-       for n, f in StrategySpec.model_fields.items() if n not in _ELICITED})
+    **{n: _REDUCED.get(n, (f.annotation, f)) for n, f in StrategySpec.model_fields.items() if n not in _ELICITED})
 
 
 def extract(idea: str, client: GeminiClient) -> Reply:

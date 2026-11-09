@@ -12,7 +12,7 @@ import pytest
 
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import GroundingError, find_first_touch
-from src.llm.strategy_spec.schema import Rule, Signal, Size, StrategySpec, Trigger
+from src.llm.strategy_spec.schema import Proximity, Rule, Signal, Size, StrategySpec, Trigger
 
 QUIET = [0.5] * 10  # not away even relaxed (< 1.0/1.5), not a touch even relaxed (> 0.375)
 
@@ -105,6 +105,14 @@ def test_spec_away_distance_is_applied_and_credited_to_the_spec():
     assert len(result.near_misses) == 1 and "away distance" in result.near_misses[0].fails
     rubric = {r.parameter: r for r in result.rubric}
     assert rubric["away distance"].source == "spec" and "2.5" in rubric["away distance"].value
+
+
+def test_a_stated_proximity_is_disclosed_as_not_applied():
+    near = Trigger(description="first close near the MA", price_basis="close",
+                   proximity=Proximity(normalisation="atr", max=0.3))
+    rubric = {r.parameter: r for r in find_first_touch(spec(trigger=near), panel({"AAA": MATCH})).rubric}
+    assert rubric["how close price must come"].value == "NOT APPLIED"
+    assert "how close price must come" not in {r.parameter for r in find_first_touch(spec(), panel({"AAA": MATCH})).rubric}
 
 
 def test_rubric_discloses_every_default_and_unapplied_filter():

@@ -45,9 +45,11 @@ ungrounded spec is complete but unconfirmed, not gapped.
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
@@ -108,12 +110,28 @@ class Size(_Section):
     not_applicable: bool = False
 
 
+class Proximity(_Section):
+    """How close price must come to a level for the trigger to count it as reached: at
+    most `max`, a distance in ATR, percent or log (a percentile isn't a distance), or
+    `through`: price must trade through the level. `not_applicable`, as everywhere, means
+    it doesn't apply: the trigger isn't about price reaching a level. Its own slot, not
+    `Size`'s: an idea built on levels often has a size too (a stack of levels at most
+    1 ATR wide), and one slot made the two numbers fight."""
+
+    normalisation: Normalisation | None = None
+    max: float | None = None
+    through: bool = False
+    not_applicable: bool = False
+
+
 class Trigger(_Section):
-    """The bar the signal fires on, and when the trade executes."""
+    """The bar the signal fires on, and when the trade executes. `proximity` is asked
+    only of an idea built on price levels (`catalogue.uses_levels`)."""
 
     description: Text | None = None
     price_basis: PriceBasis | None = None
     execution: Execution | None = None
+    proximity: Proximity | None = None
 
 
 class Rule(_Section):
@@ -265,6 +283,45 @@ class Gap:
     item: str | None = None
 
 
+# What the trader can say instead of a distance, in every proximity question.
+_PROXIMITY_WAY_OUT = "or say it must trade through it, or that the trigger isn't about reaching a level"
+
+
+# The only distances to a level, each as written after a number ("0.3 ATR", "2%").
+PROXIMITY_UNITS = MappingProxyType({"atr": " ATR", "pct": "%", "log": " (log)"})
+
+
+def proximity_gaps(p: Proximity) -> list[tuple[GapKind, str]]:
+    """What's still open or wrong in a stated proximity, as (kind, reason); empty means
+    it's settled. The one place its rules live: `find_gaps` asks these, and a finder
+    words a proximity only when there are none."""
+    if p.through and p.not_applicable:
+        return [("invalid", "proximity says both that price must trade through the level and that the "
+                 "trigger isn't about reaching one")]
+    if p.through or p.not_applicable:
+        if p.normalisation is None and p.max is None:
+            return []
+        said = "price must trade through the level" if p.through else "proximity doesn't apply"
+        return [("invalid", f"{said}, but a distance is given too")]
+    asks: list[tuple[GapKind, str]] = []
+    if p.normalisation is None:
+        asks.append(("unquantified", "how close price must come: in ATR, percent or log?"))
+    elif p.normalisation == "raw_price":
+        asks.append(("invalid", "a proximity in raw price isn't comparable across tickers; use ATR, percent or log"))
+    elif p.normalisation == "percentile":
+        asks.append(("invalid", "a percentile isn't a distance to a level; use ATR, percent or log"))
+    # Not with rejected units: the question would ask for a number in them.
+    if p.max is None:
+        if p.normalisation is None or p.normalisation in PROXIMITY_UNITS:
+            asks.append(("unquantified", "how close price must come: at most how far?"))
+    elif not math.isfinite(p.max) or p.max < 0:
+        asks.append(("invalid", "a proximity is a distance: a finite number, not negative"))
+    # The follow-ups keep the first question's way out, once, on the last open question
+    # (an invalid one only if nothing is open): a vague first answer mustn't force a distance.
+    at = max((n for n, (kind, _) in enumerate(asks) if kind == "unquantified"), default=len(asks) - 1)
+    return [(kind, reason + (f" ({_PROXIMITY_WAY_OUT})" if n == at else "")) for n, (kind, reason) in enumerate(asks)]
+
+
 def find_gaps(spec: StrategySpec) -> list[Gap]:
     """Every decision still open in `spec`, in field order. Empty means complete.
 
@@ -276,20 +333,24 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     def add(field: str, kind: GapKind, reason: str, item: str | None = None) -> None:
         gaps.append(Gap(field, kind, reason, item))
 
+    # Each reason is shown to the trader as the question, so it says what the answer can
+    # be. No example numbers: a number in the question is one the trader didn't say.
     if spec.direction is None:
         add("direction", "missing", "long, short, or both?")
     if spec.timeframe is None:
-        add("timeframe", "missing", "which bar resolution does the pattern live on?")
+        add("timeframe", "missing", "daily or weekly bars? (intraday and monthly aren't supported)")
 
     d = spec.duration
     if d is None:
-        add("duration", "missing", "how many bars does the pattern take to form?")
+        add("duration", "missing", "how many bars does the pattern take to form? A minimum, a maximum or both; "
+            "or say it's a single-bar event")
     elif d.not_applicable:
         if d.min_bars is not None or d.max_bars is not None:
             add("duration", "invalid", "marked not applicable but has bar counts")
     else:
         if d.min_bars is None and d.max_bars is None:
-            add("duration", "unquantified", "no minimum or maximum bar count")
+            add("duration", "unquantified", "how many bars does the pattern take to form: at least, at most, "
+                "or both?")
         if (d.min_bars is not None and d.min_bars < 1) or (d.max_bars is not None and d.max_bars < 1):
             add("duration", "invalid", "bar counts must be at least 1")
         if d.min_bars is not None and d.max_bars is not None and d.min_bars > d.max_bars:
@@ -297,20 +358,27 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
 
     s = spec.size
     if s is None:
-        add("size", "missing", "how big must the pattern be, and in what units?")
+        add("size", "missing", "how big must the pattern be? A bound (at least, at most, or both) in ATR, "
+            "percent, log or a trailing percentile; or say size doesn't matter")
     elif s.not_applicable:
         if s.normalisation is not None or s.min is not None or s.max is not None:
             add("size", "invalid", "marked not applicable but has a normalisation or bounds")
     else:
         if s.normalisation is None:
-            add("size", "unquantified", "no normalisation (ATR, log, %, percentile)")
+            add("size", "unquantified", "how big must the pattern be, in what units: ATR, percent, log or a "
+                "trailing percentile?")
         elif s.normalisation == "raw_price":
             add("size", "invalid", "raw price isn't comparable across tickers; use ATR, log, % or percentile")
         if s.min is None and s.max is None:
-            add("size", "unquantified", "no threshold")
-        if s.min is not None and s.max is not None and s.min > s.max:
+            add("size", "unquantified", "how big must the pattern be: at least, at most, or both?")
+        given = [b for b in (s.min, s.max) if b is not None]
+        if not all(math.isfinite(b) for b in given):
+            add("size", "invalid", "bounds must be finite numbers")
+        # The other checks see only the finite bounds: a NaN or infinite one is one defect,
+        # reported once above, and a negative bound beside it is still a second.
+        bounds = [b for b in given if math.isfinite(b)]
+        if len(bounds) == 2 and s.min > s.max:
             add("size", "invalid", f"min {s.min} > max {s.max}")
-        bounds = [b for b in (s.min, s.max) if b is not None]
         if any(b < 0 for b in bounds):
             add("size", "invalid", "bounds are magnitudes and can't be negative")
         if s.normalisation == "percentile" and any(b > 100 for b in bounds):
@@ -319,17 +387,27 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
     t = spec.trigger
     if t is None or t.description is None:
         # Basis and execution are asked about once there is a condition to attach them to.
-        add("trigger", "missing", "which bar does the signal fire on?")
+        add("trigger", "missing", "what happens on the bar the signal fires on?")
     else:
         if t.price_basis is None:
-            add("trigger", "unquantified", "on the close or on an intraday high/low?")
+            add("trigger", "unquantified", "does it fire on the bar's close, or when its intraday high or low "
+                "gets there?")
         if t.execution is None:
-            add("trigger", "unquantified", "executed at the next bar's open?")
+            add("trigger", "unquantified", "the trade is entered at the next bar's open (never on the signal "
+                "bar itself); is that right?")
         elif t.execution == "same_close":
             add("trigger", "invalid", "a signal known at the close of bar t executes at t+1, never on bar t")
+        p = t.proximity
+        if p is None:
+            if catalogue.uses_levels(spec.uses + [i for sig in spec.supporting_signals for i in sig.uses]):
+                add("trigger", "unquantified", "how close must price come to a level for it to count as reached? "
+                    f"At most how far, in ATR, percent or log; {_PROXIMITY_WAY_OUT}")
+        else:
+            for kind, reason in proximity_gaps(p):
+                add("trigger", kind, reason)
 
     if not spec.horizons_bars:
-        add("horizons_bars", "missing", "how many bars after entry is the outcome measured?")
+        add("horizons_bars", "missing", "how many bars after entry is the outcome measured? One or more")
     else:
         if any(h < 1 for h in spec.horizons_bars):
             add("horizons_bars", "invalid", "horizons must be at least 1 bar")
@@ -337,7 +415,8 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
             add("horizons_bars", "invalid", "a horizon is listed twice")
 
     if not spec.invalidation:
-        add("invalidation", "missing", "what kills the setup, before or after entry?")
+        add("invalidation", "missing", "what kills the setup? Before entry it cancels the setup, after entry "
+            "it exits the trade; give either or both")
 
     filters = [sig.name for sig in spec.supporting_signals if sig.role == "filter"]
     n = spec.filters_needed
@@ -378,7 +457,9 @@ def find_gaps(spec: StrategySpec) -> list[Gap]:
                 f"what makes it count? {asked} (or say the detector's defaults are fine)", sig.name)
 
     if spec.control is None:
-        add("control", "missing", "what is the setup compared against?")
+        add("control", "missing", "every test already compares against all stock-days, other stocks on the "
+            "same dates, and matched stocks; what else must the setup beat to count? (say none if those are "
+            "enough)")
 
     for cap_id in dict.fromkeys(spec.uses):
         if cap_id not in catalogue.IDS:

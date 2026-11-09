@@ -8,7 +8,8 @@ from src.llm.gemini import Reply, Usage
 from src.llm.strategy_spec import elicit as el
 from src.llm.strategy_spec.elicit import _ANSWER_MODELS, Question, apply_answer, elicit, next_question
 from src.llm.strategy_spec.schema import (
-    Control, Duration, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest, find_gaps)
+    Control, Duration, Proximity, Rule, Setting, Signal, Size, SpecField, StrategySpec, Trigger, UnsupportedRequest,
+    find_gaps)
 
 
 def _spec(**overrides):
@@ -16,7 +17,9 @@ def _spec(**overrides):
         name="x", direction="long", timeframe="daily",
         duration=Duration(min_bars=10, max_bars=40),
         size=Size(normalisation="atr", max=1.5),
-        trigger=Trigger(description="close above range high", price_basis="close", execution="next_open"),
+        # Proximity is settled so a spec given level signals is asked only about them.
+        trigger=Trigger(description="close above range high", price_basis="close", execution="next_open",
+                        proximity=Proximity(through=True)),
         horizons_bars=[5, 20],
         invalidation=[Rule(description="close back inside the range", phase="after_entry")],
         control=Control(description="same dates, no pattern"),
@@ -39,14 +42,14 @@ def test_first_open_field_in_order_with_its_gaps_bundled():
     assert q.field == "direction" and "long, short, or both?" in q.text
     q = next_question(_spec(trigger=Trigger(description="breaks out")))
     assert q.field == "trigger" and len(q.gaps) == 2  # basis and execution, one question
-    assert "close or" in q.text and "next bar's open?" in q.text
+    assert "bar's close" in q.text and "next bar's open" in q.text
 
 
 def test_an_unsupported_gap_reads_as_news_plus_choice():
     q = next_question(_spec(timeframe=None, unsupported=[INTRADAY]))
     assert q.field == "timeframe"
     assert "isn't supported" in q.text and "drop" in q.text
-    assert "which bar resolution" in q.text  # the field is also still missing
+    assert "daily or weekly bars?" in q.text  # the field is also still missing
 
 
 def test_the_current_partial_value_is_shown():
@@ -92,6 +95,24 @@ def test_apply_answer_sets_only_the_asked_field():
     assert kwargs["purpose"] == "strategy_spec.elicit" and kwargs["temperature"] == 0.0
     assert "change nothing outside the asked section" in kwargs["system"]
     assert "indicator:rsi" in kwargs["system"]  # the catalogue rides along
+
+
+def test_the_trigger_answer_sets_how_close_price_must_come():
+    fib = Signal(name="fib", description="fib", role="filter", uses=["detector:fibonacci.retracement"],
+                 defaults_ok=True)
+    unsettled = Trigger(description="low tags the zone", price_basis="intraday", execution="next_open")
+    spec = _spec(trigger=unsettled, supporting_signals=[fib])
+    q = next_question(spec)
+    assert q.field == "trigger" and "how close must price come" in q.text
+    reply = {"value": {**unsettled.model_dump(), "proximity": {"normalisation": "atr", "max": 0.3}}}
+    out = apply_answer(spec, q, "within 0.3 ATR", StubClient([reply]))
+    assert out.trigger.proximity.max == 0.3 and find_gaps(out) == []
+    # "Must trade through it" comes back as `through`, the answer rules saying so.
+    reply = {"value": {**unsettled.model_dump(), "proximity": {"through": True}}}
+    client = StubClient([reply])
+    out = apply_answer(spec, q, "it has to trade through it", client)
+    assert out.trigger.proximity.through and find_gaps(out) == []
+    assert "`through` is true when the trader says price must trade through" in client.calls[0][1]["system"]
 
 
 def test_a_null_value_leaves_the_field_and_the_gap():

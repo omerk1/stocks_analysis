@@ -17,7 +17,7 @@ from src.foundation.market_common import indicators
 from src.llm.strategy_spec import finders
 from src.llm.strategy_spec.finders import (
     BASE_BREAKOUT_OVERLAY, GroundingError, dispatch, find_base_breakout_retest)
-from src.llm.strategy_spec.schema import Duration, Rule, Size, StrategySpec, Trigger
+from src.llm.strategy_spec.schema import Duration, Proximity, Rule, Size, StrategySpec, Trigger, proximity_gaps
 
 
 @pytest.fixture(autouse=True)
@@ -172,6 +172,41 @@ def test_rubric_discloses_every_default_and_the_invalidation_convention():
     before = by_parameter["invalidation (before entry): retest closes decisively back below"]
     assert before.value == "NOT READ"
     assert not any("after_entry" in r.parameter or "within 3 bars" in r.parameter for r in result.rubric)
+
+
+def test_a_stated_proximity_is_disclosed_as_not_applied():
+    s = spec()
+    near = s.trigger.model_copy(update={"proximity": Proximity(normalisation="atr", max=0.3)})
+    rubric = {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": near}),
+                                                                panel({"AAA": MATCH})).rubric}
+    assert rubric["how close price must come"].value == "NOT APPLIED"
+    assert "your spec says: at most 0.3 ATR" in rubric["how close price must come"].detail
+
+    def rubric_with(p):
+        trigger = s.trigger.model_copy(update={"proximity": p})
+        return {r.parameter: r for r in find_base_breakout_retest(s.model_copy(update={"trigger": trigger}),
+                                                                  panel({"AAA": MATCH})).rubric}
+
+    # "Must trade through it" is a stated requirement too, so it's disclosed as well.
+    line = rubric_with(Proximity(through=True))["how close price must come"]
+    assert line.value == "NOT APPLIED" and "trade through" in line.detail
+    for units, after in (("atr", "0.3 ATR"), ("pct", "0.3%"), ("log", "0.3 (log)")):
+        detail = rubric_with(Proximity(normalisation=units, max=0.3))["how close price must come"].detail
+        assert f"at most {after}" in detail
+    # Whatever the gap check doesn't call settled is reported as unfinished, with what's
+    # open, never worded as a rule: the finder and the gap check share one set of rules.
+    for p in (Proximity(), Proximity(normalisation="atr"), Proximity(max=0.3),
+              Proximity(normalisation="raw_price", max=1.0), Proximity(normalisation="percentile", max=20.0),
+              Proximity(normalisation="atr", max=-1.0), Proximity(normalisation="atr", max=float("inf")),
+              Proximity(normalisation="atr", max=float("nan")), Proximity(through=True, max=0.5),
+              Proximity(through=True, not_applicable=True), Proximity(not_applicable=True, normalisation="atr")):
+        assert proximity_gaps(p)  # the gap check's own verdict, which the finder follows
+        detail = rubric_with(p)["how close price must come"].detail
+        assert detail == "this detector uses its own touch rule; your spec says: a proximity that isn't finished " \
+                         "(elicitation asks what's open)"
+    assert "at most 0 ATR" in rubric_with(Proximity(normalisation="atr", max=-0.0))["how close price must come"].detail
+    # "Doesn't apply" has nothing to disclose.
+    assert "how close price must come" not in rubric_with(Proximity(not_applicable=True))
 
 
 def test_unstated_direction_grounds_long_with_a_disclosed_default():

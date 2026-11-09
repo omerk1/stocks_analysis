@@ -110,6 +110,33 @@ def test_settings_for_merges_a_family_and_ignores_the_rest():
     assert catalogue.settings_for(["detector:ma.first_touch"]) == {}
 
 
+def test_a_level_feature_asks_its_detectors_settings():
+    assert set(catalogue.FEATURE_FAMILY) <= catalogue.IDS
+    sr = [s.name for s in catalogue.SETTINGS["detector:sr_line."]]
+    assert list(catalogue.settings_for(["feature:near_dn_w_sr_line"])) == sr
+    assert list(catalogue.settings_for(["feature:near_up_gap"])) == [s.name for s in catalogue.SETTINGS["detector:gap."]]
+    # Mixed-source features, sources with no settings, and AVWAP (its anchor choice isn't
+    # in the level rows) ask none.
+    for feature in ("feature:density_dn_2", "feature:near_dn_vp", "feature:near_dn_ma", "feature:near_dn_avwap"):
+        assert catalogue.settings_for([feature]) == {}
+
+
+def test_levels_are_detector_families_and_features_about_the_nearest_level():
+    # Weights count too, on purpose: the proximity question has a way out, so asking
+    # too often costs one answer, where not asking would leave the touch undefined.
+    assert catalogue.LEVEL_FEATURES <= catalogue.IDS
+    for prefix in catalogue.LEVEL_PREFIXES:  # each prefix still names a real detector
+        assert any(i.startswith(prefix) for i in catalogue.IDS)
+    for ids in (["detector:avwap"], ["feature:near_dn_sr_line"], ["feature:confluence_dn_dist"]):
+        assert catalogue.uses_levels(ids)
+    weights = [i for i in catalogue.IDS if i.startswith(("feature:near_up_w_", "feature:near_dn_w_"))]
+    assert weights and all(catalogue.uses_levels([w]) for w in weights + ["feature:confluence_up",
+                                                                          "feature:confluence_dn"])
+    # Detectors that define their own touch, and level context that isn't one level, aren't.
+    assert not catalogue.uses_levels(["detector:ma.first_touch", "detector:base_breakout.retest",
+                                      "feature:density_dn_2", "indicator:rsi"])
+
+
 def test_render_lists_the_schema_choices_and_every_entry():
     text = catalogue.render()
     for literal in (schema.Timeframe, schema.Normalisation, schema.PriceBasis, schema.Execution):
