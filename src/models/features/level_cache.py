@@ -8,8 +8,10 @@ detector runs happen once.
 Each file carries, in its own parquet metadata, a fingerprint of everything its
 rows depend on: the source, the detector config, the snapshot dates, the
 ticker's bars and splits, its history-reset override (AVWAP/VP anchors depend
-on it), and the code (`CODE_FILES`, hashed without comments or docstrings;
-`SNAPSHOT_VERSION` for anything else). `cached_snapshots` returns the stored
+on it), and the source's own code (`CODE_FILES_BY_SOURCE`, hashed without
+comments or docstrings; `SNAPSHOT_VERSION` for anything else). A code change
+known not to change any snapshot can be re-stamped (`restamp`, `restamp-levels`)
+instead of rebuilt. `cached_snapshots` returns the stored
 rows only when the fingerprint matches and recomputes otherwise, so the cache is
 a speed copy of `level_snapshots.snapshots` on the same inputs, never a different answer:
 a registered level source can call it from the bars it is given, and a
@@ -75,22 +77,30 @@ def config_key(config) -> str:
     return json.dumps(_canonical(config), sort_keys=True)
 
 
-# The code a snapshot depends on: every module `level_snapshots` imports that
-# can change a snapshot (tested against what it really imports). Hashed without
-# comments, docstrings or formatting, so only a change in what the code does
-# invalidates the cache.
+# The code a source's snapshots depend on: every module its detector imports, plus
+# what `level_snapshots` itself imports (tested against what each really imports).
+# Per source, so a change to one detector doesn't invalidate the others' files (a
+# volume-profile refactor in done.md #182 made every S/R and AVWAP lookup miss).
+# Hashed without comments, docstrings or formatting, so only a change in what the
+# code does invalidates the cache.
 _SRC = Path(__file__).resolve().parents[2]
-CODE_FILES = tuple(_SRC / f for f in (
-    *[f"signals/sr_lines/{m}.py" for m in ("bar_math", "candidates", "config", "data", "engine", "events",
-                                           "flip_status", "lifecycle", "models", "pivots", "scoring")],
-    *[f"signals/avwap/{m}.py" for m in ("anchors", "compute", "config", "lifecycle", "models")],
-    *[f"signals/volume_profile/{m}.py" for m in ("compute", "config", "detect", "models")],
-    *[f"foundation/market_common/{m}.py" for m in ("anchors", "data", "history_breaks", "indicators", "models",
-                                                    "pivots", "trendline_fit")],
+_COMMON = (
+    *[f"foundation/market_common/{m}.py" for m in ("data", "history_breaks", "indicators", "models")],
     *[f"foundation/feature_engineering/{m}.py" for m in ("price_based_indicators", "trend_indicators",
                                                           "volume_indicators")],
     "models/features/level_snapshots.py",
-))
+)
+CODE_FILES_BY_SOURCE = {s: tuple(_SRC / f for f in (*own, *_COMMON)) for s, own in {
+    "sr_line": (*[f"signals/sr_lines/{m}.py" for m in ("bar_math", "candidates", "config", "data", "engine",
+                                                       "events", "flip_status", "lifecycle", "models", "pivots",
+                                                       "scoring")],
+                "foundation/market_common/pivots.py", "foundation/market_common/trendline_fit.py"),
+    "avwap": (*[f"signals/avwap/{m}.py" for m in ("anchors", "compute", "config", "lifecycle", "models")],
+              "foundation/market_common/anchors.py", "foundation/market_common/pivots.py"),
+    "vp": (*[f"signals/volume_profile/{m}.py" for m in ("compute", "config", "detect", "models")],
+           "foundation/market_common/anchors.py", "foundation/market_common/pivots.py"),
+}.items()}
+CODE_FILES = tuple(sorted({f for files in CODE_FILES_BY_SOURCE.values() for f in files}))
 # Imported but not on a snapshot's path: DB access and vendor choice (the bars
 # and splits passed in are fingerprinted instead), and the overrides (each
 # ticker's own entry is in its fingerprint).
@@ -110,10 +120,11 @@ def _strip_docstrings(tree: ast.AST) -> ast.AST:
     return tree
 
 
-@functools.lru_cache(maxsize=1)
-def code_hash() -> str:
+@functools.lru_cache(maxsize=None)
+def code_hash(source: str) -> str:
+    """The hash of `source`'s code (`CODE_FILES_BY_SOURCE`)."""
     h = hashlib.sha256()
-    for f in CODE_FILES:
+    for f in CODE_FILES_BY_SOURCE[source]:
         h.update(f.name.encode())
         h.update(ast.dump(_strip_docstrings(ast.parse(f.read_text()))).encode())
     return h.hexdigest()
@@ -140,10 +151,12 @@ def inputs_digest(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
 
 
 def fingerprint(source: str, ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, dates, config,
-                digest: str | None = None) -> str:
+                digest: str | None = None, code: str | None = None) -> str:
+    """`code`: the code hash to key on, by default `code_hash(source)` (`restamp`
+    passes the old one, to recognise a file stored before a code change)."""
     digest = digest or inputs_digest(ticker, bars, splits, dates)
-    return hashlib.sha256(f"{source}|{SNAPSHOT_VERSION}|{code_hash()}|{config_key(config)}|{digest}".encode()) \
-        .hexdigest()
+    code = code or code_hash(source)
+    return hashlib.sha256(f"{source}|{SNAPSHOT_VERSION}|{code}|{config_key(config)}|{digest}".encode()).hexdigest()
 
 
 def snapshot_path(root: Path, source: str, ticker: str) -> Path:
@@ -255,11 +268,8 @@ def build_level_cache(
     dataset.check_holdout(end, open_holdout)
     root = Path(root)
     configs = levels.default_configs()
-    basis, fallback = dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK
-    price_sources = dataset.resolve_sources(conn, tickers, basis, fallback)
-    bars = dataset.read_bars_bulk(conn, tickers, basis, FIRST_BAR, end, fallback=fallback, sources=price_sources)
-    splits = dataset._read_splits_bulk(conn, price_sources)
-    by_ticker = {t: g.drop(columns="ticker").set_index("date").sort_index() for t, g in bars.groupby("ticker")}
+    basis = dataset.UNIVERSE_BASIS
+    price_sources, by_ticker, splits = _load_bars(conn, tickers, end)
     missing = sorted(set(tickers) - set(by_ticker))
 
     done, failed, seconds = {}, {}, 0.0
@@ -295,11 +305,31 @@ def build_level_cache(
                                basis, seconds)
 
 
+def _load_bars(conn: sqlite3.Connection, tickers, end) -> tuple[dict, dict[str, pd.DataFrame], dict]:
+    """(price sources, each ticker's whole traded history to `end`, splits): what a
+    build fingerprints, so a re-stamp reads exactly the same."""
+    basis, fallback = dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK
+    price_sources = dataset.resolve_sources(conn, tickers, basis, fallback)
+    bars = dataset.read_bars_bulk(conn, tickers, basis, FIRST_BAR, end, fallback=fallback, sources=price_sources)
+    splits = dataset._read_splits_bulk(conn, price_sources)
+    by_ticker = {t: g.drop(columns="ticker").set_index("date").sort_index() for t, g in bars.groupby("ticker")}
+    return price_sources, by_ticker, splits
+
+
 def _manifest_epoch(end) -> dict:
     """What every stored file depends on alike: a change in any makes every old
-    per-ticker record stale."""
-    return {"snapshot_version": SNAPSHOT_VERSION, "code_hash": code_hash(), "end": str(pd.Timestamp(end).date()),
+    per-ticker record stale. The code is per source (`code_hashes`)."""
+    return {"snapshot_version": SNAPSHOT_VERSION, "end": str(pd.Timestamp(end).date()),
             "overrides": hashlib.sha256(config_key(HISTORY_RESET_OVERRIDES).encode()).hexdigest()}
+
+
+def _write_manifest(path: Path, manifest: dict) -> None:
+    tmp = path.with_name(f"{MANIFEST}.tmp{os.getpid()}")
+    try:
+        tmp.write_text(json.dumps(manifest, indent=2, default=str))
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def _merge_manifest(root, done, failed, missing, price_sources, configs, sources, end, open_holdout, basis,
@@ -313,9 +343,10 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
     if not isinstance(old, dict) or any(old.get(k) != v for k, v in epoch.items()):
         old = {}  # another build's files: their per-ticker record doesn't describe this code or window
     # Per ticker, per source: a run of some sources keeps the others' records,
-    # and a source whose config changed keeps none of its old ones.
+    # and a source whose config or code changed keeps none of its old ones.
     new_configs = {s: json.loads(config_key(configs[s])) for s in sources}
-    changed = {s for s in sources if old.get("configs", {}).get(s) != new_configs[s]}
+    changed = {s for s in sources if old.get("configs", {}).get(s) != new_configs[s]
+               or old.get("code_hashes", {}).get(s) != code_hash(s)}
     tickers_done = {t: {s: n for s, n in c.items() if s not in changed}
                     for t, c in old.get("tickers", {}).items() if t not in failed}
     tickers_done = {t: c for t, c in tickers_done.items() if c}
@@ -324,8 +355,9 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
     failures = {t: e for t, e in {**old.get("failed", {}), **failed}.items() if t not in done}
     all_sources = sorted({s for c in tickers_done.values() for s in c} | set(sources))
     configs_all = {**old.get("configs", {}), **new_configs}
+    code_hashes = {**old.get("code_hashes", {}), **{s: code_hash(s) for s in sources}}
     manifest = {
-        **epoch, "sources": all_sources, "configs": configs_all,
+        **epoch, "code_hashes": code_hashes, "sources": all_sources, "configs": configs_all,
         "first_snapshot": str(snap.SNAPSHOT_START.date()),
         "open_holdout": bool(open_holdout), "basis": basis.value,
         "price_sources": {**old.get("price_sources", {}), **price_sources},
@@ -336,11 +368,58 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
         "last_run": {"n_tickers": len(done), "failed": len(failed), "sources": list(sources),
                      "cpu_hours": seconds / 3600, "git_sha": dataset._git_sha(),
                      "created": pd.Timestamp.now("UTC").isoformat()},
+        **({"restamped": old["restamped"]} if "restamped" in old else {}),
     }
-    tmp = path.with_name(f"{MANIFEST}.tmp{os.getpid()}")
-    try:
-        tmp.write_text(json.dumps(manifest, indent=2, default=str))
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    _write_manifest(path, manifest)
+    return manifest
+
+
+def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple[str, ...],
+            progress=print) -> dict:
+    """Re-key the stored files of `sources` from the code hash `from_code` to today's,
+    without touching their rows: for a code change that is known not to change any
+    snapshot (check that first, by recomputing a sample and comparing). Only a file
+    whose stored key is exactly what `from_code` gave for today's inputs (same bars,
+    splits, dates, config, override) is re-keyed; any other file is left as it is, a
+    miss that a build recomputes. `from_code`: the manifest's old `code_hash` (one hash
+    for every source, before the per-source hash) or a source's old `code_hashes` entry.
+    Returns the manifest, with a `restamped` record of what was done."""
+    root = Path(root)
+    with file_lock(root / MANIFEST_LOCK):
+        manifest = json.loads((root / MANIFEST).read_text())
+        if any(manifest.get(k) != v for k, v in _manifest_epoch(manifest["end"]).items()):
+            raise ValueError("the manifest's version or overrides differ from today's: rebuild, don't re-stamp")
+        configs = levels.default_configs()
+        tickers = sorted(manifest["tickers"])
+        _, by_ticker, splits = _load_bars(conn, tickers, manifest["end"])
+        counts = {s: {"restamped": 0, "current": 0, "left": 0} for s in sources}
+        for i, (ticker, bars) in enumerate(by_ticker.items(), 1):
+            clean = snap.prepare(bars)
+            dates = snap.snapshot_dates(clean.index)
+            digest = inputs_digest(ticker, clean, splits.get(ticker), dates)
+            for s in sources:
+                old = fingerprint(s, ticker, clean, splits.get(ticker), dates, configs[s], digest, code=from_code)
+                new = fingerprint(s, ticker, clean, splits.get(ticker), dates, configs[s], digest)
+                path = snapshot_path(root, s, ticker)
+                try:
+                    table = pq.read_table(path)
+                except (OSError, ValueError, pa.ArrowException):
+                    counts[s]["left"] += 1
+                    continue
+                stored = (table.schema.metadata or {}).get(FINGERPRINT_KEY, b"").decode()
+                if stored == new:
+                    counts[s]["current"] += 1
+                elif stored == old:
+                    _write(root, s, ticker, new, _ns_dates(table.to_pandas()))
+                    counts[s]["restamped"] += 1
+                else:
+                    counts[s]["left"] += 1
+            if progress and (i % 100 == 0 or i == len(by_ticker)):
+                progress(f"  {i}/{len(by_ticker)} tickers")
+        manifest.pop("code_hash", None)  # the single hash before per-source ones
+        manifest["code_hashes"] = {**manifest.get("code_hashes", {}), **{s: code_hash(s) for s in sources}}
+        manifest["restamped"] = [*manifest.get("restamped", []), {
+            "from": from_code, "sources": list(sources), "counts": counts, "git_sha": dataset._git_sha(),
+            "created": pd.Timestamp.now("UTC").isoformat()}]
+        _write_manifest(root / MANIFEST, manifest)
     return manifest

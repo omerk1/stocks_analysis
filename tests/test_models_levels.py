@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from src.foundation.data_processing import db as raw_db
@@ -466,6 +467,89 @@ def test_the_code_hash_covers_every_module_a_snapshot_imports():
     loaded = {Path(f).resolve() for f in out if Path(f).resolve().is_relative_to(src) and Path(f).name != "__init__.py"}
     assert loaded == set(level_cache.CODE_FILES) | set(level_cache.CODE_EXCLUDED)
     assert Path(levels.__file__).resolve() not in loaded  # the daily sources don't invalidate snapshots
+
+
+# What `level_snapshots` imports for each source's detector, and for itself.
+_SOURCE_IMPORTS = {
+    "sr_line": ("src.signals.sr_lines.config", "src.signals.sr_lines.engine", "src.signals.sr_lines.models"),
+    "avwap": ("src.signals.avwap.anchors", "src.signals.avwap.compute", "src.signals.avwap.config"),
+    "vp": ("src.signals.volume_profile.config", "src.signals.volume_profile.detect"),
+}
+_SNAPSHOT_OWN_IMPORTS = ("src.foundation.market_common.data", "src.foundation.market_common.history_breaks",
+                         "src.foundation.market_common.models")
+
+
+@pytest.mark.parametrize("source", sorted(_SOURCE_IMPORTS))
+def test_each_sources_hash_covers_exactly_what_its_detector_imports(source):
+    modules = (*_SOURCE_IMPORTS[source], *_SNAPSHOT_OWN_IMPORTS)
+    code = (f"import sys, os, importlib; [importlib.import_module(m) for m in {modules!r}]; "
+            "print('\\n'.join(os.path.abspath(m.__file__) for m in list(sys.modules.values()) "
+            "if getattr(m, '__file__', None)))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()
+    src = Path(level_cache.__file__).resolve().parents[2]
+    loaded = {Path(f).resolve() for f in out if Path(f).resolve().is_relative_to(src) and Path(f).name != "__init__.py"}
+    own = set(level_cache.CODE_FILES_BY_SOURCE[source]) - {Path(level_snapshots.__file__).resolve()}
+    assert loaded - set(level_cache.CODE_EXCLUDED) == own
+
+
+def test_one_sources_code_change_leaves_the_others_keys(bars, configs, monkeypatch):
+    dates = levels.snapshot_dates(bars.index)[-3:]
+    keys = {s: level_cache.fingerprint(s, TICKER, bars, None, dates, configs[s]) for s in level_snapshots.SNAPSHOT_SOURCES}
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "vp" else real(s))
+    after = {s: level_cache.fingerprint(s, TICKER, bars, None, dates, configs[s]) for s in level_snapshots.SNAPSHOT_SOURCES}
+    assert after["vp"] != keys["vp"]
+    assert after["sr_line"] == keys["sr_line"] and after["avwap"] == keys["avwap"]
+
+
+def test_a_build_after_one_sources_code_change_keeps_the_others_records(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    first = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                          sources=("sr_line", "avwap"))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "avwap" else real(s))
+    sr_stamp = level_cache.snapshot_path(tmp_path, "sr_line", "AAA").stat().st_mtime_ns
+    second = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                           sources=("sr_line", "avwap"))
+    c.close()
+    assert first["code_hashes"]["avwap"] != second["code_hashes"]["avwap"] == "changed"
+    assert second["code_hashes"]["sr_line"] == first["code_hashes"]["sr_line"]
+    assert level_cache.snapshot_path(tmp_path, "sr_line", "AAA").stat().st_mtime_ns == sr_stamp  # still a hit
+    assert "code_hash" not in second
+
+
+def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    for i, t in enumerate(("AAA", "BBB")):
+        raw_db.upsert_bars(c, "bars_1d", t, raw_db.YFINANCE_SPLIT_ONLY,
+                           _bars(n=260, seed=20 + i, start="2020-01-01").assign(is_partial=0))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    level_cache.build_level_cache(c, ["AAA", "BBB"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                  sources=("sr_line",))
+    before = {t: pq.read_table(level_cache.snapshot_path(tmp_path, "sr_line", t)).to_pandas() for t in ("AAA", "BBB")}
+    # BBB's bars change after the build: its file is a real miss, never re-keyed.
+    raw_db.upsert_bars(c, "bars_1d", "BBB", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=99, start="2020-01-01").assign(is_partial=0))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 1, "current": 0, "left": 1}
+    assert m["code_hashes"]["sr_line"] == real("sr_line")
+    _, by_ticker, splits = level_cache._load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
+    clean = levels.prepare(by_ticker["AAA"])
+    dates = levels.snapshot_dates(clean.index)
+    key = level_cache.fingerprint("sr_line", "AAA", clean, splits.get("AAA"), dates,
+                                  levels.default_configs()["sr_line"])
+    hit = level_cache.read_cached(tmp_path, "sr_line", "AAA", key)
+    assert hit is not None  # the re-keyed file now hits under today's code ...
+    pd.testing.assert_frame_equal(hit, level_cache._ns_dates(before["AAA"]))  # ... with the same rows
+    again = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert again["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 1, "left": 1}
 
 
 def test_sr_snapshot_matches_the_detector_on_a_young_ticker(configs):
