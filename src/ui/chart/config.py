@@ -58,6 +58,21 @@ class ChartConfig:
     rs_change_days: int = 28
     relevance: "RelevanceConfig" = field(default_factory=lambda: RelevanceConfig())
     panes: "PaneConfig" = field(default_factory=lambda: PaneConfig())
+    groups: "GroupsConfig" = field(default_factory=lambda: GroupsConfig())
+
+
+@dataclass(frozen=True)
+class GroupsConfig:
+    """The groups page (`groups.py`). Ratings and the indices are the
+    relative-strength module's own; the rest is display."""
+    indices: tuple[str, ...] = ("sp500", "nasdaq100")  # the RS module's universe
+    rank_change_days: tuple[int, int] = (28, 91)  # the sector table's two rank changes (4 and 13 weeks)
+    member_change_days: int = 28  # a member's rating change
+    # A ticker that left the indices this many calendar days before the page date
+    # is still listed in its sector, marked as gone (delisted or dropped).
+    left_window_days: int = 91
+    ma_periods: tuple[int, int] = (50, 200)
+    high_bars: int = 252  # the 52-week high
 
 
 @dataclass(frozen=True)

@@ -50,7 +50,7 @@ class RSStrip:
     sector_rank: SectorRank | None
 
 
-def _rating(rows: pd.DataFrame, change_days: int) -> Rating | None:
+def latest_rating(rows: pd.DataFrame, change_days: int) -> Rating | None:
     rows = rows.dropna(subset=["rs_rating"])
     if rows.empty:
         return None
@@ -64,7 +64,7 @@ def _rating(rows: pd.DataFrame, change_days: int) -> Rating | None:
 
 def _sector_rank(derived: sqlite3.Connection, sector: str, change_days: int) -> SectorRank | None:
     history = store.read_sector_relative_strength(derived, sector)
-    rating = _rating(history, change_days)
+    rating = latest_rating(history, change_days)
     if rating is None:
         return None
     # All ratings ranked are from one date: the latest date in the last week on which
@@ -86,21 +86,21 @@ def _sector_rank(derived: sqlite3.Connection, sector: str, change_days: int) -> 
     return SectorRank(rating, rank, len(on_date), missing, None if rank_date == rating.as_of else rank_date)
 
 
-def _table_names(conn: sqlite3.Connection) -> set[str]:
+def table_names(conn: sqlite3.Connection) -> set[str]:
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
 
 
 def rs_strip(raw: sqlite3.Connection, derived: sqlite3.Connection, ticker: str, change_days: int) -> RSStrip:
     """Missing tables (RS never run in this database, no sector data) read as no rows."""
     ticker = ticker.upper()
-    derived_tables = _table_names(derived)
+    derived_tables = table_names(derived)
     vs_market = vs_sector = None
     if "relative_strength" in derived_tables:
         rows = store.read_relative_strength(derived, ticker)
-        vs_market = _rating(rows[rows["comparison"] == VS_MARKET], change_days)
-        vs_sector = _rating(rows[rows["comparison"] == VS_SECTOR], change_days)
+        vs_market = latest_rating(rows[rows["comparison"] == VS_MARKET], change_days)
+        vs_sector = latest_rating(rows[rows["comparison"] == VS_SECTOR], change_days)
     sector = industry = None
-    if "ticker_sector" in _table_names(raw):
+    if "ticker_sector" in table_names(raw):
         meta = db.read_ticker_sector(raw, ticker)
         if not meta.empty:
             sector = meta["sector"].iloc[0] if pd.notna(meta["sector"].iloc[0]) else None
