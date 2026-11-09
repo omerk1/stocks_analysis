@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–4 and 6 built (Done #175–#178, #181, #182, #184, #186, 2026-11-09); step 5 waits on
+Status: steps 1–4 and 6 built (Done #175–#178, #181, #182, #184, #187, 2026-11-09); step 5 waits on
 the guidance extraction. Lean first version, wider later.
 
 ## One-liner
@@ -383,7 +383,7 @@ class Overlay:
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 
-   As built (`src/ui/chart/groups.py`, a Groups tab in the app, Done #186):
+   As built (`src/ui/chart/groups.py`, a Groups tab in the app, Done #187):
    - A second tab next to the chart (`--page groups` opens on it): the sectors table on
      the left, the selected sector's members on the right. Click a sector for its
      members, and a member to open its chart on the Chart tab. Both tables sort by any
