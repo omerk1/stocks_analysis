@@ -22,7 +22,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from src.foundation.market_common.models import Direction
-from src.signals.patterns.models import PatternMatch, PatternStatus, Timeframe
+from src.signals.patterns.models import PatternMatch, PatternStatus, PatternType, Timeframe
 
 _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
 
@@ -58,6 +58,67 @@ _STATUS_OPACITY = {
 # without adding it here breaks every chart containing one -- see
 # tests/test_patterns_plotting.py's coverage assertion.
 assert set(_STATUS_OPACITY) == set(PatternStatus), "every PatternStatus needs a plotting opacity"
+
+
+# Flags and pennants fit their channel over the consolidation only (pivots 2 onwards,
+# after the pole), so their lines start there, not at the pole.
+_CONSOLIDATION_TYPES = frozenset({PatternType.BULL_FLAG, PatternType.BEAR_FLAG, PatternType.PENNANT})
+# Flat trigger levels: (key_levels price key, key_levels bar key or None).
+_FLAT_TRIGGERS = (("neckline", "neckline_bar"), ("point2", "point2_bar"), ("pivot_price", None))
+
+
+def trigger_lines(match: PatternMatch, end_bar: int, n_bars: int) -> dict[str, tuple[int, float, int, float]]:
+    """The pattern's trigger as {name: (start_bar, start_price, end_bar, end_price)},
+    bar positions in the frame it was detected on (`n_bars` long), each line running
+    to `end_bar` (its breakout bar, or the last bar). Its sloped lines (`trendlines`:
+    H&S's "neckline", a triangle's or flag's "upper"/"lower") when it has them, else
+    its flat level: double/triple top/bottom and cup/rounding's "neckline", a 1-2-3's
+    "point2", a VCP's "pivot_price". Shared by this module's chart and the chart UI,
+    so the start-bar rules live in one place."""
+    if match.trendlines:
+        lines = {}
+        for name, (slope, intercept) in match.trendlines.items():
+            # H&S's neckline is only defined by its own two trough/peak pivots (index
+            # 1), not the whole pivot list; a triangle/wedge's upper/lower lines are
+            # fitted through the entire window, so they're drawn from its first pivot;
+            # a flag's from its consolidation's first pivot.
+            if name == "neckline" and len(match.pivots) > 1:
+                start = match.pivots[1].bar_index
+            elif match.pattern_type in _CONSOLIDATION_TYPES and len(match.pivots) > 2:
+                start = match.pivots[2].bar_index
+            else:
+                start = match.pivots[0].bar_index
+            start = min(start, end_bar)  # never drawn backwards
+            lines[name] = (start, slope * start + intercept, end_bar, slope * end_bar + intercept)
+        return lines
+    for level_key, bar_key in _FLAT_TRIGGERS:
+        level = match.key_levels.get(level_key)
+        if level is None:
+            continue
+        start = match.key_levels.get(bar_key) if bar_key else None
+        if start is None or not 0 <= int(start) < n_bars:
+            # No fixed index is a reliable invariant here: double top/bottom's
+            # trough sits at index -2 of its fixed 3-pivot list, cup & handle's
+            # right rim also lands at -2 (a handle pivot always follows it) -- but
+            # Rounding (Phase 6, cup & handle "without the handle") ends its own
+            # window *at* the right rim, landing it at -1 instead, which a fixed -2
+            # assumption drew from the wrong pivot (caught in code review; the same
+            # class of bug the -2 fix itself replaced, see docs/done.md #51/#53).
+            # So the level's bar is stored explicitly (`neckline_bar`,
+            # `point2_bar`). Pre-`neckline_bar` matches (older rows in
+            # `pattern_matches`, hand-built test fixtures) and VCP's pivot price
+            # fall back to locating the pivot by price, searched from the *end*:
+            # the level's pivot is always at or near the tail of the list, and an
+            # earlier pivot can legitimately share its exact price (e.g. a
+            # cup/rounding's rim1 and rim2). This cannot work for cup/rounding any
+            # more, whose neckline is now the rim bar's *close* while
+            # `pivot.price` stays the intraday high/low -- which is exactly why
+            # the bar index is now stored explicitly.
+            fallback = match.pivots[-2] if len(match.pivots) > 1 else match.pivots[0]
+            start = next((p.bar_index for p in reversed(match.pivots) if p.price == level), fallback.bar_index)
+        start = min(int(start), end_bar)
+        return {level_key: (start, float(level), end_bar, float(level))}
+    return {}
 
 
 def _color(match: PatternMatch) -> str:
@@ -136,71 +197,15 @@ def render_pattern_chart(
         x_end = bars.index[match.breakout_bar] if match.breakout_bar is not None else last_bar_ts
         x_end_idx = match.breakout_bar if match.breakout_bar is not None else len(bars) - 1
 
-        if match.trendlines:
-            for name, (slope, intercept) in match.trendlines.items():
-                # H&S's neckline is only defined by its own two trough/
-                # peak pivots (index 1), not the whole pivot list -- a
-                # triangle/wedge's upper/lower lines are fit through the
-                # entire window, so they're drawn from its first pivot.
-                x_start_idx = match.pivots[1].bar_index if name == "neckline" and len(match.pivots) > 1 else match.pivots[0].bar_index
-                x_start = bars.index[x_start_idx]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[x_start, x_end],
-                        y=[slope * x_start_idx + intercept, slope * x_end_idx + intercept],
-                        mode="lines", line=dict(color=color, width=1, dash="dot"),
-                        showlegend=False, hoverinfo="skip",
-                    ),
-                    row=1, col=1,
-                )
-        else:
-            neckline = match.key_levels.get("neckline")
-            if neckline is not None:
-                # No fixed index is a reliable invariant here: double
-                # top/bottom's trough sits at index -2 of its fixed
-                # 3-pivot list, cup & handle's right rim also lands at -2
-                # (a handle pivot always follows it) -- but Rounding
-                # (Phase 6, cup & handle "without the handle") ends its
-                # own window *at* the right rim, landing it at -1 instead,
-                # which a fixed -2 assumption drew from the wrong pivot
-                # (caught in code review; the same class of bug the -2
-                # fix itself replaced, see docs/done.md #51/#53). Locate
-                # the actual neckline pivot by price instead of position
-                # -- every detector sets `key_levels["neckline"]` from a
-                # pivot object that's also literally in `match.pivots`,
-                # so this is an exact float match, not a fragile
-                # recomputed-value comparison. Searched from the *end*:
-                # the neckline pivot is always at or near the tail of the
-                # list, and an earlier pivot can legitimately share its
-                # exact price (e.g. a cup/rounding's rim1 and rim2, gated
-                # to be close and sometimes exactly equal) -- a forward
-                # search would silently prefer that earlier, wrong pivot.
-                neckline_bar = match.key_levels.get("neckline_bar")
-                if neckline_bar is not None and 0 <= int(neckline_bar) < len(bars):
-                    x_start = bars.index[int(neckline_bar)]
-                else:
-                    # Pre-`neckline_bar` matches (older rows in
-                    # `pattern_matches`, hand-built test fixtures) still fall
-                    # back to locating the pivot by price. Kept only for
-                    # those: it cannot work for cup/rounding any more, whose
-                    # neckline is now the rim bar's *close* while
-                    # `pivot.price` stays the intraday high/low, so the
-                    # equality never holds -- which is exactly why the bar
-                    # index is now stored explicitly rather than recovered
-                    # by matching floats.
-                    neckline_idx = next(
-                        (idx for idx in range(len(match.pivots) - 1, -1, -1) if match.pivots[idx].price == neckline),
-                        len(pivot_x) - 2 if len(pivot_x) > 1 else 0,
-                    )
-                    x_start = pivot_x[neckline_idx]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[x_start, x_end], y=[neckline, neckline],
-                        mode="lines", line=dict(color=color, width=1, dash="dot"),
-                        showlegend=False, hoverinfo="skip",
-                    ),
-                    row=1, col=1,
-                )
+        for start, start_price, _, end_price in trigger_lines(match, x_end_idx, len(bars)).values():
+            fig.add_trace(
+                go.Scatter(
+                    x=[bars.index[start], x_end], y=[start_price, end_price],
+                    mode="lines", line=dict(color=color, width=1, dash="dot"),
+                    showlegend=False, hoverinfo="skip",
+                ),
+                row=1, col=1,
+            )
 
         if match.breakout_bar is not None and match.target_price is not None:
             fig.add_trace(

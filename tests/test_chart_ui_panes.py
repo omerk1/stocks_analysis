@@ -8,7 +8,7 @@ from src.ui.chart import panes
 from src.ui.chart.config import ChartConfig, ChartType, PaneConfig
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.figure import build_figure, earnings_annotations, figure_annotations, pane_axes, y_axis_ranges
-from src.ui.chart.overlays import Overlay
+from src.ui.chart.overlays import Guide, Overlay
 
 CFG = PaneConfig()
 
@@ -175,6 +175,24 @@ def test_a_divergence_is_drawn_on_price_and_on_its_pane_when_shown(bars):
     without = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
                            overlays=(div,))
     assert [t.uid for t in without.data if t.uid.startswith("divergences:")] == ["divergences:d-rsi"]
+
+
+def test_a_pattern_draws_its_outline_and_guides_to_the_right_edge(bars):
+    pivots = tuple((bars.index[i], 90.0 + i % 2 * 5) for i in (-60, -50, -40))
+    pattern = Overlay(family="patterns", item_id="p", label="Double bottom ↑", kind="segment", x0=pivots[0][0],
+                      lo=90.0, hi=95.0, strength=0.6, alive=True, tag="2Bot↑", points=pivots, bullish=True,
+                      guides=(Guide(bars.index[-50], 95.0, bars.index[-30], 95.0),
+                              Guide(bars.index[-30], 300.0, None, 300.0, "dash", "2Bot↑ target")))
+    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
+                       overlays=(pattern,))
+    outline, trigger, target = (t for t in fig.data if t.uid.startswith("patterns:"))
+    assert len(outline.x) == 3 and list(outline.text) == ["", "", "2Bot↑"]
+    assert trigger.line.dash == "dot" and target.x[1] > bars.index[-1]  # runs to the right edge
+    assert target.text[1] == "2Bot↑ target"
+    low = Overlay(**{**pattern.__dict__, "lo": 1.0})
+    during = y_axis_ranges(bars, {}, (bars.index[-35], bars.index[-1]), ChartType.CANDLES, False, (low,))
+    after = y_axis_ranges(bars, {}, (bars.index[-10], bars.index[-1]), ChartType.CANDLES, False, (low,))
+    assert during["yaxis"][0] < 1.0 < after["yaxis"][0]  # outline and trigger gone: only the target is left
 
 
 def test_a_divergence_counts_in_the_y_fit_only_while_in_the_window(bars):

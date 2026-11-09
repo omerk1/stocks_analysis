@@ -1,6 +1,6 @@
 # Chart UI — design
 
-Status: steps 1–3 and 4a–4c built (Done #175–#178, #181, #182, 2026-11-08). Lean first version, wider later.
+Status: steps 1–4 built (Done #175–#178, #181, #182, #184, 2026-11-08). Lean first version, wider later.
 
 ## One-liner
 
@@ -338,6 +338,47 @@ class Overlay:
      candidate to start unticked.
    - Market structure adds 0.5–4 s to the menu, volume profile under 0.3 s: menus now
      take about 2.5–13 s daily and 4–12 s weekly (the spread is mostly machine load).
+
+   As built, 4d (chart patterns in the level menu, Done #184):
+   - Each live pattern from the patterns module (pending, or broken out with its target
+     neither hit nor given up within the module's horizon) is an event: its pivots
+     joined as an outline, its trigger as a dotted line up to the breakout (the
+     neckline, a triangle's two sides, a 1-2-3's point 2, a VCP's pivot price), and
+     after a breakout its target as a dashed line to the right edge, tagged ("2Bot↑
+     target"). Green bullish, red bearish, grey for a pending symmetric triangle that
+     has no direction yet.
+   - Ranked like the other events, by recency (bars since the breakout, or since the
+     last pivot while pending; the same 40 / 12-bar reach) mixed with the module's
+     confidence. Patterns that are one structure take one default slot: those ending on
+     the same pivot in the same direction (a double top, a head and shoulders and a
+     1-2-3 on one peak), and pending ones of one type whose pivots mostly overlap (the
+     same pending triangle found from windows a pivot apart, which the module only
+     merges once they share a breakout; the module's own overlap rule). The two rules
+     don't chain, so unrelated patterns can't be joined through a third. On 10 large
+     caps that's 2–10 events from 4–11 patterns daily.
+   - The id leaves out the direction, which a triangle only gets at its breakout, so a
+     ticked pattern stays ticked when it breaks out (added back only if two matches
+     would share an id).
+   - The y-axis fits the outline and trigger, while they're in view, but not the
+     target: a measured move can sit far from price (NVDA weekly: 100 with price at
+     200). The hover gives it.
+   - Where each trigger line starts is the patterns module's own rule
+     (`plotting.trigger_lines`), shared with its chart. Moving it there fixed a flag's
+     channel being drawn back across its pole, and the module's chart now also draws
+     a 1-2-3's and a VCP's trigger.
+   - The module's `scan_bars` runs on the chart's bars (traded basis) with its preset
+     for the timeframe, but only on the last 2000 bars (8 years daily). A live pattern
+     is at most 3 × its formation + 252 bars old (formation, up to twice that waiting
+     for a breakout, then the target horizon), and the longest typical formation is
+     400 bars, so the window leaves room for formations up to ~580 bars (the module
+     scores length, it doesn't cap it). It found the same live patterns as the whole
+     history on 10 large caps, daily and weekly, in about 0.7 s instead of 2–9 s daily.
+     A live pattern starting within 250 bars of the window's first bar may have been
+     cut short by it, so then the window is doubled until none does (none of the 20
+     charts needed it). That can't catch a pattern the window cut short and the
+     scanner found again from a later start; none showed up in the check above.
+   - On 10 large caps, 4–11 patterns per chart are live and 0–9 in reach; they get 0–3
+     of the 10 default picks. Menu times are unchanged (about 2–12 s).
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
 
