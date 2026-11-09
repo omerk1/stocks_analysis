@@ -152,10 +152,6 @@ def _read_only(db_path: Path):
 def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str, ...]) -> int:
     from src.models import dataset
     from src.models.features import level_cache
-    unknown = set(sources) - set(level_cache.CODE_FILES_BY_SOURCE)
-    if unknown:
-        print(f"unknown sources {sorted(unknown)}; one of {sorted(level_cache.CODE_FILES_BY_SOURCE)}")
-        return 2
     conn = _read_only(db_path)
     try:
         m = level_cache.restamp(conn, out, from_code, sources, progress=lambda s: print(s, flush=True))

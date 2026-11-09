@@ -389,7 +389,8 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
 
 
 class RestampRefused(ValueError):
-    """The cache at the given root can't be re-stamped (missing, foreign, or another epoch)."""
+    """The cache at the given root can't be re-stamped: missing, foreign, another epoch,
+    a source it wasn't built for, or one recorded under other code or another config."""
 
 
 def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple[str, ...],
@@ -402,8 +403,9 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
     miss that a build recomputes. `from_code`: the manifest's old `code_hash` (one hash
     for every source, before the per-source hash) or a source's old `code_hashes` entry.
     Refused unless the manifest records `from_code` and today's config for every one of
-    `sources` and every recorded ticker still has bars, so what's left as a miss is only
-    a file whose bars or splits changed; it loses its record. Don't run it alongside a build of
+    `sources`, so what's left as a miss is only a file whose bars or splits changed (it
+    loses its record) or a ticker with no bars any more (it loses its records of
+    `sources` and is listed under `no_bars`). Don't run it alongside a build of
     the same root (a build writes files outside the manifest lock). Returns the
     manifest, with a `restamped` record of what was done."""
     root = Path(root)
@@ -420,19 +422,16 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
             raise RestampRefused("the manifest's version or overrides differ from today's: rebuild, don't re-stamp")
         configs = levels.default_configs()
         sources = tuple(dict.fromkeys(sources))
+        built = set(manifest.get("sources", [])) | set(manifest.get("configs", {}))
         for s in sources:
-            if s not in configs or s not in CODE_FILES_BY_SOURCE or s not in manifest.get("configs", {}):
+            if s not in configs or s not in CODE_FILES_BY_SOURCE or s not in built:
                 raise RestampRefused(f"{s} isn't a source this cache was built for")
             stored_code = manifest.get("code_hashes", {}).get(s, manifest.get("code_hash"))
             if stored_code != from_code:
                 raise RestampRefused(f"{s}'s files are recorded under code {stored_code!r}, not {from_code!r}")
-            if manifest["configs"][s] != config_record(configs[s]):
+            if manifest.get("configs", {}).get(s) != config_record(configs[s]):
                 raise RestampRefused(f"{s}'s config changed since the build: rebuild, don't re-stamp")
         _, by_ticker, splits = _load_bars(conn, sorted(recorded), end)
-        if set(recorded) - set(by_ticker):
-            gone = sorted(set(recorded) - set(by_ticker))
-            raise RestampRefused(f"{len(gone)} recorded tickers have no bars any more ({', '.join(gone[:5])}): "
-                                 "rebuild them first")
         counts = {s: {"restamped": 0, "current": 0, "left": 0} for s in sources}
         left: set[tuple[str, str]] = set()
         for i, (ticker, bars) in enumerate(by_ticker.items(), 1):
@@ -465,13 +464,23 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
                     left.add((ticker, s))
             if progress and (i % 100 == 0 or i == len(by_ticker)):
                 progress(f"  {i}/{len(by_ticker)} tickers")
+        # No bars any more: never re-keyed, so their files stay under the old code. Listed
+        # under `no_bars`, as a build lists them.
+        gone = sorted(t for t in set(recorded) - set(by_ticker) if any(s in recorded[t] for s in sources))
+        for t in gone:
+            for s in sources:
+                if s in recorded[t]:
+                    counts[s]["left"] += 1
+                    left.add((t, s))
+        manifest["no_bars"] = sorted(set(manifest.get("no_bars", [])) | set(gone))
         # A file left as a miss isn't cached: its record goes, so the manifest claims only hits;
-        # a re-stamped source left with none isn't listed at all.
+        # a re-stamped source that had records and lost them all isn't listed at all.
+        had = {s for c in recorded.values() for s in c}
         tickers = {t: {s: n for s, n in c.items() if (t, s) not in left} for t, c in recorded.items()}
         manifest["tickers"] = {t: c for t, c in tickers.items() if c}
         manifest["n_tickers"] = len(manifest["tickers"])
         kept = {s for c in manifest["tickers"].values() for s in c}
-        emptied = set(sources) - kept
+        emptied = (set(sources) & had) - kept
         manifest["sources"] = [s for s in manifest.get("sources", []) if s not in emptied]
         manifest["configs"] = {s: c for s, c in manifest["configs"].items() if s not in emptied}
         manifest["rows"] = {s: int(sum(c.get(s, 0) for c in manifest["tickers"].values()))
