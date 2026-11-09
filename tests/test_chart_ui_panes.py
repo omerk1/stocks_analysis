@@ -213,34 +213,52 @@ def test_rs_on_a_daily_chart_goes_blank_after_its_prices_end(weekly):
     later = days[days > last_monday + pd.Timedelta(days=13)]
     assert len(next_week) == 5 and daily.loc[next_week].notna().all()
     assert len(later) and daily.loc[later].isna().all()
-    assert panes.rs_data_end(ticker, market, days, Timeframe.DAILY) == (
+    assert panes.rs_data_end(ticker, market, days, Timeframe.DAILY, CFG) == (
         f"RS (Mansfield): total-return prices end the week of {last_monday:%Y-%m-%d}")
-    assert panes.rs_data_end(ticker, market, next_week, Timeframe.DAILY) is None  # bars end inside the shown range
-    assert panes.rs_data_end(ticker, market, ticker.index, Timeframe.WEEKLY) is None
+    assert panes.rs_data_end(ticker, market, next_week, Timeframe.DAILY, CFG) is None  # bars end in the shown range
+    assert panes.rs_data_end(ticker, market, ticker.index, Timeframe.WEEKLY, CFG) is None
+    # the blank and the note agree on where the pane ends: the last day with a value is the last shown day
+    assert daily.last_valid_index() == next_week[-1]
 
 
 def test_rs_line_is_the_close_ratio_with_dots_at_new_highs():
-    idx = pd.bdate_range("2024-01-01", periods=12)
+    idx = pd.bdate_range("2024-01-01", periods=12)  # Jan 1-16
     close = pd.Series([10, 11, 12, 11, 10, 11, 13, 12, 12, 14, 9, 15], index=idx, dtype=float)
     stock = pd.DataFrame({"close": close}, index=idx)
     market = pd.DataFrame({"close": 2.0}, index=idx.delete(5))  # no market bar on day 6
-    cfg = PaneConfig(rs_line_high_daily=3, rs_line_high_weekly=2)
-    frame = panes.rs_line_frame(stock, market, Timeframe.DAILY, cfg)
+    cfg = PaneConfig(rs_line_high_days=4)
+    frame = panes.rs_line_frame(stock, market, cfg)
     assert frame["ratio"].iloc[0] == 5.0 and np.isnan(frame["ratio"].iloc[5])
-    # a high needs a full 3-bar window of ratios: none in the warmup or within 3 bars of the gap
-    highs = frame["high"].dropna()
-    assert list(highs.index) == [idx[2], idx[9], idx[11]]
-    assert frame["high"].iloc[:2].isna().all()  # warmup is blank, not "no high"
-    weekly = panes.rs_line_frame(stock, market, Timeframe.WEEKLY, cfg)
-    assert weekly["high"].notna().sum() > len(highs)  # the 2-bar window finds more
-    empty = panes.rs_line_frame(stock, market.iloc[0:0], Timeframe.DAILY, cfg)
+    # above every ratio of the 4 calendar days before: the gap day is skipped, not a blank
+    # window; nothing in the first 4 days (no full window behind it)
+    assert list(frame["high"].dropna().index) == [idx[6], idx[9], idx[11]]
+    assert frame["high"].iloc[:4].isna().all()
+    empty = panes.rs_line_frame(stock, market.iloc[0:0], cfg)
     assert empty[["ratio", "high"]].isna().all().all()
+
+
+def test_a_flat_rs_line_has_no_dots():
+    idx = pd.bdate_range("2023-01-02", periods=600)
+    spy = pd.DataFrame({"close": 400.0}, index=idx)
+    frame = panes.rs_line_frame(spy, spy, CFG)  # SPY against itself: ratio 1 every day
+    assert (frame["ratio"] == 1.0).all() and frame["high"].isna().all()
+
+
+def test_rs_line_notes_when_the_market_ends_early():
+    idx = pd.bdate_range("2024-01-01", periods=10)
+    stock = pd.DataFrame({"close": 1.0}, index=idx)
+    assert panes.rs_line_end(stock, stock, "SPY") is None
+    assert panes.rs_line_end(stock, stock.iloc[:7], "SPY") == f"RS line: SPY bars end {idx[6]:%Y-%m-%d}"
+    assert panes.rs_line_end(stock, stock.iloc[0:0], "SPY") == "RS line: no SPY bars"
 
 
 def test_rs_line_range_fits_the_ratio_without_zero(bars):
     frame = pd.DataFrame({"ratio": np.linspace(0.4, 0.5, len(bars)), "high": np.nan}, index=bars.index)
     low, high = panes.pane_range(panes.RS_LINE, frame, bars.index[0], bars.index[-1])
     assert 0.3 < low < 0.4 and 0.5 < high < 0.6
+    flat = pd.DataFrame({"ratio": 0.005, "high": np.nan}, index=bars.index)
+    low, high = panes.pane_range(panes.RS_LINE, flat, bars.index[0], bars.index[-1])
+    assert low == pytest.approx(0.00475) and high == pytest.approx(0.00525)  # padded by its own size
 
 
 def test_rs_line_pane_draws_the_line_and_its_dots(bars):
