@@ -1,9 +1,10 @@
-"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-4a): one ticker,
-daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the level
-menu (S/R, gaps, AVWAP, Fibonacci) with its default "relevant now" picks, the
-earnings flags and cards, and the RSI / MACD / RS panes.
+"""The chart UI's Dash app (`docs/features/chart_ui_design.md`, steps 1-4 and 6): one
+ticker, daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the
+level menu with its default "relevant now" picks, the earnings flags and cards, and
+the RSI / MACD / RS panes. A second tab, Groups, ranks the sectors and lists a
+sector's members; click a member to open its chart.
 
-    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--debug]
+    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups] [--debug]
 
 then open http://127.0.0.1:8050. Both databases are opened read-only
 (`mode=ro`), one connection per request.
@@ -20,7 +21,8 @@ from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
-from dash import ALL, MATCH, Dash, Input, Output, Patch, State, ctx, dcc, html, no_update
+from dash import ALL, MATCH, Dash, Input, Output, Patch, State, ctx, dash_table, dcc, html, no_update
+from dash.dash_table.Format import Format, Scheme, Sign
 
 from src.foundation.data_processing import db
 from src.foundation.market_common.derived_db import default_derived_db_path
@@ -29,10 +31,11 @@ from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
 from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
 from src.ui.chart import earnings as earnings_mod
+from src.ui.chart import groups as groups_mod
 from src.ui.chart import overlays as overlays_mod
 from src.ui.chart import panes as panes_mod
 from src.ui.chart import relevance, rs
-from src.ui.chart.config import ChartConfig, ChartType, MASpec, PaneConfig
+from src.ui.chart.config import ChartConfig, ChartType, GroupsConfig, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
 from src.ui.chart.overlays import EVENT_FAMILIES, FAMILIES, FAMILY_NAMES, Overlay
 from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range, earnings_bar, figure_annotations,
@@ -75,6 +78,9 @@ class ChartData:
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
+        # one page for the life of the process (its config never changes), until Reload
+        self._groups_page: groups_mod.GroupsPage | None = None
+        self.groups_note: str | None = None
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -148,6 +154,40 @@ class ChartData:
         except Exception as e:  # noqa: BLE001 -- a card bug mustn't take the chart down
             logger.warning("earnings for %s failed: %s", ticker, e, exc_info=True)
             return (), f"earnings failed: {type(e).__name__}: {e}"
+
+    def groups(self, config: GroupsConfig, reload: bool = False) -> groups_mod.GroupsPage | str:
+        """The groups page, cached until `reload` (the page's Reload button, e.g. after
+        relative strength is rerun). A failure isn't cached, so the next open tries
+        again; a failed reload keeps the page it had (`groups_note` says why)."""
+        self.groups_note = None
+        if reload and self._groups_page is not None:
+            fresh = self._groups(config)
+            if isinstance(fresh, str):
+                self.groups_note = f"reload failed, showing the previous page ({fresh})"
+                return self._groups_page
+            self._groups_page = fresh
+        if self._groups_page is None:
+            page = self._groups(config)
+            if isinstance(page, str):
+                return page
+            self._groups_page = page
+        return self._groups_page
+
+    def _groups(self, config: GroupsConfig) -> groups_mod.GroupsPage | str:
+        """The groups page, or a message saying why there isn't one; never raises."""
+        if not self.derived_path.exists():
+            return "Groups: no derived database"
+        conns: list[sqlite3.Connection] = []
+        try:
+            for path in (self.raw_path, self.derived_path):
+                conns.append(_read_only(path))
+            return groups_mod.build_page(*conns, config)
+        except Exception as e:  # noqa: BLE001 -- a groups bug mustn't take the app down
+            logger.warning("groups page failed: %s", e, exc_info=True)
+            return f"Groups failed: {type(e).__name__}: {e}"
+        finally:
+            for conn in conns:
+                conn.close()
 
     def strip(self, ticker: str, change_days: int) -> rs.RSStrip | str:
         """The strip, or a short message saying why there isn't one; never raises,
@@ -409,16 +449,191 @@ def is_autorange(relayout: dict | None) -> bool:
     return bool(relayout) and any(relayout.get(f"{a}.autorange") for a in _x_axes(relayout))
 
 
-def create_app(data: ChartData | None = None, config: ChartConfig | None = None) -> Dash:
+_TAB = {"padding": "6px 14px"}
+_TAB_ON = {**_TAB, "fontWeight": 600}
+_WHOLE = Format(precision=0, scheme=Scheme.fixed)
+_SIGNED = Format(precision=0, scheme=Scheme.fixed, sign=Sign.positive)
+_PCT = Format(precision=0, scheme=Scheme.percentage)
+_SIGNED_PCT = Format(precision=0, scheme=Scheme.percentage, sign=Sign.positive)
+
+
+def _weeks(days: int) -> str:
+    return f"{days // 7}w" if days % 7 == 0 else f"{days}d"
+
+
+_GREEN, _RED, _MUTED = "#15803d", "#b91c1c", "#64748b"
+_SELECTED = "#f1f5f9"
+_BAR = "#e2e8f0"
+# RS rating shading, [low, high): one hue, darker for higher. A rating is a rank, not a
+# gain or a loss, so green/red stays for signs (changes, distances from the averages).
+_RS_SHADES = ((80, 101, "#93c5fd"), (60, 80, "#bfdbfe"), (40, 60, "#dbeafe"), (20, 40, "#eff6ff"))
+_TEXT_COLUMNS = ("sector", "etf", "ticker", "rated_in", "status")
+_SMALL_COLUMNS = ("etf", "rated_in", "status")
+
+
+def _rs_shading(column: str) -> list[dict]:
+    return [{"if": {"filter_query": f"{{{column}}} >= {lo} && {{{column}}} < {hi}", "column_id": column},
+             "backgroundColor": colour} for lo, hi, colour in _RS_SHADES]
+
+
+def _sign_colours(columns) -> list[dict]:
+    return [style for c in columns for style in (
+        {"if": {"filter_query": f"{{{c}}} > 0", "column_id": c}, "color": _GREEN},
+        {"if": {"filter_query": f"{{{c}}} < 0", "column_id": c}, "color": _RED})]
+
+
+def _base_styles(text_columns=_TEXT_COLUMNS, small_columns=_SMALL_COLUMNS) -> tuple[list[dict], list[dict]]:
+    """(style_cell_conditional, style_header_conditional): text left, notes small and grey."""
+    cells = [{"if": {"column_id": c}, "textAlign": "left"} for c in text_columns]
+    cells += [{"if": {"column_id": c}, "color": _MUTED, "fontSize": "12px"} for c in small_columns]
+    headers = [{"if": {"column_id": c}, "textAlign": "left"} for c in text_columns]
+    return cells, headers
+
+
+def breadth_bar(share: float) -> str:
+    """A cell background filled to `share` (0-1) from the left: a bar under the number."""
+    p = max(0.0, min(1.0, share)) * 100
+    return f"linear-gradient(90deg, {_BAR} 0%, {_BAR} {p:.0f}%, transparent {p:.0f}%, transparent 100%)"
+
+
+def sector_styles(rows: list[dict], selected: str | None, n_shares: int) -> list[dict]:
+    """The sector table's data styles: RS shading, rank changes by sign, the breadth
+    bars (one per row and column, since each fills to its own value) and the selected row."""
+    # later styles win, so the selected row's background goes first: the RS shading
+    # and the bars still show on it
+    styles = ([{"if": {"filter_query": f'{{id}} = "{_quote(selected)}"'}, "backgroundColor": _SELECTED,
+                "fontWeight": 600}] if selected else [])
+    styles += _rs_shading("rating") + _sign_colours([c for c in rows[0] if c.startswith("rank_change_")] if rows
+                                                     else [])
+    for row in rows:
+        for i in range(n_shares):
+            share = row.get(f"above_{i}")
+            if share is not None:
+                styles.append({"if": {"filter_query": f'{{id}} = "{_quote(row["id"])}"', "column_id": f"above_{i}"},
+                               "background": breadth_bar(share)})
+    return styles
+
+
+def member_styles(config: GroupsConfig) -> list[dict]:
+    """The members table's data styles: RS shading, changes and MA distances by sign,
+    near the 52-week high in green, and tickers that left the index greyed out."""
+    near_high = {"if": {"filter_query": "{from_high} >= -0.05", "column_id": "from_high"}, "color": _GREEN,
+                 "fontWeight": 600}
+    gone = {"if": {"filter_query": '{gone} = "yes"'}, "color": "#94a3b8", "backgroundColor": "#f8fafc"}
+    return (_rs_shading("rating") + _sign_colours(["change", *(f"vs_ma_{i}" for i in range(len(config.ma_periods)))])
+            + [near_high, gone, {"if": {"column_id": "ticker"}, "fontWeight": 600}])
+
+
+def sector_columns(config: GroupsConfig) -> list[dict]:
+    num = {"type": "numeric"}
+    return [{"name": "#", "id": "rank", **num},
+            {"name": "Sector", "id": "sector"},
+            {"name": "ETF", "id": "etf"},
+            {"name": "RS", "id": "rating", **num, "format": _WHOLE},
+            *({"name": f"Rank Δ {_weeks(d)}", "id": f"rank_change_{i}", **num, "format": _SIGNED}
+              for i, d in enumerate(config.rank_change_days)),
+            *({"name": f"> {n}d MA", "id": f"above_{i}", **num, "format": _PCT}
+              for i, n in enumerate(config.ma_periods)),
+            {"name": "Members", "id": "members", **num}]
+
+
+def sector_rows(page: groups_mod.GroupsPage) -> tuple[list[dict], list[dict]]:
+    """(the sector table's rows, their tooltips: how many members each share counts)."""
+    rows, tips = [], []
+    for s in page.sectors:
+        row = {"id": s.sector, "rank": s.rank, "sector": s.sector, "etf": s.etf, "rating": s.rating,
+               "members": s.members}
+        tip = {}
+        for i, change in enumerate(s.rank_changes):
+            row[f"rank_change_{i}"] = change
+        for i, (share, n) in enumerate(zip(s.pct_above, s.n_counted)):
+            row[f"above_{i}"] = share
+            tip[f"above_{i}"] = f"of {n} members with the full window and a bar on {page.as_of}"
+        rows.append(row)
+        tips.append(tip)
+    return rows, tips
+
+
+def member_columns(config: GroupsConfig) -> list[dict]:
+    num = {"type": "numeric"}
+    return [{"name": "Ticker", "id": "ticker"},
+            {"name": "RS", "id": "rating", **num, "format": _WHOLE},
+            {"name": f"RS Δ {_weeks(config.member_change_days)}", "id": "change", **num, "format": _SIGNED},
+            {"name": "Rated in", "id": "rated_in"},
+            {"name": "52w high", "id": "from_high", **num, "format": _SIGNED_PCT},
+            *({"name": f"vs {n}d MA", "id": f"vs_ma_{i}", **num, "format": _SIGNED_PCT}
+              for i, n in enumerate(config.ma_periods)),
+            {"name": "Status", "id": "status"}]
+
+
+def shown(value: float | None, digits: int) -> float | None:
+    """`value` rounded as the table shows it, with no negative zero: the table's
+    signed format would print -0.4 as "−0", and its colour would call it a loss."""
+    return None if value is None else round(value, digits) + 0.0
+
+
+def member_rows(page: groups_mod.GroupsPage, sector: str | None) -> list[dict]:
+    rows = []
+    for m in page.members.get(sector, ()):
+        row = {"id": m.ticker, "ticker": m.ticker, "rating": m.rating, "change": shown(m.change, 0),
+               "rated_in": m.rated_in, "from_high": shown(m.pct_from_high, 2), "status": m.status,
+               "gone": "no" if m.member else "yes"}
+        for i, v in enumerate(m.vs_ma):
+            row[f"vs_ma_{i}"] = shown(v, 2)
+        rows.append(row)
+    return rows
+
+
+def groups_header(page: groups_mod.GroupsPage) -> str:
+    parts = [f"As of {page.as_of}, the last sector RS date"]
+    if page.bars_end and page.bars_end > page.as_of:
+        parts.append(f"bars run to {page.bars_end}: rerun relative strength to catch up")
+    if page.not_rated:
+        parts.append(f"not rated that day: {', '.join(page.not_rated)}")
+    if page.no_sector:
+        parts.append(f"members with no sector: {', '.join(page.no_sector)}")
+    return " · ".join(parts)
+
+
+def members_title(sector: str, rows: list[dict], config: GroupsConfig) -> str:
+    listed = sum(r["gone"] == "no" for r in rows)
+    gone = len(rows) - listed
+    return (f"{sector} · {listed} members" + (f" (+{gone} left in the last {config.left_window_days} days)"
+                                               if gone else "") + " · click a ticker for its chart")
+
+
+def selected_sector(page: groups_mod.GroupsPage, current: str | None) -> str | None:
+    """The sector whose members are listed: the one picked, else the top-ranked."""
+    names = [s.sector for s in page.sectors]
+    if current in names:
+        return current
+    return names[0] if names else None
+
+
+def _quote(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def clicked_row(cell: dict | None) -> str | None:
+    """The row id (sector or ticker) of a table click (`active_cell`)."""
+    return (cell or {}).get("row_id") or None
+
+
+PAGES = ("chart", "groups")
+
+
+def create_app(data: ChartData | None = None, config: ChartConfig | None = None, page: str = "chart") -> Dash:
+    if page not in PAGES:
+        raise ValueError(f"page must be one of {PAGES}, not {page!r}")
     data = data or ChartData.from_config()
     config = config or ChartConfig()
     app = Dash(__name__, title="Chart")
 
     radio = dict(inline=True, inputStyle={"marginRight": "4px", "marginLeft": "10px"})
     daily = Timeframe.DAILY
-    app.layout = html.Div(style={"fontFamily": "system-ui, sans-serif", "padding": "8px"}, children=[
-        dcc.Store(id="view"),
-        html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "flexWrap": "wrap"}, children=[
+    chart_page = [
+        html.Div(style={"display": "flex", "gap": "16px", "alignItems": "center", "flexWrap": "wrap",
+                        "paddingTop": "6px"}, children=[
             dcc.Input(id="ticker", value=config.default_ticker, debounce=True, type="text",
                       style={"width": "90px", "textTransform": "uppercase", "fontWeight": 600}),
             dcc.RadioItems(id="timeframe", value=daily.value, **radio,
@@ -465,6 +680,49 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
             ]),
             dcc.Graph(id="chart", style={"flexGrow": 1, "height": "82vh"},
                       config={"scrollZoom": True, "displaylogo": False}),
+        ]),
+    ]
+    gc = config.groups
+    cell_styles, header_styles = _base_styles()
+    table_style = dict(
+        sort_action="native", cell_selectable=True, style_as_list_view=True,
+        style_cell={"fontFamily": "system-ui, sans-serif", "fontSize": "13px", "padding": "4px 10px",
+                    "border": "none", "borderBottom": "1px solid #f1f5f9", "whiteSpace": "nowrap"},
+        style_header={"fontWeight": 600, "fontSize": "12px", "color": _MUTED, "backgroundColor": "white",
+                      "borderBottom": "2px solid #e2e8f0"},
+        style_cell_conditional=cell_styles, style_header_conditional=header_styles,
+        css=[{"selector": "tr:hover td", "rule": "cursor: pointer;"},
+             # a sticky header row (DataTable's fixed_rows can misalign unsized columns)
+             {"selector": "th", "rule": "position: sticky; top: 0; z-index: 1;"}])
+    title = {"fontWeight": 600, "fontSize": "15px", "marginBottom": "6px"}
+    groups_page = html.Div(style={"paddingTop": "8px"}, children=[
+        html.Div(style={"display": "flex", "gap": "12px", "alignItems": "center", "marginBottom": "10px"}, children=[
+            html.Span(id="groups-head", style={"color": _MUTED, "fontSize": "13px"}),
+            html.Button("Reload", id="groups-reload", n_clicks=0, style={"fontSize": "12px"}),
+        ]),
+        dcc.Loading(type="dot", children=html.Div(
+            style={"display": "flex", "gap": "28px", "alignItems": "flex-start", "flexWrap": "wrap"}, children=[
+                html.Div(style={"flex": "0 0 auto"}, children=[
+                    html.Div("Sectors", style=title),
+                    dash_table.DataTable(id="sectors", columns=sector_columns(gc), data=[], tooltip_delay=0,
+                                         tooltip_duration=None, **table_style),
+                    html.Div("Click a sector for its members. Bars: share of members above the average.",
+                             style={"color": _MUTED, "fontSize": "12px", "marginTop": "6px"}),
+                ]),
+                html.Div(style={"flex": "1 1 560px", "maxWidth": "900px"}, children=[
+                    html.Div(id="members-title", style=title),
+                    dash_table.DataTable(id="members", columns=member_columns(gc), data=[], page_action="none",
+                                         style_data_conditional=member_styles(gc),
+                                         style_table={"maxHeight": "76vh", "overflowY": "auto"}, **table_style),
+                ]),
+            ])),
+    ])
+    app.layout = html.Div(style={"fontFamily": "system-ui, sans-serif", "padding": "8px"}, children=[
+        dcc.Store(id="view"),
+        dcc.Store(id="group-sector"),
+        dcc.Tabs(id="page", value=page, style={"height": "34px"}, children=[
+            dcc.Tab(label="Chart", value="chart", children=chart_page, style=_TAB, selected_style=_TAB_ON),
+            dcc.Tab(label="Groups", value="groups", children=[groups_page], style=_TAB, selected_style=_TAB_ON),
         ]),
     ])
 
@@ -581,6 +839,49 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None)
                                                             ranges["yaxis"])
         return patch, view
 
+    # The groups page is built the first time its tab opens (a few seconds), then cached
+    # until "Reload".
+    @app.callback(Output("groups-head", "children"), Output("sectors", "data"), Output("sectors", "tooltip_data"),
+                  Output("group-sector", "data"), Input("page", "value"), Input("groups-reload", "n_clicks"),
+                  State("group-sector", "data"))
+    def _groups(page_value, _reload, current):
+        if page_value != "groups":
+            return no_update, no_update, no_update, no_update
+        page = data.groups(gc, reload=ctx.triggered_id == "groups-reload")
+        if isinstance(page, str):
+            return page, [], [], None
+        rows, tips = sector_rows(page)
+        header = " · ".join(filter(None, [groups_header(page), data.groups_note]))
+        return header, rows, tips, selected_sector(page, current)
+
+    # The clicked cell is cleared: the row highlight shows the pick, and the cell's own
+    # focus style would hide its shading.
+    @app.callback(Output("group-sector", "data", allow_duplicate=True), Output("sectors", "active_cell"),
+                  Input("sectors", "active_cell"), prevent_initial_call=True)
+    def _pick_sector(cell):
+        sector = clicked_row(cell)
+        return (sector, None) if sector else (no_update, no_update)
+
+    # Also on the sector table's data, so a Reload refreshes the members of the same sector.
+    @app.callback(Output("members", "data"), Output("members-title", "children"),
+                  Output("sectors", "style_data_conditional"), Input("group-sector", "data"),
+                  Input("sectors", "data"))
+    def _members(sector, sector_data):
+        page = data.groups(gc) if sector else None
+        if not isinstance(page, groups_mod.GroupsPage):
+            return [], "", []
+        rows = member_rows(page, sector)
+        return rows, members_title(sector, rows, gc), sector_styles(sector_data or [], sector, len(gc.ma_periods))
+
+    # A click on a member opens its chart; the cell is cleared so a second click on it works too.
+    @app.callback(Output("ticker", "value"), Output("page", "value"), Output("members", "active_cell"),
+                  Input("members", "active_cell"), prevent_initial_call=True)
+    def _open_chart(cell):
+        ticker = clicked_row(cell)
+        if not ticker:
+            return no_update, no_update, no_update
+        return ticker, "chart", None
+
     return app
 
 
@@ -592,10 +893,11 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m src.ui.chart.app")
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--ticker", default=ChartConfig.default_ticker, help="the ticker the page opens on")
+    parser.add_argument("--page", choices=PAGES, default="chart", help="the tab the page opens on")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
     config = replace(ChartConfig(), default_ticker=args.ticker.strip().upper())
-    create_app(config=config).run(host="127.0.0.1", port=args.port, debug=args.debug)
+    create_app(config=config, page=args.page).run(host="127.0.0.1", port=args.port, debug=args.debug)
 
 
 if __name__ == "__main__":
