@@ -157,13 +157,13 @@ def test_gone_ticker_is_delisted_only_when_marked_inactive(conns):
     _gone(raw, {"NOBARS": "2026-09-01", "STALE": "2026-09-05", "ENDED": "2026-09-06"})
     _bars(raw, "STALE", "2026-09-04", 300, 1.0)  # bars stop, but nothing says it's delisted
     _bars(raw, "ENDED", "2026-09-04", 300, 1.0)
-    _tickers(raw, {"STALE": True, "ENDED": False})
+    _tickers(raw, {"STALE": True, "ENDED": False, "LEFT": False})  # LEFT: inactive today, still trading then
     status = {m.ticker: m.status for m in groups.build_page(raw, derived, GroupsConfig()).members["Technology"]}
     assert status["NOBARS"] == "left the index 2026-09-01, no bars"
     assert status["STALE"] == "left the index 2026-09-05, bars end 2026-09-04"
     assert status["ENDED"] == "delisted, left the index 2026-09-06, last bar 2026-09-04"
     assert status["GONE"] == "delisted, left the index 2026-08-20, last bar 2026-08-19"
-    assert status["LEFT"] == "left the index 2026-09-10"  # not in `tickers`, still trading
+    assert status["LEFT"] == "left the index 2026-09-10"  # a bar on the page date: not delisted
 
 
 def test_sector_with_members_but_no_rating_is_listed_unranked(conns):
@@ -270,6 +270,15 @@ def test_a_failed_page_is_not_cached_and_reload_rebuilds(page):
     assert data.groups(GroupsConfig()) is page  # the failure was retried
     assert data.groups(GroupsConfig()) is page and data.calls == 2  # the page is cached
     assert data.groups(GroupsConfig(), reload=True) is page and data.calls == 3
+    assert data.groups_note is None
+
+
+def test_a_failed_reload_keeps_the_previous_page(page):
+    data = CountingData([page, "Groups failed: locked"])
+    assert data.groups(GroupsConfig()) is page
+    assert data.groups(GroupsConfig(), reload=True) is page
+    assert data.groups_note == "reload failed, showing the previous page (Groups failed: locked)"
+    assert data.groups(GroupsConfig()) is page and data.groups_note is None and data.calls == 2
 
 
 def test_sector_styles_bars_signs_and_selection(page):
@@ -282,6 +291,7 @@ def test_sector_styles_bars_signs_and_selection(page):
         "rank_change_0", "rank_change_1"}
     selected = [s for s in styles if s.get("backgroundColor") == "#e0f2fe"]
     assert selected == [{"if": {"filter_query": '{id} = "Energy"'}, "backgroundColor": "#e0f2fe", "fontWeight": 600}]
+    assert styles[0] == selected[0]  # first, so the RS shading after it still shows on the selected row
     assert app_mod.sector_styles([], None, 2) == app_mod._rs_shading("rating")
 
 

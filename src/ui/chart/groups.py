@@ -3,8 +3,9 @@ sector (`docs/features/chart_ui_design.md`, "Groups and rankings"). Stored
 numbers and the price data only; nothing is written.
 
 Everything on the page is on one date, the page date: the latest date in the
-last week on which the most sectors have a stored rating (`rs.rank_date`, the
-rule the RS strip's sector rank uses too). Membership, member ratings and the
+7 days before the last rated date, both ends included, on which the most
+sectors have a stored rating (`rs.rank_date`, the rule the RS strip's sector
+rank uses too; "not rated that day" uses the same window). Membership, member ratings and the
 price columns are all as of that date, so the page is behind the bars when the
 relative-strength module hasn't been rerun since they were ingested.
 
@@ -21,7 +22,7 @@ relative-strength module hasn't been rerun since they were ingested.
   indices together); sectors are `ticker_sector`'s. A ticker that left all of
   them in the `left_window_days` before the page date stays listed, after the
   members, with its last values: "delisted" only when `tickers` marks it
-  inactive, else "left the index", saying when its bars end or that it has
+  inactive (today's flag) and it has no bar on the page date, else "left the index", saying when its bars end or that it has
   none. It isn't counted in the sector's members or breadth.
 - Price columns are on the chart's basis (traded, split-adjusted only), read in
   bulk (Tiingo for tickers yfinance has no bars for, as `load_prices` says) and
@@ -159,10 +160,10 @@ def price_stats(prices: pd.DataFrame, ma_periods: tuple[int, ...], high_bars: in
     count = by_ticker.size()
     out = pd.DataFrame({"last_bar": by_ticker["date"].last()})
     # the max over a window skips missing highs, as a close-only bar has none
-    high = bars.groupby("ticker").tail(high_bars).groupby("ticker")["high"].max()
+    high = by_ticker.tail(high_bars).groupby("ticker")["high"].max()
     out["pct_from_high"] = (last / high - 1).where(count >= high_bars)
     for n in ma_periods:
-        ma = bars.groupby("ticker").tail(n).groupby("ticker")["close"].mean()
+        ma = by_ticker.tail(n).groupby("ticker")["close"].mean()
         out[f"vs_ma_{n}"] = (last / ma - 1).where(count >= n)
     return out[columns]
 
@@ -205,7 +206,9 @@ def _status(member: bool, left: str | None, last_bar: str | None, active: bool |
         if rating is not None and rating.as_of != as_of:
             notes.append(f"rating from {rating.as_of}")
         return ", ".join(notes)
-    if active is False:
+    # `active` is today's flag, not point-in-time: a ticker still trading on the page
+    # date isn't called delisted even if it's inactive now (e.g. renamed since)
+    if active is False and (last_bar is None or last_bar < as_of):
         return f"delisted, left the index {left}" + (f", last bar {last_bar}" if last_bar else "")
     if last_bar is None:
         return f"left the index {left}, no bars"

@@ -78,7 +78,9 @@ class ChartData:
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
-        self._groups_cached = lru_cache(maxsize=1)(self._groups)
+        # one page for the life of the process (its config never changes), until Reload
+        self._groups_page: groups_mod.GroupsPage | None = None
+        self.groups_note: str | None = None
 
     @classmethod
     def from_config(cls) -> "ChartData":
@@ -155,13 +157,21 @@ class ChartData:
 
     def groups(self, config: GroupsConfig, reload: bool = False) -> groups_mod.GroupsPage | str:
         """The groups page, cached until `reload` (the page's Reload button, e.g. after
-        relative strength is rerun). A failure isn't cached, so the next open tries again."""
-        if reload:
-            self._groups_cached.cache_clear()
-        page = self._groups_cached(config)
-        if isinstance(page, str):
-            self._groups_cached.cache_clear()
-        return page
+        relative strength is rerun). A failure isn't cached, so the next open tries
+        again; a failed reload keeps the page it had (`groups_note` says why)."""
+        self.groups_note = None
+        if reload and self._groups_page is not None:
+            fresh = self._groups(config)
+            if isinstance(fresh, str):
+                self.groups_note = f"reload failed, showing the previous page ({fresh})"
+                return self._groups_page
+            self._groups_page = fresh
+        if self._groups_page is None:
+            page = self._groups(config)
+            if isinstance(page, str):
+                return page
+            self._groups_page = page
+        return self._groups_page
 
     def _groups(self, config: GroupsConfig) -> groups_mod.GroupsPage | str:
         """The groups page, or a message saying why there isn't one; never raises."""
@@ -488,17 +498,18 @@ def breadth_bar(share: float) -> str:
 def sector_styles(rows: list[dict], selected: str | None, n_shares: int) -> list[dict]:
     """The sector table's data styles: RS shading, rank changes by sign, the breadth
     bars (one per row and column, since each fills to its own value) and the selected row."""
-    styles = _rs_shading("rating") + _sign_colours([c for c in rows[0] if c.startswith("rank_change_")] if rows
-                                                    else [])
+    # later styles win, so the selected row's background goes first: the RS shading
+    # and the bars still show on it
+    styles = ([{"if": {"filter_query": f'{{id}} = "{_quote(selected)}"'}, "backgroundColor": _SELECTED,
+                "fontWeight": 600}] if selected else [])
+    styles += _rs_shading("rating") + _sign_colours([c for c in rows[0] if c.startswith("rank_change_")] if rows
+                                                     else [])
     for row in rows:
         for i in range(n_shares):
             share = row.get(f"above_{i}")
             if share is not None:
                 styles.append({"if": {"filter_query": f'{{id}} = "{_quote(row["id"])}"', "column_id": f"above_{i}"},
                                "background": breadth_bar(share)})
-    if selected:
-        styles.append({"if": {"filter_query": f'{{id}} = "{_quote(selected)}"'}, "backgroundColor": _SELECTED,
-                       "fontWeight": 600})
     return styles
 
 
@@ -672,8 +683,9 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         style_header={"fontWeight": 600, "fontSize": "12px", "color": _MUTED, "backgroundColor": "white",
                       "borderBottom": "2px solid #e2e8f0"},
         style_cell_conditional=cell_styles, style_header_conditional=header_styles,
-        css=[{"selector": "tr:hover td", "rule": "background-color: #f8fafc !important; cursor: pointer;"},
-             {"selector": "td.focused", "rule": "background-color: inherit !important; border: none !important;"}])
+        css=[{"selector": "tr:hover td", "rule": "cursor: pointer;"},
+             # a sticky header row (DataTable's fixed_rows can misalign unsized columns)
+             {"selector": "th", "rule": "position: sticky; top: 0; z-index: 1;"}])
     title = {"fontWeight": 600, "fontSize": "15px", "marginBottom": "6px"}
     groups_page = html.Div(style={"paddingTop": "8px"}, children=[
         html.Div(style={"display": "flex", "gap": "12px", "alignItems": "center", "marginBottom": "10px"}, children=[
@@ -692,7 +704,7 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                 html.Div(style={"flex": "1 1 560px", "maxWidth": "900px"}, children=[
                     html.Div(id="members-title", style=title),
                     dash_table.DataTable(id="members", columns=member_columns(gc), data=[], page_action="none",
-                                         fixed_rows={"headers": True}, style_data_conditional=member_styles(gc),
+                                         style_data_conditional=member_styles(gc),
                                          style_table={"maxHeight": "76vh", "overflowY": "auto"}, **table_style),
                 ]),
             ])),
@@ -831,12 +843,16 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         if isinstance(page, str):
             return page, [], [], None
         rows, tips = sector_rows(page)
-        return groups_header(page), rows, tips, selected_sector(page, current)
+        header = " · ".join(filter(None, [groups_header(page), data.groups_note]))
+        return header, rows, tips, selected_sector(page, current)
 
-    @app.callback(Output("group-sector", "data", allow_duplicate=True), Input("sectors", "active_cell"),
-                  prevent_initial_call=True)
+    # The clicked cell is cleared: the row highlight shows the pick, and the cell's own
+    # focus style would hide its shading.
+    @app.callback(Output("group-sector", "data", allow_duplicate=True), Output("sectors", "active_cell"),
+                  Input("sectors", "active_cell"), prevent_initial_call=True)
     def _pick_sector(cell):
-        return clicked_row(cell) or no_update
+        sector = clicked_row(cell)
+        return (sector, None) if sector else (no_update, no_update)
 
     # Also on the sector table's data, so a Reload refreshes the members of the same sector.
     @app.callback(Output("members", "data"), Output("members-title", "children"),
