@@ -620,17 +620,17 @@ def test_restamp_refuses_another_code_hash_or_a_changed_config(tmp_path, monkeyp
     assert ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes()) == before  # refused before any change
 
 
-def test_restamp_drops_a_ticker_with_no_bars_and_a_source_left_with_no_records(tmp_path, monkeypatch):
+def test_restamp_refuses_a_db_missing_recorded_tickers_bars(tmp_path, monkeypatch):
     real = level_cache.code_hash
     monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
     c = _one_ticker_cache(tmp_path, ("sr_line",))
     monkeypatch.setattr(level_cache, "code_hash", real)
+    before = (tmp_path / level_cache.MANIFEST).read_bytes()
     c.execute("DELETE FROM bars_1d WHERE ticker = 'AAA'")
-    m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    with pytest.raises(level_cache.RestampRefused, match="no bars in this DB"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     c.close()
-    assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 0, "left": 1}
-    assert m["tickers"] == {} and m["no_bars"] == ["AAA"]
-    assert "sr_line" not in m["sources"] and "sr_line" not in m["configs"] and "sr_line" not in m["code_hashes"]
+    assert (tmp_path / level_cache.MANIFEST).read_bytes() == before
 
 
 def test_a_build_of_one_source_drops_another_sources_records_after_its_config_changed(tmp_path, monkeypatch):
