@@ -566,13 +566,20 @@ def member_columns(config: GroupsConfig) -> list[dict]:
             {"name": "Status", "id": "status"}]
 
 
+def shown(value: float | None, digits: int) -> float | None:
+    """`value` rounded as the table shows it, with no negative zero: the table's
+    signed format would print -0.4 as "−0", and its colour would call it a loss."""
+    return None if value is None else round(value, digits) + 0.0
+
+
 def member_rows(page: groups_mod.GroupsPage, sector: str | None) -> list[dict]:
     rows = []
     for m in page.members.get(sector, ()):
-        row = {"id": m.ticker, "ticker": m.ticker, "rating": m.rating, "change": m.change, "rated_in": m.rated_in,
-               "from_high": m.pct_from_high, "status": m.status, "gone": "no" if m.member else "yes"}
+        row = {"id": m.ticker, "ticker": m.ticker, "rating": m.rating, "change": shown(m.change, 0),
+               "rated_in": m.rated_in, "from_high": shown(m.pct_from_high, 2), "status": m.status,
+               "gone": "no" if m.member else "yes"}
         for i, v in enumerate(m.vs_ma):
-            row[f"vs_ma_{i}"] = v
+            row[f"vs_ma_{i}"] = shown(v, 2)
         rows.append(row)
     return rows
 

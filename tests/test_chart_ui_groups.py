@@ -296,6 +296,12 @@ def test_sector_styles_bars_signs_and_selection(page):
     assert app_mod.sector_styles([], None, 2) == app_mod._rs_shading("rating")
 
 
+def test_shown_values_have_no_negative_zero():
+    assert str(app_mod.shown(-0.4, 0)) == "0.0" and app_mod.shown(-0.6, 0) == -1.0
+    assert str(app_mod.shown(-0.004, 2)) == "0.0" and app_mod.shown(-0.026, 2) == -0.03
+    assert app_mod.shown(None, 0) is None
+
+
 def test_breadth_bar_is_clamped():
     assert "60%" in app_mod.breadth_bar(0.6)
     assert "100%, transparent 100%" in app_mod.breadth_bar(1.4)
