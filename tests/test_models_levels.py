@@ -24,6 +24,7 @@ from src.signals.avwap.anchors import detect as avwap_detect
 from src.signals.avwap.compute import anchored_vwap_std
 from src.signals.fibonacci import engine as fib_engine
 from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.levels import compute_levels
 from src.signals.fibonacci.models import FibSetStatus
 from src.signals.fibonacci.swings import candidate_swings, dedup_cross_scale as fib_dedup
 from src.signals.sr_lines import engine as sr_engine
@@ -226,11 +227,16 @@ def test_fib_dedup_uses_only_the_swings_known_that_day(conn, bars):
             first = min(pd.Timestamp(k.confirmed_at) for k in later_twins)
             eve = bars.index[bars.index < first][-1]
             if eve >= confirmed and bars.index.get_loc(eve) + 1 >= cfg.min_bars:
-                eves.append(eve)
+                eves.append((eve, s))
     assert eves, "fixture should have a swing that a later-confirmed twin removes"
-    out = levels.fib_levels(bars, eves, cfg)
-    for t in eves:
+    out = levels.fib_levels(bars, [t for t, _ in eves], cfg)
+    for t, _ in eves:
         assert _fib_rows(out, t) == _fib_as_of(conn, t, cfg), t
+    # ... and on some eve the swing deduped away in hindsight is really there (a full-history
+    # dedup would have dropped it, which agreeing with the as-of run alone can't rule out).
+    price = {s.origin_date: compute_levels(s, cfg)[0].price for _, s in eves}
+    assert any(((out["date"] == t) & (out["formed"] == pd.Timestamp(s.origin_date))
+                & np.isclose(out["lo"], price[s.origin_date])).any() for t, s in eves)
 
 
 def test_no_fib_level_on_or_before_the_cut_depends_on_a_later_bar(bars):
@@ -247,6 +253,14 @@ def test_no_fib_level_before_min_bars(bars):
     cfg = FibConfig()
     out = levels.fib_levels(bars, bars.index[:cfg.min_bars + 60], cfg)
     assert out["date"].min() >= bars.index[cfg.min_bars - 1]
+
+
+def test_fib_levels_have_the_same_dtypes_with_and_without_rows(bars):
+    cfg = FibConfig()
+    none = levels.fib_levels(bars.iloc[:cfg.min_bars - 1], bars.index[:5], cfg)
+    some = levels.fib_levels(bars, bars.index[-5:], cfg)
+    assert none.empty and not some.empty
+    pd.testing.assert_series_equal(none.dtypes, some.dtypes)
 
 
 def test_fib_levels_refuse_a_warmup_the_as_of_run_would_shorten(bars):
