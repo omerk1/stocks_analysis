@@ -213,10 +213,17 @@ def test_rs_on_a_daily_chart_goes_blank_after_its_prices_end(weekly):
     later = days[days > last_monday + pd.Timedelta(days=13)]
     assert len(next_week) == 5 and daily.loc[next_week].notna().all()
     assert len(later) and daily.loc[later].isna().all()
-    assert panes.rs_data_end(ticker, market, days, Timeframe.DAILY, CFG) == (
+    def note(index, timeframe, t=ticker):
+        return panes.rs_pane_data(index, timeframe, t, market, CFG)[1]
+
+    assert note(days, Timeframe.DAILY) == f"RS (Mansfield): total-return prices end the week of {last_monday:%Y-%m-%d}"
+    assert note(next_week, Timeframe.DAILY) is None  # the bars end within the shown range
+    assert note(ticker.index, Timeframe.WEEKLY) is None
+    # under a year of history: no Mansfield value at all, but the note still says where the prices end
+    short = ticker.iloc[-40:]
+    assert panes.rs_frame(days, Timeframe.DAILY, short, market, CFG)["mansfield"].isna().all()
+    assert note(days, Timeframe.DAILY, short) == (
         f"RS (Mansfield): total-return prices end the week of {last_monday:%Y-%m-%d}")
-    assert panes.rs_data_end(ticker, market, next_week, Timeframe.DAILY, CFG) is None  # bars end in the shown range
-    assert panes.rs_data_end(ticker, market, ticker.index, Timeframe.WEEKLY, CFG) is None
     # the blank and the note agree on where the pane ends: the last day with a value is the last shown day
     assert daily.last_valid_index() == next_week[-1]
 
@@ -235,6 +242,16 @@ def test_rs_line_is_the_close_ratio_with_dots_at_new_highs():
     assert frame["high"].iloc[:4].isna().all()
     empty = panes.rs_line_frame(stock, market.iloc[0:0], cfg)
     assert empty[["ratio", "high"]].isna().all().all()
+
+
+def test_a_zero_close_is_a_gap_not_a_year_long_high():
+    idx = pd.bdate_range("2023-01-02", periods=600)
+    stock = pd.DataFrame({"close": np.linspace(10, 20, 600)}, index=idx)  # rising: new highs all along
+    market = pd.DataFrame({"close": 1.0}, index=idx)
+    market.iloc[300, 0] = 0.0
+    frame = panes.rs_line_frame(stock, market, CFG)
+    assert np.isnan(frame["ratio"].iloc[300])
+    assert frame["high"].iloc[301:].notna().all()
 
 
 def test_a_flat_rs_line_has_no_dots():
@@ -259,6 +276,9 @@ def test_rs_line_range_fits_the_ratio_without_zero(bars):
     flat = pd.DataFrame({"ratio": 0.005, "high": np.nan}, index=bars.index)
     low, high = panes.pane_range(panes.RS_LINE, flat, bars.index[0], bars.index[-1])
     assert low == pytest.approx(0.00475) and high == pytest.approx(0.00525)  # padded by its own size
+    nearly = pd.DataFrame({"ratio": 0.005 + np.arange(len(bars)) * 1e-16, "high": np.nan}, index=bars.index)
+    low, high = panes.pane_range(panes.RS_LINE, nearly, bars.index[0], bars.index[-1])
+    assert high - low > 0.0004  # not a sliver
 
 
 def test_rs_line_pane_draws_the_line_and_its_dots(bars):

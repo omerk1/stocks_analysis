@@ -319,7 +319,7 @@ def _pane_traces(pane: panes_mod.Pane) -> list[go.BaseTraceType]:
     if pane.key == panes_mod.RS_LINE:
         return [go.Scatter(x=f.index, y=f["ratio"], mode="lines", name=pane.label, uid="rs-line", showlegend=False,
                            line=dict(color="#1e3a8a", width=1.2),
-                           hovertemplate=f"{pane.label} %{{y:.4g}}<extra></extra>"),
+                           hovertemplate=f"{pane.label} %{{y:,.4r}}<extra></extra>"),  # 4 significant, no exponent
                 go.Scatter(x=f.index, y=f["high"], mode="markers", name="RS line new high", uid="rs-line-high",
                            showlegend=False, marker=dict(color="#2563eb", size=6, opacity=0.8),
                            hovertemplate="RS line at a 52-week high<extra></extra>")]

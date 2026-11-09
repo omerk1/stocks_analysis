@@ -66,40 +66,33 @@ def rs_frame(index: pd.DatetimeIndex, timeframe: Timeframe, ticker_weekly: pd.Se
     the week after it: past that the next week would have completed, so a day with
     no newer week means the total-return prices have ended, and it's left blank
     rather than carrying a stale value forward."""
+    return rs_pane_data(index, timeframe, ticker_weekly, market_weekly, config)[0]
+
+
+def rs_pane_data(index: pd.DatetimeIndex, timeframe: Timeframe, ticker_weekly: pd.Series,
+                 market_weekly: pd.Series, config: PaneConfig) -> tuple[pd.DataFrame, str | None]:
+    """(`rs_frame`'s frame, a note when its prices end before the chart's bars), from
+    one weekly series, so the blank and the note always agree on where it ends."""
     if ticker_weekly.empty or market_weekly.empty:
-        return pd.DataFrame({"mansfield": np.nan}, index=index)
+        return pd.DataFrame({"mansfield": np.nan}, index=index), None
     weekly = rs_compute._weekly_mansfield(ticker_weekly, market_weekly, config.mansfield_weeks)
+    # the last week with a value; with none yet (under a year of history), the last
+    # week both price series have, so the note still says where the prices end
+    valued = weekly.dropna()
+    last_week = valued.index.max() if not valued.empty else min(ticker_weekly.index.max(),
+                                                                 market_weekly.index.max())
+    # a weekly chart shows that week; a daily one also the days after it that its value
+    # covers, until the next week would have completed
+    shown_to = (last_week.to_period("W-SUN").end_time.normalize() + pd.Timedelta(days=7)
+                if timeframe == Timeframe.DAILY else last_week)
     if timeframe == Timeframe.WEEKLY:
         values = weekly.reindex(index)
     else:
-        values = rs_compute._completed_weeks_as_of_daily(weekly, index)
-        shown_to = _mansfield_shown_to(weekly, timeframe)
-        if shown_to is not None:
-            values = values.where(index <= shown_to)
-    return pd.DataFrame({"mansfield": values.to_numpy()}, index=index)
-
-
-def _mansfield_shown_to(weekly: pd.Series, timeframe: Timeframe) -> pd.Timestamp | None:
-    """The last day the Mansfield pane has a value for: its last valued week's end on
-    a weekly chart, a week later on a daily one (the days that week's value covers)."""
-    valued = weekly.dropna()
-    if valued.empty:
-        return None
-    week_end = valued.index.max().to_period("W-SUN").end_time.normalize()
-    return week_end + pd.Timedelta(days=7) if timeframe == Timeframe.DAILY else valued.index.max()
-
-
-def rs_data_end(ticker_weekly: pd.Series, market_weekly: pd.Series, index: pd.DatetimeIndex,
-                timeframe: Timeframe, config: PaneConfig) -> str | None:
-    """A note when the Mansfield pane ends before the chart's bars (from the same
-    last valued week `rs_frame` blanks after), else None."""
-    if ticker_weekly.empty or market_weekly.empty or index.empty:
-        return None
-    weekly = rs_compute._weekly_mansfield(ticker_weekly, market_weekly, config.mansfield_weeks)
-    shown_to = _mansfield_shown_to(weekly, timeframe)
-    if shown_to is None or index.max() <= shown_to:
-        return None
-    return f"RS (Mansfield): total-return prices end the week of {weekly.dropna().index.max():%Y-%m-%d}"
+        values = rs_compute._completed_weeks_as_of_daily(weekly, index).where(index <= shown_to)
+    frame = pd.DataFrame({"mansfield": values.to_numpy()}, index=index)
+    note = (f"RS (Mansfield): total-return prices end the week of {last_week:%Y-%m-%d}"
+            if not index.empty and index.max() > shown_to else None)
+    return frame, note
 
 
 def rs_line_frame(bars: pd.DataFrame, market_bars: pd.DataFrame, config: PaneConfig) -> pd.DataFrame:
@@ -114,11 +107,11 @@ def rs_line_frame(bars: pd.DataFrame, market_bars: pd.DataFrame, config: PaneCon
     for the first `rs_line_high_days` of the line (no full year behind it)."""
     if bars.empty or market_bars.empty:
         return pd.DataFrame({"ratio": np.nan, "high": np.nan}, index=bars.index)
-    valued = indicators.ratio(bars["close"], market_bars["close"]).dropna()
+    # a zero close gives inf, which would be the rolling high for a year: dropped like a gap
+    valued = indicators.ratio(bars["close"], market_bars["close"]).replace([np.inf, -np.inf], np.nan).dropna()
     window = pd.Timedelta(days=config.rs_line_high_days)
     prior_high = valued.rolling(window, closed="left").max()
-    high = valued.where((valued > prior_high) & (valued.index >= valued.index.min() + window)) \
-        if not valued.empty else valued
+    high = valued.where((valued > prior_high) & (valued.index >= valued.index.min() + window))
     return pd.DataFrame({"ratio": valued.reindex(bars.index), "high": high.reindex(bars.index)}, index=bars.index)
 
 
@@ -147,6 +140,7 @@ def pane_range(key: str, frame: pd.DataFrame, start, end) -> list[float]:
     low, high = float(values.min()), float(values.max())
     if key != RS_LINE:
         low, high = min(low, 0.0), max(high, 0.0)
-    # a flat window: pad by the value's own size (a ratio of 0.005 in a +/-1 range is a flat line)
-    pad = (high - low) * 0.08 or abs(high) * 0.05 or 1.0
+    # a flat or nearly flat window: at least a pad of the value's own size (a ratio of
+    # 0.005 in a +/-1 range, or in a 1e-14-wide one, isn't readable)
+    pad = max((high - low) * 0.08, abs(high) * 0.05) or 1.0
     return [low - pad, high + pad]
