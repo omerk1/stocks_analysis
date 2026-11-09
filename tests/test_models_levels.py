@@ -605,15 +605,23 @@ def test_restamp_refuses_another_code_hash_or_a_changed_config(tmp_path, monkeyp
     monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
     c = _one_ticker_cache(tmp_path, ("sr_line",))
     monkeypatch.setattr(level_cache, "code_hash", real)
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    before = ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes())
     with pytest.raises(level_cache.RestampRefused, match="recorded under code 'old', not 'olf'"):
         level_cache.restamp(c, tmp_path, "olf", ("sr_line",), progress=None)
+    with pytest.raises(level_cache.RestampRefused, match="isn't a source this cache was built for"):
+        level_cache.restamp(c, tmp_path, "old", ("avwap",), progress=None)
     defaults = levels.default_configs
     monkeypatch.setattr(level_cache.levels, "default_configs",
                         lambda: {**defaults(), "sr_line": dataclasses.replace(defaults()["sr_line"], window_years=8.0)})
     with pytest.raises(level_cache.RestampRefused, match="config changed"):
         level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    monkeypatch.setattr(level_cache.levels, "default_configs", defaults)
+    c.execute("DELETE FROM bars_1d WHERE ticker = 'AAA'")
+    with pytest.raises(level_cache.RestampRefused, match="no bars any more"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     c.close()
-    assert json.loads((tmp_path / level_cache.MANIFEST).read_text())["tickers"]  # refused before any change
+    assert ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes()) == before  # refused before any change
 
 
 def test_a_build_of_one_source_drops_another_sources_records_after_its_config_changed(tmp_path, monkeypatch):
