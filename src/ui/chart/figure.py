@@ -316,6 +316,13 @@ def _pane_traces(pane: panes_mod.Pane) -> list[go.BaseTraceType]:
                            line=dict(color="#2563eb", width=1.2)),
                 go.Scatter(x=f.index, y=f["signal"], mode="lines", name="Signal", uid="macd-signal",
                            showlegend=False, line=dict(color="#f59e0b", width=1.2))]
+    if pane.key == panes_mod.RS_LINE:
+        return [go.Scatter(x=f.index, y=f["ratio"], mode="lines", name=pane.label, uid="rs-line", showlegend=False,
+                           line=dict(color="#1e3a8a", width=1.2),
+                           hovertemplate=f"{pane.label} %{{y:.4f}}<extra></extra>"),
+                go.Scatter(x=f.index, y=f["high"], mode="markers", name="RS line new high", uid="rs-line-high",
+                           showlegend=False, marker=dict(color="#2563eb", size=6, opacity=0.8),
+                           hovertemplate="RS line at a 52-week high<extra></extra>")]
     column = {panes_mod.RSI: "rsi", panes_mod.RS: "mansfield"}[pane.key]
     return [go.Scatter(x=f.index, y=f[column], mode="lines", name=pane.label, uid=pane.key, showlegend=False,
                        line=dict(color="#7c3aed", width=1.2), hovertemplate=f"{pane.label} %{{y:.1f}}<extra></extra>")]

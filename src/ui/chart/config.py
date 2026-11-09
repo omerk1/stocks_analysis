@@ -84,6 +84,10 @@ class PaneConfig:
     macd: tuple[int, int, int] = (12, 26, 9)  # fast, slow, signal
     market: str = "SPY"
     mansfield_weeks: int = 52
+    # The RS line's dots: a new high over the last 52 weeks, in daily and weekly bars
+    # (plain fields, not a dict: the config is part of the panes' cache key).
+    rs_line_high_daily: int = 252
+    rs_line_high_weekly: int = 52
 
 
 @dataclass(frozen=True)

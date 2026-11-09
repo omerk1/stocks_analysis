@@ -123,10 +123,15 @@ class ChartData:
     def _pane(self, ticker: str, timeframe: Timeframe, key: str, config: PaneConfig) -> panes_mod.Pane:
         bars = self.bars(ticker, timeframe)
         label = panes_mod.pane_label(key, config)
+        if key == panes_mod.RS_LINE:
+            market = self.bars(config.market, timeframe)
+            note = None if not market.empty else f"RS line: no {config.market} bars"
+            return panes_mod.Pane(key, label, panes_mod.rs_line_frame(bars, market, timeframe, config), note)
         if key != panes_mod.RS:
             return panes_mod.Pane(key, label, panes_mod.pane_frame(key, bars, config))
         weekly = {t: self.rs_closes(t) for t in (ticker, config.market)}
-        note = None if not weekly[config.market].empty else f"RS pane: no {config.market} bars"
+        note = (f"RS pane: no {config.market} bars" if weekly[config.market].empty
+                else panes_mod.rs_data_end(weekly[ticker], weekly[config.market], bars.index, timeframe))
         frame = panes_mod.rs_frame(bars.index, timeframe, weekly[ticker], weekly[config.market], config)
         return panes_mod.Pane(key, label, frame, note)
 
