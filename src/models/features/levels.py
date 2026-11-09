@@ -21,6 +21,10 @@ split rescales both alike. Round numbers are the one exception -- they depend on
 the price that traded -- so they are placed on the unadjusted close and mapped
 back.
 
+Fibonacci levels (`fib_levels`) are point-in-time too, but not part of
+`daily_levels`: the model's level features are frozen on the sources above,
+and the strategy agent's level-stack finder reads Fibonacci on its own.
+
 `strength_raw` is each source's native strength (LRP §1.1), not yet a
 percentile: the trailing per-source percentile, decay and state factors are the
 features' job. Pure functions of the bars and splits passed in; nothing here
@@ -33,12 +37,17 @@ import numpy as np
 import pandas as pd
 
 from src.foundation.market_common.history_breaks import unadjusted_close
+from src.foundation.market_common.indicators import atr as atr_indicator
 from src.models.features.level_snapshots import (  # noqa: F401 -- re-exported: the snapshot half of the levels
     DAILY, LEVEL_COLUMNS, SNAPSHOT_COLUMNS, SNAPSHOT_SOURCES, SNAPSHOT_START, avwap_snapshots, prepare,
     snapshot_dates, snapshots, sr_snapshots, vp_snapshots,
 )
 from src.signals.avwap.compute import anchored_vwap_std
 from src.signals.avwap.config import AvwapConfig
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.levels import compute_levels, compute_weight
+from src.signals.fibonacci.models import SwingDirection
+from src.signals.fibonacci.swings import candidate_swings, dedup_cross_scale
 from src.signals.gaps.config import GapConfig
 from src.signals.gaps.detect import detect_on_bars as detect_gaps
 from src.signals.gaps.relevance import gap_states
@@ -74,6 +83,72 @@ def gap_levels(bars: pd.DataFrame, days, config: GapConfig) -> pd.DataFrame:
         "strength_raw": states["size_atr"].astype(float) * (1 - states["max_fill_pct"].astype(float) / 100) * vol,
         "formed": pd.to_datetime(states["created_at"]), "touches": np.nan, "state": states["status"].astype(str),
     }, columns=DAILY_COLUMNS)
+
+
+def fib_levels(bars: pd.DataFrame, days, config: FibConfig) -> pd.DataFrame:
+    """On each of `days`, every level of the Fibonacci module's selected,
+    active swings: what `fibonacci.engine.detect(..., as_of=day)` stores, from
+    one swing detection over `bars` (already `prepare`d). Kind
+    `retracement_<ratio>` or `extension_<ratio>`; lo = hi = the level's price;
+    strength = the set's weight as of that day; formed = the swing's origin
+    (when the structure started, like an S/R line's first touch).
+
+    Per day, as the as-of run does: the swings confirmed by then, deduped
+    across scales among those alone (a bigger-scale twin confirmed later
+    doesn't remove a swing early), weighted by their age then, ranked with
+    invalidated sets still competing (the module's rule), the top `max_sets`
+    kept and the invalidated ones dropped. No rows before `min_bars` bars."""
+    days = pd.DatetimeIndex(days)
+    warmup = config.warmup_bars
+    if config.min_bars < warmup + 2:
+        # The as-of run trims min(warmup, bars - 2): constant only once bars >= warmup + 2.
+        raise ValueError(f"fib_levels needs min_bars >= warmup_bars + 2; got {config.min_bars}, {warmup}")
+    if len(bars) < config.min_bars or not len(days):
+        return pd.DataFrame(columns=DAILY_COLUMNS)
+    close = bars["close"]
+    atr = atr_indicator(bars, config.atr_period)
+    swings = candidate_swings(close.iloc[warmup:], atr.iloc[warmup:], config)
+    if not swings:
+        return pd.DataFrame(columns=DAILY_COLUMNS)
+    index = bars.index
+    closes = close.to_numpy()
+    confirmed = index.get_indexer(pd.DatetimeIndex([s.confirmed_at for s in swings]))
+    # First close after the swing's end beyond its origin: the set is invalidated from then on.
+    broken = np.full(len(swings), len(index))
+    for k, s in enumerate(swings):
+        end = s.end_bar_index + warmup
+        after = closes[end + 1:]
+        beyond = after < s.origin_price if s.direction == SwingDirection.UP else after > s.origin_price
+        if beyond.any():
+            broken[k] = end + 1 + int(np.argmax(beyond))
+    prices = [compute_levels(s, config) for s in swings]
+    positions = index.get_indexer(days)
+    if (positions < 0).any():
+        raise ValueError("every day must be one of the bars' dates")
+
+    rows = []
+    deduped: dict[tuple[int, ...], list[int]] = {}
+    for day, p in zip(days, positions):
+        if p + 1 < config.min_bars:
+            continue
+        known = tuple(k for k in range(len(swings)) if confirmed[k] <= p)  # the as-of run's order
+        if not known:
+            continue
+        if known not in deduped:
+            kept = dedup_cross_scale([swings[k] for k in known], config.dedup_bar_tolerance)
+            deduped[known] = [next(k for k in known if swings[k] is s) for s in kept]
+        weight = {k: compute_weight(swings[k], p - warmup - swings[k].end_bar_index, config) for k in deduped[known]}
+        # A stable sort, as the module's: equal weights keep the dedup's order.
+        for k in sorted(deduped[known], key=weight.__getitem__, reverse=True)[:config.max_sets]:
+            if broken[k] <= p:
+                continue
+            for level in prices[k]:
+                rows.append((day, "fib", f"{level.kind.value}_{level.ratio:g}", level.price, level.price, weight[k],
+                             pd.Timestamp(swings[k].origin_date), np.nan, "active"))
+    out = pd.DataFrame(rows, columns=DAILY_COLUMNS)
+    out["formed"] = pd.to_datetime(out["formed"])
+    out["touches"] = out["touches"].astype("float64")
+    return out
 
 
 def round_step(price: np.ndarray) -> np.ndarray:

@@ -67,7 +67,7 @@ def _swings_from_pivots(pivots: list[Pivot], scale_mult: float, atr: pd.Series) 
     return swings
 
 
-def _dedup_cross_scale(swings: list[FibSwing], tolerance: int) -> list[FibSwing]:
+def dedup_cross_scale(swings: list[FibSwing], tolerance: int) -> list[FibSwing]:
     """Two swings (from different scales) whose origin AND end bar indices
     both fall within `tolerance` bars of each other are the same real swing
     surfacing at multiple scales -- keep only the highest-scale instance.
@@ -91,16 +91,24 @@ def _dedup_cross_scale(swings: list[FibSwing], tolerance: int) -> list[FibSwing]
     return sorted(kept, key=lambda s: s.origin_bar_index)
 
 
-def detect_swings(close: pd.Series, atr: pd.Series, config: FibConfig) -> list[FibSwing]:
-    """`close`/`atr` are expected to already be warmup-trimmed and
-    as-of-filtered by the caller (engine.py) -- this function is purely
-    the scale-fan-out + swing-building + filter + dedup mechanics.
-    """
+def candidate_swings(close: pd.Series, atr: pd.Series, config: FibConfig) -> list[FibSwing]:
+    """Every qualifying swing of every scale, scale by scale, before the
+    cross-scale dedup. Pivots are emitted only once confirmed, so a run on
+    bars cut at t yields exactly this list's swings confirmed by t, in the
+    same order -- which lets a point-in-time caller (`models.features.levels.
+    fib_levels`) detect once and dedup per date."""
     all_swings: list[FibSwing] = []
     atr_values = atr.to_numpy()  # positional reads in the per-bar loop: an array, not .iloc
     for scale in config.scales:
         pivots = detect_pivots(close, threshold_fn=lambda i, s=scale: s * atr_values[i])
         scale_swings = _swings_from_pivots(pivots, scale, atr)
         all_swings.extend(s for s in scale_swings if s.magnitude_atr >= config.min_swing_atr)
+    return all_swings
 
-    return _dedup_cross_scale(all_swings, config.dedup_bar_tolerance)
+
+def detect_swings(close: pd.Series, atr: pd.Series, config: FibConfig) -> list[FibSwing]:
+    """`close`/`atr` are expected to already be warmup-trimmed and
+    as-of-filtered by the caller (engine.py) -- this function is purely
+    the scale-fan-out + swing-building + filter + dedup mechanics.
+    """
+    return dedup_cross_scale(candidate_swings(close, atr, config), config.dedup_bar_tolerance)
