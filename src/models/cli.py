@@ -150,6 +150,7 @@ def _read_only(db_path: Path):
 
 
 def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str, ...]) -> int:
+    from src.models import dataset
     from src.models.features import level_cache
     unknown = set(sources) - set(level_cache.CODE_FILES_BY_SOURCE)
     if unknown:
@@ -158,7 +159,7 @@ def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str,
     conn = _read_only(db_path)
     try:
         m = level_cache.restamp(conn, out, from_code, sources, progress=lambda s: print(s, flush=True))
-    except ValueError as e:  # no cache there, a foreign manifest, or one past the holdout
+    except (level_cache.RestampRefused, dataset.HoldoutError) as e:  # anything else is a real failure: a traceback
         print(f"not re-stamped: {e}")
         return 2
     finally:
