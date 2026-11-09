@@ -433,7 +433,11 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
               f"inside H{h} (of picks with one) model {d['model.earnings_inside']:.1%} / reference "
               f"{d['reference.earnings_inside']:.1%}, none model {d['model.earnings_unknown']:.1%} / reference "
               f"{d['reference.earnings_unknown']:.1%}")
-    rerun = " (on seeds " + ", ".join(map(str, r["seeds"])) + "; the pre-registered seed rerun decides entry)"
+    # one seed (F2): its pre-registration's seed rerun decides entry; seeds averaged in the
+    # run (HT1): the pre-registration says what entry means, so only the seeds are named
+    seeds = ", ".join(map(str, r["seeds"]))
+    rerun = (f" (on seed {seeds}; the pre-registered seed rerun decides entry)" if len(r["seeds"]) == 1
+             else f" (seeds {seeds} averaged)")
     tag = "" if r["n_boot"] == r["registered_n_boot"] else " [precision check, not the registered verdict]"
     print(f"  group: {r['group_verdict']}; entry rule met: {r['entry_rule_met']}" + (rerun if r["entry_rule_met"] else "")
           + tag)
