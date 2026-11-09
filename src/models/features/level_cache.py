@@ -349,11 +349,11 @@ def _merge_manifest(root, done, failed, missing, price_sources, configs, sources
     # Per ticker, per source: a run of some sources keeps the others' records,
     # and a source whose config or code changed keeps none of its old ones -- this
     # run's or not (its files miss either way, so its records would claim a hit).
-    new_configs = {s: json.loads(config_key(configs[s])) for s in sources}
     recorded = {s for c in old.get("tickers", {}).values() for s in c} | set(sources)
-    changed = {s for s in recorded if s not in CODE_FILES_BY_SOURCE or s not in configs
-               or old.get("code_hashes", {}).get(s) != code_hash(s)
-               or old.get("configs", {}).get(s) != json.loads(config_key(configs[s]))}
+    today = {s: json.loads(config_key(configs[s])) for s in recorded if s in configs}
+    new_configs = {s: today[s] for s in sources}
+    changed = {s for s in recorded if s not in CODE_FILES_BY_SOURCE or s not in today
+               or old.get("code_hashes", {}).get(s) != code_hash(s) or old.get("configs", {}).get(s) != today[s]}
     tickers_done = {t: {s: n for s, n in c.items() if s not in changed}
                     for t, c in old.get("tickers", {}).items() if t not in failed}
     tickers_done = {t: c for t, c in tickers_done.items() if c}
@@ -395,21 +395,30 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
     splits, dates, config, override) is re-keyed; any other file is left as it is, a
     miss that a build recomputes. `from_code`: the manifest's old `code_hash` (one hash
     for every source, before the per-source hash) or a source's old `code_hashes` entry.
-    Tickers with no bars any more are left alone (no file read, records kept), as a
-    build leaves them. Returns the manifest, with a `restamped` record of what was done."""
+    Refused unless the manifest records `from_code` and today's config for every one of
+    `sources`, so what's left as a miss is only a file whose inputs changed, or a ticker
+    with no bars any more; both lose their records. Don't run it alongside a build of
+    the same root (a build writes files outside the manifest lock). Returns the
+    manifest, with a `restamped` record of what was done."""
     root = Path(root)
     if not (root / MANIFEST).is_file():
         raise RestampRefused(f"no level cache at {root} (no {MANIFEST})")
     with file_lock(root / MANIFEST_LOCK):
         try:
             manifest = json.loads((root / MANIFEST).read_text())
-            end, recorded = manifest["end"], manifest["tickers"]
-        except (OSError, ValueError, KeyError) as e:
+            end, recorded = str(pd.Timestamp(manifest["end"]).date()), manifest["tickers"]
+        except (OSError, ValueError, KeyError, TypeError) as e:
             raise RestampRefused(f"{root / MANIFEST} isn't a level-cache manifest ({e})")
         dataset.check_holdout(end)  # a cache reaching into the holdout is rebuilt under its own flag, never re-stamped
         if any(manifest.get(k) != v for k, v in _manifest_epoch(end).items()):
             raise RestampRefused("the manifest's version or overrides differ from today's: rebuild, don't re-stamp")
         configs = levels.default_configs()
+        for s in sources:
+            stored_code = manifest.get("code_hashes", {}).get(s, manifest.get("code_hash"))
+            if stored_code != from_code:
+                raise RestampRefused(f"{s}'s files are recorded under code {stored_code!r}, not {from_code!r}")
+            if manifest.get("configs", {}).get(s) != json.loads(config_key(configs[s])):
+                raise RestampRefused(f"{s}'s config changed since the build: rebuild, don't re-stamp")
         _, by_ticker, splits = _load_bars(conn, sorted(recorded), end)
         counts = {s: {"restamped": 0, "current": 0, "left": 0} for s in sources}
         left: set[tuple[str, str]] = set()
@@ -443,19 +452,24 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
                     left.add((ticker, s))
             if progress and (i % 100 == 0 or i == len(by_ticker)):
                 progress(f"  {i}/{len(by_ticker)} tickers")
+        for t in set(recorded) - set(by_ticker):  # no bars any more: never re-keyed
+            for s in sources:
+                if s in recorded[t]:
+                    counts[s]["left"] += 1
+                    left.add((t, s))
         # A file left as a miss isn't cached: its record goes, so the manifest claims only hits.
         tickers = {t: {s: n for s, n in c.items() if (t, s) not in left} for t, c in recorded.items()}
         manifest["tickers"] = {t: c for t, c in tickers.items() if c}
         manifest["n_tickers"] = len(manifest["tickers"])
-        manifest["sources"] = sorted({s for c in manifest["tickers"].values() for s in c})
         manifest["rows"] = {s: int(sum(c.get(s, 0) for c in manifest["tickers"].values()))
-                            for s in manifest["sources"]}
+                            for s in manifest.get("sources", [])}
         # The single hash before per-source ones stays with each source not re-stamped
         # here, so a later re-stamp of it can still name it.
         legacy = manifest.pop("code_hash", None)
         hashes = manifest.get("code_hashes", {})
         if legacy is not None:
-            hashes = {**{s: legacy for s in manifest["sources"]}, **hashes}
+            listed = set(manifest.get("sources", [])) | set(manifest.get("configs", {}))
+            hashes = {**{s: legacy for s in listed}, **hashes}
         manifest["code_hashes"] = {**hashes, **{s: code_hash(s) for s in sources}}
         manifest["restamped"] = [*manifest.get("restamped", []), {
             "from": from_code, "sources": list(sources), "counts": counts, "git_sha": dataset._git_sha(),

@@ -553,7 +553,9 @@ def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypat
     assert pq.read_schema(path).remove_metadata() == schema_before.remove_metadata()  # ... and schema
     assert "BBB" not in m["tickers"] and m["n_tickers"] == 1  # a file left as a miss isn't claimed cached
     assert m["rows"]["sr_line"] == m["tickers"]["AAA"]["sr_line"]
-    again = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    with pytest.raises(level_cache.RestampRefused):  # the manifest now records today's code
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    again = level_cache.restamp(c, tmp_path, real("sr_line"), ("sr_line",), progress=None)
     c.close()
     assert again["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 1, "left": 0}
 
@@ -585,6 +587,8 @@ def test_restamp_rechecks_the_key_on_the_table_it_rewrites(tmp_path, monkeypatch
     real = level_cache.code_hash
     monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
     c = _one_ticker_cache(tmp_path, ("sr_line",))
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    key_before = pq.read_metadata(path).metadata[level_cache.FINGERPRINT_KEY]
     monkeypatch.setattr(level_cache, "code_hash", real)
     read = pq.read_table
     # A build swaps the file between the footer read and the table read.
@@ -593,9 +597,23 @@ def test_restamp_rechecks_the_key_on_the_table_it_rewrites(tmp_path, monkeypatch
     out = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     c.close()
     assert out["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 0, "left": 1}
-    monkeypatch.setattr(level_cache.pq, "read_table", read)
-    stored = pq.read_metadata(level_cache.snapshot_path(tmp_path, "sr_line", "AAA")).metadata
-    assert stored[level_cache.FINGERPRINT_KEY] != b"other"  # not rewritten
+    assert pq.read_metadata(path).metadata[level_cache.FINGERPRINT_KEY] == key_before  # not rewritten
+
+
+def test_restamp_refuses_another_code_hash_or_a_changed_config(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    with pytest.raises(level_cache.RestampRefused, match="recorded under code 'old', not 'olf'"):
+        level_cache.restamp(c, tmp_path, "olf", ("sr_line",), progress=None)
+    defaults = levels.default_configs
+    monkeypatch.setattr(level_cache.levels, "default_configs",
+                        lambda: {**defaults(), "sr_line": dataclasses.replace(defaults()["sr_line"], window_years=8.0)})
+    with pytest.raises(level_cache.RestampRefused, match="config changed"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert json.loads((tmp_path / level_cache.MANIFEST).read_text())["tickers"]  # refused before any change
 
 
 def test_a_build_of_one_source_drops_another_sources_records_after_its_config_changed(tmp_path, monkeypatch):
