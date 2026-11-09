@@ -16,11 +16,17 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db as raw_db
+from src.foundation.market_common.indicators import atr as fib_atr
 from src.foundation.market_common.models import Timeframe
 from src.models import dataset
 from src.models.features import level_cache, level_snapshots, levels
 from src.signals.avwap.anchors import detect as avwap_detect
 from src.signals.avwap.compute import anchored_vwap_std
+from src.signals.fibonacci import engine as fib_engine
+from src.signals.fibonacci.config import FibConfig
+from src.signals.fibonacci.levels import compute_levels
+from src.signals.fibonacci.models import FibSetStatus
+from src.signals.fibonacci.swings import candidate_swings, dedup_cross_scale as fib_dedup
 from src.signals.sr_lines import engine as sr_engine
 from src.signals.volume_profile.detect import detect as vp_detect
 
@@ -170,6 +176,96 @@ def test_stale_anchors_are_dropped(bars, configs):
     snaps.loc[snaps.index[0], "state"] = "stale"
     out = levels.daily_levels(bars, None, snaps, [bars.index[bars.index > t][0]], [t], configs)
     assert (out["source"] == "avwap").sum() == len(snaps) - 1
+
+
+# ---------------------------------------------------------- Fibonacci
+
+
+def _fib_as_of(conn, t, cfg):
+    """(kind, price, weight) of every level `fibonacci.engine.detect` stores as of `t`, active sets only."""
+    result = fib_engine.detect(conn, TICKER, Timeframe.DAILY, cfg, as_of=t)
+    # np.round, as Series.round on the other side: Python's round can differ from it in the last digit.
+    return sorted((f"{l.kind.value}_{l.ratio:g}", float(np.round(l.price, 9)), float(np.round(s.weight, 12)))
+                  for s in result.selected_sets if s.status == FibSetStatus.ACTIVE for l in s.levels)
+
+
+def _fib_rows(out, t):
+    day = out[out["date"] == t]
+    return sorted(zip(day["kind"], day["lo"].round(9), day["strength_raw"].round(12)))
+
+
+def test_fib_levels_equal_the_detectors_as_of_run(conn, bars):
+    cfg = FibConfig()
+    days = bars.index[cfg.min_bars - 1::25]
+    out = levels.fib_levels(bars, days, cfg)
+    assert (out["lo"] == out["hi"]).all() and (out["source"] == "fib").all()
+    seen = 0
+    for t in days:
+        expected = _fib_as_of(conn, t, cfg)
+        assert _fib_rows(out, t) == expected, t
+        seen += bool(expected)
+    assert seen >= len(days) // 2, "fixture should produce Fibonacci sets on most days"
+
+
+def test_fib_dedup_uses_only_the_swings_known_that_day(conn, bars):
+    """A swing deduped away by a bigger-scale twin confirmed later is still a
+    level before that twin confirms. Forced with a wide dedup tolerance so the
+    fixture has twins; checked against the as-of run on each twin's eve."""
+    cfg = FibConfig(dedup_bar_tolerance=40, max_sets=50)
+    atr = fib_atr(bars, cfg.atr_period)
+    swings = candidate_swings(bars["close"].iloc[cfg.warmup_bars:], atr.iloc[cfg.warmup_bars:], cfg)
+    full = fib_dedup(swings, cfg.dedup_bar_tolerance)
+    dropped = [s for s in swings if not any(s is k for k in full)]
+    assert dropped, "fixture should have a cross-scale twin under this tolerance"
+    eves = []
+    for s in dropped:
+        confirmed = pd.Timestamp(s.confirmed_at)
+        later_twins = [k for k in full if pd.Timestamp(k.confirmed_at) > confirmed
+                       and abs(k.origin_bar_index - s.origin_bar_index) <= cfg.dedup_bar_tolerance
+                       and abs(k.end_bar_index - s.end_bar_index) <= cfg.dedup_bar_tolerance]
+        if later_twins:
+            first = min(pd.Timestamp(k.confirmed_at) for k in later_twins)
+            eve = bars.index[bars.index < first][-1]
+            if eve >= confirmed and bars.index.get_loc(eve) + 1 >= cfg.min_bars:
+                eves.append((eve, s))
+    assert eves, "fixture should have a swing that a later-confirmed twin removes"
+    out = levels.fib_levels(bars, [t for t, _ in eves], cfg)
+    for t, _ in eves:
+        assert _fib_rows(out, t) == _fib_as_of(conn, t, cfg), t
+    # ... and on some eve the swing deduped away in hindsight is really there (a full-history
+    # dedup would have dropped it, which agreeing with the as-of run alone can't rule out).
+    # `any`: each eve's correctness is the equality above; this only shows the fixture covers the case.
+    assert any(((out["date"] == t) & (out["formed"] == pd.Timestamp(s.origin_date))
+                & np.isclose(out["lo"], compute_levels(s, cfg)[0].price)).any() for t, s in eves)
+
+
+def test_no_fib_level_on_or_before_the_cut_depends_on_a_later_bar(bars):
+    cfg = FibConfig()
+    cut = bars.index[-150]
+    days = bars.index[cfg.min_bars - 1:]
+    a = levels.fib_levels(bars, days, cfg)
+    b = levels.fib_levels(_perturb_after(bars, cut), days, cfg)
+    pd.testing.assert_frame_equal(a[a["date"] <= cut].reset_index(drop=True), b[b["date"] <= cut].reset_index(drop=True))
+    assert not a[a["date"] > cut].reset_index(drop=True).equals(b[b["date"] > cut].reset_index(drop=True))
+
+
+def test_no_fib_level_before_min_bars(bars):
+    cfg = FibConfig()
+    out = levels.fib_levels(bars, bars.index[:cfg.min_bars + 60], cfg)
+    assert out["date"].min() >= bars.index[cfg.min_bars - 1]
+
+
+def test_fib_levels_have_the_same_dtypes_with_and_without_rows(bars):
+    cfg = FibConfig()
+    none = levels.fib_levels(bars.iloc[:cfg.min_bars - 1], bars.index[:5], cfg)
+    some = levels.fib_levels(bars, bars.index[-5:], cfg)
+    assert none.empty and not some.empty
+    pd.testing.assert_series_equal(none.dtypes, some.dtypes)
+
+
+def test_fib_levels_refuse_a_warmup_the_as_of_run_would_shorten(bars):
+    with pytest.raises(ValueError, match="min_bars"):
+        levels.fib_levels(bars, bars.index, FibConfig(min_bars=40, warmup_bars=50))
 
 
 # ---------------------------------------------------------- bar-only sources

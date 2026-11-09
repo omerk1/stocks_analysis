@@ -1,6 +1,7 @@
 # Chart UI — design
 
-Status: steps 1–4 built (Done #175–#178, #181, #182, #184, 2026-11-08). Lean first version, wider later.
+Status: steps 1–4 and 6 built (Done #175–#178, #181, #182, #184, #187, 2026-11-09); step 5 waits on
+the guidance extraction. Lean first version, wider later.
 
 ## One-liner
 
@@ -381,6 +382,50 @@ class Overlay:
      of the 10 default picks. Menu times are unchanged (about 2–12 s).
 5. **Guidance on the cards,** once the extraction exists.
 6. **Groups and rankings, basic:** a second page with the sector table (below).
+
+   As built (`src/ui/chart/groups.py`, a Groups tab in the app, Done #187):
+   - A second tab next to the chart (`--page groups` opens on it): the sectors table on
+     the left, the selected sector's members on the right. Click a sector for its
+     members, and a member to open its chart on the Chart tab. Both tables sort by any
+     column. RS is shaded in one blue, darker for higher (a rating is a rank, not a
+     gain or a loss); green and red are kept for signs: changes and distances from the
+     averages, the breadth shares are drawn as bars, and a stock within 5% of its
+     52-week high is green.
+   - **One date for the whole page:** the latest date in the 7 days (both ends
+     included) before the last rated date on which the most sectors are rated. It's
+     one rule (`rs.rank_date`) shared with the strip's sector rank, so the two agree.
+     Membership, ratings and the price columns are all as of that date. The header
+     says when the bars run further (today: page 2026-09-30, bars to 2026-11-06,
+     until relative strength is rerun), and **Reload** rebuilds the page after a rerun
+     (a failed reload keeps the previous page and says why).
+   - A sector with members but no rating that day is listed last, unranked, so its
+     members don't drop off the page.
+   - **Sectors:** rank and rating of the sector ETF against SPY, the change in rank
+     over 4 and 13 weeks (on each earlier date's own rank date; blank for a sector
+     not ranked then), the share of members above their 50- and 200-day averages
+     (the hover gives how many members it counts), and the member count.
+   - **Members:** rating against the market and its 4-week change, which index the
+     rating is ranked within ("rated in": the S&P 500 or Nasdaq-100 run, whichever
+     wrote the row last, so about 97 Nasdaq-100 names are ranked against Nasdaq-100
+     peers only; the strip reads the same rows), distance from the 52-week high
+     (daily highs), and the last close against the 50- and 200-day averages.
+   - **Membership** is point-in-time, S&P 500 and Nasdaq-100 together, sectors from
+     `ticker_sector`. A ticker that left both in the 91 days before the page date
+     stays listed in grey after the members, with its last values; it isn't counted
+     in the member count or breadth. It's "delisted" only when the tickers table marks
+     it inactive (today's flag, not point-in-time) and it has no bar on the page date;
+     otherwise "left the index", saying when its bars end or that it has none. A member
+     without a bar on the page date, or whose rating is older than it, says so; the
+     former isn't in the breadth. Members without a sector are listed in the header
+     (today: FISV).
+   - **Prices** are on the chart's basis (traded), read in bulk per source and not
+     validated bar by bar. A ticker with no yfinance bars is read from Tiingo (ARM,
+     ASML, PDD, delisted members); the Chart tab still reads yfinance only, so
+     clicking one of those shows "No bars". A 50/200-day average or 52-week high
+     needs its full window of bars, else it's blank and not counted.
+   - Built the first time the tab opens (about 4–7 s), then cached until Reload or a
+     restart. Nothing is stored. `dash_table.DataTable` is deprecated in Dash 4 in
+     favour of dash-ag-grid; it still works, and swapping it is a later change.
 
 Each step is a usable app on its own.
 
