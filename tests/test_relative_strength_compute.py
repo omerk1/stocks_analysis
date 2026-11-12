@@ -354,5 +354,23 @@ def test_several_indices_for_the_sector_tier_too(conn):
     assert last.to_dict() == pytest.approx({"BIG": 100.0, "ONLY_B": 200 / 3, "ONLY_A": 100 / 3})
 
 
+def test_the_stored_run_ranks_all_configured_indices_once_and_records_the_universe(conn):
+    from src.foundation.market_common import derived_db
+    from src.signals.relative_strength import cli, store
+
+    _two_indices(conn)
+    derived = db.get_connection(":memory:")
+    derived_db.create_runs_table(derived)
+    store.create_relative_strength_tables(derived)
+    config = _config(indices=["idx_a", "idx_b"])
+    rs, skip, run_id = cli.run_stock_tier(conn, derived, "stock-vs-market", config, None, None)
+    assert skip is None
+    assert derived.execute("SELECT ticker FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0] == "idx_a+idx_b"
+    stored = dict(derived.execute(
+        "SELECT ticker, rs_rating FROM relative_strength WHERE date = ?", (_DATES[-1].strftime("%Y-%m-%d"),)))
+    assert stored == pytest.approx({"BIG": 100.0, "ONLY_B": 200 / 3, "ONLY_A": 100 / 3})
+    derived.close()
+
+
 def test_unknown_indices_give_an_empty_frame(conn):
     assert compute_stock_vs_market(conn, ["nope", "neither"], _config()).empty

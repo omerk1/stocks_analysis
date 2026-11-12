@@ -74,7 +74,7 @@ def _build_steps() -> tuple[Step, ...]:
     ]
     universe = rs_cli.universe_name(RelativeStrengthConfig())
     rs_stock = [
-        Step("rs_stock", f"rs {tier} {universe}", index_name=universe, tier=tier)
+        Step("rs_stock", f"rs {tier} {universe}", tier=tier)  # no index_name: the tier runs over all of them
         for tier in ("stock-vs-market", "stock-vs-sector")
     ]
     return (*breadth, *rs_stock, Step("rs_sector", "rs sector-vs-market"))
