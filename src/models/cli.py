@@ -8,6 +8,8 @@ Commands:
   build-features  The model-feature cache (`features/cache.py`) for a
                   point-in-time universe, 2010-2021 by default. Reads the
                   database; writes only the parquet cache under `--out`.
+                  `--scorecard HT1` builds only that pre-registered test's
+                  columns (none of the level columns' detector runs if it has none).
   vendor-check    Can a model tell Tiingo rows (later-delisted members) from
                   yfinance rows? Same-ticker gate always; delisted-vs-live
                   read-outs with --features (`vendor_check.py`). Read-only.
@@ -15,12 +17,6 @@ Commands:
                   per horizon, for the same universe. Reads the database;
                   writes only under `--out`.
   build-levels    The point-in-time level-snapshot cache (`features/level_cache.py`).
-                  The builders and vendor-check take `--open-holdout` (an `--end`
-                  past 2021-12-31, for a pre-registered test that opens the
-                  holdout; builders need an explicit `--out`, and never write
-                  into a cache from the other side of the boundary).
-                  `build-features --scorecard HT1` builds only that scorecard's
-                  columns.
   run-experiment  A pre-registered ablation (`ablation.PREREGISTERED`) on the
                   feature and label caches: one TRIALS.csv row per trial.
   close-experiment  BH and the three verdicts over an experiment's logged
@@ -41,6 +37,12 @@ Commands:
 
 Only run-experiment, run-scorecard and rescore-scorecard are trials: the other commands write
 nothing to TRIALS.csv.
+
+build-features, build-labels, build-levels and vendor-check take `--open-holdout`: an
+`--end` past 2021-12-31, for a pre-registered test that opens the holdout. The builders
+then need an explicit, empty or new `--out` (claimed before the database is opened,
+`dataset.claim_cache_dir`), and never write into a directory from the other side of
+the boundary.
 """
 
 from __future__ import annotations
@@ -156,31 +158,37 @@ def _read_only(db_path: Path):
     return db.get_connection(f"file:{db_path}?mode=ro", uri=True)
 
 
-LEVELS_OUT = Path("data/models/levels")
+LEVELS_OUT = Path("data/models/levels")   # = level_features.DEFAULT_ROOT, not imported here (a test pins them equal)
 LABELS_OUT = Path("data/models/labels/sp500")
 OPEN_HOLDOUT_HELP = ("build through an --end past 2021-12-31, for a pre-registered test that opens the holdout; "
-                     "needs an explicit --out that isn't a dev cache's, and is recorded in the manifest")
+                     "needs an explicit, empty or new --out (claimed before the database is opened), and is "
+                     "recorded in the manifest")
 
 
 def _check_open_end(end: str, open_holdout: bool) -> None:
-    """`--open-holdout` needs an `--end` past the boundary: otherwise a
-    manifest would say "open" over dev data only."""
     from src.models import dataset
-    if open_holdout and pd.Timestamp(end) <= dataset.HOLDOUT_END:
-        raise SystemExit(f"--open-holdout with --end {end}: not past the holdout boundary "
-                         f"{dataset.HOLDOUT_END.date()}, so there is nothing to open")
+    try:
+        dataset.check_open_end(end, open_holdout)
+    except ValueError as e:
+        raise SystemExit(f"--open-holdout with --end {end}: {e}") from None
 
 
-def _builder_holdout(end: str, out: Path | None, default_out: Path | None, open_holdout: bool) -> Path:
-    """A cache builder's output directory, after `_check_open_end`. With
-    `--open-holdout` it must be given: a default is a dev cache's directory.
-    Which side an existing directory holds is the builder's own check
-    (`dataset.check_cache_target`)."""
+def _builder_out(end: str, out: Path | None, open_holdout: bool, default_out: Path | None = None) -> Path:
+    """A cache builder's output directory, checked and claimed
+    (`dataset.claim_cache_dir`) before the database is opened, so a refused
+    build reads nothing. With `--open-holdout` it must be given: a default
+    is a dev cache's directory. The builder claims it again (a no-op here)
+    for callers that don't come through the command line."""
+    from src.models import dataset
     _check_open_end(end, open_holdout)
     if out is None:
         if open_holdout:
             raise SystemExit("--open-holdout needs an explicit --out: the default is a dev cache's directory")
         out = default_out
+    try:
+        dataset.claim_cache_dir(out, open_holdout)
+    except dataset.HoldoutError as e:
+        raise SystemExit(str(e)) from None
     return out
 
 
@@ -204,7 +212,7 @@ def build_levels(db_path: Path, out: Path | None, start: str, end: str, indices:
                  tickers: list[str] | None, smoke: bool, open_holdout: bool = False) -> int:
     from src.models import dataset
     from src.models.features import level_cache
-    out = _builder_holdout(end, out, LEVELS_OUT, open_holdout)
+    out = _builder_out(end, out, open_holdout, LEVELS_OUT)
     conn = _read_only(db_path)
     try:
         if smoke:
@@ -245,11 +253,16 @@ def scorecard_specs(experiment_id: str):
 
 
 def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
-                   levels: Path, workers: int, scorecard: str | None = None, open_holdout: bool = False) -> int:
+                   levels: Path | None, workers: int, scorecard: str | None = None, open_holdout: bool = False) -> int:
     from src.models import dataset
-    from src.models.features import cache
-    out = _builder_holdout(end, out, None, open_holdout)
+    from src.models.features import cache, registry
     specs = scorecard_specs(scorecard) if scorecard else None
+    if levels is None:
+        if open_holdout and any(registry.is_detector(s) for s in (specs or registry.model_specs())):
+            raise SystemExit("--open-holdout with level columns needs an explicit --levels (build-levels "
+                             "--open-holdout's --out): the default is the dev snapshot cache")
+        levels = LEVELS_OUT
+    out = _builder_out(end, out, open_holdout)
     conn = _read_only(db_path)
     try:
         universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
@@ -337,7 +350,7 @@ def build_labels(db_path: Path, out: Path | None, start: str, end: str, indices:
                  horizons: tuple[int, ...], open_holdout: bool = False) -> int:
     from src.models import dataset
     warnings.filterwarnings("ignore")
-    out = _builder_holdout(end, out, LABELS_OUT, open_holdout)
+    out = _builder_out(end, out, open_holdout, LABELS_OUT)
     conn = _read_only(db_path)
     try:
         universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
@@ -545,8 +558,9 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
-    feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
-                      help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
+    feat.add_argument("--levels", type=Path, default=None,
+                      help=f"the snapshot cache (build-levels' --out, same universe and end); must cover every ticker. "
+                           f"Default {LEVELS_OUT}; required with --open-holdout if the build has level columns")
     feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
     feat.add_argument("--scorecard", default=None,
                       help="only this pre-registered scorecard's columns (trading.PREREGISTERED, e.g. HT1)")
@@ -554,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     stamp = sub.add_parser("restamp-levels", help="re-key the level cache's files after a code change known not "
                            "to change any snapshot (recompute a sample and compare first)")
     stamp.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
-    stamp.add_argument("--out", type=Path, default=Path("data/models/levels"))
+    stamp.add_argument("--out", type=Path, default=LEVELS_OUT)
     stamp.add_argument("--from-code-hash", required=True, help="the code hash the files were stored under")
     stamp.add_argument("--sources", nargs="+", required=True, help="the sources whose snapshots were checked equal")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")

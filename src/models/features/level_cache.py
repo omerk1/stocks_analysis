@@ -271,7 +271,8 @@ def build_level_cache(
     the manifest."""
     dataset.check_holdout(end, open_holdout)
     root = Path(root)
-    dataset.check_cache_target(root / MANIFEST, open_holdout)
+    dataset.check_open_end(end, open_holdout)
+    dataset.claim_cache_dir(root, open_holdout)
     configs = levels.default_configs()
     basis = dataset.UNIVERSE_BASIS
     price_sources, by_ticker, splits = _load_bars(conn, tickers, end)

@@ -111,19 +111,43 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
     logger.warning("HOLDOUT OPEN: reading data through %s (boundary %s)", end.date(), HOLDOUT_END.date())
 
 
-def check_cache_target(manifest: Path, open_holdout: bool) -> None:
-    """A build never writes over a cache from the other side of the boundary:
-    a holdout build into a dev cache's directory would replace what every dev
-    trial was fitted on, and a dev build into a holdout one would hide that the
-    holdout was read. A manifest without the field predates it: dev."""
-    manifest = Path(manifest)
-    if not manifest.exists():
+OPEN_MARKER = ".open_holdout"   # a cache directory a build with the holdout open has claimed
+
+
+def check_open_end(end: str | pd.Timestamp, open_holdout: bool) -> None:
+    """A build with the holdout open must reach past it: otherwise its
+    manifest would say "open" over development data only (and its directory
+    would be closed to dev builds for nothing)."""
+    if open_holdout and pd.Timestamp(end) <= HOLDOUT_END:
+        raise ValueError(f"open_holdout with an end of {pd.Timestamp(end).date()}: not past the holdout boundary "
+                         f"{HOLDOUT_END.date()}, so there is nothing to open")
+
+
+def claim_cache_dir(directory: Path, open_holdout: bool) -> None:
+    """Keeps the two sides of the boundary in separate directories, whatever
+    the cache's layout (one file, one per horizon, one per ticker and source)
+    and however far an earlier build got. A build with the holdout open needs
+    an empty or new directory and claims it with `OPEN_MARKER` before writing
+    anything; a dev build refuses a claimed one. So a holdout build can't
+    replace what dev trials were fitted on (even a dev build that stopped
+    before its manifest), and a dev build can't hide that the holdout was read
+    in a directory. Called by each builder, and by the command line before it
+    opens the database."""
+    directory = Path(directory)
+    marker = directory / OPEN_MARKER
+    if marker.exists():
+        if not open_holdout:
+            raise HoldoutError(f"{directory} holds a cache built with the holdout open ({OPEN_MARKER}); "
+                               "a dev build writes somewhere else (another --out)")
         return
-    stored = bool(json.loads(manifest.read_text()).get("open_holdout", False))
-    if stored != bool(open_holdout):
-        built, asked = ("with", "without") if stored else ("without", "with")
-        raise HoldoutError(f"{manifest} is a cache built {built} the holdout open; a build {asked} it "
-                           "writes somewhere else (another --out)")
+    if not open_holdout:
+        return
+    if directory.exists() and any(directory.iterdir()):
+        raise HoldoutError(f"{directory} isn't empty and wasn't claimed by a build with the holdout open: "
+                           "such a build writes to an empty or new directory (another --out)")
+    directory.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps({"created": pd.Timestamp.now("UTC").isoformat(), "git_sha": _git_sha()}))
+    logger.warning("HOLDOUT OPEN: %s claimed for a cache built past %s", directory, HOLDOUT_END.date())
 
 
 # ---------------------------------------------------------------- bars
@@ -475,7 +499,8 @@ def build_labels(
         raise ValueError("no rows to label")
     last_row = rows["date"].max()
     check_holdout(last_row, open_holdout)
-    check_cache_target(label_path(out_dir, horizon, side).with_suffix(".json"), open_holdout)
+    check_open_end(last_row, open_holdout)
+    claim_cache_dir(out_dir, open_holdout)
     data_end = last_row if open_holdout else HOLDOUT_END
 
     tickers = sorted(rows["ticker"].unique())
