@@ -2,7 +2,8 @@
 
 Run after every bar refresh: recomputes all seven derived RS/breadth
 table-slices in one go -- breadth for both indices x both weightings (4)
-plus the three relative-strength tiers -- then sweeps stale rows.
+plus the three relative-strength tiers (the two stock tiers each over
+S&P 500 + Nasdaq-100 as one universe) -- then sweeps stale rows.
 Exists because the tables are only as fresh as their last manual run and
 twice in three days a bar refresh left them two weeks behind the bars
 (Done #77); running seven CLI invocations by hand is exactly the step that
@@ -60,7 +61,8 @@ def _build_steps() -> tuple[Step, ...]:
     cover would have its history DELETED by the sweep. Deriving both from
     one source removes that divergence. Fixed order so --from-step numbers
     stay meaningful: breadth slices first (fastest feedback), then the two
-    stock RS tiers over both indices, then the sector tier. Known
+    stock RS tiers, each one run over all the RS config's indices together
+    (one universe, `relative_strength.cli`'s docstring), then the sector tier. Known
     trade-off: the equal and cap steps for one index recompute the same
     price/indicator panel; worth sharing only if the breadth half ever
     dominates the run.
@@ -70,10 +72,10 @@ def _build_steps() -> tuple[Step, ...]:
         for weighting in WEIGHTING_CHOICES
         for index in BreadthConfig().indices
     ]
+    universe = rs_cli.universe_name(RelativeStrengthConfig())
     rs_stock = [
-        Step("rs_stock", f"rs {tier} {index}", index_name=index, tier=tier)
+        Step("rs_stock", f"rs {tier} {universe}", index_name=universe, tier=tier)
         for tier in ("stock-vs-market", "stock-vs-sector")
-        for index in RelativeStrengthConfig().indices
     ]
     return (*breadth, *rs_stock, Step("rs_sector", "rs sector-vs-market"))
 
@@ -97,8 +99,7 @@ def _run_step(step: Step, raw_conn, derived_conn, start, end):
         config = BreadthConfig(weighting=step.weighting)
         return breadth_cli.run_for_index(raw_conn, derived_conn, step.index_name, config, start, end)
     if step.kind == "rs_stock":
-        return rs_cli.run_stock_tier(raw_conn, derived_conn, step.tier, step.index_name,
-                                     RelativeStrengthConfig(), start, end)
+        return rs_cli.run_stock_tier(raw_conn, derived_conn, step.tier, RelativeStrengthConfig(), start, end)
     return rs_cli.run_sector_tier(raw_conn, derived_conn, RelativeStrengthConfig(), start, end)
 
 

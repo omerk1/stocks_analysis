@@ -314,3 +314,45 @@ def test_rs_weighted_return_is_exposed_and_matches_hand_computation(conn):
     assert result["rs_weighted_return"].iloc[:3].isna().all()
     expected = 0.5 * (16 / 12 - 1) + 0.5 * (16 / 10 - 1)
     assert result.loc[_DATES[3], "rs_weighted_return"] == pytest.approx(expected)
+
+
+def _two_indices(conn):
+    """BIG is in both indices; ONLY_A in idx_a, ONLY_B in idx_b. Returns rising
+    at different speeds, so ranks are distinct."""
+    db.upsert_bars(conn, "bars_1d", "SPY", db.YFINANCE, _bars([100.0] * 10))
+    speeds = {"BIG": 3.0, "ONLY_A": 1.0, "ONLY_B": 2.0}
+    for ticker, step in speeds.items():
+        db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE, _bars([10 + step * i for i in range(10)]))
+    open_ = {"start_date": _DATES[0], "end_date": None}
+    db.replace_index_membership(conn, "idx_a", pd.DataFrame([{"ticker": "BIG", **open_}, {"ticker": "ONLY_A", **open_}]))
+    db.replace_index_membership(conn, "idx_b", pd.DataFrame([{"ticker": "BIG", **open_}, {"ticker": "ONLY_B", **open_}]))
+    db.upsert_ticker_sector(conn, pd.DataFrame([_sector_row(t, "Technology") for t in speeds]))
+    db.upsert_bars(conn, "bars_1d", "XLK", db.YFINANCE, _bars([100.0] * 10))
+
+
+def test_several_indices_rank_as_one_universe_with_no_duplicate_rows(conn):
+    _two_indices(conn)
+    result = compute_stock_vs_market(conn, ["idx_a", "idx_b"], _config())
+    last = result[result["date"] == _DATES[-1]].set_index("ticker")["rs_rating"]
+    # one row per ticker and date: BIG, in both, isn't counted twice
+    assert not result.duplicated(["ticker", "date"]).any()
+    assert sorted(last.index) == ["BIG", "ONLY_A", "ONLY_B"]
+    # ranked among all three, not within either index alone
+    assert last["BIG"] > last["ONLY_B"] > last["ONLY_A"]
+    assert last["ONLY_B"] == pytest.approx(200 / 3)
+    # one index alone still ranks within that index (BIG first of two)
+    alone = compute_stock_vs_market(conn, "idx_a", _config())
+    assert alone[alone["date"] == _DATES[-1]].set_index("ticker")["rs_rating"].to_dict() == {
+        "BIG": 100.0, "ONLY_A": 50.0}
+
+
+def test_several_indices_for_the_sector_tier_too(conn):
+    _two_indices(conn)
+    result = compute_stock_vs_sector(conn, ("idx_a", "idx_b"), _config())
+    assert not result.duplicated(["ticker", "date"]).any()
+    last = result[result["date"] == _DATES[-1]].set_index("ticker")["rs_rating"]
+    assert last.to_dict() == pytest.approx({"BIG": 100.0, "ONLY_B": 200 / 3, "ONLY_A": 100 / 3})
+
+
+def test_unknown_indices_give_an_empty_frame(conn):
+    assert compute_stock_vs_market(conn, ["nope", "neither"], _config()).empty

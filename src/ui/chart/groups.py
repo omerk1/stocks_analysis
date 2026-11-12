@@ -10,11 +10,10 @@ price columns are all as of that date, so the page is behind the bars when the
 relative-strength module hasn't been rerun since they were ingested.
 
 - Ratings are `rs_rating` (1-99) from the relative-strength module's stored runs:
-  a sector's ETF against the market, a member against the market. A member's
-  rating is ranked within one index's members (the S&P 500 run or the
-  Nasdaq-100 run, whichever wrote the row last), shown as "rated in". A
-  member whose last rating is older than the page date keeps it, with its
-  status saying from when.
+  a sector's ETF against the market, a member against the market, ranked
+  among all S&P 500 + Nasdaq-100 members together (one universe, so members
+  of a sector are on one scale). A member whose last rating is older than
+  the page date keeps it, with its status saying from when.
 - A sector with members but no rating on the page date (its run ended early, or
   a `ticker_sector` name with no sector ETF) is listed after the ranked ones,
   unranked, so its members don't drop off the page.
@@ -47,7 +46,6 @@ from src.ui.chart import rs
 from src.ui.chart.bars import CHART_BASIS
 from src.ui.chart.config import GroupsConfig
 
-INDEX_NAMES = {"sp500": "S&P 500", "nasdaq100": "Nasdaq-100"}
 
 
 @dataclass(frozen=True)
@@ -68,7 +66,6 @@ class MemberRow:
     member: bool  # False: left the indices in the window before the page date
     rating: float | None
     change: float | None
-    rated_in: str | None  # the index the rating is ranked within
     pct_from_high: float | None  # last close vs the 52-week high, <= 0
     vs_ma: tuple[float | None, ...]  # per `ma_periods`: last close / MA - 1
     last_bar: str | None
@@ -169,29 +166,23 @@ def price_stats(prices: pd.DataFrame, ma_periods: tuple[int, ...], high_bars: in
 
 
 def member_ratings(derived: sqlite3.Connection, tickers: list[str], start: str, as_of: str,
-                   change_days: int) -> dict[str, tuple[rs.Rating, str | None]]:
-    """ticker -> (its last vs-market rating from `start` through `as_of`, the index
-    it's ranked within: the run that wrote it; None without a `runs` table)."""
+                   change_days: int) -> dict[str, rs.Rating]:
+    """ticker -> its last vs-market rating from `start` through `as_of`."""
     if not tickers:
         return {}
     placeholders = ",".join("?" for _ in tickers)
-    with_runs = "runs" in rs.table_names(derived)
-    run_index = "runs.ticker" if with_runs else "NULL"
-    join = "LEFT JOIN runs ON runs.run_id = r.run_id " if with_runs else ""
     rows = pd.read_sql_query(
-        f"SELECT r.ticker, substr(r.date, 1, 10) AS date, r.rs_rating, r.benchmark, {run_index} AS run_index "
-        f"FROM relative_strength r {join}"
-        f"WHERE r.comparison = ? AND r.ticker IN ({placeholders}) "
+        f"SELECT ticker, substr(date, 1, 10) AS date, rs_rating, benchmark FROM relative_strength "
+        f"WHERE comparison = ? AND ticker IN ({placeholders}) "
         # plain comparisons on `date` (the store writes YYYY-MM-DD) so the primary key's
         # (ticker, date) range is used: substr() here read every date of every ticker (~10 s)
-        f"AND r.date >= ? AND r.date <= ? ORDER BY r.ticker, r.date",
+        f"AND date >= ? AND date <= ? ORDER BY ticker, date",
         derived, params=[rs.VS_MARKET, *tickers, start, as_of])
     out = {}
     for ticker, group in rows.groupby("ticker"):
         rating = rs.latest_rating(group, change_days)
         if rating is not None:
-            index = group.dropna(subset=["rs_rating"])["run_index"].iloc[-1]
-            out[ticker] = (rating, INDEX_NAMES.get(index, index) if isinstance(index, str) else None)
+            out[ticker] = rating
     return out
 
 
@@ -218,16 +209,15 @@ def _status(member: bool, left: str | None, last_bar: str | None, active: bool |
 
 
 def member_row(ticker: str, member: bool, left: str | None, stats: pd.Series | None,
-               rated: tuple[rs.Rating, str | None] | None, as_of: str, ma_periods: tuple[int, ...],
+               rating: rs.Rating | None, as_of: str, ma_periods: tuple[int, ...],
                active: bool | None = None) -> MemberRow:
     """`active`: the `tickers` table's flag (None: not known); only an inactive
     ticker that left is called delisted."""
     stats = stats if stats is not None else pd.Series(dtype=object)
     last_bar = stats.get("last_bar")
     last_bar = last_bar if isinstance(last_bar, str) else None
-    rating, rated_in = rated if rated else (None, None)
     status = _status(member, left, last_bar, active, rating, as_of)
-    return MemberRow(ticker, member, rating.value if rating else None, rating.change if rating else None, rated_in,
+    return MemberRow(ticker, member, rating.value if rating else None, rating.change if rating else None,
                      _none_if_nan(stats.get("pct_from_high")),
                      tuple(_none_if_nan(stats.get(f"vs_ma_{n}")) for n in ma_periods), last_bar, status)
 

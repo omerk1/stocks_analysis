@@ -70,7 +70,7 @@ compute, store and CLI, writing to `analysis.sqlite`:
 ```bash
 python -m src.signals.gaps.cli AAPL           # or --all; also avwap, fibonacci, divergences,
                                               # volume_profile, patterns, sr_lines
-python -m src.signals.relative_strength.cli --index sp500
+python -m src.signals.relative_strength.cli   # S&P 500 + Nasdaq-100 ranked as one universe
 python -m src.signals.breadth.cli --index sp500 --weighting cap
 ```
 
