@@ -201,3 +201,91 @@ def test_a_divergence_counts_in_the_y_fit_only_while_in_the_window(bars):
     in_view = y_axis_ranges(bars, {}, (bars.index[-30], bars.index[-1]), ChartType.CANDLES, False, (low_div,))
     after = y_axis_ranges(bars, {}, (bars.index[-10], bars.index[-1]), ChartType.CANDLES, False, (low_div,))
     assert in_view["yaxis"][0] < 2.0 < after["yaxis"][0]
+
+
+def test_rs_on_a_daily_chart_goes_blank_after_its_prices_end(weekly):
+    ticker, market = weekly
+    last_monday = ticker.index[-1]
+    # the last week's value shows Mon-Fri of the following week, then stops (no newer week completed)
+    days = pd.bdate_range(last_monday, last_monday + pd.Timedelta(days=25))
+    daily = panes.rs_frame(days, Timeframe.DAILY, ticker, market, CFG)["mansfield"]
+    next_week = days[(days > last_monday + pd.Timedelta(days=6)) & (days <= last_monday + pd.Timedelta(days=13))]
+    later = days[days > last_monday + pd.Timedelta(days=13)]
+    assert len(next_week) == 5 and daily.loc[next_week].notna().all()
+    assert len(later) and daily.loc[later].isna().all()
+    def note(index, timeframe, t=ticker):
+        return panes.rs_pane_data(index, timeframe, t, market, CFG)[1]
+
+    assert note(days, Timeframe.DAILY) == f"RS (Mansfield): total-return prices end the week of {last_monday:%Y-%m-%d}"
+    assert note(next_week, Timeframe.DAILY) is None  # the bars end within the shown range
+    assert note(ticker.index, Timeframe.WEEKLY) is None
+    # under a year of history: no Mansfield value at all, but the note still says where the prices end
+    short = ticker.iloc[-40:]
+    assert panes.rs_frame(days, Timeframe.DAILY, short, market, CFG)["mansfield"].isna().all()
+    assert note(days, Timeframe.DAILY, short) == (
+        f"RS (Mansfield): total-return prices end the week of {last_monday:%Y-%m-%d}")
+    # the blank and the note agree on where the pane ends: the last day with a value is the last shown day
+    assert daily.last_valid_index() == next_week[-1]
+
+
+def test_rs_line_is_the_close_ratio_with_dots_at_new_highs():
+    idx = pd.bdate_range("2024-01-01", periods=12)  # Jan 1-16
+    close = pd.Series([10, 11, 12, 11, 10, 11, 13, 12, 12, 14, 9, 15], index=idx, dtype=float)
+    stock = pd.DataFrame({"close": close}, index=idx)
+    market = pd.DataFrame({"close": 2.0}, index=idx.delete(5))  # no market bar on day 6
+    cfg = PaneConfig(rs_line_high_days=4)
+    frame = panes.rs_line_frame(stock, market, cfg)
+    assert frame["ratio"].iloc[0] == 5.0 and np.isnan(frame["ratio"].iloc[5])
+    # above every ratio of the 4 calendar days before: the gap day is skipped, not a blank
+    # window; nothing in the first 4 days (no full window behind it)
+    assert list(frame["high"].dropna().index) == [idx[6], idx[9], idx[11]]
+    assert frame["high"].iloc[:4].isna().all()
+    empty = panes.rs_line_frame(stock, market.iloc[0:0], cfg)
+    assert empty[["ratio", "high"]].isna().all().all()
+
+
+def test_a_zero_close_is_a_gap_not_a_year_long_high():
+    idx = pd.bdate_range("2023-01-02", periods=600)
+    stock = pd.DataFrame({"close": np.linspace(10, 20, 600)}, index=idx)  # rising: new highs all along
+    market = pd.DataFrame({"close": 1.0}, index=idx)
+    market.iloc[300, 0] = 0.0
+    frame = panes.rs_line_frame(stock, market, CFG)
+    assert np.isnan(frame["ratio"].iloc[300])
+    assert frame["high"].iloc[301:].notna().all()
+
+
+def test_a_flat_rs_line_has_no_dots():
+    idx = pd.bdate_range("2023-01-02", periods=600)
+    spy = pd.DataFrame({"close": 400.0}, index=idx)
+    frame = panes.rs_line_frame(spy, spy, CFG)  # SPY against itself: ratio 1 every day
+    assert (frame["ratio"] == 1.0).all() and frame["high"].isna().all()
+
+
+def test_rs_line_notes_when_the_market_ends_early():
+    idx = pd.bdate_range("2024-01-01", periods=10)
+    stock = pd.DataFrame({"close": 1.0}, index=idx)
+    assert panes.rs_line_end(stock, stock, "SPY") is None
+    assert panes.rs_line_end(stock, stock.iloc[:7], "SPY") == f"RS line: SPY bars end {idx[6]:%Y-%m-%d}"
+    assert panes.rs_line_end(stock, stock.iloc[0:0], "SPY") == "RS line: no SPY bars"
+
+
+def test_rs_line_range_fits_the_ratio_without_zero(bars):
+    frame = pd.DataFrame({"ratio": np.linspace(0.4, 0.5, len(bars)), "high": np.nan}, index=bars.index)
+    low, high = panes.pane_range(panes.RS_LINE, frame, bars.index[0], bars.index[-1])
+    assert 0.3 < low < 0.4 and 0.5 < high < 0.6
+    flat = pd.DataFrame({"ratio": 0.005, "high": np.nan}, index=bars.index)
+    low, high = panes.pane_range(panes.RS_LINE, flat, bars.index[0], bars.index[-1])
+    assert low == pytest.approx(0.00475) and high == pytest.approx(0.00525)  # padded by its own size
+    nearly = pd.DataFrame({"ratio": 0.005 + np.arange(len(bars)) * 1e-16, "high": np.nan}, index=bars.index)
+    low, high = panes.pane_range(panes.RS_LINE, nearly, bars.index[0], bars.index[-1])
+    assert high - low > 0.0004  # not a sliver
+
+
+def test_rs_line_pane_draws_the_line_and_its_dots(bars):
+    data = _Data(bars, pd.Series(50.0, index=pd.date_range("2021-01-04", periods=200, freq="W-MON")))
+    picked = app_mod.selected_panes(data, ChartConfig(), "ABC", Timeframe.DAILY, ["rs", "rs_line"])
+    assert [p.key for p in picked] == ["rs_line", "rs"] and picked[0].label == "RS line vs SPY"
+    fig = build_figure(bars, "ABC", Timeframe.DAILY, ChartType.CANDLES, {}, (), show_volume=False,
+                       x_range=(bars.index[-60], bars.index[-1]), panes=picked[:1])
+    assert [t.uid for t in fig.data] == ["price", "rs-line", "rs-line-high"]
+    assert fig.data[2].mode == "markers"

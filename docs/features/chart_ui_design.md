@@ -286,6 +286,23 @@ class Overlay:
      figure or pushed into the panes below (step 3's review finding, worse with the
      shorter price pane).
 
+   Added after step 6 (Done #188), from a look at live charts: the RS pane looked
+   too stable next to the RS line charting sites draw.
+   - **RS line vs SPY**, a new pane between MACD and the Mansfield one: the stock's
+     close over SPY's on the chart's own bars (traded, so it runs to the chart's last
+     bar; a price ratio, as charting sites draw it, not total return). It moves day
+     to day, unlike the Mansfield oscillator, which is weekly and measured against its
+     own 52-week average. Blue dots mark a new 52-week high of the line: strictly above
+     every value in the 365 days before, by date (so a missing bar neither stretches
+     nor blanks the window; a flat line, e.g. SPY against itself, gets none), and none
+     in the line's first year. Its y-axis fits the line without forcing 0 into view;
+     the header says if SPY's bars end before the stock's.
+   - **The Mansfield pane no longer runs flat past its data.** On a daily chart a day
+     carried the last completed week for ever, so with the total-return prices ending
+     2026-09-30 and the chart's bars running to 2026-11-06 it showed five flat weeks.
+     It now stops one week after its last completed week, and the header says when its
+     prices end.
+
    As built, 4b (divergences in the level menu, Done #181):
    - The divergence module's detector runs live like the other families (RSI, MACD
      histogram and OBV; regular and hidden). Each divergence is a line from its first
