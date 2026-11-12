@@ -78,6 +78,7 @@ def build_feature_cache(
     spec = universe.attrs.get("spec", {})
     start, end = universe["date"].min(), universe["date"].max()
     dataset.check_holdout(end, open_holdout)
+    dataset.check_cache_target((Path(out_dir) / CACHE_NAME).with_suffix(".json"), open_holdout)
     rows = universe.loc[universe["eligible"], ["ticker", "date"]]
     tickers = sorted(rows["ticker"].unique())
 

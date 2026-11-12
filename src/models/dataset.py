@@ -111,6 +111,21 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
     logger.warning("HOLDOUT OPEN: reading data through %s (boundary %s)", end.date(), HOLDOUT_END.date())
 
 
+def check_cache_target(manifest: Path, open_holdout: bool) -> None:
+    """A build never writes over a cache from the other side of the boundary:
+    a holdout build into a dev cache's directory would replace what every dev
+    trial was fitted on, and a dev build into a holdout one would hide that the
+    holdout was read. A manifest without the field predates it: dev."""
+    manifest = Path(manifest)
+    if not manifest.exists():
+        return
+    stored = bool(json.loads(manifest.read_text()).get("open_holdout", False))
+    if stored != bool(open_holdout):
+        built, asked = ("with", "without") if stored else ("without", "with")
+        raise HoldoutError(f"{manifest} is a cache built {built} the holdout open; a build {asked} it "
+                           "writes somewhere else (another --out)")
+
+
 # ---------------------------------------------------------------- bars
 
 def _source_groups(sources: dict[str, str]) -> dict[str, list[str]]:
@@ -460,6 +475,7 @@ def build_labels(
         raise ValueError("no rows to label")
     last_row = rows["date"].max()
     check_holdout(last_row, open_holdout)
+    check_cache_target(label_path(out_dir, horizon, side).with_suffix(".json"), open_holdout)
     data_end = last_row if open_holdout else HOLDOUT_END
 
     tickers = sorted(rows["ticker"].unique())

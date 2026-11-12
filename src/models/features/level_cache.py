@@ -254,6 +254,7 @@ def build_level_cache(
     the manifest."""
     dataset.check_holdout(end, open_holdout)
     root = Path(root)
+    dataset.check_cache_target(root / MANIFEST, open_holdout)
     configs = levels.default_configs()
     basis, fallback = dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK
     price_sources = dataset.resolve_sources(conn, tickers, basis, fallback)
