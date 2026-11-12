@@ -84,6 +84,45 @@ def instance_chart(window: pd.DataFrame, overlay_col: str, overlay_name: str,
     return figure
 
 
+_LINE_COLOURS = ("rgb(31, 119, 180)", "rgb(255, 127, 14)", "rgb(44, 160, 44)", "rgb(148, 103, 189)",
+                 "rgb(140, 86, 75)", "rgb(227, 119, 194)", "rgb(127, 127, 127)", "rgb(188, 189, 34)")
+
+
+def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: str) -> go.Figure:
+    """A level stack (`level_stack.StackGeometry`) on `window` (truncated by
+    `chart_window`): candles, the zone as a band from the geometry's start to the trigger
+    bar, each level's line where it stood, the divergence between its two price pivots,
+    and the trigger marker. Nothing past the trigger bar is drawn."""
+    figure = go.Figure()
+    figure.add_trace(go.Candlestick(
+        x=window["date"], open=window["open"], high=window["high"],
+        low=window["low"], close=window["close"], name="price", showlegend=False))
+    first = max(pd.Timestamp(stack.start), pd.Timestamp(window["date"].iloc[0]))
+    lo, hi = stack.zone
+    figure.add_trace(go.Scatter(
+        x=[first, trigger_date, trigger_date, first, first], y=[lo, lo, hi, hi, lo], fill="toself",
+        mode="lines", line=dict(width=0), fillcolor="rgba(44, 160, 44, 0.15)",
+        name=f"zone {lo:.2f}–{hi:.2f}", hoverinfo="name"))
+    for n, line in enumerate(stack.lines):
+        keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
+        figure.add_trace(go.Scatter(
+            x=[line.dates[i] for i in keep], y=[line.values[i] for i in keep], name=line.label,
+            mode="lines", line=dict(color=_LINE_COLOURS[n % len(_LINE_COLOURS)], width=1.5)))
+    if stack.divergence is not None:
+        d1, p1, d2, p2 = stack.divergence
+        figure.add_trace(go.Scatter(x=[d1, d2], y=[p1, p2], name="bullish divergence", mode="lines+markers",
+                                    line=dict(color="rgb(44, 160, 44)", width=2, dash="dot")))
+    trigger = window[window["date"] == trigger_date]
+    figure.add_trace(go.Scatter(
+        x=trigger["date"], y=trigger["low"], name="trigger bar", mode="markers",
+        marker=dict(symbol="circle-open", size=14, color="rgb(214, 39, 40)", line=dict(width=2))))
+    figure.update_layout(
+        title=title, xaxis_rangeslider_visible=False,
+        xaxis=dict(rangebreaks=_WEEKEND_RANGEBREAKS), margin=dict(l=40, r=40, t=60, b=40),
+        legend=dict(orientation="h", y=-0.08))
+    return figure
+
+
 def write_chart(figure: go.Figure, path) -> None:
     """Self-contained-enough HTML: plotly.js from the CDN keeps each file small."""
     figure.write_html(path, include_plotlyjs="cdn")

@@ -47,7 +47,7 @@ from __future__ import annotations
 import inspect
 import math
 from dataclasses import dataclass, replace
-from typing import Callable, Literal
+from typing import Callable, Literal, Mapping
 
 import numpy as np
 import pandas as pd
@@ -103,6 +103,9 @@ class Candidate:
     date: pd.Timestamp
     fails: str | None = None
     overlay_span: tuple[pd.Timestamp, pd.Timestamp, float] | None = None
+    # A level stack's own drawing (`level_stack.StackGeometry`): its zone, levels and
+    # divergence. Drawn instead of any overlay line.
+    stack: object | None = None
 
 
 @dataclass(frozen=True)
@@ -113,9 +116,13 @@ class FinderResult:
     # The finder owns its chart geometry: the panel column (one-bar-lagged, like every
     # panel feature — `ground.py` shifts it to the signal bar for display) drawn as the
     # chart overlay, and its display name. The session runner draws what the finder
-    # declares; it doesn't assume every detector is about a moving average.
-    overlay_column: str
+    # declares; it doesn't assume every detector is about a moving average. None: the
+    # candidates carry their own geometry (`Candidate.stack`).
+    overlay_column: str | None
     overlay_name: str
+    # Bars to draw instead of the panel's, per ticker (a `date` column, OHLC): the level
+    # stack's traded prices, the basis its levels are on (the panel's are total-return).
+    chart_bars: Mapping[str, pd.DataFrame] | None = None
 
 
 def shift_to_signal_bar(panel: pd.DataFrame, column: str) -> pd.Series:
@@ -684,18 +691,31 @@ FINDERS: dict[str, Callable[..., FinderResult]] = {
 }
 
 
+def _finder(finder_id: str) -> Callable[..., FinderResult]:
+    """A finder by id: a catalogue detector's (`FINDERS`), or the level stack's, which is
+    built from several detectors and so has no catalogue id (imported here: it builds on
+    this module)."""
+    from src.llm.strategy_spec import level_stack
+    return level_stack.find_level_stack if finder_id == level_stack.LEVEL_STACK else FINDERS[finder_id]
+
+
 def pick_finder(spec: StrategySpec, override: str | None = None) -> str:
     """The detector id to run: the override, else the first entry of the spec's
-    `uses` that has a finder. Refuses clearly rather than approximating."""
+    `uses` that has a finder, else the level stack for a spec shaped like one.
+    Refuses clearly rather than approximating."""
+    from src.llm.strategy_spec import level_stack
+    built = ", ".join([*FINDERS, level_stack.LEVEL_STACK])
     if override is not None:
-        if override not in FINDERS:
-            raise GroundingError(f"no finder for {override!r}; built so far: {', '.join(FINDERS)}")
+        if override not in FINDERS and override != level_stack.LEVEL_STACK:
+            raise GroundingError(f"no finder for {override!r}; built so far: {built}")
         return override
     found = next((u for u in spec.uses if u in FINDERS), None)
+    if found is None and level_stack.is_level_stack(spec):
+        return level_stack.LEVEL_STACK
     if found is None:
         raise GroundingError(
             f"none of the spec's detectors ({', '.join(spec.uses) or 'none listed'}) has a "
-            f"finder yet; built so far: {', '.join(FINDERS)}")
+            f"finder yet; built so far: {built}")
     return found
 
 
@@ -708,7 +728,7 @@ def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = 
     take it is said out loud via `note`, never silently dropped, as is a `detector`
     override that isn't among the spec's own detectors."""
     finder_id = pick_finder(spec, detector)
-    finder = FINDERS[finder_id]
+    finder = _finder(finder_id)
     declared = inspect.signature(finder).parameters
     options = {}
     if ma is not None:
