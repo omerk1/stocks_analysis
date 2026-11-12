@@ -195,18 +195,29 @@ def test_the_flag_reaches_every_read_and_build(stubs, tmp_path, opens):
     assert all((tmp_path / d / OPEN_MARKER).exists() == opens for d in ("f", "l", "v"))
 
 
-def test_a_build_that_fails_before_writing_gives_its_claim_back(stubs, monkeypatch, tmp_path):
-    def no_trading_day(*a, **k):
-        raise ValueError("nothing to open")                   # as an --end of 2022-01-01 would, inside the builder
-    monkeypatch.setattr(dataset, "build_labels", no_trading_day)
+def test_a_failed_open_build_keeps_its_claim(stubs, monkeypatch, tmp_path):
+    """It may have read holdout bars before failing: the directory stays the holdout's."""
+    def fails(*a, **k):
+        raise ValueError("no trading day after 2021")
+    monkeypatch.setattr(dataset, "build_labels", fails)
     with pytest.raises(ValueError):
         cli.main(["build-labels", "--db", "x", "--out", str(tmp_path / "l"), "--end", PAST, "--open-holdout"])
-    assert not (tmp_path / "l" / OPEN_MARKER).exists()
-    held = tmp_path / "held"
-    dataset.claim_cache_dir(held, open_holdout=True)           # a claim from an earlier run is kept
-    with pytest.raises(ValueError):
-        cli.main(["build-labels", "--db", "x", "--out", str(held), "--end", PAST, "--open-holdout"])
-    assert (held / OPEN_MARKER).exists()
+    assert (tmp_path / "l" / OPEN_MARKER).exists()
+    with pytest.raises(SystemExit, match="another --out"):
+        cli.main(["build-labels", "--db", "x", "--out", str(tmp_path / "l")])
+
+
+def test_restamp_refuses_a_holdout_snapshot_cache(tmp_path):
+    held = tmp_path / "levels"
+    dataset.claim_cache_dir(held, open_holdout=True)
+    with pytest.raises(level_cache.RestampRefused, match="holdout open"):
+        level_cache.restamp(None, held, "old", ("sr_line",))
+
+
+def test_os_leftovers_dont_make_a_directory_a_cache(tmp_path):
+    for name in (".DS_Store", "._.DS_Store", ".Spotlight-V100", "Thumbs.db"):
+        (tmp_path / name).write_bytes(b"")
+    dataset.claim_cache_dir(tmp_path, open_holdout=True)
 
 
 def test_build_features_scorecard_specs():

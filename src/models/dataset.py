@@ -112,7 +112,12 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 
 OPEN_MARKER = ".open_holdout"   # a cache directory a build with the holdout open has claimed
-IGNORED_ENTRIES = (".DS_Store",)  # what the OS leaves in a directory: it doesn't make it a cache
+# What the OS leaves in a directory (plus macOS's "._" AppleDouble files): it doesn't make it a cache.
+IGNORED_ENTRIES = (".DS_Store", ".Spotlight-V100", ".fseventsd", ".Trashes", "Thumbs.db", "desktop.ini")
+
+
+def _ignored(entry: Path) -> bool:
+    return entry.name in IGNORED_ENTRIES or entry.name.startswith("._")
 
 
 def prepare_build(out_dir: Path, end: str | pd.Timestamp, open_holdout: bool,
@@ -171,7 +176,7 @@ def claim_cache_dir(directory: Path, open_holdout: bool) -> None:
         return
     if not open_holdout:
         return
-    if directory.exists() and any(p.name not in IGNORED_ENTRIES for p in directory.iterdir()):
+    if directory.exists() and any(not _ignored(p) for p in directory.iterdir()):
         raise HoldoutError(f"{directory} isn't empty and wasn't claimed by a build with the holdout open: "
                            "such a build writes to an empty or new directory (another --out)")
     directory.mkdir(parents=True, exist_ok=True)

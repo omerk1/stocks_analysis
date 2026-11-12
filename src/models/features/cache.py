@@ -62,6 +62,13 @@ def _level_misses(bars: pd.DataFrame, splits: dict, root: Path) -> list[str]:
     return misses
 
 
+def level_specs(specs: list[registry.FeatureSpec]) -> list[registry.FeatureSpec]:
+    """The specs read from the level-snapshot cache (detector sources): with
+    any, a build reads `levels_root`. The command line asks the same question
+    before it opens the database."""
+    return [s for s in specs if s.source is not None and registry.is_detector(s)]
+
+
 def build_feature_cache(
     conn: sqlite3.Connection, universe: pd.DataFrame, out_dir: Path,
     specs: list[registry.FeatureSpec] | None = None, open_holdout: bool = False,
@@ -82,7 +89,7 @@ def build_feature_cache(
 
     bar_specs = [s for s in specs if s.source is not None]
     panel_specs = [s for s in bar_specs if isinstance(registry.SOURCES[s.source], registry.PanelSource)]
-    detector_specs = [s for s in bar_specs if registry.is_detector(s)]
+    detector_specs = level_specs(specs)
     ticker_specs = [s for s in bar_specs if s not in panel_specs and s not in detector_specs]
     dataset.prepare_build(out_dir, end, open_holdout, levels_root if detector_specs else None)
     first = start - pd.Timedelta(days=WARMUP_DAYS)

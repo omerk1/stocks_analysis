@@ -409,6 +409,9 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
     run it alongside a build of the same root (a build writes files outside the
     manifest lock). Returns the manifest, with a `restamped` record of what was done."""
     root = Path(root)
+    if (root / dataset.OPEN_MARKER).exists():
+        # a holdout snapshot cache is rebuilt, not re-keyed: this has no --open-holdout
+        raise RestampRefused(f"{root} is a snapshot cache built with the holdout open ({dataset.OPEN_MARKER})")
     if not (root / MANIFEST).is_file():
         raise RestampRefused(f"no level cache at {root} (no {MANIFEST})")
     with file_lock(root / MANIFEST_LOCK):
