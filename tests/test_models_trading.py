@@ -384,6 +384,55 @@ def test_f2_compares_the_group_with_the_model_on_main_without_it():
         replace(sc, ks=(5,))
 
 
+def test_ht1_is_the_frozen_model_against_the_market_on_the_holdout():
+    """HT1's column lists are frozen literals; pinned here to the frozen column
+    set and the registry's groups as of the pre-registration
+    (docs/modeling/PREREGISTRATION.md HT1)."""
+    from src.models.features.registry import model_input, model_specs
+    sc = trading.PREREGISTERED["HT1"]
+    groups = lambda *g: {model_input(s) for s in model_specs() if s.group in g}
+    assert sc.model_columns == trading.COLUMN_SETS["S2_no_market"]
+    assert sc.reference_columns == B4_COLUMNS and sc.reference == "B4"
+    assert set(sc.model_columns) == groups("baseline", "ma", "volatility", "volume", "oscillator", "relative")
+    assert len(sc.model_columns) == len(set(sc.model_columns)) == 24
+    assert (sc.track, sc.rank, sc.ci, sc.band, sc.verdict_k, sc.horizons, sc.seeds) == (
+        "B", "ev_atr", 0.99, 0.001, 20, (21, 63), (0, 1, 2))
+    assert (sc.verdict_against, sc.verdict_cost_bps, sc.min_positive_years) == ("market", 10, 3)
+    assert sc.test_years == (2022, 2023, 2024, 2025, 2026) and sc.first_train_start == "2011-01-01"
+    assert sc.eras == (sc.test_years,) and sc.open_holdout
+    assert sc.config == BoostingConfig() and sc.grid == () and sc.n_boot == 10_000
+
+
+def test_ht1_needs_the_operators_open_holdout_too(monkeypatch):
+    """Registered to open the holdout, HT1 still refuses to run or close
+    without --open-holdout, before anything is read."""
+    from src.models import cli
+    from src.models.features import cache
+    monkeypatch.setattr(trial_log, "git_dirty", lambda: False)
+    monkeypatch.setattr(cache, "read_feature_cache", lambda *a, **k: pytest.fail("read a cache"))
+    for argv in (["run-scorecard", "--preregistered", "HT1"], ["close-scorecard", "HT1"]):
+        with pytest.raises(SystemExit, match="pass --open-holdout"):
+            cli.main(argv)
+
+
+@pytest.mark.parametrize("seeds, says", [((0,), "(on seed 0; the pre-registered seed rerun decides entry)"),
+                                         ((0, 1, 2), "(seeds 0, 1, 2 averaged)")])
+@pytest.mark.parametrize("met", [True, False])
+def test_close_scorecard_says_whether_a_seed_rerun_is_still_due(monkeypatch, capsys, seeds, says, met):
+    from src.models import cli
+    from src.models.features import cache
+    monkeypatch.setitem(trading.PREREGISTERED, "HT", replace(trading.PREREGISTERED["F2"], seeds=seeds))
+    monkeypatch.setattr(cache, "read_feature_cache", lambda *a, **k: None)
+    monkeypatch.setattr(trial_log, "read_trials", lambda *a, **k: None)
+    monkeypatch.setattr(trading, "close_scorecard", lambda sc, *a, **k: {
+        "k": 20, "ci": 0.99, "band": 0.001, "n_boot": 1000, "registered_n_boot": 1000, "horizons": {},
+        "group_verdict": trading.POSITIVE, "entry_rule_met": met, "seeds": list(sc.seeds)})
+    assert cli.main(["close-scorecard", "HT"]) == 0
+    out = capsys.readouterr().out
+    assert (says in out) == met
+    assert "seed rerun" not in out if len(seeds) > 1 else "averaged" not in out
+
+
 def test_three_verdicts():
     assert trading.three_verdict(-0.0005, 0.0008, 0.001) == trading.DEAD
     assert trading.three_verdict(-0.0005, 0.002, 0.001) == trading.INCONCLUSIVE

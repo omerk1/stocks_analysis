@@ -5,6 +5,7 @@ speed copy of the same function."""
 
 import ast
 import dataclasses
+import json
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from src.foundation.data_processing import db as raw_db
@@ -466,6 +468,223 @@ def test_the_code_hash_covers_every_module_a_snapshot_imports():
     loaded = {Path(f).resolve() for f in out if Path(f).resolve().is_relative_to(src) and Path(f).name != "__init__.py"}
     assert loaded == set(level_cache.CODE_FILES) | set(level_cache.CODE_EXCLUDED)
     assert Path(levels.__file__).resolve() not in loaded  # the daily sources don't invalidate snapshots
+
+
+# What `level_snapshots` imports for each source's detector, and for itself.
+_SOURCE_IMPORTS = {
+    "sr_line": ("src.signals.sr_lines.config", "src.signals.sr_lines.engine", "src.signals.sr_lines.models"),
+    "avwap": ("src.signals.avwap.anchors", "src.signals.avwap.compute", "src.signals.avwap.config"),
+    "vp": ("src.signals.volume_profile.config", "src.signals.volume_profile.detect"),
+}
+_SNAPSHOT_OWN_IMPORTS = ("src.foundation.market_common.data", "src.foundation.market_common.history_breaks",
+                         "src.foundation.market_common.models")
+
+
+@pytest.mark.parametrize("source", sorted(_SOURCE_IMPORTS))
+def test_each_sources_hash_covers_exactly_what_its_detector_imports(source):
+    modules = (*_SOURCE_IMPORTS[source], *_SNAPSHOT_OWN_IMPORTS)
+    code = (f"import sys, os, importlib; [importlib.import_module(m) for m in {modules!r}]; "
+            "print('\\n'.join(os.path.abspath(m.__file__) for m in list(sys.modules.values()) "
+            "if getattr(m, '__file__', None)))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.split()
+    src = Path(level_cache.__file__).resolve().parents[2]
+    loaded = {Path(f).resolve() for f in out if Path(f).resolve().is_relative_to(src) and Path(f).name != "__init__.py"}
+    own = set(level_cache.CODE_FILES_BY_SOURCE[source]) - {Path(level_snapshots.__file__).resolve()}
+    assert loaded - set(level_cache.CODE_EXCLUDED) == own
+
+
+def test_one_sources_code_change_leaves_the_others_keys(bars, configs, monkeypatch):
+    dates = levels.snapshot_dates(bars.index)[-3:]
+    keys = {s: level_cache.fingerprint(s, TICKER, bars, None, dates, configs[s]) for s in level_snapshots.SNAPSHOT_SOURCES}
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "vp" else real(s))
+    after = {s: level_cache.fingerprint(s, TICKER, bars, None, dates, configs[s]) for s in level_snapshots.SNAPSHOT_SOURCES}
+    assert after["vp"] != keys["vp"]
+    assert after["sr_line"] == keys["sr_line"] and after["avwap"] == keys["avwap"]
+
+
+def test_a_build_after_one_sources_code_change_keeps_the_others_records(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    first = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                          sources=("sr_line", "avwap"))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "avwap" else real(s))
+    sr_stamp = level_cache.snapshot_path(tmp_path, "sr_line", "AAA").stat().st_mtime_ns
+    second = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                           sources=("sr_line", "avwap"))
+    c.close()
+    assert first["code_hashes"]["avwap"] != second["code_hashes"]["avwap"] == "changed"
+    assert second["code_hashes"]["sr_line"] == first["code_hashes"]["sr_line"]
+    assert level_cache.snapshot_path(tmp_path, "sr_line", "AAA").stat().st_mtime_ns == sr_stamp  # still a hit
+    assert "code_hash" not in second
+
+
+def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    for i, t in enumerate(("AAA", "BBB")):
+        raw_db.upsert_bars(c, "bars_1d", t, raw_db.YFINANCE_SPLIT_ONLY,
+                           _bars(n=260, seed=20 + i, start="2020-01-01").assign(is_partial=0))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    level_cache.build_level_cache(c, ["AAA", "BBB"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                  sources=("sr_line",))
+    before = {t: pq.read_table(level_cache.snapshot_path(tmp_path, "sr_line", t)).to_pandas() for t in ("AAA", "BBB")}
+    schema_before = pq.read_schema(level_cache.snapshot_path(tmp_path, "sr_line", "AAA"))
+    # BBB's bars change after the build: its file is a real miss, never re-keyed.
+    raw_db.upsert_bars(c, "bars_1d", "BBB", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=99, start="2020-01-01").assign(is_partial=0))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 1, "current": 0, "left": 1}
+    assert m["code_hashes"]["sr_line"] == real("sr_line")
+    _, by_ticker, splits = level_cache._load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
+    clean = levels.prepare(by_ticker["AAA"])
+    dates = levels.snapshot_dates(clean.index)
+    key = level_cache.fingerprint("sr_line", "AAA", clean, splits.get("AAA"), dates,
+                                  levels.default_configs()["sr_line"])
+    hit = level_cache.read_cached(tmp_path, "sr_line", "AAA", key)
+    assert hit is not None  # the re-keyed file now hits under today's code ...
+    pd.testing.assert_frame_equal(hit, level_cache._ns_dates(before["AAA"]))  # ... with the same rows
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    assert pq.read_schema(path).remove_metadata() == schema_before.remove_metadata()  # ... and schema
+    assert "BBB" not in m["tickers"] and m["n_tickers"] == 1  # a file left as a miss isn't claimed cached
+    assert m["rows"]["sr_line"] == m["tickers"]["AAA"]["sr_line"]
+    with pytest.raises(level_cache.RestampRefused):  # the manifest now records today's code
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    again = level_cache.restamp(c, tmp_path, real("sr_line"), ("sr_line",), progress=None)
+    c.close()
+    assert again["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 1, "left": 0}
+
+
+def _one_ticker_cache(tmp_path, sources):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None, sources=sources)
+    return c
+
+
+def test_restamping_some_sources_keeps_the_old_single_hash_for_the_others(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line", "avwap"))
+    path = tmp_path / level_cache.MANIFEST
+    m = json.loads(path.read_text())
+    m.pop("code_hashes")
+    path.write_text(json.dumps({**m, "code_hash": "old"}))  # the format before per-source hashes
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    out = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert out["code_hashes"] == {"sr_line": real("sr_line"), "avwap": "old"} and "code_hash" not in out
+
+
+def test_restamp_rechecks_the_key_on_the_table_it_rewrites(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    key_before = pq.read_metadata(path).metadata[level_cache.FINGERPRINT_KEY]
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    read = pq.read_table
+    # A build swaps the file between the footer read and the table read.
+    monkeypatch.setattr(level_cache.pq, "read_table",
+                        lambda p: read(p).replace_schema_metadata({level_cache.FINGERPRINT_KEY: b"other"}))
+    out = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert out["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 0, "left": 1}
+    assert pq.read_metadata(path).metadata[level_cache.FINGERPRINT_KEY] == key_before  # not rewritten
+
+
+def test_restamp_refuses_another_code_hash_or_a_changed_config(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    path = level_cache.snapshot_path(tmp_path, "sr_line", "AAA")
+    before = ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes())
+    with pytest.raises(level_cache.RestampRefused, match="recorded under code 'old', not 'olf'"):
+        level_cache.restamp(c, tmp_path, "olf", ("sr_line",), progress=None)
+    with pytest.raises(level_cache.RestampRefused, match="isn't a source this cache was built for"):
+        level_cache.restamp(c, tmp_path, "old", ("avwap",), progress=None)
+    defaults = levels.default_configs
+    monkeypatch.setattr(level_cache.levels, "default_configs",
+                        lambda: {**defaults(), "sr_line": dataclasses.replace(defaults()["sr_line"], window_years=8.0)})
+    with pytest.raises(level_cache.RestampRefused, match="config changed"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert ((tmp_path / level_cache.MANIFEST).read_bytes(), path.read_bytes()) == before  # refused before any change
+
+
+def test_restamp_prunes_a_source_left_with_no_records_and_refuses_one_with_none(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    # AAA's bars change after the build: its one file is a real miss, so sr_line is emptied.
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=99, start="2020-01-01").assign(is_partial=0))
+    m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 0, "current": 0, "left": 1}
+    assert m["tickers"] == {} and all("sr_line" not in m[k] for k in ("sources", "configs", "code_hashes"))
+    path = tmp_path / level_cache.MANIFEST
+    path.write_text(json.dumps({**m, "configs": {"sr_line": level_cache.config_record(
+        levels.default_configs()["sr_line"])}, "code_hashes": {"sr_line": "old"}}))
+    with pytest.raises(level_cache.RestampRefused, match="nothing to re-stamp"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+
+
+def test_restamp_refuses_a_db_missing_recorded_tickers_bars(tmp_path, monkeypatch):
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "old")
+    c = _one_ticker_cache(tmp_path, ("sr_line",))
+    monkeypatch.setattr(level_cache, "code_hash", real)
+    before = (tmp_path / level_cache.MANIFEST).read_bytes()
+    c.execute("DELETE FROM bars_1d WHERE ticker = 'AAA'")
+    with pytest.raises(level_cache.RestampRefused, match="no bars in this DB"):
+        level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
+    c.close()
+    assert (tmp_path / level_cache.MANIFEST).read_bytes() == before
+
+
+def test_a_build_of_one_source_drops_another_sources_records_after_its_config_changed(tmp_path, monkeypatch):
+    c = _one_ticker_cache(tmp_path, ("sr_line", "avwap"))
+    real = levels.default_configs
+    monkeypatch.setattr(level_cache.levels, "default_configs",
+                        lambda: {**real(), "avwap": dataclasses.replace(real()["avwap"], min_bars=999)})
+    m = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                      sources=("sr_line",))
+    c.close()
+    assert set(m["tickers"]["AAA"]) == {"sr_line"} and "avwap" not in m["configs"]
+
+
+def test_restamp_refuses_a_missing_cache_and_one_past_the_holdout(tmp_path):
+    with pytest.raises(ValueError, match="no level cache"):
+        level_cache.restamp(None, tmp_path / "typo", "old", ("sr_line",), progress=None)
+    assert not (tmp_path / "typo").exists()
+    (tmp_path / level_cache.MANIFEST).write_text(json.dumps({"end": "2023-06-30", "tickers": {}}))
+    with pytest.raises(dataset.HoldoutError):
+        level_cache.restamp(None, tmp_path, "old", ("sr_line",), progress=None)
+
+
+def test_a_build_of_one_source_drops_another_sources_stale_records(tmp_path, monkeypatch):
+    c = raw_db.get_connection(":memory:")
+    raw_db.create_tables(c)
+    raw_db.upsert_bars(c, "bars_1d", "AAA", raw_db.YFINANCE_SPLIT_ONLY,
+                       _bars(n=260, seed=20, start="2020-01-01").assign(is_partial=0))
+    level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                  sources=("sr_line", "avwap"))
+    real = level_cache.code_hash
+    monkeypatch.setattr(level_cache, "code_hash", lambda s: "changed" if s == "avwap" else real(s))
+    m = level_cache.build_level_cache(c, ["AAA"], tmp_path, "2021-12-31", workers=1, progress=None,
+                                      sources=("sr_line",))
+    c.close()
+    assert set(m["tickers"]["AAA"]) == {"sr_line"} and "avwap" not in m["code_hashes"]
 
 
 def test_sr_snapshot_matches_the_detector_on_a_young_ticker(configs):

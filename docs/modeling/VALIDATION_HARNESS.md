@@ -772,6 +772,8 @@ Build order, one PR each, each with its own tests:
        little calmer (ATR 2.2–2.5% vs S1's 2.3–2.7%), so the trading test keeps the
        low-volatility control. Comparison logs: `data/models/{seed1,seed2,vol}_compare.log`,
        `s1vol_vs_s1v.log`.
+     - **The trading test is registered as HT1** (`PREREGISTRATION.md`, 2026-11-09;
+       `trading.PREREGISTERED["HT1"]`), not yet run: its prerequisites come first.
    - **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not

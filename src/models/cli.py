@@ -149,6 +149,22 @@ def _read_only(db_path: Path):
     return db.get_connection(f"file:{db_path}?mode=ro", uri=True)
 
 
+def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str, ...]) -> int:
+    from src.models import dataset
+    from src.models.features import level_cache
+    conn = _read_only(db_path)
+    try:
+        m = level_cache.restamp(conn, out, from_code, sources, progress=lambda s: print(s, flush=True))
+    except (level_cache.RestampRefused, dataset.HoldoutError) as e:  # anything else is a real failure: a traceback
+        print(f"not re-stamped: {e}")
+        return 2
+    finally:
+        conn.close()
+    counts = m["restamped"][-1]["counts"]
+    print(f"re-stamped {out}: {counts}")
+    return 0
+
+
 def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...], workers: int,
                  tickers: list[str] | None, smoke: bool) -> int:
     from src.models import dataset
@@ -433,7 +449,11 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
               f"inside H{h} (of picks with one) model {d['model.earnings_inside']:.1%} / reference "
               f"{d['reference.earnings_inside']:.1%}, none model {d['model.earnings_unknown']:.1%} / reference "
               f"{d['reference.earnings_unknown']:.1%}")
-    rerun = " (on seeds " + ", ".join(map(str, r["seeds"])) + "; the pre-registered seed rerun decides entry)"
+    # one seed (F2): its pre-registration's seed rerun decides entry; seeds averaged in the
+    # run (HT1): the pre-registration says what entry means, so only the seeds are named
+    seeds = ", ".join(map(str, r["seeds"]))
+    rerun = (f" (on seed {seeds}; the pre-registered seed rerun decides entry)" if len(r["seeds"]) == 1
+             else f" (seeds {seeds} averaged)")
     tag = "" if r["n_boot"] == r["registered_n_boot"] else " [precision check, not the registered verdict]"
     print(f"  group: {r['group_verdict']}; entry rule met: {r['entry_rule_met']}" + (rerun if r["entry_rule_met"] else "")
           + tag)
@@ -469,6 +489,12 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
                       help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
     feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
+    stamp = sub.add_parser("restamp-levels", help="re-key the level cache's files after a code change known not "
+                           "to change any snapshot (recompute a sample and compare first)")
+    stamp.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
+    stamp.add_argument("--out", type=Path, default=Path("data/models/levels"))
+    stamp.add_argument("--from-code-hash", required=True, help="the code hash the files were stored under")
+    stamp.add_argument("--sources", nargs="+", required=True, help="the sources whose snapshots were checked equal")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
     lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
     lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
@@ -548,6 +574,8 @@ def main(argv: list[str] | None = None) -> int:
         return close_experiment(args.experiment)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
+    if args.command == "restamp-levels":
+        return restamp_levels(args.db, args.out, args.from_code_hash, tuple(args.sources))
     if args.command == "build-levels":
         return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
                             args.tickers, args.smoke)
