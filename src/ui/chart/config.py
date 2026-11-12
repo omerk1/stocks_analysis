@@ -84,6 +84,8 @@ class PaneConfig:
     macd: tuple[int, int, int] = (12, 26, 9)  # fast, slow, signal
     market: str = "SPY"
     mansfield_weeks: int = 52
+    # The RS line's dots: above every value of the past this many days (a 52-week high).
+    rs_line_high_days: int = 365
 
 
 @dataclass(frozen=True)
