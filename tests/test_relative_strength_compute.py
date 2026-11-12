@@ -360,16 +360,21 @@ def test_the_stored_run_ranks_all_configured_indices_once_and_records_the_univer
 
     _two_indices(conn)
     derived = db.get_connection(":memory:")
-    derived_db.create_runs_table(derived)
-    store.create_relative_strength_tables(derived)
-    config = _config(indices=["idx_a", "idx_b"])
-    rs, skip, run_id = cli.run_stock_tier(conn, derived, "stock-vs-market", config, None, None)
-    assert skip is None
-    assert derived.execute("SELECT ticker FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0] == "idx_a+idx_b"
-    stored = dict(derived.execute(
-        "SELECT ticker, rs_rating FROM relative_strength WHERE date = ?", (_DATES[-1].strftime("%Y-%m-%d"),)))
-    assert stored == pytest.approx({"BIG": 100.0, "ONLY_B": 200 / 3, "ONLY_A": 100 / 3})
-    derived.close()
+    try:
+        derived_db.create_runs_table(derived)
+        store.create_relative_strength_tables(derived)
+        config = _config(indices=["idx_a", "idx_b"])
+        expected = {"BIG": 100.0, "ONLY_B": 200 / 3, "ONLY_A": 100 / 3}  # all one sector, so both tiers agree
+        for tier, comparison in [("stock-vs-market", "vs_market"), ("stock-vs-sector", "vs_sector")]:
+            _, skip, run_id = cli.run_stock_tier(conn, derived, tier, config, None, None)
+            assert skip is None
+            assert derived.execute("SELECT ticker FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0] == "idx_a+idx_b"
+            stored = dict(derived.execute(
+                "SELECT ticker, rs_rating FROM relative_strength WHERE date = ? AND comparison = ?",
+                (_DATES[-1].strftime("%Y-%m-%d"), comparison)))
+            assert stored == pytest.approx(expected), tier
+    finally:
+        derived.close()
 
 
 def test_unknown_indices_give_an_empty_frame(conn):
