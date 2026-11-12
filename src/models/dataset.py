@@ -112,6 +112,35 @@ def check_holdout(end: str | pd.Timestamp, open_holdout: bool = False) -> None:
 
 
 OPEN_MARKER = ".open_holdout"   # a cache directory a build with the holdout open has claimed
+IGNORED_ENTRIES = (".DS_Store",)  # what the OS leaves in a directory: it doesn't make it a cache
+
+
+def prepare_build(out_dir: Path, end: str | pd.Timestamp, open_holdout: bool,
+                  levels_root: Path | None = None) -> None:
+    """Every cache builder's first step, in this order, before it reads or
+    writes anything: the holdout lock (`check_holdout`), an open build's end
+    past it (`check_open_end`), a snapshot cache it reads from the same side
+    (`check_levels_root`, with `levels_root`), then its own directory claimed
+    (`claim_cache_dir`) -- last, so a refusal leaves no claim behind."""
+    check_holdout(end, open_holdout)
+    check_open_end(end, open_holdout)
+    if levels_root is not None:
+        check_levels_root(levels_root, open_holdout)
+    claim_cache_dir(out_dir, open_holdout)
+
+
+def check_levels_root(levels_root: Path, open_holdout: bool) -> None:
+    """Level columns read a snapshot cache from their own side: an open build
+    reads one a holdout level build claimed (a dev one ends in 2021, so every
+    ticker would miss after the holdout bars were read), and a dev build never
+    reads a claimed one (its snapshots come from bars past 2021)."""
+    claimed = (Path(levels_root) / OPEN_MARKER).exists()
+    if open_holdout and not claimed:
+        raise HoldoutError(f"the level columns read {levels_root}, which no build with the holdout open "
+                           "claimed: build-levels --open-holdout into its own --out first, and pass it as --levels")
+    if claimed and not open_holdout:
+        raise HoldoutError(f"the level columns read {levels_root}, a snapshot cache built with the holdout open: "
+                           "a dev build reads a dev one")
 
 
 def check_open_end(end: str | pd.Timestamp, open_holdout: bool) -> None:
@@ -142,7 +171,7 @@ def claim_cache_dir(directory: Path, open_holdout: bool) -> None:
         return
     if not open_holdout:
         return
-    if directory.exists() and any(directory.iterdir()):
+    if directory.exists() and any(p.name not in IGNORED_ENTRIES for p in directory.iterdir()):
         raise HoldoutError(f"{directory} isn't empty and wasn't claimed by a build with the holdout open: "
                            "such a build writes to an empty or new directory (another --out)")
     directory.mkdir(parents=True, exist_ok=True)
@@ -498,9 +527,7 @@ def build_labels(
     if rows.empty:
         raise ValueError("no rows to label")
     last_row = rows["date"].max()
-    check_holdout(last_row, open_holdout)
-    check_open_end(last_row, open_holdout)
-    claim_cache_dir(out_dir, open_holdout)
+    prepare_build(out_dir, last_row, open_holdout)
     data_end = last_row if open_holdout else HOLDOUT_END
 
     tickers = sorted(rows["ticker"].unique())

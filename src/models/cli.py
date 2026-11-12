@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import sys
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 import pandas as pd
@@ -173,23 +174,34 @@ def _check_open_end(end: str, open_holdout: bool) -> None:
         raise SystemExit(f"--open-holdout with --end {end}: {e}") from None
 
 
-def _builder_out(end: str, out: Path | None, open_holdout: bool, default_out: Path | None = None) -> Path:
+@contextmanager
+def _build_into(end: str, out: Path | None, open_holdout: bool, default_out: Path | None = None,
+                levels_root: Path | None = None):
     """A cache builder's output directory, checked and claimed
-    (`dataset.claim_cache_dir`) before the database is opened, so a refused
+    (`dataset.prepare_build`) before the database is opened, so a refused
     build reads nothing. With `--open-holdout` it must be given: a default
-    is a dev cache's directory. The builder claims it again (a no-op here)
-    for callers that don't come through the command line."""
+    is a dev cache's directory. The builder prepares it again (a no-op here)
+    for callers that don't come through the command line. A build that fails
+    before writing anything (e.g. an --end past 2021 with no trading day
+    after it) gives back the claim this call made."""
     from src.models import dataset
     _check_open_end(end, open_holdout)
     if out is None:
         if open_holdout:
             raise SystemExit("--open-holdout needs an explicit --out: the default is a dev cache's directory")
         out = default_out
+    marker = Path(out) / dataset.OPEN_MARKER
+    claimed_here = open_holdout and not marker.exists()
     try:
-        dataset.claim_cache_dir(out, open_holdout)
+        dataset.prepare_build(out, end, open_holdout, levels_root)
     except dataset.HoldoutError as e:
         raise SystemExit(str(e)) from None
-    return out
+    try:
+        yield out
+    except BaseException:
+        if claimed_here and all(p == marker or p.name in dataset.IGNORED_ENTRIES for p in Path(out).iterdir()):
+            marker.unlink()
+        raise
 
 
 def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str, ...]) -> int:
@@ -212,19 +224,19 @@ def build_levels(db_path: Path, out: Path | None, start: str, end: str, indices:
                  tickers: list[str] | None, smoke: bool, open_holdout: bool = False) -> int:
     from src.models import dataset
     from src.models.features import level_cache
-    out = _builder_out(end, out, open_holdout, LEVELS_OUT)
-    conn = _read_only(db_path)
-    try:
-        if smoke:
-            tickers = _smoke_tickers(conn)
-        elif tickers is None:
-            universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
-            tickers = sorted(universe.loc[universe["eligible"], "ticker"].unique())
-        print(f"building level snapshots for {len(tickers)} tickers into {out} ({workers} workers)", flush=True)
-        m = level_cache.build_level_cache(conn, tickers, out, end, workers=workers, open_holdout=open_holdout,
-                                          progress=lambda s: print(s, flush=True))
-    finally:
-        conn.close()
+    with _build_into(end, out, open_holdout, LEVELS_OUT) as out:
+        conn = _read_only(db_path)
+        try:
+            if smoke:
+                tickers = _smoke_tickers(conn)
+            elif tickers is None:
+                universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
+                tickers = sorted(universe.loc[universe["eligible"], "ticker"].unique())
+            print(f"building level snapshots for {len(tickers)} tickers into {out} ({workers} workers)", flush=True)
+            m = level_cache.build_level_cache(conn, tickers, out, end, workers=workers, open_holdout=open_holdout,
+                                              progress=lambda s: print(s, flush=True))
+        finally:
+            conn.close()
     run = m["last_run"]
     print(f"this run: {run['n_tickers']} tickers, {run['cpu_hours']:.2f} CPU hours; cache: {m['n_tickers']} tickers, "
           f"rows {m['rows']}, price sources {pd.Series(m['price_sources']).value_counts().to_dict()}")
@@ -256,20 +268,22 @@ def build_features(db_path: Path, out: Path, start: str, end: str, indices: tupl
                    levels: Path | None, workers: int, scorecard: str | None = None, open_holdout: bool = False) -> int:
     from src.models import dataset
     from src.models.features import cache, registry
+    _check_open_end(end, open_holdout)
     specs = scorecard_specs(scorecard) if scorecard else None
+    with_levels = any(registry.is_detector(s) for s in (specs if specs is not None else registry.model_specs()))
     if levels is None:
-        if open_holdout and any(registry.is_detector(s) for s in (specs or registry.model_specs())):
+        if open_holdout and with_levels:
             raise SystemExit("--open-holdout with level columns needs an explicit --levels (build-levels "
                              "--open-holdout's --out): the default is the dev snapshot cache")
         levels = LEVELS_OUT
-    out = _builder_out(end, out, open_holdout)
-    conn = _read_only(db_path)
-    try:
-        universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
-        path = cache.build_feature_cache(conn, universe, out, specs=specs, open_holdout=open_holdout,
-                                         levels_root=levels, workers=workers)
-    finally:
-        conn.close()
+    with _build_into(end, out, open_holdout, levels_root=levels if with_levels else None) as out:
+        conn = _read_only(db_path)
+        try:
+            universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
+            path = cache.build_feature_cache(conn, universe, out, specs=specs, open_holdout=open_holdout,
+                                             levels_root=levels, workers=workers)
+        finally:
+            conn.close()
     features = cache.read_feature_cache(out, open_holdout=open_holdout)
     m = features.attrs["manifest"]
     print(f"{path}: {m['n_rows']:,} eligible rows, {m['n_tickers']} tickers, {m['start']}..{m['end']}")
@@ -350,18 +364,18 @@ def build_labels(db_path: Path, out: Path | None, start: str, end: str, indices:
                  horizons: tuple[int, ...], open_holdout: bool = False) -> int:
     from src.models import dataset
     warnings.filterwarnings("ignore")
-    out = _builder_out(end, out, open_holdout, LABELS_OUT)
-    conn = _read_only(db_path)
-    try:
-        universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
-        rows = universe.loc[universe["has_bars"], ["ticker", "date"]]
-        for h in horizons:
-            path = dataset.build_labels(conn, rows, h, out, open_holdout=open_holdout)
-            m = dataset.read_labels(out, h, open_holdout=open_holdout).attrs["manifest"]
-            print(f"{path}: {m['n_rows']:,} rows, {m['n_tickers']} tickers, {m['n_disputed_dropped']:,} dropped "
-                  f"for disputed days (disputes {m['disputes']})")
-    finally:
-        conn.close()
+    with _build_into(end, out, open_holdout, LABELS_OUT) as out:
+        conn = _read_only(db_path)
+        try:
+            universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
+            rows = universe.loc[universe["has_bars"], ["ticker", "date"]]
+            for h in horizons:
+                path = dataset.build_labels(conn, rows, h, out, open_holdout=open_holdout)
+                m = dataset.read_labels(out, h, open_holdout=open_holdout).attrs["manifest"]
+                print(f"{path}: {m['n_rows']:,} rows, {m['n_tickers']} tickers, {m['n_disputed_dropped']:,} "
+                      f"dropped for disputed days (disputes {m['disputes']})")
+        finally:
+            conn.close()
     return 0
 
 

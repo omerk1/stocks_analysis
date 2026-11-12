@@ -269,10 +269,8 @@ def build_level_cache(
     into `<root>/manifest.json` (per-ticker rows and failures accumulate over
     runs, so a rerun of a few tickers keeps the full build's record); returns
     the manifest."""
-    dataset.check_holdout(end, open_holdout)
     root = Path(root)
-    dataset.check_open_end(end, open_holdout)
-    dataset.claim_cache_dir(root, open_holdout)
+    dataset.prepare_build(root, end, open_holdout)
     configs = levels.default_configs()
     basis = dataset.UNIVERSE_BASIS
     price_sources, by_ticker, splits = _load_bars(conn, tickers, end)

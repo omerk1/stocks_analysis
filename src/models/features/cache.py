@@ -77,9 +77,6 @@ def build_feature_cache(
     specs = specs if specs is not None else registry.model_specs()
     spec = universe.attrs.get("spec", {})
     start, end = universe["date"].min(), universe["date"].max()
-    dataset.check_holdout(end, open_holdout)
-    dataset.check_open_end(end, open_holdout)
-    dataset.claim_cache_dir(out_dir, open_holdout)
     rows = universe.loc[universe["eligible"], ["ticker", "date"]]
     tickers = sorted(rows["ticker"].unique())
 
@@ -87,10 +84,7 @@ def build_feature_cache(
     panel_specs = [s for s in bar_specs if isinstance(registry.SOURCES[s.source], registry.PanelSource)]
     detector_specs = [s for s in bar_specs if registry.is_detector(s)]
     ticker_specs = [s for s in bar_specs if s not in panel_specs and s not in detector_specs]
-    if detector_specs and open_holdout and not (Path(levels_root) / dataset.OPEN_MARKER).exists():
-        # a dev snapshot cache ends at 2021: every ticker would miss, after the holdout bars were read
-        raise dataset.HoldoutError(f"the level columns read {levels_root}, which no build with the holdout open "
-                                   "claimed: build-levels --open-holdout into its own --out first")
+    dataset.prepare_build(out_dir, end, open_holdout, levels_root if detector_specs else None)
     first = start - pd.Timedelta(days=WARMUP_DAYS)
     sectors = db.read_ticker_sector(conn)[["ticker", "sector"]]
     sectors["sector"] = sectors["sector"].replace("", pd.NA)
