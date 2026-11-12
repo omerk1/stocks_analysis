@@ -57,11 +57,11 @@ def inputs(levels: list[tuple], touch_low: float = 100.2, touch_close: float = 1
         low[p] = v
     bars = pd.DataFrame({"open": close, "high": close + 0.5, "low": low, "close": close, "volume": 1e6},
                         index=DATES)
-    rows = [(DATES[p], kind, lo, hi, DATES[formed], f"{kind}{i}")
+    rows = [(DATES[p], kind, lo, hi, DATES[formed], f"{kind}{i}", kind)
             for i, (kind, lo, hi, formed, first) in enumerate(levels) for p in range(first, N)]
-    lv = pd.DataFrame(rows, columns=["date", "kind", "lo", "hi", "formed", "key"])
+    lv = pd.DataFrame(rows, columns=["date", "kind", "lo", "hi", "formed", "key", "label"])
     div = pd.DataFrame({"confirmed": [DATES[p] for p in divergences], "invalidated": pd.NaT,
-                        "indicator": "rsi", "p1_date": DATES[0], "p1_price": 100.0,
+                        "indicator": "rsi", "form": "regular", "p1_date": DATES[0], "p1_price": 100.0,
                         "p2_date": [DATES[p] for p in divergences], "p2_price": 99.0})
     div["invalidated"] = pd.to_datetime(div["invalidated"])
     return TickerInputs(bars, pd.Series(1.0, index=DATES), lv, div)
@@ -105,6 +105,21 @@ def test_one_kind_is_not_a_stack_but_is_the_control_and_the_count_ring():
     assert dates(control.matches) == [("AAA", DATES[TOUCH])] and control.near_misses == ()
     assert find_level_stack(spec(), panel("AAA"), {"AAA": inputs([SR, FIB])}, control=True,
                             progress=None).matches == ()  # a stack isn't a single-level retest
+
+
+def test_the_chart_geometry_follows_each_level_and_names_it():
+    i = inputs([SR, FIB], divergences=[TOUCH - 10])
+    stack = find_level_stack(spec(), panel("AAA"), {"AAA": i}, progress=None).matches[0].stack
+    assert stack.divergence_label == "bullish regular divergence (RSI)"
+    sr = next(line for line in stack.lines if line.label.startswith("sr_line"))
+    # As known at each previous close: the first point is the bar after the level first stood.
+    assert sr.dates[0] == DATES[61] and sr.dates[-1] == DATES[TOUCH] and set(sr.values) == {100.0}
+
+
+def test_a_touched_level_deeper_than_the_width_heads_no_stack():
+    deep_gap = ("gap", 98.5, 100.1, 50, 60)  # 1.6 ATR deep: can't fit in a 1-ATR stack
+    assert run([deep_gap, FIB]).matches == ()
+    assert dates(run([deep_gap, SR, FIB]).matches) == [("AAA", DATES[TOUCH])]  # the S/R heads one instead
 
 
 def test_two_levels_of_one_kind_count_once():

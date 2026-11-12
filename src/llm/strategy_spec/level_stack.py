@@ -68,6 +68,7 @@ KIND_OF = (("detector:sr_line.", "sr_line"), ("detector:fibonacci.retracement", 
 PRICE_KINDS = ("sr_line", "fib", "avwap", "gap")
 KIND_NAMES = {"sr_line": "S/R line", "fib": "Fibonacci retracement", "avwap": "AVWAP",
               "gap": "bullish gap", "divergence": "bullish divergence"}
+DIVERGENCE_NAMES = {"rsi": "RSI", "macd_hist": "MACD histogram", "obv": "OBV", "volume": "volume"}
 # The S/R and AVWAP levels come from the level cache, built on these sources' defaults.
 CACHED_SOURCES = ("sr_line", "avwap")
 
@@ -81,8 +82,8 @@ CHART_CONTEXT_BARS = 250  # at most this much history before the touch on a char
 class TickerInputs:
     """One ticker's traded bars and what the finder reads off them. `levels`: one row per
     level per day it stands at that day's close (date, kind, lo, hi, formed, key: one
-    level's identity across days); `divergences`: bullish ones (confirmed, invalidated or
-    NaT, indicator, p1_date, p1_price, p2_date, p2_price)."""
+    level's identity across days, label: its name on a chart); `divergences`: bullish ones
+    (confirmed, invalidated or NaT, indicator, form, p1_date, p1_price, p2_date, p2_price)."""
 
     bars: pd.DataFrame
     atr: pd.Series
@@ -109,6 +110,7 @@ class StackGeometry:
     lines: tuple[StackLine, ...]
     divergence: tuple[pd.Timestamp, float, pd.Timestamp, float] | None = None
     kinds: tuple[str, ...] = ()
+    divergence_label: str | None = None
 
 
 @dataclass(frozen=True)
@@ -306,12 +308,17 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
             "formed": daily["formed"],
             # One level's identity across days: an AVWAP's anchor; an S/R line's zone (held a week).
             "key": np.where(is_avwap, "avwap@" + daily["formed"].astype(str),
-                            "sr@" + daily["lo"].round(6).astype(str))}))
+                            "sr@" + daily["lo"].round(6).astype(str)),
+            "label": np.where(is_avwap, "AVWAP from " + daily["formed"].dt.strftime("%Y-%m-%d"), "S/R line")}))
     fib = levels.fib_levels(clean, days, FibConfig())
     fib = fib[fib["kind"].str.startswith("retracement_")]
+    ratio = fib["kind"].str.removeprefix("retracement_").astype(float)
     parts.append(pd.DataFrame({"date": fib["date"], "kind": "fib", "lo": fib["lo"], "hi": fib["hi"],
                                "formed": fib["formed"],
-                               "key": "fib@" + fib["formed"].astype(str) + ":" + fib["kind"]}))
+                               # Swings of two scales can share an origin and a ratio: the price tells them apart.
+                               "key": "fib@" + fib["formed"].astype(str) + ":" + fib["kind"] + ":"
+                                      + fib["lo"].round(6).astype(str),
+                               "label": "Fibonacci " + (ratio * 100).map("{:g}%".format)}))
     gap_config = configs["gaps"]
     gaps, _ = detect_gaps(clean, ticker, levels.DAILY, gap_config)
     states = gap_states(clean, gaps, days, gap_config)
@@ -322,10 +329,11 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
             "date": pd.to_datetime(states["date"]), "kind": "gap", "lo": states["zone_bottom"].astype(float),
             # A bullish gap fills from its top down: what's left is the bottom part.
             "hi": (states["zone_top"] - height * states["max_fill_pct"].astype(float) / 100).astype(float),
-            "formed": pd.to_datetime(states["created_at"]), "key": "gap@" + states["gap_id"].astype(str)}))
+            "formed": pd.to_datetime(states["created_at"]), "key": "gap@" + states["gap_id"].astype(str),
+            "label": np.where(states["kind"] == "fvg", "bullish FVG", "bullish gap")}))
     parts = [p.astype({"formed": "datetime64[ns]", "date": "datetime64[ns]"}) for p in parts if len(p)]
     out = (pd.concat(parts, ignore_index=True) if parts
-           else pd.DataFrame(columns=["date", "kind", "lo", "hi", "formed", "key"]))
+           else pd.DataFrame(columns=["date", "kind", "lo", "hi", "formed", "key", "label"]))
 
     config = DivergenceConfig(indicators=list(divergence_indicators))
     found = detect_divergences(clean, ticker, levels.DAILY, config) if len(clean) >= config.min_bars else []
@@ -333,7 +341,7 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
     divergences = pd.DataFrame({
         "confirmed": pd.to_datetime([d.confirmed_at for d in bullish]),
         "invalidated": pd.to_datetime([d.invalidated_at for d in bullish]),
-        "indicator": [d.indicator.value for d in bullish],
+        "indicator": [d.indicator.value for d in bullish], "form": [d.form.value for d in bullish],
         "p1_date": pd.to_datetime([d.p1_date for d in bullish]), "p1_price": [d.p1_price for d in bullish],
         "p2_date": pd.to_datetime([d.p2_date for d in bullish]), "p2_price": [d.p2_price for d in bullish]})
     return TickerInputs(clean, atr_indicator(clean, 14), out.sort_values(["date", "kind"], ignore_index=True),
@@ -400,6 +408,7 @@ class _Day:
     hi: np.ndarray
     age: np.ndarray
     key: np.ndarray
+    label: np.ndarray
     reach: np.ndarray       # how far the touch price stayed above each level's top, in ATR(t)
     prev_reach: np.ndarray  # the same for bar t-1, in ATR(t-1)
     divergence_age: np.ndarray  # bars since each live bullish divergence confirmed
@@ -447,7 +456,7 @@ def _prepare_days(inputs: TickerInputs, window: tuple[pd.Timestamp, pd.Timestamp
         formed = index.searchsorted(g["formed"].to_numpy())
         live = (div_confirmed <= p) & (div_invalidated > p) & (div_confirmed >= p - loosest.reach)
         days.append(_Day(p, g["kind"].to_numpy(), g["lo"].to_numpy(dtype=float), hi[support], p - formed,
-                         g["key"].to_numpy(), reach[support], ((low[p - 1] - hi) / atr[p - 1])[support],
+                         g["key"].to_numpy(), g["label"].to_numpy(), reach[support], ((low[p - 1] - hi) / atr[p - 1])[support],
                          p - div_confirmed[live], np.flatnonzero(live)))
     return days
 
@@ -465,6 +474,8 @@ def _stack_on(day: _Day, close: float, atr: float, params: Params, use_divergenc
     for j in np.flatnonzero(touched):
         top = day.hi[j]
         rows = np.flatnonzero(aged & (day.hi <= top) & (day.lo >= top - params.width * atr))
+        if j not in rows:
+            continue  # a level deeper than the width can't fit in a stack of that width
         bottom = float(day.lo[rows].min())
         if close < bottom:
             continue  # the before-entry invalidation: the touch bar closes below the zone
@@ -492,28 +503,31 @@ def _run(days_by_ticker: dict[str, list[_Day]], inputs: Mapping[str, TickerInput
     return out
 
 
-def _geometry(inputs: TickerInputs, day: _Day, stack: _Stack) -> StackGeometry:
+def _geometry(inputs: TickerInputs, rows_of: Mapping[str, np.ndarray], day: _Day, stack: _Stack) -> StackGeometry:
+    """`rows_of`: each level key's rows in `inputs.levels` (date-sorted), indexed once per ticker."""
     index = inputs.bars.index
     start_p = max(stack.p - CHART_CONTEXT_BARS, int(min(stack.p - day.age[stack.rows])), 0)
     start = index[start_p]
-    lv = inputs.levels
+    level_dates = inputs.levels["date"].to_numpy()
+    level_tops = inputs.levels["hi"].to_numpy(dtype=float)
     lines = []
     for r in stack.rows:
-        key = day.key[r]
+        rows = rows_of[day.key[r]]
         # Each level's value on every bar it stood on, as known at the previous close.
-        hist = lv[(lv["key"] == key) & (lv["date"] >= index[max(start_p - 1, 0)]) & (lv["date"] < index[stack.p])]
-        dates = tuple(index[index.searchsorted(hist["date"]) + 1])
-        values = tuple(float(v) for v in hist["hi"])  # the level's top: the edge a touch from above meets
-        lines.append(StackLine(f"{KIND_NAMES[day.kind[r]]} ({day.lo[r]:.2f}–{day.hi[r]:.2f})"
-                               if day.lo[r] != day.hi[r] else f"{KIND_NAMES[day.kind[r]]} {day.hi[r]:.2f}",
-                               dates, values))
-    div = None
+        d = level_dates[rows]
+        keep = rows[(d >= index[max(start_p - 1, 0)].to_datetime64()) & (d < index[stack.p].to_datetime64())]
+        dates = tuple(index[index.searchsorted(level_dates[keep]) + 1])
+        values = tuple(float(v) for v in level_tops[keep])  # the level's top: the edge a touch from above meets
+        lines.append(StackLine(f"{day.label[r]} ({day.lo[r]:.2f}–{day.hi[r]:.2f})"
+                               if day.lo[r] != day.hi[r] else f"{day.label[r]} {day.hi[r]:.2f}", dates, values))
+    div, div_label = None, None
     if stack.divergence is not None:
         row = inputs.divergences.iloc[stack.divergence]
         div = (pd.Timestamp(row["p1_date"]), float(row["p1_price"]), pd.Timestamp(row["p2_date"]),
                float(row["p2_price"]))
+        div_label = f"bullish {row['form']} divergence ({DIVERGENCE_NAMES.get(row['indicator'], row['indicator'])})"
     kinds = stack.kinds + (("divergence",) if stack.divergence is not None else ())
-    return StackGeometry(start, (stack.lo, stack.hi), tuple(lines), div, kinds)
+    return StackGeometry(start, (stack.lo, stack.hi), tuple(lines), div, kinds, div_label)
 
 
 def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[str, TickerInputs] | None = None,
@@ -549,13 +563,16 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
     use_divergence = "divergence" in p.kinds
     days = {t: _prepare_days(inputs[t], window, set(p.kinds), p.close_basis, loosest) for t in used}
     day_at = {t: {d.p: d for d in ds} for t, ds in days.items()}
+    rows_of: dict[str, Mapping[str, np.ndarray]] = {}  # per ticker, built on its first instance
 
     def candidates(found: dict[str, dict[int, _Stack]], fails: str | None = None) -> list[Candidate]:
         out = []
         for ticker, by_p in found.items():
+            if ticker not in rows_of:
+                rows_of[ticker] = inputs[ticker].levels.groupby("key", sort=False).indices
             for pos, stack in by_p.items():
                 out.append(Candidate(ticker, pd.Timestamp(inputs[ticker].bars.index[pos]), fails,
-                                     stack=_geometry(inputs[ticker], day_at[ticker][pos], stack)))
+                                     stack=_geometry(inputs[ticker], rows_of[ticker], day_at[ticker][pos], stack)))
         return sorted(out, key=lambda c: (c.ticker, c.date))
 
     strict = _run(days, inputs, params, use_divergence)

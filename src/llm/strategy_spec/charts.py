@@ -27,6 +27,7 @@ import plotly.graph_objects as go
 LOOKBACK_BARS = 90  # context before the trigger: the away run and some history
 FORWARD_BARS = 0    # the chart ends ON the trigger bar: its close is the signal, and any later bar leaks outcome
 CHART_FROM_MARGIN_BARS = 10  # context drawn before a candidate-declared window start
+ZONE_BARS = 10  # a level stack's zone is drawn over this many bars up to the touch
 
 # Same convention as patterns/gaps plotting: no weekend voids in the x axis.
 _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
@@ -99,18 +100,28 @@ def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: 
         low=window["low"], close=window["close"], name="price", showlegend=False))
     first = max(pd.Timestamp(stack.start), pd.Timestamp(window["date"].iloc[0]))
     lo, hi = stack.zone
+    # The zone is the stack as it stood at the touch (an AVWAP moves): drawn over the last
+    # few bars only, so it doesn't suggest the stack stood there all along.
+    band_from = max(first, pd.Timestamp(window["date"].iloc[max(len(window) - ZONE_BARS, 0)]))
+    # Dates as DatetimeIndexes, not lists of Timestamps: image export can't serialise those.
     figure.add_trace(go.Scatter(
-        x=[first, trigger_date, trigger_date, first, first], y=[lo, lo, hi, hi, lo], fill="toself",
+        x=pd.DatetimeIndex([band_from, trigger_date, trigger_date, band_from, band_from]), y=[lo, lo, hi, hi, lo],
+        fill="toself",
         mode="lines", line=dict(width=0), fillcolor="rgba(44, 160, 44, 0.15)",
         name=f"zone {lo:.2f}–{hi:.2f}", hoverinfo="name"))
     for n, line in enumerate(stack.lines):
         keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
+        colour = _LINE_COLOURS[n % len(_LINE_COLOURS)]
         figure.add_trace(go.Scatter(
-            x=[line.dates[i] for i in keep], y=[line.values[i] for i in keep], name=line.label,
-            mode="lines", line=dict(color=_LINE_COLOURS[n % len(_LINE_COLOURS)], width=1.5)))
+            x=pd.DatetimeIndex([line.dates[i] for i in keep]), y=[line.values[i] for i in keep], name=line.label,
+            # A level first known on the touch bar's eve is one point: a marker, or it isn't drawn at all.
+            mode="lines" if len(keep) > 1 else "markers",
+            line=dict(color=colour, width=1.5), marker=dict(color=colour, symbol="line-ew-open", size=14)))
     if stack.divergence is not None:
         d1, p1, d2, p2 = stack.divergence
-        figure.add_trace(go.Scatter(x=[d1, d2], y=[p1, p2], name="bullish divergence", mode="lines+markers",
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, d2]), y=[p1, p2],
+                                    name=stack.divergence_label or "bullish divergence",
+                                    mode="lines+markers",
                                     line=dict(color="rgb(44, 160, 44)", width=2, dash="dot")))
     trigger = window[window["date"] == trigger_date]
     figure.add_trace(go.Scatter(
