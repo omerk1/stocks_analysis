@@ -624,6 +624,26 @@ PREREGISTERED = {
     "F2": Scorecard(experiment_id="F2", model_columns=S2_COLUMNS + FUNDAMENTALS_COLUMNS, reference="S2",
                     reference_columns=S2_COLUMNS, horizons=(21, 63), rank="ev_atr", ci=0.99, track="B",
                     band=0.001, verdict_k=20),
+    # docs/modeling/PREREGISTRATION.md HT1 (2026-11-09): the frozen model
+    # (COLUMN_SETS["S2_no_market"], VALIDATION_HARNESS.md §9 "Freeze checks")
+    # against the market net of its own cost, on the holdout. Column lists are
+    # literal, so a later COLUMN_SETS or registry change can't move the test.
+    "HT1": Scorecard(experiment_id="HT1",
+                     model_columns=("mom_12_1_rank", "realized_vol_63_rank", "sector", "mom_1_0_rank",
+                                    "dist_pct_sma_50_rank", "slope_log_21_sma_50_rank", "ribbon_agreement_state",
+                                    "dist_z_sma_20", "dist_from_52w_low", "stack_fully_bearish",
+                                    "log_dollar_volume_20d_rank", "macd_hist_pct", "ribbon_width_pctile",
+                                    "dist_z_sma_200", "slope_log_63_sma_50", "adx_14", "bb_width_pctile",
+                                    "atr_ratio_5_63", "rvol_21_pctile_252", "rel_volume_20_rank",
+                                    "updown_volume_20", "rsi_14", "sector_rel_mom_63", "sector_rank_mom_63"),
+                     reference="B4",
+                     reference_columns=("mom_12_1_rank", "realized_vol_63_rank", "sector", "mom_1_0_rank",
+                                        "dist_pct_sma_50_rank"),
+                     horizons=(21, 63), seeds=(0, 1, 2), test_years=(2022, 2023, 2024, 2025, 2026),
+                     first_train_start="2011-01-01", eras=((2022, 2023, 2024, 2025, 2026),),
+                     rank="ev_atr", ci=0.99, track="B", band=0.001, verdict_k=20, verdict_against="market",
+                     verdict_cost_bps=10, min_positive_years=3, open_holdout=True,
+                     n_boot=10_000),   # Holm's 0.0025 cut needs more than 1,000 draws to resolve
 }
 
 
@@ -788,8 +808,9 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
     level, point estimate >= band, positive in every era and, with
     `min_positive_years`, in that many test years of at least
     MIN_YEAR_DATES dates). The other two sides are reported as controls, the
-    same pooled readout but never the verdict. The pre-registration's seed rerun is a
-    separate step: `entry_rule_met` is never "enters". `exclude_tickers`
+    same pooled readout but never the verdict. `entry_rule_met` is never
+    "enters" by itself: what follows it (F2's seed rerun, or none for HT1,
+    whose seeds are averaged in the run) is the pre-registration's. `exclude_tickers`
     re-reads the same predictions with those tickers unpickable (the caveat
     sensitivity). `n_boot` other than the registered `sc.n_boot` is a Monte
     Carlo precision check of the interval's ends, not the registered verdict.

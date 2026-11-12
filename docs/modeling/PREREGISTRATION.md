@@ -249,3 +249,218 @@ at H = 10 to 0.577 at H = 63. Every difference above is under 0.15% of that.
 `IDEAS.md` §2's priors are unchanged: an inconclusive result revises nothing. E1b
 (null- and inconclusive-prior features) and a sliding-window look at the era pattern
 are both open, and each needs its own entry before it runs.
+
+---
+
+## HT1: does the frozen combined model's top 20 beat the market after costs, on the holdout? (registered 2026-11-09)
+
+Registering is not opening. This entry is committed before any data after 2021-12-31
+is read, and the holdout is opened only after the prerequisites under **Before the
+holdout is opened** are done. It is then opened once, by this entry, and never again
+for this model.
+
+- **Track:** B, confirmation. This is the harness's final step (`VALIDATION_HARNESS.md`
+  §9: "one pre-registered trading test of the full set, and the holdout opened once at
+  the end"). The full set was cut short on purpose: levels and step 3 are a later
+  version, tested against this one on data that arrives after this test.
+- **Promoted from:** the Track A scorecards S1 → S1b → S1v (EV-in-ATR ranking beats the
+  market at every readout of the dev window, CI clearing zero at 16 of 36), step 2b's
+  per-name columns (`S2_no_market`, `S2_no_market_v`: CI above zero at 9 and 6 of 36 vs
+  S1), and the freeze checks (`VALIDATION_HARNESS.md` §9, "Freeze checks", Result).
+- **Executable copy:** `src/models/trading.py`, `PREREGISTERED["HT1"]`. Its column
+  lists are literal, and a test pins them to the registry as of this entry, like F2.
+
+### Hypothesis
+
+The frozen model's daily top 20 by EV in ATR units (`rank="ev_atr"`), each traded to
+its barrier cell's exit (target, stop, or the H-bar limit), has a higher mean return
+per trade than the market basket traded the same way from the same date, **after a
+10 bps round trip**, on data the model has never seen (2022-01-01 onward). Each date's
+basket counts once, whatever its size: D_H below is a mean over dates of per-date
+basket means, not a mean over all trades.
+
+### Model
+
+**S1 + the 8 per-name step-2b columns** (`COLUMN_SETS["S2_no_market"]`, 24 columns),
+chosen by the freeze rule committed before the freeze runs (`VALIDATION_HARNESS.md` §9,
+"Freeze checks"): against S1 the 8's paired median is +0.08% at seed 1 and +0.07% at
+seed 2, CI below zero at 0 of 36 both times; against S1 + the 3 volatility columns
+alone, +0.03%, CI above zero at 6 of 36. The columns:
+- **B4 (5):** `mom_12_1_rank`, `realized_vol_63_rank`, `sector`, `mom_1_0_rank`,
+  `dist_pct_sma_50_rank`;
+- **MA (11):** `slope_log_21_sma_50_rank`, `ribbon_agreement_state`, `dist_z_sma_20`,
+  `dist_from_52w_low`, `stack_fully_bearish`, `log_dollar_volume_20d_rank`,
+  `macd_hist_pct`, `ribbon_width_pctile`, `dist_z_sma_200`, `slope_log_63_sma_50`,
+  `adx_14`;
+- **step 2b per-name (8):** `bb_width_pctile`, `atr_ratio_5_63`, `rvol_21_pctile_252`,
+  `rel_volume_20_rank`, `updown_volume_20`, `rsi_14`, `sector_rel_mom_63`,
+  `sector_rank_mom_63`.
+
+The reference model is B4 (its 5 columns, same folds and seeds), a control here, not
+the verdict.
+
+Everything else is fixed as on the dev scorecards: v1 `BoostingConfig`, no tuning;
+isotonic calibration on 2 inner folds; ties broken by the (ticker, date) hash.
+**Seeds 0, 1, 2, averaged** before ranking (the probability average, as E1): no
+single-seed caveat on the result.
+
+### Scope
+
+- **Test window:** every decision date from 2022-01-03 to the last date whose H-day
+  label is complete on the refreshed bars. Nothing after that date exists for this test.
+- **Folds:** expanding walk-forward continued from the dev scheme: yearly test folds
+  2022, 2023, 2024, 2025, 2026 (partial). Each fold's model is trained on everything
+  before it (2011 → the year before), label windows purged at the boundary. This is the
+  model as it would be run: refitted once a year.
+- **Universe:** the point-in-time S&P 500 with the $20M floor and history-break rules
+  (`dataset.universe_mask`), delisted members and their terminal returns kept.
+- **Horizons and cells:** H = 21 and H = 63, the 9 v1 barrier cells each (U ∈ {2, 3, 4}
+  × D ∈ {1, 1.5, 2}, scaled by √(H/21)), pooled per horizon as in F2.
+- **Picks:** each test date's top 20 by EV in ATR units. Top-5 is reported, never a
+  verdict.
+- **Entry and lag:** decision at the close of t, trade at the open of t+1.
+
+### Primary metric and kill criterion
+
+- **Per horizon:** D_H = the date-weighted mean over test dates of (model top-20 basket
+  return − 10 bps) − (market basket return), averaged over the 9 cells on each date.
+  Every basket's return is the cell's label return: entry at the open of t+1, exit at
+  the target, the stop or the H-th bar, whichever comes first.
+  - **Pooled dates:** a date enters D_H only if all 9 cells have it; dates missing a
+    cell are left out and their count is printed (`dates_missing_a_cell`). The years
+    rule below counts these pooled dates.
+  - **Market basket:** the equal-weight mean label return of every row the model could
+    pick that date (in the universe, scored by the model, with a resolved label and an
+    ATR / close at the decision), with the same barrier exits as the picks. The model's
+    picks need only a score and a resolved label; the ATR and decision close are label
+    columns the barriers are computed from, so a resolved label carries both and the
+    two pools are the same rows. It is charged no cost: it stands in
+    for owning the equal-weight universe, which an index fund does at ~0.2% a year, not
+    per trade. That stand-in is approximate: the basket exits each name at its
+    barriers, which a fund doesn't. So D_H is the model's edge net of its own trading
+    cost against the universe traded by the same exit rule at no cost.
+  - **CI:** the date-block bootstrap (blocks of 2H dates, **10,000 draws**), 99%
+    interval, the cells sharing their blocks. 10,000, not the dev runs' 1,000, because
+    of the Holm cut below: the one-sided p is (draws ≤ 0 + 1) / (draws + 1), so at
+    1,000 draws p ≤ 0.0025 would allow at most 1 draw ≤ 0, and the verdict would turn
+    on one draw of Monte Carlo noise. At 10,000 it allows 24. The per-cell trial
+    bootstraps use the same 10,000 (the close accepts only trials run at the
+    registered count).
+- **A missing cell:** a horizon with a cell that has no usable trial (not run, failed,
+  or its first `ok` row logged from a dirty checkout, which voids it; a later row never
+  replaces it) is **inconclusive**, with p = 1, and stays so. The holdout is not
+  reopened to fill it.
+- **Band:** ±10 bps per trade (the shared band of F1–F3 and E1's choice).
+- **Verdict per horizon** on the 99% interval:
+  - **dead** if it sits inside [−0.10%, +0.10%];
+  - **inconclusive** if it spans zero and reaches past the band;
+  - **effect** if it excludes zero, sign named.
+- **The model passes ("works") only if**, at at least one horizon:
+  - the effect is positive under Holm over the two horizons, at a family-wise one-sided
+    level of 0.005 (the 99% interval's): the smaller one-sided bootstrap p must be at
+    most 0.0025, and the other horizon then passes at p ≤ 0.005;
+  - the point estimate is at least +10 bps;
+  - the point estimate is positive in at least 3 of the test years. A year counts only
+    with at least 126 pooled decision dates (`trading.MIN_YEAR_DATES`). With bars to
+    November 2026, the partial 2026 has about 190 labelled dates at H = 21 and about
+    150 at H = 63, so it most likely counts at both: 3 of 5 years. If it falls under
+    126 at a horizon, that horizon's rule is 3 of 4 full years. Either way the count
+    is whatever `trading.years_positive` returns on the refreshed bars.
+- **One era, 2022–2026.** The code's "positive in every era" rule is given a single era
+  holding every test year, so it adds nothing past a positive point estimate; the
+  years rule above is what checks that the result isn't one stretch of time.
+- **Overall result:** the model **passes** if the pass rule holds at either horizon
+  (`entry_rule_met`). The seeds are averaged inside the run, so there is no seed rerun
+  after it: `entry_rule_met` on the registered close (10,000 draws, no tickers
+  excluded) is the pass. A precision check or an excluded-tickers rerun is not.
+  Otherwise it doesn't pass, and the group verdict over the two
+  horizons (`trading.group_verdict`) is reported: dead if both horizons are dead; a
+  positive or negative effect if one or both show one of that sign; mixed if they show
+  effects of opposite signs; inconclusive otherwise. A positive effect that fails the
+  pass rule (under +10 bps, too few positive years, or not Holm-significant) is
+  reported as "positive effect, pass rule not met", never as a pass.
+
+### Named controls (reported, not part of the pass rule)
+
+Each answers "is the edge just X?", and the outcome text below says how a pass reads
+next to each.
+- **vs B4** (the reference model, same folds and seeds), 99% CI: does the combined
+  model add anything to plain momentum, volatility, sector, reversal and extension?
+- **vs a low-volatility basket**, 99% CI: each date's 20 rows with the lowest
+  ATR(14) / close, from the same rows the market basket uses (a zero ATR, a stale or
+  halted price, left out), with the same barrier exits, net of the same 10 bps. Part of the dev gain
+  came with calmer picks; low volatility is a known effect on its own.
+- **The random-k basket** (20 random universe names a day, net 10 bps), descriptive
+  only: its portfolio Sharpe per cell next to the model's, no CI.
+
+### Readouts (descriptive, never a verdict)
+
+- Per cell, k ∈ {5, 20}: expectancy net of 0/10/25 bps, hit rate, average win / average
+  loss, skew; trades per year × cost next to every gross number.
+- Portfolio of non-overlapping holds, net 10 bps: annual return, Sharpe, max drawdown;
+  same for B4 and the random-k basket (median over 20 draws), and for the market,
+  which in this readout *is* charged 10 bps (unlike the verdict): its annual return
+  there carries a cost drag of (252 / H) × 10 bps a year that the verdict's market
+  doesn't. The verdict's comparison is D_H, not this table. The low-vol basket enters through its
+  pooled control above.
+- D_H per test year and per cell (a pass carried by one or two cells is said to be).
+- Picks' mean ATR / close, per side; the model's and B4's daily overlap; and, if the
+  feature cache read at closing carries `days_to_earnings_expected`, the share of
+  picks with an expected earnings date inside H (none of the 24 columns needs it).
+- Effective N: the pooled D_H reports its distinct decision dates (its unit is one
+  value per date); date blocks are those dates over 2H. The per-cell readouts give
+  trade counts next to their dates.
+
+Sector mix was in the draft but isn't computed by the closing code; it is left out
+rather than added after the look.
+
+### Known confounds
+
+- **Few blocks at H = 63.** About 4.7 years at 126-date blocks is ~9 blocks; the 99%
+  interval's coverage was checked at ~16–18 blocks (F1–F3 shared rules), not 9. See the
+  prerequisite below. H = 21 has ~28 blocks.
+- **One regime sequence:** the 2022 bear market, the 2023–24 rally led by a few large
+  names. An equal-weight market basket lagged the cap-weighted index in that rally;
+  D_H is against equal-weight, by design (same universe, same weights as the picks).
+- **Survivorship after 2021:** delistings in 2022+ must be in the bars with terminal
+  returns (prerequisite below).
+- **Sector** is current-state, as in every dev run.
+- **The dev window was searched.** The column set was chosen from ~10 scorecard looks
+  on 2014–2021; this test is the first that isn't on those years.
+
+### Before the holdout is opened (prerequisites, each its own step)
+
+1. **Freeze checks:** done (Done #183), Model filled in above.
+2. **Holdout scorecard code:** done (Done #179): test years past 2021 behind
+   `open_holdout=True` (logged), the market-net-of-cost D_H verdict, the low-volatility
+   basket, the years rule, seeds averaged.
+3. **Cache builders' `--open-holdout`**, so features and labels can be built past 2021
+   only by an explicit flag recorded in their manifests.
+4. **Noise check at the holdout's block count:** the within-date-shuffle check of the
+   shared rules rerun with 5 dev test years, so the 99% interval's coverage at ~9 blocks
+   is known before the verdict leans on it. If it under-covers badly, the interval
+   level for H = 63 is fixed in a dated addendum here, before opening.
+5. **Data refresh** (writes to the shared DB, with the user's go-ahead): `total_return`
+   bars re-fetched in full; `traded` bars incremental (done 2026-11-07, 37 tickers
+   refused and unextended: those must be resolved or listed as missing).
+6. **Holdout coverage, checked without reading returns:** point-in-time S&P 500
+   membership through the test window; every 2022+ delisted member has bars to its last
+   day.
+7. **Caches rebuilt through the test window** (features, labels), `open_holdout=True`
+   recorded in their manifests; `vendor-check` same-ticker gate on the frozen columns.
+
+### Outcomes
+
+- **Pass:** the model is a candidate to trade, starting with paper trading on new
+  dates. Read next to the controls: if it also beats the low-vol basket and B4, the
+  combined model is the edge; if not, the simpler rule that matches it is what gets
+  paper-traded, and the model is the explanation.
+- **Inconclusive:** underpowered, not "no edge". No retest on the same holdout. The
+  model is paper-traded forward and judged on the new dates by this same rule, with the
+  date fixed in an addendum before it starts.
+- **Dead:** the model's edge doesn't cover its cost out of sample. Written up as a
+  demonstrated null at this band; the dev-window results stay exploration.
+- **Negative effect:** as dead, and the dev-window gain is looked into as overfitting
+  to 2014–2021 first.
+- **Logging:** every cell's `TRIALS.csv` row; the result as a dated addendum below;
+  done.md.
