@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 from src.llm.strategy_spec import finders, level_stack
-from src.models.features import levels as levels_module
 from src.llm.strategy_spec.finders import GroundingError
 from src.llm.strategy_spec.level_stack import TickerInputs, find_level_stack, is_level_stack, plan
 from src.llm.strategy_spec.schema import (
@@ -152,6 +151,9 @@ def test_panel_dates_that_match_no_bar_are_refused_not_silently_empty():
     mixed = pd.concat([panel("AAA"), late], ignore_index=True)
     r = find_level_stack(spec(), mixed, {"AAA": inputs([SR, FIB]), "BBB": inputs([SR, FIB])}, progress=None)
     assert dates(r.matches) == [("AAA", DATES[TOUCH])]
+    lines = {line.parameter: line.value for line in r.rubric}
+    assert lines["universe"] == "1 of the panel's 2 tickers"
+    assert lines["tickers without bars on their panel dates"] == "BBB"
 
 
 def test_a_touched_level_deeper_than_the_width_heads_no_stack():
@@ -331,21 +333,13 @@ def test_a_level_known_for_a_few_bars_is_drawn_across_the_zone():
     assert new.line.dash == "dash" and pd.Timestamp(new.x[0]) == DATES[TOUCH - charts.ZONE_BARS + 1]
 
 
-def test_inputs_keys_are_unique_per_day_at_the_source(built, monkeypatch):
+def test_two_levels_sharing_a_key_on_a_day_are_refused(built):
     assert not built.levels.duplicated(["date", "key"]).any()
-    # Two S/R lines with one first touch on the same day: told apart by price, on every day.
-    real = levels_module.daily_levels
-
-    def twin_lines(*a, **k):
-        daily = real(*a, **k)
-        sr = daily[daily["source"] == "sr_line"]
-        moved = sr.iloc[:50].assign(lo=lambda d: d["lo"] + 5, hi=lambda d: d["hi"] + 5)
-        return pd.concat([daily, moved], ignore_index=True)
-
-    monkeypatch.setattr(levels_module, "daily_levels", twin_lines)
-    clashing = level_stack.ticker_inputs("RW", _walk(), None, _walk().index[200], root=None)
-    assert not clashing.levels.duplicated(["date", "key"]).any()
-    assert clashing.levels["key"].str.contains("@[0-9.]+$").any()
+    i = inputs([SR, FIB])
+    twin = i.levels.iloc[:1].assign(lo=95.0, hi=95.5)  # another level under the same key that day
+    clashing = TickerInputs(i.bars, i.atr, pd.concat([i.levels, twin], ignore_index=True), i.divergences)
+    with pytest.raises(GroundingError, match="share the key"):
+        find_level_stack(spec(), panel("AAA"), {"AAA": clashing}, progress=None)
 
 
 def test_inputs_for_a_ticker_too_young_for_some_detectors():

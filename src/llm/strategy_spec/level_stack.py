@@ -347,14 +347,6 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
         "indicator": [d.indicator.value for d in bullish], "form": [d.form.value for d in bullish],
         "p1_date": pd.to_datetime([d.p1_date for d in bullish]), "p1_price": [d.p1_price for d in bullish],
         "p2_date": pd.to_datetime([d.p2_date for d in bullish]), "p2_price": [d.p2_price for d in bullish]})
-    # A key names one level across days. Two AVWAPs from one anchor date are one line: the
-    # exact twin goes. Two levels left sharing a key on some day (none in the cache today)
-    # are told apart by their top to the cent, on every day of those keys.
-    out = out.drop_duplicates(["date", "key", "hi"])
-    clash = set(out.loc[out.duplicated(["date", "key"], keep=False), "key"])
-    if clash:
-        in_clash = out["key"].isin(clash)
-        out.loc[in_clash, "key"] = out.loc[in_clash, "key"] + "@" + out.loc[in_clash, "hi"].round(2).astype(str)
     return TickerInputs(clean, atr_indicator(clean, 14), out.sort_values(["date", "kind"], ignore_index=True),
                         divergences)
 
@@ -571,12 +563,29 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
     }
     loosest = replace(params, proximity=relaxed["proximity"].proximity, reach=relaxed["reach"].reach)
     use_divergence = "divergence" in p.kinds
+    for t in used:
+        # A key names one level across days (charts draw a line per key). No two levels share
+        # one on a day in the cache (5.7M S/R and AVWAP rows checked); if some input ever
+        # breaks that, refuse rather than draw two levels as one line.
+        shared = inputs[t].levels.duplicated(["date", "key"])
+        if shared.any():
+            raise GroundingError(f"{t}: two levels share the key {inputs[t].levels.loc[shared, 'key'].iloc[0]!r} "
+                                 "on one day — their lines can't be told apart")
     panel_dates = panel.groupby("ticker", sort=False)["date"].unique()
-    if used and not any(inputs[t].bars.index.isin(pd.DatetimeIndex(panel_dates[t])).any() for t in used):
-        # One ticker can lack bars on its panel dates; none matching means the two disagree on dates.
+    days, unmatched = {}, []
+    for t in used:
+        days[t] = _prepare_days(inputs[t], panel_dates[t], set(p.kinds), p.touch_price, loosest)
+        if not inputs[t].bars.index.isin(pd.DatetimeIndex(panel_dates[t])).any():
+            unmatched.append(t)
+    if used and len(unmatched) == len(used):
         raise GroundingError("no ticker's panel dates are its traded bars' dates — a time zone or "
                              "time-of-day mismatch between the panel and the DB bars?")
-    days = {t: _prepare_days(inputs[t], panel_dates[t], set(p.kinds), p.touch_price, loosest) for t in used}
+    if unmatched:  # one ticker can lack bars on its panel dates: said, and not counted as used
+        rubric.append(RubricLine("tickers without bars on their panel dates", ", ".join(unmatched), "default",
+                                 "no instance can fall on them"))
+        rubric[[r.parameter for r in rubric].index("universe")] = RubricLine(
+            "universe", f"{len(used) - len(unmatched)} of the panel's {len(tickers)} tickers", "default",
+            "the tickers the level cache holds, with bars on their panel dates")
     day_at = {t: {d.p: d for d in ds} for t, ds in days.items()}
     rows_of: dict[str, Mapping[str, np.ndarray]] = {}  # per ticker, built on its first instance
 
