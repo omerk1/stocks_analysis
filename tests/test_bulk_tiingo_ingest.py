@@ -80,6 +80,8 @@ def test_split_only_divides_by_later_splits_and_adjusted_uses_tiingo_adjustment(
     assert traded.loc["2015-02-02", "close"] == pytest.approx(50.0)
     assert total.loc["2015-01-30", "close"] == pytest.approx(49.0)
     assert list(traded.columns) == ["open", "high", "low", "close", "volume", "is_partial"]
+    # End-of-day bars: stored final (the weekly resample trusts this, Done #194)
+    assert (traded["is_partial"] == 0).all() and (total["is_partial"] == 0).all()
 
 
 def test_zero_volume_placeholder_bars_are_dropped():
