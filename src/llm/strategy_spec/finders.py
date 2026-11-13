@@ -741,9 +741,15 @@ def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = 
         # the parameter simply does the full work.
         options["near_misses"] = False
     result = finder(spec, panel, **options)
-    from src.llm.strategy_spec import level_stack
-    on_spec = finder_id in spec.uses or (finder_id == level_stack.LEVEL_STACK and level_stack.is_level_stack(spec))
-    if detector is not None and not on_spec:
+    if detector is not None and finder_id not in spec.uses:
+        # The level stack is no catalogue id, so it's on-spec when it's what the spec dispatches to.
+        try:
+            on_spec = finder_id == pick_finder(spec)
+        except GroundingError:
+            on_spec = False
+    else:
+        on_spec = True
+    if not on_spec:
         note(f"Note: {finder_id} isn't among the spec's own detectors "
              f"({', '.join(spec.uses) or 'none listed'}) — running it anyway, as asked.")
     return finder_id, result

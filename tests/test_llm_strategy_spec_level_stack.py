@@ -136,6 +136,16 @@ def test_an_explicit_level_stack_detector_is_not_called_off_spec(monkeypatch):
     notes = []
     finders.dispatch(spec(), panel("AAA"), detector=level_stack.LEVEL_STACK, note=notes.append)
     assert notes == []
+    # ... but it is when the spec would dispatch elsewhere by default.
+    elsewhere = spec(uses=["detector:ma.first_touch", *spec().uses])
+    finders.dispatch(elsewhere, panel("AAA"), detector=level_stack.LEVEL_STACK, note=notes.append)
+    assert len(notes) == 1 and "isn't among the spec's own detectors" in notes[0]
+
+
+def test_panel_dates_that_match_no_bar_are_refused_not_silently_empty():
+    shifted = panel("AAA").assign(date=lambda d: d["date"] + pd.Timedelta(hours=16))
+    with pytest.raises(GroundingError, match="time zone or time-of-day"):
+        find_level_stack(spec(), shifted, {"AAA": inputs([SR, FIB])}, progress=None)
 
 
 def test_a_touched_level_deeper_than_the_width_heads_no_stack():

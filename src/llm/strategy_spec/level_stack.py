@@ -8,7 +8,7 @@ stack, several kinds of price level close together below price, touched from abo
 panel on total-return prices. A stack found or drawn on the panel's OHLC would put each
 level off by the dividends paid since, so detection and charts both use the traded bars
 the levels come from (`TickerInputs.bars`, handed to grounding as `FinderResult.chart_bars`).
-The panel only sets the universe and the window. Dates are the same on both bases, so the
+The panel only sets the universe: a ticker's instances fall on its own panel dates. Dates are the same on both bases, so the
 exploratory look pairs an instance with the panel's lagged rows as for any finder.
 
 **What is one instance** (each rule in the rubric, with its source):
@@ -136,7 +136,7 @@ class Plan:
     gap_kinds: tuple[str, ...]             # classic / fvg
     divergence_indicators: tuple[str, ...]
     params: Params
-    close_basis: bool
+    touch_price: str  # the bar column the touch is measured on: "low" (intraday) or "close"
     rubric: tuple[RubricLine, ...]
 
 
@@ -236,8 +236,8 @@ def plan(spec: StrategySpec) -> Plan:
         proximity = p.max
         rubric.append(RubricLine("how close price must come", f"within {proximity:g} ATR(14) of the stack's top",
                                  "spec"))
-    close_basis = spec.trigger is not None and spec.trigger.price_basis == "close"
-    rubric.append(RubricLine("touch", f"the touch bar's {'close' if close_basis else 'low'} comes that close and "
+    touch_price = "close" if spec.trigger is not None and spec.trigger.price_basis == "close" else "low"
+    rubric.append(RubricLine("touch", f"the touch bar's {touch_price} comes that close and "
                              "the bar before's didn't (the first bar of a touch run), with the previous close "
                              "above every level in the stack", "spec" if spec.trigger is not None else "default",
                              "price basis from your trigger; the first-bar rule is the finder's"))
@@ -267,7 +267,7 @@ def plan(spec: StrategySpec) -> Plan:
                                      "an exit rule: the charts end on the touch, the look uses fixed horizons"))
     return Plan(kinds, tuple(gap_kinds), tuple(indicators),
                 Params(width, proximity, age_min, age_max, DIVERGENCE_REACH_BARS, count),
-                close_basis, tuple(rubric))
+                touch_price, tuple(rubric))
 
 
 def _kind_rule(kind: str, gap_kinds, indicators) -> str:
@@ -346,12 +346,7 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
         "indicator": [d.indicator.value for d in bullish], "form": [d.form.value for d in bullish],
         "p1_date": pd.to_datetime([d.p1_date for d in bullish]), "p1_price": [d.p1_price for d in bullish],
         "p2_date": pd.to_datetime([d.p2_date for d in bullish]), "p2_price": [d.p2_price for d in bullish]})
-    # Two levels of one day with one formation (two AVWAPs from one anchor date) mustn't share
-    # a key, or a chart would draw them as one line: a tiebreak by price (stable while their
-    # order holds; none collide in the cache today, so this is a guard).
-    out = out.sort_values(["date", "kind", "lo"], ignore_index=True)
-    out["key"] = out["key"] + "#" + out.groupby(["date", "key"]).cumcount().astype(str)
-    return TickerInputs(clean, atr_indicator(clean, 14), out,
+    return TickerInputs(clean, atr_indicator(clean, 14), out.sort_values(["date", "kind"], ignore_index=True),
                         divergences)
 
 
@@ -366,7 +361,7 @@ def _inputs_job(args):
 def load_inputs(tickers, start: pd.Timestamp, plan_: Plan, root: Path = level_features.DEFAULT_ROOT,
                 workers: int = 4, progress=print) -> dict[str, TickerInputs]:
     """`ticker_inputs` for every ticker the level cache holds, from the DB's traded bars to
-    the holdout boundary, read as the cache build read them (`level_cache._load_bars`), so
+    the holdout boundary, read as the cache build read them (`level_cache.load_bars`), so
     its snapshots hit. Tickers not in the cache are left out (computing their snapshots
     takes about a minute each)."""
     import json
@@ -380,7 +375,7 @@ def load_inputs(tickers, start: pd.Timestamp, plan_: Plan, root: Path = level_fe
     cached = sorted(set(tickers) & set(manifest["tickers"]))
     conn = raw_db.get_connection(raw_db.default_db_path(load_config().data_paths.raw))
     try:
-        _, by_ticker, splits = level_cache._load_bars(conn, cached, manifest["end"])
+        _, by_ticker, splits = level_cache.load_bars(conn, cached, manifest["end"])
     finally:
         conn.close()
     jobs = [(t, bars, splits.get(t), start, root,
@@ -430,13 +425,13 @@ class _Stack:
     divergence: int | None  # row in TickerInputs.divergences
 
 
-def _prepare_days(inputs: TickerInputs, dates, kinds: set[str], close_basis: bool, loosest: Params) -> list[_Day]:
+def _prepare_days(inputs: TickerInputs, dates, kinds: set[str], touch_price: str, loosest: Params) -> list[_Day]:
     """Every bar on one of `dates` (the ticker's panel rows: the point-in-time universe,
     as the other finders fire only on panel rows) where some support level could be
     touched under the loosest params any run uses, its levels' numbers precomputed once."""
     bars, atr = inputs.bars, inputs.atr.to_numpy(dtype=float)
     index = bars.index
-    low = (bars["close"] if close_basis else bars["low"]).to_numpy(dtype=float)
+    low = bars[touch_price].to_numpy(dtype=float)
     close = bars["close"].to_numpy(dtype=float)
     lv = inputs.levels[inputs.levels["kind"].isin(kinds - {"divergence"})]
     by_date = {d: g for d, g in lv.groupby("date", sort=False)}
@@ -445,6 +440,9 @@ def _prepare_days(inputs: TickerInputs, dates, kinds: set[str], close_basis: boo
     div_invalidated = (np.where(div["invalidated"].isna(), len(index), index.searchsorted(div["invalidated"]))
                        if len(div) else np.array([], dtype=int))
     positions = index.get_indexer(pd.DatetimeIndex(dates))
+    if len(positions) and (positions < 0).all():
+        raise GroundingError("none of a ticker's panel dates is one of its traded bars' dates — "
+                             "a time zone or time-of-day mismatch between the panel and the DB bars?")
     days = []
     for p in np.unique(positions[positions >= 1]):  # a panel date with no traded bar can't host a touch
         g = by_date.get(index[p - 1])
@@ -522,6 +520,11 @@ def _geometry(inputs: TickerInputs, rows_of: Mapping[str, np.ndarray], day: _Day
         # Each level's value on every bar it stood on, as known at the previous close.
         d = level_dates[rows]
         keep = rows[(d >= index[max(start_p - 1, 0)].to_datetime64()) & (d < index[stack.p].to_datetime64())]
+        if len(np.unique(level_dates[keep])) < len(keep):
+            # Two levels share this key on some day (one formation date: none do in the cache
+            # today): their histories can't be told apart, so only the value at the touch is drawn.
+            keep = np.array([k for k in keep if level_dates[k] == index[stack.p - 1].to_datetime64()
+                             and level_tops[k] == day.hi[r]][:1], dtype=int)
         dates = tuple(index[index.searchsorted(level_dates[keep]) + 1])
         values = tuple(float(v) for v in level_tops[keep])  # the level's top: the edge a touch from above meets
         lines.append(StackLine(f"{day.label[r]} ({day.lo[r]:.2f}–{day.hi[r]:.2f})"
@@ -568,7 +571,7 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
     loosest = replace(params, proximity=relaxed["proximity"].proximity, reach=relaxed["reach"].reach)
     use_divergence = "divergence" in p.kinds
     panel_dates = panel.groupby("ticker", sort=False)["date"].unique()
-    days = {t: _prepare_days(inputs[t], panel_dates[t], set(p.kinds), p.close_basis, loosest) for t in used}
+    days = {t: _prepare_days(inputs[t], panel_dates[t], set(p.kinds), p.touch_price, loosest) for t in used}
     day_at = {t: {d.p: d for d in ds} for t, ds in days.items()}
     rows_of: dict[str, Mapping[str, np.ndarray]] = {}  # per ticker, built on its first instance
 
@@ -580,7 +583,7 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
             for pos, stack in by_p.items():
                 out.append(Candidate(ticker, pd.Timestamp(inputs[ticker].bars.index[pos]), fails,
                                      stack=_geometry(inputs[ticker], rows_of[ticker], day_at[ticker][pos], stack,
-                                                     "close" if p.close_basis else "low")))
+                                                     p.touch_price)))
         return sorted(out, key=lambda c: (c.ticker, c.date))
 
     strict = _run(days, inputs, params, use_divergence)
@@ -592,7 +595,7 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
                                                                        if q not in strict.get(t, {})})}
         labels = {
             "width": f"stack width: the levels span up to {relaxed['width'].width:g} ATR, not {params.width:g}",
-            "proximity": f"how close: the {'close' if p.close_basis else 'low'} comes within "
+            "proximity": f"how close: the {p.touch_price} comes within "
                          f"{relaxed['proximity'].proximity:g} ATR of the top, "
                          f"not {params.proximity:g}",
             "age_min": f"level age: a level is {relaxed['age_min'].age_min}–{params.age_min - 1} bars old, "
@@ -620,21 +623,6 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
                 if (c.ticker, c.date) not in seen:
                     seen.add((c.ticker, c.date))
                     near.append(c)
+    charted = {c.ticker for c in matches} | {c.ticker for c in near}  # only these can be charted
     return FinderResult(matches, tuple(near), tuple(rubric), overlay_column=None, overlay_name="level stack",
-                        chart_bars=_ChartBars({t: inputs[t].bars for t in used}))
-
-
-class _ChartBars(Mapping):
-    """Each ticker's traded bars with a `date` column, built only for the tickers charted."""
-
-    def __init__(self, bars: dict[str, pd.DataFrame]):
-        self._bars = bars
-
-    def __getitem__(self, ticker: str) -> pd.DataFrame:
-        return self._bars[ticker].rename_axis("date").reset_index()
-
-    def __iter__(self):
-        return iter(self._bars)
-
-    def __len__(self) -> int:
-        return len(self._bars)
+                        chart_bars={t: inputs[t].bars.rename_axis("date").reset_index() for t in sorted(charted)})

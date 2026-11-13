@@ -273,7 +273,7 @@ def build_level_cache(
     root = Path(root)
     configs = levels.default_configs()
     basis = dataset.UNIVERSE_BASIS
-    price_sources, by_ticker, splits = _load_bars(conn, tickers, end)
+    price_sources, by_ticker, splits = load_bars(conn, tickers, end)
     missing = sorted(set(tickers) - set(by_ticker))
 
     done, failed, seconds = {}, {}, 0.0
@@ -309,9 +309,10 @@ def build_level_cache(
                                basis, seconds)
 
 
-def _load_bars(conn: sqlite3.Connection, tickers, end) -> tuple[dict, dict[str, pd.DataFrame], dict]:
+def load_bars(conn: sqlite3.Connection, tickers, end) -> tuple[dict, dict[str, pd.DataFrame], dict]:
     """(price sources, each ticker's whole traded history to `end`, splits): what a
-    build fingerprints, so a re-stamp reads exactly the same."""
+    build fingerprints, so a re-stamp, or a reader wanting the cached snapshots to hit
+    (the strategy agent's level-stack finder), reads exactly the same."""
     basis, fallback = dataset.UNIVERSE_BASIS, dataset.UNIVERSE_FALLBACK
     price_sources = dataset.resolve_sources(conn, tickers, basis, fallback)
     bars = dataset.read_bars_bulk(conn, tickers, basis, FIRST_BAR, end, fallback=fallback, sources=price_sources)
@@ -434,7 +435,7 @@ def restamp(conn: sqlite3.Connection, root: Path, from_code: str, sources: tuple
                 raise RestampRefused(f"{s}'s files are recorded under code {stored_code!r}, not {from_code!r}")
             if manifest.get("configs", {}).get(s) != config_record(configs[s]):
                 raise RestampRefused(f"{s}'s config changed since the build: rebuild, don't re-stamp")
-        _, by_ticker, splits = _load_bars(conn, sorted(recorded), end)
+        _, by_ticker, splits = load_bars(conn, sorted(recorded), end)
         gone = sorted(t for t in set(recorded) - set(by_ticker) if any(s in recorded[t] for s in sources))
         if gone:
             # Their files can't be fingerprinted against today's inputs, so a re-stamp
