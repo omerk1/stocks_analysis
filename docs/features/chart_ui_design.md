@@ -206,8 +206,8 @@ class Overlay:
    - Weekly bars reuse the shared loader's resample, so there's no `bars.py` copy of it.
    - Moving averages are computed on the displayed closes.
    - A zoom/pan callback refits the y-axes to the visible window.
-   - The weekly chart leaves out the last week when the data ends on its Friday (the shared
-     resample counts that week as still in progress).
+   - The weekly chart left out the last week when the data ended on its Friday (the shared
+     resample counted that week as still in progress); fixed in the resample (Done #194).
 2. **Menu and defaults:** the `Overlay` adapters for S/R, gaps, AVWAP and Fibonacci (the
    families `levels.py` already covers), `relevance.py`, the menu with caps and reset, and the
    proximity ↔ strength slider. Tests: ranking and caps on hand-built overlays, dead items
