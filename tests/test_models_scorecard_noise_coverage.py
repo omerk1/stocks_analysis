@@ -18,8 +18,8 @@ spec.loader.exec_module(noise)
 
 def test_the_noise_scorecard_is_ht1s_but_gross_on_dev_years():
     sc, ht1 = noise.scorecard(63), trading.PREREGISTERED["HT1"]
-    assert (sc.model_columns, sc.reference_columns, sc.rank, sc.verdict_against) == (
-        ht1.model_columns, ht1.reference_columns, ht1.rank, ht1.verdict_against)
+    assert (sc.model_columns, sc.reference_columns, sc.rank, sc.verdict_against, sc.verdict_k) == (
+        ht1.model_columns, ht1.reference_columns, ht1.rank, ht1.verdict_against, ht1.verdict_k)
     assert sc.verdict_cost_bps == 0 and not sc.open_holdout and max(sc.test_years) <= 2021
     assert [(c.upper, c.lower) for c in sc.cells(63)] == [noise.CELL]
 
@@ -44,7 +44,33 @@ def _runs(h63_excluding: dict[float, int], n: int | None = None, **settings) -> 
 
 
 def test_seeds_are_independent_streams():
-    assert len(set(noise.streams(0))) == 3 and noise.streams(0) != noise.streams(1)
+    assert len(set(noise.streams(0))) == 4 and noise.streams(0) != noise.streams(1)
+
+
+def test_cell_baskets_is_the_picks_and_every_sides_basket_net_of_its_cost():
+    """What close_scorecard used to compute inline, now shared with the noise check."""
+    rng = np.random.default_rng(0)
+    dates = pd.bdate_range("2019-01-02", periods=3)
+    frame = pd.DataFrame({"ticker": np.tile(list("ABCDEFGH"), 3), "date": np.repeat(dates, 8),
+                          "ret": rng.normal(0, 0.02, 24), "hit": rng.integers(-1, 2, 24),
+                          "atr": rng.uniform(1, 3, 24), "close_t": 100.0, "fold": 2019})
+    probs = rng.dirichlet([1, 1, 1], 24)
+    p = frame[["ticker", "date", "fold"]].assign(p_down=probs[:, 0], p_neither=probs[:, 1], p_up=probs[:, 2])
+    preds = pd.concat([p.assign(model="model"), p.assign(model="B4")], ignore_index=True)
+    sc = trading.Scorecard(verdict_k=3, ks=(3,), verdict_cost_bps=10, track="A")
+    cell = sc.cells(21)[0]
+    neither = {2019: 0.0}
+    import unittest.mock as mock
+    with mock.patch.object(trading, "neither_returns", lambda f, folds: neither), \
+         mock.patch.object(trading, "neither_atr_returns", lambda f, folds: neither), \
+         mock.patch.object(trading, "walk_forward_folds", lambda *a: []):
+        picked, baskets = trading.cell_baskets(sc, cell, preds, frame)
+        expect = trading.cell_picks(sc, cell, preds, frame, 3)
+    assert set(picked) == {"model", "reference"} and set(baskets) == {"model", "reference", "market", "low_vol"}
+    for side in ("model", "reference"):
+        pd.testing.assert_frame_equal(picked[side], expect[side])
+        pd.testing.assert_series_equal(baskets[side], trading.basket(expect[side], 10))
+    pd.testing.assert_series_equal(baskets["market"], frame.groupby("date")["ret"].mean())   # no cost
 
 
 def test_only_registered_runs_count():

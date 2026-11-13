@@ -514,3 +514,7 @@ runs. It reads no market data: the panel is synthetic.
 - **Known limits:** a synthetic panel, as in the check at 18 blocks (no real return
   structure, 60 names rather than ~500); one seed and fast settings rather than HT1's
   three seeds and v1 settings; a single cell, where HT1 pools 9, sharing their blocks.
+  Every level is read from each run's 10,000 draws (HT1's registered count), so the
+  99.9% interval's ends rest on ~5 draws per tail and the 99.5%'s on ~25: the 99.9%
+  rate is the noisier one, and a widened level's own draw count (20,000 or 100,000)
+  isn't what was checked. Each run's bootstrap has its own seed.

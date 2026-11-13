@@ -18,7 +18,7 @@ Gross, not HT1's model-net-of-10-bps: on noise the net difference is -10 bps,
 not zero, so "leaves out zero" would count the cost as an effect. The cost
 shifts the statistic and its true value by the same constant, so the
 interval covers the truth exactly as often either way; gross, the truth is
-zero and "leaves out zero" is a miss. (Seed 0 at H = 63, net: z = -5.3.)
+zero and "leaves out zero" is a miss. (A first trial run, net, at H = 63: z = -5.3.)
 
 Synthetic, so nothing here reads the market database or the holdout. Run
 from the repo root in the project venv (the main checkout's `venv/`):
@@ -28,8 +28,10 @@ from the repo root in the project venv (the main checkout's `venv/`):
 (the registered runs: 1,000 seeds at H = 63, 200 at H = 21, `SEEDS`).
 
 Each finished run is appended to --out at once (resumable: a rerun skips the
-(horizon, seed) pairs already there); the summary is printed from --out, and
-`--summary-only` prints it without running anything.
+(horizon, seed, n_tickers, n_boot) rows already there); the summary is printed
+from --out, counting only the registered settings and seeds, each seed once,
+and `--summary-only` prints it without running anything. Run one invocation
+per --out at a time.
 """
 
 import argparse
@@ -55,7 +57,8 @@ CELL = (2.0, 1.5)               # one v1 cell; the pooled statistic over one cel
 LEVELS = (0.90, 0.95, 0.99, 0.995, 0.999)
 # The rule (PREREGISTRATION.md HT1, "Noise check" addendum): the registered 99%
 # stays if it leaves out zero on at most this share of the H = 63 runs; else
-# the smallest of the larger CANDIDATES that does replaces it at H = 63.
+# the smallest of the larger CANDIDATES that does replaces it at both horizons,
+# with WIDER_N_BOOT draws.
 MAX_EXCLUSION = 0.02
 CANDIDATES = (0.99, 0.995, 0.999)
 CONFIG = BoostingConfig(max_iter=50, min_samples_leaf=50)   # the scorecard noise test's (tests/test_models_trading.py)
@@ -70,14 +73,16 @@ def scorecard(horizon: int) -> trading.Scorecard:
                              reference_columns=HT1.reference_columns, horizons=(horizon,), seeds=(0,),
                              test_years=TEST_YEARS, first_train_start=PANEL_START, eras=(TEST_YEARS,),
                              grid=(CELL,), rank=HT1.rank, config=CONFIG, verdict_against=HT1.verdict_against,
-                             verdict_cost_bps=0)   # gross: see the module docstring
+                             verdict_k=HT1.verdict_k, verdict_cost_bps=0)   # gross: see the module docstring
 
 
-def streams(seed: int) -> tuple[int, int, int]:
-    """Independent seeds for the panel, the shuffle and the feature values: one
-    seed reused would make a feature column the very uniforms the shuffle
-    sorts on (as the scorecard noise test keeps them apart, 3 / 1 / 0)."""
-    return tuple(int(s.generate_state(1)[0]) for s in np.random.SeedSequence(seed).spawn(3))
+def streams(seed: int) -> tuple[int, int, int, int]:
+    """Independent seeds for the panel, the shuffle, the feature values and the
+    bootstrap: one seed reused would make a feature column the very uniforms
+    the shuffle sorts on (the scorecard noise test keeps them apart, 3 / 1 / 0),
+    and one bootstrap seed for every run would resample the same blocks in
+    each, so their misses wouldn't be independent."""
+    return tuple(int(s.generate_state(1)[0]) for s in np.random.SeedSequence(seed).spawn(4))
 
 
 def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
@@ -85,7 +90,7 @@ def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
     model top 20 minus the market basket, pooled bootstrap."""
     sc = scorecard(horizon)
     [cell] = sc.cells(horizon)
-    panel_seed, shuffle_seed, feature_seed = streams(seed)
+    panel_seed, shuffle_seed, feature_seed, boot_seed = streams(seed)
     panel = planted_panel(PlantedSpec(n_tickers=n_tickers, horizon=horizon, upper=cell.upper_atr,
                                       lower=cell.lower_atr, seed=panel_seed))
     panel = shuffle_within_date(panel, seed=shuffle_seed)
@@ -100,7 +105,8 @@ def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
     ref = seed_mean(oos_predictions(frame, sc.reference_columns, folds, sc.seeds, sc.config))
     preds = pd.concat([model.assign(model="model"), ref.assign(model=sc.reference)], ignore_index=True)
     baskets = {CELL: trading.cell_baskets(sc, cell, preds, frame)[1]}   # close_scorecard's own step
-    result, _, missing = trading.pooled_difference(baskets, "model", sc.verdict_against, horizon, n_boot, HT1.ci)
+    result, _, missing = trading.pooled_difference(baskets, "model", sc.verdict_against, horizon, n_boot, HT1.ci,
+                                                   seed=boot_seed % 2**32)
     row = {"horizon": horizon, "seed": seed, "n_tickers": n_tickers, "n_boot": n_boot,
            "point": result.point_estimate, "boot_std": result.boot_std,
            "z": result.point_estimate / result.boot_std, "p_positive": trading.one_sided_p(result),
@@ -128,7 +134,7 @@ def registered(runs: pd.DataFrame) -> pd.DataFrame:
     counts toward the rule."""
     keep = (runs["n_tickers"] == N_TICKERS) & (runs["n_boot"] == HT1.n_boot)
     keep &= runs["seed"] < runs["horizon"].map(SEEDS).fillna(0)
-    return runs[keep]
+    return runs[keep].drop_duplicates(["horizon", "seed"])   # a seed written twice counts once
 
 
 def summary(runs: pd.DataFrame) -> dict:
@@ -139,7 +145,9 @@ def summary(runs: pd.DataFrame) -> dict:
             k, n = int(g[f"excludes_{level:g}"].sum()), len(g)
             rates[level] = {"k": k, "n": n, "rate": k / n, "wilson95": wilson(k, n)}
         out[int(h)] = {"runs": len(g), "blocks": float(g["n_blocks"].mean()), "mean_z": float(g["z"].mean()),
-                       "sd_z": float(g["z"].std()), "p_le_0.0025": float((g["p_positive"] <= 0.0025).mean()),
+                       "sd_z": float(g["z"].std()),
+                       # Holm's smaller cut at each candidate level: (1 - level) / 2, halved
+                       "holm_cut_share": {lv: float((g["p_positive"] <= (1 - lv) / 4).mean()) for lv in CANDIDATES},
                        "exclusion": rates}
     return out
 
@@ -163,7 +171,8 @@ def print_summary(runs: pd.DataFrame) -> None:
     s = summary(runs)
     for h, r in s.items():
         print(f"H{h}: {r['runs']} runs, {r['blocks']:.1f} blocks, z mean {r['mean_z']:+.3f} sd {r['sd_z']:.3f}, "
-              f"one-sided p <= 0.0025 in {r['p_le_0.0025']:.1%}")
+              "one-sided p at Holm's smaller cut: "
+              + ", ".join(f"<= {(1 - lv) / 4:g} in {v:.1%}" for lv, v in r["holm_cut_share"].items()))
         for level, e in r["exclusion"].items():
             lo, hi = e["wilson95"]
             print(f"  nominal {level:.1%}: left out zero {e['k']}/{e['n']} = {e['rate']:.1%} "
@@ -198,7 +207,9 @@ def main() -> int:
     failed = []
     if not args.summary_only:
         have = set(map(tuple, done[keys].astype(int).to_numpy()))
-        todo = [(h, s) for h in args.horizons for s in range(args.seeds or SEEDS.get(h, 0))
+        if args.seeds is None and set(args.horizons) - set(SEEDS):
+            raise SystemExit(f"no registered seed count for {sorted(set(args.horizons) - set(SEEDS))}: pass --seeds")
+        todo = [(h, s) for h in args.horizons for s in range(SEEDS[h] if args.seeds is None else args.seeds)
                 if (h, s, args.n_tickers, args.n_boot) not in have]
         print(f"{len(todo)} runs to do ({len(have)} rows already in {args.out})", flush=True)
         args.out.parent.mkdir(parents=True, exist_ok=True)
