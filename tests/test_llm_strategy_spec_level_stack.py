@@ -273,6 +273,26 @@ def test_inputs_gaps_are_the_unfilled_part_of_bullish_gaps(walk, built):
     assert np.isclose(got["hi"].iloc[0], row["zone_top"] - height * row["max_fill_pct"] / 100)
 
 
+def test_inputs_keep_one_key_per_sr_line_across_weekly_snapshots(built):
+    sr = built.levels[built.levels["kind"] == "sr_line"]
+    assert not sr.duplicated(["date", "key"]).any()  # two lines on one day never share a key
+    spans = sr.groupby("key")["date"].agg(lambda d: (d.max() - d.min()).days)
+    assert (spans > 30).any()  # a line's key survives its zone's weekly drift
+
+
+def test_a_level_known_for_a_few_bars_is_drawn_across_the_zone():
+    from src.llm.strategy_spec import charts
+    bars = inputs([SR]).bars.rename_axis("date").reset_index()
+    window = charts.chart_window(bars, DATES[TOUCH], chart_from=DATES[60])
+    geometry = level_stack.StackGeometry(DATES[60], (99.4, 100.0), (
+        level_stack.StackLine("old", tuple(DATES[61:TOUCH + 1]), (100.0,) * (TOUCH - 60)),
+        level_stack.StackLine("new", (DATES[TOUCH - 1], DATES[TOUCH]), (99.4, 99.4))))
+    traces = {t.name: t for t in charts.stack_chart(window, geometry, DATES[TOUCH], "t").data}
+    assert len(traces["old"].x) == TOUCH - 60
+    new = traces["new (known 2 bars before)"]
+    assert new.line.dash == "dash" and pd.Timestamp(new.x[0]) == DATES[TOUCH - charts.ZONE_BARS + 1]
+
+
 def test_inputs_for_a_ticker_too_young_for_some_detectors():
     young = _walk(n=120, seed=3)  # under the Fibonacci and divergence modules' 150 bars
     built = level_stack.ticker_inputs("YNG", young, None, young.index[20], root=None)

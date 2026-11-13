@@ -112,13 +112,14 @@ def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: 
     for n, line in enumerate(stack.lines):
         keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
         colour = _LINE_COLOURS[n % len(_LINE_COLOURS)]
-        if len(keep) > 1:
+        if len(keep) >= ZONE_BARS:
             x, y, name, dash = [line.dates[i] for i in keep], [line.values[i] for i in keep], line.label, None
         else:
-            # First known on the touch bar's eve: no history to draw, so it spans the zone's bars,
-            # dashed and named as new (a single point would hide under the trigger marker).
+            # Known only for the last few bars: too short to see (it hides under the trigger
+            # marker), so it spans the zone's bars, dashed, and says since when it was known.
             value = line.values[-1]
-            x, y, name, dash = [band_from, trigger_date], [value, value], f"{line.label} (new)", "dash"
+            x, y, dash = [band_from, trigger_date], [value, value], "dash"
+            name = f"{line.label} (known {len(keep)} bar{'s' if len(keep) != 1 else ''} before)"
         figure.add_trace(go.Scatter(x=pd.DatetimeIndex(x), y=y, name=name, mode="lines",
                                     line=dict(color=colour, width=1.5, dash=dash)))
     if stack.divergence is not None:

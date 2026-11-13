@@ -306,9 +306,9 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
             "date": daily["date"], "kind": daily["source"],
             "lo": np.where(is_avwap, mid, daily["lo"]), "hi": np.where(is_avwap, mid, daily["hi"]),
             "formed": daily["formed"],
-            # One level's identity across days: an AVWAP's anchor; an S/R line's zone (held a week).
-            "key": np.where(is_avwap, "avwap@" + daily["formed"].astype(str),
-                            "sr@" + daily["lo"].round(6).astype(str)),
+            # One level's identity across days: an AVWAP's anchor; an S/R line's first touch (its
+            # zone drifts a hair from one weekly snapshot to the next, so it can't be the key).
+            "key": np.where(is_avwap, "avwap@", "sr@") + daily["formed"].astype(str),
             "label": np.where(is_avwap, "AVWAP from " + daily["formed"].dt.strftime("%Y-%m-%d"), "S/R line")}))
     fib = levels.fib_levels(clean, days, FibConfig())
     fib = fib[fib["kind"].str.startswith("retracement_")]
