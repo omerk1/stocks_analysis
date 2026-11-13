@@ -347,7 +347,6 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
         "indicator": [d.indicator.value for d in bullish], "form": [d.form.value for d in bullish],
         "p1_date": pd.to_datetime([d.p1_date for d in bullish]), "p1_price": [d.p1_price for d in bullish],
         "p2_date": pd.to_datetime([d.p2_date for d in bullish]), "p2_price": [d.p2_price for d in bullish]})
-    out = out.drop_duplicates(["date", "key", "lo", "hi"])  # one level reported twice is one level
     return TickerInputs(clean, atr_indicator(clean, 14), out.sort_values(["date", "kind"], ignore_index=True),
                         divergences)
 
@@ -548,27 +547,29 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
     if inputs is None:
         inputs = load_inputs(tickers, window[0], p, progress=progress)
     cached = [t for t in tickers if t in inputs]
+    for t in cached:
+        # A key names one level across days (charts draw a line per key); no two levels share
+        # one on a day in the cache (5.7M S/R and AVWAP rows checked). If one ever does, the
+        # key is built wrong: refused, naming the ticker, never drawn as one line or hidden.
+        lv = inputs[t].levels
+        shared = lv[lv["kind"].isin(p.kinds)].duplicated(["date", "key"])
+        if shared.any():
+            raise GroundingError(f"{t}: two levels share a key on one day ({lv.loc[shared[shared].index[0], 'key']!r}) "
+                                 "— the level keys are built wrong (`level_stack.ticker_inputs`)")
     panel_dates = panel.groupby("ticker", sort=False)["date"].unique()
-    # A ticker none of whose panel dates is a bar that can host a touch (not its first) yields
-    # nothing; all of them so means the panel and the bars disagree on what a date is.
-    unmatched = [t for t in cached
-                 if not pd.DatetimeIndex(panel_dates[t]).isin(inputs[t].bars.index[1:]).any()]
+    # A touch needs the bar before it, so a ticker none of whose panel dates is one of its
+    # bars after the first can host no instance; all of them so means the panel and the bars
+    # disagree on what a date is.
+    unmatched = {t for t in cached if not pd.DatetimeIndex(panel_dates[t]).isin(inputs[t].bars.index[1:]).any()}
     if cached and len(unmatched) == len(cached):
         raise GroundingError("no ticker's panel dates are its traded bars' dates — a time zone or "
                              "time-of-day mismatch between the panel and the DB bars?")
-    # A key names one level across days (charts draw a line per key); no two levels share
-    # one on a day in the cache (5.7M S/R and AVWAP rows checked). A ticker whose inputs
-    # ever break that is left out and named, rather than drawn with two levels as one line.
-    shared_keys = [t for t in cached if t not in unmatched and inputs[t].levels.duplicated(["date", "key"]).any()]
-    used = [t for t in cached if t not in unmatched and t not in shared_keys]
+    used = [t for t in cached if t not in unmatched]
     rubric = [*p.rubric, RubricLine("universe", f"{len(used)} of the panel's {len(tickers)} tickers", "default",
-                                    "the tickers the level cache holds"
-                                    + (", with bars on their panel dates" if unmatched else ""))]
+                                    "the tickers the level cache holds" + (", less those below" if unmatched else ""))]
     if unmatched:
-        rubric.append(RubricLine("left out: no bars on their panel dates", ", ".join(unmatched), "default"))
-    if shared_keys:
-        rubric.append(RubricLine("left out: two levels share a key on one day", ", ".join(shared_keys), "default",
-                                 "their lines can't be told apart on a chart"))
+        rubric.append(RubricLine("left out: no bar that can host a touch on their panel dates",
+                                 ", ".join(sorted(unmatched)), "default", "a touch needs the bar before it"))
     params = replace(p.params, count=1, exact=True) if control else p.params
     if control:
         rubric.append(RubricLine("control", "touches of exactly one kind, no divergence", "spec",

@@ -153,7 +153,7 @@ def test_panel_dates_that_match_no_bar_are_refused_not_silently_empty():
     assert dates(r.matches) == [("AAA", DATES[TOUCH])]
     lines = {line.parameter: line.value for line in r.rubric}
     assert lines["universe"] == "1 of the panel's 2 tickers"
-    assert lines["left out: no bars on their panel dates"] == "BBB"
+    assert lines["left out: no bar that can host a touch on their panel dates"] == "BBB"
 
 
 def test_a_touched_level_deeper_than_the_width_heads_no_stack():
@@ -333,15 +333,16 @@ def test_a_level_known_for_a_few_bars_is_drawn_across_the_zone():
     assert new.line.dash == "dash" and pd.Timestamp(new.x[0]) == DATES[TOUCH - charts.ZONE_BARS + 1]
 
 
-def test_a_ticker_with_two_levels_sharing_a_key_is_left_out_and_named(built):
-    assert not built.levels.duplicated(["date", "key"]).any()
+def test_two_levels_sharing_a_key_on_a_day_are_refused_naming_the_ticker(built):
+    assert not built.levels.duplicated(["date", "key"]).any()  # the real detectors' keys
     i = inputs([SR, FIB])
     twin = i.levels.iloc[:1].assign(lo=95.0, hi=95.5)  # another level under the same key that day
     clashing = TickerInputs(i.bars, i.atr, pd.concat([i.levels, twin], ignore_index=True), i.divergences)
-    r = find_level_stack(spec(), panel("AAA", "BBB"), {"AAA": clashing, "BBB": inputs([SR, FIB])}, progress=None)
-    assert dates(r.matches) == [("BBB", DATES[TOUCH])]
-    lines = {line.parameter: line.value for line in r.rubric}
-    assert lines["left out: two levels share a key on one day"] == "AAA" and lines["universe"].startswith("1 of")
+    with pytest.raises(GroundingError, match="AAA: two levels share a key"):
+        find_level_stack(spec(), panel("AAA", "BBB"), {"AAA": clashing, "BBB": inputs([SR, FIB])}, progress=None)
+    # A clash in a kind the spec doesn't stack never reaches a chart: not a refusal.
+    no_sr = spec(supporting_signals=spec().supporting_signals[1:], filters_needed=2)
+    find_level_stack(no_sr, panel("AAA"), {"AAA": clashing}, progress=None)
 
 
 def test_inputs_for_a_ticker_too_young_for_some_detectors():
