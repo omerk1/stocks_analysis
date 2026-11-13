@@ -90,6 +90,7 @@ python -m src.signals.breadth.cli --index sp500 --weighting cap
 | | |
 |---|---|
 | `docs/done.md` | numbered log of completed work |
+| `docs/backfills.md` | log of pure data refreshes (no code change) |
 | `docs/backlog.md` | open items and known data issues |
 | `docs/limitations.md` | deliberate simplifications in the pipeline |
 | `docs/decisions/` | decision records |
