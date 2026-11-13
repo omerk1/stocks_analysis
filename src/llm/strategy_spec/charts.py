@@ -130,7 +130,7 @@ def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: 
                                     line=dict(color="rgb(44, 160, 44)", width=2, dash="dot")))
     trigger = window[window["date"] == trigger_date]
     figure.add_trace(go.Scatter(
-        x=trigger["date"], y=trigger["low"], name="trigger bar", mode="markers",
+        x=trigger["date"], y=trigger[stack.touch_price], name="trigger bar", mode="markers",
         marker=dict(symbol="circle-open", size=14, color="rgb(214, 39, 40)", line=dict(width=2))))
     figure.update_layout(
         title=title, xaxis_rangeslider_visible=False,

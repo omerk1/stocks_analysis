@@ -116,6 +116,28 @@ def test_the_chart_geometry_follows_each_level_and_names_it():
     assert sr.dates[0] == DATES[61] and sr.dates[-1] == DATES[TOUCH] and set(sr.values) == {100.0}
 
 
+def test_only_the_tickers_panel_dates_can_host_an_instance():
+    outside = panel("AAA")
+    outside = outside[outside["date"] != DATES[TOUCH]]  # not in the universe that day
+    assert find_level_stack(spec(), outside, {"AAA": inputs([SR, FIB])}, progress=None).matches == ()
+
+
+def test_a_close_basis_is_what_the_label_and_the_marker_say():
+    close_trigger = Trigger(description="the close touches the stack", price_basis="close", execution="next_open",
+                            proximity=Proximity(normalisation="atr", max=0.3))
+    r = run([SR, FIB], touch_low=99.9, touch_close=100.4, spec_kw={"trigger": close_trigger})
+    assert r.matches == () and r.near_misses[0].fails.startswith("how close: the close comes within 0.45")
+    assert r.near_misses[0].stack.touch_price == "close"
+
+
+def test_an_explicit_level_stack_detector_is_not_called_off_spec(monkeypatch):
+    stub = finders.FinderResult((), (), (), overlay_column=None, overlay_name="level stack")
+    monkeypatch.setattr(level_stack, "find_level_stack", lambda *a, **k: stub)
+    notes = []
+    finders.dispatch(spec(), panel("AAA"), detector=level_stack.LEVEL_STACK, note=notes.append)
+    assert notes == []
+
+
 def test_a_touched_level_deeper_than_the_width_heads_no_stack():
     deep_gap = ("gap", 98.5, 100.1, 50, 60)  # 1.6 ATR deep: can't fit in a 1-ATR stack
     assert run([deep_gap, FIB]).matches == ()
