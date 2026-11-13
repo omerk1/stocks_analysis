@@ -34,7 +34,7 @@ def _line(center, state, kind=LineKind.HORIZONTAL):
 def test_sr_zones_side_by_last_close_and_broken_lines_dead(monkeypatch):
     lines = [_line(95.0, LineState.ACTIVE), _line(105.0, LineState.FLIPPED), _line(100.0, LineState.BROKEN),
              _line(101.0, LineState.ACTIVE, kind=LineKind.DIAGONAL)]
-    monkeypatch.setattr(overlays, "sr_lines", lambda conn, ticker, config, source: lines)
+    monkeypatch.setattr(overlays, "detect_sr_on_source", lambda conn, ticker, config, source: lines)
     out = overlays.sr_overlays(None, "ABC", DAILY, close=100.0)
     assert len(out) == 6  # 3 horizontal lines x both presets; the diagonal is skipped
     first = out[:3]
@@ -177,17 +177,18 @@ def test_history_start_reads_the_splits_of_the_bars_vendor(monkeypatch, raw, bar
                                   overlays.history_breaks.HistoryBreakConfig(enabled=False)) is None
 
 
-def test_sr_lines_match_the_modules_own_detect_on_primary_bars(raw):
-    # `sr_lines` repeats the module's load (its loader takes no source); on yfinance bars
-    # it must find exactly what `sr_engine.detect` does.
+@pytest.mark.parametrize("preset", ["medium_term", "medium_term_weekly"])
+def test_sr_lines_match_the_modules_own_detect_on_primary_bars(raw, preset):
+    # `detect_sr_on_source` repeats the module's load (its loader takes no source); on
+    # yfinance bars it must find exactly what `sr_engine.detect` does, daily and weekly.
     rng = np.random.default_rng(7)
-    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=700)
+    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=1500)
     close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, len(idx))))
     frame = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close,
                           "volume": 1e6, "is_partial": 0}, index=idx)
     db.upsert_bars(raw, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, frame)
-    config = get_preset("medium_term")
-    ours = overlays.sr_lines(raw, "ABC", config, None)
+    config = get_preset(preset)
+    ours = overlays.detect_sr_on_source(raw, "ABC", config, None)
     theirs = sr_engine.detect(raw, "ABC", config).lines
     assert ours and [(l.center, l.state) for l in ours] == [(l.center, l.state) for l in theirs]
 

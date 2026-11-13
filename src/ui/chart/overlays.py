@@ -137,7 +137,7 @@ def _day(ts) -> str:
     return str(ts)[:10]
 
 
-def sr_lines(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None) -> list:
+def detect_sr_on_source(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None) -> list:
     """The S/R module's `detect`, on bars from `source` (None: the basis's primary one).
     Loads the module's own window (`sr_lines.data.load_bars`: `window_years` back from
     now, on its `bar_interval`) and runs `detect_lines` on it; the module's loader takes
@@ -159,7 +159,7 @@ def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, clo
     (here and in the other families that load their own bars)."""
     out = []
     for preset in SR_PRESETS[timeframe]:
-        for line in sr_lines(conn, ticker, get_preset(preset), source):
+        for line in detect_sr_on_source(conn, ticker, get_preset(preset), source):
             if line.kind != LineKind.HORIZONTAL or line.center is None:
                 continue  # diagonals are off in every preset; drawing them waits until they aren't
             lo, hi = line.center - line.half_width, line.center + line.half_width

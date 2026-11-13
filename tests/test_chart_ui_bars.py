@@ -69,11 +69,25 @@ def test_yfinance_bars_win_over_tiingo(conn):
     assert bars["close"].iloc[0] == 100.0 and bars.attrs["source"] == db.YFINANCE_SPLIT_ONLY
 
 
-def test_a_ticker_whose_only_vendor_is_disputed_has_no_bars(conn, monkeypatch):
-    # A whole-history dispute (another company's bars under a reused symbol) leaves it out.
+def test_disputed_tiingo_bars_are_not_a_fallback(conn, monkeypatch):
+    # A whole-history dispute (another company's bars under a reused symbol): no bars,
+    # and an empty frame shaped like any other (basis tagged, float columns).
     monkeypatch.setattr(price_disputes, "DISPUTED_DAYS", (price_disputes.DisputedDay("ABC", None, db.TIINGO, "reused"),))
     db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
-    assert load_chart_bars(conn, "ABC", Timeframe.DAILY).empty
+    bars = load_chart_bars(conn, "ABC", Timeframe.DAILY)
+    assert bars.empty and bars.attrs["price_basis"] == PriceBasis.TRADED.value
+
+
+def test_yfinance_is_kept_for_a_prefer_tiingo_ticker_and_a_disputed_one(conn, monkeypatch):
+    # The chart is a display: unlike the modeling modules it doesn't swap T to Tiingo
+    # (whose bars stop at the fetch date, and may not be stored: no error either) or
+    # drop a disputed yfinance history; it shows what yfinance has.
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
+                        (price_disputes.DisputedDay("XYZ", None, db.YFINANCE, "reused"),))
+    for ticker in ("T", "XYZ"):
+        db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
+        bars = load_chart_bars(conn, ticker, Timeframe.DAILY)
+        assert len(bars) == 30 and bars.attrs["source"] == db.YFINANCE_SPLIT_ONLY
 
 
 def test_moving_averages_match_definitions_and_keep_warmup_nan():

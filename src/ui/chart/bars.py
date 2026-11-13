@@ -17,7 +17,7 @@ import sqlite3
 
 import pandas as pd
 
-from src.foundation.market_common import indicators, price_basis
+from src.foundation.market_common import indicators, price_basis, price_disputes
 from src.foundation.market_common.data import load_and_validate
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import PriceBasis
@@ -32,19 +32,36 @@ def load_chart_bars(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
     Empty when the ticker has no bars. `basis`: another price basis, for a pane
     that must match a module computed on it (the RS pane: total return).
 
-    The bars come from the basis's primary source (yfinance), or from Tiingo for a
-    ticker with no yfinance bars (ARM, ASML, PDD, delisted members), the
-    groups page's own choice (`price_basis.resolve_sources`). A ticker whose
-    vendor's whole history is disputed (another company's bars under a reused
-    symbol) gets no bars. The source is kept in `attrs["source"]`, so the level
+    The bars come from `chart_source`. It's kept in `attrs["source"]`, so the level
     detectors that load their own bars read the same vendor (`overlays.py`)."""
     ticker = ticker.upper()
-    source = price_basis.resolve_sources(conn, [ticker], basis, fallback=True).get(ticker)
-    if source is None:
-        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"], index=pd.DatetimeIndex([]))
+    source = chart_source(conn, ticker, basis)
     bars, _ = load_and_validate(conn, ticker, timeframe, basis=basis, source=source)
     bars.attrs["source"] = source
     return bars
+
+
+def _has_bars(conn: sqlite3.Connection, ticker: str, source: str) -> bool:
+    return conn.execute("SELECT 1 FROM bars_1d WHERE ticker = ? AND source = ? LIMIT 1",
+                        (ticker, source)).fetchone() is not None
+
+
+def chart_source(conn: sqlite3.Connection, ticker: str, basis: PriceBasis) -> str:
+    """The `bars_1d.source` the chart reads `ticker` from: the basis's primary one
+    (yfinance) whenever it has bars, as before, so the chart shows the latest bars;
+    else the fallback (Tiingo: ARM, ASML, PDD, delisted members). Unlike the modules
+    that opt into the fallback (`price_basis.resolve_sources`, and the Groups page),
+    there's no `PREFER_TIINGO` swap and no dropping a disputed yfinance history: the
+    chart is a display and keeps showing what yfinance has. Tiingo bars under a
+    whole-history dispute (another company's under a reused symbol) aren't used; the
+    primary source is returned then, and the ticker has no bars."""
+    primary = price_basis.source_for(basis)
+    fallback = price_basis.FALLBACK_SOURCE_BY_BASIS[PriceBasis(basis)]
+    if _has_bars(conn, ticker, primary) or not _has_bars(conn, ticker, fallback):
+        return primary
+    disputed = any(d.ticker == ticker and d.date is None and d.vendor == price_disputes.vendor_of(fallback)
+                   for d in price_disputes.DISPUTED_DAYS)
+    return primary if disputed else fallback
 
 
 def moving_averages(close: pd.Series, specs: tuple[MASpec, ...]) -> dict[str, pd.Series]:
