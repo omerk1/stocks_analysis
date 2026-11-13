@@ -200,6 +200,9 @@ class Overlay:
    expected trace types per chart type, the strip shows "no RS run" when there are no rows.
    **As built (Done #175):**
    - Prices are traded (split-only), the basis the price-level modules use.
+   - A ticker with no yfinance bars (ARM, ASML, PDD, delisted members) is drawn from
+     Tiingo's, and the status line says so; its level detectors read the same vendor's bars
+     and splits (Done #193). Tiingo's bars can end earlier than yfinance's.
    - Weekly bars reuse the shared loader's resample, so there's no `bars.py` copy of it.
    - Moving averages are computed on the displayed closes.
    - A zoom/pan callback refits the y-axes to the visible window.
@@ -438,8 +441,8 @@ class Overlay:
      (today: FISV).
    - **Prices** are on the chart's basis (traded), read in bulk per source and not
      validated bar by bar. A ticker with no yfinance bars is read from Tiingo (ARM,
-     ASML, PDD, delisted members); the Chart tab still reads yfinance only, so
-     clicking one of those shows "No bars". A 50/200-day average or 52-week high
+     ASML, PDD, delisted members); the Chart tab does the same since Done #193 (it
+     said "No bars" for them before). A 50/200-day average or 52-week high
      needs its full window of bars, else it's blank and not counted.
    - Built the first time the tab opens (about 4–7 s), then cached until Reload or a
      restart. Nothing is stored. `dash_table.DataTable` is deprecated in Dash 4 in

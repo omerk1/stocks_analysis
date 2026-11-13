@@ -29,8 +29,11 @@ from typing import NamedTuple
 
 import pandas as pd
 
+from src.foundation.data_processing import db
+from src.foundation.market_common import data as mc_data
 from src.foundation.market_common import history_breaks
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import SPLITS_SOURCE_BY_BAR_SOURCE
 from src.signals.avwap import anchors as avwap_anchors
 from src.signals.avwap import compute as avwap_compute
 from src.signals.avwap.config import AvwapConfig
@@ -44,8 +47,9 @@ from src.signals.fibonacci.models import FibSetStatus
 from src.signals.gaps import detect as gap_detect
 from src.signals.gaps.config import GapConfig
 from src.signals.gaps.models import Direction, GapKind, GapStatus
+from src.signals.sr_lines import data as sr_data
 from src.signals.sr_lines import engine as sr_engine
-from src.signals.sr_lines.config import get_preset
+from src.signals.sr_lines.config import SRConfig, get_preset
 from src.signals.market_structure import config as ms_config
 from src.signals.market_structure import detect as ms_detect
 from src.signals.market_structure.models import StructureEvent
@@ -133,13 +137,29 @@ def _day(ts) -> str:
     return str(ts)[:10]
 
 
-def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float) -> list[Overlay]:
+def sr_lines(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None) -> list:
+    """The S/R module's `detect`, on bars from `source` (None: the basis's primary one).
+    Loads the module's own window (`sr_lines.data.load_bars`: `window_years` back from
+    now, on its `bar_interval`) and runs `detect_lines` on it; the module's loader takes
+    no source, and isn't changed (it's hashed into the level-snapshot cache,
+    `history_start`)."""
+    end = pd.Timestamp.now()
+    timeframe = Timeframe.WEEKLY if config.bar_interval == "1w" else Timeframe.DAILY
+    raw = mc_data.load_bars(conn, ticker, timeframe, as_of=end, start=end - pd.DateOffset(years=config.window_years),
+                            basis=config.price_basis, source=source)
+    bars, _ = sr_data.validate_bars(raw, ticker, config)
+    return sr_engine.detect_lines(bars, config) if not bars.empty else []
+
+
+def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float,
+                source: str | None = None) -> list[Overlay]:
     """Horizontal S/R zones from both presets. Broken lines are dead; a flipped line is
     alive (it has swapped sides). Support or resistance is by side of the last close;
-    a zone around the close is "at price"."""
+    a zone around the close is "at price". `source`: the chart bars' `bars_1d.source`
+    (here and in the other families that load their own bars)."""
     out = []
     for preset in SR_PRESETS[timeframe]:
-        for line in sr_engine.detect(conn, ticker, get_preset(preset)).lines:
+        for line in sr_lines(conn, ticker, get_preset(preset), source):
             if line.kind != LineKind.HORIZONTAL or line.center is None:
                 continue  # diagonals are off in every preset; drawing them waits until they aren't
             lo, hi = line.center - line.half_width, line.center + line.half_width
@@ -166,10 +186,11 @@ def remaining_zone(bottom: float, top: float, direction: Direction, fill_pct: fl
     return (bottom, top - filled) if direction == Direction.BULLISH else (bottom + filled, top)
 
 
-def gap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+def gap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 source: str | None = None) -> list[Overlay]:
     """Open and partly filled gaps are alive (soft-closed and closed ones aren't), drawn
     as their unfilled part from the bar that made them."""
-    gaps, _, _ = gap_detect.detect(conn, ticker, timeframe, GapConfig())
+    gaps, _, _ = gap_detect.detect(conn, ticker, timeframe, GapConfig(), source=source)
     out = []
     for g in gaps:
         lo, hi = remaining_zone(g.zone_bottom, g.zone_top, g.direction, g.max_fill_pct or 0.0)
@@ -199,9 +220,15 @@ def _avwap_value(current_value, series: pd.Series | None) -> float:
 def avwap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                    bars: pd.DataFrame) -> list[Overlay]:
     """Active anchors are alive, stale ones aren't. The curve is recomputed on `bars`
-    from its anchor, the way the module's own plots do."""
+    from its anchor, the way the module's own plots do.
+
+    Runs the module's `detect_on_bars` on the chart's `bars` (its `detect` minus the
+    load: same basis, whole history), so a Tiingo-only ticker gets its anchors too."""
     config = AvwapConfig()
-    anchors, _, _ = avwap_anchors.detect(conn, ticker, timeframe, config)
+    if len(bars) < config.min_bars:
+        return []
+    anchors = avwap_anchors.detect_on_bars(bars, ticker, timeframe, config,
+                                           history_start=history_start(conn, ticker, bars, config.history_breaks))
     out = []
     for a in anchors:
         alive = a.status == AnchorStatus.ACTIVE
@@ -222,10 +249,11 @@ def avwap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
     return out
 
 
-def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 source: str | None = None) -> list[Overlay]:
     """Each level of the module's selected swings is an item, drawn from the swing's
     end. A level is alive while its swing isn't invalidated."""
-    result = fib_engine.detect(conn, ticker, timeframe, FibConfig())
+    result = fib_engine.detect(conn, ticker, timeframe, FibConfig(), source=source)
     out = []
     for s in result.selected_sets:
         sw = s.swing
@@ -295,6 +323,21 @@ def _age(bars: pd.DataFrame, when) -> int:
     return len(bars) - 1 - min(int(bars.index.searchsorted(pd.Timestamp(when))), len(bars) - 1)
 
 
+def history_start(conn: sqlite3.Connection, ticker: str, bars: pd.DataFrame,
+                  config: history_breaks.HistoryBreakConfig) -> pd.Timestamp | None:
+    """Where AVWAP and volume profile anchors may start (`history_breaks`), read from the
+    splits of the vendor the chart's `bars` came from (`bars.attrs["source"]`: Tiingo for
+    a Tiingo-only ticker), not always yfinance's as `anchor_start_for` does. The S/R,
+    AVWAP and volume-profile modules are left as they are: their code is hashed into
+    the level-snapshot cache (`models/features/level_cache.py`), so a change there would
+    mark every stored snapshot stale."""
+    if not config.enabled:
+        return None
+    source = bars.attrs.get("source")
+    splits_source = SPLITS_SOURCE_BY_BAR_SOURCE[source] if source is not None else db.YFINANCE
+    return history_breaks.anchor_start_date(bars, db.read_splits(conn, ticker, splits_source), config, ticker=ticker)
+
+
 def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                             bars: pd.DataFrame) -> list[Overlay]:
     """Each anchored profile (the same anchors AVWAP uses) gives three lines from its
@@ -313,7 +356,7 @@ def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Ti
     config = VolumeProfileConfig()
     if len(bars) < config.min_bars:
         return []
-    start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    start = history_start(conn, ticker, bars, config.history_breaks)
     out = []
     for p in vp_detect.detect_on_bars(bars, ticker, timeframe, config, history_start=start):
         if p.poc is None:
@@ -494,12 +537,15 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
 def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                  bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
     """Every family's overlays, plus {family: message} for families that failed. One
-    family's error doesn't lose the others."""
+    family's error doesn't lose the others. The families that load their own bars read
+    the vendor `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the
+    primary one when absent), so a Tiingo-only ticker's levels sit on its own bars."""
     close = float(bars["close"].iloc[-1])
-    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close),
-            GAPS: lambda: gap_overlays(conn, ticker, timeframe),
+    source = bars.attrs.get("source")
+    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close, source),
+            GAPS: lambda: gap_overlays(conn, ticker, timeframe, source),
             AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
-            FIB: lambda: fib_overlays(conn, ticker, timeframe),
+            FIB: lambda: fib_overlays(conn, ticker, timeframe, source),
             VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
             PAT: lambda: pattern_overlays(ticker, timeframe, bars),
             DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),

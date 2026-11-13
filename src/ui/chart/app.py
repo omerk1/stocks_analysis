@@ -27,9 +27,10 @@ from dash.dash_table.Format import Format, Scheme, Sign
 from src.foundation.data_processing import db
 from src.foundation.market_common.derived_db import default_derived_db_path
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 from src.foundation.utils.config_loader import load_config
 from src.ui.chart import bars as bars_mod
+from src.ui.chart.bars import CHART_BASIS
 from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import groups as groups_mod
 from src.ui.chart import overlays as overlays_mod
@@ -315,6 +316,8 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
                        earnings=cards, expanded=expanded, panes=panes, pane_config=config.panes)
     notes = [n for n in (note, *(p.note for p in panes)) if n]
     message = f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
+    if bars.attrs.get("source") not in (None, source_for(CHART_BASIS)):
+        message += " · bars from Tiingo (no yfinance bars)"
     return fig, " · ".join([message, *notes])
 
 
