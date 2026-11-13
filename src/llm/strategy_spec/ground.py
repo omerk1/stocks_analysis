@@ -269,21 +269,32 @@ def ground(spec: StrategySpec, panel: pd.DataFrame, *, ask, say=print,
     # The overlay is whatever the finder declared, not an assumption that every
     # detector is about a moving average.
     shown_tickers = {c.ticker for c in shown_candidates}
-    display = panel.loc[panel["ticker"].isin(shown_tickers),
-                        ["ticker", "date", "open", "high", "low", "close", result.overlay_column]].copy()
-    display["overlay_display"] = shift_to_signal_bar(display, result.overlay_column)
-    bars_by_ticker = {ticker: frame.reset_index(drop=True)
-                      for ticker, frame in display.groupby("ticker", sort=False)}
+    if result.chart_bars is not None:
+        # The finder's own bars (a level stack's traded prices, the basis its levels are on).
+        bars_by_ticker = {t: result.chart_bars[t].reset_index(drop=True) for t in shown_tickers}
+    else:
+        display = panel.loc[panel["ticker"].isin(shown_tickers),
+                            ["ticker", "date", "open", "high", "low", "close", result.overlay_column]].copy()
+        display["overlay_display"] = shift_to_signal_bar(display, result.overlay_column)
+        bars_by_ticker = {ticker: frame.reset_index(drop=True)
+                          for ticker, frame in display.groupby("ticker", sort=False)}
     for n, candidate in enumerate(shown_candidates, start=1):
         bars = bars_by_ticker[candidate.ticker]
+        title = f"{candidate.ticker} — {candidate.date.date()}"
+        if candidate.stack is not None:
+            window = charts.chart_window(bars, candidate.date, chart_from=candidate.stack.start)
+            figure = charts.stack_chart(window, candidate.stack, candidate.date, title)
+            name = f"{n:02d}_{candidate.ticker}_{candidate.date.date()}.html"
+            charts.write_chart(figure, out_dir / name)
+            session.shown.append(Shown(candidate, name))
+            continue
         span = candidate.overlay_span
         window = charts.chart_window(bars, candidate.date,
                                      chart_from=span[0] if span is not None else None)
         if span is not None:
             window = charts.candidate_overlay(window, span, "overlay_display")
         figure = charts.instance_chart(
-            window, "overlay_display", result.overlay_name,
-            candidate.date, f"{candidate.ticker} — {candidate.date.date()}")
+            window, "overlay_display", result.overlay_name, candidate.date, title)
         name = f"{n:02d}_{candidate.ticker}_{candidate.date.date()}.html"
         charts.write_chart(figure, out_dir / name)
         session.shown.append(Shown(candidate, name))

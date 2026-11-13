@@ -541,7 +541,7 @@ def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypat
     m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 1, "current": 0, "left": 1}
     assert m["code_hashes"]["sr_line"] == real("sr_line")
-    _, by_ticker, splits = level_cache._load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
+    _, by_ticker, splits = level_cache.load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
     clean = levels.prepare(by_ticker["AAA"])
     dates = levels.snapshot_dates(clean.index)
     key = level_cache.fingerprint("sr_line", "AAA", clean, splits.get("AAA"), dates,

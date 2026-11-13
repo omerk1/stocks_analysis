@@ -27,6 +27,7 @@ import plotly.graph_objects as go
 LOOKBACK_BARS = 90  # context before the trigger: the away run and some history
 FORWARD_BARS = 0    # the chart ends ON the trigger bar: its close is the signal, and any later bar leaks outcome
 CHART_FROM_MARGIN_BARS = 10  # context drawn before a candidate-declared window start
+ZONE_BARS = 10  # a level stack's zone is drawn over this many bars up to the touch
 
 # Same convention as patterns/gaps plotting: no weekend voids in the x axis.
 _WEEKEND_RANGEBREAKS = [dict(bounds=["sat", "mon"])]
@@ -81,6 +82,60 @@ def instance_chart(window: pd.DataFrame, overlay_col: str, overlay_name: str,
     figure.update_layout(
         title=title, xaxis_rangeslider_visible=False,
         xaxis=dict(rangebreaks=_WEEKEND_RANGEBREAKS), margin=dict(l=40, r=40, t=60, b=40))
+    return figure
+
+
+_LINE_COLOURS = ("rgb(31, 119, 180)", "rgb(255, 127, 14)", "rgb(44, 160, 44)", "rgb(148, 103, 189)",
+                 "rgb(140, 86, 75)", "rgb(227, 119, 194)", "rgb(127, 127, 127)", "rgb(188, 189, 34)")
+
+
+def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: str) -> go.Figure:
+    """A level stack (`level_stack.StackGeometry`) on `window` (truncated by
+    `chart_window`): candles, the zone as a band from the geometry's start to the trigger
+    bar, each level's line where it stood, the divergence between its two price pivots,
+    and the trigger marker. Nothing past the trigger bar is drawn."""
+    figure = go.Figure()
+    figure.add_trace(go.Candlestick(
+        x=window["date"], open=window["open"], high=window["high"],
+        low=window["low"], close=window["close"], name="price", showlegend=False))
+    first = max(pd.Timestamp(stack.start), pd.Timestamp(window["date"].iloc[0]))
+    lo, hi = stack.zone
+    # The zone is the stack as it stood at the touch (an AVWAP moves): drawn over the last
+    # few bars only, so it doesn't suggest the stack stood there all along.
+    band_from = max(first, pd.Timestamp(window["date"].iloc[max(len(window) - ZONE_BARS, 0)]))
+    # Dates as DatetimeIndexes, not lists of Timestamps: image export can't serialise those.
+    figure.add_trace(go.Scatter(
+        x=pd.DatetimeIndex([band_from, trigger_date, trigger_date, band_from, band_from]), y=[lo, lo, hi, hi, lo],
+        fill="toself",
+        mode="lines", line=dict(width=0), fillcolor="rgba(44, 160, 44, 0.15)",
+        name=f"zone {lo:.2f}–{hi:.2f}", hoverinfo="name"))
+    for n, line in enumerate(stack.lines):
+        keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
+        colour = _LINE_COLOURS[n % len(_LINE_COLOURS)]
+        if len(keep) >= ZONE_BARS:
+            x, y, name, dash = [line.dates[i] for i in keep], [line.values[i] for i in keep], line.label, None
+        else:
+            # Known only for the last few bars: too short to see (it hides under the trigger
+            # marker), so it spans the zone's bars, dashed, and says since when it was known.
+            value = line.values[-1]
+            x, y, dash = [band_from, trigger_date], [value, value], "dash"
+            name = f"{line.label} (known {len(keep)} bar{'s' if len(keep) != 1 else ''} before)"
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex(x), y=y, name=name, mode="lines",
+                                    line=dict(color=colour, width=1.5, dash=dash)))
+    if stack.divergence is not None:
+        d1, p1, d2, p2 = stack.divergence
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, d2]), y=[p1, p2],
+                                    name=stack.divergence_label or "bullish divergence",
+                                    mode="lines+markers",
+                                    line=dict(color="rgb(44, 160, 44)", width=2, dash="dot")))
+    trigger = window[window["date"] == trigger_date]
+    figure.add_trace(go.Scatter(
+        x=trigger["date"], y=trigger[stack.touch_price], name="trigger bar", mode="markers",
+        marker=dict(symbol="circle-open", size=14, color="rgb(214, 39, 40)", line=dict(width=2))))
+    figure.update_layout(
+        title=title, xaxis_rangeslider_visible=False,
+        xaxis=dict(rangebreaks=_WEEKEND_RANGEBREAKS), margin=dict(l=40, r=40, t=60, b=40),
+        legend=dict(orientation="h", y=-0.08))
     return figure
 
 
