@@ -81,6 +81,41 @@ def test_week_is_closed_the_saturday_right_after_friday():
     assert result.iloc[0]["is_partial"] == 0
 
 
+def _week_to(last_day: str):
+    days = pd.bdate_range("2024-01-01", last_day)
+    return _daily([(d.strftime("%Y-%m-%d"), 100, 101, 99, 100, 1000) for d in days])
+
+
+def test_week_with_its_friday_bar_is_closed_as_of_that_friday():
+    # The loaders pass the data's last date as as_of; data ending on a Friday used to
+    # leave that complete week out (the chart and every weekly consumer ended a week early).
+    result = to_weekly(_week_to("2024-01-12"), as_of="2024-01-12")
+    assert list(result["is_partial"]) == [0, 0]
+
+
+def test_week_without_its_friday_bar_stays_in_progress():
+    result = to_weekly(_week_to("2024-01-11"), as_of="2024-01-11")  # Thursday
+    assert list(result["is_partial"]) == [0, 1]
+
+
+def test_a_friday_bar_after_as_of_does_not_close_its_week():
+    # Point in time: as of Wednesday the week is in progress, whatever bars follow.
+    result = to_weekly(_week_to("2024-01-12"), as_of="2024-01-10")
+    assert list(result["is_partial"]) == [0, 1]
+
+
+def test_a_partial_friday_bar_keeps_its_week_partial():
+    daily = _week_to("2024-01-05")
+    daily.loc["2024-01-05", "is_partial"] = 1  # today's bar, still trading
+    assert to_weekly(daily, as_of="2024-01-05").iloc[0]["is_partial"] == 1
+
+
+def test_month_with_its_last_weekday_bar_is_closed():
+    daily = _week_to("2024-01-31")  # Wednesday, the month's last weekday
+    assert to_monthly(daily, as_of="2024-01-31").iloc[0]["is_partial"] == 0
+    assert to_monthly(daily.loc[:"2024-01-30"], as_of="2024-01-30").iloc[0]["is_partial"] == 1
+
+
 def test_period_label_is_stable_as_more_days_arrive():
     # Guards against the bug where labeling by "last seen day" would shift the
     # row's primary key as new days are appended to a still-open period,
