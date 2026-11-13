@@ -116,10 +116,10 @@ def test_members_sorted_by_rating_with_gone_ones_last(page):
     tech = page.members["Technology"]
     assert [m.ticker for m in tech] == ["AAA", "BBB", "SHORT", "GONE", "LEFT"]
     aaa = tech[0]
-    assert (aaa.rating, aaa.change, aaa.rated_in, aaa.status) == (90.0, 20.0, "Nasdaq-100", "")
+    assert (aaa.rating, aaa.change, aaa.status) == (90.0, 20.0, "")
     assert aaa.pct_from_high == pytest.approx(399 / 400 - 1)  # last close 399, highest high 400
     assert aaa.vs_ma[0] > 0 and aaa.vs_ma[1] > 0
-    assert tech[1].rated_in == "S&P 500" and tech[1].vs_ma[0] < 0
+    assert tech[1].vs_ma[0] < 0
     short = tech[2]
     assert short.rating is None and short.pct_from_high is None and short.vs_ma[1] is None
     gone, left = tech[3], tech[4]

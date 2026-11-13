@@ -113,7 +113,7 @@ def test_a_windowed_run_never_sweeps_even_when_every_step_stored_rows(monkeypatc
 
 def test_a_skipped_rs_step_blocks_that_tables_sweep_only(monkeypatch, derived_conn):
     _plant_stale_rows(derived_conn)
-    _patch_runners(monkeypatch, derived_conn, skip_labels=("rs stock-vs-market nasdaq100",))
+    _patch_runners(monkeypatch, derived_conn, skip_labels=("rs stock-vs-market sp500+nasdaq100",))
 
     fully_fresh = refresh_derived.run_refresh(None, derived_conn)
 
@@ -152,8 +152,8 @@ def test_a_failing_step_stops_before_later_steps_and_never_sweeps(monkeypatch, d
 
 
 def test_resuming_past_an_rs_step_blocks_the_stock_sweep_but_not_the_others(monkeypatch, derived_conn):
-    # Resume from step 6: step 5 (rs stock-vs-market sp500) ran in a
-    # PREVIOUS invocation under a run_id this one doesn't know -- sweeping
+    # Resume from step 6: step 5 (rs stock-vs-market over the combined
+    # universe) ran in a PREVIOUS invocation under a run_id this one doesn't know -- sweeping
     # relative_strength now would delete those fresh rows as "stale".
     # Breadth steps 1-4 didn't run here either, so its sweep is blocked too.
     calls = []
@@ -165,7 +165,7 @@ def test_resuming_past_an_rs_step_blocks_the_stock_sweep_but_not_the_others(monk
     # Excluding steps by --from-step is the caller's choice, not a data
     # failure -- the return value only reports skips for missing data.
     assert no_data_skips
-    assert calls[0] == "rs stock-vs-market nasdaq100"
+    assert calls[0] == "rs stock-vs-sector sp500+nasdaq100"
     assert "DELISTED" in _values(derived_conn)
     assert "2019-12-31" in _values(derived_conn, "breadth", "date")
     assert _values(derived_conn, "sector_relative_strength", "sector") == {"Technology"}

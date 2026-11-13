@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from src.foundation.market_common.models import Timeframe
+from src.signals.relative_strength.config import RelativeStrengthConfig
 
 
 class ChartType(str, Enum):
@@ -65,7 +66,9 @@ class ChartConfig:
 class GroupsConfig:
     """The groups page (`groups.py`). Ratings and the indices are the
     relative-strength module's own; the rest is display."""
-    indices: tuple[str, ...] = ("sp500", "nasdaq100")  # the RS module's universe
+    # the RS module's own universe, the one its stored ratings are ranked over (not a
+    # second hand-kept list, so the members listed and the ratings can't diverge)
+    indices: tuple[str, ...] = field(default_factory=lambda: tuple(RelativeStrengthConfig().indices))
     rank_change_days: tuple[int, int] = (28, 91)  # the sector table's two rank changes (4 and 13 weeks)
     member_change_days: int = 28  # a member's rating change
     # A ticker that left the indices this many calendar days before the page date
