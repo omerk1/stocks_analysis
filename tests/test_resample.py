@@ -98,6 +98,12 @@ def test_week_without_its_friday_bar_stays_in_progress():
     assert list(result["is_partial"]) == [0, 1]
 
 
+def test_a_friday_bar_after_as_of_does_not_close_its_week():
+    # Point in time: as of Wednesday the week is in progress, whatever bars follow.
+    result = to_weekly(_week_to("2024-01-12"), as_of="2024-01-10")
+    assert list(result["is_partial"]) == [0, 1]
+
+
 def test_a_partial_friday_bar_keeps_its_week_partial():
     daily = _week_to("2024-01-05")
     daily.loc["2024-01-05", "is_partial"] = 1  # today's bar, still trading

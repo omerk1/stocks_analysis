@@ -71,8 +71,8 @@ def _target(conn, ticker, name, valid_from="2014-06-01", valid_to="2015-03-31", 
 def test_split_only_divides_by_later_splits_and_adjusted_uses_tiingo_adjustment():
     prices = _prices(split_on="2015-02-02")
 
-    traded = to_bars(prices, split_only=True)
-    total = to_bars(prices, split_only=False)
+    traded = to_bars(prices, split_only=True, fetched_on="2030-01-01")
+    total = to_bars(prices, split_only=False, fetched_on="2030-01-01")
 
     # before the 2:1 split: raw 100 on the old share basis -> 50 on today's
     assert traded.loc["2015-01-30", "close"] == pytest.approx(50.0)
@@ -85,8 +85,17 @@ def test_split_only_divides_by_later_splits_and_adjusted_uses_tiingo_adjustment(
 def test_zero_volume_placeholder_bars_are_dropped():
     prices = _prices(zero_volume_last=True)
 
-    assert to_bars(prices, split_only=True).index[-1] == _DAYS[-2]
-    assert to_bars(prices, split_only=False).index[-1] == _DAYS[-2]
+    assert to_bars(prices, split_only=True, fetched_on="2030-01-01").index[-1] == _DAYS[-2]
+    assert to_bars(prices, split_only=False, fetched_on="2030-01-01").index[-1] == _DAYS[-2]
+
+
+def test_bars_on_or_after_the_fetch_date_are_partial():
+    # As in the yfinance and Polygon ingests: the fetch day's bar may still be trading,
+    # and a week mustn't count as closed on it (resample, Done #194).
+    prices = _prices()
+    bars = to_bars(prices, split_only=True, fetched_on=_DAYS[-1])
+    assert bars["is_partial"].iloc[-1] == 1 and (bars["is_partial"].iloc[:-1] == 0).all()
+    assert (to_bars(prices, split_only=False, fetched_on="2030-01-01")["is_partial"] == 0).all()
 
 
 def test_targets_are_unmapped_members_without_yfinance_bars(conn):

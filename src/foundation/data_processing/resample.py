@@ -24,11 +24,13 @@ def _resample(daily_bars: pd.DataFrame, period_freq: str, as_of) -> pd.DataFrame
     - A period is "closed" (is_partial=False) once `as_of` is strictly after the
       period's last *weekday* on/before its nominal calendar end -- so a week
       ending Sun Jul 26 is treated as closed as of Sat Jul 25, not only once the
-      following Monday arrives. It's also closed once the bar of that last weekday
-      is in the data (Done #194): the loaders judge closure against the data's
-      own last date, and a week whose Friday bar is that last date is complete,
-      not in progress. (A same-day partial Friday bar still makes it partial,
-      below.) This does NOT account for market holidays inside
+      following Monday arrives. It's also closed when `as_of` is that last weekday
+      and its bar is in the data (Done #194): the loaders judge closure against the
+      data's own last date, and a week whose Friday bar is that last date is
+      complete, not in progress. This trusts the Friday bar's `is_partial` flag: a
+      bar fetched during trading must carry it (every ingest sets it for bars on
+      or after the fetch date), and then makes the period partial, below. This
+      does NOT account for market holidays inside
       the period (e.g. a Thursday early close before a Friday holiday); the
       period is still considered closed based on the calendar, not a trading
       calendar. Detecting holiday gaps would need a market calendar and is out
@@ -54,10 +56,12 @@ def _resample(daily_bars: pd.DataFrame, period_freq: str, as_of) -> pd.DataFrame
         period_start = period.start_time.normalize()
         nominal_end = period.end_time.normalize()
         last_weekday = _last_weekday_on_or_before(nominal_end)
-        # Closed once as_of is past its last weekday, or once that weekday's own bar is
-        # here: a week whose Friday bar is present is complete (callers pass the data's
-        # last date as as_of, which used to leave such a week out).
-        period_closed = as_of > last_weekday or group.index.max().normalize() == last_weekday
+        # Closed once as_of is past its last weekday, or once as_of has reached it and
+        # that weekday's own bar is here: a week whose Friday bar is present is complete
+        # (callers pass the data's last date as as_of, which used to leave such a week
+        # out). Never on a bar after as_of: that would close a week before its time.
+        period_closed = as_of > last_weekday or (
+            as_of == last_weekday and group.index.max().normalize() == last_weekday)
         is_partial = (not period_closed) or bool(group["is_partial"].any())
 
         rows.append(
