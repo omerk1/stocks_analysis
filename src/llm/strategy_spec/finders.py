@@ -719,6 +719,14 @@ def pick_finder(spec: StrategySpec, override: str | None = None) -> str:
     return found
 
 
+def _default_finder(spec: StrategySpec) -> str | None:
+    """What `pick_finder` chooses with no override, or None when nothing fits."""
+    try:
+        return pick_finder(spec)
+    except GroundingError:
+        return None
+
+
 def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = None,
              ma: str | None = None, near_misses: bool = True, note=print) -> tuple[str, FinderResult]:
     """Pick the finder and run it — shared by grounding (`ground.py`) and the exploratory
@@ -741,15 +749,8 @@ def dispatch(spec: StrategySpec, panel: pd.DataFrame, *, detector: str | None = 
         # the parameter simply does the full work.
         options["near_misses"] = False
     result = finder(spec, panel, **options)
-    if detector is not None and finder_id not in spec.uses:
-        # The level stack is no catalogue id, so it's on-spec when it's what the spec dispatches to.
-        try:
-            on_spec = finder_id == pick_finder(spec)
-        except GroundingError:
-            on_spec = False
-    else:
-        on_spec = True
-    if not on_spec:
+    # The level stack is no catalogue id: it's on-spec when it's what the spec dispatches to.
+    if detector is not None and finder_id not in spec.uses and finder_id != _default_finder(spec):
         note(f"Note: {finder_id} isn't among the spec's own detectors "
              f"({', '.join(spec.uses) or 'none listed'}) — running it anyway, as asked.")
     return finder_id, result

@@ -8,7 +8,8 @@ stack, several kinds of price level close together below price, touched from abo
 panel on total-return prices. A stack found or drawn on the panel's OHLC would put each
 level off by the dividends paid since, so detection and charts both use the traded bars
 the levels come from (`TickerInputs.bars`, handed to grounding as `FinderResult.chart_bars`).
-The panel only sets the universe: a ticker's instances fall on its own panel dates. Dates are the same on both bases, so the
+The panel sets the universe (a ticker's instances fall on its own panel dates) and the first
+day levels are built for. Dates are the same on both bases, so the
 exploratory look pairs an instance with the panel's lagged rows as for any finder.
 
 **What is one instance** (each rule in the rubric, with its source):
@@ -346,6 +347,14 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
         "indicator": [d.indicator.value for d in bullish], "form": [d.form.value for d in bullish],
         "p1_date": pd.to_datetime([d.p1_date for d in bullish]), "p1_price": [d.p1_price for d in bullish],
         "p2_date": pd.to_datetime([d.p2_date for d in bullish]), "p2_price": [d.p2_price for d in bullish]})
+    # A key names one level across days. Two AVWAPs from one anchor date are one line: the
+    # exact twin goes. Two levels left sharing a key on some day (none in the cache today)
+    # are told apart by their top to the cent, on every day of those keys.
+    out = out.drop_duplicates(["date", "key", "hi"])
+    clash = set(out.loc[out.duplicated(["date", "key"], keep=False), "key"])
+    if clash:
+        in_clash = out["key"].isin(clash)
+        out.loc[in_clash, "key"] = out.loc[in_clash, "key"] + "@" + out.loc[in_clash, "hi"].round(2).astype(str)
     return TickerInputs(clean, atr_indicator(clean, 14), out.sort_values(["date", "kind"], ignore_index=True),
                         divergences)
 
@@ -440,9 +449,6 @@ def _prepare_days(inputs: TickerInputs, dates, kinds: set[str], touch_price: str
     div_invalidated = (np.where(div["invalidated"].isna(), len(index), index.searchsorted(div["invalidated"]))
                        if len(div) else np.array([], dtype=int))
     positions = index.get_indexer(pd.DatetimeIndex(dates))
-    if len(positions) and (positions < 0).all():
-        raise GroundingError("none of a ticker's panel dates is one of its traded bars' dates — "
-                             "a time zone or time-of-day mismatch between the panel and the DB bars?")
     days = []
     for p in np.unique(positions[positions >= 1]):  # a panel date with no traded bar can't host a touch
         g = by_date.get(index[p - 1])
@@ -520,11 +526,6 @@ def _geometry(inputs: TickerInputs, rows_of: Mapping[str, np.ndarray], day: _Day
         # Each level's value on every bar it stood on, as known at the previous close.
         d = level_dates[rows]
         keep = rows[(d >= index[max(start_p - 1, 0)].to_datetime64()) & (d < index[stack.p].to_datetime64())]
-        if len(np.unique(level_dates[keep])) < len(keep):
-            # Two levels share this key on some day (one formation date: none do in the cache
-            # today): their histories can't be told apart, so only the value at the touch is drawn.
-            keep = np.array([k for k in keep if level_dates[k] == index[stack.p - 1].to_datetime64()
-                             and level_tops[k] == day.hi[r]][:1], dtype=int)
         dates = tuple(index[index.searchsorted(level_dates[keep]) + 1])
         values = tuple(float(v) for v in level_tops[keep])  # the level's top: the edge a touch from above meets
         lines.append(StackLine(f"{day.label[r]} ({day.lo[r]:.2f}–{day.hi[r]:.2f})"
@@ -571,6 +572,10 @@ def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[st
     loosest = replace(params, proximity=relaxed["proximity"].proximity, reach=relaxed["reach"].reach)
     use_divergence = "divergence" in p.kinds
     panel_dates = panel.groupby("ticker", sort=False)["date"].unique()
+    if used and not any(inputs[t].bars.index.isin(pd.DatetimeIndex(panel_dates[t])).any() for t in used):
+        # One ticker can lack bars on its panel dates; none matching means the two disagree on dates.
+        raise GroundingError("no ticker's panel dates are its traded bars' dates — a time zone or "
+                             "time-of-day mismatch between the panel and the DB bars?")
     days = {t: _prepare_days(inputs[t], panel_dates[t], set(p.kinds), p.touch_price, loosest) for t in used}
     day_at = {t: {d.p: d for d in ds} for t, ds in days.items()}
     rows_of: dict[str, Mapping[str, np.ndarray]] = {}  # per ticker, built on its first instance

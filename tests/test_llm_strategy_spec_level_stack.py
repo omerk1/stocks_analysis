@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 from src.llm.strategy_spec import finders, level_stack
+from src.models.features import levels as levels_module
 from src.llm.strategy_spec.finders import GroundingError
 from src.llm.strategy_spec.level_stack import TickerInputs, find_level_stack, is_level_stack, plan
 from src.llm.strategy_spec.schema import (
@@ -146,6 +147,11 @@ def test_panel_dates_that_match_no_bar_are_refused_not_silently_empty():
     shifted = panel("AAA").assign(date=lambda d: d["date"] + pd.Timedelta(hours=16))
     with pytest.raises(GroundingError, match="time zone or time-of-day"):
         find_level_stack(spec(), shifted, {"AAA": inputs([SR, FIB])}, progress=None)
+    # One ticker with no bars on its panel dates is skipped, not the whole run.
+    late = pd.DataFrame({"ticker": "BBB", "date": pd.bdate_range("2030-01-01", periods=5)})
+    mixed = pd.concat([panel("AAA"), late], ignore_index=True)
+    r = find_level_stack(spec(), mixed, {"AAA": inputs([SR, FIB]), "BBB": inputs([SR, FIB])}, progress=None)
+    assert dates(r.matches) == [("AAA", DATES[TOUCH])]
 
 
 def test_a_touched_level_deeper_than_the_width_heads_no_stack():
@@ -323,6 +329,23 @@ def test_a_level_known_for_a_few_bars_is_drawn_across_the_zone():
     assert len(traces["old"].x) == TOUCH - 60
     new = traces["new (known 2 bars before)"]
     assert new.line.dash == "dash" and pd.Timestamp(new.x[0]) == DATES[TOUCH - charts.ZONE_BARS + 1]
+
+
+def test_inputs_keys_are_unique_per_day_at_the_source(built, monkeypatch):
+    assert not built.levels.duplicated(["date", "key"]).any()
+    # Two S/R lines with one first touch on the same day: told apart by price, on every day.
+    real = levels_module.daily_levels
+
+    def twin_lines(*a, **k):
+        daily = real(*a, **k)
+        sr = daily[daily["source"] == "sr_line"]
+        moved = sr.iloc[:50].assign(lo=lambda d: d["lo"] + 5, hi=lambda d: d["hi"] + 5)
+        return pd.concat([daily, moved], ignore_index=True)
+
+    monkeypatch.setattr(levels_module, "daily_levels", twin_lines)
+    clashing = level_stack.ticker_inputs("RW", _walk(), None, _walk().index[200], root=None)
+    assert not clashing.levels.duplicated(["date", "key"]).any()
+    assert clashing.levels["key"].str.contains("@[0-9.]+$").any()
 
 
 def test_inputs_for_a_ticker_too_young_for_some_detectors():
