@@ -178,14 +178,13 @@ def decide(conn: sqlite3.Connection, client: TiingoClient, listings: pd.DataFram
                                  meta.get("endDate") or info["tiingo_end"])
     if prices is None or prices.empty:
         return {**row, "status": "no_prices"}
-    total_return = to_bars(prices, split_only=False, fetched_on=today)
+    total_return = to_bars(prices, split_only=False)
     cov = coverage(conn, total_return, start, end)
     row.update(coverage=round(cov, 4), n_bars=len(total_return))
     if cov < MIN_COVERAGE:
         return {**row, "status": "low_coverage"}
     db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO, total_return)
-    db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO_SPLIT_ONLY,
-                   to_bars(prices, split_only=True, fetched_on=today))
+    db.upsert_bars(conn, "bars_1d", target.ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True))
     db.upsert_splits(conn, target.ticker, db.TIINGO, to_splits(prices))
     db.record_job_result(conn, SPLITS_JOB, target.ticker, "success")
     return {**row, "status": "stored"}
@@ -224,8 +223,7 @@ def store_preferred(conn: sqlite3.Connection, client: TiingoClient, tickers: lis
     date. A failed ticker keeps whatever it had and is reported."""
     for ticker in tickers if tickers is not None else sorted(PREFER_TIINGO):
         try:
-            today = pd.Timestamp.today().strftime("%Y-%m-%d")
-            prices = client.daily_prices(tiingo_symbol(ticker), PREFERRED_START, today)
+            prices = client.daily_prices(tiingo_symbol(ticker), PREFERRED_START, pd.Timestamp.today().strftime("%Y-%m-%d"))
         except TiingoError as e:
             # A quota (e.g. 500 symbols a month): every later request fails too.
             print(f"{ticker}: Tiingo quota reached, stopping ({e})", flush=True)
@@ -236,8 +234,8 @@ def store_preferred(conn: sqlite3.Connection, client: TiingoClient, tickers: lis
         if prices is None or prices.empty:
             print(f"{ticker}: no prices from Tiingo, kept existing bars", flush=True)
             continue
-        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO, to_bars(prices, split_only=False, fetched_on=today))
-        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True, fetched_on=today))
+        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO, to_bars(prices, split_only=False))
+        db.upsert_bars(conn, "bars_1d", ticker, db.TIINGO_SPLIT_ONLY, to_bars(prices, split_only=True))
         db.upsert_splits(conn, ticker, db.TIINGO, to_splits(prices))
         print(f"{ticker}: {len(prices)} bars", flush=True)
 

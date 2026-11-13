@@ -136,8 +136,10 @@ def load_bars(
         # enough real time had passed. Judged against the data's own latest
         # timestamp, a week closes when the data passes its Friday or ends
         # on its Friday bar (Done #194: it used to wait for the next week's
-        # data); a Friday bar fetched during trading is flagged is_partial
-        # by every ingest and dropped above, so its week stays in progress.
+        # data). This trusts the Friday bar: yfinance and Polygon bars fetched
+        # during that day's trading are flagged is_partial and dropped above,
+        # so their week stays in progress; Tiingo's daily endpoint serves
+        # end-of-day bars only (its rows are always is_partial=0).
         weekly_as_of = raw.index.max() if not raw.empty else end_ts
         weekly = resample_mod.to_weekly(raw.assign(is_partial=False), as_of=weekly_as_of)
         raw = weekly[weekly["is_partial"] != True][["open", "high", "low", "close", "volume"]]  # noqa: E712

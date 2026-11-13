@@ -96,7 +96,7 @@ class TiingoClient:
         return body
 
 
-def to_bars(prices: pd.DataFrame, split_only: bool, fetched_on: pd.Timestamp | str) -> pd.DataFrame:
+def to_bars(prices: pd.DataFrame, split_only: bool) -> pd.DataFrame:
     """Tiingo rows -> `bars_1d` columns on one price basis.
 
     - `split_only=False`: Tiingo's adjusted OHLCV (splits + dividends) -- the
@@ -109,11 +109,6 @@ def to_bars(prices: pd.DataFrame, split_only: bool, fetched_on: pd.Timestamp | s
     Days with zero volume are dropped: Tiingo fills a flat placeholder bar on
     a delisting day after trading stopped (FRX 2014-07-01: O=H=L=C, volume 0),
     and an S&P 500 member never genuinely trades zero shares.
-
-    A bar dated on or after `fetched_on` (the fetch date) is marked `is_partial`,
-    the rule the yfinance and Polygon ingests use: it may be the day still trading.
-    The loaders drop such rows, and the weekly resample won't count a week closed
-    on one (Done #194).
     """
     traded = prices[prices["volume"] > 0]
     if split_only:
@@ -125,7 +120,7 @@ def to_bars(prices: pd.DataFrame, split_only: bool, fetched_on: pd.Timestamp | s
     else:
         bars = traded[["adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"]].copy()
         bars.columns = ["open", "high", "low", "close", "volume"]
-    bars["is_partial"] = (bars.index.normalize() >= pd.Timestamp(fetched_on).normalize()).astype(int)
+    bars["is_partial"] = 0
     return bars
 
 

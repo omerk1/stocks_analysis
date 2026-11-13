@@ -28,9 +28,11 @@ def _resample(daily_bars: pd.DataFrame, period_freq: str, as_of) -> pd.DataFrame
       and its bar is in the data (Done #194): the loaders judge closure against the
       data's own last date, and a week whose Friday bar is that last date is
       complete, not in progress. This trusts the Friday bar's `is_partial` flag: a
-      bar fetched during trading must carry it (every ingest sets it for bars on
-      or after the fetch date), and then makes the period partial, below. This
-      does NOT account for market holidays inside
+      bar fetched during trading must carry it (the yfinance and Polygon ingests
+      set it for bars on or after the fetch date; Tiingo serves end-of-day bars
+      only), and then makes the period partial, below. Callers that pass
+      `is_partial=False` must have dropped flagged rows first, as the loaders do.
+      This does NOT account for market holidays inside
       the period (e.g. a Thursday early close before a Friday holiday); the
       period is still considered closed based on the calendar, not a trading
       calendar. Detecting holiday gaps would need a market calendar and is out
