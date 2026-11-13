@@ -464,3 +464,42 @@ rather than added after the look.
   to 2014–2021 first.
 - **Logging:** every cell's `TRIALS.csv` row; the result as a dated addendum below;
   done.md.
+
+### Noise check at the holdout's block count (rule, 2026-11-13, before the run)
+
+Prerequisite 4. The 99% interval was checked at ~18 date blocks and behaved like a ~98%
+one (shared rules, `docs/fundamentals/PREREGISTRATION.md`). At H = 63 this test has
+about 9–10. This addendum fixes how that is checked and what follows, before the check
+runs. It reads no market data: the panel is synthetic.
+
+- **Check:** `scripts/scorecard_noise_coverage.py`. 200 seeds per horizon of the
+  synthetic panel (`synthetic.planted_panel`, 60 tickers, 2011–2021), outcomes
+  shuffled within each date, so no column can predict them.
+  - On each seed the scorecard runs as HT1 judges it: this entry's 24 columns and B4's
+    5 (noise values), `ev_atr` ranking, 5 yearly test folds (2017–2021, about 9.4
+    blocks of 126 dates at H = 63, ~29 at H = 21), daily top 20 against the market
+    basket, the pooled date-block bootstrap with 10,000 draws.
+  - The cell is the v1 (2, 1.5) at its scaled distances. One seed and the scorecard
+    noise test's fast learner settings per run (50 iterations, min leaf 50), so 400 runs
+    take hours, not days.
+  - **Gross**, not net of 10 bps. On noise the net difference is −10 bps, so "left out
+    zero" would count the cost as an effect. The cost moves the statistic and its true
+    value by the same constant, so coverage is the same either way.
+- **What's counted:** at each nominal level (90%, 95%, 99%, 99.5%, 99.9%, all from the
+  same draws), the share of runs whose interval leaves out zero, with a 95% Wilson
+  interval. Also the mean and SD of the z-scores, and the share of one-sided p ≤ 0.0025
+  (the Holm cut).
+- **The rule, applied to the H = 63 runs:**
+  - If the 99% interval leaves out zero on **at most 2%** of them (no worse than at 18
+    blocks), HT1 is unchanged.
+  - If not, HT1's interval level at H = 63 becomes the smaller of 99.5% and 99.9% that
+    does. It is written as a dated addendum before opening, and the Holm cut moves with
+    it ((1 − level) / 2).
+  - If even 99.9% leaves out zero on more than 2%, nothing is chosen here: the work
+    stops and the fix (another bootstrap, or a wider band of blocks) is decided on its
+    own, before opening.
+  - H = 21 is reported beside it, not judged: at ~29 blocks it has more than the 18
+    already checked.
+- **Known limits:** a synthetic panel, as in the check at 18 blocks (no real return
+  structure, 60 names rather than ~500); one seed and fast settings rather than HT1's
+  three seeds and v1 settings; a single cell, where HT1 pools 9, sharing their blocks.
