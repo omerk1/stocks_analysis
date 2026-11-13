@@ -421,11 +421,12 @@ class Overlay:
      over 4 and 13 weeks (on each earlier date's own rank date; blank for a sector
      not ranked then), the share of members above their 50- and 200-day averages
      (the hover gives how many members it counts), and the member count.
-   - **Members:** rating against the market and its 4-week change, which index the
-     rating is ranked within ("rated in": the S&P 500 or Nasdaq-100 run, whichever
-     wrote the row last, so about 97 Nasdaq-100 names are ranked against Nasdaq-100
-     peers only; the strip reads the same rows), distance from the 52-week high
-     (daily highs), and the last close against the 50- and 200-day averages.
+   - **Members:** rating against the market and its 4-week change, distance from the
+     52-week high (daily highs), and the last close against the 50- and 200-day
+     averages. As first built, a "rated in" column showed which index a rating was
+     ranked within, because the S&P 500 and Nasdaq-100 runs overwrote each other's
+     rows. Since Done #191 the stored ratings rank all S&P 500 + Nasdaq-100 members as
+     one universe, so the column was dropped.
    - **Membership** is point-in-time, S&P 500 and Nasdaq-100 together, sectors from
      `ticker_sector`. A ticker that left both in the 91 days before the page date
      stays listed in grey after the members, with its last values; it isn't counted

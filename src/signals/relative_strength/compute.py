@@ -23,6 +23,7 @@ counts for dates it was actually a member.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -245,27 +246,43 @@ def _restrict_to_membership(frame: pd.DataFrame, membership: pd.DataFrame) -> pd
     in_interval = (merged["date"] >= merged["start_date"]) & (
         merged["end_date"].isna() | (merged["date"] <= merged["end_date"])
     )
-    return merged[in_interval].copy()
+    # a ticker in two of the indices read (or with overlapping intervals) is one
+    # peer that day, not two: otherwise it would be ranked against itself
+    return merged[in_interval].drop_duplicates(["ticker", "date"]).copy()
+
+
+def _read_membership(conn: sqlite3.Connection, index_name: str | Sequence[str]) -> pd.DataFrame:
+    """Membership intervals of one index, or of several together (a ticker in
+    any of them is a member), with parsed dates."""
+    names = [index_name] if isinstance(index_name, str) else list(index_name)
+    frames = [f for f in (db.read_index_membership(conn, name) for name in names) if not f.empty]
+    if not frames:
+        return pd.DataFrame()
+    membership = pd.concat(frames, ignore_index=True)
+    membership["start_date"] = pd.to_datetime(membership["start_date"])
+    membership["end_date"] = pd.to_datetime(membership["end_date"])
+    return membership
 
 
 def compute_stock_vs_market(
-    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig,
+    conn: sqlite3.Connection, index_name: str | Sequence[str], config: RelativeStrengthConfig,
     start: str | None = None, end: str | None = None,
 ) -> pd.DataFrame:
     """Per (ticker, date): RS ratio/Mansfield oscillator against
     `config.market_benchmark`, and an rs_rating percentile-ranked against
     every other ticker in `index_name`'s point-in-time membership that
-    date. Empty if the index has no membership rows or the benchmark has
+    date. `index_name` may be several indices, ranked together as one
+    universe (a ticker in two of them counts once): the stored run uses
+    `config.indices`, so a stock in both the S&P 500 and the Nasdaq-100 gets
+    one rating, not whichever index's run wrote last. Empty if the indices
+    have no membership rows or the benchmark has
     no local price data. `start`/`end` (YYYY-MM-DD) trim the *output*
     window only -- every ticker is still warmed up on its full history
     first (see `_filter_date_window`).
     """
-    membership = db.read_index_membership(conn, index_name)
+    membership = _read_membership(conn, index_name)
     if membership.empty:
         return pd.DataFrame()
-    membership = membership.copy()
-    membership["start_date"] = pd.to_datetime(membership["start_date"])
-    membership["end_date"] = pd.to_datetime(membership["end_date"])
 
     tickers = sorted(membership["ticker"].unique())
     prices = _load_closes(conn, tickers, config.price_source)
@@ -308,24 +325,22 @@ def compute_stock_vs_market(
 
 
 def compute_stock_vs_sector(
-    conn: sqlite3.Connection, index_name: str, config: RelativeStrengthConfig,
+    conn: sqlite3.Connection, index_name: str | Sequence[str], config: RelativeStrengthConfig,
     start: str | None = None, end: str | None = None,
 ) -> pd.DataFrame:
     """Per (ticker, date): RS ratio/Mansfield oscillator against the
     ticker's own sector's SPDR ETF (via `db.read_ticker_sector` ->
     `SECTOR_ETF_MAP`), and an rs_rating percentile-ranked only against
     same-sector peers that date -- deliberately *not* the whole index (see
-    `compute_stock_vs_market` for that). A ticker with no sector on file,
+    `compute_stock_vs_market` for that). `index_name` may be several
+    indices, one universe, as there. A ticker with no sector on file,
     or a sector this codebase has no ETF mapping for, is skipped -- no
     data to compare it against, not a wrong 0. `start`/`end` (YYYY-MM-DD)
     trim the *output* window only (see `_filter_date_window`).
     """
-    membership = db.read_index_membership(conn, index_name)
+    membership = _read_membership(conn, index_name)
     if membership.empty:
         return pd.DataFrame()
-    membership = membership.copy()
-    membership["start_date"] = pd.to_datetime(membership["start_date"])
-    membership["end_date"] = pd.to_datetime(membership["end_date"])
 
     tickers = sorted(membership["ticker"].unique())
     prices = _load_closes(conn, tickers, config.price_source)
