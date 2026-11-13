@@ -721,6 +721,18 @@ def benchmark_picks(preds: pd.DataFrame, frame: pd.DataFrame, k: int, keep=None)
     return {"market": every[["date", "ticker", "hit", "ret", "atr_pct"]], "low_vol": low_vol_picks(every, k)}
 
 
+def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame,
+                 keep=None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.Series]]:
+    """One cell's verdict inputs: the model's and the reference's top
+    `verdict_k` picks (`cell_picks`), and every side's per-date basket
+    (those two, the market and the low-volatility basket) net of
+    `side_cost`. What `close_scorecard` pools; the noise check
+    (`scripts/scorecard_noise_coverage.py`) calls it too, so both score alike."""
+    picked = cell_picks(sc, cell, preds, frame, sc.verdict_k, keep)
+    sides = {**picked, **benchmark_picks(preds, frame, sc.verdict_k, keep)}
+    return picked, {side: basket(p, side_cost(sc, side)) for side, p in sides.items()}
+
+
 def side_cost(sc: Scorecard, side: str) -> float:
     """The round trip charged to one side's basket: `verdict_cost_bps` to every
     side that trades its k names, none to the market (an index stands in)."""
@@ -838,9 +850,7 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         baskets, diagnostics = {}, {}
         for c, t in ids.items():
             preds = pd.read_parquet(Path(artifacts_root) / t / "predictions.parquet")
-            picked = cell_picks(sc, c, preds, frames[c], sc.verdict_k, keep)
-            sides = {**picked, **benchmark_picks(preds, frames[c], sc.verdict_k, keep)}
-            baskets[(c.upper, c.lower)] = {side: basket(p, side_cost(sc, side)) for side, p in sides.items()}
+            picked, baskets[(c.upper, c.lower)] = cell_baskets(sc, c, preds, frames[c], keep)
             diagnostics[f"{c.upper:g}/{c.lower:g}"] = pick_diagnostics(picked, features, group, h)
         result, readout = pooled_readout(baskets, "model", sc.verdict_against, h, sc, n_boot)
         mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()

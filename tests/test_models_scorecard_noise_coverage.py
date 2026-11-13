@@ -33,11 +33,28 @@ def test_one_run_on_a_small_panel():
     assert flags == sorted(flags, reverse=True)
 
 
-def _runs(h63_excluding: dict[float, int], n: int = 200) -> pd.DataFrame:
-    rows = pd.DataFrame({"horizon": 63, "seed": range(n), "z": 0.0, "p_positive": 0.5, "n_blocks": 9.4})
+def _runs(h63_excluding: dict[float, int], n: int | None = None, **settings) -> pd.DataFrame:
+    n = noise.SEEDS[63] if n is None else n
+    rows = pd.DataFrame({"horizon": 63, "seed": range(n), "n_tickers": settings.get("n_tickers", noise.N_TICKERS),
+                         "n_boot": settings.get("n_boot", trading.PREREGISTERED["HT1"].n_boot),
+                         "z": 0.0, "p_positive": 0.5, "n_blocks": 9.4})
     for level in noise.LEVELS:
         rows[f"excludes_{level:g}"] = np.arange(n) < h63_excluding.get(level, 0)
     return rows
+
+
+def test_seeds_are_independent_streams():
+    assert len(set(noise.streams(0))) == 3 and noise.streams(0) != noise.streams(1)
+
+
+def test_only_registered_runs_count():
+    smoke = _runs({0.99: 50}, n=20, n_boot=200)                 # every one "leaves out zero"
+    full = _runs({0.99: 2})
+    assert noise.summary(pd.concat([smoke, full]))[63]["exclusion"][0.99]["k"] == 2
+    partial = noise.verdict(noise.summary(_runs({}, n=30)))
+    assert partial.startswith("incomplete: 30 of")
+    extra = _runs({0.99: 0}, n=noise.SEEDS[63] + 50)             # seeds past the count don't count
+    assert noise.summary(extra)[63]["runs"] == noise.SEEDS[63]
 
 
 def test_the_rule():

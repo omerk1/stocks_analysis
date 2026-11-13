@@ -9,7 +9,7 @@ can predict them: an interval that leaves out zero is a false positive. On it
 the scorecard runs as HT1 judges: the model's columns and B4's as reference
 (uniform noise values, `sector` two random labels), ranked by EV in ATR
 units, walk-forward over 5 yearly test folds trained from the panel's start
-(2017-2021: about 9-10 date blocks of 2H at H = 63, ~28 at H = 21), the
+(2017-2021: about 9.4 date blocks of 2H at H = 63, ~29 at H = 21), the
 daily top 20 against the market basket, one date-block bootstrap of `n_boot`
 draws (`trading.pooled_difference`). Every interval level is read from the
 same draws (they are percentile intervals).
@@ -31,6 +31,7 @@ Each finished run is appended to --out at once (resumable: a rerun skips the
 """
 
 import argparse
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
@@ -56,6 +57,8 @@ LEVELS = (0.90, 0.95, 0.99, 0.995, 0.999)
 MAX_EXCLUSION = 0.02
 CANDIDATES = (0.99, 0.995, 0.999)
 CONFIG = BoostingConfig(max_iter=50, min_samples_leaf=50)   # the scorecard noise test's (tests/test_models_trading.py)
+SEEDS = {63: 200, 21: 200}      # the registered runs per horizon; the rule needs all of H = 63's
+N_TICKERS = 60                  # the scorecard noise test's panel size
 OUT = Path("data/models/noise_coverage/runs.csv")
 
 
@@ -67,15 +70,23 @@ def scorecard(horizon: int) -> trading.Scorecard:
                              verdict_cost_bps=0)   # gross: see the module docstring
 
 
+def streams(seed: int) -> tuple[int, int, int]:
+    """Independent seeds for the panel, the shuffle and the feature values: one
+    seed reused would make a feature column the very uniforms the shuffle
+    sorts on (as the scorecard noise test keeps them apart, 3 / 1 / 0)."""
+    return tuple(int(s.generate_state(1)[0]) for s in np.random.SeedSequence(seed).spawn(3))
+
+
 def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
-    """One shuffled panel, scored as HT1 judges: model top 20 (net of the
-    registered cost) minus the market basket (no cost), pooled bootstrap."""
+    """One shuffled panel, scored as HT1 judges but gross (verdict_cost_bps=0):
+    model top 20 minus the market basket, pooled bootstrap."""
     sc = scorecard(horizon)
     [cell] = sc.cells(horizon)
+    panel_seed, shuffle_seed, feature_seed = streams(seed)
     panel = planted_panel(PlantedSpec(n_tickers=n_tickers, horizon=horizon, upper=cell.upper_atr,
-                                      lower=cell.lower_atr, seed=seed))
-    panel = shuffle_within_date(panel, seed=seed)
-    rng = np.random.default_rng(seed)
+                                      lower=cell.lower_atr, seed=panel_seed))
+    panel = shuffle_within_date(panel, seed=shuffle_seed)
+    rng = np.random.default_rng(feature_seed)
     features = panel[["ticker", "date"]].copy()
     for c in HT1.model_columns:
         features[c] = (pd.Categorical(rng.choice(["A", "B"], len(panel))) if c == "sector"
@@ -85,9 +96,7 @@ def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
     model = seed_mean(oos_predictions(frame, sc.model_columns, folds, sc.seeds, sc.config))
     ref = seed_mean(oos_predictions(frame, sc.reference_columns, folds, sc.seeds, sc.config))
     preds = pd.concat([model.assign(model="model"), ref.assign(model=sc.reference)], ignore_index=True)
-    sides = {**trading.cell_picks(sc, cell, preds, frame, HT1.verdict_k),
-             **trading.benchmark_picks(preds, frame, HT1.verdict_k)}
-    baskets = {CELL: {side: trading.basket(p, trading.side_cost(sc, side)) for side, p in sides.items()}}
+    baskets = {CELL: trading.cell_baskets(sc, cell, preds, frame)[1]}   # close_scorecard's own step
     result, _, missing = trading.pooled_difference(baskets, "model", sc.verdict_against, horizon, n_boot, HT1.ci)
     row = {"horizon": horizon, "seed": seed, "n_tickers": n_tickers, "n_boot": n_boot,
            "point": result.point_estimate, "boot_std": result.boot_std,
@@ -110,9 +119,18 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return centre - half, centre + half
 
 
+def registered(runs: pd.DataFrame) -> pd.DataFrame:
+    """The runs at the registered settings and seeds only: a smoke run into the
+    same file (fewer draws, a smaller panel, seeds past the count) never
+    counts toward the rule."""
+    keep = (runs["n_tickers"] == N_TICKERS) & (runs["n_boot"] == HT1.n_boot)
+    keep &= runs["seed"] < runs["horizon"].map(SEEDS).fillna(0)
+    return runs[keep]
+
+
 def summary(runs: pd.DataFrame) -> dict:
     out = {}
-    for h, g in runs.groupby("horizon"):
+    for h, g in registered(runs).groupby("horizon"):
         rates = {}
         for level in LEVELS:
             k, n = int(g[f"excludes_{level:g}"].sum()), len(g)
@@ -125,8 +143,8 @@ def summary(runs: pd.DataFrame) -> dict:
 
 def verdict(s: dict) -> str:
     """The pre-committed rule, applied to the H = 63 runs."""
-    if 63 not in s:
-        return "no H = 63 runs: the rule isn't applied"
+    if s.get(63, {}).get("runs", 0) < SEEDS[63]:
+        return f"incomplete: {s.get(63, {}).get('runs', 0)} of {SEEDS[63]} H = 63 runs; the rule isn't applied"
     rates = s[63]["exclusion"]
     for level in CANDIDATES:
         if rates[level]["rate"] <= MAX_EXCLUSION:
@@ -149,34 +167,62 @@ def print_summary(runs: pd.DataFrame) -> None:
     print("Rule: " + verdict(s))
 
 
+_limits = None
+
+
+def _one_thread_each(threads: int) -> None:
+    """Worker initializer: each process's OpenMP/BLAS pools sized to its share
+    of the cores, not all of them (N workers x all cores oversubscribes)."""
+    global _limits
+    from threadpoolctl import threadpool_limits
+    _limits = threadpool_limits(threads)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--horizons", nargs="+", type=int, default=[63, 21])
-    ap.add_argument("--seeds", type=int, default=200, help="seeds 0 .. n-1 per horizon")
-    ap.add_argument("--n-tickers", type=int, default=60, help="the scorecard noise test's panel size")
+    ap.add_argument("--horizons", nargs="+", type=int, default=sorted(SEEDS, reverse=True))
+    ap.add_argument("--seeds", type=int, default=None,
+                    help="seeds 0 .. n-1 per horizon (default: the registered count, SEEDS)")
+    ap.add_argument("--n-tickers", type=int, default=N_TICKERS)
     ap.add_argument("--n-boot", type=int, default=HT1.n_boot)
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--summary-only", action="store_true")
     args = ap.parse_args()
-    done = pd.read_csv(args.out) if args.out.exists() else pd.DataFrame(columns=["horizon", "seed"])
+    keys = ["horizon", "seed", "n_tickers", "n_boot"]
+    done = pd.read_csv(args.out) if args.out.exists() else pd.DataFrame(columns=keys)
+    failed = []
     if not args.summary_only:
-        have = set(zip(done["horizon"].astype(int), done["seed"].astype(int)))
-        todo = [(h, s) for h in args.horizons for s in range(args.seeds) if (h, s) not in have]
-        print(f"{len(todo)} runs to do ({len(have)} already in {args.out})", flush=True)
+        have = set(map(tuple, done[keys].astype(int).to_numpy()))
+        todo = [(h, s) for h in args.horizons for s in range(args.seeds or SEEDS.get(h, 0))
+                if (h, s, args.n_tickers, args.n_boot) not in have]
+        print(f"{len(todo)} runs to do ({len(have)} rows already in {args.out})", flush=True)
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        with ProcessPoolExecutor(max_workers=args.workers) as pool:
-            futures = [pool.submit(one_run, h, s, args.n_tickers, args.n_boot) for h, s in todo]
+        threads = max(1, (os.cpu_count() or 1) // args.workers)
+        with ProcessPoolExecutor(max_workers=args.workers, initializer=_one_thread_each,
+                                 initargs=(threads,)) as pool:
+            futures = {pool.submit(one_run, h, s, args.n_tickers, args.n_boot): (h, s) for h, s in todo}
             for i, f in enumerate(as_completed(futures), 1):
-                row = pd.DataFrame([f.result()])
+                h, s = futures[f]
+                try:
+                    row = pd.DataFrame([f.result()])
+                except Exception as e:   # one bad seed doesn't cost the others' finished work
+                    failed.append((h, s, repr(e)))
+                    print(f"[{i}/{len(todo)}] H{h} seed {s}: FAILED {e!r}", flush=True)
+                    continue
                 row.to_csv(args.out, mode="a", header=not args.out.exists(), index=False)
-                print(f"[{i}/{len(todo)}] H{row['horizon'][0]} seed {row['seed'][0]}: z {row['z'][0]:+.2f}", flush=True)
-        done = pd.read_csv(args.out)
+                print(f"[{i}/{len(todo)}] H{h} seed {s}: z {row['z'][0]:+.2f}", flush=True)
+        done = pd.read_csv(args.out) if args.out.exists() else done
     if done.empty:
         print("no runs yet")
-        return 0
-    print_summary(done)
-    return 0
+    else:
+        ignored = len(done) - len(registered(done))
+        if ignored:
+            print(f"({ignored} rows at other settings or past the registered seeds: not counted)")
+        print_summary(done)
+    if failed:
+        print(f"{len(failed)} runs FAILED (rerun to retry them): {failed}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
