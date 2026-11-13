@@ -472,8 +472,8 @@ _BAR = "#e2e8f0"
 # RS rating shading, [low, high): one hue, darker for higher. A rating is a rank, not a
 # gain or a loss, so green/red stays for signs (changes, distances from the averages).
 _RS_SHADES = ((80, 101, "#93c5fd"), (60, 80, "#bfdbfe"), (40, 60, "#dbeafe"), (20, 40, "#eff6ff"))
-_TEXT_COLUMNS = ("sector", "etf", "ticker", "rated_in", "status")
-_SMALL_COLUMNS = ("etf", "rated_in", "status")
+_TEXT_COLUMNS = ("sector", "etf", "ticker", "status")
+_SMALL_COLUMNS = ("etf", "status")
 
 
 def _rs_shading(column: str) -> list[dict]:
@@ -564,7 +564,6 @@ def member_columns(config: GroupsConfig) -> list[dict]:
     return [{"name": "Ticker", "id": "ticker"},
             {"name": "RS", "id": "rating", **num, "format": _WHOLE},
             {"name": f"RS Δ {_weeks(config.member_change_days)}", "id": "change", **num, "format": _SIGNED},
-            {"name": "Rated in", "id": "rated_in"},
             {"name": "52w high", "id": "from_high", **num, "format": _SIGNED_PCT},
             *({"name": f"vs {n}d MA", "id": f"vs_ma_{i}", **num, "format": _SIGNED_PCT}
               for i, n in enumerate(config.ma_periods)),
@@ -581,7 +580,7 @@ def member_rows(page: groups_mod.GroupsPage, sector: str | None) -> list[dict]:
     rows = []
     for m in page.members.get(sector, ()):
         row = {"id": m.ticker, "ticker": m.ticker, "rating": m.rating, "change": shown(m.change, 0),
-               "rated_in": m.rated_in, "from_high": shown(m.pct_from_high, 2), "status": m.status,
+               "from_high": shown(m.pct_from_high, 2), "status": m.status,
                "gone": "no" if m.member else "yes"}
         for i, v in enumerate(m.vs_ma):
             row[f"vs_ma_{i}"] = shown(v, 2)
