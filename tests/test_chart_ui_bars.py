@@ -8,6 +8,7 @@ from src.foundation.data_processing import db
 from src.foundation.market_common import price_disputes
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import PriceBasis
+from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 from src.ui.chart.bars import load_chart_bars, moving_averages
 from src.ui.chart.config import MAKind, MASpec
 
@@ -82,6 +83,7 @@ def test_yfinance_is_kept_for_a_prefer_tiingo_ticker_and_a_disputed_one(conn, mo
     # The chart is a display: unlike the modeling modules it doesn't swap T to Tiingo
     # (whose bars stop at the fetch date, and may not be stored: no error either) or
     # drop a disputed yfinance history; it shows what yfinance has.
+    assert "T" in PREFER_TIINGO
     monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
                         (price_disputes.DisputedDay("XYZ", None, db.YFINANCE, "reused"),))
     for ticker in ("T", "XYZ"):

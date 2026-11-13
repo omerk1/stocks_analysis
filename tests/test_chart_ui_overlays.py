@@ -177,12 +177,15 @@ def test_history_start_reads_the_splits_of_the_bars_vendor(monkeypatch, raw, bar
                                   overlays.history_breaks.HistoryBreakConfig(enabled=False)) is None
 
 
-@pytest.mark.parametrize("preset", ["medium_term", "medium_term_weekly"])
+@pytest.mark.parametrize("preset", [*overlays.SR_PRESETS[DAILY], *overlays.SR_PRESETS[Timeframe.WEEKLY]])
 def test_sr_lines_match_the_modules_own_detect_on_primary_bars(raw, preset):
     # `detect_sr_on_source` repeats the module's load (its loader takes no source); on
-    # yfinance bars it must find exactly what `sr_engine.detect` does, daily and weekly.
+    # yfinance bars it must find exactly what `sr_engine.detect` does, for every preset
+    # the chart uses. The history (~10 years) is longer than every window, so each
+    # window's start cuts into it.
     rng = np.random.default_rng(7)
-    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=1500)
+    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=2600)
+    assert idx[0] < pd.Timestamp.now() - pd.DateOffset(years=get_preset(preset).window_years + 1)
     close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, len(idx))))
     frame = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close,
                           "volume": 1e6, "is_partial": 0}, index=idx)
