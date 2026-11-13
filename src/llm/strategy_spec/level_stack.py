@@ -318,7 +318,8 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
                                # Swings of two scales can share an origin and a ratio: the price tells them apart.
                                "key": "fib@" + fib["formed"].astype(str) + ":" + fib["kind"] + ":"
                                       + fib["lo"].round(6).astype(str),
-                               "label": "Fibonacci " + (ratio * 100).map("{:g}%".format)}))
+                               "label": pd.Series([f"Fibonacci {r * 100:g}%" for r in ratio], index=fib.index,
+                                                  dtype=object)}))
     gap_config = configs["gaps"]
     gaps, _ = detect_gaps(clean, ticker, levels.DAILY, gap_config)
     states = gap_states(clean, gaps, days, gap_config)

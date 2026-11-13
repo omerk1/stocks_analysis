@@ -273,6 +273,12 @@ def test_inputs_gaps_are_the_unfilled_part_of_bullish_gaps(walk, built):
     assert np.isclose(got["hi"].iloc[0], row["zone_top"] - height * row["max_fill_pct"] / 100)
 
 
+def test_inputs_for_a_ticker_too_young_for_some_detectors():
+    young = _walk(n=120, seed=3)  # under the Fibonacci and divergence modules' 150 bars
+    built = level_stack.ticker_inputs("YNG", young, None, young.index[20], root=None)
+    assert not (built.levels["kind"] == "fib").any() and built.divergences.empty
+
+
 def test_inputs_avwap_is_its_line_and_fib_only_retracements(built):
     avwap = built.levels[built.levels["kind"] == "avwap"]
     assert len(avwap) and (avwap["lo"] == avwap["hi"]).all()

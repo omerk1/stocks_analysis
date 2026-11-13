@@ -112,11 +112,15 @@ def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: 
     for n, line in enumerate(stack.lines):
         keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
         colour = _LINE_COLOURS[n % len(_LINE_COLOURS)]
-        figure.add_trace(go.Scatter(
-            x=pd.DatetimeIndex([line.dates[i] for i in keep]), y=[line.values[i] for i in keep], name=line.label,
-            # A level first known on the touch bar's eve is one point: a marker, or it isn't drawn at all.
-            mode="lines" if len(keep) > 1 else "markers",
-            line=dict(color=colour, width=1.5), marker=dict(color=colour, symbol="line-ew-open", size=14)))
+        if len(keep) > 1:
+            x, y, name, dash = [line.dates[i] for i in keep], [line.values[i] for i in keep], line.label, None
+        else:
+            # First known on the touch bar's eve: no history to draw, so it spans the zone's bars,
+            # dashed and named as new (a single point would hide under the trigger marker).
+            value = line.values[-1]
+            x, y, name, dash = [band_from, trigger_date], [value, value], f"{line.label} (new)", "dash"
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex(x), y=y, name=name, mode="lines",
+                                    line=dict(color=colour, width=1.5, dash=dash)))
     if stack.divergence is not None:
         d1, p1, d2, p2 = stack.divergence
         figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, d2]), y=[p1, p2],
