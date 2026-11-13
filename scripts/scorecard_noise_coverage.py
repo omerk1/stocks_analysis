@@ -23,7 +23,9 @@ zero and "leaves out zero" is a miss. (Seed 0 at H = 63, net: z = -5.3.)
 Synthetic, so nothing here reads the market database or the holdout. Run
 from the repo root in the project venv (the main checkout's `venv/`):
 
-    venv/bin/python scripts/scorecard_noise_coverage.py --seeds 200 --workers 4
+    venv/bin/python scripts/scorecard_noise_coverage.py --workers 4
+
+(the registered runs: 1,000 seeds at H = 63, 200 at H = 21, `SEEDS`).
 
 Each finished run is appended to --out at once (resumable: a rerun skips the
 (horizon, seed) pairs already there); the summary is printed from --out, and
@@ -57,7 +59,8 @@ LEVELS = (0.90, 0.95, 0.99, 0.995, 0.999)
 MAX_EXCLUSION = 0.02
 CANDIDATES = (0.99, 0.995, 0.999)
 CONFIG = BoostingConfig(max_iter=50, min_samples_leaf=50)   # the scorecard noise test's (tests/test_models_trading.py)
-SEEDS = {63: 200, 21: 200}      # the registered runs per horizon; the rule needs all of H = 63's
+SEEDS = {63: 1000, 21: 200}     # the registered runs per horizon; the rule needs all of H = 63's
+WIDER_N_BOOT = {0.995: 20_000, 0.999: 100_000}   # draws for a widened level: its Holm cut still ~25 draws
 N_TICKERS = 60                  # the scorecard noise test's panel size
 OUT = Path("data/models/noise_coverage/runs.csv")
 
@@ -148,9 +151,10 @@ def verdict(s: dict) -> str:
     rates = s[63]["exclusion"]
     for level in CANDIDATES:
         if rates[level]["rate"] <= MAX_EXCLUSION:
-            return (f"HT1 keeps its registered 99% interval at H = 63" if level == 0.99 else
-                    f"HT1's H = 63 interval becomes {level:.1%} (99% left out zero on "
-                    f"{rates[0.99]['rate']:.1%} > {MAX_EXCLUSION:.0%}); a dated addendum before opening")
+            return ("HT1 keeps its registered 99% interval" if level == 0.99 else
+                    f"HT1's interval becomes {level:.1%} at both horizons, with {WIDER_N_BOOT[level]:,} draws "
+                    f"(99% left out zero on {rates[0.99]['rate']:.1%} > {MAX_EXCLUSION:.0%} of the H = 63 runs); "
+                    "a dated addendum before opening")
     return (f"even {CANDIDATES[-1]:.1%} leaves out zero on {rates[CANDIDATES[-1]]['rate']:.1%} > "
             f"{MAX_EXCLUSION:.0%}: stop, no fix is chosen here")
 

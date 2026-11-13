@@ -58,13 +58,14 @@ def test_only_registered_runs_count():
 
 
 def test_the_rule():
-    keep = noise.verdict(noise.summary(_runs({0.99: 4, 0.995: 2, 0.999: 0})))      # 2.0%: at the line
-    assert keep == "HT1 keeps its registered 99% interval at H = 63"
-    widen = noise.verdict(noise.summary(_runs({0.99: 7, 0.995: 4, 0.999: 1})))     # 3.5%, then 2.0%
-    assert "becomes 99.5%" in widen
-    widen_more = noise.verdict(noise.summary(_runs({0.99: 9, 0.995: 6, 0.999: 3})))
-    assert "becomes 99.9%" in widen_more
-    stop = noise.verdict(noise.summary(_runs({0.99: 20, 0.995: 15, 0.999: 10})))
+    assert noise.SEEDS[63] == 1000
+    keep = noise.verdict(noise.summary(_runs({0.99: 20, 0.995: 10, 0.999: 2})))     # 2.0%: at the line
+    assert keep == "HT1 keeps its registered 99% interval"
+    widen = noise.verdict(noise.summary(_runs({0.99: 21, 0.995: 20, 0.999: 5})))    # 2.1%, then 2.0%
+    assert "becomes 99.5% at both horizons, with 20,000 draws" in widen
+    widen_more = noise.verdict(noise.summary(_runs({0.99: 40, 0.995: 30, 0.999: 20})))
+    assert "becomes 99.9% at both horizons, with 100,000 draws" in widen_more
+    stop = noise.verdict(noise.summary(_runs({0.99: 60, 0.995: 45, 0.999: 30})))
     assert stop.startswith("even 99.9%") and "stop" in stop
 
 
