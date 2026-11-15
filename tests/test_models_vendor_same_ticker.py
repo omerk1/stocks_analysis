@@ -131,3 +131,21 @@ def test_only_tickers_on_both_vendors_are_compared(conn, paths):
     _store(conn, "T1", "yfinance", close, volume)
 
     assert vc.both_vendor_tickers(conn, ["T0", "T1", "T2"]) == ["T0"]
+
+
+def test_a_scorecards_columns_only(conn, paths, monkeypatch):
+    """`specs` limits the gate (and the cache read-outs) to a scorecard's own
+    columns, as for a cache built with build-features --scorecard."""
+    from src.models import cli
+    for t, (close, volume) in paths.items():
+        _store(conn, t, "yfinance", close, volume)
+        _store(conn, t, "tiingo", close, volume)
+    specs = cli.scorecard_specs("HT1")
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, specs=specs)
+    # each spec's model input, plus the raw value of a ranked one (`_compare`)
+    wanted = {vc.registry.model_input(s) for s in specs} | {s.name for s in specs if s.ranked}
+    assert set(r["gaps"]["column"]) | set(r["not_compared"]) == wanted - {"sector"}
+    assert r["passed"] and r["n_level_tickers"] == 0                # HT1 has no level columns: no detector runs
+    with pytest.raises(ValueError, match="lacks registered columns"):
+        vc.run(pd.DataFrame({"ticker": [], "date": []}), pd.DataFrame(), {}, pd.DatetimeIndex([]), pd.Series(),
+               specs)

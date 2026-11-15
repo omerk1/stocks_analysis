@@ -296,16 +296,20 @@ def build_features(db_path: Path, out: Path, start: str, end: str, indices: tupl
     return 0
 
 
-def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str, open_holdout: bool = False) -> int:
+def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str, open_holdout: bool = False,
+                 scorecard: str | None = None) -> int:
     """With `features_dir`: the delisted-vs-live read-outs on that feature
     cache (descriptive). Always: the same-ticker gate over [start, end] -- the
     exit code is the gate's, with or without `features_dir`. `open_holdout`
-    lets [start, end] (and the cache) reach past the boundary."""
+    lets [start, end] (and the cache) reach past the boundary. `scorecard`:
+    only that pre-registered scorecard's columns, in both (a cache built with
+    `build-features --scorecard`)."""
     from src.models import dataset, vendor_check as vc
     from src.models.features import cache
     warnings.filterwarnings("ignore")
     _check_open_end(end, open_holdout)
     dataset.check_holdout(end, open_holdout)
+    specs = scorecard_specs(scorecard) if scorecard else None
     conn = _read_only(db_path)
     try:
         if features_dir is not None:
@@ -327,7 +331,7 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str,
             delisted = pd.to_datetime(listings.reindex(tiingo))
             if delisted.isna().any():
                 raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
-            r = vc.run(features, bars, sources, calendar, delisted)
+            r = vc.run(features, bars, sources, calendar, delisted, specs)
             print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
                   f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
             print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
@@ -342,7 +346,7 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str,
         if not same:
             print("Same ticker: no tickers stored on both vendors (bulk_tiingo_ingest --store-tickers)")
             return 1
-        s = vc.same_ticker(conn, same, start, end)
+        s = vc.same_ticker(conn, same, start, end, specs=specs)
     finally:
         conn.close()
     print(f"Same ticker ({s['n_tickers']} tickers, {start}..{end}; rows {s['n_rows']}):")
@@ -606,6 +610,9 @@ def main(argv: list[str] | None = None) -> int:
     vend.add_argument("--end", default="2021-12-31")
     vend.add_argument("--open-holdout", action="store_true", help="let --end (and --features' cache) reach past "
                       "2021-12-31; needs an --end past it. Reads holdout bars, writes nothing")
+    vend.add_argument("--scorecard", default=None,
+                      help="only this pre-registered scorecard's columns, in the read-outs and the gate (e.g. HT1, "
+                           "for a cache built with build-features --scorecard)")
     lab = sub.add_parser("build-labels", help="build the barrier-label cache")
     lab.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
     lab.add_argument("--out", type=Path, default=None, help=f"default {LABELS_OUT}; required with --open-holdout")
@@ -681,7 +688,7 @@ def main(argv: list[str] | None = None) -> int:
         return build_features(args.db, args.out, args.start, args.end, tuple(args.indices), args.levels,
                               args.workers, args.scorecard, args.open_holdout)
     if args.command == "vendor-check":
-        return vendor_check(args.db, args.features, args.start, args.end, args.open_holdout)
+        return vendor_check(args.db, args.features, args.start, args.end, args.open_holdout, args.scorecard)
     return 2
 
 

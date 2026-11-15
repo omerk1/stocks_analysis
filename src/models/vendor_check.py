@@ -165,11 +165,14 @@ def vendor_auc(rows: pd.DataFrame, columns: list[str], n_splits: int = 5, seed: 
 
 
 def run(features: pd.DataFrame, bars: pd.DataFrame, sources: dict[str, str], calendar: pd.DatetimeIndex,
-        delisted: pd.Series) -> dict:
+        delisted: pd.Series, specs=None) -> dict:
     """`features`: the model-feature cache; `bars`: the label-basis bars of
     the same tickers (for the fingerprints); `delisted`: ticker -> delisting
-    date for the Tiingo tickers (Tiingo's listing end)."""
-    inputs = [registry.model_input(s) for s in registry.model_specs()]
+    date for the Tiingo tickers (Tiingo's listing end). `specs`: the model
+    inputs compared (default every registered one; a scorecard's own, for a
+    cache built with only its columns)."""
+    specs = registry.model_specs() if specs is None else specs
+    inputs = [registry.model_input(s) for s in specs]
     missing = [c for c in inputs if c not in features.columns]
     if missing:
         raise ValueError(f"the feature cache lacks registered columns {missing}; rebuild it (build-features)")
@@ -307,7 +310,7 @@ def _compare(conn, tickers, specs, start, end, seed, sources=None, bars_start=No
 
 
 def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_tickers: int = LEVEL_TICKERS,
-                level_weeks: int = LEVEL_WEEKS, level_warmup_weeks: int = LEVEL_WARMUP_WEEKS) -> dict:
+                level_weeks: int = LEVEL_WEEKS, level_warmup_weeks: int = LEVEL_WARMUP_WEEKS, specs=None) -> dict:
     """The same-ticker read-out for `tickers` (stored on both vendors) over
     [start, end]. Compares the numeric model inputs *and*, for ranked inputs,
     the raw values: each vendor is ranked only against its own copy of these
@@ -323,10 +326,11 @@ def same_ticker(conn, tickers: list[str], start, end, seed: int = 0, level_ticke
     all-time highs need it), with snapshots from `level_warmup_weeks` before
     the window so the strengths' trailing percentile has a full year behind
     it; their gaps join the others', and their own classifier is `auc_levels`
-    (same pass bar). 0: not compared."""
+    (same pass bar). 0: not compared. `specs`: the model inputs compared
+    (default every registered one)."""
     if not tickers:
         raise ValueError("no tickers stored on both vendors")
-    specs = [s for s in registry.model_specs() if s.name != "sector"]
+    specs = [s for s in (registry.model_specs() if specs is None else specs) if s.name != "sector"]
     detector = [s for s in specs if registry.is_detector(s)]
     r = _compare(conn, tickers, [s for s in specs if s not in detector], start, end, seed)
     gaps, not_compared, auc_levels, n_level = r["gaps"], r["not_compared"], None, 0
