@@ -194,6 +194,11 @@ def neither_atr_returns(frame: pd.DataFrame, folds) -> dict[int, float]:
     return out
 
 
+def ev_atr_score(probs: pd.DataFrame, cell: BarrierCell, neither_atr: float) -> pd.Series:
+    """EV in ATR units: P(+1) * U - P(-1) * D + P(0) * the "neither" return in ATRs."""
+    return probs["p_up"] * cell.upper_atr - probs["p_down"] * cell.lower_atr + probs["p_neither"] * neither_atr
+
+
 def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: dict[int, float],
           k: int, rank: str = "ev", neither_atr: dict[int, float] | None = None) -> pd.DataFrame:
     """Each test date's `k` rows with the highest score (ties broken by
@@ -213,8 +218,7 @@ def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: 
     for year, g in scored.groupby("fold"):
         g = g.assign(ev=expected_value(g, cell, neither[year]), atr_pct=g["atr"] / g["close_t"]
                      ).dropna(subset=["ev", "ret"])
-        g["score"] = g["ev"] if rank == "ev" else (g["p_up"] * cell.upper_atr - g["p_down"] * cell.lower_atr
-                                                   + g["p_neither"] * neither_atr[year])
+        g["score"] = g["ev"] if rank == "ev" else ev_atr_score(g, cell, neither_atr[year])
         parts.append(top_k(g, "score", k))
     return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev", "atr_pct"]]
 

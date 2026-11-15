@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.models import dataset, forward, trading
+from src.models import dataset, forward, trading, trial_log
 from src.models.ablation import LABEL_COLS, cell_frame, neither_returns, oos_predictions, seed_mean
 from src.models.learners import BoostingConfig
 from src.models.splits import walk_forward_folds
@@ -62,12 +62,15 @@ def test_only_the_ev_in_atr_rank():
 
 def test_a_holdout_date_waits_for_the_registered_test(tmp_path, monkeypatch):
     sc = replace(trading.PREREGISTERED["HT1"], horizons=(21,))
-    monkeypatch.setattr(dataset, "read_labels", lambda *a, **k: pd.DataFrame())
+    for name in ("check_features", "check_label_ends"):
+        monkeypatch.setattr(forward, name, lambda *a, **k: None)
+    monkeypatch.setattr(forward, "read_labels", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(forward, "cell_frame", lambda f, labels: f)
     monkeypatch.setattr(forward, "score_cell", lambda sc, frame, cell, as_of, k: pd.DataFrame({"ticker": ["X"]}))
     kwargs = {"trials_path": tmp_path / "TRIALS.csv", "artifacts_root": tmp_path / "art"}
-    with pytest.raises(dataset.HoldoutError, match="hasn't run 9 of its cells"):
-        forward.score_date(sc, pd.DataFrame(), tmp_path, "2026-08-18", **kwargs)
+    for day in ("2026-08-18", "2021-06-30"):                     # its caches are the holdout's, whatever the date
+        with pytest.raises(dataset.HoldoutError, match="hasn't run 9 of its cells"):
+            forward.score_date(sc, pd.DataFrame(), tmp_path, day, **kwargs)
     for cell in sc.cells(21)[:-1]:
         trading.mark_started(sc, cell, kwargs["artifacts_root"])
     with pytest.raises(dataset.HoldoutError, match="hasn't run 1 of its cells"):
@@ -82,9 +85,15 @@ def test_the_command_confirms_a_holdout_date_and_refuses_one_inside_the_window(m
     from src.models import cli
     from src.models.features import cache
     monkeypatch.setattr(cache, "read_feature_cache", lambda *a, **k: pytest.fail("read a cache"))
-    with pytest.raises(SystemExit, match="pass --open-holdout"):
-        cli.main(["score-forward", "HT1", "--as-of", "2026-08-18"])
+    for day in ("2026-08-18", "2021-06-30"):
+        with pytest.raises(SystemExit, match="pass --open-holdout"):
+            cli.main(["score-forward", "HT1", "--as-of", day])
     with pytest.raises(SystemExit, match="leave --open-holdout out"):
-        cli.main(["score-forward", "HT1", "--as-of", "2021-06-30", "--open-holdout"])
+        cli.main(["score-forward", "F2", "--as-of", "2021-06-30", "--open-holdout"])
+    with pytest.raises(SystemExit, match="past the holdout boundary"):
+        cli.main(["score-forward", "F2", "--as-of", "2022-01-03"])
+    monkeypatch.setattr(trial_log, "read_existing", lambda *a, **k: None)     # HT1 not run: refused before reading
+    with pytest.raises(SystemExit, match="hasn't run 18 of its cells"):
+        cli.main(["score-forward", "HT1", "--as-of", "2026-08-18", "--open-holdout"])
     with pytest.raises(SystemExit, match="no pre-registered scorecard"):
         cli.main(["score-forward", "NOPE", "--as-of", "2021-06-30"])
