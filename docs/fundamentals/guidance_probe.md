@@ -134,7 +134,7 @@ today's cache, and it rebuilds byte for byte. So the same frozen prompt, at temp
 different answer when only the table formatting changed. The text conversion is part
 of what has to be frozen.
 
-**Text conversion: html5lib (Done #195).** Old EDGAR HTML often leaves out `</td>` and
+**Text conversion: html5lib (Done #197).** Old EDGAR HTML often leaves out `</td>` and
 `</tr>`, or misnests tags (`<B><P>…</B>`). The probe first parsed with Python's
 `html.parser`, which nests rows and cells instead of closing them, plus a hand repair
 (`close_unclosed`) that the code reviews found getting rarer shapes wrong. html5lib

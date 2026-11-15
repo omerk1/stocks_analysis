@@ -322,7 +322,8 @@ def check_features(exp: Experiment, features: pd.DataFrame) -> None:
     built with the holdout open is refused unless the experiment opens it
     (`open_holdout`, a pre-registered scorecard's); its last test year is
     then the holdout's current one and may be partial, but the cache must
-    reach at least half way into it (to July 1)."""
+    reach at least half way into it (to July 1), and end exactly at the
+    experiment's registered `data_end` when it has one."""
     m = features.attrs.get("manifest", {})
     universe = m.get("universe", {})
     opens = getattr(exp, "open_holdout", False)
@@ -340,6 +341,9 @@ def check_features(exp: Experiment, features: pd.DataFrame) -> None:
     needed = pd.Timestamp(year=last, month=7, day=1) if opens else pd.Timestamp(year=last, month=12, day=28)
     if pd.Timestamp(m.get("end", "1900-01-01")) < needed:
         problems.append(f"ends {m.get('end')}, before the last test year {last}")
+    data_end = getattr(exp, "data_end", None)
+    if data_end is not None and m.get("end") != data_end:
+        problems.append(f"ends {m.get('end')}, not at the registered data end {data_end}")
     if problems:
         raise ValueError(f"feature cache doesn't match {exp.experiment_id}: " + "; ".join(problems))
 
