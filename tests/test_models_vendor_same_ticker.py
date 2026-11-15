@@ -149,3 +149,25 @@ def test_a_scorecards_columns_only(conn, paths, monkeypatch):
     with pytest.raises(ValueError, match="lacks registered columns"):
         vc.run(pd.DataFrame({"ticker": [], "date": []}), pd.DataFrame(), {}, pd.DatetimeIndex([]), pd.Series(),
                specs)
+
+
+class _Reached(Exception):
+    pass
+
+
+def test_the_command_checks_the_scorecards_columns_over_its_window(conn, monkeypatch):
+    from src.models import cli
+    with pytest.raises(SystemExit, match="pass --open-holdout --end 2026-08-18"):
+        cli.main(["vendor-check", "--db", "x", "--scorecard", "HT1"])          # the dev window only
+    seen = {}
+
+    def same_ticker(conn, tickers, start, end, specs=None):
+        seen["specs"] = specs
+        raise _Reached
+
+    monkeypatch.setattr(cli, "_read_only", lambda path: conn)
+    monkeypatch.setattr(vc, "both_vendor_tickers", lambda conn, tickers: ["T0"])
+    monkeypatch.setattr(vc, "same_ticker", same_ticker)
+    with pytest.raises(_Reached):
+        cli.main(["vendor-check", "--db", "x", "--scorecard", "HT1", "--open-holdout", "--end", "2026-08-18"])
+    assert seen["specs"] == cli.scorecard_specs("HT1")

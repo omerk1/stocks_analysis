@@ -310,6 +310,11 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str,
     _check_open_end(end, open_holdout)
     dataset.check_holdout(end, open_holdout)
     specs = scorecard_specs(scorecard) if scorecard else None
+    if scorecard:
+        from src.models import trading
+        sc = trading.PREREGISTERED[scorecard]
+        if sc.open_holdout and not (open_holdout and str(pd.Timestamp(end).date()) == sc.data_end):
+            raise SystemExit(f"{scorecard}'s gate covers its window: pass --open-holdout --end {sc.data_end}")
     conn = _read_only(db_path)
     try:
         if features_dir is not None:
