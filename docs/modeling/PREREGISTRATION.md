@@ -518,3 +518,102 @@ runs. It reads no market data: the panel is synthetic.
   99.9% interval's ends rest on ~5 draws per tail and the 99.5%'s on ~25: the 99.9%
   rate is the noisier one, and a widened level's own draw count (20,000 or 100,000)
   isn't what was checked. Each run's bootstrap has its own seed.
+
+### Noise check result and the widened interval (2026-11-15 addendum, before opening)
+
+The check above ran in full (1,200 runs, 2026-11-13 to 2026-11-15, `scripts/scorecard_noise_coverage.py
+--summary-only` reprints it from its `runs.csv`). No market data and no holdout were read.
+
+| Nominal level | H = 63: left out zero (1,000 runs, ~9.4 blocks) | H = 21 (200 runs, ~29 blocks) |
+|---|---|---|
+| 90% | 14.2% [12.2%, 16.5%] | 9.5% [6.2%, 14.4%] |
+| 95% | 8.5% [6.9%, 10.4%] | 4.5% [2.4%, 8.3%] |
+| 99% | **3.4%** [2.4%, 4.7%] | 1.5% [0.5%, 4.3%] |
+| 99.5% | **2.1%** [1.4%, 3.2%] | 1.0% [0.3%, 3.6%] |
+| 99.9% | **1.4%** [0.8%, 2.3%] | 0.5% [0.1%, 2.8%] |
+
+(95% Wilson intervals.) At H = 63 the z-scores have mean +0.01 and SD 1.15: no bias, the
+bootstrap's spread about 13% too small at ~9 blocks. At H = 21 they have mean −0.04 and SD
+1.01, and every level is close to nominal, as the check at 18 blocks led to expect.
+
+- **The rule's outcome:** 99% leaves out zero on 3.4% of the H = 63 runs, past 2%; 99.5% on
+  2.1% (21 of 1,000), past it by one run; 99.9% on 1.4%, within it, though not clearly: its
+  Wilson interval [0.8%, 2.3%] reaches past the line, and the rate is the check's noisiest
+  (each run's 99.9% ends rest on ~5 of its 10,000 draws per tail; 100,000 draws were never
+  checked). The rule picks on the rate, not on its interval, so **HT1's interval is
+  99.9% at both horizons, with 100,000 bootstrap draws**, for the verdict, the Holm test and
+  the per-cell trials alike (`PREREGISTERED["HT1"]`: `ci=0.999`, `n_boot=100_000`). This
+  replaces the 99% and 10,000 draws in "Primary metric and kill criterion"; the rest of that
+  section stands.
+  - **Holm**, at the 99.9% interval's family-wise one-sided level of 0.0005: the smaller
+    one-sided p must be at most 0.00025, the other horizon then passes at p ≤ 0.0005. At
+    100,000 draws, p ≤ 0.00025 allows 24 draws at or below zero.
+  - **Dead, inconclusive and effect** are read on the 99.9% interval, against the same
+    ±10 bps band.
+  - The named controls' CIs (B4, low-vol) are reported at the same level.
+- **What it costs:** a wider interval needs a bigger edge to clear zero, and "dead" needs a
+  tighter one to sit inside the band, so inconclusive becomes likelier at H = 63. And 99.9%
+  still left out zero on 1.4% of noise runs at H = 63, not 0.1%: a false positive there is
+  less likely than at 99%, not as rare as the label says. The pass rule's +10 bps floor and
+  3-positive-years rule stand on top of it.
+- **Not changed:** the band, the cells, the years rule, the controls, the model, the test
+  window. H = 21 is widened too, as the rule says (one level for Holm), though it covered
+  about right at 99%.
+- **The Holm readout** in the check's summary ("one-sided p at Holm's smaller cut") is read
+  from each run's 10,000 draws, so at 99.9%'s cut of 0.00025 it means at most 1 draw at or
+  below zero: a coarse stand-in for HT1's 100,000-draw test, not a measure of it.
+- **Running it:** one pooled bootstrap at 100,000 draws takes about 12 s, against about 1 s
+  at 10,000. It now builds its weights 5,000 draws at a time (`inference.BOOT_CHUNK`, ~0.1
+  GB a chunk while stacked, ~0.2 GB for the whole process, rather than ~1.8 GB), with the same draws up to float
+  rounding.
+- **Better long-run fix** (not for HT1): a bootstrap that covers at few blocks
+  (`docs/backlog.md`, "Scorecard CIs under-cover at few date blocks").
+
+### Holdout coverage and the data end (2026-11-15 addendum, before opening)
+
+Prerequisites 5 and 6. The check read only membership rows, ticker and job tables, and each
+ticker's first and last bar date and bar count; no price, return or feature past 2021-12-31.
+Nothing was written.
+
+- **The membership source is stale after 2026-08-18.** Its last recorded change is that
+  day (AVB out, RDDT in), and a fresh download (2026-11-15) returns the same rows. Events
+  since are missing: Paramount Skydance's acquisition of WBD closed 2026-10-06 (PSKY then
+  renamed SKYD), Kimberly-Clark's of KVUE on 2026-11-02, and any September rebalance
+  can't be reconstructed from what we hold.
+- **So the test's data ends on 2026-08-18,** the last date the membership is known good:
+  bars, features and labels are cut there (`PREREGISTERED["HT1"].data_end`; the scorecard
+  refuses a feature or label cache that ends anywhere else, checked for every horizon before
+  anything is fitted, and the cache builders refuse `--open-holdout` with any other `--end`,
+  so no build reads holdout bars past it). This replaces "bars to November 2026" in the kill
+  criterion's years rule. With 157 trading days of 2026, about 136 have a resolved label at
+  H = 21 (at least 126, so 2026 most likely counts: 3 of 5 years) and about 94 at H = 63
+  (under 126: 3 of 4 full years there). As before, the count is
+  whatever `trading.years_positive` returns. The test, model, cells and band are unchanged.
+- **The data refresh (prerequisite 5) needs nothing more:** total-return bars were
+  re-fetched in full to 2026-11-06 on 2026-11-10 (`docs/backfills.md`), traded bars run to
+  2026-11-09, and T's Tiingo bars (read from Tiingo by choice) to 2026-10-05, all past the
+  data end. The 47 tickers the 2026-11-10 traded update refused are 44 never-members plus
+  KVUE, PSKY and WBD, whose bars run past the data end.
+- **Coverage to 2026-08-18** (1,160 trading days, 604 membership intervals of 589 tickers):
+  503–507 members every day, no gaps. 579 tickers have bars (549 yfinance, 30 Tiingo). No
+  member's bars end more than 5 trading days before its membership does; VLTO's start 2
+  days after it joined (a spin-off). Of the 101 intervals ending in 2022 or later, 72 have
+  bars to the last member day, 20 Tiingo ones end 1–5 days early (the deal closed before
+  the index removal), and 9 have none (below).
+- **Known missing: 10 members with no bars**, about 4,180 of ~585,000 member-days (0.7%):
+  - renamed, their history under a symbol not linked to them: CDAY (DAY, 523 days), NLOK
+    (GEN, 215), DISCA (WBD, 69), VIAC and PARA (PSKY, 33 and 871);
+  - DD (the whole window, 1,160 days): its yfinance history is under a whole-history
+    dispute, and the dataset doesn't fall back to its Tiingo bars;
+  - WRK (630 days): its Tiingo listing was rejected on a name mismatch;
+  - INFO (41 days): no source;
+  - **FRC (336 days) and SIVB (301 days)**: the 2023 bank failures, on no vendor we have.
+  The renamed ones and DD are missing for reasons unrelated to their returns, so they
+  shrink the pool rather than tilt it. FRC and SIVB are not: their collapse is left out
+  of every basket that would have held them, the market's included, so the market and any
+  basket likely to pick them read slightly better than they were. D_H moves only by the
+  gap between their weight in the model's top 20 and in the market's ~505 (a model that
+  would have held them is flattered, one that avoided them is not). Recorded here as a known
+  confound rather than fixed (the user's choice, 2026-11-15).
+- **Prerequisites left:** 7, the caches rebuilt with `--open-holdout --end 2026-08-18`
+  into new directories, and the vendor check. Then the test runs once.

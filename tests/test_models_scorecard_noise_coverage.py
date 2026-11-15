@@ -36,7 +36,7 @@ def test_one_run_on_a_small_panel():
 def _runs(h63_excluding: dict[float, int], n: int | None = None, **settings) -> pd.DataFrame:
     n = noise.SEEDS[63] if n is None else n
     rows = pd.DataFrame({"horizon": 63, "seed": range(n), "n_tickers": settings.get("n_tickers", noise.N_TICKERS),
-                         "n_boot": settings.get("n_boot", trading.PREREGISTERED["HT1"].n_boot),
+                         "n_boot": settings.get("n_boot", noise.CHECKED_N_BOOT),
                          "z": 0.0, "p_positive": 0.5, "n_blocks": 9.4})
     for level in noise.LEVELS:
         rows[f"excludes_{level:g}"] = np.arange(n) < h63_excluding.get(level, 0)
@@ -98,3 +98,15 @@ def test_the_rule():
 def test_wilson_brackets_the_share():
     lo, hi = noise.wilson(4, 200)
     assert lo < 0.02 < hi and lo > 0
+
+
+def test_a_row_cut_off_mid_write_is_rerun_not_counted(tmp_path):
+    out = tmp_path / "runs.csv"
+    _runs({0.99: 1}, n=3).to_csv(out, index=False)
+    whole = out.read_text().splitlines()
+    for cut in (whole[-1][:-2], whole[-1][:12]):    # inside the last flag; just past the keys
+        out.write_text("\n".join(whole[:-1] + [cut]))
+        noise._end_line(out)
+        _runs({}, n=1).assign(seed=7).to_csv(out, mode="a", header=False, index=False)
+        runs = noise.complete(pd.read_csv(out))
+        assert sorted(runs["seed"]) == [0, 1, 7] and runs["excludes_0.99"].dtype == bool

@@ -46,7 +46,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.models import trading  # noqa: E402
-from src.models.ablation import LABEL_COLS, cell_frame, oos_predictions, seed_mean  # noqa: E402
+from src.models.ablation import LABEL_COLS, cell_frame  # noqa: E402
 from src.models.learners import BoostingConfig  # noqa: E402
 from src.models.splits import walk_forward_folds  # noqa: E402
 from src.models.synthetic import PANEL_START, PlantedSpec, planted_panel, shuffle_within_date  # noqa: E402
@@ -65,6 +65,10 @@ CONFIG = BoostingConfig(max_iter=50, min_samples_leaf=50)   # the scorecard nois
 SEEDS = {63: 1000, 21: 200}     # the registered runs per horizon; the rule needs all of H = 63's
 WIDER_N_BOOT = {0.995: 20_000, 0.999: 100_000}   # draws for a widened level: its Holm cut still ~25 draws
 N_TICKERS = 60                  # the scorecard noise test's panel size
+# HT1's draws as registered when the check ran (2026-11-13), not its current
+# 100,000: the check is what widened them, and its runs are read at the
+# draws they were made with.
+CHECKED_N_BOOT = 10_000
 OUT = Path("data/models/noise_coverage/runs.csv")
 
 
@@ -101,12 +105,11 @@ def one_run(horizon: int, seed: int, n_tickers: int, n_boot: int) -> dict:
                        else rng.uniform(size=len(panel)).astype("float32"))
     frame = cell_frame(features, panel[["ticker", "date", *LABEL_COLS]])
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
-    model = seed_mean(oos_predictions(frame, sc.model_columns, folds, sc.seeds, sc.config))
-    ref = seed_mean(oos_predictions(frame, sc.reference_columns, folds, sc.seeds, sc.config))
+    model, ref = trading.fit_predictions(sc, frame, folds)   # run_horizon's own step
     preds = pd.concat([model.assign(model="model"), ref.assign(model=sc.reference)], ignore_index=True)
     baskets = {CELL: trading.cell_baskets(sc, cell, preds, frame)[1]}   # close_scorecard's own step
-    result, _, missing = trading.pooled_difference(baskets, "model", sc.verdict_against, horizon, n_boot, HT1.ci,
-                                                   seed=boot_seed % 2**32)
+    result, _, missing = trading.pooled_difference(baskets, "model", sc.verdict_against, horizon, n_boot, LEVELS[0],   # labels the result only: every level is read from the draws
+                                                   seed=boot_seed)
     row = {"horizon": horizon, "seed": seed, "n_tickers": n_tickers, "n_boot": n_boot,
            "point": result.point_estimate, "boot_std": result.boot_std,
            "z": result.point_estimate / result.boot_std, "p_positive": trading.one_sided_p(result),
@@ -128,11 +131,25 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return centre - half, centre + half
 
 
+def complete(runs: pd.DataFrame) -> pd.DataFrame:
+    """The rows written in full: a row cut off mid-write (a killed run) is
+    left out, so its seed is rerun and never counted. The flags come last in
+    a row, so a cut leaves the last one empty or a fragment ("Tru")."""
+    flags = [f"excludes_{level:g}" for level in LEVELS]
+    needed = ["horizon", "seed", "n_tickers", "n_boot", "z", "p_positive", "n_blocks", *flags]
+    if not set(needed) <= set(runs):
+        return runs.iloc[:0]
+    runs = runs.dropna(subset=needed)
+    runs = runs[runs[flags].isin([True, False, "True", "False"]).all(axis=1)]
+    return runs.assign(**{c: runs[c].astype(str) == "True" for c in flags})
+
+
 def registered(runs: pd.DataFrame) -> pd.DataFrame:
     """The runs at the registered settings and seeds only: a smoke run into the
     same file (fewer draws, a smaller panel, seeds past the count) never
     counts toward the rule."""
-    keep = (runs["n_tickers"] == N_TICKERS) & (runs["n_boot"] == HT1.n_boot)
+    runs = complete(runs)
+    keep = (runs["n_tickers"] == N_TICKERS) & (runs["n_boot"] == CHECKED_N_BOOT)
     keep &= runs["seed"] < runs["horizon"].map(SEEDS).fillna(0)
     return runs[keep].drop_duplicates(["horizon", "seed"])   # a seed written twice counts once
 
@@ -146,7 +163,9 @@ def summary(runs: pd.DataFrame) -> dict:
             rates[level] = {"k": k, "n": n, "rate": k / n, "wilson95": wilson(k, n)}
         out[int(h)] = {"runs": len(g), "blocks": float(g["n_blocks"].mean()), "mean_z": float(g["z"].mean()),
                        "sd_z": float(g["z"].std()),
-                       # Holm's smaller cut at each candidate level: (1 - level) / 2, halved
+                       # Holm's smaller cut at each candidate level: (1 - level) / 2, halved. Read
+                       # from each run's n_boot draws (10,000): coarse at 99.9%'s 0.00025, which
+                       # 10,000 draws reach only with at most 1 draw at or below zero
                        "holm_cut_share": {lv: float((g["p_positive"] <= (1 - lv) / 4).mean()) for lv in CANDIDATES},
                        "exclusion": rates}
     return out
@@ -180,6 +199,16 @@ def print_summary(runs: pd.DataFrame) -> None:
     print("Rule: " + verdict(s))
 
 
+def _end_line(path: Path) -> None:
+    """End a row cut off mid-write with a newline, so the next one isn't
+    glued onto it (the cut row is then left out by `complete`)."""
+    if path.exists() and path.stat().st_size:
+        with path.open("rb+") as f:
+            f.seek(-1, os.SEEK_END)
+            if f.read(1) != b"\n":
+                f.write(b"\n")
+
+
 _limits = None
 
 
@@ -197,7 +226,7 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=None,
                     help="seeds 0 .. n-1 per horizon (default: the registered count, SEEDS)")
     ap.add_argument("--n-tickers", type=int, default=N_TICKERS)
-    ap.add_argument("--n-boot", type=int, default=HT1.n_boot)
+    ap.add_argument("--n-boot", type=int, default=CHECKED_N_BOOT)
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--summary-only", action="store_true")
@@ -206,7 +235,7 @@ def main() -> int:
     done = pd.read_csv(args.out) if args.out.exists() else pd.DataFrame(columns=keys)
     failed = []
     if not args.summary_only:
-        have = set(map(tuple, done[keys].astype(int).to_numpy()))
+        have = set(map(tuple, complete(done)[keys].astype(int).to_numpy()))
         if args.seeds is None and set(args.horizons) - set(SEEDS):
             raise SystemExit(f"no registered seed count for {sorted(set(args.horizons) - set(SEEDS))}: pass --seeds")
         todo = [(h, s) for h in args.horizons for s in range(SEEDS[h] if args.seeds is None else args.seeds)
@@ -225,6 +254,7 @@ def main() -> int:
                     failed.append((h, s, repr(e)))
                     print(f"[{i}/{len(todo)}] H{h} seed {s}: FAILED {e!r}", flush=True)
                     continue
+                _end_line(args.out)
                 row.to_csv(args.out, mode="a", header=not args.out.exists(), index=False)
                 print(f"[{i}/{len(todo)}] H{h} seed {s}: z {row['z'][0]:+.2f}", flush=True)
         done = pd.read_csv(args.out) if args.out.exists() else done

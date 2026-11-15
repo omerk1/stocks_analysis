@@ -10,11 +10,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.models import cli, dataset
+from src.models import cli, dataset, trading
 from src.models.dataset import OPEN_MARKER, HoldoutError
 from src.models.features import cache, level_cache, level_features
 
-PAST = "2026-11-06"
+PAST = trading.PREREGISTERED["HT1"].data_end   # a holdout build must end at a registered data end
 
 
 def _dev_files(directory: Path) -> Path:
@@ -100,6 +100,8 @@ def test_open_holdout_needs_an_end_past_the_boundary(no_db, argv):
         cli.main([*argv, "--open-holdout"])
     with pytest.raises(SystemExit, match="nothing to open"):
         cli.main([*argv, "--open-holdout", "--end", "2021-12-31"])
+    with pytest.raises(SystemExit, match="not a registered holdout data end"):
+        cli.main([*argv, "--open-holdout", "--end", "2026-11-06"])          # past the boundary, past HT1's end
 
 
 @pytest.mark.parametrize("command", ["build-levels", "build-labels"])
