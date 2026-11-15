@@ -32,6 +32,7 @@ from src.signals.moving_averages.stats.inference import _block_weights, _validat
 
 N_BOOT = 1000
 CI = 0.90
+BOOT_CHUNK = 5_000   # draws per weight matrix: ~50 MB at 1,200 dates (twice that while stacked), whatever n_boot is
 
 
 @dataclass
@@ -74,8 +75,10 @@ def bootstrap_ratio(
     _validate_block_length(n_dates, block)
     num, den = frame["num"].to_numpy(float), frame["den"].to_numpy(float)
     rng = np.random.default_rng(seed)
-    weights = np.vstack([_block_weights(frame.index.to_numpy(), block, rng) for _ in range(n_boot)])
-    draws = (weights @ num) / (weights @ den)
+    dates, draws = frame.index.to_numpy(), np.empty(n_boot)
+    for start in range(0, n_boot, BOOT_CHUNK):   # same draws as one matrix, without holding it
+        weights = np.vstack([_block_weights(dates, block, rng) for _ in range(min(BOOT_CHUNK, n_boot - start))])
+        draws[start:start + len(weights)] = (weights @ num) / (weights @ den)
     tail = (1 - ci) / 2
     lo, hi = float(np.quantile(draws, tail)), float(np.quantile(draws, 1 - tail))
     return BootstrapResult(

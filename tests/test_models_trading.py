@@ -1,5 +1,6 @@
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -396,11 +397,11 @@ def test_ht1_is_the_frozen_model_against_the_market_on_the_holdout():
     assert set(sc.model_columns) == groups("baseline", "ma", "volatility", "volume", "oscillator", "relative")
     assert len(sc.model_columns) == len(set(sc.model_columns)) == 24
     assert (sc.track, sc.rank, sc.ci, sc.band, sc.verdict_k, sc.horizons, sc.seeds) == (
-        "B", "ev_atr", 0.99, 0.001, 20, (21, 63), (0, 1, 2))
+        "B", "ev_atr", 0.999, 0.001, 20, (21, 63), (0, 1, 2))
     assert (sc.verdict_against, sc.verdict_cost_bps, sc.min_positive_years) == ("market", 10, 3)
     assert sc.test_years == (2022, 2023, 2024, 2025, 2026) and sc.first_train_start == "2011-01-01"
-    assert sc.eras == (sc.test_years,) and sc.open_holdout
-    assert sc.config == BoostingConfig() and sc.grid == () and sc.n_boot == 10_000
+    assert sc.eras == (sc.test_years,) and sc.open_holdout and sc.data_end == "2026-08-18"
+    assert sc.config == BoostingConfig() and sc.grid == () and sc.n_boot == 100_000
 
 
 def test_ht1_needs_the_operators_open_holdout_too(monkeypatch):
@@ -431,6 +432,21 @@ def test_close_scorecard_says_whether_a_seed_rerun_is_still_due(monkeypatch, cap
     out = capsys.readouterr().out
     assert (says in out) == met
     assert "seed rerun" not in out if len(seeds) > 1 else "averaged" not in out
+
+
+def test_close_scorecard_prints_a_widened_level_unrounded(monkeypatch, capsys):
+    """HT1's 99.9% interval prints as such, not rounded to 100%."""
+    from src.models import cli
+    from src.models.features import cache
+    monkeypatch.setitem(trading.PREREGISTERED, "HT", replace(trading.PREREGISTERED["F2"], ci=0.999))
+    monkeypatch.setattr(cache, "read_feature_cache", lambda *a, **k: None)
+    monkeypatch.setattr(trial_log, "read_trials", lambda *a, **k: None)
+    monkeypatch.setattr(trading, "close_scorecard", lambda sc, *a, **k: {
+        "k": 20, "ci": sc.ci, "band": 0.001, "n_boot": 1000, "registered_n_boot": 1000, "horizons": {},
+        "group_verdict": trading.DEAD, "entry_rule_met": False, "seeds": list(sc.seeds)})
+    assert cli.main(["close-scorecard", "HT"]) == 0
+    out = capsys.readouterr().out
+    assert "99.9% CI" in out and "100% CI" not in out
 
 
 def test_three_verdicts():
@@ -484,6 +500,8 @@ def test_close_scorecard_pools_the_cells_and_judges_the_planted_edge(tmp_path, m
     assert trading.registered_trial(sc, logged.assign(git_dirty="True"), cell, spec) is None
     assert trading.registered_trial(sc, logged, cell, spec, require_clean=False) == r["trial_id"]
     assert trading.registered_trial(replace(sc, rank="ev_atr"), logged, cell, spec, require_clean=False) is None
+    # a trial bootstrapped at another interval level isn't reused, even at the same draws
+    assert trading.registered_trial(replace(sc, ci=0.999), logged, cell, spec, require_clean=False) is None
     # picks made with name ties aren't the registered verdict's
     name_ties = logged.assign(feature_groups=logged["feature_groups"].map(
         lambda g: json.dumps({k: v for k, v in json.loads(g).items() if k != "tie_break"})))
@@ -553,7 +571,7 @@ def test_low_vol_picks_take_the_calmest_names_and_the_market_pays_no_cost():
     assert [trading.side_cost(sc, s) for s in ("model", "reference", "low_vol", "market")] == [10, 10, 10, 0]
 
 
-def test_the_holdout_opens_only_for_a_registered_scorecard():
+def test_the_holdout_opens_only_for_a_registered_scorecard(monkeypatch, tmp_path):
     """Test years past 2021 need open_holdout, which only a Track B scorecard
     may set; its feature cache must be built open and reach into its last
     (possibly partial) test year, and a closed experiment refuses an open cache."""
@@ -583,7 +601,38 @@ def test_the_holdout_opens_only_for_a_registered_scorecard():
         short.attrs["manifest"] = {**features.attrs["manifest"], "end": end}
         with pytest.raises(ValueError, match="before the last test year"):
             trading.check_features(ht, short)
+    # a registered data end: both caches must end exactly there
+    ended = replace(ht, data_end="2026-08-18")
+    with pytest.raises(ValueError, match="not at the registered data end 2026-08-18"):
+        trading.check_features(ended, features)                                  # built through 2026-09-30
+    at_end = features.copy()
+    at_end.attrs["manifest"] = {**features.attrs["manifest"], "end": "2026-08-18"}
+    trading.check_features(ended, at_end)
     [cell] = SMALL.cells(21)
+    for end, ok in (("2026-08-18", True), ("2026-09-30", False), (None, False)):
+        stored = labels.copy()
+        stored.attrs["manifest"] = {"data_end": end}
+        monkeypatch.setattr(trading.dataset, "read_labels", lambda *a, **k: stored)
+        if ok:
+            assert trading.read_labels(ended, Path("x"), 21, cell) is stored
+        else:
+            with pytest.raises(ValueError, match="registered data end 2026-08-18"):
+                trading.read_labels(ended, Path("x"), 21, cell)
+    assert trading.read_labels(ht, Path("x"), 21, cell) is stored                # none registered: any end
+    # every horizon's manifest is checked before anything runs, and every label read goes through the check
+    for h, end in ((21, "2026-08-18"), (63, "2026-11-09")):
+        path = trading.dataset.label_path(tmp_path, h)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.with_suffix(".json").write_text(json.dumps({"data_end": end}))
+    with pytest.raises(ValueError, match="H = 63 ends 2026-11-09"):
+        trading.check_label_ends(replace(ended, horizons=(21, 63)), tmp_path)
+    trading.check_label_ends(replace(ended, horizons=(21,)), tmp_path)
+    source = Path(trading.__file__).read_text()
+    assert source.count("dataset.read_labels(") == 1 and source.count("check_label_ends(sc, labels_dir)") == 3
+    with pytest.raises(ValueError, match="needs open_holdout"):
+        replace(ended, data_end="2026-8-18")
+    with pytest.raises(ValueError, match="needs open_holdout"):
+        replace(ended, data_end="2026-05-01")                                   # before July 1 of 2026
     assert trading.trial_spec(ht, cell, features, labels)["open_holdout"] is True
     assert trading.trial_spec(SMALL, cell, features, labels)["open_holdout"] is False
 

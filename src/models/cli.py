@@ -61,6 +61,11 @@ from src.models import gates
 SMOKE_START, SMOKE_CUT, SMOKE_END = "2015-01-02", "2019-06-28", "2021-12-31"
 
 
+def _level(ci: float) -> str:
+    """An interval level as a percent, unrounded: 99.9%, not 100%."""
+    return f"{ci * 100:g}%"
+
+
 def _fmt(result) -> str:
     return f"{result.point_estimate:+.5f}  CI [{result.ci_low:+.5f}, {result.ci_high:+.5f}]  n_dates={result.n_dates}"
 
@@ -75,7 +80,7 @@ def _print_verdict(name: str, verdict: dict[str, bool]) -> bool:
 
 def _planted_report(r: dict) -> None:
     print(f"Gates 1-2: planted effect and label shuffle "
-          f"({r['n_rows']:,} test rows, {r['n_dates']} dates, {gates.GATE_CI:.0%} CIs)")
+          f"({r['n_rows']:,} test rows, {r['n_dates']} dates, {_level(gates.GATE_CI)} CIs)")
     print(f"  oracle Brier gain {r['oracle_gain']:+.5f}, one bar late {r['oracle_stale_gain']:+.5f}")
     for name, res in r["brier_vs_b0"].items():
         print(f"  Brier vs B0, {name:8s} {_fmt(res)}")
@@ -166,11 +171,17 @@ OPEN_HOLDOUT_HELP = ("build through an --end past 2021-12-31, for a pre-register
 
 
 def _check_open_end(end: str, open_holdout: bool) -> None:
-    from src.models import dataset
+    """With --open-holdout, the end must be past the boundary and a
+    registered holdout test's data end: a build to any other date would read
+    holdout bars no test uses."""
+    from src.models import dataset, trading
     try:
         dataset.check_open_end(end, open_holdout)
     except ValueError as e:
         raise SystemExit(f"--open-holdout with --end {end}: {e}") from None
+    ends = sorted({sc.data_end for sc in trading.PREREGISTERED.values() if sc.open_holdout and sc.data_end})
+    if open_holdout and str(pd.Timestamp(end).date()) not in ends:
+        raise SystemExit(f"--open-holdout with --end {end}: not a registered holdout data end ({', '.join(ends)})")
 
 
 def _build_into(end: str, out: Path | None, open_holdout: bool, default_out: Path | None = None,
@@ -459,7 +470,7 @@ def _print_grid(results: list[dict], sc) -> None:
     for k in sc.ks:
         verdict = "no verdict" if sc.track == trading.TRACK else "per-cell readout; the verdict is close-scorecard's"
         print(f"\nTop-{k}, rank {sc.rank}, net {trading.HEADLINE_COST_BPS} bps per trade (Track {sc.track}, {verdict}; "
-              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {sc.ci:.0%} CI; "
+              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {_level(sc.ci)} CI; "
               f"random = {trading.RANDOM_DRAWS} draws of k random names, median):")
         print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
 
@@ -499,14 +510,14 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
     against = sc.reference if sc.verdict_against == "reference" else sc.verdict_against
     cost = f", each trading side net of {sc.verdict_cost_bps:g} bps" if sc.verdict_cost_bps else ""
     print(f"{experiment_id}: top-{r['k']} model - {against}, pooled over each horizon's cells, "
-          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade" + cost + check
+          f"{_level(r['ci'])} CI, band +/-{r['band']:.2%} per trade" + cost + check
           + (f", without {', '.join(exclude_tickers)}" if exclude_tickers else ""))
     for h, x in r["horizons"].items():
         if "missing_cells" in x:
             print(f"  H{h}: {x['verdict']} (cells not run: {x['missing_cells']})")
             continue
         print(f"  H{h}: {x['point_estimate']:+.4%} [{x['ci_low']:+.4%}, {x['ci_high']:+.4%}], n_dates {x['n_dates']} "
-              f"({x['dates_missing_a_cell']} left out for a missing cell), p {x['p']:.3f} -> {x['verdict']}; "
+              f"({x['dates_missing_a_cell']} left out for a missing cell), p {x['p']:.5f} -> {x['verdict']}; "
               f"Holm-positive {x['holm_positive']}, entry rule met {x['entry_rule_met']}"
               + ("" if r["n_boot"] == r["registered_n_boot"] else " [precision check]"))
         print("    by era: " + ", ".join(f"{e} {v:+.4%}" for e, v in x["by_era"].items()))
@@ -542,7 +553,7 @@ def close_experiment(experiment_id: str) -> int:
     from src.models import ablation, trial_log
     exp = ablation.PREREGISTERED[experiment_id]
     table, groups = ablation.close_experiment(exp, trial_log.read_trials())
-    print(f"{experiment_id}: BH q={exp.q} over {exp.n_trials} trials, {exp.ci:.0%} CIs, "
+    print(f"{experiment_id}: BH q={exp.q} over {exp.n_trials} trials, {_level(exp.ci)} CIs, "
           f"pass needs >= {exp.min_folds_improving}/{len(exp.test_years)} years and every era better")
     print(table.to_string(index=False, float_format=lambda v: f"{v:+.6f}"))
     for step, verdict in groups.items():
