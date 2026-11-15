@@ -69,7 +69,8 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     first_open = b"<table><tr><td>EPS<td>2.10</td><td>2.20</td><td>raised</td></tr></table>"  # low before high
     assert fetch.release_text(first_open) == "EPS | 2.10 | 2.20 | raised"
     # text loose in a row, outside any cell, goes before the table, as a browser shows it: kept, but off
-    # its row (html.parser's plain rows dropped it: "EPS" alone; none of the 50 releases has such text)
+    # its row's line (the old repair dropped it after a closed </td>, "EPS" alone, and kept it on the
+    # row's line after an unclosed cell, "A | B | tail"; none of the 50 releases has such text)
     loose = b"<table><tr><td>EPS</td>$2.10</tr></table>"
     assert fetch.release_text(loose).splitlines() == ["$2.10", "", "EPS"]
     tail = b"<table><tr><td>A<td>B</td>tail</tr></table>"
@@ -100,9 +101,10 @@ def test_release_text_closes_tags_the_way_a_browser_does():
     text_before_row = b"<table><tr><td>A</td><font>note<tr><td>B</td></tr></font></table>"
     assert fetch.release_text(text_before_row).splitlines() == ["note", "", "A", "", "B"]  # was dropped
     cell_after_row = b"<table><tr><td>A<td>B<tr><td>C</td></tr></td><td>D</td></table>"
-    assert fetch.release_text(cell_after_row).splitlines() == ["A | B", "", "C", "", "D"]  # was ahead of C
+    assert fetch.release_text(cell_after_row).splitlines() == ["A | B", "", "C", "", "D"]  # was on A's line, ahead of C
     run_after_row = b"<table><tr><td>A<td>B<tr><td>C</td></tr></td><td>D</td><td>E</td></table>"
-    assert fetch.release_text(run_after_row).splitlines() == ["A | B", "", "C", "", "D | E"]  # one row
+    # a browser starts a new row for D and E (the old repair put them on A's line: "A | B | D | E")
+    assert fetch.release_text(run_after_row).splitlines() == ["A | B", "", "C", "", "D | E"]
     dollar = b"<table><tr><td>EPS<font><td>$</font>2.10</td></tr></table>"
     assert fetch.release_text(dollar) == "EPS | $2.10"  # was "EPS | $ | 2.10"
     misnested = b"<b><p>GAP INC. REPORTS</p><p>SAN FRANCISCO - Aug 5 -</b> Gap Inc. reported sales.</p>"

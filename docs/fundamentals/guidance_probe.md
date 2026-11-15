@@ -140,20 +140,29 @@ of what has to be frozen.
 (`close_unclosed`) that still got rarer shapes wrong: text in a wrapper just before a
 nested row was dropped, a cell after an unclosed cell holding a row came out ahead of
 that row, and a "$" could split from its figure. A fourth listed shape, a run of cells
-after a nested row landing one per line, didn't reproduce on the cases tried; html5lib
-keeps such a run as one row (tested). `fetch.release_text` now parses with
+after a nested row landing one per line, didn't reproduce on the cases tried.
+`fetch.release_text` now parses with
 html5lib, which builds the tree a browser does, and the hand repair is gone. lxml was
 measured too and ruled out: on the unit cases it drops loose text inside tables and
 glues words.
 
 Measured on the 50 cached releases (30 MB, about the same time as before: 46 s against
 41 s), 49 come out the same. One changes, Gap (slot 32): a misnested `<B><P>` used to break
-its first sentence after the dateline, and now it reads as one paragraph. A known
-limit: text loose in a table row, outside any cell (`<td>EPS</td>$2.10`), goes before the
-table, as a browser shows it, so it's off its row's line. Before, it was dropped from
-a plain row and kept in a cell of its own only after a nested one. None of the 50
-releases has such text that reaches the output. The pin (`html5lib==1.1`) keeps the
-tree, and so the text, from moving with an upgrade.
+its first sentence after the dateline, and now it reads as one paragraph.
+
+Where the browser's tree differs from the old repair's, the text follows the browser,
+and that is not always better for the extractor:
+- Text loose in a table row, outside any cell, goes before the table, off its row's
+  line. The old repair dropped it after a closed `</td>` (`<td>EPS</td>$2.10` gave
+  "EPS"), but kept it on the row's line after an unclosed cell (`<td>A<td>B</td>tail`
+  gave "A | B | tail").
+- Cells after a row nested in an unclosed cell start a new row after it (`A | B`, `C`,
+  `D | E`), where the old repair put them on the outer row's line (`A | B | D | E`).
+  A label in A and its figures in D and E would now sit on different lines.
+
+None of the 50 releases has either shape in its output. Both packages that make the
+text are pinned (`beautifulsoup4==4.15.0`, `html5lib==1.1`), so an upgrade can't move
+it; their own dependencies (webencodings, six) aren't.
 
 This is a new text version for the exception below (v1's replies change with the
 text: Newell above). Gap's cached reply (`probe/extractions/v1/`) now carries the old
