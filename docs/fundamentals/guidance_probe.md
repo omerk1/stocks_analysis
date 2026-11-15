@@ -134,21 +134,46 @@ today's cache, and it rebuilds byte for byte. So the same frozen prompt, at temp
 different answer when only the table formatting changed. The text conversion is part
 of what has to be frozen.
 
-**Text conversion: known gaps.** Old EDGAR HTML often leaves out `</td>` and `</tr>`, and
-Python's `html.parser` then nests rows and cells instead of closing them.
-`fetch.close_unclosed` undoes the common cases. The code reviews still found rarer
-shapes it gets wrong:
-- a run of cells after a nested row lands one per line, not as one row;
-- text in a wrapper just before a nested row is dropped;
-- a cell after an unclosed cell that holds a row comes out ahead of that row;
-- a "$" and its figure split into two cells.
+**Text conversion: html5lib (Done #197).** Old EDGAR HTML often leaves out `</td>` and
+`</tr>`, or misnests tags (`<B><P>…</B>`). The probe first parsed with Python's
+`html.parser`, which nests rows and cells instead of closing them, plus a hand repair
+(`close_unclosed`) that the code reviews found getting rarer shapes wrong. html5lib
+fixes two: text in a wrapper just before a nested row is kept (it was dropped), and a
+"$" stays with its figure (it split into its own cell). A third, a cell after an
+unclosed cell holding a row coming out ahead of that row, is now where a browser puts
+it, which has its own cost (below). A fourth, a run of cells after a nested row landing
+one per line, didn't reproduce on the cases tried.
+`fetch.release_text` now parses with
+html5lib, which builds the tree a browser does, and the hand repair is gone. lxml was
+measured too and ruled out: on the unit cases it drops loose text inside tables and
+glues words.
 
-None of these occurs in the 50 releases: their text is the same under every version
-of the fix. Before the full fetch, the conversion should move to a parser that closes
-tags the way browsers do (lxml or html5lib; neither is in the project venv yet),
-measured on a sample of releases. Because v1's replies change with the text (Newell
-above), that switch is also a new text version for the purposes of the exception
-below.
+Measured on the 50 cached releases (30 MB, about the same time as before: 46 s against
+41 s), 49 come out the same. One changes, Gap (slot 32): a misnested `<B><P>` used to break
+its first sentence after the dateline, and now it reads as one paragraph.
+
+Where the browser's tree differs from the old repair's, the text follows the browser,
+and that is not always better for the extractor:
+- Text loose in a table row, outside any cell, goes before the table, off its row's
+  line. The old repair dropped it after a closed `</td>` (`<td>EPS</td>$2.10` gave
+  "EPS"), but kept it on the row's line after an unclosed cell (`<td>A<td>B</td>tail`
+  gave "A | B | tail").
+- Cells after a row nested in an unclosed cell start a new row after it (`A | B`, `C`,
+  `D | E`), where the old repair put them on the outer row's line (`A | B | D | E`).
+  A label in A and its figures in D and E would now sit on different lines.
+
+None of the 50 releases has either shape in its output. Both packages that make the
+text are pinned (`beautifulsoup4==4.15.0`, `html5lib==1.1`), so an upgrade of either
+doesn't move it. Their own dependencies aren't pinned: html5lib's six and webencodings
+(its decoder, unused here: `release_text` decodes the bytes itself) and bs4's soupsieve
+(CSS selectors, unused) and typing-extensions. None of them is likely to change the
+text, but nothing checks that.
+
+This is a new text version for the exception below (v1's replies change with the
+text: Newell above). Gap's cached reply (`probe/extractions/v1/`) now carries the old
+text's hash. Nothing was rerun: the scores above stand on the old text, and a rerun of
+`extract` would ask v1 again for that one release. `load_extractions` checks the
+prompt fingerprint but not the text hash, so the score doesn't notice by itself.
 
 ### Coverage: how often releases carry guidance
 
