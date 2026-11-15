@@ -137,10 +137,12 @@ of what has to be frozen.
 **Text conversion: html5lib (Done #195).** Old EDGAR HTML often leaves out `</td>` and
 `</tr>`, or misnests tags (`<B><P>…</B>`). The probe first parsed with Python's
 `html.parser`, which nests rows and cells instead of closing them, plus a hand repair
-(`close_unclosed`) that still got rarer shapes wrong: text in a wrapper just before a
-nested row was dropped, a cell after an unclosed cell holding a row came out ahead of
-that row, and a "$" could split from its figure. A fourth listed shape, a run of cells
-after a nested row landing one per line, didn't reproduce on the cases tried.
+(`close_unclosed`) that the code reviews found getting rarer shapes wrong. html5lib
+fixes two: text in a wrapper just before a nested row is kept (it was dropped), and a
+"$" stays with its figure (it split into its own cell). A third, a cell after an
+unclosed cell holding a row coming out ahead of that row, is now where a browser puts
+it, which has its own cost (below). A fourth, a run of cells after a nested row landing
+one per line, didn't reproduce on the cases tried.
 `fetch.release_text` now parses with
 html5lib, which builds the tree a browser does, and the hand repair is gone. lxml was
 measured too and ruled out: on the unit cases it drops loose text inside tables and
@@ -161,8 +163,10 @@ and that is not always better for the extractor:
   A label in A and its figures in D and E would now sit on different lines.
 
 None of the 50 releases has either shape in its output. Both packages that make the
-text are pinned (`beautifulsoup4==4.15.0`, `html5lib==1.1`), so an upgrade can't move
-it; their own dependencies (webencodings, six) aren't.
+text are pinned (`beautifulsoup4==4.15.0`, `html5lib==1.1`), so an upgrade of either
+doesn't move it. Their own dependencies aren't pinned; html5lib's decoder isn't used
+(`release_text` decodes the bytes itself), so they're unlikely to change the text, but
+nothing checks that.
 
 This is a new text version for the exception below (v1's replies change with the
 text: Newell above). Gap's cached reply (`probe/extractions/v1/`) now carries the old

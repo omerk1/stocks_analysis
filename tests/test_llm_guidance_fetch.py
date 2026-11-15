@@ -96,14 +96,15 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
 
 
 def test_release_text_closes_tags_the_way_a_browser_does():
-    """The shapes the old hand repair of html.parser's tree got wrong
+    """Shapes where html5lib's tree differs from the old hand repair of html.parser's
     (`docs/fundamentals/guidance_probe.md`, "Text conversion")."""
     text_before_row = b"<table><tr><td>A</td><font>note<tr><td>B</td></tr></font></table>"
     assert fetch.release_text(text_before_row).splitlines() == ["note", "", "A", "", "B"]  # was dropped
+    # cells after a row nested in an unclosed cell: a browser starts a new row for them, off the
+    # label's line (the old repair put them on A's line, ahead of C: "A | B | D | E"); a known cost
     cell_after_row = b"<table><tr><td>A<td>B<tr><td>C</td></tr></td><td>D</td></table>"
-    assert fetch.release_text(cell_after_row).splitlines() == ["A | B", "", "C", "", "D"]  # was on A's line, ahead of C
+    assert fetch.release_text(cell_after_row).splitlines() == ["A | B", "", "C", "", "D"]
     run_after_row = b"<table><tr><td>A<td>B<tr><td>C</td></tr></td><td>D</td><td>E</td></table>"
-    # a browser starts a new row for D and E (the old repair put them on A's line: "A | B | D | E")
     assert fetch.release_text(run_after_row).splitlines() == ["A | B", "", "C", "", "D | E"]
     dollar = b"<table><tr><td>EPS<font><td>$</font>2.10</td></tr></table>"
     assert fetch.release_text(dollar) == "EPS | $2.10"  # was "EPS | $ | 2.10"
