@@ -164,9 +164,10 @@ and that is not always better for the extractor:
 
 None of the 50 releases has either shape in its output. Both packages that make the
 text are pinned (`beautifulsoup4==4.15.0`, `html5lib==1.1`), so an upgrade of either
-doesn't move it. Their own dependencies aren't pinned; html5lib's decoder isn't used
-(`release_text` decodes the bytes itself), so they're unlikely to change the text, but
-nothing checks that.
+doesn't move it. Their own dependencies aren't pinned: html5lib's six and webencodings
+(its decoder, unused here: `release_text` decodes the bytes itself) and bs4's soupsieve
+(CSS selectors, unused) and typing-extensions. None of them is likely to change the
+text, but nothing checks that.
 
 This is a new text version for the exception below (v1's replies change with the
 text: Newell above). Gap's cached reply (`probe/extractions/v1/`) now carries the old

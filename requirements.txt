@@ -18,7 +18,8 @@ curl_cffi==0.7.4  # lets yfinance impersonate real browser TLS fingerprints, red
 polygon-api-client>=1.14.0
 # Both pinned: press-release text (src/llm/guidance/fetch.py) is part of the guidance
 # extraction's frozen version, and html5lib builds the tree that bs4 turns into text
-# (their own dependencies aren't pinned: docs/fundamentals/guidance_probe.md, "Text conversion").
+# (their own dependencies aren't pinned: docs/fundamentals/guidance_probe.md, the paragraph
+# starting "None of the 50 releases has either shape").
 beautifulsoup4==4.15.0
 html5lib==1.1  # parses press releases the way browsers do
 # Nasdaq-100 point-in-time membership -- MIT licensed, not published to PyPI
