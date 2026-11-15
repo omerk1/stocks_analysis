@@ -495,6 +495,39 @@ def _check_open_holdout(sc, open_holdout: bool) -> None:
         raise SystemExit(f"{sc.experiment_id} isn't registered to open the holdout; leave --open-holdout out")
 
 
+def score_forward(experiment_id: str, as_of: str, features_dir: Path, labels_dir: Path, k: int | None,
+                  out: Path | None, open_holdout: bool = False) -> int:
+    """A pre-registered scorecard's picks on one date (`forward.score_date`),
+    printed per cell and written to a CSV."""
+    from src.models import dataset, forward
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    sc = _preregistered_scorecard(experiment_id)
+    past = pd.Timestamp(as_of) > dataset.HOLDOUT_END
+    if past and not open_holdout:
+        raise SystemExit(f"--as-of {as_of} is past {dataset.HOLDOUT_END.date()}: pass --open-holdout to confirm")
+    if open_holdout and not past:
+        raise SystemExit(f"--as-of {as_of} is inside the development window; leave --open-holdout out")
+    features = cache.read_feature_cache(features_dir, open_holdout=open_holdout)
+    missing = [c for c in sc.model_columns if c not in features.columns]
+    if missing:
+        raise SystemExit(f"the feature cache lacks {missing}: pass the cache built for {experiment_id}")
+    try:
+        picks = forward.score_date(sc, features, labels_dir, as_of, k)
+    except dataset.HoldoutError as e:
+        raise SystemExit(str(e)) from None
+    out = out or Path("data/models/forward") / f"{experiment_id}_{pd.Timestamp(as_of).date()}.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    picks.to_csv(out, index=False)
+    print(f"{experiment_id} picks on {pd.Timestamp(as_of).date()}: top {picks['rank'].max()} per cell, "
+          f"ranked by EV in ATRs, seeds {', '.join(map(str, sc.seeds))} averaged; "
+          "target / stop at the decision close (the trade enters at the next open)")
+    for (h, u, d), g in picks.groupby(["horizon", "upper_atr", "lower_atr"], sort=True):
+        print(f"  H{h} target +{u:.2f} ATR / stop -{d:.2f} ATR: " + " ".join(g["ticker"]))
+    print(f"-> {out}")
+    return 0
+
+
 def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, exclude_tickers: tuple[str, ...],
                     n_boot: int | None = None, open_holdout: bool = False) -> int:
     from src.models import trading, trial_log
@@ -646,6 +679,15 @@ def main(argv: list[str] | None = None) -> int:
     closesc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     closesc.add_argument("--exclude-tickers", nargs="+", default=[],
                          help="unpickable on both sides, predictions re-read without a refit")
+    fwd = sub.add_parser("score-forward", help="a pre-registered scorecard's picks on one date, for paper trading")
+    fwd.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. HT1")
+    fwd.add_argument("--as-of", required=True, help="the decision date (its close)")
+    fwd.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
+    fwd.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
+    fwd.add_argument("--k", type=int, default=None, help="picks per cell (default: the scorecard's verdict k)")
+    fwd.add_argument("--out", type=Path, default=None, help="default data/models/forward/<id>_<date>.csv")
+    fwd.add_argument("--open-holdout", action="store_true",
+                     help="confirm an --as-of past 2021-12-31; refused until the registered test has run every cell")
     resc = sub.add_parser("rescore-scorecard", help="score run-scorecard's archived predictions again, no refit")
     resc.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     resc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
@@ -666,6 +708,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "close-scorecard":
         return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot,
                                args.open_holdout)
+    if args.command == "score-forward":
+        return score_forward(args.experiment, args.as_of, args.features, args.labels, args.k, args.out,
+                             args.open_holdout)
     if args.command == "rescore-scorecard":
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":

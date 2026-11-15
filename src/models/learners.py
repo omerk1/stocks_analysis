@@ -140,9 +140,32 @@ def fit_predict(
     `keep_raw` also returns the final model's uncalibrated probabilities as
     `raw_p_up`, `raw_p_down`, `raw_p_neither` (same model, no extra fit).
     """
-    train, test = fold_masks(frame, fold)
+    _, test = fold_masks(frame, fold)
+    test &= frame[label_col].notna().to_numpy()
+    model, calibrator = fit_calibrated(frame, fold, make_model, calibrate, n_inner, weight_col, label_col)
+    raw = model.predict_proba(frame.loc[test])
+    probs = calibrator.transform(raw) if calibrator is not None else raw
+    out = frame.loc[test, ["ticker", "date", label_col]].join(probs)
+    if keep_raw:
+        out = out.join(raw.add_prefix("raw_"))
+    return out
+
+
+def fit_calibrated(
+    frame: pd.DataFrame,
+    fold: Fold,
+    make_model: Callable[[], object],
+    calibrate: bool = True,
+    n_inner: int = 2,
+    weight_col: str | None = None,
+    label_col: str = "hit",
+) -> tuple[object, IsotonicCalibrator | None]:
+    """`fit_predict`'s model and calibrator for one outer fold, before any
+    prediction: so rows without a label yet (today's, for forward scoring)
+    can be scored by the same fit."""
+    train, _ = fold_masks(frame, fold)
     resolved = frame[label_col].notna().to_numpy()
-    train, test = train & resolved, test & resolved
+    train = train & resolved
 
     def weights(mask):
         return None if weight_col is None else frame.loc[mask, weight_col].to_numpy()
@@ -165,12 +188,7 @@ def fit_predict(
         calibrator = IsotonicCalibrator().fit(inner_preds[P_COLUMNS], inner_preds[label_col])
 
     model = make_model().fit(frame.loc[train], frame.loc[train, label_col], sample_weight=weights(train))
-    raw = model.predict_proba(frame.loc[test])
-    probs = calibrator.transform(raw) if calibrator is not None else raw
-    out = frame.loc[test, ["ticker", "date", label_col]].join(probs)
-    if keep_raw:
-        out = out.join(raw.add_prefix("raw_"))
-    return out
+    return model, calibrator
 
 
 def monotonicity_violations(preds_by_lower: dict[float, pd.DataFrame], tol: float = 1e-9) -> dict:
