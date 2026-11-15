@@ -1,13 +1,17 @@
+import sqlite3
 from types import SimpleNamespace as NS
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from src.foundation.data_processing import db
 from src.foundation.market_common.models import Timeframe
 from src.signals.avwap.models import AnchorStatus, AnchorType
 from src.signals.fibonacci.models import FibLevelKind, FibSetStatus, SwingDirection
 from src.signals.gaps.models import Direction, GapKind, GapStatus
+from src.signals.sr_lines import engine as sr_engine
+from src.signals.sr_lines.config import get_preset
 from src.signals.sr_lines.models import LineKind, LineState
 from src.ui.chart import overlays
 
@@ -30,7 +34,7 @@ def _line(center, state, kind=LineKind.HORIZONTAL):
 def test_sr_zones_side_by_last_close_and_broken_lines_dead(monkeypatch):
     lines = [_line(95.0, LineState.ACTIVE), _line(105.0, LineState.FLIPPED), _line(100.0, LineState.BROKEN),
              _line(101.0, LineState.ACTIVE, kind=LineKind.DIAGONAL)]
-    monkeypatch.setattr(overlays.sr_engine, "detect", lambda conn, ticker, config: NS(lines=lines))
+    monkeypatch.setattr(overlays, "detect_sr_on_source", lambda conn, ticker, config, source: lines)
     out = overlays.sr_overlays(None, "ABC", DAILY, close=100.0)
     assert len(out) == 6  # 3 horizontal lines x both presets; the diagonal is skipped
     first = out[:3]
@@ -64,12 +68,19 @@ def test_gaps_open_and_partial_are_alive(monkeypatch):
     assert out[1].strength == 1.5 and out[1].tag == "FVG"
 
 
+def _stub_avwap(monkeypatch, found):
+    config = overlays.AvwapConfig
+    monkeypatch.setattr(overlays, "AvwapConfig", lambda: config(min_bars=10))
+    monkeypatch.setattr(overlays, "history_start", lambda *a: None)
+    monkeypatch.setattr(overlays.avwap_anchors, "detect_on_bars", lambda *a, **k: found)
+
+
 def test_avwap_curve_from_its_anchor_and_stale_is_dead(monkeypatch, bars):
     def anchor(date, status):
         return NS(anchor_date=date, current_value=101.0, anchor_types=frozenset({AnchorType.CYCLE_LOW}),
                   status=status, n_crosses=2, avg_reaction_atr_on_touch=None)
     found = [anchor("2024-02-01T00:00:00", AnchorStatus.ACTIVE), anchor("2024-01-15T00:00:00", AnchorStatus.STALE)]
-    monkeypatch.setattr(overlays.avwap_anchors, "detect", lambda *a, **k: (found, None, None))
+    _stub_avwap(monkeypatch, found)
     out = overlays.avwap_overlays(None, "ABC", DAILY, bars)
     assert [o.alive for o in out] == [True, False]
     curve = out[0].series
@@ -81,7 +92,7 @@ def test_avwap_curve_from_its_anchor_and_stale_is_dead(monkeypatch, bars):
 def test_avwap_without_a_module_value_falls_back_to_its_curve(monkeypatch, bars):
     found = [NS(anchor_date="2024-02-01T00:00:00", current_value=None, anchor_types=frozenset({AnchorType.ATH}),
                 status=AnchorStatus.ACTIVE, n_crosses=0, avg_reaction_atr_on_touch=None)]
-    monkeypatch.setattr(overlays.avwap_anchors, "detect", lambda *a, **k: (found, None, None))
+    _stub_avwap(monkeypatch, found)
     (o,) = overlays.avwap_overlays(None, "ABC", DAILY, bars)
     assert o.lo == pytest.approx(o.series.iloc[-1])
     assert np.isnan(overlays._avwap_value(None, None))  # no value at all: out of reach, not a failure
@@ -113,6 +124,76 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     items, errors = overlays.all_overlays(None, "ABC", DAILY, bars)
     assert items == ["avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]  # menu order
     assert errors == {"gaps": "ValueError: boom"}
+
+
+def test_families_that_load_their_own_bars_read_the_charts_vendor(monkeypatch, bars):
+    # A Tiingo-only ticker (bars.attrs["source"], set by load_chart_bars): S/R, gaps and
+    # Fibonacci load their own bars and must read the same vendor, or they'd find none.
+    # (AVWAP and volume profile run on the chart's bars: `test_history_start_...`.)
+    seen = {}
+
+    def recorder(family, result):
+        def detect(*args, source=None, **kwargs):
+            seen.setdefault(family, set()).add(source)
+            return result
+        return detect
+
+    monkeypatch.setattr(overlays.mc_data, "load_bars", recorder("sr", bars.iloc[:0]))
+    monkeypatch.setattr(overlays.gap_detect, "detect", recorder("gaps", ([], None, None)))
+    monkeypatch.setattr(overlays.fib_engine, "detect", recorder("fib", NS(selected_sets=[])))
+    for name in ("avwap_overlays", "volume_profile_overlays", "structure_overlays", "pattern_overlays",
+                 "divergence_overlays"):
+        monkeypatch.setattr(overlays, name, lambda *a: [])
+    tagged = bars.copy()
+    tagged.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    _, errors = overlays.all_overlays(None, "ABC", DAILY, tagged)
+    assert errors == {}
+    assert seen == {"sr": {db.TIINGO_SPLIT_ONLY}, "gaps": {db.TIINGO_SPLIT_ONLY}, "fib": {db.TIINGO_SPLIT_ONLY}}
+
+
+@pytest.fixture
+def raw():
+    c = sqlite3.connect(":memory:")
+    db.create_tables(c)
+    yield c
+    c.close()
+
+
+def test_history_start_reads_the_splits_of_the_bars_vendor(monkeypatch, raw, bars):
+    # AVWAP and volume profile anchors start after a history break found from splits;
+    # a Tiingo-only ticker's splits are Tiingo's (yfinance has none for it).
+    splits = pd.DataFrame({"execution_date": ["2024-02-01"], "split_from": [20.0], "split_to": [1.0], "ratio": [0.05]})
+    db.upsert_splits(raw, "ABC", db.TIINGO, splits)
+    got = []
+    monkeypatch.setattr(overlays.history_breaks, "anchor_start_date",
+                        lambda b, sp, config, ticker: got.append(len(sp)))
+    config = overlays.history_breaks.HistoryBreakConfig()
+    tagged = bars.copy()
+    tagged.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    overlays.history_start(raw, "ABC", tagged, config)
+    overlays.history_start(raw, "ABC", bars, config)  # untagged: yfinance's, none here
+    assert got == [1, 0]
+    assert overlays.history_start(raw, "ABC", tagged,
+                                  overlays.history_breaks.HistoryBreakConfig(enabled=False)) is None
+
+
+@pytest.mark.parametrize("preset", [*overlays.SR_PRESETS[DAILY], *overlays.SR_PRESETS[Timeframe.WEEKLY]])
+def test_sr_lines_match_the_modules_own_detect_on_primary_bars(raw, preset):
+    # `detect_sr_on_source` repeats the module's load (its loader takes no source); on
+    # yfinance bars it must find exactly what `sr_engine.detect` does, for every preset
+    # the chart uses. The history (~10 years) is longer than every window, so each
+    # window's start cuts into it.
+    rng = np.random.default_rng(7)
+    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=2600)
+    assert idx[0] < pd.Timestamp.now() - pd.DateOffset(years=get_preset(preset).window_years + 1)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, len(idx))))
+    frame = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close,
+                          "volume": 1e6, "is_partial": 0}, index=idx)
+    db.upsert_bars(raw, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, frame)
+    config = get_preset(preset)
+    ours = overlays.detect_sr_on_source(raw, "ABC", config, None)
+    theirs = sr_engine.detect(raw, "ABC", config).lines
+    assert ours and [(l.center, l.state) for l in ours] == [(l.center, l.state) for l in theirs]
 
 
 def _div(p1, p2, confirmed, indicator="rsi", direction=Direction.BULLISH, hidden=False, invalidated=False):
@@ -156,7 +237,7 @@ def test_volume_profile_gives_poc_and_value_area_edges_per_anchor(monkeypatch, b
                 profile("2024-02-15", AnchorStatus.ACTIVE, poc=None)]  # no profile built: skipped
     config = overlays.VolumeProfileConfig
     monkeypatch.setattr(overlays, "VolumeProfileConfig", lambda: config(min_bars=10))
-    monkeypatch.setattr(overlays.history_breaks, "anchor_start_for", lambda *a: None)
+    monkeypatch.setattr(overlays, "history_start", lambda *a: None)
     monkeypatch.setattr(overlays.vp_detect, "detect_on_bars", lambda *a, **k: profiles)
     out = overlays.volume_profile_overlays(None, "ABC", DAILY, bars)
     assert [(o.tag, o.lo, o.kind) for o in out[:3]] == [("POC Jan 24", 100.0, "hline"), ("VAH Jan 24", 104.0, "hline"),

@@ -60,15 +60,19 @@ def detect(
     timeframe: Timeframe | str,
     config: FibConfig,
     as_of: str | pd.Timestamp | None = None,
+    source: str | None = None,
 ) -> DetectionResult:
     """`as_of` is non-negotiable no-lookahead: `load_and_validate` already
     restricts every bar this run ever sees to <= as_of, so every downstream
     guarantee (a set only "exists" if its swing's confirmed_at <= as_of,
     invalidation walked forward only through bars <= as_of) falls out of
     that single upstream cutoff rather than needing separate enforcement
-    in swings/levels/lifecycle.
+    in swings/levels/lifecycle. `source`: a `bars_1d.source` on the same
+    basis instead of the primary one (the chart UI's Tiingo-only tickers);
+    the stored runs leave it None.
     """
-    bars, quality = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
+    bars, quality = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis,
+                                               source=source)
     tf_str = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
 
     if len(bars) < config.min_bars:

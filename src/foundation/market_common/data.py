@@ -133,9 +133,11 @@ def load_bars(
         # however long it's been since the last ingestion run (confirmed on
         # real PAAS data). Judging week-closure against wall-clock "now"
         # let a week with only Mon-Wed rows read as "closed" purely because
-        # enough real time had passed -- judging against the data's own
-        # latest timestamp can only ever be *too* conservative, never
-        # silently wrong the other way.
+        # enough real time had passed. Judged against the data's own latest
+        # timestamp, a week closes when the data passes its Friday or ends
+        # on its Friday bar (Done #194: it used to wait for the next week's
+        # data). That trusts the Friday bar's is_partial flag, dropped above
+        # (which vendors set it: `resample._resample`'s docstring).
         weekly_as_of = raw.index.max() if not raw.empty else end_ts
         weekly = resample_mod.to_weekly(raw.assign(is_partial=False), as_of=weekly_as_of)
         raw = weekly[weekly["is_partial"] != True][["open", "high", "low", "close", "volume"]]  # noqa: E712
