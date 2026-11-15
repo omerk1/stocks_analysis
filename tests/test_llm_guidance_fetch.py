@@ -68,18 +68,19 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     assert fetch.release_text(header_open).splitlines() == ["A | B", "", "C", "", "D", "", "E"]  # order kept
     first_open = b"<table><tr><td>EPS<td>2.10</td><td>2.20</td><td>raised</td></tr></table>"  # low before high
     assert fetch.release_text(first_open) == "EPS | 2.10 | 2.20 | raised"
+    # text loose in a row, outside any cell, goes before the table, as a browser shows it: kept, not glued
     tail = b"<table><tr><td>A<td>B</td>tail</tr></table>"
-    assert fetch.release_text(tail) == "A | B | tail"  # loose text kept, in its own cell
+    assert fetch.release_text(tail).splitlines() == ["tail", "", "A | B"]
     tagged_tail = b"<table><tr><td>A<td>B</td><font>2.1</font></tr></table>"
-    assert fetch.release_text(tagged_tail) == "A | B | 2.1"  # a figure in an inline tag kept too
+    assert fetch.release_text(tagged_tail).splitlines() == ["2.1", "", "A | B"]  # a figure in an inline tag too
     wrapped_cell = b"<table><tr><td>A<font><td>B</font><td>C</td></tr></table>"
     assert fetch.release_text(wrapped_cell) == "A | B | C"
-    blocks = {  # a block wrapper is unwrapped with a line break in its place: no glued words, order kept
+    blocks = {  # block tags around unclosed cells and rows: no glued words, no text lost
         b"<table><tr><td>Revenue grew<p>strongly<td>2.1</p></td></tr></table>": ["Revenue grew strongly | 2.1"],
-        b"<table><tr><td>A<p>B<td>C</td></p>D<td>E</td></tr></table>": ["A B | C | D | E"],
+        b"<table><tr><td>A<p>B<td>C</td></p>D<td>E</td></tr></table>": ["D", "", "A B | C | E"],
         b"<table><tr><td>Outlook<ul><li>EPS<td>2.1</ul><td>raised</tr></table>": ["Outlook EPS | 2.1 | raised"],
         b"<table><tr><td>A<center><tr><td>B<td>C</center><tr><td>D</table>": ["A", "", "B | C", "", "D"],
-        b"<table><tr><td>A</td><div><tr><td>B</td></tr></div>X<tr><td>C</td></tr></table>": ["A", "", "B", "", "X", "", "C"],
+        b"<table><tr><td>A</td><div><tr><td>B</td></tr></div>X<tr><td>C</td></tr></table>": ["X", "", "A", "", "B", "", "C"],
     }
     for html, lines in blocks.items():
         assert fetch.release_text(html).splitlines() == lines, html
@@ -88,6 +89,20 @@ def test_release_text_keeps_a_nested_table_s_rows_apart():
     wrapped = b"""<table><tr><td>Outlook</td><font><td>Note</td></font><td><table><tr><td>EPS</td><td>2.1</td>
     </tr></table></td></tr></table>"""
     assert fetch.release_text(wrapped).splitlines() == ["Outlook", "Note", "", "EPS | 2.1"]
+
+
+def test_release_text_closes_tags_the_way_a_browser_does():
+    """The shapes the old hand repair of html.parser's tree got wrong
+    (`docs/fundamentals/guidance_probe.md`, "Text conversion")."""
+    text_before_row = b"<table><tr><td>A</td><font>note<tr><td>B</td></tr></font></table>"
+    assert fetch.release_text(text_before_row).splitlines() == ["note", "", "A", "", "B"]  # was dropped
+    cell_after_row = b"<table><tr><td>A<td>B<tr><td>C</td></tr></td><td>D</td></table>"
+    assert fetch.release_text(cell_after_row).splitlines() == ["A | B", "", "C", "", "D"]  # was ahead of C
+    dollar = b"<table><tr><td>EPS<font><td>$</font>2.10</td></tr></table>"
+    assert fetch.release_text(dollar) == "EPS | $2.10"  # was "EPS | $ | 2.10"
+    misnested = b"<b><p>GAP INC. REPORTS</p><p>SAN FRANCISCO - Aug 5 -</b> Gap Inc. reported sales.</p>"
+    assert fetch.release_text(misnested).splitlines() == [
+        "GAP INC. REPORTS", "", "SAN FRANCISCO - Aug 5 - Gap Inc. reported sales."]  # one paragraph
 
 
 def test_release_text_detects_windows_1252():

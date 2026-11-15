@@ -134,21 +134,28 @@ today's cache, and it rebuilds byte for byte. So the same frozen prompt, at temp
 different answer when only the table formatting changed. The text conversion is part
 of what has to be frozen.
 
-**Text conversion: known gaps.** Old EDGAR HTML often leaves out `</td>` and `</tr>`, and
-Python's `html.parser` then nests rows and cells instead of closing them.
-`fetch.close_unclosed` undoes the common cases. The code reviews still found rarer
-shapes it gets wrong:
-- a run of cells after a nested row lands one per line, not as one row;
-- text in a wrapper just before a nested row is dropped;
-- a cell after an unclosed cell that holds a row comes out ahead of that row;
-- a "$" and its figure split into two cells.
+**Text conversion: html5lib (Done #195).** Old EDGAR HTML often leaves out `</td>` and
+`</tr>`, or misnests tags (`<B><P>…</B>`). The probe first parsed with Python's
+`html.parser`, which nests rows and cells instead of closing them, plus a hand repair
+(`close_unclosed`) that still got rarer shapes wrong: text in a wrapper just before a
+nested row was dropped, a cell after an unclosed cell holding a row came out ahead of
+that row, and a "$" could split from its figure. `fetch.release_text` now parses with
+html5lib, which builds the tree a browser does, and the hand repair is gone. lxml was
+measured too and ruled out: on the unit cases it drops loose text inside tables and
+glues words.
 
-None of these occurs in the 50 releases: their text is the same under every version
-of the fix. Before the full fetch, the conversion should move to a parser that closes
-tags the way browsers do (lxml or html5lib; neither is in the project venv yet),
-measured on a sample of releases. Because v1's replies change with the text (Newell
-above), that switch is also a new text version for the purposes of the exception
-below.
+Measured on the 50 cached releases (30 MB, about the same time as before: 46 s against
+41 s), 49 come out the same. One changes, Gap (slot 32): a misnested `<B><P>` used to break
+its first sentence after the dateline, and now it reads as one paragraph. One known
+difference from the old repair: text loose in a table row, outside any cell, now goes
+before the table, as a browser shows it (before: a cell at the row's end). It is kept
+either way.
+
+This is a new text version for the exception below (v1's replies change with the
+text: Newell above). Gap's cached reply (`probe/extractions/v1/`) now carries the old
+text's hash. Nothing was rerun: the scores above stand on the old text, and a rerun of
+`extract` would ask v1 again for that one release. `load_extractions` checks the
+prompt fingerprint but not the text hash, so the score doesn't notice by itself.
 
 ### Coverage: how often releases carry guidance
 
