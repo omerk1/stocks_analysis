@@ -89,8 +89,8 @@ class ChartData:
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
         self._overlays_cached = lru_cache(maxsize=16)(self._overlays)
-        self._overlay_locks: dict[tuple, threading.Lock] = {}
-        self._locks_lock = threading.Lock()
+        # a fixed set of locks, one picked per chart: bounded, and two charts rarely share one
+        self._overlay_locks = tuple(threading.Lock() for _ in range(32))
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
@@ -123,8 +123,12 @@ class ChartData:
             for _ in range(self.workers):
                 pool.submit(overlays_mod.warm_worker)
 
-    def _drop_pool(self) -> None:
+    def _drop_pool(self, failed: ProcessPoolExecutor | None) -> None:
+        """Drop `failed` if it's still the current pool: a late report from a chart that
+        was on an older pool mustn't shut down the fresh one another chart started."""
         with self._pool_lock:
+            if failed is None or self._pool is not failed:
+                return
             pool, self._pool = self._pool, None
         if pool is not None:
             # not cancel_futures: another chart may still be waiting on this pool's tasks
@@ -152,10 +156,11 @@ class ChartData:
         """`_overlays`, cached, and run once per chart even when callbacks ask at the same
         moment (the menu and the chart both do on a new ticker): the second waits for
         the first's result instead of running every detector again."""
-        with self._locks_lock:
-            lock = self._overlay_locks.setdefault((ticker, timeframe), threading.Lock())
-        with lock:
+        with self._overlay_lock(ticker, timeframe):
             return self._overlays_cached(ticker, timeframe)
+
+    def _overlay_lock(self, ticker: str, timeframe: Timeframe) -> threading.Lock:
+        return self._overlay_locks[hash((ticker, timeframe)) % len(self._overlay_locks)]
 
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
@@ -168,12 +173,14 @@ class ChartData:
         started = time.perf_counter()
         items = errors = None
         if self.workers > 1:
+            pool = None
             try:
-                items, errors = overlays_mod.all_overlays_in_pool(self._worker_pool(), self.raw_path, ticker,
-                                                                  timeframe, bars)
-            except (overlays_mod.PoolFailed, OSError) as e:  # OSError: starting the pool itself
-                logger.warning("overlay worker pool failed (%s); running %s %s here", e, ticker, timeframe.value)
-                self._drop_pool()
+                pool = self._worker_pool()
+                items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe, bars)
+            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
+                logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
+                               exc_info=True)
+                self._drop_pool(pool)
         if items is None:
             conn = _read_only(self.raw_path)
             try:

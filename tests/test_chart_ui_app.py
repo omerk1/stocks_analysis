@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -124,13 +125,30 @@ def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
     data = Pooled()
     dropped = []
     monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
-    monkeypatch.setattr(data, "_drop_pool", lambda: dropped.append(True))
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
                         lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("died")))
     monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
-    assert found.items == ("here",) and dropped == [True]
+    assert found.items == ("here",) and dropped == ["pool"]
+
+
+def test_dropping_a_failed_pool_leaves_a_newer_one_alone():
+    class Pool:
+        def __init__(self):
+            self.shut = False
+
+        def shutdown(self, wait):
+            self.shut = True
+
+    data = FakeData()
+    old, new = Pool(), Pool()
+    data._pool = new  # another chart already replaced `old`
+    data._drop_pool(old)
+    assert data._pool is new and not new.shut
+    data._drop_pool(new)
+    assert data._pool is None and new.shut
 
 
 def test_the_same_chart_asked_for_at_once_runs_its_detectors_once():
@@ -152,6 +170,7 @@ def test_the_same_chart_asked_for_at_once_runs_its_detectors_once():
     threads[0].start()
     started.wait(5)
     threads[1].start()  # asks while the first is still running
+    time.sleep(0.3)  # long enough for it to reach the lock (without one, it would run the detectors again)
     release.set()
     for t in threads:
         t.join(5)

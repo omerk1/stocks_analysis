@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
-import time
-from concurrent.futures import CancelledError, Executor
+from concurrent.futures import Executor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -561,9 +560,10 @@ _RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, c
 
 
 class PoolFailed(Exception):
-    """The worker pool, not a family, failed: a worker died, the pool was shut down
-    under a task, or a process couldn't be started. The caller runs the families in
-    its own process instead."""
+    """The worker pool, not a family, failed: a worker died, the pool was already shut
+    down, or a process couldn't be started. The caller runs the families in its own
+    process instead. (No timeout, as before the pool: a detector that never returned
+    would hang the chart either way.)"""
 
 
 def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
@@ -592,10 +592,6 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
 # start at once and the quick ones fill in around them; the rest in menu order.
 _SLOW = (GAPS, FIB, SR, PAT)
 _SLOWEST_FIRST = _SLOW + tuple(f for f in FAMILIES if f not in _SLOW)
-# A family still running this long after the chart's tasks were submitted is filed as
-# that family's error (TimeoutError), so a stuck detector can't hang the chart. Its
-# worker stays busy until it finishes: the pool can't stop a running task.
-FAMILY_TIMEOUT_S = 180
 
 
 def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Timeframe,
@@ -620,19 +616,19 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
     the detectors are pure Python and pandas, so threads would wait on each other). A
     chart takes about as long as its slowest family instead of the sum. Raises
     `PoolFailed` when the pool, not a family, failed; any other error is that family's."""
+    futures = {}
     try:
-        futures = {family: pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
-                   for family in _SLOWEST_FIRST}
+        for family in _SLOWEST_FIRST:
+            futures[family] = pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
     except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
+        for f in futures.values():  # the caller runs every family itself: don't run these twice
+            f.cancel()
         raise PoolFailed(f"{type(e).__name__}: {e}") from e
-    deadline = time.monotonic() + FAMILY_TIMEOUT_S
 
     def result(family):
         try:
-            return futures[family].result(timeout=max(0.0, deadline - time.monotonic()))
-        except (BrokenProcessPool, CancelledError) as e:
+            return futures[family].result()
+        except BrokenProcessPool as e:
             raise PoolFailed(f"{family}: {type(e).__name__}: {e}") from e
-        except TimeoutError as e:  # filed as this family's error; the others still draw
-            raise TimeoutError(f"still running after {FAMILY_TIMEOUT_S} s") from e
 
     return _collect(result)

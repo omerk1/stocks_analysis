@@ -1,5 +1,4 @@
 import sqlite3
-from concurrent.futures import CancelledError
 from concurrent.futures.process import BrokenProcessPool
 from types import SimpleNamespace as NS
 
@@ -158,38 +157,39 @@ def test_the_pool_gives_what_running_them_here_gives(monkeypatch, bars, tmp_path
 
 
 class _Pool:
-    """Hands back futures that end in `outcome` (an exception, or None: never done)."""
+    """Hands back futures that end in `outcome`; `on_submit` raised from the
+    `fail_at`-th submit on (0-based)."""
 
-    def __init__(self, outcome=None, on_submit=None):
-        self.outcome, self.on_submit = outcome, on_submit
+    def __init__(self, outcome=None, on_submit=None, fail_at=0):
+        self.outcome, self.on_submit, self.fail_at, self.futures = outcome, on_submit, fail_at, []
 
     def submit(self, *a, **k):
         from concurrent.futures import Future
 
-        if self.on_submit is not None:
+        if self.on_submit is not None and len(self.futures) >= self.fail_at:
             raise self.on_submit
         f = Future()
         if self.outcome is not None:
             f.set_exception(self.outcome)
+        self.futures.append(f)
         return f
 
 
 @pytest.mark.parametrize("pool", [
     _Pool(BrokenProcessPool("a worker died")),
-    _Pool(CancelledError()),  # shut down under the task
     _Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")),
     _Pool(on_submit=OSError("can't start a process")),
-], ids=["broken", "cancelled", "shut-down", "no-process"])
+], ids=["broken", "shut-down", "no-process"])
 def test_a_pool_failure_is_raised_not_filed_as_a_family_error(pool, bars, tmp_path):
     with pytest.raises(overlays.PoolFailed):
         overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
 
 
-def test_a_family_past_the_timeout_is_that_family_s_error(monkeypatch, bars, tmp_path):
-    monkeypatch.setattr(overlays, "FAMILY_TIMEOUT_S", 0.05)
-    items, errors = overlays.all_overlays_in_pool(_Pool(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
-    assert items == [] and set(errors) == set(overlays.FAMILIES)
-    assert errors["gaps"] == "TimeoutError: still running after 0.05 s"
+def test_a_submit_failing_partway_cancels_the_tasks_already_queued(bars, tmp_path):
+    pool = _Pool(on_submit=OSError("can't start a process"), fail_at=2)
+    with pytest.raises(overlays.PoolFailed):
+        overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert len(pool.futures) == 2 and all(f.cancelled() for f in pool.futures)
 
 
 def test_worker_processes_find_what_this_process_finds(tmp_path):
