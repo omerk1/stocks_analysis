@@ -25,7 +25,8 @@ from src.models.forward_files import FILE_NAME
 # importing `src.models.forward` here would pull the model libraries into the app).
 COLUMNS = ["date", "horizon", "upper_atr", "lower_atr", "rank", "ticker", "score", "p_up", "p_down", "p_neither",
            "close_t", "atr", "target_px", "stop_px"]
-_NUMBERS = [c for c in COLUMNS if c not in ("date", "ticker")]  # finite on every row
+_NUMBERS = [c for c in COLUMNS if c not in ("date", "ticker")]
+_KEYS = ["horizon", "upper_atr", "lower_atr", "rank"]  # finite on every row: they group and order the table
 _WHOLE = ["horizon", "rank"]  # and these whole numbers (a horizon is cast to int for its cell)
 
 
@@ -91,10 +92,10 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
         return f"{name} lacks {', '.join(missing)}: not a score-forward file"
     if frame.empty:
         return f"{name} has no picks"
-    # every number score-forward writes is there (it drops rows without an ATR or close);
-    # parsed from text, so True/False or "NaN" isn't taken for a number
+    # parsed from text, so True/False or "NaN" text isn't taken for a number
     numbers = frame[_NUMBERS].astype(str).apply(pd.to_numeric, errors="coerce").astype(float)
-    blank = [c for c in _NUMBERS if not np.isfinite(numbers[c]).all()]
+    # the keys group and order the table: a bad one refuses the file
+    blank = [c for c in _KEYS if not np.isfinite(numbers[c]).all()]
     if blank:
         return f"{name}: {', '.join(blank)} not a finite number on every row"
     fractional = [c for c in _WHOLE if (numbers[c] % 1 != 0).any()]
@@ -103,10 +104,16 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
     tickers = frame["ticker"].astype("string").str.strip().str.upper()
     if (tickers.isna() | (tickers == "")).any():
         return f"{name}: a row has no ticker"
-    frame[_NUMBERS], frame["ticker"] = numbers, tickers.astype(str)
+    # a shown value that isn't a finite number is blank in its cell, not a refusal
+    frame[_NUMBERS] = numbers.where(np.isfinite(numbers))
+    frame[_WHOLE] = numbers[_WHOLE].astype(int)
+    frame["ticker"] = tickers.astype(str)
     cell = ["horizon", "upper_atr", "lower_atr"]
-    if frame.duplicated([*cell, "ticker"]).any() or frame.duplicated([*cell, "rank"]).any():
-        return f"{name}: a ticker or a rank appears twice in one cell"
+    for column in ("ticker", "rank"):
+        twice = frame[frame.duplicated([*cell, column], keep=False)]
+        if not twice.empty:
+            h, u, d = twice.iloc[0][cell]
+            return f"{name}: {column} {twice.iloc[0][column]} appears twice in the {int(h)}-day +{u:g}/−{d:g} cell"
     dates = set(pd.to_datetime(frame["date"], errors="coerce").dt.strftime("%Y-%m-%d"))
     if dates != {file.date}:
         return f"{name}: its rows are dated {', '.join(sorted(map(str, dates)))}, not {file.date}"

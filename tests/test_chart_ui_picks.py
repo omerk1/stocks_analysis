@@ -75,18 +75,24 @@ def test_bad_files_give_a_message(tmp_path):
     endless.loc[1, "upper_atr"] = float("inf")
     write(tmp_path, "HT1_2026-08-18.csv", endless)
     assert "upper_atr not a finite number" in picks_mod.read_picks(blank_file)
-    twice = pd.concat([pick_frame(), pick_frame().iloc[:1]])
-    write(tmp_path, "HT1_2026-08-18.csv", twice)
-    assert "appears twice in one cell" in picks_mod.read_picks(blank_file)
+    same_ticker = pick_frame()
+    same_ticker.loc[1, "ticker"] = "AAPL"                                  # ranks 1 and 2, one ticker
+    write(tmp_path, "HT1_2026-08-18.csv", same_ticker)
+    assert "ticker AAPL appears twice in the 63-day +2/−1 cell" in picks_mod.read_picks(blank_file)
     same_rank = pick_frame()
-    same_rank.loc[1, "rank"] = 1
+    same_rank.loc[1, "rank"] = 1                                           # two tickers, one rank
     write(tmp_path, "HT1_2026-08-18.csv", same_rank)
-    assert "appears twice in one cell" in picks_mod.read_picks(blank_file)
-    for column, value in [("score", "NaN"), ("atr", "abc"), ("horizon", "True")]:
-        bad_value = pick_frame().astype({column: object})
-        bad_value.loc[1, column] = value
-        write(tmp_path, "HT1_2026-08-18.csv", bad_value)
-        assert f"{column} not a finite number" in picks_mod.read_picks(blank_file), column
+    assert "rank 1 appears twice in the 63-day +2/−1 cell" in picks_mod.read_picks(blank_file)
+    flag = pick_frame().astype({"horizon": object})
+    flag.loc[1, "horizon"] = "True"
+    write(tmp_path, "HT1_2026-08-18.csv", flag)
+    assert "horizon not a finite number" in picks_mod.read_picks(blank_file)
+    shown = pick_frame().astype({"score": object, "atr": object})      # a bad shown value: blank, file kept
+    shown.loc[1, "score"], shown.loc[1, "atr"], shown.loc[2, "p_up"] = "NaN", "abc", float("inf")
+    write(tmp_path, "HT1_2026-08-18.csv", shown)
+    read = picks_mod.read_picks(blank_file)
+    assert read[["score", "atr", "p_up"]].isna().sum().to_dict() == {"score": 1, "atr": 1, "p_up": 1}
+    assert read["rank"].dtype == int and read["horizon"].dtype == int
     half = pick_frame().astype({"horizon": float})
     half.loc[1, "horizon"] = 21.5
     write(tmp_path, "HT1_2026-08-18.csv", half)
