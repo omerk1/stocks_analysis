@@ -448,7 +448,7 @@ class Overlay:
      restart. Nothing is stored. `dash_table.DataTable` is deprecated in Dash 4 in
      favour of dash-ag-grid; it still works, and swapping it is a later change.
 
-   Added after step 6 (Done #200): a **Picks** tab, the first version of "Model picks"
+   Added after step 6 (Done #201): a **Picks** tab, the first version of "Model picks"
    below. It lists the combined model's top picks on one decision date, one table per
    horizon and barrier cell: rank, ticker, EV in ATRs, the three calibrated
    probabilities, the decision close and ATR, and the target and stop at that close
@@ -515,7 +515,7 @@ shape, the read-only adapters and `figure.py` with no Dash in it are what keep t
   (`docs/backlog.md`, LLM section).
 - **Model picks:** open the chart from the combined model's top-k list for a date, with the
   pick's features in the side panel. The list and the click are built (the Picks tab,
-  Done #200); the features panel isn't.
+  Done #201); the features panel isn't.
 - **Strategy agent in the UI:** type an idea, answer its questions in a side panel, and see
   the matching events and near-misses drawn on the chart, then the exploratory look. Today
   it saves static charts.
