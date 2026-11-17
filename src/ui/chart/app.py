@@ -89,7 +89,8 @@ class ChartData:
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
         self._overlays_cached = lru_cache(maxsize=16)(self._overlays)
-        self._overlay_locks: dict[tuple, threading.Lock] = {}  # one per chart (`_overlay_lock`)
+        # (ticker, timeframe) -> [lock, callers using it]; removed when the last one is done
+        self._overlay_locks: dict[tuple, list] = {}
         self._locks_lock = threading.Lock()
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
@@ -123,16 +124,25 @@ class ChartData:
             for _ in range(self.workers):
                 pool.submit(overlays_mod.warm_worker)
 
-    def _drop_pool(self, failed: ProcessPoolExecutor | None) -> None:
-        """Drop `failed` if it's still the current pool: a late report from a chart that
-        was on an older pool mustn't shut down the fresh one another chart started."""
+    def _drop_pool(self, failed: ProcessPoolExecutor | None) -> bool:
+        """Drop `failed` if it's still the current pool (True if it was): a late report
+        from a chart that was on an older pool mustn't shut down the fresh one another
+        chart started."""
         with self._pool_lock:
             if failed is None or self._pool is not failed:
-                return
-            pool, self._pool = self._pool, None
-        if pool is not None:
-            # not cancel_futures: another chart may still be waiting on this pool's tasks
-            pool.shutdown(wait=False)
+                return False
+            self._pool = None
+        # not cancel_futures: another chart may still be waiting on this pool's tasks
+        failed.shutdown(wait=False)
+        return True
+
+    def _rewarm(self) -> None:
+        """Start a fresh pool in the background after one was dropped, so the next chart
+        doesn't pay its start-up; never raises (that chart falls back on its own)."""
+        try:
+            self.warm_pool()
+        except Exception:  # noqa: BLE001 -- e.g. OSError: can't start processes
+            logger.warning("couldn't restart the overlay worker pool", exc_info=True)
 
     def _bars(self, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
         conn = _read_only(self.raw_path)
@@ -156,45 +166,43 @@ class ChartData:
         """`_overlays`, cached, and run once per chart even when callbacks ask at the same
         moment (the menu and the chart both do on a new ticker): the second waits for
         the first's result instead of running every detector again."""
-        with self._overlay_lock(ticker, timeframe):
-            return self._overlays_cached(ticker, timeframe)
-
-    def _overlay_lock(self, ticker: str, timeframe: Timeframe) -> threading.Lock:
-        """This chart's own lock, so different charts never wait on each other. Locks
-        no one holds are pruned past 256 charts, so an app open for days stays small (at
-        worst, a chart asked for during a prune runs its detectors twice)."""
-        with self._locks_lock:
-            if len(self._overlay_locks) > 256:
-                self._overlay_locks = {k: v for k, v in self._overlay_locks.items() if v.locked()}
-            return self._overlay_locks.setdefault((ticker, timeframe), threading.Lock())
+        key = (ticker, timeframe)
+        with self._locks_lock:  # this chart's own lock, so different charts never wait on each other
+            entry = self._overlay_locks.setdefault(key, [threading.Lock(), 0])
+            entry[1] += 1
+        try:
+            with entry[0]:
+                return self._overlays_cached(ticker, timeframe)
+        finally:
+            with self._locks_lock:  # kept only while someone uses it: the dict stays small
+                entry[1] -= 1
+                if entry[1] == 0:
+                    del self._overlay_locks[key]
 
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
-        With `workers` > 1 the families run in parallel worker processes, started on
-        the first chart and kept for the life of the app; if the pool breaks (a worker
-        died), it's dropped and this chart's families run here, one after another."""
+        With `workers` > 1 the families run in parallel worker processes, started with
+        the app (`warm_pool`) or the first chart and kept for its life. If the pool fails
+        (a worker died, or a process can't start), it's dropped, a fresh one is started
+        in the background for later charts, and this chart's families run here, one
+        after another."""
         bars = self.bars(ticker, timeframe)
         if bars.empty:
             return OverlaySet((), {}, 0.0)
         started = time.perf_counter()
         items = errors = None
         if self.workers > 1:
-            tried = []  # the pools themselves, not ids (a dropped pool's id can be reused)
-            while items is None:
-                pool = None
-                try:
-                    pool = self._worker_pool()
-                    if any(p is pool for p in tried):
-                        break  # this pool already failed this chart
-                    tried.append(pool)
-                    items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe,
-                                                                      bars)
-                except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
-                    logger.warning("overlay worker pool failed for %s %s", ticker, timeframe.value, exc_info=True)
-                    self._drop_pool(pool)
-                    if pool is None or len(tried) >= 2:
-                        break  # can't start one, or a second pool failed too: run them here
-                    # else: another chart may have started a healthy pool already; try it once
+            pool = None
+            try:
+                pool = self._worker_pool()
+                items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe, bars)
+            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
+                logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
+                               exc_info=True)
+                # Not retried on another pool: a fresh one is cold (seconds of imports), and
+                # a chart that crashes its worker would crash the next pool too.
+                if self._drop_pool(pool):
+                    self._rewarm()
         if items is None:
             conn = _read_only(self.raw_path)
             try:

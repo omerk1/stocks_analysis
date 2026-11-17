@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from concurrent.futures import CancelledError, Executor
+from concurrent.futures import Executor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -628,7 +628,7 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
     def result(family):
         try:
             return futures[family].result()
-        except (BrokenProcessPool, CancelledError) as e:  # the pool's doing, not the family's
+        except BrokenProcessPool as e:  # the pool's doing, not the family's
             raise PoolFailed(f"{family}: {type(e).__name__}: {e}") from e
 
     return _collect(result)
