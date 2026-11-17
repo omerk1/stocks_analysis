@@ -49,7 +49,7 @@ from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range,
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
 _ROOT = Path(__file__).resolve().parents[3]
-PICKS_DIR = FORWARD_DIR  # where score-forward writes by default
+PICKS_DIR = _ROOT / FORWARD_DIR  # where score-forward writes by default, run from the repo root
 
 
 def _resolve(path: str) -> Path:
@@ -634,17 +634,18 @@ def clicked_row(cell: dict | None) -> str | None:
 def open_chart(table: str | None, member_cell: dict | None, pick_cell: dict | None) -> tuple:
     """(ticker, page, members' active cell, picks' active cell) for a click on table
     `table` ('members' or 'picks'): the clicked ticker's chart, the clicked cell cleared."""
-    ticker = clicked_row(member_cell if table == "members" else pick_cell if table == "picks" else None)
+    cells = {"members": member_cell, "picks": pick_cell}
+    ticker = clicked_row(cells.get(table))
     if not ticker:
         return no_update, no_update, no_update, no_update
-    return (ticker, "chart", None if table == "members" else no_update, None if table == "picks" else no_update)
+    return (ticker, "chart", *(None if t == table else no_update for t in cells))
 
 
 _PRICE = Format(precision=2, scheme=Scheme.fixed)
 _SCORE = Format(precision=2, scheme=Scheme.fixed, sign=Sign.positive)
 _PROB = Format(precision=1, scheme=Scheme.percentage)  # one decimal: neighbouring picks often differ by less than 1%
 NO_PICKS = ("No pick files yet: run `python -m src.models.cli score-forward <scorecard> --as-of DATE` "
-            "(it writes data/models/forward/), then Reload.")
+            "from the repo root (it writes data/models/forward/), then Reload.")
 
 
 def pick_columns() -> list[dict]:

@@ -28,12 +28,20 @@ def test_columns_are_what_score_forward_writes():
     assert set(picks_mod.COLUMNS) <= set(PICK_COLUMNS)
 
 
-def test_the_tab_reads_where_and_as_score_forward_writes():
-    from src.models import cli, forward_files
-    assert app_mod.PICKS_DIR == forward_files.FORWARD_DIR == app_mod._ROOT / "data" / "models" / "forward"
-    name = forward_files.pick_file_name("HT1", "2026-08-18")
-    assert forward_files.FILE_NAME.match(name)["date"] == "2026-08-18"
-    assert "FORWARD_DIR / pick_file_name(" in Path(cli.__file__).read_text()  # the command's default --out
+def test_the_tab_lists_what_score_forward_writes(tmp_path, monkeypatch):
+    """The command's default file, run from a repo root (here tmp_path), is one the tab lists."""
+    from src.models import cli, forward, trading
+    from src.models.features import cache
+    sc = trading.PREREGISTERED["F2"]
+    monkeypatch.setattr(forward, "check_can_score", lambda *a, **k: None)
+    monkeypatch.setattr(cache, "read_feature_cache", lambda *a, **k: pd.DataFrame(columns=list(sc.model_columns)))
+    monkeypatch.setattr(forward, "score_date", lambda *a, **k: pick_frame("2021-06-30"))
+    monkeypatch.chdir(tmp_path)
+    assert cli.score_forward("F2", "2021-06-30", Path("f"), Path("l"), None, None) == 0
+    [listed] = picks_mod.list_files(tmp_path / "data" / "models" / "forward")
+    assert listed.label == "F2 · 2021-06-30"
+    assert isinstance(picks_mod.read_picks(listed), pd.DataFrame)
+    assert app_mod.PICKS_DIR == app_mod._ROOT / "data" / "models" / "forward"   # the app's own repo root
 
 
 def test_files_listed_newest_first_and_only_default_names(tmp_path):
@@ -62,6 +70,14 @@ def test_bad_files_give_a_message(tmp_path):
     blank.loc[1, "horizon"] = None
     blank_file = picks_mod.PickFile("HT1", "2026-08-18", write(tmp_path, "HT1_2026-08-18.csv", blank))
     assert "horizon not a number on every row" in picks_mod.read_picks(blank_file)
+    half = pick_frame().astype({"horizon": float})
+    half.loc[1, "horizon"] = 21.5
+    write(tmp_path, "HT1_2026-08-18.csv", half)
+    assert "horizon not a whole number on every row" in picks_mod.read_picks(blank_file)
+    no_ticker = pick_frame()
+    no_ticker.loc[1, "ticker"] = None
+    write(tmp_path, "HT1_2026-08-18.csv", no_ticker)
+    assert "a row has no ticker" in picks_mod.read_picks(blank_file)
 
 
 def test_cells_sorted_and_rows_by_rank():

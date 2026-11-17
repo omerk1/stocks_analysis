@@ -25,6 +25,7 @@ from src.models.forward_files import FILE_NAME
 COLUMNS = ["date", "horizon", "upper_atr", "lower_atr", "rank", "ticker", "score", "p_up", "p_down", "p_neither",
            "close_t", "atr", "target_px", "stop_px"]
 _KEYS = ["horizon", "upper_atr", "lower_atr", "rank"]  # must be numbers on every row: they group and order the table
+_WHOLE = ["horizon", "rank"]  # and these whole numbers (a horizon is cast to int for its cell)
 
 
 @dataclass(frozen=True)
@@ -64,8 +65,7 @@ def list_files(folder: Path) -> list[PickFile]:
         m = FILE_NAME.match(path.name)
         if m:
             files.append(PickFile(m["experiment"], m["date"], path))
-    by_scorecard = sorted(files, key=lambda f: f.experiment)
-    return sorted(by_scorecard, key=lambda f: f.date, reverse=True)  # stable: A–Z kept within a date
+    return sorted(files, key=lambda f: (-int(f.date.replace("-", "")), f.experiment))
 
 
 def find_file(folder: Path, name: str | None) -> PickFile | None:
@@ -87,10 +87,16 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
         return f"{name} lacks {', '.join(missing)}: not a score-forward file"
     if frame.empty:
         return f"{name} has no picks"
-    bad = [c for c in _KEYS if pd.to_numeric(frame[c], errors="coerce").isna().any()]
-    if bad:
-        return f"{name}: {', '.join(bad)} not a number on every row"
-    frame[_KEYS] = frame[_KEYS].apply(pd.to_numeric)
+    numbers = frame[_KEYS].apply(pd.to_numeric, errors="coerce")
+    blank = [c for c in _KEYS if numbers[c].isna().any()]
+    if blank:
+        return f"{name}: {', '.join(blank)} not a number on every row"
+    fractional = [c for c in _WHOLE if (numbers[c] % 1 != 0).any()]
+    if fractional:
+        return f"{name}: {', '.join(fractional)} not a whole number on every row"
+    if frame["ticker"].isna().any() or (frame["ticker"].astype(str).str.strip() == "").any():
+        return f"{name}: a row has no ticker"
+    frame[_KEYS] = numbers
     dates = set(pd.to_datetime(frame["date"], errors="coerce").dt.strftime("%Y-%m-%d"))
     if dates != {file.date}:
         return f"{name}: its rows are dated {', '.join(sorted(map(str, dates)))}, not {file.date}"

@@ -1,7 +1,9 @@
 """Where `score-forward` writes a date's picks, and the file's name: shared by the
 command (`cli.score_forward`) and the chart UI's Picks tab (`src/ui/chart/picks.py`),
 which lists them. No model libraries are imported here, so the app can use it.
-The folder is the repo's own, whatever directory the command is run from."""
+
+`FORWARD_DIR` is relative, like the command's other defaults (`--features`,
+`--labels`): run the command from the repo root, where the app looks."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-FORWARD_DIR = Path(__file__).resolve().parents[2] / "data" / "models" / "forward"
+FORWARD_DIR = Path("data/models/forward")
 FILE_NAME = re.compile(r"^(?P<experiment>.+)_(?P<date>\d{4}-\d{2}-\d{2})\.csv$")
 
 

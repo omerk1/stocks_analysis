@@ -455,9 +455,10 @@ class Overlay:
    (the trade enters at the next open). Click a ticker for its chart.
    - **It reads files, never a model:** `python -m src.models.cli score-forward
      <scorecard> --as-of DATE` (Done #199) writes `data/models/forward/<id>_<date>.csv`
-     in the repo (since this step, whatever directory it's run from; the folder and the
-     name are shared in `src/models/forward_files.py`), and the tab lists those, newest
-     date first. It never fits, scores or reads a
+     when run from the repo root, like the command's other defaults (the folder and the
+     name are shared in `src/models/forward_files.py`), and the tab lists those in its
+     own checkout, newest date first. A run in a worktree writes to that worktree's
+     folder, which the main checkout's app doesn't see. It never fits, scores or reads a
      cache, so any holdout gate is the command's: HT1 scores nothing until its
      registered test has run every cell, and a dev scorecard (F2) only scores dates up
      to 2021. Files written elsewhere with `--out` aren't listed; a file whose rows

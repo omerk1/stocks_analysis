@@ -523,7 +523,7 @@ def score_forward(experiment_id: str, as_of: str, features_dir: Path, labels_dir
     except (dataset.HoldoutError, ValueError) as e:
         raise SystemExit(str(e)) from None
     from src.models.forward_files import FORWARD_DIR, pick_file_name
-    out = out or FORWARD_DIR / pick_file_name(experiment_id, as_of)  # the repo's folder, the Picks tab lists it
+    out = out or FORWARD_DIR / pick_file_name(experiment_id, as_of)  # from the repo root: the Picks tab lists it
     out.parent.mkdir(parents=True, exist_ok=True)
     picks.to_csv(out, index=False)
     print(f"{experiment_id} picks on {pd.Timestamp(as_of).date()}: top {picks['rank'].max()} per cell, "
@@ -695,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
     fwd.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     fwd.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     fwd.add_argument("--k", type=int, default=None, help="picks per cell (default: the scorecard's verdict k)")
-    fwd.add_argument("--out", type=Path, default=None, help="default <repo>/data/models/forward/<id>_<date>.csv, listed by the chart UI's Picks tab")
+    fwd.add_argument("--out", type=Path, default=None, help="default data/models/forward/<id>_<date>.csv, listed by the chart UI's Picks tab")
     fwd.add_argument("--open-holdout", action="store_true",
                      help="confirm a scorecard registered to open the holdout; refused until its test has run every cell")
     resc = sub.add_parser("rescore-scorecard", help="score run-scorecard's archived predictions again, no refit")
