@@ -25,7 +25,7 @@ from src.models.forward_files import FILE_NAME
 # importing `src.models.forward` here would pull the model libraries into the app).
 COLUMNS = ["date", "horizon", "upper_atr", "lower_atr", "rank", "ticker", "score", "p_up", "p_down", "p_neither",
            "close_t", "atr", "target_px", "stop_px"]
-_KEYS = ["horizon", "upper_atr", "lower_atr", "rank"]  # must be numbers on every row: they group and order the table
+_NUMBERS = [c for c in COLUMNS if c not in ("date", "ticker")]  # finite on every row
 _WHOLE = ["horizon", "rank"]  # and these whole numbers (a horizon is cast to int for its cell)
 
 
@@ -91,19 +91,22 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
         return f"{name} lacks {', '.join(missing)}: not a score-forward file"
     if frame.empty:
         return f"{name} has no picks"
-    numbers = frame[_KEYS].apply(pd.to_numeric, errors="coerce")
-    blank = [c for c in _KEYS if not np.isfinite(numbers[c]).all()]
+    # every number score-forward writes is there (it drops rows without an ATR or close);
+    # parsed from text, so True/False or "NaN" isn't taken for a number
+    numbers = frame[_NUMBERS].astype(str).apply(pd.to_numeric, errors="coerce").astype(float)
+    blank = [c for c in _NUMBERS if not np.isfinite(numbers[c]).all()]
     if blank:
         return f"{name}: {', '.join(blank)} not a finite number on every row"
     fractional = [c for c in _WHOLE if (numbers[c] % 1 != 0).any()]
     if fractional:
         return f"{name}: {', '.join(fractional)} not a whole number on every row"
-    tickers = frame["ticker"].astype("string").str.strip()
+    tickers = frame["ticker"].astype("string").str.strip().str.upper()
     if (tickers.isna() | (tickers == "")).any():
         return f"{name}: a row has no ticker"
-    frame[_KEYS], frame["ticker"] = numbers, tickers.astype(str)
-    if frame.duplicated(["horizon", "upper_atr", "lower_atr", "ticker"]).any():
-        return f"{name}: a ticker appears twice in one cell"
+    frame[_NUMBERS], frame["ticker"] = numbers, tickers.astype(str)
+    cell = ["horizon", "upper_atr", "lower_atr"]
+    if frame.duplicated([*cell, "ticker"]).any() or frame.duplicated([*cell, "rank"]).any():
+        return f"{name}: a ticker or a rank appears twice in one cell"
     dates = set(pd.to_datetime(frame["date"], errors="coerce").dt.strftime("%Y-%m-%d"))
     if dates != {file.date}:
         return f"{name}: its rows are dated {', '.join(sorted(map(str, dates)))}, not {file.date}"

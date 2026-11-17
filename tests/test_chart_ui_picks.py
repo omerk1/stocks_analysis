@@ -77,7 +77,16 @@ def test_bad_files_give_a_message(tmp_path):
     assert "upper_atr not a finite number" in picks_mod.read_picks(blank_file)
     twice = pd.concat([pick_frame(), pick_frame().iloc[:1]])
     write(tmp_path, "HT1_2026-08-18.csv", twice)
-    assert "a ticker appears twice in one cell" in picks_mod.read_picks(blank_file)
+    assert "appears twice in one cell" in picks_mod.read_picks(blank_file)
+    same_rank = pick_frame()
+    same_rank.loc[1, "rank"] = 1
+    write(tmp_path, "HT1_2026-08-18.csv", same_rank)
+    assert "appears twice in one cell" in picks_mod.read_picks(blank_file)
+    for column, value in [("score", "NaN"), ("atr", "abc"), ("horizon", "True")]:
+        bad_value = pick_frame().astype({column: object})
+        bad_value.loc[1, column] = value
+        write(tmp_path, "HT1_2026-08-18.csv", bad_value)
+        assert f"{column} not a finite number" in picks_mod.read_picks(blank_file), column
     half = pick_frame().astype({"horizon": float})
     half.loc[1, "horizon"] = 21.5
     write(tmp_path, "HT1_2026-08-18.csv", half)
@@ -87,10 +96,10 @@ def test_bad_files_give_a_message(tmp_path):
     write(tmp_path, "HT1_2026-08-18.csv", no_ticker)
     assert "a row has no ticker" in picks_mod.read_picks(blank_file)
     odd = pick_frame()
-    odd.loc[0, "ticker"], odd.loc[1, "ticker"] = "NA", " NULL "   # real-looking tickers, not missing values
+    odd.loc[0, "ticker"], odd.loc[1, "ticker"] = "NA", " null "   # real-looking tickers, not missing values
     write(tmp_path, "HT1_2026-08-18.csv", odd)
     read = picks_mod.read_picks(blank_file)
-    assert list(read["ticker"][:2]) == ["NA", "NULL"]              # kept, and stripped
+    assert list(read["ticker"][:2]) == ["NA", "NULL"]              # kept, stripped, upper-cased
 
 
 def test_cells_sorted_and_rows_by_rank():
