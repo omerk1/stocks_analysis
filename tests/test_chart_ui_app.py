@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -85,6 +86,53 @@ def test_render_messages_for_empty_and_unknown_tickers():
     assert _render(FakeData(), "")[0] is None
     fig, message = _render(FakeData(), "NOPE")
     assert fig is None and message == "No bars for NOPE."
+
+
+def test_data_age_counts_the_weekdays_after_the_market_s_last_bar():
+    fri = pd.Timestamp("2026-11-06")
+    assert app_mod.data_age(fri, date(2026, 11, 9), 2) == ("Data to 2026-11-06", False)  # Monday: today's not in yet
+    assert app_mod.data_age(fri, date(2026, 11, 10), 2) == ("Data to 2026-11-06 · 1 weekday behind", False)
+    assert app_mod.data_age(fri, date(2026, 11, 12), 2) == ("Data to 2026-11-06 · 3 weekdays behind", True)
+    assert app_mod.data_age(fri, date(2026, 11, 17), 2) == ("Data to 2026-11-06 · 6 weekdays behind", True)
+    assert app_mod.data_age(fri, date(2026, 11, 6), 2) == ("Data to 2026-11-06", False)
+    assert app_mod.data_age(None, date(2026, 11, 6), 2) == ("No SPY bars: data age unknown", True)
+
+
+def test_data_age_line_reads_spy_and_never_raises():
+    data = FakeData()  # SPY's bars end 2024-12-27 (260 weekdays from 2024-01-01)
+    text, style = app_mod.data_age_children(data, ChartConfig(), today=date(2024, 12, 30))
+    assert (text, style["color"]) == ("Data to 2024-12-27", app_mod._MUTED)
+    text, style = app_mod.data_age_children(data, ChartConfig(), today=date(2025, 1, 6))
+    assert text == "Data to 2024-12-27 · 5 weekdays behind" and style["color"] == app_mod._RED
+
+    class Failing(FakeData):
+        def _bars(self, ticker, timeframe):
+            raise OSError("disk")
+
+    text, style = app_mod.data_age_children(Failing(), ChartConfig())
+    assert text == "data age unknown (OSError)" and style["color"] == app_mod._RED
+
+
+def test_a_broken_worker_pool_falls_back_to_running_here(monkeypatch):
+    from concurrent.futures.process import BrokenProcessPool
+
+    class Pooled(FakeData):
+        def __init__(self):
+            super().__init__()
+            self.workers = 4
+
+        _overlays = app_mod.ChartData._overlays  # the real one, not FakeData's stub
+
+    data = Pooled()
+    dropped = []
+    monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
+    monkeypatch.setattr(data, "_drop_pool", lambda: dropped.append(True))
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
+                        lambda *a: (_ for _ in ()).throw(BrokenProcessPool("died")))
+    monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
+    found = data.overlays("ABC", Timeframe.DAILY)
+    assert found.items == ("here",) and dropped == [True]
 
 
 def test_strip_children_without_rs():

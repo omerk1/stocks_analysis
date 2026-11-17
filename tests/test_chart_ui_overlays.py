@@ -126,6 +126,66 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     assert errors == {"gaps": "ValueError: boom"}
 
 
+def test_every_family_is_submitted_to_the_pool_once():
+    assert sorted(overlays._SLOWEST_FIRST) == sorted(overlays.FAMILIES)
+
+
+def _stub_families(monkeypatch, failing="gaps"):
+    for name, family in (("sr_overlays", "sr"), ("gap_overlays", "gaps"), ("avwap_overlays", "avwap"),
+                         ("fib_overlays", "fib"), ("volume_profile_overlays", "vp"), ("pattern_overlays", "pattern"),
+                         ("divergence_overlays", "div"), ("structure_overlays", "ms")):
+        if family == failing:
+            monkeypatch.setattr(overlays, name, lambda *a: (_ for _ in ()).throw(ValueError("boom")))
+        else:
+            monkeypatch.setattr(overlays, name, lambda *a, family=family: [f"{family} item"])
+
+
+def test_the_pool_gives_what_running_them_here_gives(monkeypatch, bars, tmp_path):
+    # Threads stand in for worker processes here (a monkeypatch doesn't reach a spawned
+    # process): same menu order and per-family errors, whatever order they finish in.
+    from concurrent.futures import ThreadPoolExecutor
+
+    _stub_families(monkeypatch)
+    raw = tmp_path / "raw.sqlite"
+    sqlite3.connect(raw).close()
+    with ThreadPoolExecutor(3) as pool:
+        in_pool = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
+    assert in_pool == overlays.all_overlays(None, "ABC", DAILY, bars)
+    assert in_pool[0] == ["sr item", "avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]
+    assert in_pool[1] == {"gaps": "ValueError: boom"}
+
+
+def test_a_broken_pool_is_raised_not_filed_as_a_family_error(monkeypatch, bars, tmp_path):
+    from concurrent.futures import Future
+    from concurrent.futures.process import BrokenProcessPool
+
+    class Broken:
+        def submit(self, *a, **k):
+            f = Future()
+            f.set_exception(BrokenProcessPool("a worker died"))
+            return f
+
+    with pytest.raises(BrokenProcessPool):
+        overlays.all_overlays_in_pool(Broken(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+
+
+def test_worker_processes_find_what_this_process_finds(bars, tmp_path):
+    # Real spawned workers, each on its own read-only connection, on a small database.
+    from concurrent.futures import ProcessPoolExecutor
+    import multiprocessing
+
+    raw = tmp_path / "raw.sqlite"
+    conn = sqlite3.connect(raw)
+    db.create_tables(conn)
+    conn.close()
+    here = overlays.all_overlays(db.get_connection(f"file:{raw}?mode=ro", uri=True), "ABC", DAILY, bars)
+    with ProcessPoolExecutor(2, mp_context=multiprocessing.get_context("spawn")) as pool:
+        there = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
+    assert [(o.family, o.item_id, o.lo, o.hi) for o in there[0]] == [(o.family, o.item_id, o.lo, o.hi)
+                                                                      for o in here[0]]
+    assert there[1] == here[1]
+
+
 def test_families_that_load_their_own_bars_read_the_charts_vendor(monkeypatch, bars):
     # A Tiingo-only ticker (bars.attrs["source"], set by load_chart_bars): S/R, gaps and
     # Fibonacci load their own bars and must read the same vendor, or they'd find none.

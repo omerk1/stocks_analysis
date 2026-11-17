@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
+from concurrent.futures import Executor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -534,26 +536,76 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
     return out
 
 
-def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
-                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
-    """Every family's overlays, plus {family: message} for families that failed. One
-    family's error doesn't lose the others. The families that load their own bars read
-    the vendor `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the
-    primary one when absent), so a Tiingo-only ticker's levels sit on its own bars."""
+def run_family(family: str, conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+               bars: pd.DataFrame) -> list[Overlay]:
+    """One family's overlays. The families that load their own bars read the vendor
+    `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the primary one
+    when absent), so a Tiingo-only ticker's levels sit on its own bars."""
     close = float(bars["close"].iloc[-1])
     source = bars.attrs.get("source")
-    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close, source),
-            GAPS: lambda: gap_overlays(conn, ticker, timeframe, source),
-            AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
-            FIB: lambda: fib_overlays(conn, ticker, timeframe, source),
-            VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
-            PAT: lambda: pattern_overlays(ticker, timeframe, bars),
-            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
-            MS: lambda: structure_overlays(ticker, timeframe, bars)}
+    if family == SR:
+        return sr_overlays(conn, ticker, timeframe, close, source)
+    if family == GAPS:
+        return gap_overlays(conn, ticker, timeframe, source)
+    if family == AVWAP:
+        return avwap_overlays(conn, ticker, timeframe, bars)
+    if family == FIB:
+        return fib_overlays(conn, ticker, timeframe, source)
+    if family == VP:
+        return volume_profile_overlays(conn, ticker, timeframe, bars)
+    if family == PAT:
+        return pattern_overlays(ticker, timeframe, bars)
+    if family == DIV:
+        return divergence_overlays(conn, ticker, timeframe, bars)
+    if family == MS:
+        return structure_overlays(ticker, timeframe, bars)
+    raise ValueError(f"unknown family {family!r}")
+
+
+def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
+    """`results(family)` for every family, in menu order, plus {family: message} for
+    those that failed: one family's error doesn't lose the others. A broken worker
+    pool is not a family's error, so it's raised (the caller runs them here instead)."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
         try:
-            overlays.extend(runs[family]())
+            overlays.extend(results(family))
+        except BrokenProcessPool:
+            raise
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
     return overlays, errors
+
+
+def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
+    """Every family's overlays, one after another, plus {family: message} for families
+    that failed (`run_family`, `_collect`)."""
+    return _collect(lambda family: run_family(family, conn, ticker, timeframe, bars))
+
+
+# Submitted slowest first (measured on AAPL and NVDA, 2026-11-17), so the long ones
+# start at once and the quick ones fill in around them.
+_SLOWEST_FIRST = (GAPS, FIB, SR, PAT, DIV, MS, AVWAP, VP)  # every family once: tested
+
+
+def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Timeframe,
+                          bars: pd.DataFrame) -> list[Overlay]:
+    """`run_family` in a worker process, on its own read-only connection (a sqlite
+    connection can't cross processes)."""
+    conn = db.get_connection(f"file:{raw_path}?mode=ro", uri=True)
+    try:
+        return run_family(family, conn, ticker, timeframe, bars)
+    finally:
+        conn.close()
+
+
+def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
+                         bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
+    """`all_overlays`, with each family in its own task on `pool` (worker processes:
+    the detectors are pure Python and pandas, so threads would wait on each other). A
+    chart takes about as long as its slowest family instead of the sum. Raises
+    `BrokenProcessPool` if a worker died; any other error is that family's."""
+    futures = {family: pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
+               for family in _SLOWEST_FIRST}
+    return _collect(lambda family: futures[family].result())

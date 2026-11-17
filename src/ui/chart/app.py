@@ -14,9 +14,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import multiprocessing
+import os
 import sqlite3
+import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, replace
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -69,8 +75,13 @@ class ChartData:
     """Reads from the two databases. Bars and moving averages are cached for the
     life of the process; restart the app after new data is ingested."""
 
-    def __init__(self, raw_path: Path, derived_path: Path):
+    def __init__(self, raw_path: Path, derived_path: Path, workers: int = 0):
+        """`workers`: processes the level detectors run in, in parallel (0 or 1: one
+        after another, in this process)."""
         self.raw_path, self.derived_path = raw_path, derived_path
+        self.workers = workers
+        self._pool: ProcessPoolExecutor | None = None
+        self._pool_lock = threading.Lock()  # Dash serves callbacks on several threads
         self.bars = lru_cache(maxsize=32)(self._bars)
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
@@ -84,9 +95,26 @@ class ChartData:
         self.groups_note: str | None = None
 
     @classmethod
-    def from_config(cls) -> "ChartData":
+    def from_config(cls, workers: int | None = None) -> "ChartData":
+        """`workers` None: one per family, at most one per CPU."""
         paths = load_config().data_paths
-        return cls(db.default_db_path(_resolve(paths.raw)), default_derived_db_path(_resolve(paths.derived)))
+        if workers is None:
+            workers = min(len(FAMILIES), os.cpu_count() or 1)
+        return cls(db.default_db_path(_resolve(paths.raw)), default_derived_db_path(_resolve(paths.derived)),
+                   workers)
+
+    def _worker_pool(self) -> ProcessPoolExecutor:
+        with self._pool_lock:
+            if self._pool is None:
+                # spawn, not fork: forking a process that runs server threads can copy a held lock
+                self._pool = ProcessPoolExecutor(self.workers, mp_context=multiprocessing.get_context("spawn"))
+            return self._pool
+
+    def _drop_pool(self) -> None:
+        with self._pool_lock:
+            pool, self._pool = self._pool, None
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _bars(self, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
         conn = _read_only(self.raw_path)
@@ -107,16 +135,29 @@ class ChartData:
         return hidden_weekdays(self.market_closed(), self.bars(ticker, Timeframe.DAILY).index)
 
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
-        """Every family's overlays as of the last bar, run live (slow: seconds), cached."""
+        """Every family's overlays as of the last bar, run live (slow: seconds), cached.
+        With `workers` > 1 the families run in parallel worker processes, started on
+        the first chart and kept for the life of the app; if the pool breaks (a worker
+        died), it's dropped and this chart's families run here, one after another."""
         bars = self.bars(ticker, timeframe)
         if bars.empty:
             return OverlaySet((), {}, 0.0)
         started = time.perf_counter()
-        conn = _read_only(self.raw_path)
-        try:
-            items, errors = overlays_mod.all_overlays(conn, ticker, timeframe, bars)
-        finally:
-            conn.close()
+        items = errors = None
+        if self.workers > 1:
+            try:
+                items, errors = overlays_mod.all_overlays_in_pool(self._worker_pool(), self.raw_path, ticker,
+                                                                  timeframe, bars)
+            except BrokenProcessPool:
+                logger.warning("overlay worker pool broke; running %s %s here", ticker, timeframe.value,
+                               exc_info=True)
+                self._drop_pool()
+        if items is None:
+            conn = _read_only(self.raw_path)
+            try:
+                items, errors = overlays_mod.all_overlays(conn, ticker, timeframe, bars)
+            finally:
+                conn.close()
         for family, error in errors.items():
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
         return OverlaySet(tuple(items), errors, time.perf_counter() - started)
@@ -424,6 +465,35 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
     return children, _view_key(ticker, timeframe)
 
 
+def data_age(last: pd.Timestamp | None, today: date, stale_after: int) -> tuple[str, bool]:
+    """(the header's data-age text, whether it's stale) for the market's last bar
+    (`MARKET_CALENDAR_TICKER`'s). Behind = weekdays after that bar and before today
+    (today's bar may not be in yet); a holiday counts as a weekday, so the count can be
+    one or two high. Stale: more than `stale_after` behind."""
+    if last is None:
+        return f"No {MARKET_CALENDAR_TICKER} bars: data age unknown", True
+    behind = len(pd.bdate_range(last.normalize() + pd.Timedelta(days=1), pd.Timestamp(today) - pd.Timedelta(days=1)))
+    if behind <= 0:
+        return f"Data to {last:%Y-%m-%d}", False
+    return (f"Data to {last:%Y-%m-%d} · {behind} weekday{'s' if behind != 1 else ''} behind",
+            behind > stale_after)
+
+
+def data_age_children(data: ChartData, config: ChartConfig, today: date | None = None) -> tuple[str, dict]:
+    """(text, style) for the header's data-age line; never raises."""
+    try:
+        market = data.bars(MARKET_CALENDAR_TICKER, Timeframe.DAILY)
+        last = market.index.max() if not market.empty else None
+    except Exception as e:  # noqa: BLE001 -- a header line mustn't take the chart down
+        logger.warning("data age: %s", e)
+        return f"data age unknown ({type(e).__name__})", {**_AGE_STYLE, "color": _RED}
+    text, stale = data_age(last, today or date.today(), config.stale_after_weekdays)
+    return text, {**_AGE_STYLE, "color": _RED if stale else _MUTED}
+
+
+_AGE_STYLE = {"marginLeft": "auto", "fontSize": "13px"}
+
+
 def strip_children(data: ChartData, config: ChartConfig, ticker: str) -> list[str]:
     ticker = _normalise(ticker)
     if not ticker:
@@ -652,6 +722,7 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                                     {"label": "Candles", "value": ChartType.CANDLES.value}]),
             dcc.Checklist(id="volume", value=["on"], options=[{"label": "Volume", "value": "on"}], **radio),
             html.Span(id="message", style={"color": "#64748b"}),
+            html.Span(id="data-age", style=_AGE_STYLE),
         ]),
         html.Div(id="rs-strip", style={"display": "flex", "gap": "18px", "padding": "6px 0",
                                        "fontSize": "14px", "color": "#0f172a"}),
@@ -803,6 +874,11 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
     def _strip(ticker):
         return [html.Span(p) for p in strip_children(data, config, ticker)]
 
+    # on load and with each ticker, so an app left open for days still says how old its data is
+    @app.callback(Output("data-age", "children"), Output("data-age", "style"), Input("ticker", "value"))
+    def _data_age(_ticker):
+        return data_age_children(data, config)
+
     @app.callback(Output("chart", "figure", allow_duplicate=True), Output("view", "data"),
                   Input("chart", "relayoutData"), State("ticker", "value"), State("timeframe", "value"),
                   State("chart-type", "value"), State("mas", "value"), State("volume", "value"),
@@ -902,9 +978,13 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--ticker", default=ChartConfig.default_ticker, help="the ticker the page opens on")
     parser.add_argument("--page", choices=PAGES, default="chart", help="the tab the page opens on")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="processes the level detectors run in (default: one per family, at most one per CPU; "
+                             "1: one after another)")
     args = parser.parse_args(argv)
     config = replace(ChartConfig(), default_ticker=args.ticker.strip().upper())
-    create_app(config=config, page=args.page).run(host="127.0.0.1", port=args.port, debug=args.debug)
+    create_app(ChartData.from_config(args.workers), config=config, page=args.page).run(
+        host="127.0.0.1", port=args.port, debug=args.debug)
 
 
 if __name__ == "__main__":

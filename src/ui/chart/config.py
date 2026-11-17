@@ -57,6 +57,8 @@ class ChartConfig:
     # The RS strip's "change" compares the latest rating with the last one on or
     # before this many calendar days earlier.
     rs_change_days: int = 28
+    # The header's data age turns red past this many weekdays behind (`app.data_age`).
+    stale_after_weekdays: int = 2
     relevance: "RelevanceConfig" = field(default_factory=lambda: RelevanceConfig())
     panes: "PaneConfig" = field(default_factory=lambda: PaneConfig())
     groups: "GroupsConfig" = field(default_factory=lambda: GroupsConfig())
