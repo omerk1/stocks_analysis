@@ -22,6 +22,7 @@ as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
 from concurrent.futures import Executor
@@ -62,6 +63,8 @@ from src.signals.patterns.models import PatternStatus, PatternType
 from src.signals.sr_lines.models import LineKind, LineState
 from src.signals.volume_profile import detect as vp_detect
 from src.signals.volume_profile.config import VolumeProfileConfig
+
+logger = logging.getLogger(__name__)
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
 SR, GAPS, AVWAP, FIB, VP, PAT, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "patterns",
@@ -606,7 +609,12 @@ def warm_worker() -> None:
     it every detector, before the first chart needs them."""
 
 
-WORKER_DIED = "a detector worker died (a crash or out of memory)"
+class WorkerDied(Exception):
+    """Filed as a family's error when the worker running (or about to run) its task
+    died. Kept like any family error until the app restarts."""
+
+    def __init__(self):
+        super().__init__("a detector worker died (a crash or out of memory); restart the app to retry")
 
 
 def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
@@ -618,11 +626,13 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
 
     A worker dying under a task (`BrokenProcessPool`: a crash or the OOM killer, maybe
     caused by this chart, maybe by another one on the same pool) is filed as the error
-    of each family it cost, like any other family error; families that had finished
-    keep their items. They aren't run again in the app's own process, where the same
-    crash would take the app down. The caller drops the broken pool. There's no
-    timeout: a detector that never returned would hang its chart, as before the pool,
-    and now also keep one worker busy for good."""
+    (`WorkerDied`) of each family it cost, the ones still queued included, like any
+    other family error and cached the same way, until the app restarts; families that
+    had finished keep their items. They aren't run again in the app's own process,
+    where the same crash would take the app down, nor retried on a fresh pool, where a
+    chart that crashes its worker would crash that one too. The caller drops the broken
+    pool. There's no timeout: a detector that never returned would hang its chart, as
+    before the pool, and now also keep one worker busy for good."""
     futures = {}
     try:
         for family in _SLOWEST_FIRST:
@@ -632,14 +642,17 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
             f.cancel()
         raise PoolFailed(f"{type(e).__name__}: {e}") from e
 
-    broke = []
+    broke = False
 
     def result(family):
+        nonlocal broke
         try:
             return futures[family].result()
         except BrokenProcessPool as e:
-            broke.append(family)
-            raise RuntimeError(WORKER_DIED) from e  # filed by `_collect` as this family's error
+            if not broke:
+                logger.warning("a detector worker died on %s %s (%s)", ticker, timeframe.value, e)
+            broke = True
+            raise WorkerDied() from e  # filed by `_collect` as this family's error
 
     items, errors = _collect(result)
-    return items, errors, bool(broke)
+    return items, errors, broke

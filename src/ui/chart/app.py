@@ -191,16 +191,12 @@ class ChartData:
                 pool = self._worker_pool()
                 items, errors, broke = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe,
                                                                          bars)
-                if broke:
-                    logger.warning("an overlay worker died on %s %s", ticker, timeframe.value)
+                if broke:  # logged with its cause by `all_overlays_in_pool`
                     self._drop_pool(pool)
-            except overlays_mod.PoolFailed:
+            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
                 logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
                                exc_info=True)
-                self._drop_pool(pool)
-            except OSError:  # starting the pool itself
-                logger.warning("couldn't start the overlay worker pool; running %s %s here", ticker,
-                               timeframe.value, exc_info=True)
+                self._drop_pool(pool)  # a no-op if it never started
         if items is None:
             conn = _read_only(self.raw_path)
             try:

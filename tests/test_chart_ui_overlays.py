@@ -198,7 +198,7 @@ def test_a_worker_dying_is_the_error_of_each_family_it_cost(bars, tmp_path):
             return f
 
     items, errors, broke = overlays.all_overlays_in_pool(Mixed(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
-    assert broke and errors == {overlays.GAPS: f"RuntimeError: {overlays.WORKER_DIED}"}
+    assert broke and errors == {overlays.GAPS: f"WorkerDied: {overlays.WorkerDied()}"}
     assert len(items) == len(overlays.FAMILIES) - 1  # the finished families keep their items
 
 
