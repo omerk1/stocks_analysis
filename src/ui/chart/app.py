@@ -31,6 +31,7 @@ from src.foundation.market_common.derived_db import default_derived_db_path
 from src.foundation.market_common.models import Timeframe
 from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, source_for
 from src.foundation.utils.config_loader import load_config
+from src.models.forward_files import FORWARD_DIR
 from src.ui.chart import bars as bars_mod
 from src.ui.chart.bars import CHART_BASIS
 from src.ui.chart import earnings as earnings_mod
@@ -48,7 +49,7 @@ from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range,
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
 _ROOT = Path(__file__).resolve().parents[3]
-PICKS_DIR = _ROOT / "data" / "models" / "forward"  # score-forward's default --out folder, run from the repo root
+PICKS_DIR = FORWARD_DIR  # where score-forward writes by default
 
 
 def _resolve(path: str) -> Path:
@@ -630,10 +631,20 @@ def clicked_row(cell: dict | None) -> str | None:
     return (cell or {}).get("row_id") or None
 
 
+def open_chart(table: str | None, member_cell: dict | None, pick_cell: dict | None) -> tuple:
+    """(ticker, page, members' active cell, picks' active cell) for a click on table
+    `table` ('members' or 'picks'): the clicked ticker's chart, the clicked cell cleared."""
+    ticker = clicked_row(member_cell if table == "members" else pick_cell if table == "picks" else None)
+    if not ticker:
+        return no_update, no_update, no_update, no_update
+    return (ticker, "chart", None if table == "members" else no_update, None if table == "picks" else no_update)
+
+
 _PRICE = Format(precision=2, scheme=Scheme.fixed)
 _SCORE = Format(precision=2, scheme=Scheme.fixed, sign=Sign.positive)
+_PROB = Format(precision=1, scheme=Scheme.percentage)  # one decimal: neighbouring picks often differ by less than 1%
 NO_PICKS = ("No pick files yet: run `python -m src.models.cli score-forward <scorecard> --as-of DATE` "
-            "from the repo root (it writes data/models/forward/), then Reload.")
+            "(it writes data/models/forward/), then Reload.")
 
 
 def pick_columns() -> list[dict]:
@@ -641,9 +652,9 @@ def pick_columns() -> list[dict]:
     return [{"name": "#", "id": "rank", **num},
             {"name": "Ticker", "id": "ticker"},
             {"name": "EV (ATR)", "id": "score", **num, "format": _SCORE},
-            {"name": "P up", "id": "p_up", **num, "format": _PCT},
-            {"name": "P down", "id": "p_down", **num, "format": _PCT},
-            {"name": "P neither", "id": "p_neither", **num, "format": _PCT},
+            {"name": "P up", "id": "p_up", **num, "format": _PROB},
+            {"name": "P down", "id": "p_down", **num, "format": _PROB},
+            {"name": "P neither", "id": "p_neither", **num, "format": _PROB},
             {"name": "Close", "id": "close_t", **num, "format": _PRICE},
             {"name": "ATR", "id": "atr", **num, "format": _PRICE},
             {"name": "Target", "id": "target_px", **num, "format": _PRICE},
@@ -964,14 +975,13 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         rows = member_rows(page, sector)
         return rows, members_title(sector, rows, gc), sector_styles(sector_data or [], sector, len(gc.ma_periods))
 
-    # A click on a member opens its chart; the cell is cleared so a second click on it works too.
+    # A click on a member or a pick opens its chart; the cell is cleared so a second
+    # click on it works too.
     @app.callback(Output("ticker", "value"), Output("page", "value"), Output("members", "active_cell"),
-                  Input("members", "active_cell"), prevent_initial_call=True)
-    def _open_chart(cell):
-        ticker = clicked_row(cell)
-        if not ticker:
-            return no_update, no_update, no_update
-        return ticker, "chart", None
+                  Output("picks", "active_cell"), Input("members", "active_cell"), Input("picks", "active_cell"),
+                  prevent_initial_call=True)
+    def _open_chart(member_cell, pick_cell):
+        return open_chart(ctx.triggered_id, member_cell, pick_cell)
 
     # The Picks tab lists the files each time it opens (or on Reload): a listing, cheap,
     # and new files from score-forward show up without a restart.
@@ -992,14 +1002,6 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         if page_value != "picks":
             return no_update, no_update, no_update, no_update
         return picks_view(data.picks_dir, name, key)
-
-    @app.callback(Output("ticker", "value", allow_duplicate=True), Output("page", "value", allow_duplicate=True),
-                  Output("picks", "active_cell"), Input("picks", "active_cell"), prevent_initial_call=True)
-    def _open_pick(cell):
-        ticker = clicked_row(cell)
-        if not ticker:
-            return no_update, no_update, no_update
-        return ticker, "chart", None
 
     return app
 

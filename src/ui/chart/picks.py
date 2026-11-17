@@ -1,6 +1,6 @@
 """The Picks tab's data: the combined model's top picks on one date, read from the
 files `python -m src.models.cli score-forward <id> --as-of DATE` writes
-(`data/models/forward/<id>_<date>.csv`, `src/models/forward.py`). The UI only reads
+(`data/models/forward/<id>_<date>.csv`, `src/models/forward_files.py`). The UI only reads
 those files: it never fits or scores a model, and never reads a cache. Whatever
 holdout gate applies is the command's (`forward.check_can_score`), so a file dated
 past 2021 exists only once that gate let it through.
@@ -13,17 +13,18 @@ next open, so they're a guide until it's known).
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
+from src.models.forward_files import FILE_NAME
+
 # The columns the page reads, a subset of `forward.PICK_COLUMNS` (a test checks it;
 # importing `src.models.forward` here would pull the model libraries into the app).
 COLUMNS = ["date", "horizon", "upper_atr", "lower_atr", "rank", "ticker", "score", "p_up", "p_down", "p_neither",
            "close_t", "atr", "target_px", "stop_px"]
-_NAME = re.compile(r"^(?P<experiment>.+)_(?P<date>\d{4}-\d{2}-\d{2})\.csv$")
+_KEYS = ["horizon", "upper_atr", "lower_atr", "rank"]  # must be numbers on every row: they group and order the table
 
 
 @dataclass(frozen=True)
@@ -53,17 +54,18 @@ class Cell:
 
 
 def list_files(folder: Path) -> list[PickFile]:
-    """The pick files in `folder`, newest decision date first (then by scorecard).
-    Only the command's default names (`<id>_<date>.csv`) are listed; a file written
-    elsewhere with `--out` isn't."""
+    """The pick files in `folder`, newest decision date first, then by scorecard A–Z.
+    Only the command's default names (`forward_files.FILE_NAME`) are listed; a file
+    written elsewhere with `--out` isn't."""
     if not folder.is_dir():
         return []
     files = []
     for path in folder.glob("*.csv"):
-        m = _NAME.match(path.name)
+        m = FILE_NAME.match(path.name)
         if m:
             files.append(PickFile(m["experiment"], m["date"], path))
-    return sorted(files, key=lambda f: (f.date, f.experiment), reverse=True)
+    by_scorecard = sorted(files, key=lambda f: f.experiment)
+    return sorted(by_scorecard, key=lambda f: f.date, reverse=True)  # stable: A–Z kept within a date
 
 
 def find_file(folder: Path, name: str | None) -> PickFile | None:
@@ -85,6 +87,10 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
         return f"{name} lacks {', '.join(missing)}: not a score-forward file"
     if frame.empty:
         return f"{name} has no picks"
+    bad = [c for c in _KEYS if pd.to_numeric(frame[c], errors="coerce").isna().any()]
+    if bad:
+        return f"{name}: {', '.join(bad)} not a number on every row"
+    frame[_KEYS] = frame[_KEYS].apply(pd.to_numeric)
     dates = set(pd.to_datetime(frame["date"], errors="coerce").dt.strftime("%Y-%m-%d"))
     if dates != {file.date}:
         return f"{name}: its rows are dated {', '.join(sorted(map(str, dates)))}, not {file.date}"
