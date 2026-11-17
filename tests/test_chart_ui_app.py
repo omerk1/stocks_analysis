@@ -134,6 +134,29 @@ def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
     assert found.items == ("here",) and dropped == ["pool"]
 
 
+def test_a_chart_on_a_failed_pool_tries_the_next_one_before_running_here(monkeypatch):
+    class Pooled(FakeData):
+        def __init__(self):
+            super().__init__()
+            self.workers = 4
+
+        _overlays = app_mod.ChartData._overlays
+
+    data = Pooled()
+    pools = iter(["old", "new"])
+    monkeypatch.setattr(data, "_worker_pool", lambda: next(pools))
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: None)
+
+    def in_pool(pool, *a):
+        if pool == "old":
+            raise app_mod.overlays_mod.PoolFailed("shut down")
+        return ["from the new pool"], {}
+
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool", in_pool)
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda *a: (["here"], {}))
+    assert data.overlays("ABC", Timeframe.DAILY).items == ("from the new pool",)
+
+
 def test_dropping_a_failed_pool_leaves_a_newer_one_alone():
     class Pool:
         def __init__(self):
@@ -164,13 +187,25 @@ def test_the_same_chart_asked_for_at_once_runs_its_detectors_once():
             return app_mod.OverlaySet((), {}, 0.0)
 
     data = Slow()
+    asked = threading.Event()
+    real_lock = data._overlay_lock
+
+    def lock(*key):  # says when the second caller is about to take the chart's lock
+        found = real_lock(*key)
+        if found.locked():
+            asked.set()
+        return found
+
+    data._overlay_lock = lock
     results = []
     threads = [threading.Thread(target=lambda: results.append(data.overlays("ABC", Timeframe.DAILY)))
                for _ in range(2)]
     threads[0].start()
     started.wait(5)
     threads[1].start()  # asks while the first is still running
-    time.sleep(0.3)  # long enough for it to reach the lock (without one, it would run the detectors again)
+    assert asked.wait(5)  # it reached the lock while the first held it
+    time.sleep(0.05)
+    assert threads[1].is_alive()  # and waits there, instead of running the detectors again
     release.set()
     for t in threads:
         t.join(5)

@@ -89,8 +89,8 @@ class ChartData:
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
         self._overlays_cached = lru_cache(maxsize=16)(self._overlays)
-        # a fixed set of locks, one picked per chart: bounded, and two charts rarely share one
-        self._overlay_locks = tuple(threading.Lock() for _ in range(32))
+        self._overlay_locks: dict[tuple, threading.Lock] = {}  # one per chart (`_overlay_lock`)
+        self._locks_lock = threading.Lock()
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
@@ -160,7 +160,13 @@ class ChartData:
             return self._overlays_cached(ticker, timeframe)
 
     def _overlay_lock(self, ticker: str, timeframe: Timeframe) -> threading.Lock:
-        return self._overlay_locks[hash((ticker, timeframe)) % len(self._overlay_locks)]
+        """This chart's own lock, so different charts never wait on each other. Locks
+        no one holds are pruned past 256 charts, so an app open for days stays small (at
+        worst, a chart asked for during a prune runs its detectors twice)."""
+        with self._locks_lock:
+            if len(self._overlay_locks) > 256:
+                self._overlay_locks = {k: v for k, v in self._overlay_locks.items() if v.locked()}
+            return self._overlay_locks.setdefault((ticker, timeframe), threading.Lock())
 
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
@@ -173,14 +179,22 @@ class ChartData:
         started = time.perf_counter()
         items = errors = None
         if self.workers > 1:
-            pool = None
-            try:
-                pool = self._worker_pool()
-                items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe, bars)
-            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
-                logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
-                               exc_info=True)
-                self._drop_pool(pool)
+            tried = []  # the pools themselves, not ids (a dropped pool's id can be reused)
+            while items is None:
+                pool = None
+                try:
+                    pool = self._worker_pool()
+                    if any(p is pool for p in tried):
+                        break  # this pool already failed this chart
+                    tried.append(pool)
+                    items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe,
+                                                                      bars)
+                except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
+                    logger.warning("overlay worker pool failed for %s %s", ticker, timeframe.value, exc_info=True)
+                    self._drop_pool(pool)
+                    if pool is None or len(tried) >= 2:
+                        break  # can't start one, or a second pool failed too: run them here
+                    # else: another chart may have started a healthy pool already; try it once
         if items is None:
             conn = _read_only(self.raw_path)
             try:

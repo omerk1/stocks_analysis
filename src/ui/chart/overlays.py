@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from concurrent.futures import Executor
+from concurrent.futures import CancelledError, Executor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -562,8 +562,8 @@ _RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, c
 class PoolFailed(Exception):
     """The worker pool, not a family, failed: a worker died, the pool was already shut
     down, or a process couldn't be started. The caller runs the families in its own
-    process instead. (No timeout, as before the pool: a detector that never returned
-    would hang the chart either way.)"""
+    process instead. There's no timeout: a detector that never returned would hang its
+    chart, as before the pool, and now also keep one worker busy for good."""
 
 
 def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
@@ -621,14 +621,14 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
         for family in _SLOWEST_FIRST:
             futures[family] = pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
     except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
-        for f in futures.values():  # the caller runs every family itself: don't run these twice
+        for f in futures.values():  # the caller runs every family itself: drop the ones not started yet
             f.cancel()
         raise PoolFailed(f"{type(e).__name__}: {e}") from e
 
     def result(family):
         try:
             return futures[family].result()
-        except BrokenProcessPool as e:
+        except (BrokenProcessPool, CancelledError) as e:  # the pool's doing, not the family's
             raise PoolFailed(f"{family}: {type(e).__name__}: {e}") from e
 
     return _collect(result)
