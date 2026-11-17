@@ -2,9 +2,11 @@
 ticker, daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the
 level menu with its default "relevant now" picks, the earnings flags and cards, and
 the RSI / MACD / RS panes. A second tab, Groups, ranks the sectors and lists a
-sector's members; click a member to open its chart.
+sector's members; click a member to open its chart. A third, Picks, lists the
+combined model's top picks on a date from the files `score-forward` writes
+(`picks.py`); click a pick to open its chart.
 
-    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups] [--debug]
+    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups|picks] [--debug]
 
 then open http://127.0.0.1:8050. Both databases are opened read-only
 (`mode=ro`), one connection per request.
@@ -35,6 +37,7 @@ from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import groups as groups_mod
 from src.ui.chart import overlays as overlays_mod
 from src.ui.chart import panes as panes_mod
+from src.ui.chart import picks as picks_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, GroupsConfig, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
@@ -45,6 +48,7 @@ from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range,
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
 _ROOT = Path(__file__).resolve().parents[3]
+PICKS_DIR = _ROOT / "data" / "models" / "forward"  # score-forward's default --out folder, run from the repo root
 
 
 def _resolve(path: str) -> Path:
@@ -69,8 +73,8 @@ class ChartData:
     """Reads from the two databases. Bars and moving averages are cached for the
     life of the process; restart the app after new data is ingested."""
 
-    def __init__(self, raw_path: Path, derived_path: Path):
-        self.raw_path, self.derived_path = raw_path, derived_path
+    def __init__(self, raw_path: Path, derived_path: Path, picks_dir: Path = PICKS_DIR):
+        self.raw_path, self.derived_path, self.picks_dir = raw_path, derived_path, picks_dir
         self.bars = lru_cache(maxsize=32)(self._bars)
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
@@ -626,7 +630,67 @@ def clicked_row(cell: dict | None) -> str | None:
     return (cell or {}).get("row_id") or None
 
 
-PAGES = ("chart", "groups")
+_PRICE = Format(precision=2, scheme=Scheme.fixed)
+_SCORE = Format(precision=2, scheme=Scheme.fixed, sign=Sign.positive)
+NO_PICKS = ("No pick files yet: run `python -m src.models.cli score-forward <scorecard> --as-of DATE` "
+            "from the repo root (it writes data/models/forward/), then Reload.")
+
+
+def pick_columns() -> list[dict]:
+    num = {"type": "numeric"}
+    return [{"name": "#", "id": "rank", **num},
+            {"name": "Ticker", "id": "ticker"},
+            {"name": "EV (ATR)", "id": "score", **num, "format": _SCORE},
+            {"name": "P up", "id": "p_up", **num, "format": _PCT},
+            {"name": "P down", "id": "p_down", **num, "format": _PCT},
+            {"name": "P neither", "id": "p_neither", **num, "format": _PCT},
+            {"name": "Close", "id": "close_t", **num, "format": _PRICE},
+            {"name": "ATR", "id": "atr", **num, "format": _PRICE},
+            {"name": "Target", "id": "target_px", **num, "format": _PRICE},
+            {"name": "Stop", "id": "stop_px", **num, "format": _PRICE}]
+
+
+def pick_rows(frame: pd.DataFrame, cell: picks_mod.Cell) -> list[dict]:
+    """One cell's table rows; a row's id is its ticker, so a click opens its chart."""
+    columns = [c["id"] for c in pick_columns()]
+    rows = picks_mod.cell_rows(frame, cell)[columns]
+    return [{"id": r["ticker"], **{k: (None if pd.isna(v) else v) for k, v in r.items()}}
+            for r in rows.to_dict("records")]
+
+
+def picks_header(file: picks_mod.PickFile, frame: pd.DataFrame) -> str:
+    k = int(frame.groupby(["horizon", "upper_atr", "lower_atr"]).size().max())
+    return (f"{file.experiment}, decision close {file.date}: top {k} per cell by EV in ATRs · "
+            "target and stop at that close; the trade enters at the next open · click a ticker for its chart")
+
+
+def picks_view(folder: Path, name: str | None, key: str | None) -> tuple[list[dict], str | None, str, list[dict]]:
+    """(cell options, the cell shown, header, table rows) for file `name` and cell `key`
+    (the first cell if `key` isn't one of the file's)."""
+    file = picks_mod.find_file(folder, name)
+    if file is None:
+        return [], None, NO_PICKS, []
+    frame = picks_mod.read_picks(file)
+    if isinstance(frame, str):
+        return [], None, frame, []
+    cell = picks_mod.find_cell(frame, key)
+    options = [{"label": c.label, "value": c.key} for c in picks_mod.cells(frame)]
+    return options, cell.key, picks_header(file, frame), pick_rows(frame, cell)
+
+
+def file_options(files: list[picks_mod.PickFile]) -> list[dict]:
+    return [{"label": f.label, "value": f.path.name} for f in files]
+
+
+def selected_file(files: list[picks_mod.PickFile], current: str | None) -> str | None:
+    """The file shown: the one picked, else the newest."""
+    names = [f.path.name for f in files]
+    if current in names:
+        return current
+    return names[0] if names else None
+
+
+PAGES = ("chart", "groups", "picks")
 
 
 def create_app(data: ChartData | None = None, config: ChartConfig | None = None, page: str = "chart") -> Dash:
@@ -724,12 +788,32 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                 ]),
             ])),
     ])
+    pick_cells, pick_headers = _base_styles(("ticker",), ())
+    picks_page = html.Div(style={"paddingTop": "8px"}, children=[
+        html.Div(style={"display": "flex", "gap": "12px", "alignItems": "center", "marginBottom": "10px"}, children=[
+            dcc.Dropdown(id="picks-file", options=[], value=None, clearable=False, placeholder="Pick file",
+                         style={"width": "260px", "fontSize": "13px"}),
+            dcc.Dropdown(id="picks-cell", options=[], value=None, clearable=False, placeholder="Cell",
+                         style={"width": "340px", "fontSize": "13px"}),
+            html.Button("Reload", id="picks-reload", n_clicks=0, style={"fontSize": "12px"}),
+        ]),
+        html.Div(id="picks-head", style={"color": _MUTED, "fontSize": "13px", "marginBottom": "8px"}),
+        html.Div(style={"maxWidth": "900px"}, children=[
+            dash_table.DataTable(id="picks", columns=pick_columns(), data=[], page_action="none",
+                                 style_data_conditional=_sign_colours(["score"])
+                                 + [{"if": {"column_id": "ticker"}, "fontWeight": 600}],
+                                 style_table={"maxHeight": "76vh", "overflowY": "auto"},
+                                 **{**table_style, "style_cell_conditional": pick_cells,
+                                    "style_header_conditional": pick_headers}),
+        ]),
+    ])
     app.layout = html.Div(style={"fontFamily": "system-ui, sans-serif", "padding": "8px"}, children=[
         dcc.Store(id="view"),
         dcc.Store(id="group-sector"),
         dcc.Tabs(id="page", value=page, style={"height": "34px"}, children=[
             dcc.Tab(label="Chart", value="chart", children=chart_page, style=_TAB, selected_style=_TAB_ON),
             dcc.Tab(label="Groups", value="groups", children=[groups_page], style=_TAB, selected_style=_TAB_ON),
+            dcc.Tab(label="Picks", value="picks", children=[picks_page], style=_TAB, selected_style=_TAB_ON),
         ]),
     ])
 
@@ -884,6 +968,34 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
     @app.callback(Output("ticker", "value"), Output("page", "value"), Output("members", "active_cell"),
                   Input("members", "active_cell"), prevent_initial_call=True)
     def _open_chart(cell):
+        ticker = clicked_row(cell)
+        if not ticker:
+            return no_update, no_update, no_update
+        return ticker, "chart", None
+
+    # The Picks tab lists the files each time it opens (or on Reload): a listing, cheap,
+    # and new files from score-forward show up without a restart.
+    @app.callback(Output("picks-file", "options"), Output("picks-file", "value"),
+                  Input("page", "value"), Input("picks-reload", "n_clicks"), State("picks-file", "value"))
+    def _pick_files(page_value, _reload, current):
+        if page_value != "picks":
+            return no_update, no_update
+        files = picks_mod.list_files(data.picks_dir)
+        return file_options(files), selected_file(files, current)
+
+    # One callback for the cell menu, header and table, so a Reload re-reads a file
+    # rewritten for the same date, and a cell change redraws the table.
+    @app.callback(Output("picks-cell", "options"), Output("picks-cell", "value"), Output("picks-head", "children"),
+                  Output("picks", "data"), Input("picks-file", "value"), Input("picks-cell", "value"),
+                  Input("picks-reload", "n_clicks"), State("page", "value"))
+    def _pick_table(name, key, _reload, page_value):
+        if page_value != "picks":
+            return no_update, no_update, no_update, no_update
+        return picks_view(data.picks_dir, name, key)
+
+    @app.callback(Output("ticker", "value", allow_duplicate=True), Output("page", "value", allow_duplicate=True),
+                  Output("picks", "active_cell"), Input("picks", "active_cell"), prevent_initial_call=True)
+    def _open_pick(cell):
         ticker = clicked_row(cell)
         if not ticker:
             return no_update, no_update, no_update
