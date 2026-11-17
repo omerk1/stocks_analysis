@@ -30,7 +30,7 @@ def test_columns_are_what_score_forward_writes():
 
 def test_the_tab_lists_what_score_forward_writes(tmp_path, monkeypatch):
     """The command's default file, run from a repo root (here tmp_path), is one the tab lists."""
-    from src.models import cli, forward, trading
+    from src.models import cli, forward, forward_files, trading
     from src.models.features import cache
     sc = trading.PREREGISTERED["F2"]
     monkeypatch.setattr(forward, "check_can_score", lambda *a, **k: None)
@@ -38,10 +38,11 @@ def test_the_tab_lists_what_score_forward_writes(tmp_path, monkeypatch):
     monkeypatch.setattr(forward, "score_date", lambda *a, **k: pick_frame("2021-06-30"))
     monkeypatch.chdir(tmp_path)
     assert cli.score_forward("F2", "2021-06-30", Path("f"), Path("l"), None, None) == 0
-    [listed] = picks_mod.list_files(tmp_path / "data" / "models" / "forward")
+    [listed] = picks_mod.list_files(tmp_path / forward_files.FORWARD_DIR)
     assert listed.label == "F2 · 2021-06-30"
     assert isinstance(picks_mod.read_picks(listed), pd.DataFrame)
-    assert app_mod.PICKS_DIR == app_mod._ROOT / "data" / "models" / "forward"   # the app's own repo root
+    # the app reads the same relative folder, under its own repo root
+    assert app_mod.PICKS_DIR == app_mod._ROOT / forward_files.FORWARD_DIR and not forward_files.FORWARD_DIR.is_absolute()
 
 
 def test_files_listed_newest_first_and_only_default_names(tmp_path):
@@ -69,7 +70,14 @@ def test_bad_files_give_a_message(tmp_path):
     blank = pick_frame()
     blank.loc[1, "horizon"] = None
     blank_file = picks_mod.PickFile("HT1", "2026-08-18", write(tmp_path, "HT1_2026-08-18.csv", blank))
-    assert "horizon not a number on every row" in picks_mod.read_picks(blank_file)
+    assert "horizon not a finite number on every row" in picks_mod.read_picks(blank_file)
+    endless = pick_frame()
+    endless.loc[1, "upper_atr"] = float("inf")
+    write(tmp_path, "HT1_2026-08-18.csv", endless)
+    assert "upper_atr not a finite number" in picks_mod.read_picks(blank_file)
+    twice = pd.concat([pick_frame(), pick_frame().iloc[:1]])
+    write(tmp_path, "HT1_2026-08-18.csv", twice)
+    assert "a ticker appears twice in one cell" in picks_mod.read_picks(blank_file)
     half = pick_frame().astype({"horizon": float})
     half.loc[1, "horizon"] = 21.5
     write(tmp_path, "HT1_2026-08-18.csv", half)
@@ -78,6 +86,11 @@ def test_bad_files_give_a_message(tmp_path):
     no_ticker.loc[1, "ticker"] = None
     write(tmp_path, "HT1_2026-08-18.csv", no_ticker)
     assert "a row has no ticker" in picks_mod.read_picks(blank_file)
+    odd = pick_frame()
+    odd.loc[0, "ticker"], odd.loc[1, "ticker"] = "NA", " NULL "   # real-looking tickers, not missing values
+    write(tmp_path, "HT1_2026-08-18.csv", odd)
+    read = picks_mod.read_picks(blank_file)
+    assert list(read["ticker"][:2]) == ["NA", "NULL"]              # kept, and stripped
 
 
 def test_cells_sorted_and_rows_by_rank():

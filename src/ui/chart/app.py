@@ -634,11 +634,12 @@ def clicked_row(cell: dict | None) -> str | None:
 def open_chart(table: str | None, member_cell: dict | None, pick_cell: dict | None) -> tuple:
     """(ticker, page, members' active cell, picks' active cell) for a click on table
     `table` ('members' or 'picks'): the clicked ticker's chart, the clicked cell cleared."""
-    cells = {"members": member_cell, "picks": pick_cell}
-    ticker = clicked_row(cells.get(table))
+    ticker = clicked_row({"members": member_cell, "picks": pick_cell}.get(table))
     if not ticker:
         return no_update, no_update, no_update, no_update
-    return (ticker, "chart", *(None if t == table else no_update for t in cells))
+    clear_members = None if table == "members" else no_update
+    clear_picks = None if table == "picks" else no_update
+    return ticker, "chart", clear_members, clear_picks
 
 
 _PRICE = Format(precision=2, scheme=Scheme.fixed)

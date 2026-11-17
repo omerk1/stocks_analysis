@@ -16,6 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from src.models.forward_files import FILE_NAME
@@ -65,7 +66,9 @@ def list_files(folder: Path) -> list[PickFile]:
         m = FILE_NAME.match(path.name)
         if m:
             files.append(PickFile(m["experiment"], m["date"], path))
-    return sorted(files, key=lambda f: (-int(f.date.replace("-", "")), f.experiment))
+    files.sort(key=lambda f: f.experiment)          # scorecard A–Z, kept within a date by the stable sort below
+    files.sort(key=lambda f: f.date, reverse=True)  # newest date first (ISO dates sort as text)
+    return files
 
 
 def find_file(folder: Path, name: str | None) -> PickFile | None:
@@ -76,10 +79,11 @@ def find_file(folder: Path, name: str | None) -> PickFile | None:
 
 def read_picks(file: PickFile) -> pd.DataFrame | str:
     """A pick file's rows, or a message saying why it can't be shown; never raises.
-    Its rows must all be on the date its name says."""
+    Its rows must all be on the date its name says, one row per ticker in a cell."""
     name = file.path.name
     try:
-        frame = pd.read_csv(file.path)
+        # only an empty field is missing: "NA" or "NULL" could be a ticker
+        frame = pd.read_csv(file.path, keep_default_na=False, na_values=[""])
     except Exception as e:  # noqa: BLE001 -- a bad file mustn't take the app down
         return f"Can't read {name}: {type(e).__name__}: {e}"
     missing = [c for c in COLUMNS if c not in frame.columns]
@@ -88,15 +92,18 @@ def read_picks(file: PickFile) -> pd.DataFrame | str:
     if frame.empty:
         return f"{name} has no picks"
     numbers = frame[_KEYS].apply(pd.to_numeric, errors="coerce")
-    blank = [c for c in _KEYS if numbers[c].isna().any()]
+    blank = [c for c in _KEYS if not np.isfinite(numbers[c]).all()]
     if blank:
-        return f"{name}: {', '.join(blank)} not a number on every row"
+        return f"{name}: {', '.join(blank)} not a finite number on every row"
     fractional = [c for c in _WHOLE if (numbers[c] % 1 != 0).any()]
     if fractional:
         return f"{name}: {', '.join(fractional)} not a whole number on every row"
-    if frame["ticker"].isna().any() or (frame["ticker"].astype(str).str.strip() == "").any():
+    tickers = frame["ticker"].astype("string").str.strip()
+    if (tickers.isna() | (tickers == "")).any():
         return f"{name}: a row has no ticker"
-    frame[_KEYS] = numbers
+    frame[_KEYS], frame["ticker"] = numbers, tickers.astype(str)
+    if frame.duplicated(["horizon", "upper_atr", "lower_atr", "ticker"]).any():
+        return f"{name}: a ticker appears twice in one cell"
     dates = set(pd.to_datetime(frame["date"], errors="coerce").dt.strftime("%Y-%m-%d"))
     if dates != {file.date}:
         return f"{name}: its rows are dated {', '.join(sorted(map(str, dates)))}, not {file.date}"
