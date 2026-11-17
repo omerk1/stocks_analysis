@@ -131,3 +131,43 @@ def test_only_tickers_on_both_vendors_are_compared(conn, paths):
     _store(conn, "T1", "yfinance", close, volume)
 
     assert vc.both_vendor_tickers(conn, ["T0", "T1", "T2"]) == ["T0"]
+
+
+def test_a_scorecards_columns_only(conn, paths, monkeypatch):
+    """`specs` limits the gate (and the cache read-outs) to a scorecard's own
+    columns, as for a cache built with build-features --scorecard."""
+    from src.models import cli
+    for t, (close, volume) in paths.items():
+        _store(conn, t, "yfinance", close, volume)
+        _store(conn, t, "tiingo", close, volume)
+    specs = cli.scorecard_specs("HT1")
+    r = vc.same_ticker(conn, vc.both_vendor_tickers(conn, TICKERS), *WINDOW, specs=specs)
+    # each spec's model input, plus the raw value of a ranked one (`_compare`)
+    wanted = {vc.registry.model_input(s) for s in specs} | {s.name for s in specs if s.ranked}
+    assert set(r["gaps"]["column"]) | set(r["not_compared"]) == wanted - {"sector"}
+    assert r["passed"] and r["n_level_tickers"] == 0                # HT1 has no level columns: no detector runs
+    with pytest.raises(ValueError, match="lacks registered columns"):
+        vc.run(pd.DataFrame({"ticker": [], "date": []}), pd.DataFrame(), {}, pd.DatetimeIndex([]), pd.Series(),
+               specs)
+
+
+class _Reached(Exception):
+    pass
+
+
+def test_the_command_checks_the_scorecards_columns_over_its_window(conn, monkeypatch):
+    from src.models import cli
+    with pytest.raises(SystemExit, match="pass --open-holdout --end 2026-08-18"):
+        cli.main(["vendor-check", "--db", "x", "--scorecard", "HT1"])          # the dev window only
+    seen = {}
+
+    def same_ticker(conn, tickers, start, end, specs=None):
+        seen["specs"] = specs
+        raise _Reached
+
+    monkeypatch.setattr(cli, "_read_only", lambda path: conn)
+    monkeypatch.setattr(vc, "both_vendor_tickers", lambda conn, tickers: ["T0"])
+    monkeypatch.setattr(vc, "same_ticker", same_ticker)
+    with pytest.raises(_Reached):
+        cli.main(["vendor-check", "--db", "x", "--scorecard", "HT1", "--open-holdout", "--end", "2026-08-18"])
+    assert seen["specs"] == cli.scorecard_specs("HT1")
