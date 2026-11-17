@@ -71,6 +71,7 @@ class OverlaySet:
     items: tuple[Overlay, ...]
     errors: dict[str, str]  # {family: message} for families whose detector failed
     seconds: float  # how long the detectors took, shown in the menu
+    transient: bool = False  # a worker died: not cached, the next request for the chart runs them again
 
 
 class ChartData:
@@ -127,7 +128,7 @@ class ChartData:
     def _drop_pool(self, failed: ProcessPoolExecutor | None) -> bool:
         """Drop `failed` if it's still the current pool (True if it was): a late report
         from a chart that was on an older pool mustn't shut down the fresh one another
-        chart started."""
+        chart started. The next chart starts a fresh pool (cold: seconds of imports)."""
         with self._pool_lock:
             if failed is None or self._pool is not failed:
                 return False
@@ -135,14 +136,6 @@ class ChartData:
         # not cancel_futures: another chart may still be waiting on this pool's tasks
         failed.shutdown(wait=False)
         return True
-
-    def _rewarm(self) -> None:
-        """Start a fresh pool in the background after one was dropped, so the next chart
-        doesn't pay its start-up; never raises (that chart falls back on its own)."""
-        try:
-            self.warm_pool()
-        except Exception:  # noqa: BLE001 -- e.g. OSError: can't start processes
-            logger.warning("couldn't restart the overlay worker pool", exc_info=True)
 
     def _bars(self, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
         conn = _read_only(self.raw_path)
@@ -172,7 +165,10 @@ class ChartData:
             entry[1] += 1
         try:
             with entry[0]:
-                return self._overlays_cached(ticker, timeframe)
+                found = self._overlays_cached(ticker, timeframe)
+                if found.transient:  # not kept (lru_cache can't drop one entry, so all go: rare)
+                    self._overlays_cached.cache_clear()
+                return found
         finally:
             with self._locks_lock:  # kept only while someone uses it: the dict stays small
                 entry[1] -= 1
@@ -182,10 +178,13 @@ class ChartData:
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
         With `workers` > 1 the families run in parallel worker processes, started with
-        the app (`warm_pool`) or the first chart and kept for its life. If the pool fails
-        (a worker died, or a process can't start), it's dropped, a fresh one is started
-        in the background for later charts, and this chart's families run here, one
-        after another."""
+        the app (`warm_pool`) or the first chart and kept for its life. If the pool
+        fails, it's dropped (the next chart starts a fresh one), and:
+        - a worker died running this chart's tasks: the families aren't run again here
+          (a detector that crashed a worker would crash the app), each says so, and the
+          result isn't kept (`transient`), so the next request for the chart tries again;
+        - the pool couldn't take the tasks (a process can't start, or it was already
+          broken by another chart): this chart's families run here, one after another."""
         bars = self.bars(ticker, timeframe)
         if bars.empty:
             return OverlaySet((), {}, 0.0)
@@ -196,13 +195,15 @@ class ChartData:
             try:
                 pool = self._worker_pool()
                 items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe, bars)
-            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
+            except (overlays_mod.PoolFailed, OSError) as e:  # OSError: starting the pool itself
+                self._drop_pool(pool)
+                if getattr(e, "worker_died", False):
+                    logger.warning("an overlay worker died on %s %s", ticker, timeframe.value, exc_info=True)
+                    message = "a detector worker died (crashed or out of memory); reopen the chart to try again"
+                    return OverlaySet((), {f: message for f in FAMILIES}, time.perf_counter() - started,
+                                      transient=True)
                 logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
                                exc_info=True)
-                # Not retried on another pool: a fresh one is cold (seconds of imports), and
-                # a chart that crashes its worker would crash the next pool too.
-                if self._drop_pool(pool):
-                    self._rewarm()
         if items is None:
             conn = _read_only(self.raw_path)
             try:

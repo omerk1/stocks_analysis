@@ -560,10 +560,16 @@ _RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, c
 
 
 class PoolFailed(Exception):
-    """The worker pool, not a family, failed: a worker died, the pool was already shut
-    down, or a process couldn't be started. The caller runs the families in its own
-    process instead. There's no timeout: a detector that never returned would hang its
-    chart, as before the pool, and now also keep one worker busy for good."""
+    """The worker pool, not a family, failed. `worker_died`: a worker died while running
+    this chart's tasks (a crash or the OOM killer, maybe caused by this chart: not to be
+    run again in the app's own process). Otherwise the pool couldn't take the tasks
+    (already broken or shut down, or a process couldn't start) and the caller can run
+    the families itself. There's no timeout: a detector that never returned would hang
+    its chart, as before the pool, and now also keep one worker busy for good."""
+
+    def __init__(self, message: str, worker_died: bool = False):
+        super().__init__(message)
+        self.worker_died = worker_died
 
 
 def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
@@ -629,6 +635,6 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
         try:
             return futures[family].result()
         except BrokenProcessPool as e:  # the pool's doing, not the family's
-            raise PoolFailed(f"{family}: {type(e).__name__}: {e}") from e
+            raise PoolFailed(f"{family}: {type(e).__name__}: {e}", worker_died=True) from e
 
     return _collect(result)

@@ -175,14 +175,16 @@ class _Pool:
         return f
 
 
-@pytest.mark.parametrize("pool", [
-    _Pool(BrokenProcessPool("a worker died")),
-    _Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")),
-    _Pool(on_submit=OSError("can't start a process")),
-], ids=["broken", "shut-down", "no-process"])
-def test_a_pool_failure_is_raised_not_filed_as_a_family_error(pool, bars, tmp_path):
-    with pytest.raises(overlays.PoolFailed):
+@pytest.mark.parametrize("pool, worker_died", [
+    (_Pool(BrokenProcessPool("a worker died")), True),  # died running this chart's tasks
+    (_Pool(on_submit=BrokenProcessPool("broken before")), False),  # another chart broke it
+    (_Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")), False),
+    (_Pool(on_submit=OSError("can't start a process")), False),
+], ids=["died", "already-broken", "shut-down", "no-process"])
+def test_a_pool_failure_is_raised_not_filed_as_a_family_error(pool, worker_died, bars, tmp_path):
+    with pytest.raises(overlays.PoolFailed) as failed:
         overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert failed.value.worker_died is worker_died
 
 
 def test_a_submit_failing_partway_cancels_the_tasks_already_queued(bars, tmp_path):

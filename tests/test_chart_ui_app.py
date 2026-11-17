@@ -123,20 +123,19 @@ def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
         _overlays = app_mod.ChartData._overlays  # the real one, not FakeData's stub
 
     data = Pooled()
-    dropped, rewarmed, used = [], [], []
+    dropped, used = [], []
     monkeypatch.setattr(data, "_worker_pool", lambda: used.append("pool") or "pool")
     monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool) or True)
-    monkeypatch.setattr(data, "warm_pool", lambda: rewarmed.append(True))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
-                        lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("died")))
+                        lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("shut down")))
     monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
-    # run here, not retried on another pool; the failed one dropped and a fresh one started
-    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"] and rewarmed == [True]
+    # the pool couldn't take the tasks: run here, once, and the failed pool dropped
+    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"] and not found.transient
 
 
-def test_a_late_failure_report_neither_drops_nor_restarts_a_newer_pool(monkeypatch):
+def test_a_worker_dying_is_not_run_again_here_nor_cached(monkeypatch):
     class Pooled(FakeData):
         def __init__(self):
             super().__init__()
@@ -145,21 +144,21 @@ def test_a_late_failure_report_neither_drops_nor_restarts_a_newer_pool(monkeypat
         _overlays = app_mod.ChartData._overlays
 
     data = Pooled()
-    rewarmed = []
-    monkeypatch.setattr(data, "_worker_pool", lambda: "old")
-    monkeypatch.setattr(data, "_drop_pool", lambda pool: False)  # another chart already replaced it
-    monkeypatch.setattr(data, "warm_pool", lambda: rewarmed.append(True))
-    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
-                        lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("shut down")))
-    monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
-    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
-    assert data.overlays("ABC", Timeframe.DAILY).items == ("here",) and rewarmed == []
+    ran_here, asked = [], []
+    monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: True)
 
+    def in_pool(*a):
+        asked.append(True)
+        raise app_mod.overlays_mod.PoolFailed("died", worker_died=True)
 
-def test_restarting_the_pool_never_raises(monkeypatch):
-    data = FakeData()
-    monkeypatch.setattr(data, "warm_pool", lambda: (_ for _ in ()).throw(OSError("no processes")))
-    data._rewarm()  # logged, not raised
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool", in_pool)
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda *a: ran_here.append(True) or ([], {}))
+    found = data.overlays("ABC", Timeframe.DAILY)
+    assert found.transient and found.items == () and set(found.errors) == set(app_mod.FAMILIES)
+    assert "worker died" in found.errors["gaps"] and ran_here == []
+    data.overlays("ABC", Timeframe.DAILY)
+    assert len(asked) == 2  # not cached: asked again
 
 
 def test_dropping_a_failed_pool_leaves_a_newer_one_alone():
