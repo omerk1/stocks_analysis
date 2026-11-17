@@ -4,10 +4,12 @@ level menu with its default "relevant now" picks, the earnings flags and cards, 
 the RSI / MACD / RS panes. A second tab, Groups, ranks the sectors and lists a
 sector's members; click a member to open its chart.
 
-    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups] [--debug]
+    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups] [--debug] [--workers N]
 
 then open http://127.0.0.1:8050. Both databases are opened read-only
-(`mode=ro`), one connection per request.
+(`mode=ro`), one connection per request. The level detectors run in parallel
+worker processes (`--workers`, default one per family, at most one per CPU), started
+with the app. The header says how far behind the market's last bar is.
 """
 
 from __future__ import annotations
@@ -109,6 +111,15 @@ class ChartData:
                 # spawn, not fork: forking a process that runs server threads can copy a held lock
                 self._pool = ProcessPoolExecutor(self.workers, mp_context=multiprocessing.get_context("spawn"))
             return self._pool
+
+    def warm_pool(self) -> None:
+        """Start the worker processes now, without waiting: each spends seconds
+        importing the detectors (~19 s on a busy machine), which would otherwise land
+        on the first chart."""
+        if self.workers > 1:
+            pool = self._worker_pool()
+            for _ in range(self.workers):
+                pool.submit(overlays_mod.warm_worker)
 
     def _drop_pool(self) -> None:
         with self._pool_lock:
@@ -983,8 +994,10 @@ def main(argv: list[str] | None = None) -> None:
                              "1: one after another)")
     args = parser.parse_args(argv)
     config = replace(ChartConfig(), default_ticker=args.ticker.strip().upper())
-    create_app(ChartData.from_config(args.workers), config=config, page=args.page).run(
-        host="127.0.0.1", port=args.port, debug=args.debug)
+    data = ChartData.from_config(args.workers)
+    if not args.debug:  # --debug's reloader runs this in a watcher process too, which serves nothing
+        data.warm_pool()
+    create_app(data, config=config, page=args.page).run(host="127.0.0.1", port=args.port, debug=args.debug)
 
 
 if __name__ == "__main__":

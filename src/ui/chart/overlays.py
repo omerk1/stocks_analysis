@@ -600,6 +600,11 @@ def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Ti
         conn.close()
 
 
+def warm_worker() -> None:
+    """A no-op task: running it makes a worker process import this module, and with
+    it every detector, before the first chart needs them."""
+
+
 def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
                          bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
     """`all_overlays`, with each family in its own task on `pool` (worker processes:

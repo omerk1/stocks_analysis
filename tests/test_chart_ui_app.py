@@ -135,6 +135,18 @@ def test_a_broken_worker_pool_falls_back_to_running_here(monkeypatch):
     assert found.items == ("here",) and dropped == [True]
 
 
+def test_warm_pool_starts_one_task_per_worker_and_none_without_workers(monkeypatch):
+    submitted = []
+    pool = type("Pool", (), {"submit": lambda self, fn: submitted.append(fn)})()
+    data = FakeData()
+    monkeypatch.setattr(data, "_worker_pool", lambda: pool)
+    data.warm_pool()  # workers 0: nothing
+    assert submitted == []
+    data.workers = 3
+    data.warm_pool()
+    assert submitted == [app_mod.overlays_mod.warm_worker] * 3
+
+
 def test_strip_children_without_rs():
     assert app_mod.strip_children(FakeData(), ChartConfig(), "abc")[0] == "RS vs market: no RS run"
     assert app_mod.strip_children(FakeData(strip="RS: no derived database"), ChartConfig(), "abc") == [
