@@ -132,10 +132,10 @@ def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
     # the pool couldn't take the tasks: run here, once, and the failed pool dropped
-    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"] and not found.transient
+    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"]
 
 
-def test_a_worker_dying_is_not_run_again_here_nor_cached(monkeypatch):
+def test_a_worker_dying_drops_the_pool_and_is_not_run_again_here(monkeypatch):
     class Pooled(FakeData):
         def __init__(self):
             super().__init__()
@@ -144,21 +144,15 @@ def test_a_worker_dying_is_not_run_again_here_nor_cached(monkeypatch):
         _overlays = app_mod.ChartData._overlays
 
     data = Pooled()
-    ran_here, asked = [], []
+    ran_here, dropped = [], []
     monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
-    monkeypatch.setattr(data, "_drop_pool", lambda pool: True)
-
-    def in_pool(*a):
-        asked.append(True)
-        raise app_mod.overlays_mod.PoolFailed("died", worker_died=True)
-
-    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool", in_pool)
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool) or True)
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
+                        lambda *a: (["sr item"], {"gaps": "RuntimeError: a detector worker died"}, True))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda *a: ran_here.append(True) or ([], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
-    assert found.transient and found.items == () and set(found.errors) == set(app_mod.FAMILIES)
-    assert "worker died" in found.errors["gaps"] and ran_here == []
-    data.overlays("ABC", Timeframe.DAILY)
-    assert len(asked) == 2  # not cached: asked again
+    assert found.items == ("sr item",) and "worker died" in found.errors["gaps"]
+    assert ran_here == [] and dropped == ["pool"]
 
 
 def test_dropping_a_failed_pool_leaves_a_newer_one_alone():

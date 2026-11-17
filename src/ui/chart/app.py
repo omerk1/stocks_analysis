@@ -71,7 +71,6 @@ class OverlaySet:
     items: tuple[Overlay, ...]
     errors: dict[str, str]  # {family: message} for families whose detector failed
     seconds: float  # how long the detectors took, shown in the menu
-    transient: bool = False  # a worker died: not cached, the next request for the chart runs them again
 
 
 class ChartData:
@@ -165,10 +164,7 @@ class ChartData:
             entry[1] += 1
         try:
             with entry[0]:
-                found = self._overlays_cached(ticker, timeframe)
-                if found.transient:  # not kept (lru_cache can't drop one entry, so all go: rare)
-                    self._overlays_cached.cache_clear()
-                return found
+                return self._overlays_cached(ticker, timeframe)
         finally:
             with self._locks_lock:  # kept only while someone uses it: the dict stays small
                 entry[1] -= 1
@@ -179,12 +175,11 @@ class ChartData:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
         With `workers` > 1 the families run in parallel worker processes, started with
         the app (`warm_pool`) or the first chart and kept for its life. If the pool
-        fails, it's dropped (the next chart starts a fresh one), and:
-        - a worker died running this chart's tasks: the families aren't run again here
-          (a detector that crashed a worker would crash the app), each says so, and the
-          result isn't kept (`transient`), so the next request for the chart tries again;
-        - the pool couldn't take the tasks (a process can't start, or it was already
-          broken by another chart): this chart's families run here, one after another."""
+        fails, it's dropped (the next chart starts a fresh one, cold), and:
+        - a worker died under a task: the families it cost are errors, like any other
+          family error (`all_overlays_in_pool`), not run again here;
+        - the pool couldn't take the tasks (a process can't start, or another chart
+          already broke it): this chart's families run here, one after another."""
         bars = self.bars(ticker, timeframe)
         if bars.empty:
             return OverlaySet((), {}, 0.0)
@@ -194,16 +189,18 @@ class ChartData:
             pool = None
             try:
                 pool = self._worker_pool()
-                items, errors = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe, bars)
-            except (overlays_mod.PoolFailed, OSError) as e:  # OSError: starting the pool itself
-                self._drop_pool(pool)
-                if getattr(e, "worker_died", False):
-                    logger.warning("an overlay worker died on %s %s", ticker, timeframe.value, exc_info=True)
-                    message = "a detector worker died (crashed or out of memory); reopen the chart to try again"
-                    return OverlaySet((), {f: message for f in FAMILIES}, time.perf_counter() - started,
-                                      transient=True)
+                items, errors, broke = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe,
+                                                                         bars)
+                if broke:
+                    logger.warning("an overlay worker died on %s %s", ticker, timeframe.value)
+                    self._drop_pool(pool)
+            except overlays_mod.PoolFailed:
                 logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
                                exc_info=True)
+                self._drop_pool(pool)
+            except OSError:  # starting the pool itself
+                logger.warning("couldn't start the overlay worker pool; running %s %s here", ticker,
+                               timeframe.value, exc_info=True)
         if items is None:
             conn = _read_only(self.raw_path)
             try:

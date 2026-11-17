@@ -151,7 +151,7 @@ def test_the_pool_gives_what_running_them_here_gives(monkeypatch, bars, tmp_path
     sqlite3.connect(raw).close()
     with ThreadPoolExecutor(3) as pool:
         in_pool = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
-    assert in_pool == overlays.all_overlays(None, "ABC", DAILY, bars)
+    assert in_pool[:2] == overlays.all_overlays(None, "ABC", DAILY, bars) and in_pool[2] is False
     assert in_pool[0] == ["sr item", "avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]
     assert in_pool[1] == {"gaps": "ValueError: boom"}
 
@@ -175,16 +175,31 @@ class _Pool:
         return f
 
 
-@pytest.mark.parametrize("pool, worker_died", [
-    (_Pool(BrokenProcessPool("a worker died")), True),  # died running this chart's tasks
-    (_Pool(on_submit=BrokenProcessPool("broken before")), False),  # another chart broke it
-    (_Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")), False),
-    (_Pool(on_submit=OSError("can't start a process")), False),
-], ids=["died", "already-broken", "shut-down", "no-process"])
-def test_a_pool_failure_is_raised_not_filed_as_a_family_error(pool, worker_died, bars, tmp_path):
-    with pytest.raises(overlays.PoolFailed) as failed:
+@pytest.mark.parametrize("pool", [
+    _Pool(on_submit=BrokenProcessPool("broken before")),  # another chart broke it
+    _Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")),
+    _Pool(on_submit=OSError("can't start a process")),
+], ids=["already-broken", "shut-down", "no-process"])
+def test_a_pool_that_cannot_take_the_tasks_is_raised(pool, bars, tmp_path):
+    with pytest.raises(overlays.PoolFailed):
         overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
-    assert failed.value.worker_died is worker_died
+
+
+def test_a_worker_dying_is_the_error_of_each_family_it_cost(bars, tmp_path):
+    from concurrent.futures import Future
+
+    class Mixed:  # gaps' worker dies; the others finish
+        def submit(self, fn, family, *a):
+            f = Future()
+            if family == overlays.GAPS:
+                f.set_exception(BrokenProcessPool("a worker died"))
+            else:
+                f.set_result([f"{family} item"])
+            return f
+
+    items, errors, broke = overlays.all_overlays_in_pool(Mixed(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert broke and errors == {overlays.GAPS: f"RuntimeError: {overlays.WORKER_DIED}"}
+    assert len(items) == len(overlays.FAMILIES) - 1  # the finished families keep their items
 
 
 def test_a_submit_failing_partway_cancels_the_tasks_already_queued(bars, tmp_path):

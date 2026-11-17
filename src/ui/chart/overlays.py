@@ -560,28 +560,18 @@ _RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, c
 
 
 class PoolFailed(Exception):
-    """The worker pool, not a family, failed. `worker_died`: a worker died while running
-    this chart's tasks (a crash or the OOM killer, maybe caused by this chart: not to be
-    run again in the app's own process). Otherwise the pool couldn't take the tasks
-    (already broken or shut down, or a process couldn't start) and the caller can run
-    the families itself. There's no timeout: a detector that never returned would hang
-    its chart, as before the pool, and now also keep one worker busy for good."""
-
-    def __init__(self, message: str, worker_died: bool = False):
-        super().__init__(message)
-        self.worker_died = worker_died
+    """The worker pool couldn't take this chart's tasks (already broken or shut down,
+    or a process couldn't start): nothing ran, so the caller runs the families itself.
+    A worker that dies while running a task is not this: see `all_overlays_in_pool`."""
 
 
 def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
     """`results(family)` for every family, in menu order, plus {family: message} for
-    those that failed: one family's error doesn't lose the others. A pool failure is
-    not a family's error, so it's raised (`PoolFailed`)."""
+    those that failed: one family's error doesn't lose the others."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
         try:
             overlays.extend(results(family))
-        except PoolFailed:
-            raise
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
     return overlays, errors
@@ -616,12 +606,23 @@ def warm_worker() -> None:
     it every detector, before the first chart needs them."""
 
 
+WORKER_DIED = "a detector worker died (a crash or out of memory)"
+
+
 def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
-                         bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
+                         bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str], bool]:
     """`all_overlays`, with each family in its own task on `pool` (worker processes:
-    the detectors are pure Python and pandas, so threads would wait on each other). A
-    chart takes about as long as its slowest family instead of the sum. Raises
-    `PoolFailed` when the pool, not a family, failed; any other error is that family's."""
+    the detectors are pure Python and pandas, so threads would wait on each other), plus
+    whether the pool broke. A chart takes about as long as its slowest family instead
+    of the sum. Raises `PoolFailed` if the pool couldn't take the tasks.
+
+    A worker dying under a task (`BrokenProcessPool`: a crash or the OOM killer, maybe
+    caused by this chart, maybe by another one on the same pool) is filed as the error
+    of each family it cost, like any other family error; families that had finished
+    keep their items. They aren't run again in the app's own process, where the same
+    crash would take the app down. The caller drops the broken pool. There's no
+    timeout: a detector that never returned would hang its chart, as before the pool,
+    and now also keep one worker busy for good."""
     futures = {}
     try:
         for family in _SLOWEST_FIRST:
@@ -631,10 +632,14 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
             f.cancel()
         raise PoolFailed(f"{type(e).__name__}: {e}") from e
 
+    broke = []
+
     def result(family):
         try:
             return futures[family].result()
-        except BrokenProcessPool as e:  # the pool's doing, not the family's
-            raise PoolFailed(f"{family}: {type(e).__name__}: {e}", worker_died=True) from e
+        except BrokenProcessPool as e:
+            broke.append(family)
+            raise RuntimeError(WORKER_DIED) from e  # filed by `_collect` as this family's error
 
-    return _collect(result)
+    items, errors = _collect(result)
+    return items, errors, bool(broke)
