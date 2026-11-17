@@ -617,3 +617,58 @@ Nothing was written.
   confound rather than fixed (the user's choice, 2026-11-15).
 - **Prerequisites left:** 7, the caches rebuilt with `--open-holdout --end 2026-08-18`
   into new directories, and the vendor check. Then the test runs once.
+
+### Paper trading after the test (2026-11-17 addendum, while the test runs, before its verdict)
+
+Written while HT1 runs (launched 2026-11-17), before any of its results are seen, so the
+forward test can't be shaped by them. It fixes "Outcomes" ("paper-traded forward and
+judged on the new dates by this same rule, with the date fixed in an addendum before it
+starts").
+
+- **When it runs:** if HT1 passes, is inconclusive, or shows a positive effect that misses
+  the pass rule. Not if it is dead or negative: then nothing is paper-traded, and the
+  write-up is the end of this model.
+- **What is traded:** the frozen model exactly as tested: the 24 columns, B4 as reference,
+  3 seeds averaged, EV-in-ATR ranking, the daily top 20 in each of the 9 barrier cells at
+  H = 21 and H = 63, entry at the next open, the cells' barrier exits, 10 bps a round
+  trip, against the equal-weight market basket at no cost (`src/models/forward.py`,
+  `score-forward`). No change to the model, its columns or its settings, ever, inside
+  this forward test; a fix to a bug that changes picks is a dated addendum, and the
+  dates before it are reported separately.
+- **Refits:** once a year, as in the test. Picks dated in year Y come from the model
+  trained on everything through Y − 1's last day (purged, calibrated on inner folds), so
+  the 2027 model is trained through 2026.
+- **Dates:** decision dates from the first trading day after HT1's result addendum is
+  committed, to the last decision date whose H = 63 label resolves by **2029-12-31**
+  (about 3 years). The dates between the test's data end (2026-08-18) and the start are
+  in neither test: membership is unreliable there and they would be a second look in
+  batch. No verdict before the end date and no early stop, whatever the interim numbers.
+- **Recording, before outcomes:** each week's decision dates are scored by the end of the
+  following weekend, and the picks file (ticker, cell, probabilities, decision close, ATR,
+  the git SHA and the fit's dates) is committed before any of those trades' barriers can
+  resolve. Outcomes are joined later from bars, never typed in. A week that misses this is
+  scored late and flagged, not dropped.
+- **Verdict at the end:** HT1's rule on the forward dates alone: D_H per horizon pooled
+  over the 9 cells, the three verdicts on the ±10 bps band, Holm over the two horizons, at
+  least +10 bps, positive in at least 2 of the calendar years with 126 or more dates. The
+  interval level is set by the noise check (`scripts/scorecard_noise_coverage.py`) rerun
+  at the forward window's own block count, in a dated addendum before the verdict: 3
+  years at H = 63 is about 6 blocks, fewer than the ~9 where 99.9% already left out zero
+  on 1.4% of noise runs. If no level reaches 2% there, H = 63 is reported but not judged.
+- **Interim reports** every quarter are descriptive (cumulative D_H, hit rate, turnover,
+  realised vs modelled fills), with no interval and no verdict.
+- **Length (the user's choice, 2026-11-17):** 3 years, the shortest window where H = 21
+  has about the ~18 date blocks at which the scorecard's intervals were checked; 2 years
+  would give ~12. H = 63 gets ~6 at any practical length, hence the rule above.
+- **The universe for new dates (the user's choice, 2026-11-17).** The S&P 500 membership
+  source stopped at 2026-08-18, so the forward universe is the iShares IVV fund's
+  published holdings, recorded each trading day from now (before the start), a
+  point-in-time record: the members on a date are the equity holdings in that day's
+  file, mapped to our symbols (both share classes kept where the index holds both),
+  cash and futures lines dropped. It is checked against S&P Dow Jones Indices' change
+  announcements; a disagreement is resolved by hand, logged, and the announcement wins
+  for its effective date. A day with no file uses the previous day's.
+- **Still to build before it starts:** the daily holdings recorder, and caches for new
+  dates (the builders accept `--open-holdout` only to a registered data end; forward
+  caches need their own mode, rebuilt to each week's last date into new directories,
+  their end recorded in the picks file). Code PRs, after this note.
