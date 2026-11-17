@@ -24,7 +24,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from concurrent.futures import Executor
+import time
+from concurrent.futures import CancelledError, Executor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
@@ -541,36 +542,39 @@ def run_family(family: str, conn: sqlite3.Connection, ticker: str, timeframe: Ti
     """One family's overlays. The families that load their own bars read the vendor
     `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the primary one
     when absent), so a Tiingo-only ticker's levels sit on its own bars."""
-    close = float(bars["close"].iloc[-1])
-    source = bars.attrs.get("source")
-    if family == SR:
-        return sr_overlays(conn, ticker, timeframe, close, source)
-    if family == GAPS:
-        return gap_overlays(conn, ticker, timeframe, source)
-    if family == AVWAP:
-        return avwap_overlays(conn, ticker, timeframe, bars)
-    if family == FIB:
-        return fib_overlays(conn, ticker, timeframe, source)
-    if family == VP:
-        return volume_profile_overlays(conn, ticker, timeframe, bars)
-    if family == PAT:
-        return pattern_overlays(ticker, timeframe, bars)
-    if family == DIV:
-        return divergence_overlays(conn, ticker, timeframe, bars)
-    if family == MS:
-        return structure_overlays(ticker, timeframe, bars)
-    raise ValueError(f"unknown family {family!r}")
+    run = _RUNS.get(family)
+    if run is None:
+        raise ValueError(f"unknown family {family!r}")
+    return run(conn, ticker, timeframe, bars, float(bars["close"].iloc[-1]), bars.attrs.get("source"))
+
+
+# (conn, ticker, timeframe, bars, last close, bars' vendor) -> overlays. Lambdas, so a
+# family function is looked up when it runs (tests stub them).
+_RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, close, source),
+         GAPS: lambda conn, t, tf, bars, close, source: gap_overlays(conn, t, tf, source),
+         AVWAP: lambda conn, t, tf, bars, close, source: avwap_overlays(conn, t, tf, bars),
+         FIB: lambda conn, t, tf, bars, close, source: fib_overlays(conn, t, tf, source),
+         VP: lambda conn, t, tf, bars, close, source: volume_profile_overlays(conn, t, tf, bars),
+         PAT: lambda conn, t, tf, bars, close, source: pattern_overlays(t, tf, bars),
+         DIV: lambda conn, t, tf, bars, close, source: divergence_overlays(conn, t, tf, bars),
+         MS: lambda conn, t, tf, bars, close, source: structure_overlays(t, tf, bars)}
+
+
+class PoolFailed(Exception):
+    """The worker pool, not a family, failed: a worker died, the pool was shut down
+    under a task, or a process couldn't be started. The caller runs the families in
+    its own process instead."""
 
 
 def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
     """`results(family)` for every family, in menu order, plus {family: message} for
-    those that failed: one family's error doesn't lose the others. A broken worker
-    pool is not a family's error, so it's raised (the caller runs them here instead)."""
+    those that failed: one family's error doesn't lose the others. A pool failure is
+    not a family's error, so it's raised (`PoolFailed`)."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
         try:
             overlays.extend(results(family))
-        except BrokenProcessPool:
+        except PoolFailed:
             raise
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
@@ -585,8 +589,13 @@ def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
 
 
 # Submitted slowest first (measured on AAPL and NVDA, 2026-11-17), so the long ones
-# start at once and the quick ones fill in around them.
-_SLOWEST_FIRST = (GAPS, FIB, SR, PAT, DIV, MS, AVWAP, VP)  # every family once: tested
+# start at once and the quick ones fill in around them; the rest in menu order.
+_SLOW = (GAPS, FIB, SR, PAT)
+_SLOWEST_FIRST = _SLOW + tuple(f for f in FAMILIES if f not in _SLOW)
+# A family still running this long after the chart's tasks were submitted is filed as
+# that family's error (TimeoutError), so a stuck detector can't hang the chart. Its
+# worker stays busy until it finishes: the pool can't stop a running task.
+FAMILY_TIMEOUT_S = 180
 
 
 def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Timeframe,
@@ -610,7 +619,20 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
     """`all_overlays`, with each family in its own task on `pool` (worker processes:
     the detectors are pure Python and pandas, so threads would wait on each other). A
     chart takes about as long as its slowest family instead of the sum. Raises
-    `BrokenProcessPool` if a worker died; any other error is that family's."""
-    futures = {family: pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
-               for family in _SLOWEST_FIRST}
-    return _collect(lambda family: futures[family].result())
+    `PoolFailed` when the pool, not a family, failed; any other error is that family's."""
+    try:
+        futures = {family: pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
+                   for family in _SLOWEST_FIRST}
+    except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
+        raise PoolFailed(f"{type(e).__name__}: {e}") from e
+    deadline = time.monotonic() + FAMILY_TIMEOUT_S
+
+    def result(family):
+        try:
+            return futures[family].result(timeout=max(0.0, deadline - time.monotonic()))
+        except (BrokenProcessPool, CancelledError) as e:
+            raise PoolFailed(f"{family}: {type(e).__name__}: {e}") from e
+        except TimeoutError as e:  # filed as this family's error; the others still draw
+            raise TimeoutError(f"still running after {FAMILY_TIMEOUT_S} s") from e
+
+    return _collect(result)

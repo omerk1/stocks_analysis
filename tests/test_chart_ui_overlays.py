@@ -1,4 +1,6 @@
 import sqlite3
+from concurrent.futures import CancelledError
+from concurrent.futures.process import BrokenProcessPool
 from types import SimpleNamespace as NS
 
 import numpy as np
@@ -155,35 +157,78 @@ def test_the_pool_gives_what_running_them_here_gives(monkeypatch, bars, tmp_path
     assert in_pool[1] == {"gaps": "ValueError: boom"}
 
 
-def test_a_broken_pool_is_raised_not_filed_as_a_family_error(monkeypatch, bars, tmp_path):
-    from concurrent.futures import Future
-    from concurrent.futures.process import BrokenProcessPool
+class _Pool:
+    """Hands back futures that end in `outcome` (an exception, or None: never done)."""
 
-    class Broken:
-        def submit(self, *a, **k):
-            f = Future()
-            f.set_exception(BrokenProcessPool("a worker died"))
-            return f
+    def __init__(self, outcome=None, on_submit=None):
+        self.outcome, self.on_submit = outcome, on_submit
 
-    with pytest.raises(BrokenProcessPool):
-        overlays.all_overlays_in_pool(Broken(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    def submit(self, *a, **k):
+        from concurrent.futures import Future
+
+        if self.on_submit is not None:
+            raise self.on_submit
+        f = Future()
+        if self.outcome is not None:
+            f.set_exception(self.outcome)
+        return f
 
 
-def test_worker_processes_find_what_this_process_finds(bars, tmp_path):
-    # Real spawned workers, each on its own read-only connection, on a small database.
+@pytest.mark.parametrize("pool", [
+    _Pool(BrokenProcessPool("a worker died")),
+    _Pool(CancelledError()),  # shut down under the task
+    _Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")),
+    _Pool(on_submit=OSError("can't start a process")),
+], ids=["broken", "cancelled", "shut-down", "no-process"])
+def test_a_pool_failure_is_raised_not_filed_as_a_family_error(pool, bars, tmp_path):
+    with pytest.raises(overlays.PoolFailed):
+        overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+
+
+def test_a_family_past_the_timeout_is_that_family_s_error(monkeypatch, bars, tmp_path):
+    monkeypatch.setattr(overlays, "FAMILY_TIMEOUT_S", 0.05)
+    items, errors = overlays.all_overlays_in_pool(_Pool(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert items == [] and set(errors) == set(overlays.FAMILIES)
+    assert errors["gaps"] == "TimeoutError: still running after 0.05 s"
+
+
+def test_worker_processes_find_what_this_process_finds(tmp_path):
+    # Real spawned workers, each on its own read-only connection. The bars are stored
+    # under Tiingo only, so S/R, gaps and Fibonacci (which load their own) find them only
+    # if the chart's vendor (`bars.attrs["source"]`) reaches the worker.
     from concurrent.futures import ProcessPoolExecutor
     import multiprocessing
 
+    rng = np.random.default_rng(3)
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, 600)))
+    frame = pd.DataFrame({"open": close * (1 + rng.normal(0, 0.005, 600)), "close": close,
+                          "volume": 1e6, "is_partial": 0}, index=idx)
+    frame["high"] = frame[["open", "close"]].max(axis=1) * 1.01
+    frame["low"] = frame[["open", "close"]].min(axis=1) * 0.99
     raw = tmp_path / "raw.sqlite"
     conn = sqlite3.connect(raw)
     db.create_tables(conn)
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, frame)
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO, frame)
+    conn.commit()
     conn.close()
-    here = overlays.all_overlays(db.get_connection(f"file:{raw}?mode=ro", uri=True), "ABC", DAILY, bars)
+    bars = frame.drop(columns="is_partial")
+    bars.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    conn = db.get_connection(f"file:{raw}?mode=ro", uri=True)
+    try:
+        here = overlays.all_overlays(conn, "ABC", DAILY, bars)
+    finally:
+        conn.close()
     with ProcessPoolExecutor(2, mp_context=multiprocessing.get_context("spawn")) as pool:
         there = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
-    assert [(o.family, o.item_id, o.lo, o.hi) for o in there[0]] == [(o.family, o.item_id, o.lo, o.hi)
-                                                                      for o in here[0]]
+
+    def key(o):
+        return (o.family, o.item_id, o.lo, o.hi, o.alive)
+
+    assert [key(o) for o in there[0]] == [key(o) for o in here[0]]
     assert there[1] == here[1]
+    assert {overlays.SR, overlays.GAPS, overlays.FIB} <= {o.family for o in there[0]}
 
 
 def test_families_that_load_their_own_bars_read_the_charts_vendor(monkeypatch, bars):

@@ -9,7 +9,8 @@ sector's members; click a member to open its chart.
 then open http://127.0.0.1:8050. Both databases are opened read-only
 (`mode=ro`), one connection per request. The level detectors run in parallel
 worker processes (`--workers`, default one per family, at most one per CPU), started
-with the app. The header says how far behind the market's last bar is.
+with the app (with `--debug`, on the first chart instead). The header says how far
+behind the market's last bar is.
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, replace
 from datetime import date
 from functools import lru_cache
@@ -88,7 +88,9 @@ class ChartData:
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
-        self.overlays = lru_cache(maxsize=16)(self._overlays)
+        self._overlays_cached = lru_cache(maxsize=16)(self._overlays)
+        self._overlay_locks: dict[tuple, threading.Lock] = {}
+        self._locks_lock = threading.Lock()
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
@@ -125,7 +127,8 @@ class ChartData:
         with self._pool_lock:
             pool, self._pool = self._pool, None
         if pool is not None:
-            pool.shutdown(wait=False, cancel_futures=True)
+            # not cancel_futures: another chart may still be waiting on this pool's tasks
+            pool.shutdown(wait=False)
 
     def _bars(self, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
         conn = _read_only(self.raw_path)
@@ -145,6 +148,15 @@ class ChartData:
     def _holidays(self, ticker: str) -> tuple[str, ...]:
         return hidden_weekdays(self.market_closed(), self.bars(ticker, Timeframe.DAILY).index)
 
+    def overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
+        """`_overlays`, cached, and run once per chart even when callbacks ask at the same
+        moment (the menu and the chart both do on a new ticker): the second waits for
+        the first's result instead of running every detector again."""
+        with self._locks_lock:
+            lock = self._overlay_locks.setdefault((ticker, timeframe), threading.Lock())
+        with lock:
+            return self._overlays_cached(ticker, timeframe)
+
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
         """Every family's overlays as of the last bar, run live (slow: seconds), cached.
         With `workers` > 1 the families run in parallel worker processes, started on
@@ -159,9 +171,8 @@ class ChartData:
             try:
                 items, errors = overlays_mod.all_overlays_in_pool(self._worker_pool(), self.raw_path, ticker,
                                                                   timeframe, bars)
-            except BrokenProcessPool:
-                logger.warning("overlay worker pool broke; running %s %s here", ticker, timeframe.value,
-                               exc_info=True)
+            except (overlays_mod.PoolFailed, OSError) as e:  # OSError: starting the pool itself
+                logger.warning("overlay worker pool failed (%s); running %s %s here", e, ticker, timeframe.value)
                 self._drop_pool()
         if items is None:
             conn = _read_only(self.raw_path)

@@ -113,9 +113,7 @@ def test_data_age_line_reads_spy_and_never_raises():
     assert text == "data age unknown (OSError)" and style["color"] == app_mod._RED
 
 
-def test_a_broken_worker_pool_falls_back_to_running_here(monkeypatch):
-    from concurrent.futures.process import BrokenProcessPool
-
+def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
     class Pooled(FakeData):
         def __init__(self):
             super().__init__()
@@ -128,11 +126,36 @@ def test_a_broken_worker_pool_falls_back_to_running_here(monkeypatch):
     monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
     monkeypatch.setattr(data, "_drop_pool", lambda: dropped.append(True))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
-                        lambda *a: (_ for _ in ()).throw(BrokenProcessPool("died")))
+                        lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("died")))
     monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
     assert found.items == ("here",) and dropped == [True]
+
+
+def test_the_same_chart_asked_for_at_once_runs_its_detectors_once():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+
+    class Slow(FakeData):
+        def _overlays(self, ticker, timeframe):
+            self.calls.append(("overlays", ticker))
+            started.set()
+            release.wait(5)
+            return app_mod.OverlaySet((), {}, 0.0)
+
+    data = Slow()
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(data.overlays("ABC", Timeframe.DAILY)))
+               for _ in range(2)]
+    threads[0].start()
+    started.wait(5)
+    threads[1].start()  # asks while the first is still running
+    release.set()
+    for t in threads:
+        t.join(5)
+    assert data.calls.count(("overlays", "ABC")) == 1 and len(results) == 2 and results[0] is results[1]
 
 
 def test_warm_pool_starts_one_task_per_worker_and_none_without_workers(monkeypatch):
@@ -232,7 +255,7 @@ def test_selected_overlays_only_for_the_menus_own_chart():
                                   [["near", "far"], None])
     assert chosen == {"sr_lines": ["near", "far"], "gaps": []}
     assert app_mod.selected_overlays(data, "ABC", Timeframe.DAILY, "XYZ-daily", chosen) == ()
-    assert data.overlays.cache_info().misses == 0  # a stale menu never runs the detectors
+    assert data._overlays_cached.cache_info().misses == 0  # a stale menu never runs the detectors
     picked = app_mod.selected_overlays(data, "abc", Timeframe.DAILY, "ABC-daily", chosen)
     assert [o.item_id for o in picked] == ["near", "far"]
     fig, _ = _render_with(data, picked)
