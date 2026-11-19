@@ -127,7 +127,9 @@ ticker and day. Reuse its distance-in-ATR helpers instead of writing a second ve
 ## Out of scope for the first version
 
 - Several tickers, watchlists, screeners, alerts.
-- Live or intraday data. The chart ends at the last stored bar.
+- Live or intraday data. The chart ends at the last stored bar. The header says how far
+  behind that is: SPY's last bar and the weekdays since, red past 2 (Done #202); a
+  refresh is still run by hand (`docs/backfills.md`).
 - Running the signal modules from the UI. It reads what's stored. A family with no stored
   run for the ticker shows "not computed — `python -m src.signals.<name>.cli …`" in the menu.
 - Drawing tools, saved layouts, login, deployment.
@@ -332,7 +334,8 @@ class Overlay:
    - The detector adds about 2–3 s per chart. The menu now takes about 3–8 s daily and
      4–17 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
      detectors on threads doesn't help (they're CPU-bound Python); separate processes
-     would, a later change if the wait gets in the way.
+     do, and the families now run that way (Done #202): about as long as the slowest
+     family instead of the sum.
 
    As built, 4c (volume profile and market structure in the level menu, Done #182):
    - **Volume profile:** each anchored profile (the same anchors as AVWAP) gives three

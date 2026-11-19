@@ -22,8 +22,11 @@ as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
+from concurrent.futures import Executor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -60,6 +63,8 @@ from src.signals.patterns.models import PatternStatus, PatternType
 from src.signals.sr_lines.models import LineKind, LineState
 from src.signals.volume_profile import detect as vp_detect
 from src.signals.volume_profile.config import VolumeProfileConfig
+
+logger = logging.getLogger(__name__)
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
 SR, GAPS, AVWAP, FIB, VP, PAT, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "patterns",
@@ -534,26 +539,120 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
     return out
 
 
-def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
-                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
-    """Every family's overlays, plus {family: message} for families that failed. One
-    family's error doesn't lose the others. The families that load their own bars read
-    the vendor `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the
-    primary one when absent), so a Tiingo-only ticker's levels sit on its own bars."""
-    close = float(bars["close"].iloc[-1])
-    source = bars.attrs.get("source")
-    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close, source),
-            GAPS: lambda: gap_overlays(conn, ticker, timeframe, source),
-            AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
-            FIB: lambda: fib_overlays(conn, ticker, timeframe, source),
-            VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
-            PAT: lambda: pattern_overlays(ticker, timeframe, bars),
-            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
-            MS: lambda: structure_overlays(ticker, timeframe, bars)}
+def run_family(family: str, conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+               bars: pd.DataFrame) -> list[Overlay]:
+    """One family's overlays. The families that load their own bars read the vendor
+    `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the primary one
+    when absent), so a Tiingo-only ticker's levels sit on its own bars."""
+    run = _RUNS.get(family)
+    if run is None:
+        raise ValueError(f"unknown family {family!r}")
+    return run(conn, ticker, timeframe, bars, float(bars["close"].iloc[-1]), bars.attrs.get("source"))
+
+
+# (conn, ticker, timeframe, bars, last close, bars' vendor) -> overlays. Lambdas, so a
+# family function is looked up when it runs (tests stub them).
+_RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, close, source),
+         GAPS: lambda conn, t, tf, bars, close, source: gap_overlays(conn, t, tf, source),
+         AVWAP: lambda conn, t, tf, bars, close, source: avwap_overlays(conn, t, tf, bars),
+         FIB: lambda conn, t, tf, bars, close, source: fib_overlays(conn, t, tf, source),
+         VP: lambda conn, t, tf, bars, close, source: volume_profile_overlays(conn, t, tf, bars),
+         PAT: lambda conn, t, tf, bars, close, source: pattern_overlays(t, tf, bars),
+         DIV: lambda conn, t, tf, bars, close, source: divergence_overlays(conn, t, tf, bars),
+         MS: lambda conn, t, tf, bars, close, source: structure_overlays(t, tf, bars)}
+
+
+class PoolFailed(Exception):
+    """The worker pool couldn't take this chart's tasks (already broken or shut down,
+    or a process couldn't start): nothing ran, so the caller runs the families itself.
+    A worker that dies while running a task is not this: see `all_overlays_in_pool`."""
+
+
+def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
+    """`results(family)` for every family, in menu order, plus {family: message} for
+    those that failed: one family's error doesn't lose the others."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
         try:
-            overlays.extend(runs[family]())
+            overlays.extend(results(family))
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
     return overlays, errors
+
+
+def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
+    """Every family's overlays, one after another, plus {family: message} for families
+    that failed (`run_family`, `_collect`)."""
+    return _collect(lambda family: run_family(family, conn, ticker, timeframe, bars))
+
+
+# Submitted slowest first (measured on AAPL and NVDA, 2026-11-17), so the long ones
+# start at once and the quick ones fill in around them; the rest in menu order.
+_SLOW = (GAPS, FIB, SR, PAT)
+_SLOWEST_FIRST = _SLOW + tuple(f for f in FAMILIES if f not in _SLOW)
+
+
+def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Timeframe,
+                          bars: pd.DataFrame) -> list[Overlay]:
+    """`run_family` in a worker process, on its own read-only connection (a sqlite
+    connection can't cross processes)."""
+    conn = db.get_connection(f"file:{raw_path}?mode=ro", uri=True)
+    try:
+        return run_family(family, conn, ticker, timeframe, bars)
+    finally:
+        conn.close()
+
+
+def warm_worker() -> None:
+    """A no-op task: running it makes a worker process import this module, and with
+    it every detector, before the first chart needs them."""
+
+
+class WorkerDied(Exception):
+    """Filed as a family's error when the worker running (or about to run) its task
+    died. Kept like any family error until the app restarts."""
+
+    def __init__(self):
+        super().__init__("a detector worker died (a crash or out of memory); restart the app to retry")
+
+
+def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
+                         bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str], bool]:
+    """`all_overlays`, with each family in its own task on `pool` (worker processes:
+    the detectors are pure Python and pandas, so threads would wait on each other), plus
+    whether the pool broke. A chart takes about as long as its slowest family instead
+    of the sum. Raises `PoolFailed` if the pool couldn't take the tasks.
+
+    A worker dying under a task (`BrokenProcessPool`: a crash or the OOM killer, maybe
+    caused by this chart, maybe by another one on the same pool) is filed as the error
+    (`WorkerDied`) of each family it cost, the ones still queued included, like any
+    other family error and cached the same way, until the app restarts; families that
+    had finished keep their items. They aren't run again in the app's own process,
+    where the same crash would take the app down, nor retried on a fresh pool, where a
+    chart that crashes its worker would crash that one too. The caller drops the broken
+    pool. There's no timeout: a detector that never returned would hang its chart, as
+    before the pool, and now also keep one worker busy for good."""
+    futures = {}
+    try:
+        for family in _SLOWEST_FIRST:
+            futures[family] = pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
+    except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
+        for f in futures.values():  # the caller runs every family itself: drop the ones not started yet
+            f.cancel()
+        raise PoolFailed(f"{type(e).__name__}: {e}") from e
+
+    broke = False
+
+    def result(family):
+        nonlocal broke
+        try:
+            return futures[family].result()
+        except BrokenProcessPool as e:
+            if not broke:
+                logger.warning("a detector worker died on %s %s (%s)", ticker, timeframe.value, e)
+            broke = True
+            raise WorkerDied() from e  # filed by `_collect` as this family's error
+
+    items, errors = _collect(result)
+    return items, errors, broke

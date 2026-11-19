@@ -1,4 +1,6 @@
 import sqlite3
+import time
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -87,6 +89,133 @@ def test_render_messages_for_empty_and_unknown_tickers():
     assert fig is None and message == "No bars for NOPE."
 
 
+def test_data_age_counts_the_weekdays_after_the_market_s_last_bar():
+    fri = pd.Timestamp("2026-11-06")
+    assert app_mod.data_age(fri, date(2026, 11, 9), 2) == ("Data to 2026-11-06", False)  # Monday: today's not in yet
+    assert app_mod.data_age(fri, date(2026, 11, 10), 2) == ("Data to 2026-11-06 · 1 weekday behind", False)
+    assert app_mod.data_age(fri, date(2026, 11, 12), 2) == ("Data to 2026-11-06 · 3 weekdays behind", True)
+    assert app_mod.data_age(fri, date(2026, 11, 17), 2) == ("Data to 2026-11-06 · 6 weekdays behind", True)
+    assert app_mod.data_age(fri, date(2026, 11, 6), 2) == ("Data to 2026-11-06", False)
+    assert app_mod.data_age(None, date(2026, 11, 6), 2) == ("No SPY bars: data age unknown", True)
+
+
+def test_data_age_line_reads_spy_and_never_raises():
+    data = FakeData()  # SPY's bars end 2024-12-27 (260 weekdays from 2024-01-01)
+    text, style = app_mod.data_age_children(data, ChartConfig(), today=date(2024, 12, 30))
+    assert (text, style["color"]) == ("Data to 2024-12-27", app_mod._MUTED)
+    text, style = app_mod.data_age_children(data, ChartConfig(), today=date(2025, 1, 6))
+    assert text == "Data to 2024-12-27 · 5 weekdays behind" and style["color"] == app_mod._RED
+
+    class Failing(FakeData):
+        def _bars(self, ticker, timeframe):
+            raise OSError("disk")
+
+    text, style = app_mod.data_age_children(Failing(), ChartConfig())
+    assert text == "data age unknown (OSError)" and style["color"] == app_mod._RED
+
+
+def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
+    class Pooled(FakeData):
+        def __init__(self):
+            super().__init__()
+            self.workers = 4
+
+        _overlays = app_mod.ChartData._overlays  # the real one, not FakeData's stub
+
+    data = Pooled()
+    dropped, used = [], []
+    monkeypatch.setattr(data, "_worker_pool", lambda: used.append("pool") or "pool")
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool) or True)
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
+                        lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("shut down")))
+    monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
+    found = data.overlays("ABC", Timeframe.DAILY)
+    # the pool couldn't take the tasks: run here, once, and the failed pool dropped
+    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"]
+
+
+def test_a_worker_dying_drops_the_pool_and_is_not_run_again_here(monkeypatch):
+    class Pooled(FakeData):
+        def __init__(self):
+            super().__init__()
+            self.workers = 4
+
+        _overlays = app_mod.ChartData._overlays
+
+    data = Pooled()
+    ran_here, dropped = [], []
+    monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
+    monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool) or True)
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
+                        lambda *a: (["sr item"], {"gaps": "RuntimeError: a detector worker died"}, True))
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda *a: ran_here.append(True) or ([], {}))
+    found = data.overlays("ABC", Timeframe.DAILY)
+    assert found.items == ("sr item",) and "worker died" in found.errors["gaps"]
+    assert ran_here == [] and dropped == ["pool"]
+
+
+def test_dropping_a_failed_pool_leaves_a_newer_one_alone():
+    class Pool:
+        def __init__(self):
+            self.shut = False
+
+        def shutdown(self, wait):
+            self.shut = True
+
+    data = FakeData()
+    old, new = Pool(), Pool()
+    data._pool = new  # another chart already replaced `old`
+    assert data._drop_pool(old) is False
+    assert data._pool is new and not new.shut
+    assert data._drop_pool(new) is True
+    assert data._pool is None and new.shut
+
+
+def test_the_same_chart_asked_for_at_once_runs_its_detectors_once():
+    import threading
+
+    started, release = threading.Event(), threading.Event()
+
+    class Slow(FakeData):
+        def _overlays(self, ticker, timeframe):
+            self.calls.append(("overlays", ticker))
+            started.set()
+            release.wait(5)
+            return app_mod.OverlaySet((), {}, 0.0)
+
+    data = Slow()
+    key = ("ABC", Timeframe.DAILY)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(data.overlays(*key))) for _ in range(2)]
+    threads[0].start()
+    started.wait(5)
+    threads[1].start()  # asks while the first is still running
+    deadline = time.monotonic() + 5
+    while data._overlay_locks.get(key, [None, 0])[1] < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert data._overlay_locks[key][1] == 2  # both callers are on the chart's one lock
+    time.sleep(0.1)  # without the lock, the second would be running the detectors by now
+    assert data.calls.count(("overlays", "ABC")) == 1
+    release.set()
+    for t in threads:
+        t.join(5)
+    assert data.calls.count(("overlays", "ABC")) == 1 and len(results) == 2 and results[0] is results[1]
+    assert data._overlay_locks == {}  # dropped once no one uses it
+
+
+def test_warm_pool_starts_one_task_per_worker_and_none_without_workers(monkeypatch):
+    submitted = []
+    pool = type("Pool", (), {"submit": lambda self, fn: submitted.append(fn)})()
+    data = FakeData()
+    monkeypatch.setattr(data, "_worker_pool", lambda: pool)
+    data.warm_pool()  # workers 0: nothing
+    assert submitted == []
+    data.workers = 3
+    data.warm_pool()
+    assert submitted == [app_mod.overlays_mod.warm_worker] * 3
+
+
 def test_strip_children_without_rs():
     assert app_mod.strip_children(FakeData(), ChartConfig(), "abc")[0] == "RS vs market: no RS run"
     assert app_mod.strip_children(FakeData(strip="RS: no derived database"), ChartConfig(), "abc") == [
@@ -172,7 +301,7 @@ def test_selected_overlays_only_for_the_menus_own_chart():
                                   [["near", "far"], None])
     assert chosen == {"sr_lines": ["near", "far"], "gaps": []}
     assert app_mod.selected_overlays(data, "ABC", Timeframe.DAILY, "XYZ-daily", chosen) == ()
-    assert data.overlays.cache_info().misses == 0  # a stale menu never runs the detectors
+    assert data._overlays_cached.cache_info().misses == 0  # a stale menu never runs the detectors
     picked = app_mod.selected_overlays(data, "abc", Timeframe.DAILY, "ABC-daily", chosen)
     assert [o.item_id for o in picked] == ["near", "far"]
     fig, _ = _render_with(data, picked)
