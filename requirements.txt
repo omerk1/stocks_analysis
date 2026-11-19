@@ -11,6 +11,7 @@ ta-lib>=0.5.1
 
 # Data retrieval
 requests>=2.32.0
+openpyxl>=3.1  # reads the SPY fund's daily holdings .xlsx (src/foundation/data_processing/etf_holdings.py)
 yfinance>=0.2.0
 curl_cffi==0.7.4  # lets yfinance impersonate real browser TLS fingerprints, reducing block risk;
                   # newer curl_cffi (>=0.15, yfinance's own recommendation) failed to import on
