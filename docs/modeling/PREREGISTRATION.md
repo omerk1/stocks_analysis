@@ -672,3 +672,77 @@ starts").
   dates (the builders accept `--open-holdout` only to a registered data end; forward
   caches need their own mode, rebuilt to each week's last date into new directories,
   their end recorded in the picks file). Code PRs, after this note.
+
+### Result (2026-11-19 addendum)
+
+**Verdict: inconclusive at both horizons; the model doesn't pass.** Both 99.9% intervals
+span zero and reach far past the ±10 bps band. Per "Outcomes", this is underpowered, not
+"no edge": no retest on this holdout, and the model goes to paper trading ("Paper trading
+after the test").
+
+- **Run:** `run-scorecard --preregistered HT1 --open-holdout` from commit e985e71 in a
+  clean worktree (0 dirty files), 2026-11-17 21:49 to 2026-11-18 15:49 IST. 18 of 18
+  cells `ok`, each started once, none rerun (`HT1.holdout_started.jsonl`). The registered
+  close (`close-scorecard HT1 --open-holdout`, 100,000 draws, no tickers excluded) ran
+  once on 2026-11-19.
+- **Data:** the caches built with `--open-holdout --end 2026-08-18`. Features 1,946,828
+  rows, 719 tickers. Labels from git 210e9f1, disputes list `62b330fb12d4dd7c` (28,701
+  rows dropped at H = 21, 47,601 at H = 63). Same-ticker vendor check: pass, AUC 0.520.
+- **Effective N:** 1,149 pooled decision dates per horizon (2022-01-03 to 2026), none
+  left out for a missing cell.
+
+| H | model − market per trade, net (99.9% CI) | p (one-sided) | years positive (126+ dates) | cells positive | verdict |
+|---|---|---|---|---|---|
+| 21 | −0.075% [−0.453%, +0.285%] | 0.753 | 1 of 5 | 0 of 9 | inconclusive |
+| 63 | +0.088% [−0.609%, +0.831%] | 0.354 | 3 of 5 | 6 of 9 | inconclusive |
+
+Holm-positive at neither horizon; entry rule not met; group verdict inconclusive.
+
+- **By year** (pooled dates): H = 21: 2022 −0.074%, 2023 +0.155%, 2024 −0.319%, 2025
+  −0.092%, 2026 −0.020% (146 dates). H = 63: 2022 +0.328%, 2023 −0.526%, 2024 −0.138%,
+  2025 +0.544%, 2026 +0.332% (146 dates).
+- **By cell** (upper/lower in ATR units): H = 21: 2/1 −0.016%, 2/1.5 −0.073%, 2/2
+  −0.015%, 3/1 −0.048%, 3/1.5 −0.088%, 3/2 −0.120%, 4/1 −0.086%, 4/1.5 −0.162%, 4/2
+  −0.069%. H = 63: 2/1 +0.015%, 2/1.5 −0.096%, 2/2 −0.250%, 3/1 +0.097%, 3/1.5 −0.061%,
+  3/2 +0.304%, 4/1 +0.321%, 4/1.5 +0.161%, 4/2 +0.296%.
+- **Controls (never the verdict):** model − B4: +0.033% [−0.364%, +0.400%] at H = 21,
+  −0.162% [−1.010%, +0.636%] at H = 63. Model − low-vol basket: +0.143% [−0.496%,
+  +0.789%] and +0.478% [−0.829%, +1.754%].
+- **Readouts:** pick overlap with B4 18.6% (H = 21) and 24.2% (H = 63); group columns all
+  filled for 97.6% / 97.1% of the model's picks. The earnings readout printed `nan`: the
+  holdout feature cache has no earnings dates, so it isn't reported.
+- **Trials:** H = 21, cells 2/1 to 4/2 in the order above: 20261117-194920-e985e71-84dafa,
+  20261117-211741-e985e71-2147fa, 20261117-221412-e985e71-4fd8a3,
+  20261117-231111-e985e71-9d485a, 20261118-000721-e985e71-2a8a49,
+  20261118-010408-e985e71-bdd0d5, 20261118-020116-e985e71-fef169,
+  20261118-025731-e985e71-18a8a3, 20261118-035404-e985e71-e00f83. H = 63:
+  20261118-045228-e985e71-93d11b, 20261118-054444-e985e71-52658b,
+  20261118-064150-e985e71-1ec32e, 20261118-074230-e985e71-359940,
+  20261118-084220-e985e71-6527b8, 20261118-094315-e985e71-9fbfff,
+  20261118-104446-e985e71-bfa074, 20261118-114536-e985e71-71ed8f,
+  20261118-124701-e985e71-557a1a.
+
+**A flaw in the late-2026 dates, found while writing this up (doesn't change the
+verdict).** The coverage addendum expected about 136 resolved 2026 dates at H = 21 and 94
+at H = 63; the close counted 146 at both. The extra dates (10 at H = 21, 52 at H = 63,
+2026-05-20 to 2026-08-03) have exactly one resolved label: EA, whose bars end 2026-08-04
+(a truncated label carrying its terminal return), while every other name's H-day exit
+falls after the data end and is unresolved. On those dates the market basket and the
+model's "top 20" are both EA alone, so each adds exactly −10 bps (the cost) to D_H. The
+registered rule, as written, admits a one-name pool; nothing caught it. Taken out by
+hand (arithmetic on the printed numbers, not a rerun): H = 21 moves to about −0.075%,
+H = 63 to about +0.097%; at H = 63, 2026 drops to 94 dates and stops counting, so the
+years rule is 2 of 4 full years. Neither horizon was near Holm significance, so the
+verdict stays inconclusive at both. Before paper trading's interim reports, which will
+meet the same partly resolved dates at every window's end, the pooling needs a rule for
+them (a date enters only once its labels have resolved); that's a code change and a
+dated addendum, before the forward test starts.
+
+**Arguing against it.** Nothing here looks like an edge on new data. At H = 21 all 9
+cells are negative. At H = 63 the positive mean comes from 2022 and 2025–2026 against
+2023–2024, a swing by year more like market regime than skill, and the model trails B4,
+its own 5-column reference. The FRC/SIVB confound (coverage addendum) flatters any
+basket that would have held them; it can't turn this into a pass. The next modeling
+round should change something more basic (the target, the horizon, the kind of signal)
+than adding columns, and it is built on the development window: this holdout is spent
+for model selection.
