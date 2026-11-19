@@ -451,6 +451,26 @@ class Overlay:
      restart. Nothing is stored. `dash_table.DataTable` is deprecated in Dash 4 in
      favour of dash-ag-grid; it still works, and swapping it is a later change.
 
+   Added after step 6 (Done #201): a **Picks** tab, the first version of "Model picks"
+   below. It lists the combined model's top picks on one decision date, one table per
+   horizon and barrier cell: rank, ticker, EV in ATRs, the three calibrated
+   probabilities, the decision close and ATR, and the target and stop at that close
+   (the trade enters at the next open). Click a ticker for its chart.
+   - **It reads files, never a model:** `python -m src.models.cli score-forward
+     <scorecard> --as-of DATE` (Done #199) writes `data/models/forward/<id>_<date>.csv`
+     when run from the repo root, like the command's other defaults (the folder and the
+     name are shared in `src/models/forward_files.py`), and the tab lists those in its
+     own checkout, newest date first. A run in a worktree writes to that worktree's
+     folder, which the main checkout's app doesn't see. It never fits, scores or reads a
+     cache, so any holdout gate is the command's: HT1 scores nothing until its
+     registered test has run every cell, and a dev scorecard (F2) only scores dates up
+     to 2021. Files written elsewhere with `--out` aren't listed; a file whose rows
+     aren't on its name's date is refused.
+   - Files are listed each time the tab opens, and Reload re-reads the one shown, so
+     new picks show without a restart. As of this step there are no pick files yet.
+   - Not shown: the pick's features. The file has none, and reading the feature cache
+     from the app would be the first model read in the UI.
+
 Each step is a usable app on its own.
 
 ## Groups and rankings
@@ -497,7 +517,8 @@ shape, the read-only adapters and `figure.py` with no Dash in it are what keep t
   1 ATR. It's the level stack the strategy agent's next finder builds
   (`docs/backlog.md`, LLM section).
 - **Model picks:** open the chart from the combined model's top-k list for a date, with the
-  pick's features in the side panel.
+  pick's features in the side panel. The list and the click are built (the Picks tab,
+  Done #201); the features panel isn't.
 - **Strategy agent in the UI:** type an idea, answer its questions in a side panel, and see
   the matching events and near-misses drawn on the chart, then the exploratory look. Today
   it saves static charts.
