@@ -35,7 +35,13 @@ Commands:
                   `--rank ev_atr`, plus the random-k baseline), no refit; one
                   TRIALS.csv row per cell (S1b).
 
-Only run-experiment, run-scorecard and rescore-scorecard are trials: the other commands write
+  run-excess-target  The market-relative target (`excess_target.py`, Track A):
+                  a regressor on each row's return minus the date's market,
+                  the 24 frozen columns and B4's 5, against the frozen model's
+                  archived dev-window predictions; one TRIALS.csv row per cell.
+  close-excess-target  Its readouts pooled per horizon. Read-only.
+
+Only run-experiment, run-scorecard, rescore-scorecard and run-excess-target are trials: the other commands write
 nothing to TRIALS.csv.
 
 build-features, build-labels, build-levels and vendor-check take `--open-holdout`: an
@@ -589,6 +595,56 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
     return 0
 
 
+def run_excess_target(features_dir: Path, labels_dir: Path, frozen_artifacts: Path, horizons: tuple[int, ...]) -> int:
+    from src.models import excess_target, trial_log
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    if trial_log.git_dirty() is not False:
+        raise SystemExit("uncommitted or untracked files (git status): commit them, or keep caches under data/models/")
+    features = cache.read_feature_cache(features_dir)
+    for h in dict.fromkeys(horizons):
+        for r in excess_target.run_horizon(h, features, labels_dir, frozen_artifacts):
+            print(f"{r['trial_id']}: {excess_target.outcome(r, r['cell'])}", flush=True)
+    return 0
+
+
+def close_excess_target(features_dir: Path, labels_dir: Path, frozen_artifacts: Path, horizons: tuple[int, ...],
+                        out: Path | None) -> int:
+    import json
+
+    from src.models import excess_target, trading
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    r = excess_target.close(cache.read_feature_cache(features_dir), labels_dir, frozen_artifacts,
+                            tuple(dict.fromkeys(horizons)))
+    if out is not None:
+        out.write_text(json.dumps(r, indent=1, default=str))
+    print(f"{r['experiment_id']} (Track A, no verdict): top-{r['k']}, each trading side net of {r['cost_bps']} bps, "
+          f"the market at none, pooled over each horizon's cells, {_level(r['ci'])} CI, {r['n_boot']} draws")
+    for h, x in r["horizons"].items():
+        if "missing_cells" in x:
+            print(f"  H{h}: cells not run: {x['missing_cells']}")
+            continue
+        print(f"  H{h}:")
+        for name, p in x["pairs"].items():
+            print(f"    {name.replace('_vs_', ' - ')}: {p['point_estimate']:+.4%} [{p['ci_low']:+.4%}, "
+                  f"{p['ci_high']:+.4%}], n_dates {p['n_dates']} ({p['dates_missing_a_cell']} left out), "
+                  f"positive in {p['years_positive']} years of {trading.MIN_YEAR_DATES}+ dates, "
+                  f"cells positive {p['cells_positive']}/{len(p['by_cell'])}")
+            print("      by year: " + ", ".join(f"{y} {v:+.3%}" for y, v in p["by_year"].items()))
+            print("      by cell: " + ", ".join(f"{c} {v:+.3%}" for c, v in p["by_cell"].items()))
+        print("    sides (mean over cells): " + "; ".join(
+            f"{s} ATR/close {v['atr_pct']:.2%} beta {v['beta']:.2f}"
+            + (f" trades/yr {v['trades_per_year']:.0f} (x {r['cost_bps']} bps = {v['trades_per_year'] * r['cost_bps'] / 1e4:.1%})"
+               if "trades_per_year" in v else "")
+            for s, v in x["sides"].items()))
+        print(f"    overlap new / frozen picks: {x['overlap_new_frozen']:.1%}")
+    cf = r["carry_forward"]
+    print(f"  carry forward (rule fixed before the run): {cf['met']}" +
+          "".join(f"\n    H{h}: {v}" for h, v in cf.get("by_horizon", {}).items()) + (f" ({cf['why']})" if "why" in cf else ""))
+    return 0
+
+
 def close_experiment(experiment_id: str) -> int:
     from src.models import ablation, trial_log
     exp = ablation.PREREGISTERED[experiment_id]
@@ -703,6 +759,16 @@ def main(argv: list[str] | None = None) -> int:
     resc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     resc.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
     resc.add_argument("--rank", choices=["ev", "ev_atr"], default="ev_atr")
+    exc = sub.add_parser("run-excess-target", help="the market-relative target vs the frozen model (Track A), "
+                         "logging every cell")
+    clexc = sub.add_parser("close-excess-target", help="the market-relative target's pooled readouts. Read-only")
+    for p_ in (exc, clexc):
+        p_.add_argument("--features", type=Path, default=Path("data/models/features/sp500_levels"))
+        p_.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
+        p_.add_argument("--frozen-artifacts", type=Path, default=Path("data/models"),
+                        help="where the frozen model's dev-window trial directories are")
+        p_.add_argument("--horizons", nargs="+", type=int, default=[21, 63])
+    clexc.add_argument("--out", type=Path, default=None, help="also write the readout as JSON here")
     close = sub.add_parser("close-experiment", help="BH and verdicts over an experiment's logged trials")
     close.add_argument("experiment")
     args = parser.parse_args(argv)
@@ -725,6 +791,10 @@ def main(argv: list[str] | None = None) -> int:
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":
         return close_experiment(args.experiment)
+    if args.command == "run-excess-target":
+        return run_excess_target(args.features, args.labels, args.frozen_artifacts, tuple(args.horizons))
+    if args.command == "close-excess-target":
+        return close_excess_target(args.features, args.labels, args.frozen_artifacts, tuple(args.horizons), args.out)
     if args.command == "run-gates":
         return run_gates(args.quick, args.smoke_db, args.seed)
     if args.command == "restamp-levels":

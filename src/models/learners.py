@@ -8,6 +8,8 @@ Every model has the same interface: `fit(frame, y, sample_weight=None)` and
 
 - `BoostedModel` -- the v1 learner (three-class histogram gradient boosting)
   on a given column set.
+- `BoostedRegressor` -- the same learner as a regressor, for a continuous
+  target (`excess_target.py`).
 - `IsotonicCalibrator` -- one-vs-rest isotonic per class, renormalised.
 - `fit_predict` -- one outer fold: calibration fitted on the inner folds'
   out-of-sample predictions only, then the model refitted on the full
@@ -23,7 +25,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.isotonic import IsotonicRegression
 
 from src.models.features.registry import check_columns
@@ -92,6 +94,34 @@ class BoostedModel:
         for j, c in enumerate(self.model_.classes_):
             probs[:, CLASSES.index(int(c))] = raw[:, j]
         return prob_frame(probs, frame.index)
+
+
+class BoostedRegressor:
+    """`BoostedModel`'s learner and settings as a regressor (squared loss) on a
+    continuous target, e.g. a return in excess of the date's market
+    (`excess_target.py`). `predict` returns one Series aligned to `frame`."""
+
+    def __init__(self, columns: list[str], config: BoostingConfig = BoostingConfig(), seed: int = 0,
+                 registered_only: bool = True):
+        if registered_only:
+            check_columns(list(columns))
+        self.columns = list(columns)
+        self.config = config
+        self.seed = seed
+
+    def fit(self, frame: pd.DataFrame, y, sample_weight=None) -> "BoostedRegressor":
+        y = np.asarray(y, dtype=float)
+        if not np.isfinite(y).all():
+            raise ValueError("a non-finite target can't be fitted; drop those rows first")
+        self.model_ = HistGradientBoostingRegressor(
+            **asdict(self.config), loss="squared_error", early_stopping=False, categorical_features="from_dtype",
+            random_state=self.seed,
+        )
+        self.model_.fit(frame[self.columns], y, sample_weight=sample_weight)
+        return self
+
+    def predict(self, frame: pd.DataFrame) -> pd.Series:
+        return pd.Series(self.model_.predict(frame[self.columns]), index=frame.index)
 
 
 class IsotonicCalibrator:
