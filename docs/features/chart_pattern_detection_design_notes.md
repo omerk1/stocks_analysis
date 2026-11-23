@@ -647,6 +647,56 @@ a bug, before treating it as expected rather than alarming. Weekly run:
 periods actually fire on real data, not just in unit tests. 0 out-of-range
 confidence values in either run.
 
+### Against the book's rules (Trade Like a Stock Market Wizard), audited 2026-11-24
+
+Read-only audit of what `src/signals/patterns/detectors/vcp.py` checks against
+chapter 10 of the book (`docs/book-ideas/notes/trade-like-a-stock-market-wizard.md`).
+Config names are fields of `PatternConfig` in `src/signals/patterns/config.py`;
+"daily" values shown, the weekly preset only changes the MA/ATR periods and the
+rising/52-week lookbacks. Nothing here was changed.
+
+| Book rule | What the detector does | Config name and default | Kind |
+|---|---|---|---|
+| 2-4 contractions usually, up to 5-6, each shallower than the last | `scan` tries every high-pivot start and every count n from min to max. Each contraction is one high-to-low leg; `_try_window` computes its depth as % fall from that leg's high. It rejects the window if more than the allowed number of consecutive pairs fail to shrink (`b >= a`). | `vcp_min_contractions=2`, `vcp_max_contractions=6`, `vcp_contraction_violations_allowed=1`; pivots from `vcp_pivot_atr_mult=1.0` (x ATR(`atr_period=14`)) | Hard rule (count and monotonic depth, one violation tolerated). Also scored: `range_monotonicity_score(depths)`, half of the geometric cleanliness component (weight 0.30). No preference for 2-4 over 5-6, and overlapping windows from the same base each become a match. |
+| Total correction 10-35%; avoid stocks down 60% or more | Nothing bounds the first (deepest) contraction or the base as a whole; the only check is `depth > 0`. The closest thing is the trend gate below, which requires price within 25% of its 252-bar high at the base's first high. | none for the base depth; `vcp_pct_from_52w_high_max=25.0`, `vcp_52w_high_lookback_bars=252` for the proxy | Missing (the 25% test is an indirect, partial stand-in, checked once at the start of the base) |
+| Correction no more than 2-3x the market's fall over the same span | Not computed. The detector sees one ticker's bars only; no index or market series is passed to `scan`. | none | Missing |
+| Base lasts 3 to 65 weeks | No limit on length. Length (`formation_bars`, first high to last low) only feeds `scoring.duration_fit`: 1.0 inside the typical range, ramps down below the minimum, decays above the maximum but never below 0.3. A pending base expires at `expire_lifespan_mult` x its own length. | `vcp_typical_min_bars=15`, `vcp_typical_max_bars=90` (bars, so ~3 to 18 weeks daily; the same numbers apply to weekly bars), `expire_lifespan_mult=2.0`; score weight `duration_fit=0.15` | Score component only; the book's 65-week ceiling is not enforced and the typical range is much shorter than the book's |
+| Tight closes day to day and week to week in the final contraction | Not measured on closes. The proxy is `ATR(10)` / `ATR(50)` at the final low's bar, rejected above the ceiling; ATR uses each bar's true range (highs, lows and gaps), so a wide-range day that closes flat still counts as loose, and week-to-week closes are never looked at. | `vcp_atr_short_period=10`, `vcp_atr_long_period=50`, `vcp_atr_contraction_max_ratio=1.0` (the textbook ~1/3 was loosened because no real AAPL candidate cleared 0.6, see above); `contraction_tightness_score` is the other half of geometric cleanliness | Hard rule at a loose ceiling (volatility no higher than baseline), plus score component. Approximate: true-range volatility, not close-to-close tightness |
+| Volume contracts during the contractions; final contraction's volume below the 50-day average with one or two very-low-volume days | Not checked. Design §4.5 point 6 asked for a per-leg volume trend that flags without rejecting; the code has no such step. The 50-day volume average is only read at and after the breakout. No test of the final leg's volume against it, and no lowest-volume-of-the-base test. | `volume_sma_period=50` (used for the breakout bar only) | Missing |
+| Breakout above the pivot on volume above average | Pivot is the last high in the window (`highs[-1]`). `lifecycle.apply_lifecycle` calls it a breakout on the first close above pivot x (1 + buffer). `match.volume_confirmed` is set from relative volume (breakout-bar volume / 50-day average) against a multiple, but this only labels the match unless the surge gate is on. Relative volume also feeds `volume_signature_score` (0 at 1.0x or less, 1.0 at the cap). | `breakout_buffer_pct=0.001`, `breakout_volume_mult=1.4`, `require_volume_surge=False`, `volume_score_cap_mult=1.8`; score weights `volume_signature=0.25`, `breakout_strength=0.15` | Close above pivot: hard rule (defines the breakout). Volume: score component and a label; not a hard rule by default, and the multiple is 1.4x, not just "above average" |
+| One or more shakeouts (an undercut of a support low that recovers) during the base | Not detected. It is also blocked: the higher-lows check rejects the window if any low is at or below the previous low with zero tolerance, so a base with an undercut-and-recover low is dropped, not rewarded. Before a breakout, any low below the base's lowest low, or a close below the 150-day average, invalidates the match. | none (the higher-lows check has no config knob) | Missing, and the higher-lows hard rule works against it |
+| A prior big-volume up spike or gap before the base (variant, not a requirement) | Not detected. The prior-trend score is the size of the % rise over the lookback before the base's first high, which ignores volume and does not look for a gap or a single large bar. | `prior_trend_min_bars=20` (4 weekly), `prior_trend_score_cap_pct=30.0`; weight `prior_trend=0.15` | Missing (the generic prior-move score is a rough neighbour) |
+| The stock is in a longer-term uptrend before the base (stage 2) | `_is_in_stage2_uptrend` at the base's first high: close above the 150- and 200-day averages, both higher than `vcp_ma_rising_lookback_bars` earlier, 50-day above both, and close within the stated % of its 252-bar high. Warmup NaN returns False. Evaluated only at that one bar, not through the base. | `vcp_sma_short_period=50`, `vcp_sma_medium_period=150`, `vcp_sma_long_period=200`, `vcp_ma_rising_lookback_bars=20`, `vcp_pct_from_52w_high_max=25.0`, `vcp_52w_high_lookback_bars=252` | Hard rule (the 25% figure is not from the design doc; it is flagged in config as a commonly cited number) |
+
+Gaps that matter most for a stricter retest, in order:
+
+- **Volume dry-up is not tested at all.** The book's core VCP signal (final
+  contraction below the 50-day volume average, a very-low-volume day near the
+  base's lowest) has no code; only the breakout bar's volume is read, and by
+  default it only labels the match. A stricter version needs both the dry-up
+  and a hard "breakout volume above average" gate (`require_volume_surge`
+  exists, off by default).
+- **No bound on base depth, and no market comparison.** The 10-35% total
+  correction, the 60% exclusion and the 2-3x-the-market rule are all absent, so
+  deep, broken-looking bases and ones that only fell with the market both pass.
+  The second needs an index series fed to the detector.
+- **Base length is only a score.** Bases much shorter or longer than the book's
+  3 to 65 weeks are kept (long ones at a 0.3 score floor); the typical range
+  (15 to 90 bars) is far shorter than the book's, and the same bar counts apply to
+  weekly bars.
+- **Tightness is measured as ATR ratio, with a loose ceiling.** A ceiling of 1.0
+  means "no more volatile than the 50-bar baseline", and true range is not
+  close-to-close tightness. Day-to-day and week-to-week close ranges in the final
+  contraction are not measured.
+- **Shakeouts are blocked, not detected.** The strict higher-lows rule drops bases
+  whose low is undercut and reclaimed; a stricter test needs to detect the undercut
+  and allow it, and ideally treat it as a feature.
+- **Overlapping windows count as separate events.** One base can yield several
+  matches (different start pivot, different contraction count n), which inflates
+  the raw event count against distinct bases; any retest should count distinct
+  setups by date. The prior-volume-spike variant is also missing, but the book
+  calls it optional.
+
 ## Phase 6 (bonus): Flags/Pennants + Rounding
 
 ### Rounding: the fallback classification, not a second scan
