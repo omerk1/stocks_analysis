@@ -35,7 +35,7 @@ def _line(center, state, kind=LineKind.HORIZONTAL):
 def test_sr_zones_side_by_last_close_and_broken_lines_dead(monkeypatch):
     lines = [_line(95.0, LineState.ACTIVE), _line(105.0, LineState.FLIPPED), _line(100.0, LineState.BROKEN),
              _line(101.0, LineState.ACTIVE, kind=LineKind.DIAGONAL)]
-    monkeypatch.setattr(overlays, "detect_sr_on_source", lambda conn, ticker, config, source: lines)
+    monkeypatch.setattr(overlays, "detect_sr_on_source", lambda conn, ticker, config, source, last: lines)
     out = overlays.sr_overlays(None, "ABC", DAILY, close=100.0)
     assert len(out) == 6  # 3 horizontal lines x both presets; the diagonal is skipped
     first = out[:3]
@@ -129,6 +129,46 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
 
 def test_every_family_is_submitted_to_the_pool_once():
     assert sorted(overlays._SLOWEST_FIRST) == sorted(overlays.FAMILIES)
+
+
+def test_only_the_families_asked_for_run(monkeypatch, bars):
+    from concurrent.futures import Future
+
+    _stub_families(monkeypatch, failing="vp")
+    asked = (overlays.FIB, overlays.SR, overlays.VP)
+    items, errors = overlays.all_overlays(None, "ABC", DAILY, bars, asked)
+    assert items == ["sr item", "fib item"] and errors == {overlays.VP: "ValueError: boom"}  # menu order
+
+    class Recording:
+        def __init__(self):
+            self.families = []
+
+        def submit(self, fn, family, *a):
+            self.families.append(family)
+            f = Future()
+            f.set_result([f"{family} item"])
+            return f
+
+    pool = Recording()
+    items, errors, broke = overlays.all_overlays_in_pool(pool, "raw.sqlite", "ABC", DAILY, bars, asked)
+    assert pool.families == [overlays.FIB, overlays.SR, overlays.VP]  # slowest first
+    assert items == ["sr_lines item", "fibonacci item", "volume_profile item"] and errors == {} and not broke
+
+
+def test_sr_counts_its_window_back_from_the_chart_s_last_bar(monkeypatch, bars):
+    starts = []
+
+    def load(conn, ticker, timeframe, as_of, start, basis, source):
+        starts.append(pd.Timestamp(start))
+        return bars.iloc[:0]
+
+    monkeypatch.setattr(overlays.mc_data, "load_bars", load)
+    config = get_preset("medium_term")
+    overlays.detect_sr_on_source(None, "ABC", config, None, pd.Timestamp("2024-03-15"))
+    assert starts == [pd.Timestamp("2024-03-15") - pd.DateOffset(years=config.window_years)]
+    overlays.run_family(overlays.SR, None, "ABC", DAILY, bars)  # both presets, from the bars' last date
+    assert starts[1:] == [bars.index[-1] - pd.DateOffset(years=get_preset(p).window_years)
+                          for p in overlays.SR_PRESETS[DAILY]]
 
 
 def _stub_families(monkeypatch, failing="gaps"):
