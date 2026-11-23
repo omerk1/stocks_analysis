@@ -1,0 +1,18 @@
+# Book ideas: exploration log (cheap looks; numbers are descriptive, never findings)
+
+## 2026-11-24
+
+**After a base breakout: squats and closes below the 20-day average** (`docs/book-ideas/TASKS.md`, "After a breakout: squats and closes below the 20-day average"; script `scripts/book_ideas_breakout_squats.py`). Events come from the base-breakout finder (`src/signals/base_breakout/detect.py`, default settings: base at least 30 bars, 10–40% deep, a tested ceiling) with the bar's high in place of its close, so a breakout is the first bar trading more than 0.25 ATR above the base high. The finder on closes can't give a squat at all, since its breakout bar must close above the level. Kept: S&P 500 members on the breakout date, 2010–2021, delisted members in (671 tickers loaded, 118 from Tiingo; 492 with events, 46 of them delisted). A squat is a breakout bar that closes back below the level. "Below 20" is a non-squat with a close under the 20-day SMA within 10 bars; it's entered at the open after that close. "Neither" is the rest. Every group enters at an open after its condition is known. Returns run from the entry open, total-return bars; a delisted ticker takes its last close. "vs control" is the event return minus the mean of S&P members on the same entry date in the same tercile of 12-1 month momentum and of 1-month return. CIs are 90%, bootstrapped over entry months. The stop is a low at or under the base low within 63 bars.
+
+| group | events | dates | 21d vs control [90% CI] | 63d vs control [90% CI] | stop hit 63d | new high in 10 bars |
+|---|---|---|---|---|---|---|
+| all breakouts | 1,218 | 877 | +0.16% [−0.09, +0.40] | +0.65% [+0.20, +1.10] | 11.6% | 83.5% |
+| squat | 335 | 301 | +0.08% [−0.40, +0.53] | +0.48% [−0.39, +1.34] | 12.3% | 67.8% |
+| not a squat | 883 | 680 | +0.19% [−0.13, +0.50] | +0.71% [+0.19, +1.26] | 11.4% | 89.5% |
+| below 20 (from the bar after the close) | 230 | 204 | −0.49% [−1.26, +0.22] | −0.38% [−1.26, +0.49] | 22.7% | 76.1% |
+| neither, from the breakout entry | 653 | 530 | +1.28% [+0.95, +1.62] | +2.11% [+1.40, +2.86] | 8.0% | 94.2% |
+| neither, from bar 11 (when it's known) | 653 | 530 | −0.30% [−0.62, +0.02] | +0.74% [+0.10, +1.38] | 9.7% | 94.2% |
+
+Differences on the deltas: squat minus not-a-squat −0.11% [−0.70, +0.48] at 21d, −0.23% [−1.26, +0.82] at 63d. Below 20 minus neither-from-bar-11: −0.19% [−1.00, +0.58] at 21d, −1.13% [−2.20, +0.02] at 63d. Against the breakout-entry "neither" the gaps look large (squat −1.20%/−1.64%, below 20 −1.77%/−2.50%), but that row is picked using the 10 bars after entry. 68% of squats made a new post-breakout high within 10 bars; 131 of the 335 squats also closed under the 20-day SMA. Cost is 10 bps round trip per event, small next to these spreads. Read as: a squat on its own says little about the next 21 or 63 days. Closing under the 20-day average leans worse at 63 days, and it doubles the base-low stop rate (22.7% vs about 10%). The interval just reaches zero.
+
+Against it: the striking gaps only show up against the "neither" group measured from the breakout, and that group is chosen with 10 bars of hindsight (it's the breakouts that kept going), so they're selection, not an exit signal. On the fair anchors, nothing clears zero. The higher stop rate for "below 20" is partly mechanical: its entry comes after a pullback toward the base, so the base low is closer. The control matches momentum terciles, not distance to the stop. Only one setting was looked at (10 bars, the 20-day SMA, the finder's defaults), with about 200–300 distinct dates per group. Month-cluster bootstraps understate the overlap of 63-day windows.
