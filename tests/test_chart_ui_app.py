@@ -7,11 +7,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.foundation.data_processing import db
 from src.foundation.market_common.models import Timeframe
 from src.ui.chart import app as app_mod
-from src.ui.chart import rs
+from src.ui.chart import overlay_cache, rs
 from src.ui.chart.config import ChartConfig, ChartType
-from src.ui.chart.overlays import Overlay
+from src.ui.chart.overlays import FAMILIES, Overlay
 
 
 class FakeData(app_mod.ChartData):
@@ -44,6 +45,10 @@ class FakeData(app_mod.ChartData):
         Overlay("sr_lines", "far", "Support 300", "zone", pd.Timestamp("2024-06-03"), 299.5, 300.5, 5.0, True),
         Overlay("gaps", "gap", "FVG up 356–357", "zone", pd.Timestamp("2024-09-02"), 356.0, 357.0, 1.0, True),
     )
+
+
+def _item(family, item_id, lo=100.0):
+    return Overlay(family, item_id, item_id, "hline", pd.Timestamp("2024-06-03"), lo, lo, None, True)
 
 
 def _render(data, ticker, ma_keys=("sma_50",), view=None):
@@ -129,10 +134,11 @@ def test_a_failed_worker_pool_falls_back_to_running_here(monkeypatch):
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
                         lambda *a: (_ for _ in ()).throw(app_mod.overlays_mod.PoolFailed("shut down")))
     monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(":memory:"))
-    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: (["here"], {}))
+    here = _item("sr_lines", "here")
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda conn, *a: ([here], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
     # the pool couldn't take the tasks: run here, once, and the failed pool dropped
-    assert found.items == ("here",) and used == ["pool"] and dropped == ["pool"]
+    assert found.items == (here,) and used == ["pool"] and dropped == ["pool"]
 
 
 def test_a_worker_dying_drops_the_pool_and_is_not_run_again_here(monkeypatch):
@@ -147,12 +153,108 @@ def test_a_worker_dying_drops_the_pool_and_is_not_run_again_here(monkeypatch):
     ran_here, dropped = [], []
     monkeypatch.setattr(data, "_worker_pool", lambda: "pool")
     monkeypatch.setattr(data, "_drop_pool", lambda pool: dropped.append(pool) or True)
+    sr_item = _item("sr_lines", "sr item")
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays_in_pool",
-                        lambda *a: (["sr item"], {"gaps": "RuntimeError: a detector worker died"}, True))
+                        lambda *a: ([sr_item], {"gaps": "RuntimeError: a detector worker died"}, True))
     monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", lambda *a: ran_here.append(True) or ([], {}))
     found = data.overlays("ABC", Timeframe.DAILY)
-    assert found.items == ("sr item",) and "worker died" in found.errors["gaps"]
+    assert found.items == (sr_item,) and "worker died" in found.errors["gaps"]
     assert ran_here == [] and dropped == ["pool"]
+
+
+def _saving(monkeypatch, tmp_path, failing=()):
+    """A FakeData class whose results are saved under tmp_path (a new instance is the app
+    restarted), and the families each run asked for. Families in `failing` fail."""
+    class Saving(FakeData):
+        def __init__(self):
+            super().__init__()
+            self.saved_overlays = overlay_cache.OverlayCache(tmp_path / "saved")
+
+        _overlays = app_mod.ChartData._overlays
+
+    raw = tmp_path / "raw.sqlite"
+    conn = sqlite3.connect(raw)
+    db.create_tables(conn)
+    conn.close()
+    monkeypatch.setattr(app_mod, "_read_only", lambda path: sqlite3.connect(raw))
+    runs = []
+
+    def run(conn, ticker, timeframe, bars, families=FAMILIES):
+        runs.append(tuple(families))
+        return ([_item(f, f"{f} item") for f in families if f not in failing],
+                {f: "ValueError: boom" for f in families if f in failing})
+
+    monkeypatch.setattr(app_mod.overlays_mod, "all_overlays", run)
+    return Saving, runs
+
+
+def _fields(items):
+    return [(o.family, o.item_id, o.lo, o.x0) for o in items]
+
+
+def test_saved_results_are_read_after_a_restart_instead_of_run(monkeypatch, tmp_path):
+    Saving, runs = _saving(monkeypatch, tmp_path)
+    first = Saving().overlays("ABC", Timeframe.DAILY)
+    assert runs == [FAMILIES] and first.saved == 0
+    again = Saving().overlays("ABC", Timeframe.DAILY)  # a new app: nothing in memory
+    assert runs == [FAMILIES] and again.saved == len(FAMILIES) and again.errors == {}
+    assert _fields(again.items) == _fields(first.items) == [(f, f"{f} item", 100.0, pd.Timestamp("2024-06-03"))
+                                                           for f in FAMILIES]  # menu order
+
+
+def test_a_failed_family_is_not_saved_and_runs_again(monkeypatch, tmp_path):
+    Saving, runs = _saving(monkeypatch, tmp_path, failing=("gaps",))
+    Saving().overlays("ABC", Timeframe.DAILY)
+    again = Saving().overlays("ABC", Timeframe.DAILY)
+    assert runs == [FAMILIES, ("gaps",)] and again.saved == len(FAMILIES) - 1
+    assert again.errors == {"gaps": "ValueError: boom"}
+    assert [o.family for o in again.items] == [f for f in FAMILIES if f != "gaps"]
+
+
+def test_new_bars_or_new_code_run_every_family_again(monkeypatch, tmp_path):
+    Saving, runs = _saving(monkeypatch, tmp_path)
+    Saving().overlays("ABC", Timeframe.DAILY)
+    newer = Saving()
+    newer._frame = newer._frame.assign(close=newer._frame["close"] + 1)  # a refresh changed the bars
+    assert newer.overlays("ABC", Timeframe.DAILY).saved == 0 and runs == [FAMILIES] * 2
+    monkeypatch.setattr(overlay_cache, "code_hash", lambda: "edited")  # a detector was edited
+    assert Saving().overlays("ABC", Timeframe.DAILY).saved == 0 and runs == [FAMILIES] * 3
+    assert Saving().overlays("ABC", Timeframe.DAILY).saved == len(FAMILIES)
+
+
+def test_a_refresh_while_the_app_runs_is_not_saved_under_the_old_bars(monkeypatch, tmp_path):
+    # S/R, gaps and Fibonacci read the database, not the bars held in memory: after a
+    # refresh, results from the new rows mustn't be keyed on the old bars.
+    Saving, runs = _saving(monkeypatch, tmp_path)
+    Saving().overlays("ABC", Timeframe.DAILY)
+    conn = sqlite3.connect(tmp_path / "raw.sqlite")
+    db.upsert_bars(conn, "bars_1d", "ABC", app_mod.source_for(app_mod.CHART_BASIS),
+                   pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0, "is_partial": 0},
+                                index=pd.bdate_range("2025-01-01", periods=1)))
+    conn.commit()
+    conn.close()
+    assert Saving().overlays("ABC", Timeframe.DAILY).saved == 0 and runs == [FAMILIES] * 2
+
+
+def test_the_code_is_hashed_when_the_app_starts(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(app_mod.overlay_cache, "code_hash", lambda: calls.append(1) or "h")
+    app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"))
+    assert calls == []  # nothing saved, nothing hashed
+    app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"), overlay_dir=tmp_path)
+    assert calls == [1]
+    monkeypatch.setattr(app_mod.overlay_cache, "code_hash", lambda: (_ for _ in ()).throw(SyntaxError("mid-edit")))
+    data = app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"),
+                             overlay_dir=tmp_path)
+    assert data.saved_overlays is None  # starts, saving nothing
+
+
+def test_unreadable_key_inputs_run_every_family_and_save_nothing(monkeypatch, tmp_path):
+    Saving, runs = _saving(monkeypatch, tmp_path)
+    monkeypatch.setattr(app_mod.db, "read_splits", lambda *a: (_ for _ in ()).throw(sqlite3.OperationalError("x")))
+    found = Saving().overlays("ABC", Timeframe.DAILY)
+    assert runs == [FAMILIES] and len(found.items) == len(FAMILIES)
+    assert not (tmp_path / "saved").exists()
 
 
 def test_dropping_a_failed_pool_leaves_a_newer_one_alone():

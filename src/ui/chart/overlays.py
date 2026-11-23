@@ -14,7 +14,8 @@ Every module here works on the traded basis, the same bars the chart draws
 `detect`; volume profile, chart patterns, divergences and market structure run their
 module's steps on the chart's bars, so they aren't loaded twice. A run takes from a fraction of a
 second (S/R, volume profile) to several (gaps over the whole daily history, Fibonacci
-on weekly), so the app caches the result per ticker and timeframe.
+on weekly), so the app caches the result per ticker and timeframe, in memory and on
+disk (`overlay_cache.py`).
 
 This is current state as of the last bar, which is all the first version shows (no
 as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
@@ -142,29 +143,37 @@ def _day(ts) -> str:
     return str(ts)[:10]
 
 
-def detect_sr_on_source(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None) -> list:
+def detect_sr_on_source(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None,
+                        last: pd.Timestamp | None = None) -> list:
     """The S/R module's `detect`, on bars from `source` (None: the basis's primary one).
-    Loads the module's own window (`sr_lines.data.load_bars`: `window_years` back from
-    now, on its `bar_interval`) and runs `detect_lines` on it; the module's loader takes
-    no source, and isn't changed (it's hashed into the level-snapshot cache,
-    `history_start`)."""
-    end = pd.Timestamp.now()
+    Loads the module's own window (`sr_lines.data.load_bars`: `window_years` back, on
+    its `bar_interval`) and runs `detect_lines` on it; the module's loader takes no
+    source, and isn't changed (it's hashed into the level-snapshot cache,
+    `history_start`). The module counts the window back from now; `last` (the chart's
+    last bar) counts it back from there instead, so the lines depend on the bars alone,
+    not on the day the chart is opened, and can be saved (`overlay_cache.py`). The two
+    differ by how far the bars end before today: days for a live ticker, years for one
+    whose bars ended long ago (a delisted member), whose chart now shows the lines of
+    its last years where a window back from now would hold no bars and find none."""
+    now = pd.Timestamp.now()
+    start = (now if last is None else pd.Timestamp(last)) - pd.DateOffset(years=config.window_years)
     timeframe = Timeframe.WEEKLY if config.bar_interval == "1w" else Timeframe.DAILY
-    raw = mc_data.load_bars(conn, ticker, timeframe, as_of=end, start=end - pd.DateOffset(years=config.window_years),
+    raw = mc_data.load_bars(conn, ticker, timeframe, as_of=now, start=start,
                             basis=config.price_basis, source=source)
     bars, _ = sr_data.validate_bars(raw, ticker, config)
     return sr_engine.detect_lines(bars, config) if not bars.empty else []
 
 
 def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float,
-                source: str | None = None) -> list[Overlay]:
+                source: str | None = None, last: pd.Timestamp | None = None) -> list[Overlay]:
     """Horizontal S/R zones from both presets. Broken lines are dead; a flipped line is
     alive (it has swapped sides). Support or resistance is by side of the last close;
     a zone around the close is "at price". `source`: the chart bars' `bars_1d.source`
-    (here and in the other families that load their own bars)."""
+    (here and in the other families that load their own bars). `last`: the chart's last
+    bar, where the window is counted back from (`detect_sr_on_source`)."""
     out = []
     for preset in SR_PRESETS[timeframe]:
-        for line in detect_sr_on_source(conn, ticker, get_preset(preset), source):
+        for line in detect_sr_on_source(conn, ticker, get_preset(preset), source, last):
             if line.kind != LineKind.HORIZONTAL or line.center is None:
                 continue  # diagonals are off in every preset; drawing them waits until they aren't
             lo, hi = line.center - line.half_width, line.center + line.half_width
@@ -552,7 +561,7 @@ def run_family(family: str, conn: sqlite3.Connection, ticker: str, timeframe: Ti
 
 # (conn, ticker, timeframe, bars, last close, bars' vendor) -> overlays. Lambdas, so a
 # family function is looked up when it runs (tests stub them).
-_RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, close, source),
+_RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, close, source, bars.index[-1]),
          GAPS: lambda conn, t, tf, bars, close, source: gap_overlays(conn, t, tf, source),
          AVWAP: lambda conn, t, tf, bars, close, source: avwap_overlays(conn, t, tf, bars),
          FIB: lambda conn, t, tf, bars, close, source: fib_overlays(conn, t, tf, source),
@@ -568,11 +577,13 @@ class PoolFailed(Exception):
     A worker that dies while running a task is not this: see `all_overlays_in_pool`."""
 
 
-def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
-    """`results(family)` for every family, in menu order, plus {family: message} for
-    those that failed: one family's error doesn't lose the others."""
+def _collect(results, families=FAMILIES) -> tuple[list[Overlay], dict[str, str]]:
+    """`results(family)` for each of `families`, in menu order, plus {family: message}
+    for those that failed: one family's error doesn't lose the others."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
+        if family not in families:
+            continue
         try:
             overlays.extend(results(family))
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
@@ -581,10 +592,10 @@ def _collect(results) -> tuple[list[Overlay], dict[str, str]]:
 
 
 def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
-                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
-    """Every family's overlays, one after another, plus {family: message} for families
-    that failed (`run_family`, `_collect`)."""
-    return _collect(lambda family: run_family(family, conn, ticker, timeframe, bars))
+                 bars: pd.DataFrame, families=FAMILIES) -> tuple[list[Overlay], dict[str, str]]:
+    """The overlays of `families` (default every one), one after another, plus
+    {family: message} for families that failed (`run_family`, `_collect`)."""
+    return _collect(lambda family: run_family(family, conn, ticker, timeframe, bars), families)
 
 
 # Submitted slowest first (measured on AAPL and NVDA, 2026-11-17), so the long ones
@@ -618,8 +629,8 @@ class WorkerDied(Exception):
 
 
 def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
-                         bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str], bool]:
-    """`all_overlays`, with each family in its own task on `pool` (worker processes:
+                         bars: pd.DataFrame, families=FAMILIES) -> tuple[list[Overlay], dict[str, str], bool]:
+    """`all_overlays` (of `families`), with each family in its own task on `pool` (worker processes:
     the detectors are pure Python and pandas, so threads would wait on each other), plus
     whether the pool broke. A chart takes about as long as its slowest family instead
     of the sum. Raises `PoolFailed` if the pool couldn't take the tasks.
@@ -635,7 +646,7 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
     before the pool, and now also keep one worker busy for good."""
     futures = {}
     try:
-        for family in _SLOWEST_FIRST:
+        for family in (f for f in _SLOWEST_FIRST if f in families):
             futures[family] = pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
     except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
         for f in futures.values():  # the caller runs every family itself: drop the ones not started yet
@@ -654,5 +665,5 @@ def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timef
             broke = True
             raise WorkerDied() from e  # filed by `_collect` as this family's error
 
-    items, errors = _collect(result)
+    items, errors = _collect(result, families)
     return items, errors, broke
