@@ -72,13 +72,10 @@ def test_load_bars_ignores_other_sources(conn):
 
 
 def test_load_bars_weekly_resamples_from_daily(conn):
-    # A full Mon-Fri week -- plus one following day, so the week reads as
-    # closed. Closure is judged against the *data's own* latest timestamp,
-    # not wall-clock/as_of (see load_bars' docstring) -- data ending
-    # exactly on the week's own Friday isn't enough by itself (closure
-    # requires evidence *strictly after* that Friday), which is exactly
-    # the real lookahead-safety mechanism this project verified against
-    # real PAAS data (docs/sr_lines_design_notes.md).
+    # A full Mon-Fri week plus one following day. Closure is judged against
+    # the *data's own* latest timestamp, not wall-clock/as_of (see load_bars'
+    # docstring; the real PAAS case in docs/features/sr_lines_design_notes.md),
+    # so the lone next-Monday week is still in progress.
     rows = [
         ("2024-01-01", 100.0, 105.0, 99.0, 101.0, 1000, 0),  # Mon
         ("2024-01-02", 101.0, 103.0, 98.0, 102.0, 1000, 0),
@@ -98,6 +95,22 @@ def test_load_bars_weekly_resamples_from_daily(conn):
     assert (week["open"], week["high"], week["low"], week["close"], week["volume"]) == (
         100.0, 108.0, 98.0, 106.0, 5000.0,
     )
+
+
+def test_load_bars_weekly_keeps_the_last_week_when_the_data_ends_on_its_friday(conn):
+    # Data ending on a Friday: that week is complete and comes back (it used to be
+    # dropped, so every weekly consumer ended a week early). A partial Friday row is
+    # dropped before resampling, so its week is still in progress.
+    rows = [(d.strftime("%Y-%m-%d"), 100.0, 101.0, 99.0, 100.0, 1000, 0)
+            for d in pd.bdate_range("2024-01-01", "2024-01-12")]
+    db.upsert_bars(conn, "bars_1d", "AAPL", db.YFINANCE, _bars(rows))
+    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01", basis=PriceBasis.TOTAL_RETURN)
+    assert list(result.index.strftime("%Y-%m-%d")) == ["2024-01-01", "2024-01-08"]
+
+    db.upsert_bars(conn, "bars_1d", "AAPL", db.YFINANCE,
+                   _bars([("2024-01-12", 100.0, 101.0, 99.0, 100.0, 1000, 1)]))  # Friday intraday
+    result = load_bars(conn, "AAPL", Timeframe.WEEKLY, as_of="2024-02-01", basis=PriceBasis.TOTAL_RETURN)
+    assert list(result.index.strftime("%Y-%m-%d")) == ["2024-01-01"]
 
 
 def test_load_bars_start_window_applies_before_weekly_resample(conn):

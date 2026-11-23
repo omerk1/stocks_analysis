@@ -1,13 +1,18 @@
+import sqlite3
+from concurrent.futures.process import BrokenProcessPool
 from types import SimpleNamespace as NS
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from src.foundation.data_processing import db
 from src.foundation.market_common.models import Timeframe
 from src.signals.avwap.models import AnchorStatus, AnchorType
 from src.signals.fibonacci.models import FibLevelKind, FibSetStatus, SwingDirection
 from src.signals.gaps.models import Direction, GapKind, GapStatus
+from src.signals.sr_lines import engine as sr_engine
+from src.signals.sr_lines.config import get_preset
 from src.signals.sr_lines.models import LineKind, LineState
 from src.ui.chart import overlays
 
@@ -30,7 +35,7 @@ def _line(center, state, kind=LineKind.HORIZONTAL):
 def test_sr_zones_side_by_last_close_and_broken_lines_dead(monkeypatch):
     lines = [_line(95.0, LineState.ACTIVE), _line(105.0, LineState.FLIPPED), _line(100.0, LineState.BROKEN),
              _line(101.0, LineState.ACTIVE, kind=LineKind.DIAGONAL)]
-    monkeypatch.setattr(overlays.sr_engine, "detect", lambda conn, ticker, config: NS(lines=lines))
+    monkeypatch.setattr(overlays, "detect_sr_on_source", lambda conn, ticker, config, source, last: lines)
     out = overlays.sr_overlays(None, "ABC", DAILY, close=100.0)
     assert len(out) == 6  # 3 horizontal lines x both presets; the diagonal is skipped
     first = out[:3]
@@ -64,12 +69,19 @@ def test_gaps_open_and_partial_are_alive(monkeypatch):
     assert out[1].strength == 1.5 and out[1].tag == "FVG"
 
 
+def _stub_avwap(monkeypatch, found):
+    config = overlays.AvwapConfig
+    monkeypatch.setattr(overlays, "AvwapConfig", lambda: config(min_bars=10))
+    monkeypatch.setattr(overlays, "history_start", lambda *a: None)
+    monkeypatch.setattr(overlays.avwap_anchors, "detect_on_bars", lambda *a, **k: found)
+
+
 def test_avwap_curve_from_its_anchor_and_stale_is_dead(monkeypatch, bars):
     def anchor(date, status):
         return NS(anchor_date=date, current_value=101.0, anchor_types=frozenset({AnchorType.CYCLE_LOW}),
                   status=status, n_crosses=2, avg_reaction_atr_on_touch=None)
     found = [anchor("2024-02-01T00:00:00", AnchorStatus.ACTIVE), anchor("2024-01-15T00:00:00", AnchorStatus.STALE)]
-    monkeypatch.setattr(overlays.avwap_anchors, "detect", lambda *a, **k: (found, None, None))
+    _stub_avwap(monkeypatch, found)
     out = overlays.avwap_overlays(None, "ABC", DAILY, bars)
     assert [o.alive for o in out] == [True, False]
     curve = out[0].series
@@ -81,7 +93,7 @@ def test_avwap_curve_from_its_anchor_and_stale_is_dead(monkeypatch, bars):
 def test_avwap_without_a_module_value_falls_back_to_its_curve(monkeypatch, bars):
     found = [NS(anchor_date="2024-02-01T00:00:00", current_value=None, anchor_types=frozenset({AnchorType.ATH}),
                 status=AnchorStatus.ACTIVE, n_crosses=0, avg_reaction_atr_on_touch=None)]
-    monkeypatch.setattr(overlays.avwap_anchors, "detect", lambda *a, **k: (found, None, None))
+    _stub_avwap(monkeypatch, found)
     (o,) = overlays.avwap_overlays(None, "ABC", DAILY, bars)
     assert o.lo == pytest.approx(o.series.iloc[-1])
     assert np.isnan(overlays._avwap_value(None, None))  # no value at all: out of reach, not a failure
@@ -113,6 +125,237 @@ def test_one_family_failing_keeps_the_others(monkeypatch, bars):
     items, errors = overlays.all_overlays(None, "ABC", DAILY, bars)
     assert items == ["avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]  # menu order
     assert errors == {"gaps": "ValueError: boom"}
+
+
+def test_every_family_is_submitted_to_the_pool_once():
+    assert sorted(overlays._SLOWEST_FIRST) == sorted(overlays.FAMILIES)
+
+
+def test_only_the_families_asked_for_run(monkeypatch, bars):
+    from concurrent.futures import Future
+
+    _stub_families(monkeypatch, failing="vp")
+    asked = (overlays.FIB, overlays.SR, overlays.VP)
+    items, errors = overlays.all_overlays(None, "ABC", DAILY, bars, asked)
+    assert items == ["sr item", "fib item"] and errors == {overlays.VP: "ValueError: boom"}  # menu order
+
+    class Recording:
+        def __init__(self):
+            self.families = []
+
+        def submit(self, fn, family, *a):
+            self.families.append(family)
+            f = Future()
+            f.set_result([f"{family} item"])
+            return f
+
+    pool = Recording()
+    items, errors, broke = overlays.all_overlays_in_pool(pool, "raw.sqlite", "ABC", DAILY, bars, asked)
+    assert pool.families == [overlays.FIB, overlays.SR, overlays.VP]  # slowest first
+    assert items == ["sr_lines item", "fibonacci item", "volume_profile item"] and errors == {} and not broke
+
+
+def test_sr_counts_its_window_back_from_the_chart_s_last_bar(monkeypatch, bars):
+    starts = []
+
+    def load(conn, ticker, timeframe, as_of, start, basis, source):
+        starts.append(pd.Timestamp(start))
+        return bars.iloc[:0]
+
+    monkeypatch.setattr(overlays.mc_data, "load_bars", load)
+    config = get_preset("medium_term")
+    overlays.detect_sr_on_source(None, "ABC", config, None, pd.Timestamp("2024-03-15"))
+    assert starts == [pd.Timestamp("2024-03-15") - pd.DateOffset(years=config.window_years)]
+    overlays.run_family(overlays.SR, None, "ABC", DAILY, bars)  # both presets, from the bars' last date
+    assert starts[1:] == [bars.index[-1] - pd.DateOffset(years=get_preset(p).window_years)
+                          for p in overlays.SR_PRESETS[DAILY]]
+
+
+def _stub_families(monkeypatch, failing="gaps"):
+    for name, family in (("sr_overlays", "sr"), ("gap_overlays", "gaps"), ("avwap_overlays", "avwap"),
+                         ("fib_overlays", "fib"), ("volume_profile_overlays", "vp"), ("pattern_overlays", "pattern"),
+                         ("divergence_overlays", "div"), ("structure_overlays", "ms")):
+        if family == failing:
+            monkeypatch.setattr(overlays, name, lambda *a: (_ for _ in ()).throw(ValueError("boom")))
+        else:
+            monkeypatch.setattr(overlays, name, lambda *a, family=family: [f"{family} item"])
+
+
+def test_the_pool_gives_what_running_them_here_gives(monkeypatch, bars, tmp_path):
+    # Threads stand in for worker processes here (a monkeypatch doesn't reach a spawned
+    # process): same menu order and per-family errors, whatever order they finish in.
+    from concurrent.futures import ThreadPoolExecutor
+
+    _stub_families(monkeypatch)
+    raw = tmp_path / "raw.sqlite"
+    sqlite3.connect(raw).close()
+    with ThreadPoolExecutor(3) as pool:
+        in_pool = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
+    assert in_pool[:2] == overlays.all_overlays(None, "ABC", DAILY, bars) and in_pool[2] is False
+    assert in_pool[0] == ["sr item", "avwap item", "fib item", "vp item", "pattern item", "div item", "ms item"]
+    assert in_pool[1] == {"gaps": "ValueError: boom"}
+
+
+class _Pool:
+    """Hands back futures that end in `outcome`; `on_submit` raised from the
+    `fail_at`-th submit on (0-based)."""
+
+    def __init__(self, outcome=None, on_submit=None, fail_at=0):
+        self.outcome, self.on_submit, self.fail_at, self.futures = outcome, on_submit, fail_at, []
+
+    def submit(self, *a, **k):
+        from concurrent.futures import Future
+
+        if self.on_submit is not None and len(self.futures) >= self.fail_at:
+            raise self.on_submit
+        f = Future()
+        if self.outcome is not None:
+            f.set_exception(self.outcome)
+        self.futures.append(f)
+        return f
+
+
+@pytest.mark.parametrize("pool", [
+    _Pool(on_submit=BrokenProcessPool("broken before")),  # another chart broke it
+    _Pool(on_submit=RuntimeError("cannot schedule new futures after shutdown")),
+    _Pool(on_submit=OSError("can't start a process")),
+], ids=["already-broken", "shut-down", "no-process"])
+def test_a_pool_that_cannot_take_the_tasks_is_raised(pool, bars, tmp_path):
+    with pytest.raises(overlays.PoolFailed):
+        overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+
+
+def test_a_worker_dying_is_the_error_of_each_family_it_cost(bars, tmp_path):
+    from concurrent.futures import Future
+
+    class Mixed:  # gaps' worker dies; the others finish
+        def submit(self, fn, family, *a):
+            f = Future()
+            if family == overlays.GAPS:
+                f.set_exception(BrokenProcessPool("a worker died"))
+            else:
+                f.set_result([f"{family} item"])
+            return f
+
+    items, errors, broke = overlays.all_overlays_in_pool(Mixed(), tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert broke and errors == {overlays.GAPS: f"WorkerDied: {overlays.WorkerDied()}"}
+    assert len(items) == len(overlays.FAMILIES) - 1  # the finished families keep their items
+
+
+def test_a_submit_failing_partway_cancels_the_tasks_already_queued(bars, tmp_path):
+    pool = _Pool(on_submit=OSError("can't start a process"), fail_at=2)
+    with pytest.raises(overlays.PoolFailed):
+        overlays.all_overlays_in_pool(pool, tmp_path / "raw.sqlite", "ABC", DAILY, bars)
+    assert len(pool.futures) == 2 and all(f.cancelled() for f in pool.futures)
+
+
+def test_worker_processes_find_what_this_process_finds(tmp_path):
+    # Real spawned workers, each on its own read-only connection. The bars are stored
+    # under Tiingo only, so S/R, gaps and Fibonacci (which load their own) find them only
+    # if the chart's vendor (`bars.attrs["source"]`) reaches the worker.
+    from concurrent.futures import ProcessPoolExecutor
+    import multiprocessing
+
+    rng = np.random.default_rng(3)
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, 600)))
+    frame = pd.DataFrame({"open": close * (1 + rng.normal(0, 0.005, 600)), "close": close,
+                          "volume": 1e6, "is_partial": 0}, index=idx)
+    frame["high"] = frame[["open", "close"]].max(axis=1) * 1.01
+    frame["low"] = frame[["open", "close"]].min(axis=1) * 0.99
+    raw = tmp_path / "raw.sqlite"
+    conn = sqlite3.connect(raw)
+    db.create_tables(conn)
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, frame)
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO, frame)
+    conn.commit()
+    conn.close()
+    bars = frame.drop(columns="is_partial")
+    bars.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    conn = db.get_connection(f"file:{raw}?mode=ro", uri=True)
+    try:
+        here = overlays.all_overlays(conn, "ABC", DAILY, bars)
+    finally:
+        conn.close()
+    with ProcessPoolExecutor(2, mp_context=multiprocessing.get_context("spawn")) as pool:
+        there = overlays.all_overlays_in_pool(pool, raw, "ABC", DAILY, bars)
+
+    def key(o):
+        return (o.family, o.item_id, o.lo, o.hi, o.alive)
+
+    assert [key(o) for o in there[0]] == [key(o) for o in here[0]]
+    assert there[1] == here[1]
+    assert {overlays.SR, overlays.GAPS, overlays.FIB} <= {o.family for o in there[0]}
+
+
+def test_families_that_load_their_own_bars_read_the_charts_vendor(monkeypatch, bars):
+    # A Tiingo-only ticker (bars.attrs["source"], set by load_chart_bars): S/R, gaps and
+    # Fibonacci load their own bars and must read the same vendor, or they'd find none.
+    # (AVWAP and volume profile run on the chart's bars: `test_history_start_...`.)
+    seen = {}
+
+    def recorder(family, result):
+        def detect(*args, source=None, **kwargs):
+            seen.setdefault(family, set()).add(source)
+            return result
+        return detect
+
+    monkeypatch.setattr(overlays.mc_data, "load_bars", recorder("sr", bars.iloc[:0]))
+    monkeypatch.setattr(overlays.gap_detect, "detect", recorder("gaps", ([], None, None)))
+    monkeypatch.setattr(overlays.fib_engine, "detect", recorder("fib", NS(selected_sets=[])))
+    for name in ("avwap_overlays", "volume_profile_overlays", "structure_overlays", "pattern_overlays",
+                 "divergence_overlays"):
+        monkeypatch.setattr(overlays, name, lambda *a: [])
+    tagged = bars.copy()
+    tagged.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    _, errors = overlays.all_overlays(None, "ABC", DAILY, tagged)
+    assert errors == {}
+    assert seen == {"sr": {db.TIINGO_SPLIT_ONLY}, "gaps": {db.TIINGO_SPLIT_ONLY}, "fib": {db.TIINGO_SPLIT_ONLY}}
+
+
+@pytest.fixture
+def raw():
+    c = sqlite3.connect(":memory:")
+    db.create_tables(c)
+    yield c
+    c.close()
+
+
+def test_history_start_reads_the_splits_of_the_bars_vendor(monkeypatch, raw, bars):
+    # AVWAP and volume profile anchors start after a history break found from splits;
+    # a Tiingo-only ticker's splits are Tiingo's (yfinance has none for it).
+    splits = pd.DataFrame({"execution_date": ["2024-02-01"], "split_from": [20.0], "split_to": [1.0], "ratio": [0.05]})
+    db.upsert_splits(raw, "ABC", db.TIINGO, splits)
+    got = []
+    monkeypatch.setattr(overlays.history_breaks, "anchor_start_date",
+                        lambda b, sp, config, ticker: got.append(len(sp)))
+    config = overlays.history_breaks.HistoryBreakConfig()
+    tagged = bars.copy()
+    tagged.attrs["source"] = db.TIINGO_SPLIT_ONLY
+    overlays.history_start(raw, "ABC", tagged, config)
+    overlays.history_start(raw, "ABC", bars, config)  # untagged: yfinance's, none here
+    assert got == [1, 0]
+    assert overlays.history_start(raw, "ABC", tagged,
+                                  overlays.history_breaks.HistoryBreakConfig(enabled=False)) is None
+
+
+@pytest.mark.parametrize("preset", [*overlays.SR_PRESETS[DAILY], *overlays.SR_PRESETS[Timeframe.WEEKLY]])
+def test_sr_lines_match_the_modules_own_detect_on_primary_bars(raw, preset):
+    # `detect_sr_on_source` repeats the module's load (its loader takes no source); on
+    # yfinance bars it must find exactly what `sr_engine.detect` does, for every preset
+    # the chart uses. The history (~10 years) is longer than every window, so each
+    # window's start cuts into it.
+    rng = np.random.default_rng(7)
+    idx = pd.bdate_range(end=pd.Timestamp.now().normalize() - pd.Timedelta(days=3), periods=2600)
+    assert idx[0] < pd.Timestamp.now() - pd.DateOffset(years=get_preset(preset).window_years + 1)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, len(idx))))
+    frame = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close,
+                          "volume": 1e6, "is_partial": 0}, index=idx)
+    db.upsert_bars(raw, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, frame)
+    config = get_preset(preset)
+    ours = overlays.detect_sr_on_source(raw, "ABC", config, None)
+    theirs = sr_engine.detect(raw, "ABC", config).lines
+    assert ours and [(l.center, l.state) for l in ours] == [(l.center, l.state) for l in theirs]
 
 
 def _div(p1, p2, confirmed, indicator="rsi", direction=Direction.BULLISH, hidden=False, invalidated=False):
@@ -156,7 +399,7 @@ def test_volume_profile_gives_poc_and_value_area_edges_per_anchor(monkeypatch, b
                 profile("2024-02-15", AnchorStatus.ACTIVE, poc=None)]  # no profile built: skipped
     config = overlays.VolumeProfileConfig
     monkeypatch.setattr(overlays, "VolumeProfileConfig", lambda: config(min_bars=10))
-    monkeypatch.setattr(overlays.history_breaks, "anchor_start_for", lambda *a: None)
+    monkeypatch.setattr(overlays, "history_start", lambda *a: None)
     monkeypatch.setattr(overlays.vp_detect, "detect_on_bars", lambda *a, **k: profiles)
     out = overlays.volume_profile_overlays(None, "ABC", DAILY, bars)
     assert [(o.tag, o.lo, o.kind) for o in out[:3]] == [("POC Jan 24", 100.0, "hline"), ("VAH Jan 24", 104.0, "hline"),

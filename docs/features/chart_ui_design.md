@@ -127,7 +127,9 @@ ticker and day. Reuse its distance-in-ATR helpers instead of writing a second ve
 ## Out of scope for the first version
 
 - Several tickers, watchlists, screeners, alerts.
-- Live or intraday data. The chart ends at the last stored bar.
+- Live or intraday data. The chart ends at the last stored bar. The header says how far
+  behind that is: SPY's last bar and the weekdays since, red past 2 (Done #202); a
+  refresh is still run by hand (`docs/backfills.md`).
 - Running the signal modules from the UI. It reads what's stored. A family with no stored
   run for the ticker shows "not computed — `python -m src.signals.<name>.cli …`" in the menu.
 - Drawing tools, saved layouts, login, deployment.
@@ -200,11 +202,14 @@ class Overlay:
    expected trace types per chart type, the strip shows "no RS run" when there are no rows.
    **As built (Done #175):**
    - Prices are traded (split-only), the basis the price-level modules use.
+   - A ticker with no yfinance bars (ARM, ASML, PDD, delisted members) is drawn from
+     Tiingo's, and the status line says so; its level detectors read the same vendor's bars
+     and splits (Done #193). Tiingo's bars can end earlier than yfinance's.
    - Weekly bars reuse the shared loader's resample, so there's no `bars.py` copy of it.
    - Moving averages are computed on the displayed closes.
    - A zoom/pan callback refits the y-axes to the visible window.
-   - The weekly chart leaves out the last week when the data ends on its Friday (the shared
-     resample counts that week as still in progress).
+   - The weekly chart left out the last week when the data ended on its Friday (the shared
+     resample counted that week as still in progress); fixed in the resample (Done #194).
 2. **Menu and defaults:** the `Overlay` adapters for S/R, gaps, AVWAP and Fibonacci (the
    families `levels.py` already covers), `relevance.py`, the menu with caps and reset, and the
    proximity ↔ strength slider. Tests: ranking and caps on hand-built overlays, dead items
@@ -329,7 +334,11 @@ class Overlay:
    - The detector adds about 2–3 s per chart. The menu now takes about 3–8 s daily and
      4–17 s weekly; most of the weekly time is gaps, AVWAP and Fibonacci. Running the
      detectors on threads doesn't help (they're CPU-bound Python); separate processes
-     would, a later change if the wait gets in the way.
+     do, and the families now run that way (Done #202): about as long as the slowest
+     family instead of the sum. Their results are also saved to disk per ticker,
+     timeframe and family, keyed on the bars, the splits and the detectors' code
+     (Done #205), so a chart opened before reads them in well under a second, after a
+     restart too, until a refresh or a code change.
 
    As built, 4c (volume profile and market structure in the level menu, Done #182):
    - **Volume profile:** each anchored profile (the same anchors as AVWAP) gives three
@@ -438,12 +447,32 @@ class Overlay:
      (today: FISV).
    - **Prices** are on the chart's basis (traded), read in bulk per source and not
      validated bar by bar. A ticker with no yfinance bars is read from Tiingo (ARM,
-     ASML, PDD, delisted members); the Chart tab still reads yfinance only, so
-     clicking one of those shows "No bars". A 50/200-day average or 52-week high
+     ASML, PDD, delisted members); the Chart tab does the same since Done #193 (it
+     said "No bars" for them before). A 50/200-day average or 52-week high
      needs its full window of bars, else it's blank and not counted.
    - Built the first time the tab opens (about 4–7 s), then cached until Reload or a
      restart. Nothing is stored. `dash_table.DataTable` is deprecated in Dash 4 in
      favour of dash-ag-grid; it still works, and swapping it is a later change.
+
+   Added after step 6 (Done #201): a **Picks** tab, the first version of "Model picks"
+   below. It lists the combined model's top picks on one decision date, one table per
+   horizon and barrier cell: rank, ticker, EV in ATRs, the three calibrated
+   probabilities, the decision close and ATR, and the target and stop at that close
+   (the trade enters at the next open). Click a ticker for its chart.
+   - **It reads files, never a model:** `python -m src.models.cli score-forward
+     <scorecard> --as-of DATE` (Done #199) writes `data/models/forward/<id>_<date>.csv`
+     when run from the repo root, like the command's other defaults (the folder and the
+     name are shared in `src/models/forward_files.py`), and the tab lists those in its
+     own checkout, newest date first. A run in a worktree writes to that worktree's
+     folder, which the main checkout's app doesn't see. It never fits, scores or reads a
+     cache, so any holdout gate is the command's: HT1 scores nothing until its
+     registered test has run every cell, and a dev scorecard (F2) only scores dates up
+     to 2021. Files written elsewhere with `--out` aren't listed; a file whose rows
+     aren't on its name's date is refused.
+   - Files are listed each time the tab opens, and Reload re-reads the one shown, so
+     new picks show without a restart. As of this step there are no pick files yet.
+   - Not shown: the pick's features. The file has none, and reading the feature cache
+     from the app would be the first model read in the UI.
 
 Each step is a usable app on its own.
 
@@ -491,7 +520,8 @@ shape, the read-only adapters and `figure.py` with no Dash in it are what keep t
   1 ATR. It's the level stack the strategy agent's next finder builds
   (`docs/backlog.md`, LLM section).
 - **Model picks:** open the chart from the combined model's top-k list for a date, with the
-  pick's features in the side panel.
+  pick's features in the side panel. The list and the click are built (the Picks tab,
+  Done #201); the features panel isn't.
 - **Strategy agent in the UI:** type an idea, answer its questions in a side panel, and see
   the matching events and near-misses drawn on the chart, then the exploratory look. Today
   it saves static charts.

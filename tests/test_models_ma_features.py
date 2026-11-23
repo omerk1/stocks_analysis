@@ -136,6 +136,21 @@ def test_cache_holds_eligible_rows_ranked_among_themselves(conn, tmp_path):
     assert f["sector_rank_mom_63"].notna().sum() and f.loc[f["ticker"] == "CCC", "sector_rank_mom_63"].isna().all()
 
 
+def test_a_scorecards_columns_alone_equal_the_full_builds(conn, tmp_path):
+    """`build-features --scorecard HT1` builds a subset of the specs; each
+    column must come out as the full build's (ranks, panel and sector columns
+    don't depend on the other columns being built)."""
+    from src.models import cli, trading
+    universe = dataset.universe_mask(conn, "2020-01-01", "2021-12-31")
+    no_levels = [s for s in registry.model_specs() if not registry.is_detector(s)]
+    cache.build_feature_cache(conn, universe, tmp_path / "full", specs=no_levels)
+    cache.build_feature_cache(conn, universe, tmp_path / "ht1", specs=cli.scorecard_specs("HT1"))
+    full, ht1 = cache.read_feature_cache(tmp_path / "full"), cache.read_feature_cache(tmp_path / "ht1")
+    columns = [c for c in ht1.columns if c not in ("ticker", "date")]   # the 24 inputs + raw values of the ranked
+    assert set(trading.PREREGISTERED["HT1"].model_columns) <= set(columns) and len(columns) < len(full.columns) - 2
+    pd.testing.assert_frame_equal(ht1, full[["ticker", "date", *columns]])
+
+
 def test_cache_refuses_the_holdout(conn, tmp_path):
     universe = dataset.universe_mask(conn, "2021-06-01", "2021-12-31")
     universe = pd.concat([universe, universe.tail(1).assign(date=pd.Timestamp("2022-01-03"))])

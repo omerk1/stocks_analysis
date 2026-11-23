@@ -30,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, PreformattedString
+from bs4.element import PreformattedString
 
 from src.foundation.utils.config_loader import load_config
 from src.llm.guidance.sample import SAMPLE_PATH
@@ -140,73 +140,26 @@ def fetch_one(edgar: Edgar, accession: str, index_url: str, root: Path) -> dict:
     return manifest
 
 
-def close_unclosed(soup: BeautifulSoup) -> None:
-    """Undo html.parser's nesting of unclosed table tags. Old EDGAR HTML often leaves out
-    </td> and </tr>, and html.parser then nests each row inside the row before it and
-    each cell inside the cell before it, where a browser would close them. Each such
-    row or cell is moved out to follow the one it was nested in, in document order,
-    so a deeper one follows its new place in turn. Non-cell wrappers between it and its
-    holder are unwrapped first: inline ones (<font>, <b>) carry no meaning around a
-    cell or row, and one in BLOCK_TAGS (<p>, <div>) leaves a separator in its place,
-    which the later whitespace pass makes a space, so words don't glue (a block tag
-    outside BLOCK_TAGS, like <dd>, still glues). Then everything after it in what now
-    holds it moves with it, in order, so nothing is reversed: the holder, or, for a row
-    inside an unclosed cell, that cell, which stays a cell (cells after it in the
-    holder row then stay ahead of the row: a gap the probe doc lists). Among those,
-    anything that is not a row (at row level) or a cell (at cell level), loose text or
-    an inline tag holding a figure, gets a row or cell of its own, so it is neither
-    glued to a neighbour nor dropped. A nested table is not this: its rows have their
-    own table between them and the outer row."""
-    for level, bounds, holders in (("tr", ["tr", "table"], ("tr",)),
-                                   ("td", ["td", "th", "tr", "table"], ("td", "th"))):
-        for node in soup.find_all(["tr"] if level == "tr" else ["td", "th"]):
-            holder = node.find_parent(bounds)
-            if holder is None or holder.name not in holders:
-                continue  # not nested, or already moved out with an earlier one
-            while node.parent is not holder and node.parent.name not in ("td", "th"):
-                wrapper = node.parent  # an unclosed cell holding a row stays a cell
-                if wrapper.name in BLOCK_TAGS:  # a separator in its place (a space by the end), so no words glue
-                    wrapper.insert_before("\n")
-                    wrapper.insert_after("\n")
-                wrapper.unwrap()
-            anchor = holder
-            for moving in [node, *node.next_siblings]:
-                moving = moving.extract()
-                if isinstance(moving, NavigableString) and not moving.strip():
-                    continue
-                moving = as_table_part(soup, moving, level)
-                anchor.insert_after(moving)
-                anchor = moving
-
-
-def as_table_part(soup: BeautifulSoup, node, level: str):
-    """`node` as a row (level 'tr') or a cell (level 'td'), wrapped as needed."""
-    def wrapped(name, inner):
-        outer = soup.new_tag(name)
-        outer.append(inner)
-        return outer
-
-    is_cell = getattr(node, "name", None) in ("td", "th")
-    if level == "td":
-        return node if is_cell else wrapped("td", node)
-    if getattr(node, "name", None) == "tr":
-        return node
-    return wrapped("tr", node if is_cell else wrapped("td", node))
-
-
 def release_text(raw: bytes) -> str:
     """Plain text of a release (HTML or plain-text exhibit). Table rows become one line
     each, cells joined by ' | ', so a guidance table stays readable. Only block-level
     tags break a line: inline ones (<b>, <font>, <span>) wrapping a figure stay inside
     their sentence. The encoding is checked (older exhibits are often windows-1252,
-    whose en dash marks a range): UTF-8 if it decodes, else windows-1252."""
+    whose en dash marks a range): UTF-8 if it decodes, else windows-1252.
+
+    HTML is parsed with html5lib, which builds the tree a browser does (the WHATWG
+    algorithm). Old EDGAR HTML often leaves out </td> and </tr>, or misnests tags
+    (<b><p>...</b>); html5lib closes and reorders them as a browser would. Text loose
+    inside a table, outside any cell, goes before the table, as a browser shows it.
+    The conversion is part of the extraction's frozen version
+    (`docs/fundamentals/guidance_probe.md`, "What a ground-rule exception would need"):
+    a change here changes the text a cached reply was made from."""
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
         text = raw.decode("cp1252", errors="replace")
     if re.search(r"<(html|body|p|div|table)\b", text, re.IGNORECASE):
-        soup = BeautifulSoup(text, "html.parser")
-        close_unclosed(soup)
+        soup = BeautifulSoup(text, "html5lib")
         for tag in soup(["script", "style"]):
             tag.decompose()
         for node in soup.find_all(string=lambda s: isinstance(s, PreformattedString)):

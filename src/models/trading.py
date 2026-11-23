@@ -153,6 +153,7 @@ class Scorecard:
     verdict_cost_bps: float = 0                  # round trip charged to every side that trades (not the market)
     min_positive_years: int = 0                  # entry also needs D_H > 0 in this many test years (MIN_YEAR_DATES)
     open_holdout: bool = False                   # test years past dataset.HOLDOUT_END: Track B only
+    data_end: str | None = None                  # the registered last bar: caches must end exactly there
 
     def __post_init__(self):
         if self.track != TRACK and self.verdict_k not in self.ks:
@@ -162,6 +163,9 @@ class Scorecard:
         if self.open_holdout and self.track == TRACK:
             raise ValueError("a Track A scorecard never opens the holdout")
         past = max(self.test_years) > dataset.HOLDOUT_END.year
+        if self.data_end is not None and (not self.open_holdout or str(pd.Timestamp(self.data_end).date()) != self.data_end
+                                          or pd.Timestamp(self.data_end) < pd.Timestamp(max(self.test_years), 7, 1)):
+            raise ValueError(f"data_end {self.data_end}: needs open_holdout, YYYY-MM-DD, and July 1 of the last test year or later")
         if past and not self.open_holdout:
             raise dataset.HoldoutError(f"test years {list(self.test_years)} reach past the holdout boundary "
                                        f"{dataset.HOLDOUT_END.date()}; only a pre-registered scorecard opens it")
@@ -190,6 +194,11 @@ def neither_atr_returns(frame: pd.DataFrame, folds) -> dict[int, float]:
     return out
 
 
+def ev_atr_score(probs: pd.DataFrame, cell: BarrierCell, neither_atr: float) -> pd.Series:
+    """EV in ATR units: P(+1) * U - P(-1) * D + P(0) * the "neither" return in ATRs."""
+    return probs["p_up"] * cell.upper_atr - probs["p_down"] * cell.lower_atr + probs["p_neither"] * neither_atr
+
+
 def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: dict[int, float],
           k: int, rank: str = "ev", neither_atr: dict[int, float] | None = None) -> pd.DataFrame:
     """Each test date's `k` rows with the highest score (ties broken by
@@ -209,8 +218,7 @@ def picks(preds: pd.DataFrame, frame: pd.DataFrame, cell: BarrierCell, neither: 
     for year, g in scored.groupby("fold"):
         g = g.assign(ev=expected_value(g, cell, neither[year]), atr_pct=g["atr"] / g["close_t"]
                      ).dropna(subset=["ev", "ret"])
-        g["score"] = g["ev"] if rank == "ev" else (g["p_up"] * cell.upper_atr - g["p_down"] * cell.lower_atr
-                                                   + g["p_neither"] * neither_atr[year])
+        g["score"] = g["ev"] if rank == "ev" else ev_atr_score(g, cell, neither_atr[year])
         parts.append(top_k(g, "score", k))
     return pd.concat(parts, ignore_index=True)[["date", "ticker", "hit", "ret", "ev", "atr_pct"]]
 
@@ -395,6 +403,32 @@ def trial_spec(sc: Scorecard, cell: BarrierCell, features: pd.DataFrame, labels:
     }
 
 
+def check_label_ends(sc: Scorecard, labels_dir: Path) -> None:
+    """Every horizon's label cache ends at `sc.data_end`, read from the
+    manifests before anything is fitted: a wrong one found at the second
+    horizon would come after the first's holdout cells were run."""
+    if sc.data_end is None:
+        return
+    for h in sc.horizons:
+        manifest = dataset.label_path(labels_dir, h).with_suffix(".json")
+        end = json.loads(manifest.read_text()).get("data_end") if manifest.exists() else None
+        if end != sc.data_end:
+            raise ValueError(f"label cache for H = {h} ends {end}, not at {sc.experiment_id}'s registered "
+                             f"data end {sc.data_end}: rebuild it with --end {sc.data_end}")
+
+
+def read_labels(sc: Scorecard, labels_dir: Path, horizon: int, cell: BarrierCell) -> pd.DataFrame:
+    """One cell's cached labels, refused unless their bars end at the
+    registered `sc.data_end` (when it has one): a label cache built through a
+    later date would resolve barriers on bars the test excludes."""
+    labels = dataset.read_labels(labels_dir, horizon, cell=(cell.upper, cell.lower), open_holdout=sc.open_holdout)
+    end = labels.attrs.get("manifest", {}).get("data_end")
+    if sc.data_end is not None and end != sc.data_end:
+        raise ValueError(f"label cache for H = {horizon} ends {end}, not at {sc.experiment_id}'s registered "
+                         f"data end {sc.data_end}: rebuild it with --end {sc.data_end}")
+    return labels
+
+
 def check_run(sc: Scorecard, features: pd.DataFrame, trials_path=trial_log.TRIALS_PATH) -> None:
     """Refuses, before any trial is logged, a cache without the model's or the
     reference's columns (an S2 run on the S1 cache), and an experiment id
@@ -472,19 +506,19 @@ def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir,
     trial per cell, predictions and bootstrap draws archived."""
     n_boot = sc.n_boot if n_boot is None else n_boot
     check_features(sc, features)
+    check_label_ends(sc, labels_dir)
     check_run(sc, features, trials_path)
     folds = walk_forward_folds(sc.test_years, sc.first_train_start)
     results = []
     for cell in cells_to_run(sc, horizon, trial_log.read_existing(trials_path), artifacts_root):
-        labels = dataset.read_labels(labels_dir, horizon, cell=(cell.upper, cell.lower), open_holdout=sc.open_holdout)
+        labels = read_labels(sc, labels_dir, horizon, cell)
         frame = cell_frame(features, labels)
         unlabelled = check_labels(sc, features, frame)
         if sc.open_holdout:
             mark_started(sc, cell, artifacts_root)
         with trial_log.trial(sc.experiment_id, trial_spec(sc, cell, features, labels),
                              trials_path, artifacts_root) as t:
-            model = seed_mean(oos_predictions(frame, sc.model_columns, folds, sc.seeds, sc.config))
-            ref = seed_mean(oos_predictions(frame, sc.reference_columns, folds, sc.seeds, sc.config))
+            model, ref = fit_predictions(sc, frame, folds)
             metrics, boots = score_cell(model, ref, frame, cell, sc, n_boot)
             metrics["unlabelled_share"] = unlabelled
             for name, b in boots.items():
@@ -495,6 +529,13 @@ def run_horizon(sc: Scorecard, horizon: int, features: pd.DataFrame, labels_dir,
             t.record(metrics, n_dates=metrics["by_k"][k]["vs_reference"]["n_dates"], outcome=outcome(metrics, cell, k))
         results.append({"trial_id": t.trial_id, "cell": cell, **metrics})
     return results
+
+
+def fit_predictions(sc: Scorecard, frame: pd.DataFrame, folds) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The model's and the reference's out-of-sample predictions, each averaged
+    over `sc.seeds`."""
+    return tuple(seed_mean(oos_predictions(frame, columns, folds, sc.seeds, sc.config))
+                 for columns in (sc.model_columns, sc.reference_columns))
 
 
 def headline_k(sc: Scorecard) -> int:
@@ -544,6 +585,7 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
     columns must match `sc`'s: the predictions are what they are."""
     n_boot = sc.n_boot if n_boot is None else n_boot
     check_features(sc, features)
+    check_label_ends(sc, labels_dir)
     rows = trials[(trials["experiment_id"] == source) & (trials["status"] == trial_log.OK)].sort_values("date")
     results, seen = [], set()
     for _, row in rows.iterrows():
@@ -554,8 +596,7 @@ def rescore(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame, labels_
         if (cell.horizon, cell.upper, cell.lower) in seen or cell.horizon not in sc.horizons:
             continue
         seen.add((cell.horizon, cell.upper, cell.lower))
-        labels = dataset.read_labels(labels_dir, cell.horizon, cell=(cell.upper, cell.lower),
-                                     open_holdout=sc.open_holdout)
+        labels = read_labels(sc, labels_dir, cell.horizon, cell)
         spec = trial_spec(sc, cell, features, labels)
         # The rescored row must describe the fit that made the predictions, and
         # score them on the same labels and features. Only the tie rule may
@@ -641,9 +682,15 @@ PREREGISTERED = {
                                         "dist_pct_sma_50_rank"),
                      horizons=(21, 63), seeds=(0, 1, 2), test_years=(2022, 2023, 2024, 2025, 2026),
                      first_train_start="2011-01-01", eras=((2022, 2023, 2024, 2025, 2026),),
-                     rank="ev_atr", ci=0.99, track="B", band=0.001, verdict_k=20, verdict_against="market",
+                     rank="ev_atr", ci=0.999, track="B", band=0.001, verdict_k=20, verdict_against="market",
                      verdict_cost_bps=10, min_positive_years=3, open_holdout=True,
-                     n_boot=10_000),   # Holm's 0.0025 cut needs more than 1,000 draws to resolve
+                     # the last date the index membership is known good (PREREGISTRATION.md HT1,
+                     # "Holdout coverage and the data end", 2026-11-15)
+                     data_end="2026-08-18",
+                     # widened from 99% / 10,000 draws by the noise check at ~9 blocks
+                     # (PREREGISTRATION.md HT1, "Noise check" result, 2026-11-15); 100,000
+                     # draws so Holm's 0.00025 cut still allows 24 draws at or below zero
+                     n_boot=100_000),
 }
 
 
@@ -669,7 +716,8 @@ def registered_trial(sc: Scorecard, trials: pd.DataFrame, cell: BarrierCell, spe
                      require_clean: bool = True) -> str | None:
     """The trial id of `cell`'s first `ok` row of `sc.experiment_id` with
     `sc`'s design (`design_mismatch`, plus rank, the verdict's k and the
-    registered bootstrap size), or None. A first row from a dirty checkout
+    registered bootstrap size and level, read from the verdict k's readout,
+    which every trial logs), or None. A first row from a dirty checkout
     voids the cell (None); a later clean row never replaces it. Raises if the
     design matches but a cache was rebuilt since the fit: scoring its
     predictions on other rows would change the verdict silently."""
@@ -682,6 +730,7 @@ def registered_trial(sc: Scorecard, trials: pd.DataFrame, cell: BarrierCell, spe
         g = json.loads(t["feature_groups"])
         if (g.get("rank") != sc.rank or str(sc.verdict_k) not in by_k
                 or by_k[str(sc.verdict_k)]["vs_reference"]["n_boot"] != sc.n_boot
+                or by_k[str(sc.verdict_k)]["vs_reference"].get("ci") != sc.ci
                 or logged_verdict(g) != verdict_settings(sc)):
             continue
         mismatch = design_mismatch(sc, t, spec)
@@ -719,6 +768,18 @@ def benchmark_picks(preds: pd.DataFrame, frame: pd.DataFrame, k: int, keep=None)
     p = preds[preds["model"] == "model"]
     every = pickable(frame, p[keep(p)] if keep is not None else p)
     return {"market": every[["date", "ticker", "hit", "ret", "atr_pct"]], "low_vol": low_vol_picks(every, k)}
+
+
+def cell_baskets(sc: Scorecard, cell: BarrierCell, preds: pd.DataFrame, frame: pd.DataFrame,
+                 keep=None) -> tuple[dict[str, pd.DataFrame], dict[str, pd.Series]]:
+    """One cell's verdict inputs: the model's and the reference's top
+    `verdict_k` picks (`cell_picks`), and every side's per-date basket
+    (those two, the market and the low-volatility basket) net of
+    `side_cost`. What `close_scorecard` pools; the noise check
+    (`scripts/scorecard_noise_coverage.py`) calls it too, so both score alike."""
+    picked = cell_picks(sc, cell, preds, frame, sc.verdict_k, keep)
+    sides = {**picked, **benchmark_picks(preds, frame, sc.verdict_k, keep)}
+    return picked, {side: basket(p, side_cost(sc, side)) for side, p in sides.items()}
 
 
 def side_cost(sc: Scorecard, side: str) -> float:
@@ -819,6 +880,7 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
     if sc.track == TRACK:
         raise ValueError(f"{sc.experiment_id} is Track A: no verdict")
     check_features(sc, features)
+    check_label_ends(sc, labels_dir)
     n_boot = sc.n_boot if n_boot is None else n_boot
     if n_boot < sc.n_boot:
         raise ValueError(f"n_boot {n_boot} is below the registered {sc.n_boot}: a precision check takes more draws")
@@ -828,7 +890,7 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
     for h in sc.horizons:
         ids, frames = {}, {}
         for c in sc.cells(h):
-            labels = dataset.read_labels(labels_dir, h, cell=(c.upper, c.lower), open_holdout=sc.open_holdout)
+            labels = read_labels(sc, labels_dir, h, c)
             ids[c] = registered_trial(sc, trials, c, trial_spec(sc, c, features, labels), require_clean)
             frames[c] = cell_frame(features, labels)
         missing = [(c.upper, c.lower) for c, t in ids.items() if t is None]
@@ -838,9 +900,7 @@ def close_scorecard(sc: Scorecard, trials: pd.DataFrame, features: pd.DataFrame,
         baskets, diagnostics = {}, {}
         for c, t in ids.items():
             preds = pd.read_parquet(Path(artifacts_root) / t / "predictions.parquet")
-            picked = cell_picks(sc, c, preds, frames[c], sc.verdict_k, keep)
-            sides = {**picked, **benchmark_picks(preds, frames[c], sc.verdict_k, keep)}
-            baskets[(c.upper, c.lower)] = {side: basket(p, side_cost(sc, side)) for side, p in sides.items()}
+            picked, baskets[(c.upper, c.lower)] = cell_baskets(sc, c, preds, frames[c], keep)
             diagnostics[f"{c.upper:g}/{c.lower:g}"] = pick_diagnostics(picked, features, group, h)
         result, readout = pooled_readout(baskets, "model", sc.verdict_against, h, sc, n_boot)
         mean_diag = pd.json_normalize(list(diagnostics.values())).mean().to_dict()

@@ -5,7 +5,10 @@ import pandas as pd
 import pytest
 
 from src.foundation.data_processing import db
+from src.foundation.market_common import price_disputes
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import PriceBasis
+from src.foundation.market_common.vendor_overrides import PREFER_TIINGO
 from src.ui.chart.bars import load_chart_bars, moving_averages
 from src.ui.chart.config import MAKind, MASpec
 
@@ -46,6 +49,47 @@ def test_weekly_bars_aggregate_the_daily_ones(conn):
 
 def test_unknown_ticker_is_empty(conn):
     assert load_chart_bars(conn, "NOPE", Timeframe.DAILY).empty
+
+
+def test_a_ticker_with_tiingo_bars_only_reads_them_and_says_so(conn):
+    # ARM, ASML, PDD and delisted members have no yfinance bars; the chart reads Tiingo's
+    # (same basis), as the groups page does, and tags the source for the level detectors.
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO, _bars("2024-01-01", 30, 50.0))
+    bars = load_chart_bars(conn, "ABC", Timeframe.DAILY)
+    assert len(bars) == 30 and bars["close"].iloc[0] == 100.0
+    assert bars.attrs["source"] == db.TIINGO_SPLIT_ONLY
+    total_return = load_chart_bars(conn, "ABC", Timeframe.WEEKLY, PriceBasis.TOTAL_RETURN)
+    assert total_return.attrs["source"] == db.TIINGO and total_return["close"].iloc[0] == 54.0
+
+
+def test_yfinance_bars_win_over_tiingo(conn):
+    db.upsert_bars(conn, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, _bars("2024-01-01", 30, 70.0))
+    bars = load_chart_bars(conn, "ABC", Timeframe.DAILY)
+    assert bars["close"].iloc[0] == 100.0 and bars.attrs["source"] == db.YFINANCE_SPLIT_ONLY
+
+
+def test_disputed_tiingo_bars_are_not_a_fallback(conn, monkeypatch):
+    # A whole-history dispute (another company's bars under a reused symbol): no bars,
+    # and an empty frame shaped like any other (basis tagged, float columns).
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS", (price_disputes.DisputedDay("ABC", None, db.TIINGO, "reused"),))
+    db.upsert_bars(conn, "bars_1d", "ABC", db.TIINGO_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
+    bars = load_chart_bars(conn, "ABC", Timeframe.DAILY)
+    assert bars.empty and bars.attrs["price_basis"] == PriceBasis.TRADED.value
+
+
+def test_yfinance_is_kept_for_a_prefer_tiingo_ticker_and_a_disputed_one(conn, monkeypatch):
+    # The chart is a display: unlike the modeling modules it doesn't swap T to Tiingo
+    # (whose bars stop at the fetch date, and may not be stored: no error either) or
+    # drop a disputed yfinance history; it shows what yfinance has.
+    assert "T" in PREFER_TIINGO
+    monkeypatch.setattr(price_disputes, "DISPUTED_DAYS",
+                        (price_disputes.DisputedDay("XYZ", None, db.YFINANCE, "reused"),))
+    for ticker in ("T", "XYZ"):
+        db.upsert_bars(conn, "bars_1d", ticker, db.YFINANCE_SPLIT_ONLY, _bars("2024-01-01", 30, 100.0))
+        bars = load_chart_bars(conn, ticker, Timeframe.DAILY)
+        assert len(bars) == 30 and bars.attrs["source"] == db.YFINANCE_SPLIT_ONLY
 
 
 def test_moving_averages_match_definitions_and_keep_warmup_nan():

@@ -97,3 +97,17 @@ def test_missing_probability_on_a_resolved_row_raises():
     # An unresolved row may carry anything; it's dropped before scoring.
     model.loc[3, "hit"] = base.loc[3, "hit"] = np.nan
     assert np.isfinite(inference.paired_loss_diff(model, base, H).point_estimate)
+
+
+def test_the_bootstrap_draws_the_same_in_chunks(monkeypatch):
+    """Chunking only bounds memory: the draws match one weight matrix (to
+    float rounding), with the chunk boundary inside the run."""
+    rng = np.random.default_rng(0)
+    diff = pd.Series(rng.normal(0, 0.02, 300), index=pd.bdate_range("2019-01-02", periods=300))
+    zero = pd.Series(0.0, index=diff.index)
+    monkeypatch.setattr(inference, "BOOT_CHUNK", 10**9)
+    whole = inference.per_date_diff(diff, zero, 21, True, n_boot=1_234, ci=0.99, seed=5)
+    monkeypatch.setattr(inference, "BOOT_CHUNK", 500)
+    chunked = inference.per_date_diff(diff, zero, 21, True, n_boot=1_234, ci=0.99, seed=5)
+    np.testing.assert_allclose(chunked.draws, whole.draws, rtol=1e-12, atol=0)
+    assert chunked.summary() == pytest.approx(whole.summary())

@@ -108,16 +108,20 @@ def detect(
     timeframe: Timeframe | str,
     config: GapConfig,
     as_of: str | pd.Timestamp | date | None = None,
+    source: str | None = None,
 ) -> tuple[list[Gap], DataQualityReport, str | None]:
     """Load+validate bars for (ticker, timeframe) up to `as_of`, detect
     gaps, and walk their lifecycle forward through the same as_of-truncated
     bars. Returns (gaps, quality_report, skip_reason) -- skip_reason is
     None on success, otherwise gaps is [] and quality_report still reflects
     what was loaded (so callers/CLI can report *why* a ticker was skipped,
-    not just that it was).
+    not just that it was). `source`: a `bars_1d.source` on the same basis
+    instead of the primary one (the chart UI's Tiingo-only tickers); the
+    stored runs leave it None.
     """
     timeframe = Timeframe(timeframe)
-    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis)
+    bars, report = data_mod.load_and_validate(conn, ticker, timeframe, as_of=as_of, basis=config.price_basis,
+                                              source=source)
     gaps, skip_reason = detect_on_bars(bars, ticker, timeframe, config)
     return gaps, report, skip_reason
 

@@ -8,12 +8,15 @@ Commands:
   build-features  The model-feature cache (`features/cache.py`) for a
                   point-in-time universe, 2010-2021 by default. Reads the
                   database; writes only the parquet cache under `--out`.
+                  `--scorecard HT1` builds only that pre-registered test's
+                  columns (none of the level columns' detector runs if it has none).
   vendor-check    Can a model tell Tiingo rows (later-delisted members) from
                   yfinance rows? Same-ticker gate always; delisted-vs-live
                   read-outs with --features (`vendor_check.py`). Read-only.
   build-labels    The barrier-label cache (`dataset.build_labels`), one file
                   per horizon, for the same universe. Reads the database;
                   writes only under `--out`.
+  build-levels    The point-in-time level-snapshot cache (`features/level_cache.py`).
   run-experiment  A pre-registered ablation (`ablation.PREREGISTERED`) on the
                   feature and label caches: one TRIALS.csv row per trial.
   close-experiment  BH and the three verdicts over an experiment's logged
@@ -34,6 +37,12 @@ Commands:
 
 Only run-experiment, run-scorecard and rescore-scorecard are trials: the other commands write
 nothing to TRIALS.csv.
+
+build-features, build-labels, build-levels and vendor-check take `--open-holdout`: an
+`--end` past 2021-12-31, for a pre-registered test that opens the holdout. The builders
+then need an explicit, empty or new `--out` (claimed before the database is opened,
+`dataset.claim_cache_dir`), and never write into a directory from the other side of
+the boundary.
 """
 
 from __future__ import annotations
@@ -52,6 +61,11 @@ from src.models import gates
 SMOKE_START, SMOKE_CUT, SMOKE_END = "2015-01-02", "2019-06-28", "2021-12-31"
 
 
+def _level(ci: float) -> str:
+    """An interval level as a percent, unrounded: 99.9%, not 100%."""
+    return f"{ci * 100:g}%"
+
+
 def _fmt(result) -> str:
     return f"{result.point_estimate:+.5f}  CI [{result.ci_low:+.5f}, {result.ci_high:+.5f}]  n_dates={result.n_dates}"
 
@@ -66,7 +80,7 @@ def _print_verdict(name: str, verdict: dict[str, bool]) -> bool:
 
 def _planted_report(r: dict) -> None:
     print(f"Gates 1-2: planted effect and label shuffle "
-          f"({r['n_rows']:,} test rows, {r['n_dates']} dates, {gates.GATE_CI:.0%} CIs)")
+          f"({r['n_rows']:,} test rows, {r['n_dates']} dates, {_level(gates.GATE_CI)} CIs)")
     print(f"  oracle Brier gain {r['oracle_gain']:+.5f}, one bar late {r['oracle_stale_gain']:+.5f}")
     for name, res in r["brier_vs_b0"].items():
         print(f"  Brier vs B0, {name:8s} {_fmt(res)}")
@@ -149,6 +163,50 @@ def _read_only(db_path: Path):
     return db.get_connection(f"file:{db_path}?mode=ro", uri=True)
 
 
+LEVELS_OUT = Path("data/models/levels")   # = level_features.DEFAULT_ROOT, not imported here (a test pins them equal)
+LABELS_OUT = Path("data/models/labels/sp500")
+OPEN_HOLDOUT_HELP = ("build through an --end past 2021-12-31, for a pre-registered test that opens the holdout; "
+                     "needs an explicit, empty or new --out (claimed before the database is opened), and is "
+                     "recorded in the manifest")
+
+
+def _check_open_end(end: str, open_holdout: bool) -> None:
+    """With --open-holdout, the end must be past the boundary and a
+    registered holdout test's data end: a build to any other date would read
+    holdout bars no test uses."""
+    from src.models import dataset, trading
+    try:
+        dataset.check_open_end(end, open_holdout)
+    except ValueError as e:
+        raise SystemExit(f"--open-holdout with --end {end}: {e}") from None
+    ends = sorted({sc.data_end for sc in trading.PREREGISTERED.values() if sc.open_holdout and sc.data_end})
+    if open_holdout and str(pd.Timestamp(end).date()) not in ends:
+        raise SystemExit(f"--open-holdout with --end {end}: not a registered holdout data end ({', '.join(ends)})")
+
+
+def _build_into(end: str, out: Path | None, open_holdout: bool, default_out: Path | None = None,
+                levels_root: Path | None = None) -> Path:
+    """A cache builder's output directory, checked and claimed
+    (`dataset.prepare_build`) before the database is opened, so a refused
+    build reads nothing. With `--open-holdout` it must be given: a default
+    is a dev cache's directory. The builder prepares it again (a no-op here)
+    for callers that don't come through the command line. A claim is never
+    given back, even by a build that then fails: it may have read holdout
+    bars first, so the directory stays the holdout's (use another --out for
+    a dev build)."""
+    from src.models import dataset
+    _check_open_end(end, open_holdout)
+    if out is None:
+        if open_holdout:
+            raise SystemExit("--open-holdout needs an explicit --out: the default is a dev cache's directory")
+        out = default_out
+    try:
+        dataset.prepare_build(out, end, open_holdout, levels_root)
+    except dataset.HoldoutError as e:
+        raise SystemExit(str(e)) from None
+    return out
+
+
 def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str, ...]) -> int:
     from src.models import dataset
     from src.models.features import level_cache
@@ -165,19 +223,20 @@ def restamp_levels(db_path: Path, out: Path, from_code: str, sources: tuple[str,
     return 0
 
 
-def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...], workers: int,
-                 tickers: list[str] | None, smoke: bool) -> int:
+def build_levels(db_path: Path, out: Path | None, start: str, end: str, indices: tuple[str, ...], workers: int,
+                 tickers: list[str] | None, smoke: bool, open_holdout: bool = False) -> int:
     from src.models import dataset
     from src.models.features import level_cache
+    out = _build_into(end, out, open_holdout, LEVELS_OUT)
     conn = _read_only(db_path)
     try:
         if smoke:
             tickers = _smoke_tickers(conn)
         elif tickers is None:
-            universe = dataset.universe_mask(conn, start, end, indices=indices)
+            universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
             tickers = sorted(universe.loc[universe["eligible"], "ticker"].unique())
         print(f"building level snapshots for {len(tickers)} tickers into {out} ({workers} workers)", flush=True)
-        m = level_cache.build_level_cache(conn, tickers, out, end, workers=workers,
+        m = level_cache.build_level_cache(conn, tickers, out, end, workers=workers, open_holdout=open_holdout,
                                           progress=lambda s: print(s, flush=True))
     finally:
         conn.close()
@@ -191,17 +250,44 @@ def build_levels(db_path: Path, out: Path, start: str, end: str, indices: tuple[
     return 1 if run["failed"] else 0
 
 
+def scorecard_specs(experiment_id: str):
+    """The registered specs a pre-registered scorecard's columns (model and
+    reference) are read from: a cache of just those, e.g. the holdout's,
+    without the level columns' detector runs when it has none."""
+    from src.models import trading
+    from src.models.features import registry
+    if experiment_id not in trading.PREREGISTERED:
+        raise SystemExit(f"no pre-registered scorecard {experiment_id!r}; registered: {sorted(trading.PREREGISTERED)}")
+    sc = trading.PREREGISTERED[experiment_id]
+    wanted = set(sc.model_columns) | set(sc.reference_columns)
+    specs = [s for s in registry.model_specs() if registry.model_input(s) in wanted]
+    missing = wanted - {registry.model_input(s) for s in specs}
+    if missing:
+        raise SystemExit(f"{experiment_id}'s columns {sorted(missing)} aren't registered")
+    return specs
+
+
 def build_features(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
-                   levels: Path, workers: int) -> int:
+                   levels: Path | None, workers: int, scorecard: str | None = None, open_holdout: bool = False) -> int:
     from src.models import dataset
-    from src.models.features import cache
+    from src.models.features import cache, registry
+    _check_open_end(end, open_holdout)
+    specs = scorecard_specs(scorecard) if scorecard else None
+    with_levels = bool(cache.level_specs(specs if specs is not None else registry.model_specs()))
+    if levels is None:
+        if open_holdout and with_levels:
+            raise SystemExit("--open-holdout with level columns needs an explicit --levels (build-levels "
+                             "--open-holdout's --out): the default is the dev snapshot cache")
+        levels = LEVELS_OUT
+    out = _build_into(end, out, open_holdout, levels_root=levels if with_levels else None)
     conn = _read_only(db_path)
     try:
-        universe = dataset.universe_mask(conn, start, end, indices=indices)
-        path = cache.build_feature_cache(conn, universe, out, levels_root=levels, workers=workers)
+        universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
+        path = cache.build_feature_cache(conn, universe, out, specs=specs, open_holdout=open_holdout,
+                                         levels_root=levels, workers=workers)
     finally:
         conn.close()
-    features = cache.read_feature_cache(out)
+    features = cache.read_feature_cache(out, open_holdout=open_holdout)
     m = features.attrs["manifest"]
     print(f"{path}: {m['n_rows']:,} eligible rows, {m['n_tickers']} tickers, {m['start']}..{m['end']}")
     print(f"  price sources: {m['price_sources']}")
@@ -210,18 +296,29 @@ def build_features(db_path: Path, out: Path, start: str, end: str, indices: tupl
     return 0
 
 
-def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str) -> int:
+def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str, open_holdout: bool = False,
+                 scorecard: str | None = None) -> int:
     """With `features_dir`: the delisted-vs-live read-outs on that feature
     cache (descriptive). Always: the same-ticker gate over [start, end] -- the
-    exit code is the gate's, with or without `features_dir`."""
+    exit code is the gate's, with or without `features_dir`. `open_holdout`
+    lets [start, end] (and the cache) reach past the boundary. `scorecard`:
+    only that pre-registered scorecard's columns, in both (a cache built with
+    `build-features --scorecard`)."""
     from src.models import dataset, vendor_check as vc
     from src.models.features import cache
     warnings.filterwarnings("ignore")
-    dataset.check_holdout(end)
+    _check_open_end(end, open_holdout)
+    dataset.check_holdout(end, open_holdout)
+    specs = scorecard_specs(scorecard) if scorecard else None
+    if scorecard:
+        from src.models import trading
+        sc = trading.PREREGISTERED[scorecard]
+        if sc.open_holdout and not (open_holdout and str(pd.Timestamp(end).date()) == sc.data_end):
+            raise SystemExit(f"{scorecard}'s gate covers its window: pass --open-holdout --end {sc.data_end}")
     conn = _read_only(db_path)
     try:
         if features_dir is not None:
-            features = cache.read_feature_cache(features_dir)
+            features = cache.read_feature_cache(features_dir, open_holdout=open_holdout)
             m = features.attrs["manifest"]
             # The gate checks every ticker; the read-outs compare later-delisted
             # (Tiingo-only) members with live ones, so they leave out a
@@ -239,7 +336,7 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
             delisted = pd.to_datetime(listings.reindex(tiingo))
             if delisted.isna().any():
                 raise ValueError(f"no Tiingo listing end for {sorted(delisted[delisted.isna()].index)}")
-            r = vc.run(features, bars, sources, calendar, delisted)
+            r = vc.run(features, bars, sources, calendar, delisted, specs)
             print(f"Vendor check: {r['n_rows']:,} rows, {r['n_tiingo_rows']:,} from Tiingo ({r['n_tiingo_tickers']} tickers), "
                   f"{r['n_tiingo_far_rows']:,} of them >= {vc.FAR_DAYS} days before delisting")
             print("Fingerprints:\n" + r["fingerprints"].to_string(float_format=lambda v: f"{v:.4f}"))
@@ -254,7 +351,7 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
         if not same:
             print("Same ticker: no tickers stored on both vendors (bulk_tiingo_ingest --store-tickers)")
             return 1
-        s = vc.same_ticker(conn, same, start, end)
+        s = vc.same_ticker(conn, same, start, end, specs=specs)
     finally:
         conn.close()
     print(f"Same ticker ({s['n_tickers']} tickers, {start}..{end}; rows {s['n_rows']}):")
@@ -275,17 +372,18 @@ def vendor_check(db_path: Path, features_dir: Path | None, start: str, end: str)
     return 0 if s["passed"] else 1
 
 
-def build_labels(db_path: Path, out: Path, start: str, end: str, indices: tuple[str, ...],
-                 horizons: tuple[int, ...]) -> int:
+def build_labels(db_path: Path, out: Path | None, start: str, end: str, indices: tuple[str, ...],
+                 horizons: tuple[int, ...], open_holdout: bool = False) -> int:
     from src.models import dataset
     warnings.filterwarnings("ignore")
+    out = _build_into(end, out, open_holdout, LABELS_OUT)
     conn = _read_only(db_path)
     try:
-        universe = dataset.universe_mask(conn, start, end, indices=indices)
+        universe = dataset.universe_mask(conn, start, end, indices=indices, open_holdout=open_holdout)
         rows = universe.loc[universe["has_bars"], ["ticker", "date"]]
         for h in horizons:
-            path = dataset.build_labels(conn, rows, h, out)
-            m = dataset.read_labels(out, h).attrs["manifest"]
+            path = dataset.build_labels(conn, rows, h, out, open_holdout=open_holdout)
+            m = dataset.read_labels(out, h, open_holdout=open_holdout).attrs["manifest"]
             print(f"{path}: {m['n_rows']:,} rows, {m['n_tickers']} tickers, {m['n_disputed_dropped']:,} dropped "
                   f"for disputed days (disputes {m['disputes']})")
     finally:
@@ -381,7 +479,7 @@ def _print_grid(results: list[dict], sc) -> None:
     for k in sc.ks:
         verdict = "no verdict" if sc.track == trading.TRACK else "per-cell readout; the verdict is close-scorecard's"
         print(f"\nTop-{k}, rank {sc.rank}, net {trading.HEADLINE_COST_BPS} bps per trade (Track {sc.track}, {verdict}; "
-              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {sc.ci:.0%} CI; "
+              f"exp = expectancy per trade, rr = avg win / avg loss, vs_* = model minus, {_level(sc.ci)} CI; "
               f"random = {trading.RANDOM_DRAWS} draws of k random names, median):")
         print(trading.grid_table(results, k).to_string(index=False, float_format=lambda v: f"{v:+.4f}"))
 
@@ -406,6 +504,37 @@ def _check_open_holdout(sc, open_holdout: bool) -> None:
         raise SystemExit(f"{sc.experiment_id} isn't registered to open the holdout; leave --open-holdout out")
 
 
+def score_forward(experiment_id: str, as_of: str, features_dir: Path, labels_dir: Path, k: int | None,
+                  out: Path | None, open_holdout: bool = False) -> int:
+    """A pre-registered scorecard's picks on one date (`forward.score_date`),
+    printed per cell and written to a CSV."""
+    from src.models import dataset, forward
+    from src.models.features import cache
+    warnings.filterwarnings("ignore")
+    sc = _preregistered_scorecard(experiment_id)
+    _check_open_holdout(sc, open_holdout)
+    try:
+        forward.check_can_score(sc, pd.Timestamp(as_of))         # before any cache is read
+        features = cache.read_feature_cache(features_dir, open_holdout=open_holdout)
+        missing = [c for c in sc.model_columns if c not in features.columns]
+        if missing:
+            raise SystemExit(f"the feature cache lacks {missing}: pass the cache built for {experiment_id}")
+        picks = forward.score_date(sc, features, labels_dir, as_of, k)
+    except (dataset.HoldoutError, ValueError) as e:
+        raise SystemExit(str(e)) from None
+    from src.models.forward_files import FORWARD_DIR, pick_file_name
+    out = out or FORWARD_DIR / pick_file_name(experiment_id, as_of)  # from the repo root: the Picks tab lists it
+    out.parent.mkdir(parents=True, exist_ok=True)
+    picks.to_csv(out, index=False)
+    print(f"{experiment_id} picks on {pd.Timestamp(as_of).date()}: top {picks['rank'].max()} per cell, "
+          f"ranked by EV in ATRs, seeds {', '.join(map(str, sc.seeds))} averaged; "
+          "target / stop at the decision close (the trade enters at the next open)")
+    for (h, u, d), g in picks.groupby(["horizon", "upper_atr", "lower_atr"], sort=True):
+        print(f"  H{h} target +{u:.2f} ATR / stop -{d:.2f} ATR: " + " ".join(g["ticker"]))
+    print(f"-> {out}")
+    return 0
+
+
 def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, exclude_tickers: tuple[str, ...],
                     n_boot: int | None = None, open_holdout: bool = False) -> int:
     from src.models import trading, trial_log
@@ -421,14 +550,14 @@ def close_scorecard(experiment_id: str, features_dir: Path, labels_dir: Path, ex
     against = sc.reference if sc.verdict_against == "reference" else sc.verdict_against
     cost = f", each trading side net of {sc.verdict_cost_bps:g} bps" if sc.verdict_cost_bps else ""
     print(f"{experiment_id}: top-{r['k']} model - {against}, pooled over each horizon's cells, "
-          f"{r['ci']:.0%} CI, band +/-{r['band']:.2%} per trade" + cost + check
+          f"{_level(r['ci'])} CI, band +/-{r['band']:.2%} per trade" + cost + check
           + (f", without {', '.join(exclude_tickers)}" if exclude_tickers else ""))
     for h, x in r["horizons"].items():
         if "missing_cells" in x:
             print(f"  H{h}: {x['verdict']} (cells not run: {x['missing_cells']})")
             continue
         print(f"  H{h}: {x['point_estimate']:+.4%} [{x['ci_low']:+.4%}, {x['ci_high']:+.4%}], n_dates {x['n_dates']} "
-              f"({x['dates_missing_a_cell']} left out for a missing cell), p {x['p']:.3f} -> {x['verdict']}; "
+              f"({x['dates_missing_a_cell']} left out for a missing cell), p {x['p']:.5f} -> {x['verdict']}; "
               f"Holm-positive {x['holm_positive']}, entry rule met {x['entry_rule_met']}"
               + ("" if r["n_boot"] == r["registered_n_boot"] else " [precision check]"))
         print("    by era: " + ", ".join(f"{e} {v:+.4%}" for e, v in x["by_era"].items()))
@@ -464,7 +593,7 @@ def close_experiment(experiment_id: str) -> int:
     from src.models import ablation, trial_log
     exp = ablation.PREREGISTERED[experiment_id]
     table, groups = ablation.close_experiment(exp, trial_log.read_trials())
-    print(f"{experiment_id}: BH q={exp.q} over {exp.n_trials} trials, {exp.ci:.0%} CIs, "
+    print(f"{experiment_id}: BH q={exp.q} over {exp.n_trials} trials, {_level(exp.ci)} CIs, "
           f"pass needs >= {exp.min_folds_improving}/{len(exp.test_years)} years and every era better")
     print(table.to_string(index=False, float_format=lambda v: f"{v:+.6f}"))
     for step, verdict in groups.items():
@@ -486,37 +615,48 @@ def main(argv: list[str] | None = None) -> int:
     feat.add_argument("--start", default="2010-01-01")
     feat.add_argument("--end", default="2021-12-31")
     feat.add_argument("--indices", nargs="+", default=["sp500"])
-    feat.add_argument("--levels", type=Path, default=Path("data/models/levels"),
-                      help="the snapshot cache (build-levels' --out, same universe and end); must cover every ticker")
+    feat.add_argument("--levels", type=Path, default=None,
+                      help=f"the snapshot cache (build-levels' --out, same universe and end); must cover every ticker. "
+                           f"Default {LEVELS_OUT}; required with --open-holdout if the build has level columns")
     feat.add_argument("--workers", type=int, default=1, help="processes for the level columns")
+    feat.add_argument("--scorecard", default=None,
+                      help="only this pre-registered scorecard's columns (trading.PREREGISTERED, e.g. HT1)")
+    feat.add_argument("--open-holdout", action="store_true", help=OPEN_HOLDOUT_HELP)
     stamp = sub.add_parser("restamp-levels", help="re-key the level cache's files after a code change known not "
                            "to change any snapshot (recompute a sample and compare first)")
     stamp.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
-    stamp.add_argument("--out", type=Path, default=Path("data/models/levels"))
+    stamp.add_argument("--out", type=Path, default=LEVELS_OUT)
     stamp.add_argument("--from-code-hash", required=True, help="the code hash the files were stored under")
     stamp.add_argument("--sources", nargs="+", required=True, help="the sources whose snapshots were checked equal")
     lev = sub.add_parser("build-levels", help="build the point-in-time level-snapshot cache (LRP §4)")
     lev.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
-    lev.add_argument("--out", type=Path, default=Path("data/models/levels"))
+    lev.add_argument("--out", type=Path, default=None, help=f"default {LEVELS_OUT}; required with --open-holdout")
     lev.add_argument("--start", default="2010-01-01", help="the universe's first date (whose tickers get snapshots)")
     lev.add_argument("--end", default="2021-12-31")
     lev.add_argument("--indices", nargs="+", default=["sp500"])
     lev.add_argument("--workers", type=int, default=4)
     lev.add_argument("--tickers", nargs="+", default=None, help="these tickers instead of the universe's")
     lev.add_argument("--smoke", action="store_true", help="only cli._smoke_tickers' 20 (16 live, 4 delisted)")
+    lev.add_argument("--open-holdout", action="store_true", help=OPEN_HOLDOUT_HELP)
     vend = sub.add_parser("vendor-check", help="can a model tell Tiingo rows from yfinance rows?")
     vend.add_argument("--db", type=Path, required=True)
     vend.add_argument("--features", type=Path, default=None,
                       help="a build-features output directory (adds the delisted-vs-live read-outs)")
     vend.add_argument("--start", default="2010-01-01", help="same-ticker window")
     vend.add_argument("--end", default="2021-12-31")
+    vend.add_argument("--open-holdout", action="store_true", help="let --end (and --features' cache) reach past "
+                      "2021-12-31; needs an --end past it. Reads holdout bars, writes nothing")
+    vend.add_argument("--scorecard", default=None,
+                      help="only this pre-registered scorecard's columns, in the read-outs and the gate (e.g. HT1, "
+                           "for a cache built with build-features --scorecard)")
     lab = sub.add_parser("build-labels", help="build the barrier-label cache")
     lab.add_argument("--db", type=Path, required=True, help="market-data SQLite path (opened read-only)")
-    lab.add_argument("--out", type=Path, default=Path("data/models/labels/sp500"))
+    lab.add_argument("--out", type=Path, default=None, help=f"default {LABELS_OUT}; required with --open-holdout")
     lab.add_argument("--start", default="2010-01-01")
     lab.add_argument("--end", default="2021-12-31")
     lab.add_argument("--indices", nargs="+", default=["sp500"])
     lab.add_argument("--horizons", nargs="+", type=int, default=[10, 21, 42, 63])
+    lab.add_argument("--open-holdout", action="store_true", help=OPEN_HOLDOUT_HELP)
     run = sub.add_parser("run-experiment", help="run a pre-registered ablation, logging every trial")
     run.add_argument("experiment")
     run.add_argument("--features", type=Path, default=Path("data/models/features/sp500"),
@@ -549,6 +689,15 @@ def main(argv: list[str] | None = None) -> int:
     closesc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
     closesc.add_argument("--exclude-tickers", nargs="+", default=[],
                          help="unpickable on both sides, predictions re-read without a refit")
+    fwd = sub.add_parser("score-forward", help="a pre-registered scorecard's picks on one date, for paper trading")
+    fwd.add_argument("experiment", help="a trading.PREREGISTERED id, e.g. HT1")
+    fwd.add_argument("--as-of", required=True, help="the decision date (its close)")
+    fwd.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
+    fwd.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
+    fwd.add_argument("--k", type=int, default=None, help="picks per cell (default: the scorecard's verdict k)")
+    fwd.add_argument("--out", type=Path, default=None, help="default data/models/forward/<id>_<date>.csv, listed by the chart UI's Picks tab")
+    fwd.add_argument("--open-holdout", action="store_true",
+                     help="confirm a scorecard registered to open the holdout; refused until its test has run every cell")
     resc = sub.add_parser("rescore-scorecard", help="score run-scorecard's archived predictions again, no refit")
     resc.add_argument("--features", type=Path, default=Path("data/models/features/sp500"))
     resc.add_argument("--labels", type=Path, default=Path("data/models/labels/sp500"))
@@ -558,7 +707,8 @@ def main(argv: list[str] | None = None) -> int:
     close.add_argument("experiment")
     args = parser.parse_args(argv)
     if args.command == "build-labels":
-        return build_labels(args.db, args.out, args.start, args.end, tuple(args.indices), tuple(args.horizons))
+        return build_labels(args.db, args.out, args.start, args.end, tuple(args.indices), tuple(args.horizons),
+                            args.open_holdout)
     if args.command == "run-experiment":
         return run_experiment(args.experiment, args.features, args.labels,
                               tuple(args.horizons) if args.horizons else None)
@@ -568,6 +718,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "close-scorecard":
         return close_scorecard(args.experiment, args.features, args.labels, tuple(args.exclude_tickers), args.n_boot,
                                args.open_holdout)
+    if args.command == "score-forward":
+        return score_forward(args.experiment, args.as_of, args.features, args.labels, args.k, args.out,
+                             args.open_holdout)
     if args.command == "rescore-scorecard":
         return rescore_scorecard(args.features, args.labels, tuple(args.horizons), args.rank)
     if args.command == "close-experiment":
@@ -578,12 +731,12 @@ def main(argv: list[str] | None = None) -> int:
         return restamp_levels(args.db, args.out, args.from_code_hash, tuple(args.sources))
     if args.command == "build-levels":
         return build_levels(args.db, args.out, args.start, args.end, tuple(args.indices), args.workers,
-                            args.tickers, args.smoke)
+                            args.tickers, args.smoke, args.open_holdout)
     if args.command == "build-features":
         return build_features(args.db, args.out, args.start, args.end, tuple(args.indices), args.levels,
-                              args.workers)
+                              args.workers, args.scorecard, args.open_holdout)
     if args.command == "vendor-check":
-        return vendor_check(args.db, args.features, args.start, args.end)
+        return vendor_check(args.db, args.features, args.start, args.end, args.open_holdout, args.scorecard)
     return 2
 
 

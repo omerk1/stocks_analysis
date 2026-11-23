@@ -149,9 +149,12 @@ def _completed_weeks_as_of_daily(weekly: pd.Series, daily_index: pd.DatetimeInde
     carries the most recently *completed* week's value, i.e. a week's value
     first appears on the first bar strictly after that week's calendar
     end (Sunday) and is carried forward until the next week completes.
-    That is the same "completed" rule `resample._resample` applies at the
-    live edge, so history here matches what a same-day run would have
-    shown. NaN until the first completed week.
+    One day more conservative than `resample._resample` at the live edge,
+    which counts a week complete on its own Friday bar (Done #194): a
+    Friday run's weekly series has that week, but its Friday row here still
+    carries the week before, as every past Friday row does. Kept so, not
+    moved to the Friday: history stays as stored, and no row ever uses a
+    close after its own day. NaN until the first completed week.
 
     Not a plain reindex-ffill from the weekly label: the label is the
     week's *Monday* but the value embeds that week's *Friday* close, so

@@ -14,7 +14,8 @@ Every module here works on the traded basis, the same bars the chart draws
 `detect`; volume profile, chart patterns, divergences and market structure run their
 module's steps on the chart's bars, so they aren't loaded twice. A run takes from a fraction of a
 second (S/R, volume profile) to several (gaps over the whole daily history, Fibonacci
-on weekly), so the app caches the result per ticker and timeframe.
+on weekly), so the app caches the result per ticker and timeframe, in memory and on
+disk (`overlay_cache.py`).
 
 This is current state as of the last bar, which is all the first version shows (no
 as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
@@ -22,15 +23,21 @@ as-of picker: `docs/features/chart_ui_design.md`, "Look-ahead and the holdout").
 
 from __future__ import annotations
 
+import logging
 import math
 import sqlite3
+from concurrent.futures import Executor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
 import pandas as pd
 
+from src.foundation.data_processing import db
+from src.foundation.market_common import data as mc_data
 from src.foundation.market_common import history_breaks
 from src.foundation.market_common.models import Timeframe
+from src.foundation.market_common.price_basis import SPLITS_SOURCE_BY_BAR_SOURCE
 from src.signals.avwap import anchors as avwap_anchors
 from src.signals.avwap import compute as avwap_compute
 from src.signals.avwap.config import AvwapConfig
@@ -44,8 +51,9 @@ from src.signals.fibonacci.models import FibSetStatus
 from src.signals.gaps import detect as gap_detect
 from src.signals.gaps.config import GapConfig
 from src.signals.gaps.models import Direction, GapKind, GapStatus
+from src.signals.sr_lines import data as sr_data
 from src.signals.sr_lines import engine as sr_engine
-from src.signals.sr_lines.config import get_preset
+from src.signals.sr_lines.config import SRConfig, get_preset
 from src.signals.market_structure import config as ms_config
 from src.signals.market_structure import detect as ms_detect
 from src.signals.market_structure.models import StructureEvent
@@ -56,6 +64,8 @@ from src.signals.patterns.models import PatternStatus, PatternType
 from src.signals.sr_lines.models import LineKind, LineState
 from src.signals.volume_profile import detect as vp_detect
 from src.signals.volume_profile.config import VolumeProfileConfig
+
+logger = logging.getLogger(__name__)
 
 # Menu order. Display names live with the menu (app.py); these are the stable keys.
 SR, GAPS, AVWAP, FIB, VP, PAT, DIV, MS = ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "patterns",
@@ -133,13 +143,37 @@ def _day(ts) -> str:
     return str(ts)[:10]
 
 
-def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float) -> list[Overlay]:
+def detect_sr_on_source(conn: sqlite3.Connection, ticker: str, config: SRConfig, source: str | None,
+                        last: pd.Timestamp | None = None) -> list:
+    """The S/R module's `detect`, on bars from `source` (None: the basis's primary one).
+    Loads the module's own window (`sr_lines.data.load_bars`: `window_years` back, on
+    its `bar_interval`) and runs `detect_lines` on it; the module's loader takes no
+    source, and isn't changed (it's hashed into the level-snapshot cache,
+    `history_start`). The module counts the window back from now; `last` (the chart's
+    last bar) counts it back from there instead, so the lines depend on the bars alone,
+    not on the day the chart is opened, and can be saved (`overlay_cache.py`). The two
+    differ by how far the bars end before today: days for a live ticker, years for one
+    whose bars ended long ago (a delisted member), whose chart now shows the lines of
+    its last years where a window back from now would hold no bars and find none."""
+    now = pd.Timestamp.now()
+    start = (now if last is None else pd.Timestamp(last)) - pd.DateOffset(years=config.window_years)
+    timeframe = Timeframe.WEEKLY if config.bar_interval == "1w" else Timeframe.DAILY
+    raw = mc_data.load_bars(conn, ticker, timeframe, as_of=now, start=start,
+                            basis=config.price_basis, source=source)
+    bars, _ = sr_data.validate_bars(raw, ticker, config)
+    return sr_engine.detect_lines(bars, config) if not bars.empty else []
+
+
+def sr_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe, close: float,
+                source: str | None = None, last: pd.Timestamp | None = None) -> list[Overlay]:
     """Horizontal S/R zones from both presets. Broken lines are dead; a flipped line is
     alive (it has swapped sides). Support or resistance is by side of the last close;
-    a zone around the close is "at price"."""
+    a zone around the close is "at price". `source`: the chart bars' `bars_1d.source`
+    (here and in the other families that load their own bars). `last`: the chart's last
+    bar, where the window is counted back from (`detect_sr_on_source`)."""
     out = []
     for preset in SR_PRESETS[timeframe]:
-        for line in sr_engine.detect(conn, ticker, get_preset(preset)).lines:
+        for line in detect_sr_on_source(conn, ticker, get_preset(preset), source, last):
             if line.kind != LineKind.HORIZONTAL or line.center is None:
                 continue  # diagonals are off in every preset; drawing them waits until they aren't
             lo, hi = line.center - line.half_width, line.center + line.half_width
@@ -166,10 +200,11 @@ def remaining_zone(bottom: float, top: float, direction: Direction, fill_pct: fl
     return (bottom, top - filled) if direction == Direction.BULLISH else (bottom + filled, top)
 
 
-def gap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+def gap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 source: str | None = None) -> list[Overlay]:
     """Open and partly filled gaps are alive (soft-closed and closed ones aren't), drawn
     as their unfilled part from the bar that made them."""
-    gaps, _, _ = gap_detect.detect(conn, ticker, timeframe, GapConfig())
+    gaps, _, _ = gap_detect.detect(conn, ticker, timeframe, GapConfig(), source=source)
     out = []
     for g in gaps:
         lo, hi = remaining_zone(g.zone_bottom, g.zone_top, g.direction, g.max_fill_pct or 0.0)
@@ -199,9 +234,15 @@ def _avwap_value(current_value, series: pd.Series | None) -> float:
 def avwap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                    bars: pd.DataFrame) -> list[Overlay]:
     """Active anchors are alive, stale ones aren't. The curve is recomputed on `bars`
-    from its anchor, the way the module's own plots do."""
+    from its anchor, the way the module's own plots do.
+
+    Runs the module's `detect_on_bars` on the chart's `bars` (its `detect` minus the
+    load: same basis, whole history), so a Tiingo-only ticker gets its anchors too."""
     config = AvwapConfig()
-    anchors, _, _ = avwap_anchors.detect(conn, ticker, timeframe, config)
+    if len(bars) < config.min_bars:
+        return []
+    anchors = avwap_anchors.detect_on_bars(bars, ticker, timeframe, config,
+                                           history_start=history_start(conn, ticker, bars, config.history_breaks))
     out = []
     for a in anchors:
         alive = a.status == AnchorStatus.ACTIVE
@@ -222,10 +263,11 @@ def avwap_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
     return out
 
 
-def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe) -> list[Overlay]:
+def fib_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 source: str | None = None) -> list[Overlay]:
     """Each level of the module's selected swings is an item, drawn from the swing's
     end. A level is alive while its swing isn't invalidated."""
-    result = fib_engine.detect(conn, ticker, timeframe, FibConfig())
+    result = fib_engine.detect(conn, ticker, timeframe, FibConfig(), source=source)
     out = []
     for s in result.selected_sets:
         sw = s.swing
@@ -295,6 +337,21 @@ def _age(bars: pd.DataFrame, when) -> int:
     return len(bars) - 1 - min(int(bars.index.searchsorted(pd.Timestamp(when))), len(bars) - 1)
 
 
+def history_start(conn: sqlite3.Connection, ticker: str, bars: pd.DataFrame,
+                  config: history_breaks.HistoryBreakConfig) -> pd.Timestamp | None:
+    """Where AVWAP and volume profile anchors may start (`history_breaks`), read from the
+    splits of the vendor the chart's `bars` came from (`bars.attrs["source"]`: Tiingo for
+    a Tiingo-only ticker), not always yfinance's as `anchor_start_for` does. The S/R,
+    AVWAP and volume-profile modules are left as they are: their code is hashed into
+    the level-snapshot cache (`models/features/level_cache.py`), so a change there would
+    mark every stored snapshot stale."""
+    if not config.enabled:
+        return None
+    source = bars.attrs.get("source")
+    splits_source = SPLITS_SOURCE_BY_BAR_SOURCE[source] if source is not None else db.YFINANCE
+    return history_breaks.anchor_start_date(bars, db.read_splits(conn, ticker, splits_source), config, ticker=ticker)
+
+
 def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
                             bars: pd.DataFrame) -> list[Overlay]:
     """Each anchored profile (the same anchors AVWAP uses) gives three lines from its
@@ -313,7 +370,7 @@ def volume_profile_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Ti
     config = VolumeProfileConfig()
     if len(bars) < config.min_bars:
         return []
-    start = history_breaks.anchor_start_for(conn, ticker, bars, config.history_breaks)
+    start = history_start(conn, ticker, bars, config.history_breaks)
     out = []
     for p in vp_detect.detect_on_bars(bars, ticker, timeframe, config, history_start=start):
         if p.poc is None:
@@ -491,23 +548,122 @@ def pattern_overlays(ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> l
     return out
 
 
-def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
-                 bars: pd.DataFrame) -> tuple[list[Overlay], dict[str, str]]:
-    """Every family's overlays, plus {family: message} for families that failed. One
-    family's error doesn't lose the others."""
-    close = float(bars["close"].iloc[-1])
-    runs = {SR: lambda: sr_overlays(conn, ticker, timeframe, close),
-            GAPS: lambda: gap_overlays(conn, ticker, timeframe),
-            AVWAP: lambda: avwap_overlays(conn, ticker, timeframe, bars),
-            FIB: lambda: fib_overlays(conn, ticker, timeframe),
-            VP: lambda: volume_profile_overlays(conn, ticker, timeframe, bars),
-            PAT: lambda: pattern_overlays(ticker, timeframe, bars),
-            DIV: lambda: divergence_overlays(conn, ticker, timeframe, bars),
-            MS: lambda: structure_overlays(ticker, timeframe, bars)}
+def run_family(family: str, conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+               bars: pd.DataFrame) -> list[Overlay]:
+    """One family's overlays. The families that load their own bars read the vendor
+    `bars` came from (`bars.attrs["source"]`, set by `load_chart_bars`; the primary one
+    when absent), so a Tiingo-only ticker's levels sit on its own bars."""
+    run = _RUNS.get(family)
+    if run is None:
+        raise ValueError(f"unknown family {family!r}")
+    return run(conn, ticker, timeframe, bars, float(bars["close"].iloc[-1]), bars.attrs.get("source"))
+
+
+# (conn, ticker, timeframe, bars, last close, bars' vendor) -> overlays. Lambdas, so a
+# family function is looked up when it runs (tests stub them).
+_RUNS = {SR: lambda conn, t, tf, bars, close, source: sr_overlays(conn, t, tf, close, source, bars.index[-1]),
+         GAPS: lambda conn, t, tf, bars, close, source: gap_overlays(conn, t, tf, source),
+         AVWAP: lambda conn, t, tf, bars, close, source: avwap_overlays(conn, t, tf, bars),
+         FIB: lambda conn, t, tf, bars, close, source: fib_overlays(conn, t, tf, source),
+         VP: lambda conn, t, tf, bars, close, source: volume_profile_overlays(conn, t, tf, bars),
+         PAT: lambda conn, t, tf, bars, close, source: pattern_overlays(t, tf, bars),
+         DIV: lambda conn, t, tf, bars, close, source: divergence_overlays(conn, t, tf, bars),
+         MS: lambda conn, t, tf, bars, close, source: structure_overlays(t, tf, bars)}
+
+
+class PoolFailed(Exception):
+    """The worker pool couldn't take this chart's tasks (already broken or shut down,
+    or a process couldn't start): nothing ran, so the caller runs the families itself.
+    A worker that dies while running a task is not this: see `all_overlays_in_pool`."""
+
+
+def _collect(results, families=FAMILIES) -> tuple[list[Overlay], dict[str, str]]:
+    """`results(family)` for each of `families`, in menu order, plus {family: message}
+    for those that failed: one family's error doesn't lose the others."""
     overlays, errors = [], {}
     for family in FAMILIES:  # menu order
+        if family not in families:
+            continue
         try:
-            overlays.extend(runs[family]())
+            overlays.extend(results(family))
         except Exception as e:  # noqa: BLE001 -- the chart and the other families still draw
             errors[family] = f"{type(e).__name__}: {e}"
     return overlays, errors
+
+
+def all_overlays(conn: sqlite3.Connection, ticker: str, timeframe: Timeframe,
+                 bars: pd.DataFrame, families=FAMILIES) -> tuple[list[Overlay], dict[str, str]]:
+    """The overlays of `families` (default every one), one after another, plus
+    {family: message} for families that failed (`run_family`, `_collect`)."""
+    return _collect(lambda family: run_family(family, conn, ticker, timeframe, bars), families)
+
+
+# Submitted slowest first (measured on AAPL and NVDA, 2026-11-17), so the long ones
+# start at once and the quick ones fill in around them; the rest in menu order.
+_SLOW = (GAPS, FIB, SR, PAT)
+_SLOWEST_FIRST = _SLOW + tuple(f for f in FAMILIES if f not in _SLOW)
+
+
+def _run_family_in_worker(family: str, raw_path: str, ticker: str, timeframe: Timeframe,
+                          bars: pd.DataFrame) -> list[Overlay]:
+    """`run_family` in a worker process, on its own read-only connection (a sqlite
+    connection can't cross processes)."""
+    conn = db.get_connection(f"file:{raw_path}?mode=ro", uri=True)
+    try:
+        return run_family(family, conn, ticker, timeframe, bars)
+    finally:
+        conn.close()
+
+
+def warm_worker() -> None:
+    """A no-op task: running it makes a worker process import this module, and with
+    it every detector, before the first chart needs them."""
+
+
+class WorkerDied(Exception):
+    """Filed as a family's error when the worker running (or about to run) its task
+    died. Kept like any family error until the app restarts."""
+
+    def __init__(self):
+        super().__init__("a detector worker died (a crash or out of memory); restart the app to retry")
+
+
+def all_overlays_in_pool(pool: Executor, raw_path, ticker: str, timeframe: Timeframe,
+                         bars: pd.DataFrame, families=FAMILIES) -> tuple[list[Overlay], dict[str, str], bool]:
+    """`all_overlays` (of `families`), with each family in its own task on `pool` (worker processes:
+    the detectors are pure Python and pandas, so threads would wait on each other), plus
+    whether the pool broke. A chart takes about as long as its slowest family instead
+    of the sum. Raises `PoolFailed` if the pool couldn't take the tasks.
+
+    A worker dying under a task (`BrokenProcessPool`: a crash or the OOM killer, maybe
+    caused by this chart, maybe by another one on the same pool) is filed as the error
+    (`WorkerDied`) of each family it cost, the ones still queued included, like any
+    other family error and cached the same way, until the app restarts; families that
+    had finished keep their items. They aren't run again in the app's own process,
+    where the same crash would take the app down, nor retried on a fresh pool, where a
+    chart that crashes its worker would crash that one too. The caller drops the broken
+    pool. There's no timeout: a detector that never returned would hang its chart, as
+    before the pool, and now also keep one worker busy for good."""
+    futures = {}
+    try:
+        for family in (f for f in _SLOWEST_FIRST if f in families):
+            futures[family] = pool.submit(_run_family_in_worker, family, str(raw_path), ticker, timeframe, bars)
+    except (BrokenProcessPool, RuntimeError, OSError) as e:  # broken, shut down, or can't start a process
+        for f in futures.values():  # the caller runs every family itself: drop the ones not started yet
+            f.cancel()
+        raise PoolFailed(f"{type(e).__name__}: {e}") from e
+
+    broke = False
+
+    def result(family):
+        nonlocal broke
+        try:
+            return futures[family].result()
+        except BrokenProcessPool as e:
+            if not broke:
+                logger.warning("a detector worker died on %s %s (%s)", ticker, timeframe.value, e)
+            broke = True
+            raise WorkerDied() from e  # filed by `_collect` as this family's error
+
+    items, errors = _collect(result, families)
+    return items, errors, broke

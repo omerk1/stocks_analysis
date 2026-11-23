@@ -2,21 +2,32 @@
 ticker, daily/weekly, line/bars/candles, volume, moving averages, the RS strip, the
 level menu with its default "relevant now" picks, the earnings flags and cards, and
 the RSI / MACD / RS panes. A second tab, Groups, ranks the sectors and lists a
-sector's members; click a member to open its chart.
+sector's members; click a member to open its chart. A third, Picks, lists the
+combined model's top picks on a date from the files `score-forward` writes
+(`picks.py`); click a pick to open its chart.
 
-    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups] [--debug]
+    python -m src.ui.chart.app [--port 8050] [--ticker AAPL] [--page chart|groups|picks] [--debug] [--workers N]
 
 then open http://127.0.0.1:8050. Both databases are opened read-only
-(`mode=ro`), one connection per request.
+(`mode=ro`), one connection per request. The level detectors run in parallel
+worker processes (`--workers`, default one per family, at most one per CPU), started
+with the app (with `--debug`, on the first chart instead), and their results are saved
+to `data/derived/chart_overlays/` (`overlay_cache.py`), so a chart opened before draws
+its levels at once. The header says how far behind the market's last bar is.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import multiprocessing
+import os
 import sqlite3
+import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -27,13 +38,17 @@ from dash.dash_table.Format import Format, Scheme, Sign
 from src.foundation.data_processing import db
 from src.foundation.market_common.derived_db import default_derived_db_path
 from src.foundation.market_common.models import Timeframe
-from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS
+from src.foundation.market_common.price_basis import MODULE_PRICE_BASIS, SPLITS_SOURCE_BY_BAR_SOURCE, source_for
 from src.foundation.utils.config_loader import load_config
+from src.models.forward_files import FORWARD_DIR
 from src.ui.chart import bars as bars_mod
+from src.ui.chart.bars import CHART_BASIS
 from src.ui.chart import earnings as earnings_mod
 from src.ui.chart import groups as groups_mod
+from src.ui.chart import overlay_cache
 from src.ui.chart import overlays as overlays_mod
 from src.ui.chart import panes as panes_mod
+from src.ui.chart import picks as picks_mod
 from src.ui.chart import relevance, rs
 from src.ui.chart.config import ChartConfig, ChartType, GroupsConfig, MASpec, PaneConfig
 from src.ui.chart.earnings import EarningsCard
@@ -44,6 +59,8 @@ from src.ui.chart.figure import (build_figure, closed_weekdays, default_x_range,
 logger = logging.getLogger(__name__)
 MARKET_CALENDAR_TICKER = "SPY"
 _ROOT = Path(__file__).resolve().parents[3]
+PICKS_DIR = _ROOT / FORWARD_DIR  # where score-forward writes by default, run from the repo root
+OVERLAY_DIR_NAME = "chart_overlays"  # the saved detector results, next to the derived database
 
 
 def _resolve(path: str) -> Path:
@@ -62,19 +79,39 @@ class OverlaySet:
     items: tuple[Overlay, ...]
     errors: dict[str, str]  # {family: message} for families whose detector failed
     seconds: float  # how long the detectors took, shown in the menu
+    saved: int = 0  # families read from the saved results (`overlay_cache.py`) instead of run
 
 
 class ChartData:
     """Reads from the two databases. Bars and moving averages are cached for the
     life of the process; restart the app after new data is ingested."""
 
-    def __init__(self, raw_path: Path, derived_path: Path):
-        self.raw_path, self.derived_path = raw_path, derived_path
+    def __init__(self, raw_path: Path, derived_path: Path, picks_dir: Path = PICKS_DIR, workers: int = 0,
+                 overlay_dir: Path | None = None):
+        """`workers`: processes the level detectors run in, in parallel (0 or 1: one
+        after another, in this process). `overlay_dir`: where the detectors' results are
+        saved (`overlay_cache.py`); None saves nothing."""
+        self.raw_path, self.derived_path, self.picks_dir = raw_path, derived_path, picks_dir
+        self.workers = workers
+        self.saved_overlays = overlay_cache.OverlayCache(overlay_dir) if overlay_dir is not None else None
+        if self.saved_overlays is not None:
+            # now, before the workers import the detectors: a file edited later can't be
+            # hashed as if it were the code that runs
+            try:
+                overlay_cache.code_hash()
+            except Exception:  # noqa: BLE001 -- the app starts without saved results instead
+                logger.warning("can't hash the detectors' code; not saving overlays this run", exc_info=True)
+                self.saved_overlays = None
+        self._pool: ProcessPoolExecutor | None = None
+        self._pool_lock = threading.Lock()  # Dash serves callbacks on several threads
         self.bars = lru_cache(maxsize=32)(self._bars)
         self.moving_averages = lru_cache(maxsize=64)(self._moving_averages)
         self.market_closed = lru_cache(maxsize=1)(self._market_closed)
         self.holidays = lru_cache(maxsize=32)(self._holidays)
-        self.overlays = lru_cache(maxsize=16)(self._overlays)
+        self._overlays_cached = lru_cache(maxsize=16)(self._overlays)
+        # (ticker, timeframe) -> [lock, callers using it]; removed when the last one is done
+        self._overlay_locks: dict[tuple, list] = {}
+        self._locks_lock = threading.Lock()
         self.earnings = lru_cache(maxsize=32)(self._earnings)
         self.pane = lru_cache(maxsize=64)(self._pane)
         self.rs_closes = lru_cache(maxsize=32)(self._rs_closes)
@@ -83,9 +120,43 @@ class ChartData:
         self.groups_note: str | None = None
 
     @classmethod
-    def from_config(cls) -> "ChartData":
+    def from_config(cls, workers: int | None = None) -> "ChartData":
+        """`workers` None: one per family, at most one per CPU. The detectors' results
+        are saved next to the derived database (`OVERLAY_DIR_NAME`)."""
         paths = load_config().data_paths
-        return cls(db.default_db_path(_resolve(paths.raw)), default_derived_db_path(_resolve(paths.derived)))
+        if workers is None:
+            workers = min(len(FAMILIES), os.cpu_count() or 1)
+        derived = default_derived_db_path(_resolve(paths.derived))
+        return cls(db.default_db_path(_resolve(paths.raw)), derived, workers=workers,
+                   overlay_dir=derived.parent / OVERLAY_DIR_NAME)
+
+    def _worker_pool(self) -> ProcessPoolExecutor:
+        with self._pool_lock:
+            if self._pool is None:
+                # spawn, not fork: forking a process that runs server threads can copy a held lock
+                self._pool = ProcessPoolExecutor(self.workers, mp_context=multiprocessing.get_context("spawn"))
+            return self._pool
+
+    def warm_pool(self) -> None:
+        """Start the worker processes now, without waiting: each spends seconds
+        importing the detectors (~19 s on a busy machine), which would otherwise land
+        on the first chart."""
+        if self.workers > 1:
+            pool = self._worker_pool()
+            for _ in range(self.workers):
+                pool.submit(overlays_mod.warm_worker)
+
+    def _drop_pool(self, failed: ProcessPoolExecutor | None) -> bool:
+        """Drop `failed` if it's still the current pool (True if it was): a late report
+        from a chart that was on an older pool mustn't shut down the fresh one another
+        chart started. The next chart starts a fresh pool (cold: seconds of imports)."""
+        with self._pool_lock:
+            if failed is None or self._pool is not failed:
+                return False
+            self._pool = None
+        # not cancel_futures: another chart may still be waiting on this pool's tasks
+        failed.shutdown(wait=False)
+        return True
 
     def _bars(self, ticker: str, timeframe: Timeframe) -> pd.DataFrame:
         conn = _read_only(self.raw_path)
@@ -105,20 +176,100 @@ class ChartData:
     def _holidays(self, ticker: str) -> tuple[str, ...]:
         return hidden_weekdays(self.market_closed(), self.bars(ticker, Timeframe.DAILY).index)
 
+    def overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
+        """`_overlays`, cached, and run once per chart even when callbacks ask at the same
+        moment (the menu and the chart both do on a new ticker): the second waits for
+        the first's result instead of running every detector again."""
+        key = (ticker, timeframe)
+        with self._locks_lock:  # this chart's own lock, so different charts never wait on each other
+            entry = self._overlay_locks.setdefault(key, [threading.Lock(), 0])
+            entry[1] += 1
+        try:
+            with entry[0]:
+                return self._overlays_cached(ticker, timeframe)
+        finally:
+            with self._locks_lock:  # kept only while someone uses it: the dict stays small
+                entry[1] -= 1
+                if entry[1] == 0:
+                    del self._overlay_locks[key]
+
     def _overlays(self, ticker: str, timeframe: Timeframe) -> OverlaySet:
-        """Every family's overlays as of the last bar, run live (slow: seconds), cached."""
+        """Every family's overlays as of the last bar, run live (slow: seconds), cached.
+        With `workers` > 1 the families run in parallel worker processes, started with
+        the app (`warm_pool`) or the first chart and kept for its life. If the pool
+        fails, it's dropped (the next chart starts a fresh one, cold), and:
+        - a worker died under a task: the families it cost are errors, like any other
+          family error (`all_overlays_in_pool`), not run again here;
+        - the pool couldn't take the tasks (a process can't start, or another chart
+          already broke it): this chart's families run here, one after another.
+
+        Families saved for the same bars and code (`overlay_cache.py`) are read instead
+        of run; the ones run are saved, except those that failed."""
         bars = self.bars(ticker, timeframe)
         if bars.empty:
             return OverlaySet((), {}, 0.0)
         started = time.perf_counter()
-        conn = _read_only(self.raw_path)
-        try:
-            items, errors = overlays_mod.all_overlays(conn, ticker, timeframe, bars)
-        finally:
-            conn.close()
+        keys = self._overlay_keys(ticker, timeframe, bars)
+        saved = {}
+        for family, key in keys.items():
+            hit = self.saved_overlays.read(ticker, timeframe, family, key)
+            if hit is not None:
+                saved[family] = hit
+        to_run = tuple(f for f in FAMILIES if f not in saved)
+        items, errors = self._run_families(ticker, timeframe, bars, to_run) if to_run else ([], {})
         for family, error in errors.items():
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
-        return OverlaySet(tuple(items), errors, time.perf_counter() - started)
+        fresh = {f: [o for o in items if o.family == f] for f in to_run if f not in errors}
+        if keys:  # every family's, or none
+            for family, found in fresh.items():
+                self.saved_overlays.write(ticker, timeframe, family, keys[family], found)
+        found = {**saved, **fresh}
+        ordered = [o for f in FAMILIES for o in found.get(f, ())]  # menu order
+        return OverlaySet(tuple(ordered), errors, time.perf_counter() - started, saved=len(saved))
+
+    def _overlay_keys(self, ticker: str, timeframe: Timeframe, bars: pd.DataFrame) -> dict[str, str]:
+        """{family: the key its saved results are under} (`overlay_cache.family_key`);
+        empty when nothing is saved, or the key's inputs can't be read (logged: every
+        family then runs, as without saving)."""
+        if self.saved_overlays is None:
+            return {}
+        source = bars.attrs.get("source")
+        try:
+            conn = _read_only(self.raw_path)
+            try:
+                splits = db.read_splits(conn, ticker, SPLITS_SOURCE_BY_BAR_SOURCE[source] if source else db.YFINANCE)
+                stored = overlay_cache.stored_bars(conn, ticker, source or source_for(CHART_BASIS))
+            finally:
+                conn.close()
+            digest = overlay_cache.inputs_digest(bars, splits, stored)
+            return {f: overlay_cache.family_key(f, ticker, timeframe, source, digest) for f in FAMILIES}
+        except Exception:  # noqa: BLE001 -- run every family, as without saving
+            logger.warning("can't key saved overlays for %s %s; running every family", ticker, timeframe.value,
+                           exc_info=True)
+            return {}
+
+    def _run_families(self, ticker: str, timeframe: Timeframe, bars: pd.DataFrame,
+                      families: tuple[str, ...]) -> tuple[list[Overlay], dict[str, str]]:
+        """Run `families`' detectors: in the worker pool when there is one, else (or if
+        the pool can't take them) here."""
+        if self.workers > 1:
+            pool = None
+            try:
+                pool = self._worker_pool()
+                items, errors, broke = overlays_mod.all_overlays_in_pool(pool, self.raw_path, ticker, timeframe,
+                                                                         bars, families)
+                if broke:  # logged with its cause by `all_overlays_in_pool`
+                    self._drop_pool(pool)
+                return items, errors
+            except (overlays_mod.PoolFailed, OSError):  # OSError: starting the pool itself
+                logger.warning("overlay worker pool failed; running %s %s here", ticker, timeframe.value,
+                               exc_info=True)
+                self._drop_pool(pool)  # a no-op if it never started
+        conn = _read_only(self.raw_path)
+        try:
+            return overlays_mod.all_overlays(conn, ticker, timeframe, bars, families)
+        finally:
+            conn.close()
 
     def _pane(self, ticker: str, timeframe: Timeframe, key: str, config: PaneConfig) -> panes_mod.Pane:
         bars = self.bars(ticker, timeframe)
@@ -315,6 +466,8 @@ def render(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timefra
                        earnings=cards, expanded=expanded, panes=panes, pane_config=config.panes)
     notes = [n for n in (note, *(p.note for p in panes)) if n]
     message = f"{ticker} · {timeframe.value} · {len(bars)} bars · last {bars.index.max():%Y-%m-%d}"
+    if bars.attrs.get("source") not in (None, source_for(CHART_BASIS)):
+        message += " · bars from Tiingo (no yfinance bars)"
     return fig, " · ".join([message, *notes])
 
 
@@ -383,7 +536,8 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
     ranked = relevance.rank(list(found.items), float(bars["close"].iloc[-1]), atr, cfg, weight, timeframe)
     per_family = relevance.family_defaults(ranked, cfg, atr)
     defaults = relevance.default_selection(ranked, cfg, atr, per_family)
-    children = [html.Div(f"As of {bars.index.max():%Y-%m-%d} · ATR {atr:.2f} · found in {found.seconds:.1f}s",
+    took = f"found in {found.seconds:.1f}s" + (f" ({found.saved} of {len(FAMILIES)} saved)" if found.saved else "")
+    children = [html.Div(f"As of {bars.index.max():%Y-%m-%d} · ATR {atr:.2f} · {took}",
                          style={"color": "#64748b", "fontSize": "12px", "marginBottom": "6px"})]
     for family in FAMILIES:
         alive = [r for r in ranked if r.overlay.family == family and r.overlay.alive]
@@ -419,6 +573,35 @@ def menu(data: ChartData, config: ChartConfig, ticker: str, timeframe: Timeframe
                           labelStyle={"display": "block", "fontSize": "12px", "marginLeft": "14px"}),
         ]))
     return children, _view_key(ticker, timeframe)
+
+
+def data_age(last: pd.Timestamp | None, today: date, stale_after: int) -> tuple[str, bool]:
+    """(the header's data-age text, whether it's stale) for the market's last bar
+    (`MARKET_CALENDAR_TICKER`'s). Behind = weekdays after that bar and before today
+    (today's bar may not be in yet); a holiday counts as a weekday, so the count can be
+    one or two high. Stale: more than `stale_after` behind."""
+    if last is None:
+        return f"No {MARKET_CALENDAR_TICKER} bars: data age unknown", True
+    behind = len(pd.bdate_range(last.normalize() + pd.Timedelta(days=1), pd.Timestamp(today) - pd.Timedelta(days=1)))
+    if behind <= 0:
+        return f"Data to {last:%Y-%m-%d}", False
+    return (f"Data to {last:%Y-%m-%d} · {behind} weekday{'s' if behind != 1 else ''} behind",
+            behind > stale_after)
+
+
+def data_age_children(data: ChartData, config: ChartConfig, today: date | None = None) -> tuple[str, dict]:
+    """(text, style) for the header's data-age line; never raises."""
+    try:
+        market = data.bars(MARKET_CALENDAR_TICKER, Timeframe.DAILY)
+        last = market.index.max() if not market.empty else None
+    except Exception as e:  # noqa: BLE001 -- a header line mustn't take the chart down
+        logger.warning("data age: %s", e)
+        return f"data age unknown ({type(e).__name__})", {**_AGE_STYLE, "color": _RED}
+    text, stale = data_age(last, today or date.today(), config.stale_after_weekdays)
+    return text, {**_AGE_STYLE, "color": _RED if stale else _MUTED}
+
+
+_AGE_STYLE = {"marginLeft": "auto", "fontSize": "13px"}
 
 
 def strip_children(data: ChartData, config: ChartConfig, ticker: str) -> list[str]:
@@ -623,7 +806,79 @@ def clicked_row(cell: dict | None) -> str | None:
     return (cell or {}).get("row_id") or None
 
 
-PAGES = ("chart", "groups")
+def open_chart(table: str | None, member_cell: dict | None, pick_cell: dict | None) -> tuple:
+    """(ticker, page, members' active cell, picks' active cell) for a click on table
+    `table` ('members' or 'picks'): the clicked ticker's chart, the clicked cell cleared."""
+    ticker = clicked_row({"members": member_cell, "picks": pick_cell}.get(table))
+    if not ticker:
+        return no_update, no_update, no_update, no_update
+    clear_members = None if table == "members" else no_update
+    clear_picks = None if table == "picks" else no_update
+    return ticker, "chart", clear_members, clear_picks
+
+
+_PRICE = Format(precision=2, scheme=Scheme.fixed)
+_SCORE = Format(precision=2, scheme=Scheme.fixed, sign=Sign.positive)
+_PROB = Format(precision=1, scheme=Scheme.percentage)  # one decimal: neighbouring picks often differ by less than 1%
+NO_PICKS = ("No pick files yet: run `python -m src.models.cli score-forward <scorecard> --as-of DATE` "
+            "from the repo root (it writes data/models/forward/), then Reload.")
+
+
+def pick_columns() -> list[dict]:
+    num = {"type": "numeric"}
+    return [{"name": "#", "id": "rank", **num},
+            {"name": "Ticker", "id": "ticker"},
+            {"name": "EV (ATR)", "id": "score", **num, "format": _SCORE},
+            {"name": "P up", "id": "p_up", **num, "format": _PROB},
+            {"name": "P down", "id": "p_down", **num, "format": _PROB},
+            {"name": "P neither", "id": "p_neither", **num, "format": _PROB},
+            {"name": "Close", "id": "close_t", **num, "format": _PRICE},
+            {"name": "ATR", "id": "atr", **num, "format": _PRICE},
+            {"name": "Target", "id": "target_px", **num, "format": _PRICE},
+            {"name": "Stop", "id": "stop_px", **num, "format": _PRICE}]
+
+
+def pick_rows(frame: pd.DataFrame, cell: picks_mod.Cell) -> list[dict]:
+    """One cell's table rows; a row's id is its ticker, so a click opens its chart."""
+    columns = [c["id"] for c in pick_columns()]
+    rows = picks_mod.cell_rows(frame, cell)[columns]
+    return [{"id": r["ticker"], **{k: (None if pd.isna(v) else v) for k, v in r.items()}}
+            for r in rows.to_dict("records")]
+
+
+def picks_header(file: picks_mod.PickFile, frame: pd.DataFrame) -> str:
+    k = int(frame.groupby(["horizon", "upper_atr", "lower_atr"]).size().max())
+    return (f"{file.experiment}, decision close {file.date}: top {k} per cell by EV in ATRs · "
+            "target and stop at that close; the trade enters at the next open · click a ticker for its chart")
+
+
+def picks_view(folder: Path, name: str | None, key: str | None) -> tuple[list[dict], str | None, str, list[dict]]:
+    """(cell options, the cell shown, header, table rows) for file `name` and cell `key`
+    (the first cell if `key` isn't one of the file's)."""
+    file = picks_mod.find_file(folder, name)
+    if file is None:
+        return [], None, NO_PICKS, []
+    frame = picks_mod.read_picks(file)
+    if isinstance(frame, str):
+        return [], None, frame, []
+    cell = picks_mod.find_cell(frame, key)
+    options = [{"label": c.label, "value": c.key} for c in picks_mod.cells(frame)]
+    return options, cell.key, picks_header(file, frame), pick_rows(frame, cell)
+
+
+def file_options(files: list[picks_mod.PickFile]) -> list[dict]:
+    return [{"label": f.label, "value": f.path.name} for f in files]
+
+
+def selected_file(files: list[picks_mod.PickFile], current: str | None) -> str | None:
+    """The file shown: the one picked, else the newest."""
+    names = [f.path.name for f in files]
+    if current in names:
+        return current
+    return names[0] if names else None
+
+
+PAGES = ("chart", "groups", "picks")
 
 
 def create_app(data: ChartData | None = None, config: ChartConfig | None = None, page: str = "chart") -> Dash:
@@ -649,6 +904,7 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                                     {"label": "Candles", "value": ChartType.CANDLES.value}]),
             dcc.Checklist(id="volume", value=["on"], options=[{"label": "Volume", "value": "on"}], **radio),
             html.Span(id="message", style={"color": "#64748b"}),
+            html.Span(id="data-age", style=_AGE_STYLE),
         ]),
         html.Div(id="rs-strip", style={"display": "flex", "gap": "18px", "padding": "6px 0",
                                        "fontSize": "14px", "color": "#0f172a"}),
@@ -721,12 +977,32 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
                 ]),
             ])),
     ])
+    pick_cells, pick_headers = _base_styles(("ticker",), ())
+    picks_page = html.Div(style={"paddingTop": "8px"}, children=[
+        html.Div(style={"display": "flex", "gap": "12px", "alignItems": "center", "marginBottom": "10px"}, children=[
+            dcc.Dropdown(id="picks-file", options=[], value=None, clearable=False, placeholder="Pick file",
+                         style={"width": "260px", "fontSize": "13px"}),
+            dcc.Dropdown(id="picks-cell", options=[], value=None, clearable=False, placeholder="Cell",
+                         style={"width": "340px", "fontSize": "13px"}),
+            html.Button("Reload", id="picks-reload", n_clicks=0, style={"fontSize": "12px"}),
+        ]),
+        html.Div(id="picks-head", style={"color": _MUTED, "fontSize": "13px", "marginBottom": "8px"}),
+        html.Div(style={"maxWidth": "900px"}, children=[
+            dash_table.DataTable(id="picks", columns=pick_columns(), data=[], page_action="none",
+                                 style_data_conditional=_sign_colours(["score"])
+                                 + [{"if": {"column_id": "ticker"}, "fontWeight": 600}],
+                                 style_table={"maxHeight": "76vh", "overflowY": "auto"},
+                                 **{**table_style, "style_cell_conditional": pick_cells,
+                                    "style_header_conditional": pick_headers}),
+        ]),
+    ])
     app.layout = html.Div(style={"fontFamily": "system-ui, sans-serif", "padding": "8px"}, children=[
         dcc.Store(id="view"),
         dcc.Store(id="group-sector"),
         dcc.Tabs(id="page", value=page, style={"height": "34px"}, children=[
             dcc.Tab(label="Chart", value="chart", children=chart_page, style=_TAB, selected_style=_TAB_ON),
             dcc.Tab(label="Groups", value="groups", children=[groups_page], style=_TAB, selected_style=_TAB_ON),
+            dcc.Tab(label="Picks", value="picks", children=[picks_page], style=_TAB, selected_style=_TAB_ON),
         ]),
     ])
 
@@ -799,6 +1075,11 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
     @app.callback(Output("rs-strip", "children"), Input("ticker", "value"))
     def _strip(ticker):
         return [html.Span(p) for p in strip_children(data, config, ticker)]
+
+    # on load and with each ticker, so an app left open for days still says how old its data is
+    @app.callback(Output("data-age", "children"), Output("data-age", "style"), Input("ticker", "value"))
+    def _data_age(_ticker):
+        return data_age_children(data, config)
 
     @app.callback(Output("chart", "figure", allow_duplicate=True), Output("view", "data"),
                   Input("chart", "relayoutData"), State("ticker", "value"), State("timeframe", "value"),
@@ -877,14 +1158,33 @@ def create_app(data: ChartData | None = None, config: ChartConfig | None = None,
         rows = member_rows(page, sector)
         return rows, members_title(sector, rows, gc), sector_styles(sector_data or [], sector, len(gc.ma_periods))
 
-    # A click on a member opens its chart; the cell is cleared so a second click on it works too.
+    # A click on a member or a pick opens its chart; the cell is cleared so a second
+    # click on it works too.
     @app.callback(Output("ticker", "value"), Output("page", "value"), Output("members", "active_cell"),
-                  Input("members", "active_cell"), prevent_initial_call=True)
-    def _open_chart(cell):
-        ticker = clicked_row(cell)
-        if not ticker:
-            return no_update, no_update, no_update
-        return ticker, "chart", None
+                  Output("picks", "active_cell"), Input("members", "active_cell"), Input("picks", "active_cell"),
+                  prevent_initial_call=True)
+    def _open_chart(member_cell, pick_cell):
+        return open_chart(ctx.triggered_id, member_cell, pick_cell)
+
+    # The Picks tab lists the files each time it opens (or on Reload): a listing, cheap,
+    # and new files from score-forward show up without a restart.
+    @app.callback(Output("picks-file", "options"), Output("picks-file", "value"),
+                  Input("page", "value"), Input("picks-reload", "n_clicks"), State("picks-file", "value"))
+    def _pick_files(page_value, _reload, current):
+        if page_value != "picks":
+            return no_update, no_update
+        files = picks_mod.list_files(data.picks_dir)
+        return file_options(files), selected_file(files, current)
+
+    # One callback for the cell menu, header and table, so a Reload re-reads a file
+    # rewritten for the same date, and a cell change redraws the table.
+    @app.callback(Output("picks-cell", "options"), Output("picks-cell", "value"), Output("picks-head", "children"),
+                  Output("picks", "data"), Input("picks-file", "value"), Input("picks-cell", "value"),
+                  Input("picks-reload", "n_clicks"), State("page", "value"))
+    def _pick_table(name, key, _reload, page_value):
+        if page_value != "picks":
+            return no_update, no_update, no_update, no_update
+        return picks_view(data.picks_dir, name, key)
 
     return app
 
@@ -899,9 +1199,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--ticker", default=ChartConfig.default_ticker, help="the ticker the page opens on")
     parser.add_argument("--page", choices=PAGES, default="chart", help="the tab the page opens on")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--workers", type=int, default=None,
+                        help="processes the level detectors run in (default: one per family, at most one per CPU; "
+                             "1: one after another)")
     args = parser.parse_args(argv)
     config = replace(ChartConfig(), default_ticker=args.ticker.strip().upper())
-    create_app(config=config, page=args.page).run(host="127.0.0.1", port=args.port, debug=args.debug)
+    data = ChartData.from_config(args.workers)
+    if not args.debug:  # --debug's reloader runs this in a watcher process too, which serves nothing
+        data.warm_pool()
+    create_app(data, config=config, page=args.page).run(host="127.0.0.1", port=args.port, debug=args.debug)
 
 
 if __name__ == "__main__":
