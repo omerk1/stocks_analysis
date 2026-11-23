@@ -746,3 +746,34 @@ basket that would have held them; it can't turn this into a pass. The next model
 round should change something more basic (the target, the horizon, the kind of signal)
 than adding columns, and it is built on the development window: this holdout is spent
 for model selection.
+
+### Universe for new dates: SPY instead of IVV (2026-11-19 addendum, before paper trading starts)
+
+Written after HT1's verdict (inconclusive, "Result" above) and before the first paper-traded
+decision date. It changes only where the forward universe is read from; the model, the
+cells, the dates, the rule and the verdict are as in "Paper trading after the test".
+
+- **Why:** iShares' IVV holdings download now answers with its web page and a sign-on
+  link instead of the file, so it can't be recorded unattended every day for 3 years.
+  State Street publishes SPY's holdings as a public file, and SPY holds the same index.
+- **The universe on a date** is the equity lines of SPY's file for that date: the
+  lines with a listed ticker symbol and shares held (both share classes kept where the
+  fund holds both; cash and lines without a symbol, like a contingent value right,
+  dropped). The file's symbols are written as our membership table writes them
+  (`BRK.B`, `BF.B`). Everything else in "The universe for new dates" stands: checked
+  against S&P Dow Jones Indices' change announcements, a disagreement resolved by
+  hand, logged, the announcement winning for its effective date; a day with no file
+  uses the previous day's.
+- **The file is dated by its own "As of" line,** the trading day whose close the
+  positions reflect (the file downloaded on 2026-11-19 says 18-Nov-2026). The first
+  file recorded for a date is the record; a later different one for the same date is
+  kept beside it and logged, never written over it. Every download is logged with the
+  time it was fetched and its hash (`src/foundation/data_processing/etf_holdings.py`;
+  files under `data/raw/etf_holdings/spy/`).
+- **Index changes and the fund:** an index fund is expected to trade a change by its
+  effective date, so a name added effective day d should be in the file dated d and not
+  before (not yet checked on a real change; the check against the announcements is what
+  catches a fund that's early or late). A pick on decision date t is made from the
+  members in the file dated t.
+- **Still to build before it starts:** caches for new dates, and the pooling rule for
+  partly resolved dates ("Result", the flaw paragraph). Then the start date.
