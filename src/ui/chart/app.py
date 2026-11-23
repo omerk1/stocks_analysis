@@ -94,6 +94,10 @@ class ChartData:
         self.raw_path, self.derived_path, self.picks_dir = raw_path, derived_path, picks_dir
         self.workers = workers
         self.saved_overlays = overlay_cache.OverlayCache(overlay_dir) if overlay_dir is not None else None
+        if self.saved_overlays is not None:
+            # now, before the workers import the detectors: a file edited later can't be
+            # hashed as if it were the code that runs
+            overlay_cache.code_hash()
         self._pool: ProcessPoolExecutor | None = None
         self._pool_lock = threading.Lock()  # Dash serves callbacks on several threads
         self.bars = lru_cache(maxsize=32)(self._bars)
@@ -212,8 +216,8 @@ class ChartData:
         for family, error in errors.items():
             logger.warning("%s %s %s overlays failed: %s", ticker, timeframe.value, family, error)
         fresh = {f: [o for o in items if o.family == f] for f in to_run if f not in errors}
-        for family, found in fresh.items():
-            if family in keys:
+        if keys:  # every family's, or none
+            for family, found in fresh.items():
                 self.saved_overlays.write(ticker, timeframe, family, keys[family], found)
         found = {**saved, **fresh}
         ordered = [o for f in FAMILIES for o in found.get(f, ())]  # menu order
@@ -230,9 +234,10 @@ class ChartData:
             conn = _read_only(self.raw_path)
             try:
                 splits = db.read_splits(conn, ticker, SPLITS_SOURCE_BY_BAR_SOURCE[source] if source else db.YFINANCE)
+                stored = overlay_cache.stored_bars(conn, ticker, source or source_for(CHART_BASIS))
             finally:
                 conn.close()
-            digest = overlay_cache.inputs_digest(bars, splits)
+            digest = overlay_cache.inputs_digest(bars, splits, stored)
             return {f: overlay_cache.family_key(f, ticker, timeframe, source, digest) for f in FAMILIES}
         except Exception:  # noqa: BLE001 -- run every family, as without saving
             logger.warning("can't key saved overlays for %s %s; running every family", ticker, timeframe.value,

@@ -152,7 +152,9 @@ def detect_sr_on_source(conn: sqlite3.Connection, ticker: str, config: SRConfig,
     `history_start`). The module counts the window back from now; `last` (the chart's
     last bar) counts it back from there instead, so the lines depend on the bars alone,
     not on the day the chart is opened, and can be saved (`overlay_cache.py`). The two
-    differ only while the data is behind today: the window then starts that much earlier."""
+    differ by how far the bars end before today: days for a live ticker, years for one
+    whose bars ended long ago (a delisted member), whose chart now shows the lines of
+    its last years where a window back from now would hold no bars and find none."""
     now = pd.Timestamp.now()
     start = (now if last is None else pd.Timestamp(last)) - pd.DateOffset(years=config.window_years)
     timeframe = Timeframe.WEEKLY if config.bar_interval == "1w" else Timeframe.DAILY

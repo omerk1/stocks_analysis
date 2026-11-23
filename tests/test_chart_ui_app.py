@@ -222,6 +222,29 @@ def test_new_bars_or_new_code_run_every_family_again(monkeypatch, tmp_path):
     assert Saving().overlays("ABC", Timeframe.DAILY).saved == len(FAMILIES)
 
 
+def test_a_refresh_while_the_app_runs_is_not_saved_under_the_old_bars(monkeypatch, tmp_path):
+    # S/R, gaps and Fibonacci read the database, not the bars held in memory: after a
+    # refresh, results from the new rows mustn't be keyed on the old bars.
+    Saving, runs = _saving(monkeypatch, tmp_path)
+    Saving().overlays("ABC", Timeframe.DAILY)
+    conn = sqlite3.connect(tmp_path / "raw.sqlite")
+    db.upsert_bars(conn, "bars_1d", "ABC", app_mod.source_for(app_mod.CHART_BASIS),
+                   pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0, "is_partial": 0},
+                                index=pd.bdate_range("2025-01-01", periods=1)))
+    conn.commit()
+    conn.close()
+    assert Saving().overlays("ABC", Timeframe.DAILY).saved == 0 and runs == [FAMILIES] * 2
+
+
+def test_the_code_is_hashed_when_the_app_starts(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(app_mod.overlay_cache, "code_hash", lambda: calls.append(1) or "h")
+    app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"))
+    assert calls == []  # nothing saved, nothing hashed
+    app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"), overlay_dir=tmp_path)
+    assert calls == [1]
+
+
 def test_unreadable_key_inputs_run_every_family_and_save_nothing(monkeypatch, tmp_path):
     Saving, runs = _saving(monkeypatch, tmp_path)
     monkeypatch.setattr(app_mod.db, "read_splits", lambda *a: (_ for _ in ()).throw(sqlite3.OperationalError("x")))

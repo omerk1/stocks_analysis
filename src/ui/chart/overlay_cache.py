@@ -15,12 +15,14 @@ never stops a chart from drawing. Delete the folder to clear it.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import logging
 import os
 import pickle
 import platform
 import re
+import sqlite3
 import threading
 from functools import lru_cache
 from pathlib import Path
@@ -35,33 +37,94 @@ logger = logging.getLogger(__name__)
 CACHE_VERSION = 1  # bump when the file's layout changes
 
 _SRC = Path(__file__).resolve().parents[2]  # src/
-# Every detector and what it imports lives under these, plus the chart's adapters. Hashing
-# all of them, not only the files a family imports, marks more files stale than needed;
-# the cost is a recompute, never a wrong level.
-_CODE_DIRS = ("signals", "foundation")
+# The chart's adapters, from which the detectors' code is found (`code_files`).
 _CODE_FILES = ("ui/chart/overlays.py", "ui/chart/bars.py")
+# Data files that code reads when it's imported: the vendor disputes decide which vendor
+# a ticker's bars come from.
+_DATA_FILES = ("foundation/market_common/price_disputes.csv",)
+
+
+def _module_file(module: str) -> Path | None:
+    """The file of a `src.` module (its `__init__.py` for a package), None if none."""
+    parts = module.split(".")
+    if parts[0] != "src":
+        return None
+    base = _SRC.joinpath(*parts[1:])
+    for path in (base.with_suffix(".py"), base / "__init__.py"):
+        if path.is_file():
+            return path
+    return None
+
+
+def _imports(path: Path) -> set[str]:
+    """Every `src.` module `path` imports, anywhere in the file (inside functions too),
+    with `from pkg import name` also read as the module `pkg.name` (it may be one)."""
+    package = ".".join(("src", *path.relative_to(_SRC).parent.parts))
+    out = set()
+    for node in ast.walk(ast.parse(path.read_bytes())):
+        if isinstance(node, ast.Import):
+            out.update(a.name for a in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:  # relative: from the file's own package, up level - 1
+                anchor = package.split(".")
+                anchor = anchor[:len(anchor) - (node.level - 1)]
+                base = ".".join(anchor + ([node.module] if node.module else []))
+            else:
+                base = node.module or ""
+            out.add(base)
+            out.update(f"{base}.{a.name}" for a in node.names)
+    return {m for m in out if m.startswith("src.")}
+
+
+def code_files() -> list[Path]:
+    """The chart's adapters and every `src.` file they import, directly or through
+    others (each package's `__init__.py` on the way included)."""
+    def with_packages(module: str) -> list[Path]:  # the module and the packages above it
+        parts = module.split(".")
+        return [p for n in range(2, len(parts) + 1) if (p := _module_file(".".join(parts[:n]))) is not None]
+
+    todo = [p for f in _CODE_FILES for p in with_packages(".".join(("src", *Path(f).with_suffix("").parts)))]
+    seen: set[Path] = set()
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        todo.extend(p for module in _imports(path) for p in with_packages(module) if p not in seen)
+    return sorted(seen)
 
 
 @lru_cache(maxsize=1)
 def code_hash() -> str:
-    """A hash of the detectors' code (`_CODE_DIRS`, `_CODE_FILES`) and of the Python,
-    pandas and NumPy versions (a pickle may not load across them). Computed once per
-    process: restart the app after editing a detector."""
-    files = sorted({p for d in _CODE_DIRS for p in (_SRC / d).rglob("*.py")} | {_SRC / f for f in _CODE_FILES})
+    """A hash of the detectors' code (`code_files`, plus `_DATA_FILES`) and of the Python, pandas and NumPy
+    versions (a pickle may not load across them). Computed once per process, when the
+    app starts (`ChartData`): restart the app after editing a detector."""
     h = hashlib.sha256(f"{CACHE_VERSION}|{platform.python_version()}|{pd.__version__}|{np.__version__}".encode())
-    for path in files:
+    for path in code_files() + [_SRC / f for f in _DATA_FILES]:
         h.update(str(path.relative_to(_SRC)).encode())
         h.update(path.read_bytes())
     return h.hexdigest()
 
 
-def inputs_digest(bars: pd.DataFrame, splits: pd.DataFrame | None) -> str:
-    """A digest of what the detectors read: the chart's bars (index and values) and the
-    splits of their vendor."""
+def stored_bars(conn: sqlite3.Connection, ticker: str, source: str) -> str:
+    """A summary of the ticker's stored daily rows from `source` (count, first and last
+    date, column totals). S/R, gaps and Fibonacci load their bars from the database,
+    not from the chart's bars held in memory, so this is what they read; after a refresh
+    in a running app, the two differ."""
+    row = conn.execute(
+        "SELECT COUNT(*), MIN(timestamp), MAX(timestamp), TOTAL(open), TOTAL(high), TOTAL(low), TOTAL(close),"
+        " TOTAL(volume), TOTAL(is_partial) FROM bars_1d WHERE ticker = ? AND source = ?", (ticker, source)).fetchone()
+    return repr(tuple(row))
+
+
+def inputs_digest(bars: pd.DataFrame, splits: pd.DataFrame | None, stored: str = "") -> str:
+    """A digest of what the detectors read: the chart's bars (index and values), the
+    splits of their vendor, and the stored rows' summary (`stored_bars`)."""
     h = hashlib.sha256(pd.util.hash_pandas_object(bars, index=True).to_numpy().tobytes())
     h.update(",".join(map(str, bars.columns)).encode())
     if splits is not None and not splits.empty:
         h.update(pd.util.hash_pandas_object(splits, index=True).to_numpy().tobytes())
+    h.update(stored.encode())
     return h.hexdigest()
 
 

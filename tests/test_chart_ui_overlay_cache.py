@@ -68,13 +68,29 @@ def test_the_key_changes_with_the_bars_the_splits_the_vendor_and_the_code():
     assert key != overlay_cache.family_key("gaps", "ABC", Timeframe.WEEKLY, "yfinance_split_only", base, code="c1")
 
 
-def test_the_code_hash_changes_with_any_detector_or_adapter_file(monkeypatch, tmp_path):
-    files = ["signals/gaps/detect.py", "foundation/market_common/data.py", "ui/chart/overlays.py", "ui/chart/bars.py"]
-    for f in files:
+_TREE = {  # a small src/ tree: the adapters import a detector, which imports more
+    "ui/__init__.py": "", "ui/chart/__init__.py": "",
+    "ui/chart/overlays.py": "from src.signals.gaps import detect\n",
+    "ui/chart/bars.py": "import src.foundation.market_common.data\n",
+    "ui/chart/app.py": "x = 1\n",  # not imported by the adapters
+    "signals/__init__.py": "", "signals/gaps/__init__.py": "",
+    "signals/gaps/detect.py": "from . import helper\n\ndef f():\n    from src.signals.fibonacci.engine import g\n",
+    "signals/gaps/helper.py": "x = 1\n",
+    "signals/fibonacci/__init__.py": "", "signals/fibonacci/engine.py": "def g(): pass\n",
+    "signals/moving_averages/study.py": "x = 1\n",  # not imported
+    "foundation/__init__.py": "", "foundation/market_common/__init__.py": "",
+    "foundation/market_common/data.py": "x = 1\n",
+    "foundation/market_common/price_disputes.csv": "ticker,date,vendor,reason\n",
+}
+
+
+def test_the_code_hash_follows_the_adapters_imports(monkeypatch, tmp_path):
+    for f, text in _TREE.items():
         (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / f).write_text("x = 1\n")
-    (tmp_path / "ui/chart/app.py").write_text("x = 1\n")
+        (tmp_path / f).write_text(text)
     monkeypatch.setattr(overlay_cache, "_SRC", tmp_path)
+    hashed = {str(p.relative_to(tmp_path)) for p in overlay_cache.code_files()}
+    assert hashed == {f for f in _TREE if f.endswith(".py")} - {"ui/chart/app.py", "signals/moving_averages/study.py"}
 
     def fresh():
         overlay_cache.code_hash.cache_clear()
@@ -82,18 +98,41 @@ def test_the_code_hash_changes_with_any_detector_or_adapter_file(monkeypatch, tm
 
     try:
         base = fresh()
-        (tmp_path / "ui/chart/app.py").write_text("x = 2\n")  # not a detector: same hash
-        assert fresh() == base
-        for f in files:
+        for f in ("ui/chart/app.py", "signals/moving_averages/study.py"):
             (tmp_path / f).write_text("x = 2\n")
+            assert fresh() == base  # not something the detectors run
+        for f in sorted(hashed) + ["foundation/market_common/price_disputes.csv"]:
+            (tmp_path / f).write_text((tmp_path / f).read_text() + "\n# edited\n")
             changed = fresh()
-            assert changed != base
+            assert changed != base, f
             base = changed
     finally:
         overlay_cache.code_hash.cache_clear()
 
 
-def test_the_hashed_paths_are_this_repo_s_detectors():
-    src = overlay_cache._SRC
-    assert (src / "signals" / "gaps" / "detect.py").is_file()
-    assert all((src / f).is_file() for f in overlay_cache._CODE_FILES)
+def test_the_real_code_hash_covers_every_detector_the_chart_runs():
+    hashed = {str(p.relative_to(overlay_cache._SRC)) for p in overlay_cache.code_files()}
+    for package in ("sr_lines", "gaps", "avwap", "fibonacci", "volume_profile", "patterns", "divergences",
+                    "market_structure"):
+        assert any(f.startswith(f"signals/{package}/") for f in hashed), package
+    assert {"ui/chart/overlays.py", "ui/chart/bars.py", "foundation/market_common/data.py"} <= hashed
+    assert not any(f.startswith("signals/moving_averages/") for f in hashed)
+    assert all((overlay_cache._SRC / f).is_file() for f in overlay_cache._DATA_FILES)
+
+
+def test_the_stored_rows_summary_changes_with_any_stored_value():
+    import sqlite3
+
+    from src.foundation.data_processing import db
+
+    conn = sqlite3.connect(":memory:")
+    db.create_tables(conn)
+    idx = pd.bdate_range("2024-01-01", periods=3)
+    frame = pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 10.0, "is_partial": 0},
+                         index=idx)
+    db.upsert_bars(conn, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, frame)
+    base = overlay_cache.stored_bars(conn, "ABC", db.YFINANCE_SPLIT_ONLY)
+    assert overlay_cache.stored_bars(conn, "ABC", db.TIINGO_SPLIT_ONLY) != base  # another vendor: none
+    db.upsert_bars(conn, "bars_1d", "ABC", db.YFINANCE_SPLIT_ONLY, frame.assign(close=1.6).iloc[-1:])
+    assert overlay_cache.stored_bars(conn, "ABC", db.YFINANCE_SPLIT_ONLY) != base  # a corrected bar
+    conn.close()
