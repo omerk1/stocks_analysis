@@ -774,6 +774,56 @@ Build order, one PR each, each with its own tests:
        `s1vol_vs_s1v.log`.
      - **The trading test is registered as HT1** (`PREREGISTRATION.md`, 2026-11-09;
        `trading.PREREGISTERED["HT1"]`), not yet run: its prerequisites come first.
+       (Run 2026-11-17, inconclusive at both horizons: its "Result" addendum there.)
+   - **A market-relative target (2026-11-23, Track A, dev window only, no claim).**
+     After the holdout test, the holdout is spent for model selection; this round is
+     built and judged on 2010–2021 only. The idea: the model predicts absolute barrier
+     probabilities but is judged on its top 20 minus the market, so train on that.
+     - **Design** (`src/models/excess_target.py`, `cli run-excess-target` /
+       `close-excess-target`): target = each row's barrier return (same 9 cells, same
+       exits) minus that date's equal-weight mean over the scorecard's market pool,
+       clipped to each date's 1st–99th percentile for training. Purged on the date's
+       latest label end, since the target uses every name's exit that day. A regressor
+       (`learners.BoostedRegressor`, squared loss, v1 settings, no calibration, which
+       wouldn't change a date's ranking), seeds 0/1/2 averaged, on the frozen model's 24
+       columns and on B4's 5. Top 20 by predicted excess. Compared on the same test dates
+       (2014–2021, expanding, purged) with the frozen model's archived dev predictions
+       (`S2_no_market_v`, `_seed1`, `_seed2`, probabilities averaged, ranked by EV in
+       ATRs) and their B4. Every trading side is net of 10 bps, the market at none.
+       Pooled over the 9 cells per horizon, 99% date-block CI, 10,000 draws.
+     - **Rule fixed before the run** (`excess_target.carry_forward`): carry forward if, at
+       one horizon or more, new − frozen ≥ +10 bps, positive in ≥ 5 of the 8 years, with
+       picks of lower beta or ATR / close than the frozen model's (the idea's mechanism);
+       and at no horizon does that CI sit wholly below zero.
+     - **Result: not carried forward.** 18 rows under `excess_target` in `TRIALS.csv`;
+       2,001 pooled dates per horizon, none left out.
+
+       | H | new − market | new − frozen | new on B4 cols − B4 | frozen − market |
+       |---|---|---|---|---|
+       | 21 | +0.20% [−0.11, +0.56] | +0.10% [−0.22, +0.47], 5 of 8 years | +0.19% [−0.16, +0.58] | +0.10% [−0.08, +0.27] |
+       | 63 | +0.73% [−0.29, +1.96] | +0.35% [−0.87, +1.95], 2 of 8 years | +0.84% [−0.65, +3.08] | +0.38% [−0.12, +0.89] |
+
+       | H | picks' beta to the market: new / frozen / new on B4 / B4 | ATR / close: new / frozen / market |
+       |---|---|---|
+       | 21 | 1.34 / 0.92 / 1.51 / 0.87 | 3.2% / 2.4% / 2.4% |
+       | 63 | 1.51 / 0.82 / 1.63 / 0.76 | 3.4% / 2.4% / 2.4% |
+
+       The new target does the opposite of what the idea predicted: its picks carry *more*
+       market beta and volatility, not less. Squared loss on a % return is set by the
+       names with the widest swings, so the regressor learns "volatile names move more",
+       and in a mostly rising 2014–2021 an equal-weight basket with beta 1.3–1.5 beats
+       the market by about half the market's own move. The by-year swings show it: new −
+       frozen at H63 is +5.1% in 2020 (the rebound) and negative in 6 other years; at H21,
+       −0.56% in 2015 and +0.61% in 2020. Every cell is positive at both horizons, but the
+       cells share the dates and the beta, so that isn't 9 independent looks. Pick overlap
+       with the frozen model is 20–23%. Trades per year × cost: 20 picks a day ≈ 5,000
+       signals a year × 10 bps, the same for every side, so the cost doesn't separate
+       them. Late-2021 dates carry only rows that resolved before the data end (the
+       partly-resolved-dates flaw in `PREREGISTRATION.md` HT1 "Result"). It affects every
+       dev scorecard and both sides alike. Readout: `data/models/excess_close.{log,json}`.
+     - **If revisited:** a target in ATR units, or the excess return with the date's beta
+       taken out, would test the idea without rewarding beta. That's a new look, not this
+       one.
    - **Step 3:**
      divergences, patterns and the rest. Divergence features must follow the four
      divergence-feature constraints in `LRP.md` §2.4 (Done #107); read them there, not
