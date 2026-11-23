@@ -25,6 +25,7 @@ def _breadth(dates, pct_above_sma50=0.5) -> pd.DataFrame:
             "pct_golden_cross": [0.7] * n,
             "n_advancing": [300] * n, "n_declining": [198] * n, "net_advances": [102] * n,
             "ad_ratio": [np.nan] * n,
+            "pct_new_high_52w": [0.04] * n, "pct_new_low_52w": [0.01] * n, "net_new_high_52w": [0.03] * n,
         },
         index=dates,
     )
@@ -199,3 +200,86 @@ def test_rerun_with_a_different_weighting_does_not_overwrite_the_other(derived_c
     cap = store.read_breadth(derived_conn, "sp500", weighting="cap")
     assert (cap["pct_above_sma50"] == 0.9).all()
     assert (cap["run_id"] == "run-2").all()
+
+
+_PRE_NEW_HIGHS_SCHEMA = """
+CREATE TABLE breadth (
+    index_name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    weighting TEXT NOT NULL DEFAULT 'equal',
+    n_constituents INTEGER NOT NULL,
+    n_with_data INTEGER NOT NULL,
+    pct_above_sma50 REAL,
+    pct_above_sma200 REAL,
+    pct_above_ema8 REAL,
+    pct_above_ema21 REAL,
+    pct_golden_cross REAL,
+    n_advancing REAL,
+    n_declining REAL,
+    net_advances REAL,
+    ad_ratio REAL,
+    run_id TEXT,
+    PRIMARY KEY (index_name, date, weighting)
+);
+"""
+
+
+def test_create_breadth_table_adds_the_new_high_columns_to_an_existing_table():
+    # The stored table predates the 52-week columns; CREATE TABLE IF NOT
+    # EXISTS alone would leave it without them and every upsert would fail.
+    connection = derived_db.get_connection(":memory:")
+    connection.execute(_PRE_NEW_HIGHS_SCHEMA)
+    connection.execute(
+        "INSERT INTO breadth (index_name, date, weighting, n_constituents, n_with_data, run_id) "
+        "VALUES ('sp500', '2020-01-01', 'equal', 500, 498, 'old-run')"
+    )
+    connection.commit()
+
+    store.create_breadth_table(connection)
+
+    old = store.read_breadth(connection, "sp500")
+    assert len(old) == 1 and pd.isna(old.iloc[0]["pct_new_high_52w"])
+    store.upsert_breadth(connection, "sp500", _breadth(pd.bdate_range("2020-01-02", periods=1)), run_id="new-run")
+    new = store.read_breadth(connection, "sp500")
+    assert new.iloc[-1]["pct_new_high_52w"] == pytest.approx(0.04)
+    assert new.iloc[-1]["net_new_high_52w"] == pytest.approx(0.03)
+    connection.close()
+
+
+def _sectors() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2020-01-02", "2020-01-02", "2020-01-03"]),
+            "sector": ["Energy", "Technology", "Energy"],
+            "n_members": [20, 70, 20],
+            "pct_new_high_52w": [0.1, np.nan, 0.2],
+            "pct_new_low_52w": [0.05, np.nan, 0.0],
+            "net_new_high_52w": [0.05, np.nan, 0.2],
+        }
+    )
+
+
+def test_sector_upsert_roundtrip_keeps_nan_and_overwrites_on_rerun(derived_conn):
+    store.upsert_breadth_sector(derived_conn, "sp500", _sectors(), run_id="run-1")
+    rerun = _sectors()
+    rerun.loc[2, "pct_new_high_52w"] = 0.3
+    store.upsert_breadth_sector(derived_conn, "sp500", rerun, run_id="run-2")
+
+    result = store.read_breadth_sector(derived_conn, "sp500")
+
+    assert len(result) == 3
+    tech = result[result["sector"] == "Technology"].iloc[0]
+    assert tech["n_members"] == 70 and pd.isna(tech["pct_new_high_52w"])
+    energy = result[(result["sector"] == "Energy") & (result["date"] == "2020-01-03")].iloc[0]
+    assert energy["pct_new_high_52w"] == pytest.approx(0.3) and energy["run_id"] == "run-2"
+    assert store.read_breadth_sector(derived_conn, "sp500", weighting="cap").empty
+
+
+def test_sector_rows_are_swept_like_the_breadth_table(derived_conn):
+    store.upsert_breadth_sector(derived_conn, "sp500", _sectors(), run_id="old-run")
+    store.upsert_breadth_sector(derived_conn, "sp500", _sectors().iloc[:1], run_id="new-run")
+
+    deleted = derived_db.delete_rows_from_other_runs(derived_conn, "breadth_sector", ["new-run"])
+
+    assert deleted == 2
+    assert len(store.read_breadth_sector(derived_conn, "sp500")) == 1

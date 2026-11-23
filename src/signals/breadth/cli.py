@@ -18,7 +18,7 @@ import dataclasses
 import json
 
 from src.signals.breadth import store
-from src.signals.breadth.compute import compute_breadth
+from src.signals.breadth.compute import compute_breadth_with_sectors
 from src.signals.breadth.config import WEIGHTING_CHOICES, BreadthConfig
 from src.foundation.market_common import derived_db
 
@@ -26,7 +26,7 @@ from src.foundation.market_common import derived_db
 def run_for_index(raw_conn, derived_conn, index_name: str, config: BreadthConfig, start, end):
     """Returns (breadth, skip_reason, run_id) -- run_id is None exactly when
     skip_reason isn't (nothing was stored, so no run was recorded)."""
-    breadth = compute_breadth(raw_conn, index_name, config, start=start, end=end)
+    breadth, sectors = compute_breadth_with_sectors(raw_conn, index_name, config, start=start, end=end)
     if breadth.empty:
         return breadth, "no membership/price/market-cap data for this index", None
 
@@ -35,6 +35,7 @@ def run_for_index(raw_conn, derived_conn, index_name: str, config: BreadthConfig
         json.dumps(dataclasses.asdict(config)), 0, False,
     )
     store.upsert_breadth(derived_conn, index_name, breadth, run_id, weighting=config.weighting)
+    store.upsert_breadth_sector(derived_conn, index_name, sectors, run_id, weighting=config.weighting)
     return breadth, None, run_id
 
 
@@ -77,7 +78,9 @@ def main():
             f"latest ({breadth.index[-1].date()}) "
             f"n_constituents={int(latest['n_constituents'])} "
             f"pct_above_sma50={latest['pct_above_sma50']:.1%} "
-            f"pct_above_sma200={latest['pct_above_sma200']:.1%}"
+            f"pct_above_sma200={latest['pct_above_sma200']:.1%} "
+            f"pct_new_high_52w={latest['pct_new_high_52w']:.1%} "
+            f"pct_new_low_52w={latest['pct_new_low_52w']:.1%}"
         )
 
     raw_conn.close()

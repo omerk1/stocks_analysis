@@ -45,14 +45,48 @@ CREATE TABLE IF NOT EXISTS breadth (
     net_advances REAL,
     ad_ratio REAL,
     run_id TEXT,
+    pct_new_high_52w REAL,
+    pct_new_low_52w REAL,
+    net_new_high_52w REAL,
     PRIMARY KEY (index_name, date, weighting)
 );
 """
 
+# Columns added after the table first shipped: `ALTER TABLE ... ADD COLUMN`
+# on an existing table (plain nullable REALs, so no rebuild needed).
+_ADDED_COLUMNS = ("pct_new_high_52w", "pct_new_low_52w", "net_new_high_52w")
+
+# Per-sector new-high/low breadth, written in the same run as `breadth` (same
+# run_id). Its own table because the key has a sector axis the market-wide
+# table doesn't. `n_members` is the unweighted count of the sector's members
+# with data that day, warm-up ones included.
+_BREADTH_SECTOR_SCHEMA = """
+CREATE TABLE IF NOT EXISTS breadth_sector (
+    index_name TEXT NOT NULL,
+    sector TEXT NOT NULL,
+    date TEXT NOT NULL,
+    weighting TEXT NOT NULL,
+    n_members INTEGER NOT NULL,
+    pct_new_high_52w REAL,
+    pct_new_low_52w REAL,
+    net_new_high_52w REAL,
+    run_id TEXT,
+    PRIMARY KEY (index_name, sector, date, weighting)
+);
+"""
+
+_SECTOR_COLUMNS = ["n_members", "pct_new_high_52w", "pct_new_low_52w", "net_new_high_52w"]
+
 
 def create_breadth_table(conn: sqlite3.Connection) -> None:
+    """Creates (or migrates) both `breadth` and `breadth_sector`."""
     _migrate_pre_weighting_schema(conn)
     conn.execute(_BREADTH_SCHEMA)
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(breadth)").fetchall()}
+    for column in _ADDED_COLUMNS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE breadth ADD COLUMN {column} REAL")
+    conn.execute(_BREADTH_SECTOR_SCHEMA)
     conn.commit()
 
 
@@ -117,6 +151,7 @@ def upsert_breadth(
         "n_constituents", "n_with_data",
         "pct_above_sma50", "pct_above_sma200", "pct_above_ema8", "pct_above_ema21",
         "pct_golden_cross", "n_advancing", "n_declining", "net_advances", "ad_ratio",
+        *_ADDED_COLUMNS,
     ]
     missing = [c for c in columns if c not in breadth.columns]
     if missing:
@@ -141,5 +176,39 @@ def upsert_breadth(
 def read_breadth(conn: sqlite3.Connection, index_name: str, weighting: str = "equal") -> pd.DataFrame:
     return pd.read_sql_query(
         "SELECT * FROM breadth WHERE index_name = ? AND weighting = ? ORDER BY date",
+        conn, params=(index_name, weighting),
+    )
+
+
+def upsert_breadth_sector(
+    conn: sqlite3.Connection, index_name: str, sectors: pd.DataFrame, run_id: str, weighting: str = "equal"
+) -> None:
+    """Insert/overwrite `breadth_sector` rows, keyed by `(index_name,
+    sector, date, weighting)`. `sectors` is the long frame
+    `compute.compute_breadth_with_sectors` returns second (columns date,
+    sector, plus `_SECTOR_COLUMNS`)."""
+    if sectors.empty:
+        return
+    missing = [c for c in ["date", "sector", *_SECTOR_COLUMNS] if c not in sectors.columns]
+    if missing:
+        raise ValueError(f"sector breadth frame is missing expected columns {missing}")
+    rows = []
+    for row in sectors.itertuples(index=False):
+        values = [None if pd.isna(getattr(row, c)) else getattr(row, c) for c in _SECTOR_COLUMNS]
+        values[0] = int(values[0])
+        rows.append((index_name, row.sector, pd.Timestamp(row.date).strftime("%Y-%m-%d"), weighting, *values, run_id))
+    conn.executemany(
+        f"""
+        INSERT OR REPLACE INTO breadth_sector (index_name, sector, date, weighting, {", ".join(_SECTOR_COLUMNS)}, run_id)
+        VALUES ({", ".join(["?"] * (len(_SECTOR_COLUMNS) + 5))})
+        """,
+        rows,
+    )
+    conn.commit()
+
+
+def read_breadth_sector(conn: sqlite3.Connection, index_name: str, weighting: str = "equal") -> pd.DataFrame:
+    return pd.read_sql_query(
+        "SELECT * FROM breadth_sector WHERE index_name = ? AND weighting = ? ORDER BY date, sector",
         conn, params=(index_name, weighting),
     )
