@@ -243,6 +243,10 @@ def test_the_code_is_hashed_when_the_app_starts(monkeypatch, tmp_path):
     assert calls == []  # nothing saved, nothing hashed
     app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"), overlay_dir=tmp_path)
     assert calls == [1]
+    monkeypatch.setattr(app_mod.overlay_cache, "code_hash", lambda: (_ for _ in ()).throw(SyntaxError("mid-edit")))
+    data = app_mod.ChartData(Path("/nonexistent/raw.sqlite"), Path("/nonexistent/derived.sqlite"),
+                             overlay_dir=tmp_path)
+    assert data.saved_overlays is None  # starts, saving nothing
 
 
 def test_unreadable_key_inputs_run_every_family_and_save_nothing(monkeypatch, tmp_path):

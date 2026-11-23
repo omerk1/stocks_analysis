@@ -97,7 +97,11 @@ class ChartData:
         if self.saved_overlays is not None:
             # now, before the workers import the detectors: a file edited later can't be
             # hashed as if it were the code that runs
-            overlay_cache.code_hash()
+            try:
+                overlay_cache.code_hash()
+            except Exception:  # noqa: BLE001 -- the app starts without saved results instead
+                logger.warning("can't hash the detectors' code; not saving overlays this run", exc_info=True)
+                self.saved_overlays = None
         self._pool: ProcessPoolExecutor | None = None
         self._pool_lock = threading.Lock()  # Dash serves callbacks on several threads
         self.bars = lru_cache(maxsize=32)(self._bars)
