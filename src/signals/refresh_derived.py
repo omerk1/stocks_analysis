@@ -9,7 +9,7 @@ twice in three days a bar refresh left them two weeks behind the bars
 (Done #77); running seven CLI invocations by hand is exactly the step that
 kept being skipped.
 
-The sweep: all three stores are INSERT OR REPLACE by natural key, so a
+The sweep: all four stores (breadth_sector rides on the breadth steps) are INSERT OR REPLACE by natural key, so a
 fresh run only overwrites keys it itself produces -- a ticker (RS) or a
 whole trading date (breadth) that lost its bars since the last run
 (delisted, renamed, vendor re-adjustment) keeps its old rows forever

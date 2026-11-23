@@ -274,7 +274,8 @@ def _sector_new_highs(members: pd.DataFrame, sector_by_ticker: dict[str, str]) -
     in their first year", not "no members"). Members with no sector on file
     are left out of every sector row (they still count market-wide)."""
     sector = members["ticker"].map(sector_by_ticker)
-    sector = sector.where(sector.notna() & (sector.astype(str).str.strip() != ""))
+    sector = sector.where(sector.notna(), "").astype(str).str.strip()
+    sector = sector.where(sector != "")
     known = sector.notna()
     if not known.any():
         return pd.DataFrame(columns=SECTOR_COLUMNS)
@@ -370,9 +371,12 @@ def compute_breadth_with_sectors(
     # until a full window exists -- computed on each ticker's full series,
     # so a stock joining the index late with a year of prior bars counts
     # from its first member day.
+    # Rolled over non-null closes only, so one NULL close can't blank out a
+    # ticker for the next `window` bars (its own row stays NaN -> invalid).
     window = config.new_high_window
-    prior = prices.groupby("ticker")["close"].shift(1)
-    rolling = prior.groupby(prices["ticker"]).rolling(window, min_periods=window)
+    closes = prices.loc[prices["close"].notna(), ["ticker", "close"]]
+    prior = closes.groupby("ticker")["close"].shift(1)
+    rolling = prior.groupby(closes["ticker"]).rolling(window, min_periods=window)
     prices["prior_max"] = rolling.max().reset_index(level=0, drop=True)
     prices["prior_min"] = rolling.min().reset_index(level=0, drop=True)
 

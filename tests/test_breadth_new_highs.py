@@ -170,3 +170,28 @@ def test_end_bounds_what_is_read_and_returned(conn):
     bounded = compute_breadth(conn, "test_idx", _config(), end=str(_DATES[5].date()))
     # Backward-looking only: cutting the read at `end` changes nothing up to it.
     pd.testing.assert_frame_equal(bounded, full.loc[: _DATES[5]], check_freq=False)
+
+
+def test_one_missing_close_does_not_blank_the_ticker_for_a_whole_window(conn):
+    _add(conn, "AAA", _RISING)
+    conn.execute("UPDATE bars_1d SET close = NULL WHERE ticker = 'AAA' AND timestamp LIKE ?", (f"{_DATES[5].date()}%",))
+    conn.commit()
+    _members(conn, [("AAA", _DATES[0], None)])
+
+    result = compute_breadth(conn, "test_idx", _config())
+
+    assert pd.isna(result["pct_new_high_52w"].loc[_DATES[5]])  # the missing day itself is undefined
+    assert (result["pct_new_high_52w"].loc[_DATES[6]:] == 1.0).all()
+
+
+def test_sector_names_are_trimmed_before_grouping(conn):
+    _add(conn, "AAA", _RISING)
+    _add(conn, "BBB", _FALLING)
+    _members(conn, [("AAA", _DATES[0], None), ("BBB", _DATES[0], None)])
+    db.upsert_ticker_sector(
+        conn, pd.DataFrame({"ticker": ["AAA", "BBB"], "sector": ["Technology", "Technology "], "industry": ["x", "x"]})
+    )
+
+    _, sectors = compute_breadth_with_sectors(conn, "test_idx", _config())
+
+    assert set(sectors["sector"]) == {"Technology"}

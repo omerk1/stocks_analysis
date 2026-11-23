@@ -52,7 +52,9 @@ class BreadthConfig:
     # New 52-week high/low: a member's close above the highest (below the
     # lowest) of its own previous `new_high_window` closes. Undefined (NaN,
     # left out of the count entirely) until the member has that many prior
-    # bars -- a stock in its first year is not "not at a new high".
+    # bars -- a stock in its first year is not "not at a new high". Uses
+    # `price_source` closes (total return, like the rest of the table), so
+    # a dividend payer reaches a "new high" slightly before its raw price.
     new_high_window: int = 252
     price_source: str = source_for(MODULE_PRICE_BASIS["breadth"])  # total_return; see market_common.price_basis
     # See WEIGHTING_CHOICES above.
