@@ -23,6 +23,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 LOOKBACK_BARS = 90  # context before the trigger: the away run and some history
 FORWARD_BARS = 0    # the chart ends ON the trigger bar: its close is the signal, and any later bar leaks outcome
@@ -81,6 +82,141 @@ def instance_chart(window: pd.DataFrame, overlay_col: str, overlay_name: str,
     figure.update_layout(
         title=title, xaxis_rangeslider_visible=False,
         xaxis=dict(rangebreaks=_WEEKEND_RANGEBREAKS), margin=dict(l=40, r=40, t=60, b=40))
+    return figure
+
+
+# No green: that's the divergence's colour.
+_LINE_COLOURS = ("rgb(31, 119, 180)", "rgb(255, 127, 14)", "rgb(148, 103, 189)", "rgb(140, 86, 75)",
+                 "rgb(227, 119, 194)", "rgb(127, 127, 127)", "rgb(188, 189, 34)", "rgb(23, 190, 207)")
+_ZONE_GREEN = "rgb(44, 160, 44)"
+
+_PANE_PX = {"price": 520, "indicator": 130}  # the facts table's height follows its rows
+_TABLE_ROW_PX = 24
+
+
+def _stack_facts(stack, window: pd.DataFrame) -> tuple[str, list[list[str]]]:
+    """The finder's numbers on the touch bar (`window`'s last): a summary line, and one
+    table row per level (and the divergence), so a chart can be checked against the rules."""
+    lo, hi = stack.zone
+    atr = stack.atr
+    trigger = window.iloc[-1]
+    touch = float(trigger[stack.touch_price])
+    kinds, reach = len(stack.kinds), (touch - hi) / atr
+    where = (f"stayed {reach:.2f} ATR above its top" if reach >= 0 else f"dipped {-reach:.2f} ATR into it")
+    summary = (f"{kinds} kind{'s' if kinds != 1 else ''} stacked at {lo:.2f}–{hi:.2f} "
+               f"({(hi - lo) / atr:.2f} ATR deep) · the touch bar's {stack.touch_price} {where} · "
+               f"close {float(trigger['close']):.2f} · ATR(14) {atr:.2f}")
+    rows = []
+    for line in stack.lines:
+        price = f"{line.hi:.2f}" if line.lo == line.hi else f"{line.lo:.2f}–{line.hi:.2f}"
+        rows.append([line.name, price,
+                     f"{line.age} bars ({line.formed.date()})" if line.formed is not None else f"{line.age} bars",
+                     f"{(hi - line.hi) / atr:.2f}", f"{line.reach:+.2f}"])
+    if stack.divergence is not None:
+        d1, p1, d2, p2 = stack.divergence
+        bars_since = int((window["date"] > stack.divergence_confirmed).sum())
+        rows.append([stack.divergence_label, f"{d1.date()} {p1:.2f} → {d2.date()} {p2:.2f}",
+                     f"confirmed {bars_since} bars before ({stack.divergence_confirmed.date()})", "", ""])
+    return summary, rows
+
+
+def stack_chart(window: pd.DataFrame, stack, trigger_date: pd.Timestamp, title: str) -> go.Figure:
+    """A level stack (`level_stack.StackGeometry`) on `window` (truncated by
+    `chart_window`): candles; each level from where it formed to the touch (a band: its
+    whole depth), named and aged in its own colour right of the touch bar; the divergence
+    between its two price pivots; the trigger marker. Below: the divergence's indicator
+    (if any) and a table of the finder's numbers on the touch bar. Nothing past the trigger
+    bar is drawn, and there is no legend to decode."""
+    has_indicator = stack.divergence_series is not None
+    panes = ["price"] + (["indicator"] if has_indicator else []) + ["facts"]
+    summary, rows = _stack_facts(stack, window)
+    px = {**_PANE_PX, "facts": _TABLE_ROW_PX * (len(rows) + 2)}  # a spare row: a wrapped cell stays visible
+    figure = make_subplots(rows=len(panes), cols=1, shared_xaxes=True, vertical_spacing=0.025,
+                           row_heights=[px[p] for p in panes],
+                           specs=[[{"type": "table" if p == "facts" else "xy"}] for p in panes])
+    row = {p: n for n, p in enumerate(panes, start=1)}
+    figure.add_trace(go.Candlestick(
+        x=window["date"], open=window["open"], high=window["high"],
+        low=window["low"], close=window["close"], name="price", showlegend=False), row=1, col=1)
+    first = max(pd.Timestamp(stack.start), pd.Timestamp(window["date"].iloc[0]))
+    span = (float(window["low"].min()), float(window["high"].max()))
+    labels = []  # (price at the touch, text, colour)
+    swings = {}  # a Fibonacci swing -> the colour of its first level (two ratios of one swing: drawn once)
+    for n, line in enumerate(stack.lines):
+        if line.swing is not None:
+            swings.setdefault(line.swing, _LINE_COLOURS[n % len(_LINE_COLOURS)])
+    for (d0, p0, d1, p1), colour in swings.items():
+        # The swing a ratio is measured on, and its 0% (the swing's end) and 100% (its start).
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d0, d1]), y=[p0, p1], mode="lines+markers",
+                                    name="Fibonacci swing", line=dict(color=colour, width=1, dash="dot")),
+                         row=1, col=1)
+        for price, ratio in ((p1, "0%"), (p0, "100%")):
+            figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, trigger_date]), y=[price, price],
+                                        mode="lines+text", text=[f"Fib {ratio}", ""], textposition="top right",
+                                        textfont=dict(color=colour, size=11), name=f"Fibonacci {ratio}",
+                                        line=dict(color=colour, width=1, dash="dot")), row=1, col=1)
+    for n, line in enumerate(stack.lines):
+        keep = [i for i, d in enumerate(line.dates) if first <= d <= trigger_date]
+        colour = _LINE_COLOURS[n % len(_LINE_COLOURS)]
+        # Dates as DatetimeIndexes, not lists of Timestamps: image export can't serialise those.
+        x, tops = [line.dates[i] for i in keep], [line.values[i] for i in keep]
+        bottoms = [line.bottoms[i] for i in keep] if line.bottoms else tops
+        if any(b != t for b, t in zip(bottoms, tops)):
+            # A band (an S/R zone, a gap's unfilled part): its whole depth, not just its top.
+            figure.add_trace(go.Scatter(x=pd.DatetimeIndex(x + x[::-1]), y=tops + bottoms[::-1], fill="toself",
+                                        mode="lines", line=dict(color=colour, width=1),
+                                        fillcolor=colour.replace("rgb", "rgba").replace(")", ", 0.3)"),
+                                        name=line.label, hoverinfo="name"), row=1, col=1)
+        else:
+            figure.add_trace(go.Scatter(x=pd.DatetimeIndex(x), y=tops, name=line.label, mode="lines",
+                                        line=dict(color=colour, width=2)), row=1, col=1)
+        labels.append((tops[-1], f"{line.name} · {line.age} bars old", colour))
+    if stack.divergence is not None:
+        d1, p1, d2, p2 = stack.divergence
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, d2]), y=[p1, p2], mode="lines+markers+text",
+                                    name=stack.divergence_label or "bullish divergence",
+                                    text=["", stack.divergence_label or "bullish divergence"],
+                                    textposition="bottom center", textfont=dict(color=_ZONE_GREEN),
+                                    line=dict(color=_ZONE_GREEN, width=2, dash="dot")), row=1, col=1)
+    trigger = window[window["date"] == trigger_date]
+    figure.add_trace(go.Scatter(
+        x=trigger["date"], y=trigger[stack.touch_price], name="the touch", mode="markers",
+        marker=dict(symbol="circle-open", size=14, color="rgb(214, 39, 40)", line=dict(width=2))), row=1, col=1)
+    # Each level named right of the touch bar, in its colour, nudged apart so none overlap.
+    gap, placed = 0.04 * (span[1] - span[0]), []
+    for price, text, colour in sorted(labels, reverse=True):
+        y = min(price, placed[-1] - gap) if placed else price
+        placed.append(y)
+        figure.add_trace(go.Scatter(x=trigger["date"], y=[y], mode="text", text=[f"     {text}"],
+                                    textposition="middle right", textfont=dict(color=colour, size=13),
+                                    cliponaxis=False, hoverinfo="skip"), row=1, col=1)
+    if has_indicator:
+        series = stack.divergence_series
+        shown = [i for i, d in enumerate(series.dates) if first <= d <= trigger_date]
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([series.dates[i] for i in shown]),
+                                    y=[series.values[i] for i in shown], name=series.label, showlegend=False,
+                                    mode="lines", line=dict(color="rgb(100, 100, 100)", width=1)),
+                         row=row["indicator"], col=1)
+        at = dict(zip(series.dates, series.values))
+        d1, _, d2, _ = stack.divergence
+        figure.add_trace(go.Scatter(x=pd.DatetimeIndex([d1, d2]), y=[at.get(d1), at.get(d2)], showlegend=False,
+                                    name=f"{series.label} at the pivots", mode="lines+markers",
+                                    line=dict(color=_ZONE_GREEN, width=2, dash="dot")),
+                         row=row["indicator"], col=1)
+        figure.update_yaxes(title_text=series.label, row=row["indicator"], col=1)
+    figure.add_trace(go.Table(
+        columnwidth=[3.2, 3.2, 2.8, 1.9, 1.9],
+        header=dict(values=["level", "price", "age at the touch", "below zone top (ATR)",
+                            f"{stack.touch_price} above it (ATR)"], align="left", height=_TABLE_ROW_PX),
+        cells=dict(values=[list(c) for c in zip(*rows)], align="left", height=_TABLE_ROW_PX)),
+        row=row["facts"], col=1)
+    top, bottom = 80, 30  # the top margin holds the title and its summary line
+    figure.update_layout(
+        title=dict(text=f"{title}<br><sub>{summary}</sub>", yref="container", y=1, yanchor="top", pad=dict(t=15)),
+        height=top + bottom + int(sum(px[p] for p in panes) * (1 + 0.025 * len(panes))),
+        xaxis_rangeslider_visible=False, margin=dict(l=60, r=280, t=top, b=bottom),  # r: the level labels
+        showlegend=False)
+    figure.update_xaxes(rangebreaks=_WEEKEND_RANGEBREAKS)
     return figure
 
 

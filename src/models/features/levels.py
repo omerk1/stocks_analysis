@@ -55,6 +55,7 @@ from src.signals.sr_lines.config import get_preset
 from src.signals.volume_profile.config import VolumeProfileConfig
 
 DAILY_COLUMNS = ["date", *LEVEL_COLUMNS]
+FIB_SWING_COLUMNS = ["swing_origin_price", "swing_end", "swing_end_price"]  # fib_levels' extra columns
 
 # Fixed strengths for the sources with no native one (LRP §1.1).
 BAR_SOURCE_STRENGTH = {"ma": 0.5, "hi52": 0.5, "lo52": 0.5, "round": 0.25}
@@ -94,6 +95,8 @@ def fib_levels(bars: pd.DataFrame, days, config: FibConfig) -> pd.DataFrame:
     score, which already carries its recency decay (unlike the other
     sources' native strengths: don't decay it again); formed = the swing's
     origin (when the structure started, like an S/R line's first touch).
+    Past `DAILY_COLUMNS`, the swing itself (`FIB_SWING_COLUMNS`: its origin
+    price, end date and end price), for a chart to draw what a ratio is of.
 
     Per day, as the as-of run does: the swings confirmed by then, deduped
     across scales among those alone (a bigger-scale twin confirmed later
@@ -141,15 +144,19 @@ def fib_levels(bars: pd.DataFrame, days, config: FibConfig) -> pd.DataFrame:
         for k in sorted(deduped[n], key=weight.__getitem__, reverse=True)[:config.max_sets]:
             if broken[k] <= p:
                 continue
+            s = swings[k]
             for level in prices[k]:
                 rows.append((day, "fib", f"{level.kind.value}_{level.ratio:g}", level.price, level.price, weight[k],
-                             pd.Timestamp(swings[k].origin_date), np.nan, "active"))
-    out = pd.DataFrame(rows, columns=DAILY_COLUMNS)
+                             pd.Timestamp(s.origin_date), np.nan, "active",
+                             s.origin_price, pd.Timestamp(s.end_date), s.end_price))
+    out = pd.DataFrame(rows, columns=DAILY_COLUMNS + FIB_SWING_COLUMNS)
+    out["swing_end"] = pd.to_datetime(out["swing_end"]).astype(index.dtype)
     # Dtypes don't depend on whether any row was found (pandas infers an empty column's resolution).
     out["date"] = out["date"].astype(index.dtype)
     out["formed"] = pd.to_datetime(out["formed"]).astype(index.dtype)
     return out.astype({"source": "str", "kind": "str", "state": "str",
-                       "lo": "float64", "hi": "float64", "strength_raw": "float64", "touches": "float64"})
+                       "lo": "float64", "hi": "float64", "strength_raw": "float64", "touches": "float64",
+                       "swing_origin_price": "float64", "swing_end_price": "float64"})
 
 
 def round_step(price: np.ndarray) -> np.ndarray:

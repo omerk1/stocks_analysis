@@ -201,6 +201,11 @@ def test_fib_levels_equal_the_detectors_as_of_run(conn, bars):
     days = bars.index[cfg.min_bars - 1::25]
     out = levels.fib_levels(bars, days, cfg)
     assert (out["lo"] == out["hi"]).all() and (out["source"] == "fib").all()
+    # Each row carries its swing: ending after it starts, its retracements between its two ends.
+    assert (out["swing_end"] > out["formed"]).all()
+    ret = out[out["kind"].str.startswith("retracement_")]
+    ends = ret[["swing_origin_price", "swing_end_price"]]
+    assert ret["lo"].between(ends.min(axis=1) - 1e-9, ends.max(axis=1) + 1e-9).all()
     seen = 0
     for t in days:
         expected = _fib_as_of(conn, t, cfg)
@@ -541,7 +546,7 @@ def test_restamp_rekeys_only_files_stored_under_the_old_code(tmp_path, monkeypat
     m = level_cache.restamp(c, tmp_path, "old", ("sr_line",), progress=None)
     assert m["restamped"][-1]["counts"]["sr_line"] == {"restamped": 1, "current": 0, "left": 1}
     assert m["code_hashes"]["sr_line"] == real("sr_line")
-    _, by_ticker, splits = level_cache._load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
+    _, by_ticker, splits = level_cache.load_bars(c, ["AAA"], "2021-12-31")  # as the cache reads them
     clean = levels.prepare(by_ticker["AAA"])
     dates = levels.snapshot_dates(clean.index)
     key = level_cache.fingerprint("sr_line", "AAA", clean, splits.get("AAA"), dates,
