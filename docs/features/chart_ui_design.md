@@ -337,7 +337,7 @@ class Overlay:
      do, and the families now run that way (Done #202): about as long as the slowest
      family instead of the sum. Their results are also saved to disk per ticker,
      timeframe and family, keyed on the bars, the splits and the detectors' code
-     (Done #204), so a chart opened before reads them in well under a second, after a
+     (Done #205), so a chart opened before reads them in well under a second, after a
      restart too, until a refresh or a code change.
 
    As built, 4c (volume profile and market structure in the level menu, Done #182):
