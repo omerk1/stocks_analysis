@@ -86,6 +86,7 @@ REFRESH_STEPS: tuple[Step, ...] = _build_steps()
 # before each table may be swept of other runs' rows.
 _SWEEP_REQUIRES = {
     "breadth": ("breadth",),
+    "breadth_sector": ("breadth",),
     "relative_strength": ("rs_stock",),
     "sector_relative_strength": ("rs_sector",),
 }

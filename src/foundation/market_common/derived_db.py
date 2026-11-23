@@ -94,7 +94,7 @@ def record_run(
 # REPLACE stores whose full key space a complete refresh recomputes
 # (src/signals/refresh_derived.py). Event-keyed stores (gaps, divergences,
 # ...) don't belong here -- their ids must survive reruns.
-SWEEPABLE_TABLES = ("breadth", "relative_strength", "sector_relative_strength")
+SWEEPABLE_TABLES = ("breadth", "breadth_sector", "relative_strength", "sector_relative_strength")
 
 
 def delete_rows_from_other_runs(

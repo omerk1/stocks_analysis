@@ -1,5 +1,6 @@
 """Market breadth: % of an index's constituents above key moving averages,
-golden-cross breadth, and advance/decline counts -- computed cross-
+golden-cross breadth, new 52-week highs/lows (market-wide and per sector)
+and advance/decline counts -- computed cross-
 sectionally (one row per date, aggregated across every index member that
 day), unlike sr_lines/gaps/divergences/fibonacci/avwap which each walk one
 ticker's bars chronologically.
@@ -49,23 +50,35 @@ _GOLDEN_CROSS_FAST = 50
 _GOLDEN_CROSS_SLOW = 200
 
 
-def _load_closes(conn: sqlite3.Connection, tickers: list[str], source: str) -> pd.DataFrame:
+def _load_closes(
+    conn: sqlite3.Connection, tickers: list[str], source: str, end: str | None = None
+) -> pd.DataFrame:
     """Bulk-load `bars_1d` close prices for every ticker in `tickers` (one
     query, not one per ticker) -- long format: ticker, date, close.
-    Deliberately not date-bounded here -- a moving average needs real prior
+    Deliberately not start-bounded -- a moving average needs real prior
     history to be valid, so the caller filters the *output* window after
     computing indicators over each ticker's full available series (same
     "warm up on the full series, slice after" pattern
-    `divergences.detect._indicator_pivots` already uses).
+    `divergences.detect._indicator_pivots` already uses). Bounded above by
+    `end` when given: every indicator here looks backwards only, so bars
+    after `end` can't change any value on or before it, and they are never
+    read at all (keeps a held-out period genuinely unread).
     """
     if not tickers:
         return pd.DataFrame(columns=["ticker", "date", "close"])
     placeholders = ",".join("?" for _ in tickers)
     query = (
         f"SELECT ticker, timestamp AS date, close FROM bars_1d "
-        f"WHERE source = ? AND ticker IN ({placeholders}) ORDER BY ticker, timestamp"
+        f"WHERE source = ? AND ticker IN ({placeholders})"
     )
-    df = pd.read_sql_query(query, conn, params=[source, *tickers], parse_dates=["date"])
+    params: list = [source, *tickers]
+    if end is not None:
+        # Timestamps are stored as ISO text ("2021-12-31T00:00:00"), so
+        # "before the next day" compares correctly as a string.
+        query += " AND timestamp < ?"
+        params.append((pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d"))
+    query += " ORDER BY ticker, timestamp"
+    df = pd.read_sql_query(query, conn, params=params, parse_dates=["date"])
     return df
 
 
@@ -249,6 +262,33 @@ def _weighted_sum(condition: pd.Series, valid: pd.Series, weight: pd.Series, dat
     return (condition.astype(float) * weight).where(valid, 0.0).groupby(date).sum()
 
 
+SECTOR_COLUMNS = ["date", "sector", "n_members", "pct_new_high_52w", "pct_new_low_52w", "net_new_high_52w"]
+
+
+def _sector_new_highs(members: pd.DataFrame, sector_by_ticker: dict[str, str]) -> pd.DataFrame:
+    """Long frame, one row per (date, sector) with at least one member that
+    day: the new-52-week-high/low fractions among that sector's members,
+    weighted exactly like the market-wide columns. `n_members` is the
+    unweighted count of the sector's members with data that day (warm-up
+    ones included, so a NaN fraction with n_members > 0 reads as "all still
+    in their first year", not "no members"). Members with no sector on file
+    are left out of every sector row (they still count market-wide)."""
+    sector = members["ticker"].map(sector_by_ticker)
+    sector = sector.where(sector.notna() & (sector.astype(str).str.strip() != ""))
+    known = sector.notna()
+    if not known.any():
+        return pd.DataFrame(columns=SECTOR_COLUMNS)
+    rows = members[known]
+    keys = [rows["date"], sector[known]]
+    out = pd.DataFrame({"n_members": rows.groupby(keys).size()})
+    valid = rows["new_high_valid"]
+    out["pct_new_high_52w"] = _weighted_fraction(rows["new_high"], valid, rows["weight"], keys)
+    out["pct_new_low_52w"] = _weighted_fraction(rows["new_low"], valid, rows["weight"], keys)
+    out["net_new_high_52w"] = out["pct_new_high_52w"] - out["pct_new_low_52w"]
+    out.index.names = ["date", "sector"]
+    return out.reset_index()[SECTOR_COLUMNS]
+
+
 def compute_breadth(
     conn: sqlite3.Connection,
     index_name: str,
@@ -258,35 +298,63 @@ def compute_breadth(
 ) -> pd.DataFrame:
     """One row per date: % of `index_name`'s point-in-time constituents
     above each configured SMA/EMA, golden-cross breadth (% SMA50 > SMA200),
-    and advance/decline -- weighted per `config.weighting` (see this
-    module's docstring and BreadthConfig.weighting).
+    new 52-week highs/lows, and advance/decline -- weighted per
+    `config.weighting` (see this module's docstring and
+    BreadthConfig.weighting). The market-wide half of
+    `compute_breadth_with_sectors`; see there for the columns.
+    """
+    return compute_breadth_with_sectors(conn, index_name, config, start=start, end=end)[0]
 
-    Returns a DataFrame indexed by date with columns: n_constituents,
-    n_with_data (both always unweighted -- a member-count question is
-    meaningless to weight), pct_above_sma{period} (per config.sma_periods),
-    pct_above_ema{period} (per config.ema_periods), pct_golden_cross
-    (only if 50 and 200 are both in sma_periods), n_advancing, n_declining
-    (weighted sums -- literal counts under "equal", summed market cap under
-    "cap"), net_advances, ad_ratio. Empty if the index has no membership
-    rows, or (cap-weighted only) no member has any market-cap data yet.
+
+def compute_breadth_with_sectors(
+    conn: sqlite3.Connection,
+    index_name: str,
+    config: BreadthConfig,
+    start: str | None = None,
+    end: str | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(market, sectors) for `index_name`, both from one price load.
+
+    `market` is indexed by date with columns: n_constituents, n_with_data
+    (both always unweighted -- a member-count question is meaningless to
+    weight), pct_above_sma{period} (per config.sma_periods),
+    pct_above_ema{period} (per config.ema_periods), pct_golden_cross (only
+    if 50 and 200 are both in sma_periods), pct_new_high_52w,
+    pct_new_low_52w, net_new_high_52w (high minus low), n_advancing,
+    n_declining (weighted sums -- literal counts under "equal", summed
+    market cap under "cap"), net_advances, ad_ratio.
+
+    `sectors` is long (columns `SECTOR_COLUMNS`): the three new-high/low
+    columns per sector per date (`_sector_new_highs`). Sectors come from
+    `ticker_sector`, which is a current snapshot, not point-in-time -- a
+    company that changed sector is counted under today's one throughout.
+
+    Both empty if the index has no membership rows, or (cap-weighted only)
+    no member has any market-cap data yet.
     """
     if config.weighting not in WEIGHTING_CHOICES:
         raise ValueError(f"Unknown weighting {config.weighting!r} -- expected one of {WEIGHTING_CHOICES}")
+    empty = (pd.DataFrame(), pd.DataFrame(columns=SECTOR_COLUMNS))
 
     membership = db.read_index_membership(conn, index_name)
     if membership.empty:
-        return pd.DataFrame()
+        return empty
     membership = membership.copy()
     # Members whose symbol later changed have their prices under the new one
     # (ABC -> COR); without this they'd look price-less and drop out.
     membership = ticker_renames.apply_renames(conn, membership)
     membership["start_date"] = pd.to_datetime(membership["start_date"])
     membership["end_date"] = pd.to_datetime(membership["end_date"])
+    if end is not None:
+        # Intervals that only start after `end` can't affect the output.
+        membership = membership[membership["start_date"] <= pd.Timestamp(end)]
+        if membership.empty:
+            return empty
 
     tickers = sorted(membership["ticker"].unique())
-    prices = _load_closes(conn, tickers, config.price_source)
+    prices = _load_closes(conn, tickers, config.price_source, end=end)
     if prices.empty:
-        return pd.DataFrame()
+        return empty
     prices = prices.sort_values(["ticker", "date"])
 
     for period in config.sma_periods:
@@ -298,6 +366,15 @@ def compute_breadth(
             lambda s, p=period: indicators.ema(s, p)
         )
     prices["prior_close"] = prices.groupby("ticker")["close"].shift(1)
+    # Highest/lowest of the PREVIOUS `window` closes (today excluded), NaN
+    # until a full window exists -- computed on each ticker's full series,
+    # so a stock joining the index late with a year of prior bars counts
+    # from its first member day.
+    window = config.new_high_window
+    prior = prices.groupby("ticker")["close"].shift(1)
+    rolling = prior.groupby(prices["ticker"]).rolling(window, min_periods=window)
+    prices["prior_max"] = rolling.max().reset_index(level=0, drop=True)
+    prices["prior_min"] = rolling.min().reset_index(level=0, drop=True)
 
     # Interval join: expand by ticker (a ticker can have multiple
     # non-overlapping membership intervals if it left and rejoined), then
@@ -318,11 +395,11 @@ def compute_breadth(
         # (dividend-adjusted) closes -- see `market_cap.PRICE_SOURCE`.
         cap_prices = (
             prices if config.price_source == market_cap.PRICE_SOURCE
-            else _load_closes(conn, tickers, market_cap.PRICE_SOURCE)
+            else _load_closes(conn, tickers, market_cap.PRICE_SOURCE, end=end)
         )
         market_caps = _load_market_caps(conn, cap_prices, tickers)
         if market_caps.empty:
-            return pd.DataFrame()
+            return empty
         members = members.merge(market_caps, on=["ticker", "date"], how="left")
         members["market_cap"] = _drop_cap_outliers(
             members, config.cap_outlier_ratio, config.cap_outlier_min_members
@@ -364,6 +441,17 @@ def compute_breadth(
     else:
         result["pct_golden_cross"] = np.nan
 
+    # A comparison against NaN is False, not NaN, so the warm-up rows must
+    # be dropped from the denominator explicitly via `valid` -- otherwise a
+    # stock in its first year would count as "not at a new high".
+    members["new_high_valid"] = members["prior_max"].notna() & members["prior_min"].notna() & members["close"].notna()
+    members["new_high"] = members["close"] > members["prior_max"]
+    members["new_low"] = members["close"] < members["prior_min"]
+    valid_52w = members["new_high_valid"]
+    result["pct_new_high_52w"] = _weighted_fraction(members["new_high"], valid_52w, weight, date)
+    result["pct_new_low_52w"] = _weighted_fraction(members["new_low"], valid_52w, weight, date)
+    result["net_new_high_52w"] = result["pct_new_high_52w"] - result["pct_new_low_52w"]
+
     prior_valid = members["prior_close"].notna()
     advancing = members["close"] > members["prior_close"]
     declining = members["close"] < members["prior_close"]
@@ -385,12 +473,18 @@ def compute_breadth(
     result["net_advances"] = result["n_advancing"] - result["n_declining"]
     result["ad_ratio"] = result["n_advancing"] / result["n_declining"].replace(0, np.nan)
 
+    sectors_table = db.read_ticker_sector(conn)
+    sector_by_ticker = dict(zip(sectors_table["ticker"], sectors_table["sector"]))
+    sectors = _sector_new_highs(members, sector_by_ticker)
+
     if start is not None:
         result = result[result.index >= pd.Timestamp(start)]
+        sectors = sectors[sectors["date"] >= pd.Timestamp(start)]
     if end is not None:
         result = result[result.index <= pd.Timestamp(end)]
+        sectors = sectors[sectors["date"] <= pd.Timestamp(end)]
 
-    return result
+    return result, sectors.reset_index(drop=True)
 
 
 def advance_decline_line(breadth: pd.DataFrame) -> pd.Series:
