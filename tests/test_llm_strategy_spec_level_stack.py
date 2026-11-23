@@ -57,9 +57,12 @@ def inputs(levels: list[tuple], touch_low: float = 100.2, touch_close: float = 1
         low[p] = v
     bars = pd.DataFrame({"open": close, "high": close + 0.5, "low": low, "close": close, "volume": 1e6},
                         index=DATES)
-    rows = [(DATES[p], kind, lo, hi, DATES[formed], f"{kind}{i}", kind)
+    # A Fibonacci level's swing: from its formation (at 110) to bar `formed` + 20 (at 98).
+    rows = [(DATES[p], kind, lo, hi, DATES[formed], f"{kind}{i}", kind,
+             *((110.0, DATES[formed + 20], 98.0) if kind == "fib" else (np.nan, pd.NaT, np.nan)))
             for i, (kind, lo, hi, formed, first) in enumerate(levels) for p in range(first, N)]
-    lv = pd.DataFrame(rows, columns=["date", "kind", "lo", "hi", "formed", "key", "label"])
+    lv = pd.DataFrame(rows, columns=["date", "kind", "lo", "hi", "formed", "key", "label",
+                                     "swing_origin_price", "swing_end", "swing_end_price"])
     div = pd.DataFrame({"confirmed": [DATES[p] for p in divergences], "invalidated": pd.NaT,
                         "indicator": "rsi", "form": "regular", "p1_date": DATES[0], "p1_price": 100.0,
                         "p2_date": [DATES[p] for p in divergences], "p2_price": 99.0})
@@ -112,8 +115,9 @@ def test_the_chart_geometry_follows_each_level_and_names_it():
     stack = find_level_stack(spec(), panel("AAA"), {"AAA": i}, progress=None).matches[0].stack
     assert stack.divergence_label == "bullish regular divergence (RSI)"
     sr = next(line for line in stack.lines if line.label.startswith("sr_line"))
-    # As known at each previous close: the first point is the bar after the level first stood.
-    assert sr.dates[0] == DATES[61] and sr.dates[-1] == DATES[TOUCH] and set(sr.values) == {100.0}
+    # From where it formed (bar 50), then as known at each previous close: the bar after it first stood on.
+    assert sr.dates[:2] == (DATES[50], DATES[61]) and sr.dates[-1] == DATES[TOUCH] and set(sr.values) == {100.0}
+    assert stack.start == DATES[0]  # the chart opens before the oldest level (the Fibonacci, bar 40) forms
 
 
 def test_only_the_tickers_panel_dates_can_host_an_instance():
@@ -320,17 +324,49 @@ def test_inputs_keep_one_key_per_sr_line_across_weekly_snapshots(built):
     assert (spans > 30).any()  # a line's key survives its zone's weekly drift
 
 
-def test_a_level_known_for_a_few_bars_is_drawn_across_the_zone():
+def test_the_chart_draws_a_band_whole_and_labels_levels_apart():
     from src.llm.strategy_spec import charts
     bars = inputs([SR]).bars.rename_axis("date").reset_index()
-    window = charts.chart_window(bars, DATES[TOUCH], chart_from=DATES[60])
-    geometry = level_stack.StackGeometry(DATES[60], (99.4, 100.0), (
-        level_stack.StackLine("old", tuple(DATES[61:TOUCH + 1]), (100.0,) * (TOUCH - 60)),
-        level_stack.StackLine("new", (DATES[TOUCH - 1], DATES[TOUCH]), (99.4, 99.4))))
-    traces = {t.name: t for t in charts.stack_chart(window, geometry, DATES[TOUCH], "t").data}
-    assert len(traces["old"].x) == TOUCH - 60
-    new = traces["new (known 2 bars before)"]
-    assert new.line.dash == "dash" and pd.Timestamp(new.x[0]) == DATES[TOUCH - charts.ZONE_BARS + 1]
+    window = charts.chart_window(bars, DATES[TOUCH], chart_from=DATES[40])
+    span = tuple(DATES[50:TOUCH + 1])
+    geometry = level_stack.StackGeometry(DATES[40], (99.8, 100.0), (
+        level_stack.StackLine("band", span, (100.0,) * len(span), "band", 99.8, 100.0, DATES[50], 100, 0.2,
+                              bottoms=(99.8,) * len(span)),
+        level_stack.StackLine("line", span, (99.95,) * len(span), "line", 99.95, 99.95, DATES[50], 100, 0.25)),
+        kinds=("fib", "sr_line"), atr=1.0)
+    figure = charts.stack_chart(window, geometry, DATES[TOUCH], "t")
+    band = next(t for t in figure.data if t.name == "band")
+    assert band.fill == "toself" and min(band.y) == 99.8 and max(band.y) == 100.0  # its depth, not just its top
+    labels = {t.text[0].strip(): t.y[0] for t in figure.data if getattr(t, "mode", None) == "text"}
+    assert set(labels) == {"band · 100 bars old", "line · 100 bars old"}
+    # 0.05 apart in price, nudged apart on the chart so neither hides the other.
+    assert labels["band · 100 bars old"] - labels["line · 100 bars old"] > 0.05
+    assert not figure.layout.showlegend
+
+
+def test_the_chart_tables_the_finders_numbers_and_panes_the_divergence():
+    from src.llm.strategy_spec import charts
+    i = inputs([SR, FIB], divergences=[TOUCH - 10])
+    r = find_level_stack(spec(), panel("AAA"), {"AAA": i}, progress=None)
+    stack = r.matches[0].stack
+    window = charts.chart_window(r.chart_bars["AAA"], DATES[TOUCH], chart_from=stack.start)
+    figure = charts.stack_chart(window, stack, DATES[TOUCH], "t")
+    table = next(t for t in figure.data if t.type == "table")
+    rows = list(zip(*table.cells.values))
+    by_name = {row[0]: row for row in rows}
+    # Age from formation, the level top's depth below the zone top, how far the low stayed above it.
+    assert by_name["sr_line"][2:] == ("100 bars (2015-03-13)", "0.00", "+0.20")
+    assert by_name["fib"][2:] == ("110 bars (2015-02-27)", "0.60", "+0.80")
+    assert by_name["bullish regular divergence (RSI)"][2] == f"confirmed 10 bars before ({DATES[TOUCH - 10].date()})"
+    assert ("3 kinds stacked at 99.40–100.00 (0.60 ATR deep) · the touch bar's low stayed 0.20 ATR above its top"
+            in figure.layout.title.text)
+    assert "RSI" in [t.name for t in figure.data]  # the divergence's indicator in its own pane
+    # The Fibonacci level's swing, start to end, and its 0% (the end) and 100% (the start) to the touch.
+    traces = {t.name: t for t in figure.data}
+    swing = traces["Fibonacci swing"]
+    assert [pd.Timestamp(d) for d in swing.x] == [DATES[40], DATES[60]] and list(swing.y) == [110.0, 98.0]
+    assert list(traces["Fibonacci 0%"].y) == [98.0, 98.0] and list(traces["Fibonacci 100%"].y) == [110.0, 110.0]
+    assert pd.Timestamp(traces["Fibonacci 0%"].x[-1]) == DATES[TOUCH]
 
 
 def test_two_levels_sharing_a_key_on_a_day_are_refused_naming_the_ticker(built):
@@ -352,8 +388,12 @@ def test_inputs_for_a_ticker_too_young_for_some_detectors():
 
 
 def test_inputs_avwap_is_its_line_and_fib_only_retracements(built):
+    from src.signals.avwap.compute import anchored_vwap
     avwap = built.levels[built.levels["kind"] == "avwap"]
     assert len(avwap) and (avwap["lo"] == avwap["hi"]).all()
+    # The chart draws an AVWAP's path from its anchor (`level_stack._geometry`): the same line.
+    for _, row in avwap.iloc[::max(len(avwap) // 50, 1)].iterrows():
+        assert anchored_vwap(built.bars, row["formed"]).loc[row["date"]] == pytest.approx(row["lo"], rel=1e-9)
     assert set(built.levels["kind"]) <= {"sr_line", "fib", "avwap", "gap"}
     assert built.levels["key"].str.startswith("fib@").sum() and \
         built.levels.loc[built.levels["kind"] == "fib", "key"].str.contains("retracement_").all()

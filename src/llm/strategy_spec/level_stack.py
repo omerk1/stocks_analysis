@@ -53,7 +53,10 @@ from src.llm.strategy_spec.finders import (
     RELAX_FACTOR, Candidate, FinderResult, GroundingError, RubricLine)
 from src.llm.strategy_spec.schema import PROXIMITY_UNITS, StrategySpec, find_gaps
 from src.models.features import level_cache, level_features, levels
+from src.signals.avwap.compute import anchored_vwap
+from src.signals.avwap.config import AvwapConfig
 from src.signals.divergences.config import DivergenceConfig
+from src.signals.divergences.detect import compute_indicator_series
 from src.signals.divergences.detect import detect_on_bars as detect_divergences
 from src.signals.divergences.models import Direction as DivergenceDirection
 from src.signals.fibonacci.config import FibConfig
@@ -76,14 +79,16 @@ CACHED_SOURCES = ("sr_line", "avwap")
 DIVERGENCE_REACH_BARS = 40  # the chart UI's reach for a daily divergence (done.md #181)
 DEFAULT_WIDTH_ATR = 1.0
 DEFAULT_PROXIMITY_ATR = 0.25
-CHART_CONTEXT_BARS = 250  # at most this much history before the touch on a chart
+CHART_CONTEXT_BARS = 120  # at least this much history before the touch on a chart
+CHART_MARGIN_BARS = 20    # and this much before the oldest level's (or divergence pivot's) start
 
 
 @dataclass(frozen=True)
 class TickerInputs:
     """One ticker's traded bars and what the finder reads off them. `levels`: one row per
     level per day it stands at that day's close (date, kind, lo, hi, formed, key: one
-    level's identity across days, label: its name on a chart); `divergences`: bullish ones
+    level's identity across days, label: its name on a chart; a Fibonacci level's swing in
+    `levels.FIB_SWING_COLUMNS`, NaN for the others); `divergences`: bullish ones
     (confirmed, invalidated or NaT, indicator, form, p1_date, p1_price, p2_date, p2_price)."""
 
     bars: pd.DataFrame
@@ -94,16 +99,26 @@ class TickerInputs:
 
 @dataclass(frozen=True)
 class StackLine:
-    """One level as drawn: its name and its value on each bar up to the touch."""
+    """One level as drawn: its name and its value on each bar from where it formed up to
+    the touch (so where the line starts shows its age)."""
 
     label: str
     dates: tuple[pd.Timestamp, ...]
     values: tuple[float, ...]
+    # As the finder saw the level on the touch bar (for the chart's facts table):
+    name: str = ""  # the label without its price
+    lo: float = math.nan
+    hi: float = math.nan
+    formed: pd.Timestamp | None = None
+    age: int | None = None        # bars since it formed
+    reach: float | None = None    # how far the touch price stayed above its top, in ATR (< 0: pierced)
+    bottoms: tuple[float, ...] = ()  # a band's lower edge on each of `dates` (`values` are its tops)
+    swing: tuple[pd.Timestamp, float, pd.Timestamp, float] | None = None  # a Fibonacci level's: what it's a ratio of
 
 
 @dataclass(frozen=True)
 class StackGeometry:
-    """An instance's chart: the zone band from `start` to the touch, its levels, and the
+    """An instance's chart from `start` to the touch: the zone, its levels, and the
     divergence as a line between its two price pivots."""
 
     start: pd.Timestamp
@@ -113,6 +128,9 @@ class StackGeometry:
     kinds: tuple[str, ...] = ()
     divergence_label: str | None = None
     touch_price: str = "low"  # the bar price the touch was measured on, where the trigger marker sits
+    atr: float | None = None  # ATR(14) on the touch bar
+    divergence_confirmed: pd.Timestamp | None = None
+    divergence_series: StackLine | None = None  # the divergence's indicator, for its own pane
 
 
 @dataclass(frozen=True)
@@ -317,6 +335,7 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
     ratio = fib["kind"].str.removeprefix("retracement_").astype(float)
     parts.append(pd.DataFrame({"date": fib["date"], "kind": "fib", "lo": fib["lo"], "hi": fib["hi"],
                                "formed": fib["formed"],
+                               **{c: fib[c] for c in levels.FIB_SWING_COLUMNS},
                                # Swings of two scales can share an origin and a ratio: the price tells them apart.
                                "key": "fib@" + fib["formed"].astype(str) + ":" + fib["kind"] + ":"
                                       + fib["lo"].round(6).astype(str),
@@ -334,9 +353,10 @@ def ticker_inputs(ticker: str, bars: pd.DataFrame, splits: pd.DataFrame | None, 
             "hi": (states["zone_top"] - height * states["max_fill_pct"].astype(float) / 100).astype(float),
             "formed": pd.to_datetime(states["created_at"]), "key": "gap@" + states["gap_id"].astype(str),
             "label": np.where(states["kind"] == "fvg", "bullish FVG", "bullish gap")}))
-    parts = [p.astype({"formed": "datetime64[ns]", "date": "datetime64[ns]"}) for p in parts if len(p)]
-    out = (pd.concat(parts, ignore_index=True) if parts
-           else pd.DataFrame(columns=["date", "kind", "lo", "hi", "formed", "key", "label"]))
+    columns = ["date", "kind", "lo", "hi", "formed", "key", "label", *levels.FIB_SWING_COLUMNS]
+    parts = [p.reindex(columns=columns).astype({"formed": "datetime64[ns]", "date": "datetime64[ns]",
+                                                "swing_end": "datetime64[ns]"}) for p in parts if len(p)]
+    out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=columns)
 
     config = DivergenceConfig(indicators=list(divergence_indicators))
     found = detect_divergences(clean, ticker, levels.DAILY, config) if len(clean) >= config.min_bars else []
@@ -508,28 +528,58 @@ def _geometry(inputs: TickerInputs, rows_of: Mapping[str, np.ndarray], day: _Day
               touch_price: str) -> StackGeometry:
     """`rows_of`: each level key's rows in `inputs.levels` (date-sorted), indexed once per ticker."""
     index = inputs.bars.index
-    start_p = max(stack.p - CHART_CONTEXT_BARS, int(min(stack.p - day.age[stack.rows])), 0)
+    oldest = int(min(stack.p - day.age[stack.rows]))
+    if stack.divergence is not None:
+        oldest = min(oldest, int(index.searchsorted(inputs.divergences.iloc[stack.divergence]["p1_date"])))
+    start_p = max(min(stack.p - CHART_CONTEXT_BARS, oldest - CHART_MARGIN_BARS), 0)
     start = index[start_p]
     level_dates = inputs.levels["date"].to_numpy()
     level_tops = inputs.levels["hi"].to_numpy(dtype=float)
+    level_bottoms = inputs.levels["lo"].to_numpy(dtype=float)
     lines = []
     for r in stack.rows:
-        rows = rows_of[day.key[r]]
-        # Each level's value on every bar it stood on, as known at the previous close.
-        d = level_dates[rows]
-        keep = rows[(d >= index[max(start_p - 1, 0)].to_datetime64()) & (d < index[stack.p].to_datetime64())]
-        dates = tuple(index[index.searchsorted(level_dates[keep]) + 1])
-        values = tuple(float(v) for v in level_tops[keep])  # the level's top: the edge a touch from above meets
+        formed_p = stack.p - int(day.age[r])
+        swing = None
+        if day.kind[r] == "fib":
+            last = inputs.levels.iloc[rows_of[day.key[r]][-1]]  # one swing per key: any row carries it
+            swing = (index[formed_p], float(last["swing_origin_price"]), pd.Timestamp(last["swing_end"]),
+                     float(last["swing_end_price"]))
+        if day.kind[r] == "avwap":
+            # Its own path from the anchor (the detector reports an anchor some bars after it).
+            path = anchored_vwap(inputs.bars, index[formed_p], AvwapConfig().price_source).iloc[formed_p:stack.p]
+            dates, values, bottoms = tuple(index[formed_p + 1:stack.p + 1]), tuple(float(v) for v in path), ()
+        else:
+            rows = rows_of[day.key[r]]
+            # Each level's value on every bar it stood on, as known at the previous close (its top:
+            # the edge a touch from above meets) ...
+            keep = rows[level_dates[rows] < index[stack.p].to_datetime64()]
+            dates = tuple(index[index.searchsorted(level_dates[keep]) + 1])
+            values = tuple(float(v) for v in level_tops[keep])
+            bottoms = tuple(float(v) for v in level_bottoms[keep])
+            if dates[0] > index[formed_p]:
+                # ... and back to where it formed (an S/R line's first touch, a Fibonacci swing's
+                # start), at the price it was first reported at: where the line starts is its age.
+                dates, values, bottoms = (index[formed_p],) + dates, values[:1] + values, bottoms[:1] + bottoms
         lines.append(StackLine(f"{day.label[r]} ({day.lo[r]:.2f}–{day.hi[r]:.2f})"
-                               if day.lo[r] != day.hi[r] else f"{day.label[r]} {day.hi[r]:.2f}", dates, values))
-    div, div_label = None, None
+                               if day.lo[r] != day.hi[r] else f"{day.label[r]} {day.hi[r]:.2f}", dates, values,
+                               name=str(day.label[r]), lo=float(day.lo[r]), hi=float(day.hi[r]),
+                               formed=index[formed_p], age=int(day.age[r]), reach=float(day.reach[r]),
+                               bottoms=bottoms, swing=swing))
+    div, div_label, confirmed, series = None, None, None, None
     if stack.divergence is not None:
         row = inputs.divergences.iloc[stack.divergence]
         div = (pd.Timestamp(row["p1_date"]), float(row["p1_price"]), pd.Timestamp(row["p2_date"]),
                float(row["p2_price"]))
-        div_label = f"bullish {row['form']} divergence ({DIVERGENCE_NAMES.get(row['indicator'], row['indicator'])})"
+        name = DIVERGENCE_NAMES.get(row["indicator"], row["indicator"])
+        div_label = f"bullish {row['form']} divergence ({name})"
+        confirmed = pd.Timestamp(row["confirmed"])
+        # The series the detector paired pivots on, over the whole history (no warmup cut short).
+        values = compute_indicator_series(inputs.bars, row["indicator"], DivergenceConfig()).iloc[start_p:stack.p + 1]
+        series = StackLine(name, tuple(values.index), tuple(float(v) for v in values))
     kinds = stack.kinds + (("divergence",) if stack.divergence is not None else ())
-    return StackGeometry(start, (stack.lo, stack.hi), tuple(lines), div, kinds, div_label, touch_price)
+    return StackGeometry(start, (stack.lo, stack.hi), tuple(lines), div, kinds, div_label, touch_price,
+                         atr=float(inputs.atr.iloc[stack.p]), divergence_confirmed=confirmed,
+                         divergence_series=series)
 
 
 def find_level_stack(spec: StrategySpec, panel: pd.DataFrame, inputs: Mapping[str, TickerInputs] | None = None,

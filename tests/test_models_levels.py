@@ -201,6 +201,11 @@ def test_fib_levels_equal_the_detectors_as_of_run(conn, bars):
     days = bars.index[cfg.min_bars - 1::25]
     out = levels.fib_levels(bars, days, cfg)
     assert (out["lo"] == out["hi"]).all() and (out["source"] == "fib").all()
+    # Each row carries its swing: ending after it starts, its retracements between its two ends.
+    assert (out["swing_end"] > out["formed"]).all()
+    ret = out[out["kind"].str.startswith("retracement_")]
+    ends = ret[["swing_origin_price", "swing_end_price"]]
+    assert ret["lo"].between(ends.min(axis=1) - 1e-9, ends.max(axis=1) + 1e-9).all()
     seen = 0
     for t in days:
         expected = _fib_as_of(conn, t, cfg)
