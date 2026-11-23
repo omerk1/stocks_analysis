@@ -31,23 +31,6 @@ rerun the same test.
 
 ## Tasks
 
-### 1. Check the VCP detector against the book's rules (audit, docs only)
-
-- **Goal:** know exactly which of the book's VCP rules our detector enforces, and which
-  it doesn't, before testing VCP again.
-- **Why:** the last test of VCP-only setups was inconclusive on 402 events
-  (`docs/modeling/IDEAS.md`, "Feature families", chart patterns row). The book's version
-  is stricter than "contractions getting shallower".
-- **Ideas:** 54, 55, 56, 57, 59, 62, 63.
-- **Done when:** a short table in `docs/features/chart_pattern_detection_design_notes.md`
-  (VCP section): each book rule (2-6 contractions, each shallower; total correction
-  10-35%; base 3-65 weeks; final contraction volume below the 50-day average with a
-  very-low-volume day; breakout on volume above average; shakeouts; tight closes)
-  against what `src/signals/patterns/detectors/vcp.py` checks, its config value, and
-  whether it's a hard rule, a score component, or missing.
-- **Out of scope:** changing the detector.
-- **Size:** small.
-
 ### 2. New 52-week highs and lows in the breadth table (build)
 
 - **Goal:** daily counts of stocks making new 52-week highs and lows, for the market and
@@ -205,8 +188,14 @@ rerun the same test.
 ### 11. The stricter VCP, with more events (analysis, confirmation)
 
 - **Depends on:** task 1.
-- **Goal:** retest VCP setups using the book's stricter rules (whatever task 1 finds
-  missing), on enough events to reach a verdict.
+- **Goal:** retest VCP setups using the book's stricter rules (the audit found these
+  missing or only scored: final-contraction volume below the 50-day average with a
+  very-low-volume day; a hard breakout-volume gate, off by default today; a bound on
+  total base depth, 10-35%, and the 60% exclusion; correction against the market's
+  fall; base length 3 to 65 weeks as a hard rule; close-to-close tightness instead of
+  an ATR ratio with a 1.0 ceiling; shakeouts, which the strict higher-lows rule
+  currently rejects; counting overlapping windows of one base once), on enough events
+  to reach a verdict.
 - **Why:** the earlier test was inconclusive, not dead: its interval was too wide to
   decide either way. That allows a new, more powerful look; it doesn't allow rerunning
   the same one.
@@ -234,4 +223,4 @@ rerun the same test.
 
 ## Finished
 
-(none yet)
+1. VCP detector vs the book's rules: see `docs/features/chart_pattern_detection_design_notes.md`, section "Against the book's rules (Trade Like a Stock Market Wizard), audited 2026-11-24", done.md #206.
