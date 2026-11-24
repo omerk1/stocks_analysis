@@ -391,6 +391,106 @@ EDGAR).
   LSEG I/B/E/S (US from 1994) is the reference but institutional. FactSet and S&P
   Capital IQ are by quote, and Capital IQ is point-in-time only from 2016.
 
+## Balance-sheet warning inputs: data check (2026-11-24)
+
+The first step of "Inventory, receivables and cash runway warnings" in
+`docs/book-ideas/TASKS.md`: are the filing values there before anything is built?
+The rule set there: under 60% present outside banks and insurers means stop.
+
+**What's stored today.** `fundamentals` (step 2) has `cash`, plus the sales and loss
+inputs the warnings need (`revenue`, `net_income`, `operating_cash_flow`). It has no
+inventory and no receivables: they aren't in `sec_fundamentals.CONCEPTS`. So the count
+below reads the company-facts file on disk (`data/raw/sec/companyfacts.zip`, read-only)
+for all three, with the script `scripts/balance_sheet_inputs_coverage.py`.
+
+**How it's counted.** A member-quarter is an S&P 500 member on a calendar quarter end
+(point-in-time membership, delisted members included), 2010 Q1 to 2021 Q3. Banks and
+insurers are dropped by `ticker_sector` industry ("Banks - …", "Insurance - …" and the
+SEC industry-code equivalents): 1,595 of 23,576, leaving 21,981. A member-quarter has a
+value when its company (its CIK in `fundamentals`, plus predecessor CIKs) filed a
+balance-sheet value under one of the tags below, dated inside that calendar quarter, in a
+10-Q or 10-K filed by 2021-12-31. Facts filed later are dropped as they're read, which is
+why 2021 stops at Q3 (most Q4 2021 balance sheets were filed in 2022). The 1,748
+member-quarters (8%) whose ticker has no CIK in `fundamentals` (delisted members without a
+verified CIK, foreign filers) count as missing. The 2,271 with no sector row can't be
+screened for banks and insurers and are kept.
+
+Tags, in order of preference (all us-gaap, USD, balance-sheet dates):
+
+- **inventory:** `InventoryNet`, `InventoryGross`, `InventoryFinishedGoodsNetOfReserves`,
+  `RetailRelatedInventoryMerchandise`, `InventoryNetOfAllowancesCustomerAdvancesAndProgressBillings`.
+  *Wider list:* the same plus `InventoryRealEstate`, `InventoryOperativeBuilders`,
+  `InventoryHomesUnderConstruction` (homebuilders), `InventoryRawMaterialsAndSupplies`
+  (utilities' materials and supplies), `InventoryCrudeOilProductsAndMerchandise` (Exxon),
+  `InventoryFinishedGoods`, `InventoryFinishedGoodsAndWorkInProcess`: the stock tags found
+  at companies that file cash but none of the first list.
+- **receivables:** `AccountsReceivableNetCurrent`, `ReceivablesNetCurrent`,
+  `AccountsNotesAndLoansReceivableNetCurrent`, `AccountsAndOtherReceivablesNetCurrent`,
+  `AccountsReceivableGrossCurrent`, `AccountsReceivableNet`.
+- **cash:** the stored concept's tags (`CashAndCashEquivalentsAtCarryingValue`,
+  `CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents`, `Cash`).
+
+Share of member-quarters with a value, banks and insurers excluded:
+
+| Year | Member-quarters | Inventory | Inventory (wider list) | Receivables | Cash | Receivables and cash |
+|---|---|---|---|---|---|---|
+| 2010 | 1,849 | 53% | 56% | 71% | 84% | 71% |
+| 2011 | 1,848 | 58% | 61% | 78% | 85% | 78% |
+| 2012 | 1,848 | 61% | 63% | 79% | 86% | 79% |
+| 2013 | 1,851 | 62% | 64% | 80% | 87% | 79% |
+| 2014 | 1,857 | 60% | 63% | 79% | 86% | 78% |
+| 2015 | 1,871 | 59% | 61% | 78% | 86% | 77% |
+| 2016 | 1,890 | 58% | 60% | 78% | 87% | 77% |
+| 2017 | 1,889 | 57% | 59% | 78% | 88% | 78% |
+| 2018 | 1,888 | 59% | 61% | 82% | 91% | 82% |
+| 2019 | 1,888 | 61% | 64% | 84% | 93% | 83% |
+| 2020 | 1,885 | 62% | 65% | 85% | 93% | 85% |
+| 2021 (Q1–Q3) | 1,417 | 62% | 65% | 86% | 94% | 85% |
+| **All** | **21,981** | **59%** | **62%** | **80%** | **88%** | **79%** |
+
+Among the 19,557 member-quarters whose company filed any of the three: inventory 67%
+(70% wider), receivables 90%, cash 99% (in line with step 2's 96–100% for cash).
+
+**Why inventory is short.** Mostly companies that hold no inventory, not missing tags. Of
+the 6,494 member-quarters with cash but no inventory, 4,974 are at companies that file no
+inventory stock tag at all, by `ticker_sector` sector: financial services other than
+banks and insurers (1,112), industrials (819), real estate (813), technology (653),
+utilities (310), consumer cyclical (300), the rest under 270 each. By sector, inventory
+(first list) is 82–92% in healthcare, materials and consumer staples, 63–79% in
+industrials, technology, energy and consumer cyclical, 42–45% in utilities and
+communication services, and 2–3% in financial services and real estate. Receivables are short
+for the same reason in real estate (43%) and financials (58%).
+
+**Go / no-go against the 60% rule:**
+
+- **Receivables: go.** 80% overall, at least 71% every year.
+- **Cash: go.** 88% overall, at least 84% every year. Already stored.
+- **Inventory: no-go by the letter.** 59% overall (62% with the wider list), and under
+  60% in 2010, 2011 and 2015–2017 (2010 and 2017 still under with the wider list). The
+  shortfall is mostly companies with no inventory, where "inventory growth minus sales
+  growth" means nothing anyway, so a NaN there is the right value, not a data gap.
+  Whether that makes it a go is the owner's call; this check doesn't make it.
+
+**What the build would need** (receivables and cash runway; inventory too if the owner
+says yes). Not done here:
+
+- `sec_fundamentals.CONCEPTS`: add `receivables` and, if wanted, `inventory`, both
+  instant, USD, non-additive, with the tag lists above. Two choices to make when adding
+  them: whether `AccountsReceivableGrossCurrent` belongs (gross, before the allowance,
+  so it can mix with net figures across periods; growth features should require the same
+  tag a year earlier, as step 2's "Known problems" already says), and whether the wider
+  inventory tags belong (`InventoryFinishedGoods` is only part of the total at a company
+  that also files `InventoryNet`; tag order keeps the total within one filing, the
+  same-tag rule across periods).
+- `tests/test_sec_fundamentals.py`: the new concepts parsed, tag order within a filing.
+- Rerun `bulk_sec_fundamentals_ingest` (it rewrites each ticker's rows in the shared
+  database, so the owner runs it), then `--check`: its coverage table picks up any new
+  concept in `CONCEPTS` by itself.
+- The feature code (step 3, the `models` feature registry): receivables growth minus
+  revenue growth, year over year on the same tag, and cash over the trailing quarter's
+  loss, NaN when profitable. Which loss (net income or operating cash flow) is a choice
+  for the build; both are stored.
+
 ## Known limits
 
 - No analyst consensus, so surprise is the weaker own-history version.
